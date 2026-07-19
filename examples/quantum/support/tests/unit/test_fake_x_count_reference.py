@@ -149,7 +149,6 @@ def _linked_points():
             TypedMeasurementTransform(
                 id=transform_id,
                 semantic=authored_transform.semantic,
-                rate="point",
                 inputs=(
                     TypedMeasurementTransformInput(
                         id="iq_shots",
@@ -274,21 +273,23 @@ def test_fake_x_count_reference_pure_preparation_closes_target_and_measurements(
     assert target.artifact_fingerprint == compiled.artifact_fingerprint
     assert prepared.invocation.payload is prepared.realization
 
-    measurements = prepared.measurements
+    context = prepared.preparation.context
     probability_0_use = products.transform.output("probability_0").product_uses[0]
     probability_1_use = products.transform.output("probability_1").product_uses[0]
-    assert measurements.mapping is prepared.compiled_target.mapping.domain_mapping
-    assert measurements.source_product_uses == products.iq_shots
-    assert measurements.derived_product_uses == (
+    assert (
+        prepared.measurement_mapping is prepared.compiled_target.mapping.domain_mapping
+    )
+    assert context.direct_product_uses == products.iq_shots
+    assert context.derived_product_uses == (
         probability_0_use,
         probability_1_use,
     )
-    assert measurements.product_uses == (
+    assert context.product_uses == (
         *products.iq_shots,
         probability_0_use,
         probability_1_use,
     )
-    [binding] = measurements.host_transforms
+    [binding] = prepared.host_transforms
     assert binding.transform is products.transform
     assert binding.transform.id == "binary-iq-probability"
     assert tuple(port.product_use for port in binding.transform.inputs) == (

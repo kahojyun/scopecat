@@ -12,7 +12,6 @@ _NEW_ADAPTER_VALUES = {
     "DomainHostTransformImplementation",
     "DomainInvocationSpec",
     "DomainMappedResult",
-    "DomainMeasurementPlan",
     "DomainMeasurementTransform",
     "DomainResourceClaim",
     "DomainResourceKind",
@@ -21,15 +20,18 @@ _NEW_ADAPTER_VALUES = {
     "DomainTargetArtifactIdentity",
     "DomainTransformInputPort",
     "DomainTransformOutputPort",
-    "DomainTransformRate",
 }
 
 
 def test_domain_facade_exports_curated_adapter_contracts() -> None:
     assert set(domain.__all__) >= _NEW_ADAPTER_VALUES
-    assert {"DomainLiteral", "DomainPointAffine", "DomainPointAxis"} <= set(
-        domain.__all__
-    )
+    assert {
+        "DomainIterationLayout",
+        "DomainIterationProduct",
+        "DomainLiteral",
+        "DomainPointAffine",
+        "DomainPointAxis",
+    } <= set(domain.__all__)
     assert "DomainInputExpression" not in domain.__all__
 
 

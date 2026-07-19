@@ -6,14 +6,14 @@ from scopecat.execution.ports.journal import (
     ExecutionJournalError,
     PayloadEvidenceCommitter,
 )
-from scopecat.execution.ports.measurement import MeasurementRecordCommitter
+from scopecat.execution.ports.measurement import MeasurementDatasetWriter
 from scopecat.execution.ports.resources import ResourceLeaseManager
 
 __all__ = [
     "CollectionRepository",
     "ExecutionJournal",
     "ExecutionJournalError",
-    "MeasurementRecordCommitter",
+    "MeasurementDatasetWriter",
     "PayloadEvidenceCommitter",
     "ResourceLeaseManager",
 ]

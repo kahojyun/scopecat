@@ -18,7 +18,6 @@ from scopecat.execution.evidence import (
     build_instrument_state_evidence,
     instrument_state_evidence_ref,
     raw_measurement_schema,
-    raw_measurements_ref,
     run_outcome_ref,
 )
 from scopecat.execution.local.executor import execute_run_operations
@@ -32,10 +31,10 @@ from scopecat.execution.problems import (
     problem_from_exception,
     runtime_problem,
 )
-from scopecat.execution.program import RunDomainJob, RunProgram
+from scopecat.execution.program import RunCoverageBlock, RunDomainJob, RunProgram
 from scopecat.execution.services import (
     ExecutionServices,
-    MeasurementRecordRepository,
+    MeasurementDatasetRepository,
 )
 from scopecat.kernel.errors import (
     DomainFetchFailed,
@@ -54,16 +53,24 @@ from scopecat.kernel.problems import (
     ProblemPhase,
     has_blocking_problems,
 )
-from scopecat.measurements.projection import project_measurement_records
-from scopecat.measurements.recording import commit_measurement_records
-from scopecat.measurements.results import MeasurementRecord
-from scopecat.measurements.values import seal_measurement_values
+from scopecat.measurements.projection import (
+    ProjectedMeasurementDataset,
+    project_measurement_records,
+)
+from scopecat.measurements.recording import (
+    append_measurement_dataset,
+    seal_measurement_dataset,
+)
+from scopecat.measurements.values import (
+    MeasurementValueCandidate,
+    seal_measurement_values,
+)
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
+from scopecat.records.measurement_recording import MeasurementDatasetAppendIndex
 from scopecat.records.run import RunConfigSource, RunManifest, RunOutcome
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.repository import (
     RunModelWrite,
-    RunRecordSetWrite,
     TerminalRunCommit,
 )
 from scopecat.sdk.instruments.contracts import InstrumentProvider
@@ -107,7 +114,7 @@ def _interpret_run(
 ) -> RunManifest:
     host = program.host
     projection = program.measurements
-    point_count = len(projection.catalog.point_catalog.points)
+    point_count = len(program.points.points)
     experiment_id = program.experiment_id
     run_id = new_run_id()
     storage = services.runs
@@ -143,6 +150,58 @@ def _interpret_run(
     measurements = services.measurements_for(run_id)
     readbacks = services.collections_for(run_id)
     payloads = services.payloads_for(run_id)
+    committed_measurement_count = 0
+    append_content_hashes: list[str] = []
+
+    def commit_coverage(
+        block: RunCoverageBlock,
+        candidates: tuple[MeasurementValueCandidate, ...],
+    ) -> None:
+        nonlocal committed_measurement_count
+        values = seal_measurement_values(
+            program.measurements.product_values,
+            candidates,
+            points=block.points,
+        )
+        projected = project_measurement_records(
+            program.measurements,
+            values,
+            run_id=run_id,
+            points=block.points,
+        )
+        block_problems = (
+            *validate_measurement_index_shape(
+                measurements=projected.records,
+                expected_indices=set(block.point_indices),
+                duplicate_code="execution_plan_measurement_point_duplicate",
+                duplicate_message="execution plan measurements repeat point index",
+                unknown_code="execution_plan_measurement_point_unknown",
+                unknown_message=(
+                    "execution plan measurements contain unknown point index"
+                ),
+                missing_observables_code="execution_plan_measurement_observables_missing",
+                missing_observables_message=(
+                    "execution plan measurement records require at least one observable"
+                ),
+            ),
+            *validate_raw_measurement_dataset(
+                records=projected.records,
+                expected_schema=raw_measurement_schema(projected.schema),
+                dataset_id=RAW_MEASUREMENTS_DATASET_ID,
+            ),
+        )
+        if block_problems:
+            raise ProblemFailure(block_problems)
+        receipt = append_measurement_dataset(
+            projected,
+            measurements,
+            journal,
+            transition_observer=transition_observer.observe,
+        )
+        if receipt is not None:
+            committed_measurement_count += len(projected.records)
+            append_content_hashes.append(receipt.dataset_content_hash)
+
     effect_result: RunEffectResult | None = None
     resource_failure: BaseException | None = None
     claims = program.resource_claims
@@ -158,6 +217,8 @@ def _interpret_run(
                 payload_observer=payload_observer,
                 transition_observer=transition_observer,
                 instrument_provider=instrument_provider,
+                coverage_observer=commit_coverage,
+                resource_leases=services.resources,
             )
     except BaseException as error:
         resource_failure = error
@@ -208,33 +269,29 @@ def _interpret_run(
         if domain_interruption is not None:
             interruption = domain_interruption
 
-    # Aggregate product ownership is an exact whole-run contract. If any batch
-    # fails, successful effects remain correlated in the journal, but Scopecat
-    # does not publish a logically incomplete measurement dataset.
-    committed_measurements: list[MeasurementRecord] = []
     measurement_reload_required = False
-    if not has_blocking_problems(problems):
+    seal_receipt = None
+    coverage_failure = None if effect_result is None else effect_result.coverage_failure
+    if coverage_failure is not None or effect_result is not None:
         try:
-            candidates = (
-                () if effect_result is None else effect_result.measurement_values
-            )
-            values = seal_measurement_values(
-                program.measurements.product_values,
-                candidates,
-            )
-            projected = project_measurement_records(
-                program.measurements,
-                values,
-                run_id=run_id,
-            )
-            committed_measurements.extend(
-                commit_measurement_records(
-                    projected,
-                    measurements,
-                    journal,
+            if coverage_failure is not None:
+                raise coverage_failure
+            if effect_result is None:
+                raise RuntimeError("measurement sealing requires an effect result")
+            schema = program.measurements.schema_for(effect_result.admitted_points)
+            if schema is not None:
+                seal_receipt = seal_measurement_dataset(
+                    run_id=run_id,
+                    dataset_id=schema.dataset_id,
+                    recording_contract_fingerprint=(
+                        program.measurements.contract_fingerprint
+                    ),
+                    point_count=committed_measurement_count,
+                    append_content_hashes=tuple(append_content_hashes),
+                    writer=measurements,
+                    journal=journal,
                     transition_observer=transition_observer.observe,
                 )
-            )
         except MeasurementRecordingError as error:
             problems.extend(
                 contextualize_problems(
@@ -249,9 +306,7 @@ def _interpret_run(
             if error.write_may_have_completed:
                 certainty = "indeterminate"
             measurement_reload_required = bool(
-                error.committed_prefix
-                or error.pending_receipt is not None
-                or error.write_may_have_completed
+                error.receipt is not None or error.write_may_have_completed
             )
         except ProblemFailure as error:
             problems.extend(
@@ -287,49 +342,24 @@ def _interpret_run(
             )
 
     if measurement_reload_required:
-        committed_measurements, reload_uncertain = _reload_measurements(
+        indices, reload_uncertain = _reload_measurement_indices(
             measurements,
             run_id=run_id,
             problems=problems,
         )
+        committed_measurement_count = sum(item.record_count for item in indices)
+        append_content_hashes = [item.append_content_hash for item in indices]
         if reload_uncertain:
             certainty = "indeterminate"
-    expected_schema = raw_measurement_schema(projection.schema)
-    if committed_measurements or not has_blocking_problems(problems):
-        problems.extend(
-            contextualize_problems(
-                validate_measurement_index_shape(
-                    measurements=committed_measurements,
-                    expected_indices=set(range(point_count)),
-                    duplicate_code="execution_plan_measurement_point_duplicate",
-                    duplicate_message="execution plan measurements repeat point index",
-                    unknown_code="execution_plan_measurement_point_unknown",
-                    unknown_message=(
-                        "execution plan measurements contain unknown point index"
-                    ),
-                    missing_observables_code=(
-                        "execution_plan_measurement_observables_missing"
-                    ),
-                    missing_observables_message=(
-                        "execution plan measurement records require at least "
-                        "one observable"
-                    ),
-                ),
-                run_id=run_id,
-                operation_id="execution-plan.validate-measurements",
-            )
-        )
-        problems.extend(
-            contextualize_problems(
-                validate_raw_measurement_dataset(
-                    records=committed_measurements,
-                    expected_schema=expected_schema,
-                    dataset_id=RAW_MEASUREMENTS_DATASET_ID,
-                ),
-                run_id=run_id,
-                operation_id="execution-plan.validate-dataset",
-            )
-        )
+    admitted_points = () if effect_result is None else effect_result.admitted_points
+    admitted_point_count = len(admitted_points)
+    final_dataset = ProjectedMeasurementDataset(
+        projection,
+        run_id,
+        (),
+        points=admitted_points,
+    )
+    dataset_schema = raw_measurement_schema(final_dataset.schema)
 
     failed = has_blocking_problems(problems)
     outcome = RunOutcome(
@@ -361,8 +391,12 @@ def _interpret_run(
     manifest = build_execution_manifest(
         run_id=run_id,
         outcome=outcome,
-        measurements=committed_measurements,
-        expected_schema=expected_schema,
+        measurement_count=(committed_measurement_count if seal_receipt else 0),
+        dataset_content_hash=(
+            None if seal_receipt is None else seal_receipt.dataset_content_hash
+        ),
+        dataset_schema=dataset_schema,
+        expected_record_count=(point_count if projection.records else None),
         config_content_hash=accepted.config_content_hash,
         config_source=config_source,
         instrument_state=instrument_state,
@@ -375,21 +409,10 @@ def _interpret_run(
                 value=instrument_state,
             )
         )
-    record_sets = (
-        (
-            RunRecordSetWrite(
-                ref=raw_measurements_ref(),
-                records=tuple(committed_measurements),
-            ),
-        )
-        if committed_measurements
-        else ()
-    )
     manifest = storage.commit_terminal(
         TerminalRunCommit(
             manifest=manifest,
             models=tuple(models),
-            record_sets=record_sets,
         )
     )
     emit_run_finished(
@@ -398,19 +421,15 @@ def _interpret_run(
         experiment_id=experiment_id,
         outcome=outcome,
         completed_point_count=(
-            point_count
+            admitted_point_count
             if outcome.result == "succeeded"
-            else len({record.point_index for record in committed_measurements})
+            else transition_observer.completed_point_count
         ),
-        point_count=point_count,
-        measurement_count=len(committed_measurements),
+        point_count=admitted_point_count,
+        measurement_count=(committed_measurement_count if seal_receipt else 0),
         problem_count=len(problems),
-        compute_evaluated_node_count=(
-            0 if effect_result is None else effect_result.compute_evaluated_node_count
-        ),
-        compute_payload_count=(
-            0 if effect_result is None else effect_result.compute_payload_count
-        ),
+        compute_evaluated_node_count=(transition_observer.compute_evaluated_node_count),
+        compute_payload_count=transition_observer.compute_payload_count,
     )
     if interruption is not None:
         interruption.add_note(f"Scopecat run_id: {run_id}")
@@ -507,14 +526,14 @@ def _domain_failure_problems(
     )
 
 
-def _reload_measurements(
-    committer: MeasurementRecordRepository,
+def _reload_measurement_indices(
+    committer: MeasurementDatasetRepository,
     *,
     run_id: str,
     problems: list[Problem],
-) -> tuple[list[MeasurementRecord], bool]:
+) -> tuple[list[MeasurementDatasetAppendIndex], bool]:
     try:
-        return list(committer.measurements()), False
+        return list(committer.append_indices()), False
     except Exception as error:
         problems.append(
             problem_from_exception(

@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping, Sequence
 from collections.abc import Set as AbstractSet
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from typing import Protocol, cast
 
 from pydantic import JsonValue
@@ -17,42 +17,27 @@ from scopecat.compiler.linking.implementations import (
     select_local_implementations,
 )
 from scopecat.compiler.linking.linked import (
+    LinkedPlan,
     MaterializedLinkedPoints,
 )
 from scopecat.compiler.linking.product_realizations import (
     SelectedLocalProductRealizations,
     select_local_product_realizations,
 )
-from scopecat.compiler.relations.analysis import PlanNode
 from scopecat.compiler.relations.evaluation import (
     EvalContext,
     ParameterRelationData,
-    evaluate_relation_in_context,
-    evaluate_scalar,
-    evaluate_series,
 )
-from scopecat.compiler.relations.model import (
-    RelationExpr,
-    ScalarExpr,
-    SeriesExpr,
-)
-from scopecat.compiler.relations.verification import VerifiedRelationPlan
-from scopecat.compiler.semantic.availability import ValueRate
 from scopecat.compiler.semantic.compute_result import ComputeResultRef
-from scopecat.compiler.semantic.model import (
-    OperationId,
-    ValueId,
+from scopecat.compiler.semantic.model import ValueId
+from scopecat.compiler.typed.action import (
+    ActionRecord,
+    ActionSpec,
+    evaluate_action_spec,
 )
-from scopecat.compiler.semantic.value_expressions import (
-    ScalarValueExpr,
-    SeriesValueExpr,
-    TableValueExpr,
-    ValueExpr,
-)
-from scopecat.compiler.typed.action import ActionRecord, evaluate_action_spec
 from scopecat.compiler.typed.dependencies import (
-    ComputeDependencies,
-    analyze_compute_dependencies,
+    ComputePlan,
+    PointVariationSupport,
 )
 from scopecat.compiler.typed.point_domain import (
     MaterializedPoint,
@@ -62,42 +47,32 @@ from scopecat.compiler.typed.products import (
     ProductDef,
 )
 from scopecat.compiler.typed.program import (
-    ComputeEdge,
     CoreProgram,
-    TypedComputeNode,
-    ValueInput,
-    core_actions,
-    core_state,
+    TypedDomainExecution,
 )
 from scopecat.compiler.typed.records import (
     point_coordinate_ids,
 )
-from scopecat.compiler.typed.state import StateRecord, evaluate_state_spec
+from scopecat.compiler.typed.state import (
+    StateRecord,
+    StateSpecVariant,
+    evaluate_state_spec,
+)
 from scopecat.compiler.typed.verification import (
     VerifiedCoreProgram,
 )
 from scopecat.execution.local.program import (
     ActionField,
-    ActionStage,
     ApplyStateOperation,
-    ApplyStateStage,
-    BoundInput,
     CollectionResultBinding,
     CollectOperation,
-    CollectStage,
     ComputeOperation,
-    ComputeResultSlot,
-    ComputeStage,
     InstrumentActionOperation,
-    OutputInput,
-    PayloadSlot,
-    PointProgram,
     StateTarget,
 )
-from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
+from scopecat.execution.program import RunCoverageEffect
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.frozen import thaw_json_value
-from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.problems import (
     ModelLocation,
     Problem,
@@ -110,13 +85,17 @@ from scopecat.kernel.product_identity import ProductUseId
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
     PhysicalResourceId,
-    ResourceClaim,
     ResourceTarget,
 )
-from scopecat.kernel.routes import ResolvedRoute
 from scopecat.kernel.state import PayloadRef, StateValue
-from scopecat.kernel.value_types import Scalar
-from scopecat.kernel.value_validation import coerce_literal
+from scopecat.planning.local_compute import (
+    bind_compute_operations as _bind_compute_operations,
+)
+from scopecat.planning.local_effects import (
+    ComputeBindingSeed,
+    LocalTargetPlan,
+    MaterializedLocalEffects,
+)
 from scopecat.planning.local_route_constraints import (
     PendingCollect,
     PendingCollectionRequest,
@@ -125,11 +104,11 @@ from scopecat.planning.local_route_constraints import (
     PendingStateField,
     validate_point_resource_constraints,
 )
+from scopecat.planning.local_values import evaluate_value_expr
 from scopecat.planning.routing import RoutingError, RoutingView
 from scopecat.records.config import RoutingChannelBinding
 from scopecat.records.entity import EntityRef
 from scopecat.records.instrument import CommandChannelBinding
-from scopecat.records.measurement import CoordinateValue
 from scopecat.records.parameter import Quantity
 from scopecat.sdk.instruments.contracts import (
     CollectAxisRequest,
@@ -182,85 +161,34 @@ class _InstrumentOperation(Protocol):
     def instrument_id(self) -> str: ...
 
 
-@dataclass(frozen=True, slots=True)
-class MaterializedLocalEffects:
-    """Transient planning result used to close final run operations."""
-
-    points: tuple[PointProgram, ...]
-    resource_order: tuple[str, ...]
-    resource_claims: tuple[ResourceClaim, ...]
-    run_compute_operations: tuple[ComputeOperation, ...] = ()
-
-
 def materialize_local_execution(
     linked_points: MaterializedLinkedPoints,
     *,
-    product_use_ids: AbstractSet[ProductUseId] | None = None,
-    instrument_order: Sequence[str] = (),
+    target: LocalTargetPlan,
+    point_count: int,
 ) -> MaterializedLocalEffects:
-    """Lower already-materialized logical points into final local effects."""
+    """Lower local work without discarding the ordered Core effect sequence."""
 
     linked = linked_points.linked_plan
-    program = linked.program
-    if product_use_ids is not None:
-        requested = frozenset(product_use_ids)
-        available = {use.id for use in program.product_uses}
-        unknown = sorted(
-            (use_id.value for use_id in requested - available),
-        )
-        if unknown:
-            msg = "local product selection contains unknown uses: " + ", ".join(unknown)
-            raise ValueError(msg)
-        selected_uses = tuple(
-            use for use in program.product_uses if use.id in requested
-        )
-        selected_record_uses = tuple(
-            record
-            for record in program.record_uses
-            if record.product_use_id in requested
-        )
-        program = replace(
-            program,
-            product_uses=selected_uses,
-            record_uses=selected_record_uses,
-        )
+    program = target.program
+    if linked.program.id != program.id:
+        raise ValueError("local target plan belongs to a different program")
     environment = linked.environment
     routing = environment.routing
     if routing is None:
         raise AssertionError("linked plan lost its validated routing view")
     problems = list(environment.problems)
-    implementations, implementation_problems = select_local_implementations(
-        program.compute_nodes,
-        program.implementation_catalog,
-        phase=ProblemPhase.PLANNING,
-    )
-    problems.extend(implementation_problems)
-    product_realizations, product_realization_problems = (
-        select_local_product_realizations(
-            program.product_defs,
-            program.instrument_product_producers,
-            program.product_uses,
-            routing=routing,
-            phase=ProblemPhase.PLANNING,
-        )
-    )
-    problems.extend(product_realization_problems)
-    if (
-        implementation_problems
-        or implementations is None
-        or product_realization_problems
-        or product_realizations is None
-        or not environment.valid
-        or environment.routing is None
-    ):
-        raise CheckFailed(problems)
     verified_program = linked_points.verified_program
+    implementations = target.implementations
+    product_realizations = target.product_realizations
+    selected_compute_plan = verified_program.compute_plan
+    selected_instrument_order = target.instrument_order
+    compute_seed = target.compute_seed
     materialized_domain = linked_points.point_domain
     planner_points = materialized_domain.points
     try:
-        coordinate_ids = tuple(point_coordinate_ids(planner_points))
+        point_coordinate_ids(planner_points)
     except ValueError as error:
-        coordinate_ids = ()
         problems.append(
             _problem(
                 "experiment_point_schema_invalid",
@@ -268,294 +196,424 @@ def materialize_local_execution(
                 model_location("points"),
             )
         )
-    point_parameters = {
-        point.logical_ordinal: parameters
-        for point, parameters in zip(
+    point_by_ordinal = {point.logical_ordinal: point for point in planner_points}
+    params_by_ordinal = {
+        point.logical_ordinal: params
+        for point, params in zip(
             planner_points,
             linked_points.point_parameters,
             strict=True,
         )
     }
-    compute_dependencies = analyze_compute_dependencies(program.compute_nodes)
-
-    routes_by_point = _bind_routes(
-        program,
-        environment,
-        planner_points,
-        point_parameters,
-        problems,
-        verified_program=verified_program,
-    )
-    selected_instrument_order = _explicit_instrument_order(
-        instrument_order,
-        routes_by_point=routes_by_point,
-    )
-    point_programs: list[PointProgram] = []
-    run_compute_operations: tuple[ComputeOperation, ...] = ()
-    run_compute_signatures: dict[ValueId, str] = {}
-    if planner_points:
-        first_point = planner_points[0]
-        first_params = point_parameters[first_point.logical_ordinal]
-        first_routes = tuple(routes_by_point.get(first_point.logical_ordinal, ()))
-        bound_run_operations, _, run_compute_signatures = _bind_compute_operations(
-            program.compute_nodes,
-            rate=ValueRate.RUN,
-            point=first_point,
-            params=first_params,
-            routes=first_routes,
-            dependencies=compute_dependencies,
-            implementations=implementations,
-            demanded_payload_results=set(),
-            problems=problems,
-            verified_program=verified_program,
-        )
-        run_compute_operations = tuple(
-            replace(
-                operation,
-                operation_id=f"run.compute.{operation.semantic_operation_id}",
+    rows = {ordinal: point.row for ordinal, point in point_by_ordinal.items()}
+    ordinals = tuple(point.logical_ordinal for point in planner_points)
+    layout = linked_points.verified_program.iteration_layout
+    route_cache: dict[tuple[str, str], PendingRoute | None] = {}
+    payload_ids_by_ordinal: dict[int, dict[ValueId, str]] = {
+        ordinal: dict(compute_seed.payload_ids) for ordinal in ordinals
+    }
+    signatures_by_ordinal = {
+        ordinal: dict(compute_seed.signatures) for ordinal in ordinals
+    }
+    compute_effects: list[RunCoverageEffect] = []
+    for node in selected_compute_plan.point_nodes:
+        support = target.variation.compute[node.id]
+        for compute_coverage in layout.partition(
+            support.point_columns,
+            ordinals,
+            rows=rows,
+        ):
+            representative = point_by_ordinal[compute_coverage[0]]
+            representative_params = params_by_ordinal[compute_coverage[0]]
+            routes = _bind_point_routes(
+                program,
+                environment,
+                representative,
+                representative_params,
+                problems,
+                verified_program=verified_program,
+                variation_support=target.variation.routes,
+                cache=route_cache,
             )
-            for operation in bound_run_operations
-        )
+            compute_operations, point_payload_ids, signatures = (
+                _bind_compute_operations(
+                    (node,),
+                    operation_prefix=representative.logical_id.value,
+                    ctx=EvalContext(
+                        params=representative_params,
+                        point_row=representative.row,
+                    ),
+                    routes=routes,
+                    compute_plan=selected_compute_plan,
+                    implementations=implementations,
+                    demanded_payload_results=set(
+                        selected_compute_plan.demanded_payload_results
+                    ),
+                    problems=problems,
+                    verified_program=verified_program,
+                    initial_signatures=signatures_by_ordinal[
+                        representative.logical_ordinal
+                    ],
+                )
+            )
+            for ordinal in compute_coverage:
+                signatures_by_ordinal[ordinal] = dict(signatures)
+                payload_ids_by_ordinal[ordinal].update(point_payload_ids)
+            compute_effects.extend(
+                RunCoverageEffect(compute_coverage, operation)
+                for operation in compute_operations
+            )
 
-    for point in planner_points:
-        params = point_parameters.get(point.logical_ordinal)
-        if params is None:
+    effect_operations: list[list[RunCoverageEffect]] = [
+        [] for _effect in program.effects
+    ]
+    desired_by_ordinal: dict[int, list[PendingResourceState]] = {
+        ordinal: [] for ordinal in ordinals
+    }
+    state_support_by_effect: dict[int, PointVariationSupport] = {}
+    state_index = 0
+    for effect_index, effect in enumerate(program.effects):
+        if isinstance(effect, TypedDomainExecution | ActionSpec):
             continue
-        routes = tuple(routes_by_point.get(point.logical_ordinal, ()))
-        ctx = EvalContext(params=params, point_row=point.row)
-        point_state_records: list[StateRecord] = []
-        point_action_records: list[ActionRecord] = []
-        for state_index, state in enumerate(core_state(program)):
-            try:
-                point_state_records.extend(
-                    evaluate_state_spec(
+        state_support_by_effect[effect_index] = target.variation.state[state_index]
+        state_index += 1
+    known_compute_results = {node.result.id for node in program.compute_nodes}
+    for effect_index, effect in enumerate(program.effects):
+        if isinstance(effect, TypedDomainExecution):
+            continue
+        if isinstance(effect, ActionSpec):
+            for ordinal in ordinals:
+                point = point_by_ordinal[ordinal]
+                params = params_by_ordinal[ordinal]
+                routes = _bind_point_routes(
+                    program,
+                    environment,
+                    point,
+                    params,
+                    problems,
+                    verified_program=verified_program,
+                    variation_support=target.variation.routes,
+                    cache=route_cache,
+                )
+                actions = _bind_actions(
+                    _evaluate_action_records(
+                        effect,
+                        effect_index,
+                        point,
+                        params,
+                        verified_program=verified_program,
+                        problems=problems,
+                    ),
+                    routes=routes,
+                    routing=routing,
+                    payload_ids=payload_ids_by_ordinal[ordinal],
+                    known_compute_results=known_compute_results,
+                    point_index=ordinal,
+                    point_uid=point.logical_id.value,
+                    problems=problems,
+                )
+                ordered = _order_instrument_operations(
+                    actions,
+                    instrument_order=selected_instrument_order,
+                )
+                effect_operations[effect_index].extend(
+                    RunCoverageEffect.at_point(ordinal, operation)
+                    for operation in ordered
+                )
+            continue
+
+        if effect_index and not isinstance(
+            program.effects[effect_index - 1],
+            TypedDomainExecution | ActionSpec,
+        ):
+            continue
+        state_end = effect_index + 1
+        while state_end < len(program.effects) and not isinstance(
+            program.effects[state_end],
+            TypedDomainExecution | ActionSpec,
+        ):
+            state_end += 1
+        state_group: list[tuple[int, StateSpecVariant]] = []
+        for index in range(effect_index, state_end):
+            state = program.effects[index]
+            if isinstance(state, TypedDomainExecution | ActionSpec):
+                raise AssertionError("state region contains a non-state effect")
+            state_group.append((index, state))
+        support = PointVariationSupport()
+        for index, _state in state_group:
+            support = support.merged(state_support_by_effect[index])
+        for state_coverage in layout.partition(
+            support.point_columns,
+            ordinals,
+            rows=rows,
+        ):
+            representative = point_by_ordinal[state_coverage[0]]
+            representative_params = params_by_ordinal[state_coverage[0]]
+            routes = _bind_point_routes(
+                program,
+                environment,
+                representative,
+                representative_params,
+                problems,
+                verified_program=verified_program,
+                variation_support=target.variation.routes,
+                cache=route_cache,
+            )
+            desired = _bind_desired_state(
+                tuple(
+                    record
+                    for index, state in state_group
+                    for record in _evaluate_state_records(
                         state,
-                        point_index=point.logical_ordinal,
-                        ctx=ctx,
-                        relation_plan=verified_program.relation_plan,
-                        location=model_location("state", state_index),
+                        index,
+                        representative,
+                        representative_params,
+                        verified_program=verified_program,
+                        problems=problems,
                     )
-                )
-            except (ArithmeticError, KeyError, TypeError, ValueError) as error:
-                problems.append(
-                    _problem(
-                        "experiment_state_evaluation_failed",
-                        "state binding failed for point "
-                        f"{point.logical_ordinal}: {error}",
-                        model_location("state", state_index),
-                    )
-                )
-        for action_index, action in enumerate(core_actions(program)):
-            try:
-                point_action_records.append(
-                    evaluate_action_spec(
-                        action,
-                        point_index=point.logical_ordinal,
-                        ctx=ctx,
-                        relation_plan=verified_program.relation_plan,
-                    )
-                )
-            except (ArithmeticError, KeyError, TypeError, ValueError) as error:
-                problems.append(
-                    _problem(
-                        "experiment_action_evaluation_failed",
-                        "action binding failed for point "
-                        f"{point.logical_ordinal}: {error}",
-                        model_location("actions", action_index),
-                    )
-                )
-        demanded_payload_results = {
-            value.value_id
-            for state in point_state_records
-            if isinstance((value := state.value), ComputeResultRef)
-        } | {
-            field.value.value_id
-            for action in point_action_records
-            for field in action.fields
-            if isinstance(field.value, ComputeResultRef)
-        }
-        compute_operations, payload_ids, _ = _bind_compute_operations(
-            program.compute_nodes,
-            rate=ValueRate.POINT,
-            point=point,
-            params=params,
-            routes=routes,
-            dependencies=compute_dependencies,
-            implementations=implementations,
-            demanded_payload_results=demanded_payload_results,
-            problems=problems,
+                ),
+                routes=routes,
+                routing=routing,
+                payload_ids=payload_ids_by_ordinal[representative.logical_ordinal],
+                known_compute_results=known_compute_results,
+                point_index=representative.logical_ordinal,
+                problems=problems,
+            )
+            ordered = _order_instrument_operations(
+                _state_operations(representative.logical_id.value, desired),
+                instrument_order=selected_instrument_order,
+            )
+            effect_operations[state_end - 1].extend(
+                RunCoverageEffect(state_coverage, operation) for operation in ordered
+            )
+            for ordinal in state_coverage:
+                desired_by_ordinal[ordinal].extend(desired)
+
+    collect_effects: list[RunCoverageEffect] = []
+    for ordinal in ordinals:
+        point = point_by_ordinal[ordinal]
+        params = params_by_ordinal[ordinal]
+        routes = _bind_point_routes(
+            program,
+            environment,
+            point,
+            params,
+            problems,
             verified_program=verified_program,
-            initial_signatures=run_compute_signatures,
-        )
-        desired = _bind_desired_state(
-            point_state_records,
-            routes=routes,
-            routing=environment.routing,
-            payload_ids=payload_ids,
-            known_compute_results={node.result.id for node in program.compute_nodes},
-            point_index=point.logical_ordinal,
-            problems=problems,
-        )
-        actions = _bind_actions(
-            point_action_records,
-            routes=routes,
-            routing=environment.routing,
-            payload_ids=payload_ids,
-            known_compute_results={node.result.id for node in program.compute_nodes},
-            point_index=point.logical_ordinal,
-            point_uid=point.logical_id.value,
-            problems=problems,
+            variation_support=target.variation.routes,
+            cache=route_cache,
         )
         collect = _bind_collect(
             program.product_defs,
             program.instrument_product_producers,
             product_realizations,
             routes,
-            routing=environment.routing,
-            point_index=point.logical_ordinal,
+            routing=routing,
+            point_index=ordinal,
             problems=problems,
         )
         problems.extend(
             validate_point_resource_constraints(
-                point.logical_ordinal,
+                ordinal,
                 routes,
-                desired,
+                desired_by_ordinal[ordinal],
                 collect,
                 config=environment.config,
             )
         )
         valid_collect = _validate_collection_requests(
             collect,
-            point_index=point.logical_ordinal,
+            point_index=ordinal,
             problems=problems,
         )
-        state_operations = _state_operations(point.logical_id.value, desired)
         collect_operations = (
-            _collect_operations(
-                point.logical_id.value,
-                point_index=point.logical_ordinal,
-                point_count=len(planner_points),
-                collects=collect,
+            _order_instrument_operations(
+                _collect_operations(
+                    point.logical_id.value,
+                    point_index=ordinal,
+                    point_count=point_count,
+                    collects=collect,
+                ),
+                instrument_order=selected_instrument_order,
             )
             if valid_collect
             else ()
         )
-        stages = (
-            ComputeStage(compute_operations),
-            ApplyStateStage(
-                _order_instrument_operations(
-                    state_operations,
-                    instrument_order=selected_instrument_order,
-                )
-            ),
-            ActionStage(actions),
-            CollectStage(
-                _order_instrument_operations(
-                    collect_operations,
-                    instrument_order=selected_instrument_order,
-                )
-            ),
+        collect_effects.extend(
+            RunCoverageEffect.at_point(ordinal, operation)
+            for operation in collect_operations
         )
-        point_programs.append(
-            PointProgram(
-                point_index=point.logical_ordinal,
-                logical_id=point.logical_id,
-                coordinates={
-                    name: cast("CoordinateValue", value)
-                    for name, value in point.row.items()
-                    if name in coordinate_ids
-                },
-                stages=tuple(stage for stage in stages if stage.operations),
-            )
-        )
-
-    resource_order = _resource_order(
-        point_programs,
-        instrument_order=selected_instrument_order,
-    )
-    claims = _resource_claims(point_programs, routes_by_point=routes_by_point)
     if has_blocking_problems(problems):
         raise CheckFailed(problems)
     return MaterializedLocalEffects(
-        points=tuple(point_programs),
-        resource_order=resource_order,
-        resource_claims=(
-            *(ResourceClaim(instrument_id) for instrument_id in resource_order),
-            *(claim for claim in claims if claim.kind != "instrument"),
-        ),
-        run_compute_operations=run_compute_operations,
+        compute_operations=tuple(compute_effects),
+        effect_operations=tuple(tuple(items) for items in effect_operations),
+        collect_operations=tuple(collect_effects),
     )
 
 
-def _resource_claims(
-    points: Sequence[PointProgram],
+def prepare_local_target(
+    linked: LinkedPlan,
     *,
-    routes_by_point: Mapping[int, Sequence[PendingRoute]],
-) -> tuple[ResourceClaim, ...]:
-    claims: list[ResourceClaim] = []
-    seen: set[tuple[str, str]] = set()
+    product_use_ids: AbstractSet[ProductUseId],
+    instrument_order: Sequence[str] = (),
+) -> LocalTargetPlan:
+    """Select and bind the complete local target once for all coverage blocks."""
 
-    def append(claim: ResourceClaim) -> None:
-        key = (claim.kind, claim.id)
-        if key not in seen:
-            seen.add(key)
-            claims.append(claim)
+    requested = frozenset(product_use_ids)
+    available = {use.id for use in linked.program.product_uses}
+    unknown = sorted(use_id.value for use_id in requested - available)
+    if unknown:
+        msg = "local product selection contains unknown uses: " + ", ".join(unknown)
+        raise ValueError(msg)
+    program = replace(
+        linked.program,
+        product_uses=tuple(
+            use for use in linked.program.product_uses if use.id in requested
+        ),
+        record_uses=tuple(
+            record
+            for record in linked.program.record_uses
+            if record.product_use_id in requested
+        ),
+    )
+    problems = list(linked.environment.problems)
+    implementations, implementation_problems = select_local_implementations(
+        program.compute_nodes,
+        program.implementation_catalog,
+        phase=ProblemPhase.PLANNING,
+    )
+    problems.extend(implementation_problems)
+    routing = linked.environment.routing
+    if routing is None:
+        raise AssertionError("linked plan lost its validated routing view")
+    product_realizations, product_problems = select_local_product_realizations(
+        program.product_defs,
+        program.instrument_product_producers,
+        program.product_uses,
+        routing=routing,
+        phase=ProblemPhase.PLANNING,
+    )
+    problems.extend(product_problems)
+    if (
+        implementations is None
+        or product_realizations is None
+        or has_blocking_problems(problems)
+    ):
+        raise CheckFailed(problems)
+    compute_plan = linked.verified_program.compute_plan
+    run_operations, compute_seed = _bind_run_compute(
+        linked,
+        compute_plan,
+        implementations=implementations,
+        problems=problems,
+    )
+    if has_blocking_problems(problems):
+        raise CheckFailed(problems)
+    return LocalTargetPlan(
+        program=program,
+        implementations=implementations,
+        product_realizations=product_realizations,
+        instrument_order=_validate_instrument_order(instrument_order),
+        variation=linked.verified_program.variation_analysis,
+        run_operations=run_operations,
+        compute_seed=compute_seed,
+    )
 
-    for point in points:
-        for operation in point.state_operations:
-            append(ResourceClaim(operation.instrument_id))
-        for action in point.actions:
-            append(ResourceClaim(action.instrument_id))
-        for operation in point.collect_operations:
-            append(ResourceClaim(operation.instrument_id))
 
-        bindings = (
-            *(
-                binding
-                for route in routes_by_point.get(point.point_index, ())
-                for binding in route.channel_bindings
-            ),
-            *(
-                binding
-                for operation in point.state_operations
-                for target in operation.targets
-                for binding in target.channel_bindings
-            ),
-            *(
-                binding
-                for action in point.actions
-                for field in action.fields
-                for binding in field.channel_bindings
-            ),
-            *(
-                binding
-                for operation in point.collect_operations
-                for request in operation.command.requests
-                for binding in request.channel_bindings
+def _evaluate_state_records(
+    state: StateSpecVariant,
+    effect_index: int,
+    point: MaterializedPoint,
+    params: ParameterRelationData,
+    *,
+    verified_program: VerifiedCoreProgram,
+    problems: list[Problem],
+) -> tuple[StateRecord, ...]:
+    ctx = EvalContext(params=params, point_row=point.row)
+    try:
+        return tuple(
+            evaluate_state_spec(
+                state,
+                point_index=point.logical_ordinal,
+                ctx=ctx,
+                relation_plan=verified_program.relation_plan,
+                location=model_location("effects", effect_index),
+            )
+        )
+    except (ArithmeticError, KeyError, TypeError, ValueError) as error:
+        problems.append(
+            _problem(
+                "experiment_state_evaluation_failed",
+                f"state binding failed for point {point.logical_ordinal}: {error}",
+                model_location("effects", effect_index),
+            )
+        )
+        return ()
+
+
+def _evaluate_action_records(
+    action: ActionSpec,
+    effect_index: int,
+    point: MaterializedPoint,
+    params: ParameterRelationData,
+    *,
+    verified_program: VerifiedCoreProgram,
+    problems: list[Problem],
+) -> tuple[ActionRecord, ...]:
+    ctx = EvalContext(params=params, point_row=point.row)
+    try:
+        return (
+            evaluate_action_spec(
+                action,
+                point_index=point.logical_ordinal,
+                ctx=ctx,
+                relation_plan=verified_program.relation_plan,
             ),
         )
-        for binding in bindings:
-            append(ResourceClaim(binding.channel_id, "channel"))
-            for group_id in binding.group_ids:
-                append(ResourceClaim(group_id, "group"))
-    return tuple(claims)
+    except (ArithmeticError, KeyError, TypeError, ValueError) as error:
+        problems.append(
+            _problem(
+                "experiment_action_evaluation_failed",
+                f"action binding failed for point {point.logical_ordinal}: {error}",
+                model_location("effects", effect_index),
+            )
+        )
+        return ()
 
 
-def _explicit_instrument_order(
-    instrument_order: Sequence[str],
+def _bind_run_compute(
+    linked: LinkedPlan,
+    compute_plan: ComputePlan,
     *,
-    routes_by_point: Mapping[int, Sequence[PendingRoute]],
+    implementations: SelectedLocalImplementations,
+    problems: list[Problem],
+) -> tuple[tuple[ComputeOperation, ...], ComputeBindingSeed]:
+    operations, payload_ids, signatures = _bind_compute_operations(
+        compute_plan.run_nodes,
+        operation_prefix="run",
+        ctx=EvalContext(params=linked.environment.parameters),
+        routes=(),
+        compute_plan=compute_plan,
+        implementations=implementations,
+        demanded_payload_results=set(compute_plan.demanded_payload_results),
+        problems=problems,
+        verified_program=linked.verified_program,
+    )
+    return operations, ComputeBindingSeed(
+        signatures=signatures,
+        payload_ids=payload_ids,
+    )
+
+
+def _validate_instrument_order(
+    instrument_order: Sequence[str],
 ) -> tuple[str, ...]:
     selected = tuple(instrument_order)
     if len(selected) != len(set(selected)) or any(not item for item in selected):
         msg = "instrument_order must contain unique non-empty ids"
         raise ValueError(msg)
-    routed = {
-        route.resource_id.value
-        for routes in routes_by_point.values()
-        for route in routes
-    }
-    return (*selected, *sorted(routed - set(selected)))
+    return selected
 
 
 def _order_instrument_operations[T: _InstrumentOperation](
@@ -583,275 +641,97 @@ def _order_instrument_operations[T: _InstrumentOperation](
     )
 
 
-def _resource_order(
-    points: Sequence[PointProgram],
-    *,
-    instrument_order: Sequence[str],
-) -> tuple[str, ...]:
-    used = {
-        operation.instrument_id
-        for point in points
-        for operation in (
-            *point.state_operations,
-            *point.actions,
-            *point.collect_operations,
-        )
-    }
-    selected = tuple(
-        instrument_id for instrument_id in instrument_order if instrument_id in used
-    )
-    return (*selected, *sorted(used - set(selected)))
-
-
-def _bind_routes(
+def _bind_point_routes(
     program: CoreProgram,
     environment: ValidatedConfigEnvironment,
-    points: Sequence[MaterializedPoint],
-    point_parameters: Mapping[int, ParameterRelationData],
-    problems: list[Problem],
-    *,
-    verified_program: VerifiedCoreProgram,
-) -> dict[int, tuple[PendingRoute, ...]]:
-    routing = environment.routing
-    if routing is None:
-        return {}
-    routes: dict[int, tuple[PendingRoute, ...]] = {}
-    for point in points:
-        params = point_parameters.get(point.logical_ordinal)
-        if params is None:
-            continue
-        selected: list[PendingRoute] = []
-        for intent in program.route_intents:
-            ctx = EvalContext(params=params, point_row=point.row)
-            entity_values: list[object] = []
-            failed = False
-            for use in intent.entity_uses:
-                try:
-                    entity_values.append(
-                        _evaluate_value_expr(
-                            use.value,
-                            verified_program.relation_plan(use.id),
-                            ctx,
-                        )
-                    )
-                except (ArithmeticError, KeyError, TypeError, ValueError) as error:
-                    failed = True
-                    problems.append(
-                        _problem(
-                            "experiment_route_entity_evaluation_failed",
-                            f"route {intent.port_id.qualified_name} entity "
-                            "expression failed for "
-                            f"point {point.logical_ordinal}: {error}",
-                            model_location("routes", intent.port_id.qualified_name),
-                        )
-                    )
-            if failed:
-                continue
-            try:
-                binding = routing.route_point(
-                    port_id=intent.port_id,
-                    capabilities=list(intent.capabilities),
-                    entity_values=entity_values,
-                    fixed_resource_id=intent.fixed_resource_id,
-                )
-            except RoutingError as error:
-                problems.append(
-                    _problem(
-                        error.code,
-                        str(error),
-                        model_location("routes", intent.port_id.qualified_name),
-                        category=(
-                            ProblemCategory.CONFLICT
-                            if error.code.endswith("_ambiguous")
-                            else ProblemCategory.UNAVAILABLE
-                        ),
-                    )
-                )
-                continue
-            selected.append(
-                PendingRoute(
-                    port_id=binding.port_id,
-                    resource_id=binding.resource_id,
-                    resource_kind=binding.resource_kind,
-                    capabilities=tuple(binding.capabilities),
-                    entity_ids=tuple(binding.entity_ids),
-                    served_entity_ids=tuple(binding.served_entity_ids),
-                    product_axis_order=tuple(binding.product_axis_order),
-                    channel_bindings=tuple(binding.channel_bindings),
-                )
-            )
-        routes[point.logical_ordinal] = tuple(selected)
-    return routes
-
-
-def _bind_compute_operations(
-    nodes: Sequence[TypedComputeNode],
-    *,
-    rate: ValueRate,
     point: MaterializedPoint,
     params: ParameterRelationData,
-    routes: Sequence[PendingRoute],
-    dependencies: Mapping[OperationId, ComputeDependencies],
-    implementations: SelectedLocalImplementations,
-    demanded_payload_results: set[ValueId],
     problems: list[Problem],
+    *,
     verified_program: VerifiedCoreProgram,
-    initial_signatures: Mapping[ValueId, str] | None = None,
-) -> tuple[
-    tuple[ComputeOperation, ...],
-    dict[ValueId, str],
-    dict[ValueId, str],
-]:
-    operations: list[ComputeOperation] = []
-    output_owners = {node.result.id: node.id for node in nodes}
-    if len(output_owners) != len(nodes):
-        msg = "typed compute graph contains duplicate result identities"
-        raise ValueError(msg)
-    signatures = dict(initial_signatures or {})
-    payload_ids: dict[ValueId, str] = {}
-    ctx = EvalContext(params=params, point_row=point.row)
-    for node in nodes:
-        if node.result.availability.rate is not rate:
+    variation_support: Mapping[str, PointVariationSupport],
+    cache: dict[tuple[str, str], PendingRoute | None],
+) -> tuple[PendingRoute, ...]:
+    routing = environment.routing
+    if routing is None:
+        return ()
+    selected: list[PendingRoute] = []
+    for intent in program.route_intents:
+        port_id = intent.port_id.qualified_name
+        key = (
+            port_id,
+            verified_program.iteration_layout.projection_key(
+                variation_support[port_id].point_columns,
+                point.logical_ordinal,
+                fallback_row=point.row,
+            ),
+        )
+        if key in cache:
+            cached = cache[key]
+            if cached is not None:
+                selected.append(cached)
             continue
-        inputs: dict[str, BoundInput | OutputInput] = {}
-        signature_inputs: dict[str, object] = {}
+        ctx = EvalContext(params=params, point_row=point.row)
+        entity_values: list[object] = []
         failed = False
-        for name, input_spec in node.inputs.items():
+        for use in intent.entity_uses:
             try:
-                if isinstance(input_spec, ValueInput):
-                    value = _unwrap_payload_values(
-                        coerce_literal(
-                            input_spec.value_type,
-                            _evaluate_value_expr(
-                                input_spec.value,
-                                verified_program.relation_plan(
-                                    input_spec.relation_use_id
-                                ),
-                                ctx,
-                            ),
-                            path=("compute", *node.id.scope, node.id.local_id, name),
-                        )
+                entity_values.append(
+                    evaluate_value_expr(
+                        use.value,
+                        verified_program.relation_plan(use.id),
+                        ctx,
                     )
-                    inputs[name] = BoundInput(value)
-                    signature_inputs[name] = content_fingerprint(value)
-                elif isinstance(input_spec, ComputeEdge):
-                    owner = output_owners.get(input_spec.value_id)
-                    if owner is None:
-                        msg = (
-                            "compute result "
-                            f"{input_spec.value_id.qualified_name!r} has no owner"
-                        )
-                        raise ValueError(msg)
-                    upstream_signature = signatures.get(input_spec.value_id)
-                    if upstream_signature is None:
-                        msg = (
-                            f"producer {owner.qualified_name!r} result "
-                            f"{input_spec.value_id.qualified_name!r} is not available"
-                        )
-                        raise ValueError(msg)
-                    inputs[name] = OutputInput(input_spec.value_id)
-                    signature_inputs[name] = {"compute": upstream_signature}
-                else:
-                    route = next(
-                        (
-                            route
-                            for route in routes
-                            if route.port_id == input_spec.port_id
-                        ),
-                        None,
-                    )
-                    if route is None:
-                        msg = f"route port {input_spec.port_id!r} is not bound"
-                        raise ValueError(msg)
-                    missing = set(input_spec.value_type.capabilities) - set(
-                        route.capabilities
-                    )
-                    if missing:
-                        msg = "route is missing capabilities: " + ", ".join(
-                            sorted(missing)
-                        )
-                        raise ValueError(msg)
-                    resolved = ResolvedRoute(
-                        port_id=route.port_id.qualified_name,
-                        resource_id=route.resource_id.value,
-                        resource_kind=route.resource_kind,
-                        capabilities=route.capabilities,
-                        entity_ids=route.entity_ids,
-                        served_entity_ids=route.served_entity_ids,
-                        product_axis_order=route.product_axis_order,
-                    )
-                    inputs[name] = BoundInput(resolved)
-                    signature_inputs[name] = content_fingerprint(resolved)
+                )
             except (ArithmeticError, KeyError, TypeError, ValueError) as error:
                 failed = True
                 problems.append(
                     _problem(
-                        "compute_node_input_binding_failed",
-                        f"compute node {node.id} input {name!r} failed: {error}",
-                        model_location(
-                            "compute",
-                            *node.id.scope,
-                            node.id.local_id,
-                            name,
-                        ),
+                        "experiment_route_entity_evaluation_failed",
+                        f"route {intent.port_id.qualified_name} entity "
+                        "expression failed for "
+                        f"point {point.logical_ordinal}: {error}",
+                        model_location("routes", intent.port_id.qualified_name),
                     )
                 )
         if failed:
+            cache[key] = None
             continue
-        implementation = implementations.selected_for(node.id)
-        signature = stable_content_hash(
-            {
-                "operation": node.id.qualified_name,
-                "contract": content_fingerprint(node.contract),
-                "interface": content_fingerprint(implementation.interface),
-                "implementation": implementation.implementation_id.value,
-                "inputs": signature_inputs,
-            }
-        )
-        signatures[node.result.id] = signature
-        schema_id = (
-            _payload_schema(node.result.value_type)
-            if node.result.id in demanded_payload_results
-            else None
-        )
-        payload_id = (
-            f"{node.result.id.qualified_name}.payload.{signature}"
-            if schema_id is not None
-            else None
-        )
-        if payload_id is not None:
-            payload_ids[node.result.id] = payload_id
-        operations.append(
-            ComputeOperation(
-                operation_id=(
-                    f"{point.logical_id.value}.compute.{node.id.qualified_name}"
-                ),
-                semantic_operation_id=node.id.qualified_name,
-                implementation_id=implementation.implementation_id.value,
-                contract=node.contract,
-                kernel=implementation.kernel,
-                inputs=inputs,
-                result=ComputeResultSlot(
-                    id=node.result.id,
-                    value_type=node.result.value_type,
-                ),
-                dependencies=dict(dependencies[node.id].as_mapping()),
-                payload_slot=(
-                    PayloadSlot(id=payload_id, schema_id=schema_id)
-                    if payload_id is not None and schema_id is not None
-                    else None
-                ),
+        try:
+            binding = routing.route_point(
+                port_id=intent.port_id,
+                capabilities=list(intent.capabilities),
+                entity_values=entity_values,
+                fixed_resource_id=intent.fixed_resource_id,
             )
+        except RoutingError as error:
+            problems.append(
+                _problem(
+                    error.code,
+                    str(error),
+                    model_location("routes", intent.port_id.qualified_name),
+                    category=(
+                        ProblemCategory.CONFLICT
+                        if error.code.endswith("_ambiguous")
+                        else ProblemCategory.UNAVAILABLE
+                    ),
+                )
+            )
+            cache[key] = None
+            continue
+        route = PendingRoute(
+            port_id=binding.port_id,
+            resource_id=binding.resource_id,
+            resource_kind=binding.resource_kind,
+            capabilities=tuple(binding.capabilities),
+            entity_ids=tuple(binding.entity_ids),
+            served_entity_ids=tuple(binding.served_entity_ids),
+            product_axis_order=tuple(binding.product_axis_order),
+            channel_bindings=tuple(binding.channel_bindings),
         )
-    return tuple(operations), payload_ids, signatures
-
-
-def _payload_schema(value_type: object) -> str | None:
-    from scopecat.kernel.value_types import Payload
-
-    if isinstance(value_type, Scalar) and isinstance(value_type.atom, Payload):
-        return value_type.atom.schema_id
-    return None
+        cache[key] = route
+        selected.append(route)
+    return tuple(selected)
 
 
 def _bind_actions(
@@ -1594,47 +1474,6 @@ def _validate_collection_requests(
                 )
             )
     return valid
-
-
-def _evaluate_value_expr(
-    value: ValueExpr | object,
-    relation_plan: VerifiedRelationPlan[PlanNode],
-    ctx: EvalContext,
-) -> object:
-    if isinstance(value, ScalarValueExpr):
-        return evaluate_scalar(
-            cast("VerifiedRelationPlan[ScalarExpr]", relation_plan),
-            ctx,
-        )
-    if isinstance(value, SeriesValueExpr):
-        return evaluate_series(
-            cast("VerifiedRelationPlan[SeriesExpr]", relation_plan),
-            ctx,
-        )
-    if isinstance(value, TableValueExpr):
-        return evaluate_relation_in_context(
-            cast("VerifiedRelationPlan[RelationExpr]", relation_plan),
-            ctx,
-        )
-    msg = f"unsupported typed value expression: {value!r}"
-    raise TypeError(msg)
-
-
-def _unwrap_payload_values(value: object) -> object:
-    if isinstance(value, PayloadValue):
-        return value.payload
-    if isinstance(value, list):
-        return [_unwrap_payload_values(item) for item in cast("list[object]", value)]
-    if isinstance(value, tuple):
-        return tuple(
-            _unwrap_payload_values(item) for item in cast("tuple[object, ...]", value)
-        )
-    if isinstance(value, dict):
-        return {
-            name: _unwrap_payload_values(item)
-            for name, item in cast("Mapping[object, object]", value).items()
-        }
-    return value
 
 
 def _problem(

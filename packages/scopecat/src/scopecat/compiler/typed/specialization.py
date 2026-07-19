@@ -237,12 +237,12 @@ def specialize_value_input(
     known: EvalContext,
     parameter_cells: tuple[ParameterCellBinding, ...],
 ) -> ValueInput:
-    expression, binding_time = specialize_value_expression(
+    expression, _binding_time = specialize_value_expression(
         value.value,
         known=known,
         parameter_cells=parameter_cells,
     )
-    return replace(value, value=expression, binding_time=binding_time)
+    return replace(value, value=expression)
 
 
 @overload

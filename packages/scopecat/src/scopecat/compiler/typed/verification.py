@@ -27,6 +27,16 @@ from scopecat.compiler.relations.verification import (
 )
 from scopecat.compiler.semantic.compute_result import ComputeResultRef
 from scopecat.compiler.semantic.value_expressions import ValueExpr
+from scopecat.compiler.typed.dependencies import (
+    ComputePlan,
+    VariationAnalysis,
+    analyze_compute_plan,
+    analyze_variation_support,
+)
+from scopecat.compiler.typed.iteration import (
+    PointIterationLayout,
+    analyze_point_iteration_layout,
+)
 from scopecat.compiler.typed.measurement_transforms import (
     typed_measurement_transform_problems,
 )
@@ -581,7 +591,10 @@ class VerifiedCoreProgram:
 
     program: CoreProgram
     point_domain: VerifiedPointDomain = dc_field(init=False)
+    iteration_layout: PointIterationLayout = dc_field(init=False)
     relation_consumers: tuple[ProgramRelationConsumer, ...] = dc_field(init=False)
+    compute_plan: ComputePlan = dc_field(init=False)
+    variation_analysis: VariationAnalysis = dc_field(init=False)
     _relation_plan_by_use: Mapping[RelationUseId, VerifiedRelationPlan[PlanNode]] = (
         dc_field(init=False, repr=False)
     )
@@ -590,6 +603,18 @@ class VerifiedCoreProgram:
         program, point_domain, consumers = _verify_core_program(self.program)
         object.__setattr__(self, "program", program)
         object.__setattr__(self, "point_domain", point_domain)
+        object.__setattr__(
+            self,
+            "iteration_layout",
+            analyze_point_iteration_layout(point_domain),
+        )
+        compute_plan = analyze_compute_plan(program)
+        object.__setattr__(self, "compute_plan", compute_plan)
+        object.__setattr__(
+            self,
+            "variation_analysis",
+            analyze_variation_support(program, compute_plan),
+        )
         object.__setattr__(
             self,
             "relation_consumers",

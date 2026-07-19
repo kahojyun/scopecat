@@ -53,8 +53,6 @@ class BindingTime(StrEnum):
     REQUEST_STATIC = "request_static"
     CONFIGURATION_STATIC = "configuration_static"
     POINT = "point"
-    EXECUTION = "execution"
-    RESULT = "result"
 
 
 @dataclass(frozen=True, slots=True)

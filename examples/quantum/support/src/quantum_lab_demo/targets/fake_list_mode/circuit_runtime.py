@@ -41,7 +41,6 @@ from scopecat_quantum import (
     AcquisitionKind,
     PulseEventId,
     PulseProgramId,
-    TargetCompileEntryId,
 )
 from scopecat_quantum.program_results import (
     CompiledQuantumTarget,
@@ -73,17 +72,13 @@ class CorrelatedFakeListFrame:
     """One raw fake frame related to exact quantum and SDK identities."""
 
     frame: FakeDigitizerFrame
-    mapped_result: DomainMappedResult[
-        TargetCompileEntryId, TargetAcquisitionAddress
-    ] = field(repr=False)
+    mapped_result: DomainMappedResult[TargetAcquisitionAddress] = field(repr=False)
     acquisition_origin: _FakeListAcquisitionOrigin = field(repr=False)
 
     def __init__(
         self,
         frame: FakeDigitizerFrame,
-        mapped_result: DomainMappedResult[
-            TargetCompileEntryId, TargetAcquisitionAddress
-        ],
+        mapped_result: DomainMappedResult[TargetAcquisitionAddress],
         acquisition_origin: _FakeListAcquisitionOrigin,
     ) -> None:
         if mapped_result.result_address != frame.address:
@@ -92,7 +87,7 @@ class CorrelatedFakeListFrame:
         if acquisition_origin.address != frame.address:
             msg = "fake frame address does not identify its quantum acquisition"
             raise ValueError(msg)
-        if mapped_result.entry_address != frame.entry_id:
+        if mapped_result.result_address.entry_id != frame.entry_id:
             msg = "fake frame entry does not own its logical result"
             raise ValueError(msg)
         object.__setattr__(self, "frame", frame)
@@ -326,20 +321,14 @@ class FakeMeasurementRealizationBinding:
 class SelectedFakeMeasurementOutput:
     """One result-specific policy bound to public mapping inventory."""
 
-    result: DomainMappedResult[
-        TargetCompileEntryId,
-        TargetAcquisitionAddress,
-    ] = field(repr=False)
+    result: DomainMappedResult[TargetAcquisitionAddress] = field(repr=False)
     acquisition_origin: _FakeListAcquisitionOrigin = field(repr=False)
     acquisition_window: FakeAcquisitionWindow = field(repr=False)
     kind: FakeMeasurementRealizationKind
 
     def __init__(
         self,
-        result: DomainMappedResult[
-            TargetCompileEntryId,
-            TargetAcquisitionAddress,
-        ],
+        result: DomainMappedResult[TargetAcquisitionAddress],
         acquisition_origin: _FakeListAcquisitionOrigin,
         acquisition_window: FakeAcquisitionWindow,
         kind: FakeMeasurementRealizationKind,
@@ -1050,7 +1039,7 @@ def _artifact_acquisitions(
 
 
 def _artifact_acquisition_problems(
-    result: DomainMappedResult[TargetCompileEntryId, TargetAcquisitionAddress],
+    result: DomainMappedResult[TargetAcquisitionAddress],
     *,
     prepared: _PreparedAcquisition,
     compiled: _ArtifactAcquisition,
@@ -1103,7 +1092,7 @@ def _artifact_acquisition_problems(
 
 
 def _product_policy_problems(
-    result: DomainMappedResult[TargetCompileEntryId, TargetAcquisitionAddress],
+    result: DomainMappedResult[TargetAcquisitionAddress],
     kind: FakeMeasurementRealizationKind,
     *,
     repetitions: int,
@@ -1275,7 +1264,7 @@ def _require_shot_index(value: object) -> None:
 
 
 def _mapped_result_product(
-    result: DomainMappedResult[TargetCompileEntryId, TargetAcquisitionAddress],
+    result: DomainMappedResult[TargetAcquisitionAddress],
 ) -> DomainProductContractView:
     product_uses = result.product_uses
     if not product_uses:
@@ -1287,7 +1276,7 @@ def _mapped_result_product(
 
 
 def _realization_identity_details(
-    result: DomainMappedResult[TargetCompileEntryId, TargetAcquisitionAddress],
+    result: DomainMappedResult[TargetAcquisitionAddress],
 ) -> dict[str, object]:
     product = _mapped_result_product(result)
     return {

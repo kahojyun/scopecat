@@ -7,10 +7,6 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 
 from scopecat.compiler.diagnostics import compiler_problem
-from scopecat.compiler.semantic.availability import (
-    ValueRate,
-    ValueStage,
-)
 from scopecat.compiler.semantic.model import (
     ImplementationCatalog,
     ImplementationId,
@@ -108,12 +104,6 @@ def select_local_implementations(
     problems: list[Problem] = []
     selected: list[SelectedLocalImplementation] = []
     for node in nodes:
-        if (
-            node.result.availability.stage is not ValueStage.EXECUTE
-            or node.result.availability.rate not in (ValueRate.RUN, ValueRate.POINT)
-        ):
-            problems.append(_output_availability_problem(node, phase=phase))
-            continue
         candidates = by_operation.get(node.id, [])
         if not candidates:
             problems.append(
@@ -197,27 +187,4 @@ def _problem(
         ),
         phase=phase,
         category=category,
-    )
-
-
-def _output_availability_problem(
-    node: TypedComputeNode,
-    *,
-    phase: ProblemPhase,
-) -> Problem:
-    availability = node.result.availability
-    return compiler_problem(
-        "semantic_operation_local_output_availability_unsupported",
-        "local execution requires execute-stage, run- or point-rate compute "
-        f"outputs; {node.result.id.qualified_name!r} is "
-        f"{availability.stage.value}-stage, {availability.rate.value}-rate",
-        model_location(
-            "compute_nodes",
-            *node.id.scope,
-            node.id.local_id,
-            "result",
-            "availability",
-        ),
-        phase=phase,
-        category=ProblemCategory.UNAVAILABLE,
     )

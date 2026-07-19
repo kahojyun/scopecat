@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from scopecat.execution.points import RunPoint
 from scopecat.measurements.values import MeasurementValueCatalog
 from scopecat.sdk.domain.view import (
     DomainExecutionView,
@@ -23,16 +24,22 @@ class DomainBatchContext:
 
     batch_ordinal: int
     execution: DomainExecutionView
-    product_uses: tuple[DomainProductUseRef, ...]
     direct_product_uses: tuple[DomainProductUseRef, ...]
     derived_product_uses: tuple[DomainProductUseRef, ...]
     measurement_catalog: MeasurementValueCatalog = field(repr=False)
+    run_points: tuple[RunPoint, ...] = field(repr=False)
 
     @property
     def points(self) -> tuple[DomainPointRef, ...]:
         """Return the canonical point references owned by the execution."""
 
         return tuple(point.ref for point in self.execution.points)
+
+    @property
+    def product_uses(self) -> tuple[DomainProductUseRef, ...]:
+        """Return direct and derived ownership in dataflow order."""
+
+        return (*self.direct_product_uses, *self.derived_product_uses)
 
     @property
     def measurement_transforms(self) -> tuple[DomainMeasurementTransform, ...]:

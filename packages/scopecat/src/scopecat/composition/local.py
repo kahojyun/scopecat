@@ -44,7 +44,7 @@ def local_execution_services(
     from scopecat.adapters.filesystem.execution import (
         FilesystemCollectionRepository,
         FilesystemExecutionJournal,
-        FilesystemMeasurementRecordCommitter,
+        FilesystemMeasurementDatasetRepository,
         FilesystemPayloadEvidenceCommitter,
         FilesystemResourceLeaseManager,
     )
@@ -55,7 +55,7 @@ def local_execution_services(
         runs=selected_runs,
         resources=FilesystemResourceLeaseManager(root),
         journal_for=lambda run_id: FilesystemExecutionJournal(root, run_id=run_id),
-        measurements_for=lambda run_id: FilesystemMeasurementRecordCommitter(
+        measurements_for=lambda run_id: FilesystemMeasurementDatasetRepository(
             root, run_id=run_id
         ),
         collections_for=lambda run_id: FilesystemCollectionRepository(

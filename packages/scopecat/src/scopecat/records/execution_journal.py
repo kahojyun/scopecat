@@ -44,7 +44,8 @@ type ExecutionStage = Literal[
     "apply_state",
     "action",
     "collect",
-    "record_measurement",
+    "append_measurement",
+    "seal_measurement",
     "abort",
     "cleanup",
     "terminal_readback",
@@ -127,7 +128,7 @@ class PayloadEvidence(BaseModel):
     )
     run_id: str
     operation_id: str
-    point_index: int = Field(ge=0)
+    point_index: int | None = Field(default=None, ge=0)
     payload_id: str
     schema_id: str
     content_hash: str

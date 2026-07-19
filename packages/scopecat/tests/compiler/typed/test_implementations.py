@@ -14,18 +14,11 @@ from scopecat.compiler.linking.implementations import (
 from scopecat.compiler.relations.model import (
     literal_rows,
 )
-from scopecat.compiler.semantic.availability import (
-    ValueAvailability,
-    ValueRate,
-    ValueStage,
-)
 from scopecat.compiler.semantic.model import (
     ImplementationCatalog,
     ImplementationId,
     LocalPythonImplementation,
     OperationId,
-    SourceAnchor,
-    SourceMap,
     ValueId,
     operation_result_id,
 )
@@ -39,19 +32,20 @@ from scopecat.compiler.typed.program import (
     TypedComputeOutput,
 )
 from scopecat.compiler.typed.verification import verify_core_program
-from scopecat.execution.local.program import ComputeStage
+from scopecat.execution.local.program import ComputeOperation
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import ProblemPhase
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Payload, Scalar, Table, ValueType
 from tests.testkit.authoring import load_config
-from tests.testkit.local_effect_program import make_test_local_effect_program
-from tests.testkit.local_materialization import materialize_local_execution
+from tests.testkit.local_materialization import (
+    materialize_local_execution,
+    operations_of_type,
+)
 from tests.testkit.relation_plans import point_domain
 from tests.testkit.typed_program import link_program, typed_program
 
 _FLOAT = Scalar(Float())
-_EXECUTE_POINT = ValueAvailability(ValueStage.EXECUTE, ValueRate.POINT)
 
 
 def _operation_id(local_id: str = "compute") -> OperationId:
@@ -63,22 +57,18 @@ def _result(
     value_type: ValueType = _FLOAT,
     *,
     value_id: ValueId | None = None,
-    availability: ValueAvailability = _EXECUTE_POINT,
 ) -> TypedComputeOutput:
     return TypedComputeOutput(
         id=value_id or operation_result_id(operation_id),
         value_type=value_type,
-        availability=availability,
     )
 
 
 def _program(
     *,
     catalog: ImplementationCatalog,
-    source_map: SourceMap | None = None,
     output_type: ValueType = _FLOAT,
     output_id: ValueId | None = None,
-    output_availability: ValueAvailability = _EXECUTE_POINT,
     point_count: int = 1,
 ) -> CoreProgram:
     operation_id = _operation_id()
@@ -101,12 +91,10 @@ def _program(
                     operation_id,
                     output_type,
                     value_id=output_id,
-                    availability=output_availability,
                 ),
             ),
         ),
         implementation_catalog=catalog,
-        source_map=source_map,
     )
 
 
@@ -126,22 +114,12 @@ def _catalog(
     )
 
 
-def test_typed_program_keeps_implementation_and_source_as_sidecars() -> None:
+def test_typed_program_keeps_implementation_catalog_as_sidecar() -> None:
     operation_id = _operation_id()
     catalog = _catalog(("python-v1", operation_id, lambda: 1.0))
-    source_map = SourceMap(
-        operation_sources=(
-            (
-                operation_id,
-                SourceAnchor(kind="compute", declaration_id="declaration"),
-            ),
-        )
-    )
-
-    program = _program(catalog=catalog, source_map=source_map)
+    program = _program(catalog=catalog)
 
     assert program.implementation_catalog is catalog
-    assert program.source_map is source_map
 
 
 def test_linking_does_not_require_a_local_implementation() -> None:
@@ -321,14 +299,14 @@ def test_binding_selects_stable_implementation_identity() -> None:
     first_plan = materialize_local_execution(link_program(first, environment))
     second_plan = materialize_local_execution(link_program(second, environment))
 
-    first_call = first_plan.points[0].compute_operations[0]
-    second_call = second_plan.points[0].compute_operations[0]
+    first_call = first_plan.run_compute_operations[0]
+    second_call = second_plan.run_compute_operations[0]
     assert first_call.semantic_operation_id == operation_id.qualified_name
     assert first_call.implementation_id == "python-v1"
     assert second_call.implementation_id == "python-v2"
 
 
-def test_bound_plan_pins_selection_and_execution_only_projects_it() -> None:
+def test_materialized_effects_pins_selection_and_execution_only_projects_it() -> None:
     operation_id = _operation_id()
 
     def kernel() -> float:
@@ -341,15 +319,14 @@ def test_bound_plan_pins_selection_and_execution_only_projects_it() -> None:
         link_program(program, validate_config_environment(load_config()))
     )
 
-    execution = make_test_local_effect_program(plan, instrument_order=())
+    execution = plan
 
-    call = plan.points[0].compute_operations[0]
+    call = plan.run_compute_operations[0]
     assert call.kernel is kernel
-    stage = execution.points[0].stages[0]
-    assert isinstance(stage, ComputeStage)
-    assert stage.operations[0].semantic_operation_id == "compute"
-    assert stage.operations[0].implementation_id == "python-v1"
-    assert stage.operations[0].kernel is kernel
+    [operation] = execution.run_compute_operations
+    assert operation.semantic_operation_id == "compute"
+    assert operation.implementation_id == "python-v1"
+    assert operation.kernel is kernel
 
 
 def test_plan_pins_exact_callable_for_selected_implementation() -> None:
@@ -371,16 +348,14 @@ def test_plan_pins_exact_callable_for_selected_implementation() -> None:
     plan = materialize_local_execution(link_program(first_program, environment))
     second_plan = materialize_local_execution(link_program(second_program, environment))
 
-    assert plan.points[0].compute_operations[0].kernel is first_kernel
-    assert second_plan.points[0].compute_operations[0].kernel is second_kernel
+    assert plan.run_compute_operations[0].kernel is first_kernel
+    assert second_plan.run_compute_operations[0].kernel is second_kernel
 
 
-def test_run_rate_compute_is_lowered_once_outside_point_programs() -> None:
+def test_dependency_free_compute_is_lowered_once_outside_point_effects() -> None:
     operation_id = _operation_id()
-    availability = ValueAvailability(ValueStage.EXECUTE, ValueRate.RUN)
     program = _program(
         catalog=_catalog(("python-v1", operation_id, lambda: 1.0)),
-        output_availability=availability,
         point_count=2,
     )
     materialized = materialize_local_execution(
@@ -388,7 +363,9 @@ def test_run_rate_compute_is_lowered_once_outside_point_programs() -> None:
     )
 
     assert len(materialized.run_compute_operations) == 1
-    assert all(not point.compute_operations for point in materialized.points)
+    assert all(
+        not operations_of_type(point, ComputeOperation) for point in materialized.points
+    )
 
 
 def test_compute_result_identity_is_preserved_in_bound_calls() -> None:
@@ -405,8 +382,8 @@ def test_compute_result_identity_is_preserved_in_bound_calls() -> None:
         link_program(_program(catalog=catalog, output_id=second_output), environment)
     )
 
-    first_call = first.points[0].compute_operations[0]
-    second_call = second.points[0].compute_operations[0]
+    first_call = first.run_compute_operations[0]
+    second_call = second.run_compute_operations[0]
     assert first_call.result.id == first_output
     assert second_call.result.id == second_output
 

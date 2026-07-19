@@ -13,11 +13,6 @@ from scopecat.compiler.relations.model import (
     point_col,
 )
 from scopecat.compiler.relations.verification import RelationPlanVerificationError
-from scopecat.compiler.semantic.availability import (
-    ValueAvailability,
-    ValueRate,
-    ValueStage,
-)
 from scopecat.compiler.semantic.compute_result import ComputeResultRef
 from scopecat.compiler.semantic.model import (
     ImplementationCatalog,
@@ -88,7 +83,6 @@ def _output(operation_id: OperationId, value_type: Scalar) -> TypedComputeOutput
     return TypedComputeOutput(
         id=operation_result_id(operation_id),
         value_type=value_type,
-        availability=ValueAvailability(ValueStage.EXECUTE, ValueRate.POINT),
     )
 
 

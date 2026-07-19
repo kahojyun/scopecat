@@ -18,11 +18,6 @@ from scopecat.compiler.relations.operators import (
 from scopecat.compiler.relations.point_domain import point_rows
 from scopecat.compiler.relations.scalar_eval import eval_binary
 from scopecat.compiler.relations.verification import RelationTypeBindings
-from scopecat.compiler.semantic.availability import (
-    ValueAvailability,
-    ValueRate,
-    ValueStage,
-)
 from scopecat.compiler.semantic.model import (
     ImplementationCatalog,
     ImplementationId,
@@ -55,19 +50,15 @@ from scopecat.compiler.semantic.verification import (
 )
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import CoreProgram
-from scopecat.execution.local.program import ComputeStage
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Scalar, Table
 from tests.testkit.authoring import load_config
-from tests.testkit.local_effect_program import make_test_local_effect_program
 from tests.testkit.local_materialization import materialize_local_execution
 from tests.testkit.relation_plans import table_value_expr
 from tests.testkit.typed_program import link_program
 
 _FLOAT = Scalar(Float())
-_PLAN_RUN = ValueAvailability(ValueStage.PLAN, ValueRate.RUN)
-_EXECUTE_POINT = ValueAvailability(ValueStage.EXECUTE, ValueRate.POINT)
 
 
 @given(
@@ -114,7 +105,7 @@ def test_contract_survives_every_local_compiler_boundary() -> None:
 
     linked = link_program(program, environment)
     bound = materialize_local_execution(linked)
-    execution = make_test_local_effect_program(bound, instrument_order=())
+    execution = bound
 
     semantic_contracts = {
         operation.id: operation.contract for operation in graph.operations
@@ -127,16 +118,15 @@ def test_contract_survives_every_local_compiler_boundary() -> None:
     } == semantic_contracts
     assert {
         call.semantic_operation_id: call.contract
-        for call in bound.points[0].compute_operations
+        for call in bound.run_compute_operations
     } == {
         operation_id.qualified_name: contract
         for operation_id, contract in semantic_contracts.items()
     }
-    stage = execution.points[0].stages[0]
-    assert isinstance(stage, ComputeStage)
+    compute_operations = execution.run_compute_operations
     assert {
         operation.semantic_operation_id: operation.contract
-        for operation in stage.operations
+        for operation in compute_operations
     } == {
         operation_id.qualified_name: contract
         for operation_id, contract in semantic_contracts.items()
@@ -163,8 +153,8 @@ def test_bound_compute_retains_semantic_contract() -> None:
     add = materialize_local_execution(link_program(add_program, environment))
     multiply = materialize_local_execution(link_program(multiply_program, environment))
 
-    add_call = add.points[0].compute_operations[-1]
-    multiply_call = multiply.points[0].compute_operations[-1]
+    add_call = add.run_compute_operations[-1]
+    multiply_call = multiply.run_compute_operations[-1]
     assert add_call.semantic_operation_id == multiply_call.semantic_operation_id
     assert add_call.implementation_id == multiply_call.implementation_id
     assert add_call.inputs == multiply_call.inputs
@@ -201,19 +191,16 @@ def _compute_program(
             ValueDef(
                 id=producer_output_id,
                 value_type=_FLOAT,
-                availability=_EXECUTE_POINT,
                 source=OperationOutputSource(producer_id),
             ),
             ValueDef(
                 id=literal_id,
                 value_type=_FLOAT,
-                availability=_PLAN_RUN,
                 source=LiteralValueSource(2.0),
             ),
             ValueDef(
                 id=scalar_output_id,
                 value_type=_FLOAT,
-                availability=_EXECUTE_POINT,
                 source=OperationOutputSource(scalar_id),
             ),
         ),

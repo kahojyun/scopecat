@@ -1,4 +1,4 @@
-"""Durable chunks and receipts for point-canonical measurement recording."""
+"""Atomic durable dataset writes and receipts."""
 
 from __future__ import annotations
 
@@ -13,136 +13,210 @@ from scopecat.kernel.content_identity import (
 )
 from scopecat.records.measurement import MeasurementRecord
 
-_MAX_RECORD_REF_LENGTH = 512
-_DURABLE_RECORD_REF = re.compile(
+_MAX_DATASET_REF_LENGTH = 512
+_DURABLE_DATASET_REF = re.compile(
     r"[A-Za-z][A-Za-z0-9._-]*/(?:[A-Za-z0-9][A-Za-z0-9._-]*/)*"
     r"[A-Za-z0-9][A-Za-z0-9._-]*"
 )
-_FORBIDDEN_RECORD_REF_NAMESPACES = frozenset({"data", "inline", "javascript"})
+_FORBIDDEN_DATASET_REF_NAMESPACES = frozenset({"inline", "javascript"})
 
 
-class MeasurementRecordChunk(BaseModel):
-    """One idempotently writable projected record with complete identity."""
+class MeasurementDatasetAppend(BaseModel):
+    """One idempotent append to a canonical run dataset."""
 
     model_config = ConfigDict(
-        extra="forbid",
-        frozen=True,
-        revalidate_instances="always",
+        extra="forbid", frozen=True, revalidate_instances="always"
     )
 
-    schema_version: Literal["scopecat.measurement_record_chunk.v1"] = (
-        "scopecat.measurement_record_chunk.v1"
+    schema_version: Literal["scopecat.measurement_dataset_append.v1"] = (
+        "scopecat.measurement_dataset_append.v1"
     )
     run_id: str
     dataset_id: str
     recording_contract_fingerprint: str
-    logical_point_id: str
-    point_index: int = Field(ge=0)
-    record: MeasurementRecord
+    start_index: int = Field(ge=0)
+    records: tuple[MeasurementRecord, ...] = Field(min_length=1)
 
-    @field_validator(
-        "run_id",
-        "dataset_id",
-        "recording_contract_fingerprint",
-        "logical_point_id",
-    )
+    @field_validator("run_id", "dataset_id", "recording_contract_fingerprint")
     @classmethod
     def validate_required_text(cls, value: str) -> str:
         if not value:
-            msg = "measurement record chunk identity fields must be non-empty"
-            raise ValueError(msg)
+            raise ValueError(
+                "measurement dataset write identity fields must be non-empty"
+            )
         return value
-
-    @field_validator("point_index", mode="before")
-    @classmethod
-    def validate_point_index(cls, value: object) -> object:
-        if isinstance(value, bool):
-            msg = "measurement record chunk point index must be an integer"
-            raise ValueError(msg)
-        return value
-
-    @field_validator("record", mode="before")
-    @classmethod
-    def snapshot_record(cls, value: object) -> MeasurementRecord:
-        if not isinstance(value, MeasurementRecord):
-            return MeasurementRecord.model_validate(value)
-        return value.model_copy(deep=True)
 
     @model_validator(mode="after")
-    def validate_record_identity(self) -> MeasurementRecordChunk:
-        if self.record.run_id != self.run_id:
-            msg = "measurement record chunk and record run ids must match"
-            raise ValueError(msg)
-        if self.record.point_index != self.point_index:
-            msg = "measurement record chunk and record point indices must match"
-            raise ValueError(msg)
-        if self.record.logical_point_id != self.logical_point_id:
-            msg = "measurement record chunk logical point does not match its record"
-            raise ValueError(msg)
+    def validate_record_identity(self) -> MeasurementDatasetAppend:
+        if any(record.run_id != self.run_id for record in self.records):
+            raise ValueError("measurement dataset append and record run ids must match")
+        indices = tuple(record.point_index for record in self.records)
+        if indices != tuple(
+            range(self.start_index, self.start_index + len(self.records))
+        ):
+            raise ValueError(
+                "measurement dataset append records must be contiguous from start_index"
+            )
+        logical_ids = tuple(record.logical_point_id for record in self.records)
+        if len(logical_ids) != len(set(logical_ids)):
+            raise ValueError("measurement dataset logical point ids must be unique")
         return self
 
     @property
     def operation_id(self) -> str:
         digest = stable_content_hash(
             {
-                "schema": "scopecat.measurement_record_operation.v1",
+                "schema": "scopecat.measurement_dataset_append_operation.v1",
                 "run_id": self.run_id,
                 "dataset_id": self.dataset_id,
                 "recording_contract_fingerprint": self.recording_contract_fingerprint,
-                "logical_point_id": self.logical_point_id,
-                "point_index": self.point_index,
+                "start_index": self.start_index,
             }
         )
-        return f"measurement-record:{digest}"
+        return f"measurement-dataset-append:{digest}"
 
     @property
     def content_hash(self) -> str:
         return model_wire_content_hash(self)
 
 
-class MeasurementRecordReceipt(BaseModel):
-    """Durable committer evidence for one exact measurement record chunk."""
+class MeasurementDatasetReceipt(BaseModel):
+    """Durable evidence for one dataset append or seal operation."""
 
     model_config = ConfigDict(
-        extra="forbid",
-        frozen=True,
-        revalidate_instances="always",
+        extra="forbid", frozen=True, revalidate_instances="always"
     )
 
-    schema_version: Literal["scopecat.measurement_record_receipt.v1"] = (
-        "scopecat.measurement_record_receipt.v1"
+    schema_version: Literal["scopecat.measurement_dataset_receipt.v1"] = (
+        "scopecat.measurement_dataset_receipt.v1"
     )
     operation_id: str
-    chunk_content_hash: str
-    record_ref: str
+    dataset_content_hash: str
+    dataset_ref: str
 
-    @field_validator("operation_id", "chunk_content_hash")
+    @field_validator("operation_id", "dataset_content_hash")
     @classmethod
     def validate_required_text(cls, value: str) -> str:
         if not value:
-            msg = "measurement record receipt fields must be non-empty"
-            raise ValueError(msg)
+            raise ValueError("measurement dataset receipt fields must be non-empty")
         return value
 
-    @field_validator("record_ref")
+    @field_validator("dataset_ref")
     @classmethod
-    def validate_record_ref(cls, value: str) -> str:
-        if not value or len(value) > _MAX_RECORD_REF_LENGTH:
-            msg = "measurement record receipt ref has an invalid length"
-            raise ValueError(msg)
+    def validate_dataset_ref(cls, value: str) -> str:
         namespace, separator, _key = value.partition("/")
         if (
-            not separator
-            or namespace.lower() in _FORBIDDEN_RECORD_REF_NAMESPACES
-            or _DURABLE_RECORD_REF.fullmatch(value) is None
+            not value
+            or len(value) > _MAX_DATASET_REF_LENGTH
+            or not separator
+            or namespace.lower() in _FORBIDDEN_DATASET_REF_NAMESPACES
+            or _DURABLE_DATASET_REF.fullmatch(value) is None
         ):
-            msg = (
-                "measurement record receipt ref must be a safe namespaced "
-                "relative durable locator"
+            raise ValueError(
+                "measurement dataset receipt ref must be a safe durable locator"
             )
-            raise ValueError(msg)
         return value
 
     @property
     def content_hash(self) -> str:
         return model_wire_content_hash(self)
+
+
+class MeasurementDatasetAppendIndex(BaseModel):
+    """Small durable index for one canonical record append."""
+
+    model_config = ConfigDict(
+        extra="forbid", frozen=True, revalidate_instances="always"
+    )
+
+    schema_version: Literal["scopecat.measurement_dataset_append_index.v1"] = (
+        "scopecat.measurement_dataset_append_index.v1"
+    )
+    operation_id: str
+    start_index: int = Field(ge=0)
+    record_count: int = Field(gt=0)
+    recording_contract_fingerprint: str
+    append_content_hash: str
+
+    @classmethod
+    def from_append(
+        cls,
+        append: MeasurementDatasetAppend,
+    ) -> MeasurementDatasetAppendIndex:
+        return cls(
+            operation_id=append.operation_id,
+            start_index=append.start_index,
+            record_count=len(append.records),
+            recording_contract_fingerprint=(append.recording_contract_fingerprint),
+            append_content_hash=append.content_hash,
+        )
+
+
+class MeasurementDatasetSeal(BaseModel):
+    """Seal one append-only dataset after its admitted point range is complete."""
+
+    model_config = ConfigDict(
+        extra="forbid", frozen=True, revalidate_instances="always"
+    )
+
+    schema_version: Literal["scopecat.measurement_dataset_seal.v1"] = (
+        "scopecat.measurement_dataset_seal.v1"
+    )
+    run_id: str
+    dataset_id: str
+    recording_contract_fingerprint: str
+    point_count: int = Field(ge=0)
+    dataset_content_hash: str
+
+    @field_validator(
+        "run_id",
+        "dataset_id",
+        "recording_contract_fingerprint",
+        "dataset_content_hash",
+    )
+    @classmethod
+    def validate_required_text(cls, value: str) -> str:
+        if not value:
+            raise ValueError(
+                "measurement dataset seal identity fields must be non-empty"
+            )
+        return value
+
+    @property
+    def operation_id(self) -> str:
+        digest = stable_content_hash(
+            {
+                "schema": "scopecat.measurement_dataset_seal_operation.v1",
+                "run_id": self.run_id,
+                "dataset_id": self.dataset_id,
+                "recording_contract_fingerprint": self.recording_contract_fingerprint,
+            }
+        )
+        return f"measurement-dataset-seal:{digest}"
+
+    @property
+    def content_hash(self) -> str:
+        return model_wire_content_hash(self)
+
+
+def measurement_dataset_content_hash(
+    *,
+    recording_contract_fingerprint: str,
+    append_content_hashes: tuple[str, ...],
+) -> str:
+    return stable_content_hash(
+        {
+            "schema": "scopecat.measurement_dataset_content.v1",
+            "recording_contract_fingerprint": recording_contract_fingerprint,
+            "append_content_hashes": append_content_hashes,
+        }
+    )
+
+
+__all__ = [
+    "MeasurementDatasetAppend",
+    "MeasurementDatasetAppendIndex",
+    "MeasurementDatasetReceipt",
+    "MeasurementDatasetSeal",
+    "measurement_dataset_content_hash",
+]

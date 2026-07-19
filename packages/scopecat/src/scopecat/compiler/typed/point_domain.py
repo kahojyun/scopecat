@@ -220,7 +220,7 @@ class MaterializedPoint:
 
 @dataclass(frozen=True, slots=True, init=False)
 class MaterializedPointDomain:
-    """The complete canonical ordered materialization of one symbolic domain."""
+    """One canonical contiguous coverage of a symbolic point domain."""
 
     id: PointDomainId
     points: tuple[MaterializedPoint, ...]
@@ -237,9 +237,10 @@ class MaterializedPointDomain:
         if any(point.logical_id.domain_id != domain_id for point in selected):
             msg = "materialized point identities must belong to their domain"
             raise ValueError(msg)
+        first_ordinal = selected[0].logical_ordinal if selected else 0
         if any(
             point.logical_id != LogicalPointId(domain_id, ordinal)
-            for ordinal, point in enumerate(selected)
+            for ordinal, point in enumerate(selected, start=first_ordinal)
         ):
             msg = (
                 "materialized point identities must follow canonical contiguous "

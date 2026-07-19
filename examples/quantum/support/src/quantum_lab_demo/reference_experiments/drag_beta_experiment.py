@@ -15,6 +15,7 @@ from typing import cast
 
 import scopecat as sc
 from scopecat import Quantity
+from scopecat.kernel.resource_identity import ResourceClaim
 from scopecat.sdk.domain import (
     CorrelatedDomainFetch,
     DomainBatchContext,
@@ -217,6 +218,14 @@ class DragBetaDomainCompiler:
     def target_id(self) -> str:
         return self.target.id.value
 
+    def claim_resources(
+        self,
+        call: DomainCallView,
+    ) -> tuple[ResourceClaim, ...] | None:
+        if not _accepts_execution(call):
+            return None
+        return (ResourceClaim(self.target.id.value, "target"),)
+
     def compile(self, request: DomainCompileRequest) -> DomainCompilation | None:
         if not _accepts_execution(request.call):
             return None
@@ -233,7 +242,7 @@ class DragBetaDomainCompiler:
         context: DomainBatchContext,
     ) -> PreparedDomainExecution:
         execution = context.execution
-        artifact = cast("_DragBetaArtifact", job.artifact)
+        artifact = cast("_DragBetaArtifact", job.take_artifact())
         preparation = context.new_preparation()
         iq_result = _validated_result_contracts(execution)
         reference = prepare_drag_beta_reference(
@@ -250,7 +259,8 @@ class DragBetaDomainCompiler:
         )
         self._runtimes.append(reference.runtime)
         return preparation.build(
-            measurements=reference.measurements,
+            mapping=reference.measurement_mapping,
+            host_transforms=reference.host_transforms,
             invocation=reference.invocation,
             runtime=reference.runtime,
             realize=lambda fetched: _realize(reference, fetched),

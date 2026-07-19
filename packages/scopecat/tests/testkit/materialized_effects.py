@@ -16,12 +16,13 @@ from scopecat.measurements.projection import (
     MeasurementProjection,
     select_measurement_projection,
 )
-from scopecat.planning.local_materialization import (
-    MaterializedLocalEffects,
-)
 from scopecat.records.config import ConfigProfileSnapshot, RoutingResource
 from tests.testkit.authoring import load_config
-from tests.testkit.local_materialization import materialize_local_execution
+from tests.testkit.local_materialization import (
+    MaterializedLocalEffects,
+    materialize_local_execution,
+    operations_of_type,
+)
 from tests.testkit.typed_program import link_program
 
 
@@ -79,7 +80,7 @@ def config_with_physical_resources(
     return config.model_copy(update={"system": system})
 
 
-def bound_plan_contract(
+def materialized_effects_contract(
     experiment: CoreProgram,
     parameters: ParameterRelationData,
     *,
@@ -109,7 +110,7 @@ def measurement_projection_contract(
     )
 
 
-def bound_state_fields(
+def materialized_state_fields(
     plan: MaterializedLocalEffects,
 ) -> tuple[tuple[int, ApplyStateOperation, StateTarget], ...]:
     """Flatten bound state for focused assertions without another projection."""
@@ -117,10 +118,6 @@ def bound_state_fields(
     return tuple(
         (point.point_index, operation, target)
         for point in plan.points
-        for operation in point.state_operations
+        for operation in operations_of_type(point, ApplyStateOperation)
         for target in operation.targets
     )
-
-
-def bound_coordinate_ids(plan: MaterializedLocalEffects) -> tuple[str, ...]:
-    return tuple(plan.points[0].coordinates) if plan.points else ()

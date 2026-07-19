@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import override
 
@@ -27,6 +28,7 @@ from quantum_lab_demo.reference_experiments import (
 from quantum_lab_demo.targets.fake_list_mode import (
     FakeListDomainRuntime,
     FakeListRun,
+    default_fake_list_target,
 )
 
 
@@ -60,7 +62,7 @@ class _SecondBatchUnknownRuntime(FakeListDomainRuntime):
         return super().fetch(request)
 
 
-def test_scalar_voltage_barriers_preserve_state_and_logical_results(
+def test_resource_independent_domain_spans_bias_state_coverage(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -95,17 +97,19 @@ def test_scalar_voltage_barriers_preserve_state_and_logical_results(
     ]
     assert effect_stages.count("apply_state") == 2
     domain_stages = [stage for stage in effect_stages if stage != "apply_state"]
-    assert domain_stages == ["domain_submit", "domain_fetch"] * len(records)
+    assert domain_stages == ["domain_submit", "domain_fetch"]
     second_state = effect_stages.index("apply_state", 1)
     assert "domain_fetch" in effect_stages[1:second_state]
-    assert "domain_submit" in effect_stages[second_state + 1 :]
+    assert "domain_submit" not in effect_stages[second_state + 1 :]
 
 
-def test_later_batch_failure_has_one_domain_problem_and_no_partial_dataset(
+def test_later_batch_failure_has_one_domain_problem_and_partial_dataset(
     tmp_path: Path,
 ) -> None:
     source = FakeBiasVoltageProvider()
-    compiler = FakeXCountDomainCompiler()
+    compiler = FakeXCountDomainCompiler(
+        target=replace(default_fake_list_target(), max_list_entries=4)
+    )
     compiler.runtime = _SecondBatchUnknownRuntime()
     lab = sc.open(
         tmp_path,
@@ -125,7 +129,9 @@ def test_later_batch_failure_has_one_domain_problem_and_no_partial_dataset(
     assert codes.count("injected_second_batch_unknown") == 1
     assert "execution_middle_effect_failed" not in codes
     assert compiler.runtime.physical_execution_count == 2
-    assert persisted.manifest.datasets == ()
+    [dataset] = persisted.manifest.datasets
+    assert dataset.metadata["partial"] is True
+    assert dataset.metadata["expected_record_count"] == 8
 
 
 def _run_mixed_experiment(

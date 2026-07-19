@@ -7,7 +7,7 @@ from scopecat.adapters.memory.config_registry import (
 from scopecat.adapters.memory.execution import (
     MemoryCollectionRepository,
     MemoryExecutionJournal,
-    MemoryMeasurementRecordCommitter,
+    MemoryMeasurementDatasetRepository,
     MemoryPayloadEvidenceCommitter,
 )
 from scopecat.adapters.memory.resources import MemoryResourceLeaseManager
@@ -18,7 +18,7 @@ __all__ = [
     "MemoryCollectionRepository",
     "MemoryConfigRegistryRepository",
     "MemoryExecutionJournal",
-    "MemoryMeasurementRecordCommitter",
+    "MemoryMeasurementDatasetRepository",
     "MemoryPayloadEvidenceCommitter",
     "MemoryResourceLeaseManager",
     "MemoryRunRepository",

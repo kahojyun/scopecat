@@ -26,7 +26,6 @@ def _transform(
             id="test.identity",
             version="1",
         ),
-        rate="point",
         inputs=(("source", product_id(source)),),
         outputs=(("result", product_id(output)),),
     )
@@ -44,7 +43,6 @@ def test_measurement_transform_roles_are_unique() -> None:
                 id="test.identity",
                 version="1",
             ),
-            rate="point",
             inputs=(
                 ("source", product_id("left")),
                 ("source", product_id("right")),

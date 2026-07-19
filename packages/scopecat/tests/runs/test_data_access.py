@@ -9,6 +9,7 @@ from scopecat.adapters.filesystem.run_repository import FilesystemRunRepository
 from scopecat.composition.local import local_run_repository, local_workspace_services
 from scopecat.kernel.errors import CheckFailed, DataIntegrityError, NotFound
 from scopecat.records.config import config_content_hash
+from scopecat.records.measurement_recording import MeasurementDatasetAppend
 from scopecat.records.run import RunManifest
 from scopecat.runs.access import (
     dataset_storage_ref,
@@ -219,10 +220,19 @@ def test_workflow_run_data_access_rejects_invalid_typed_storage_rows(
     raw_dataset_entry = next(
         dataset for dataset in run.datasets if dataset.id == "raw-measurements"
     )
-    measurement_path = storage.ref_path(
-        run.run_id, dataset_storage_ref(raw_dataset_entry)
+    measurement_ref = (
+        f"{dataset_storage_ref(raw_dataset_entry)}/chunks/00000000000000000000.json"
     )
-    measurement_path.write_text(f"{invalid_measurement.model_dump_json()}\n")
+    append = storage.read_model(
+        run.run_id,
+        measurement_ref,
+        MeasurementDatasetAppend,
+    )
+    storage.write_model(
+        run.run_id,
+        measurement_ref,
+        append.model_copy(update={"records": (invalid_measurement,)}),
+    )
     with pytest.raises(DataIntegrityError) as invalid_scalar_row:
         read_run_measurement_dataset(
             run_id=run.run_id,

@@ -10,6 +10,7 @@ from scopecat.compiler.linking.linked import (
     link_verified_program,
 )
 from scopecat.compiler.typed.domain_results import domain_result_closure
+from scopecat.execution.points import RunPoint
 from scopecat.measurements.host_transforms import HostMeasurementTransformCall
 from scopecat.measurements.semantics import MeasurementTransformSemanticContract
 from scopecat.planning.authoring import resolve_experiment
@@ -119,7 +120,6 @@ def test_domain_transform_lowering_recovers_exact_native_contracts(
     native = lower_domain_measurement_transform(context, transform)
 
     assert native.id.value == transform.id
-    assert native.rate == "point"
     assert native.inputs[0].product_use_id == product_use_id(
         transform.inputs[0].product_use
     )
@@ -145,7 +145,7 @@ def test_lowered_host_kernel_recovers_original_context_point_ref(
 
     def kernel(call: DomainHostTransformCall):
         calls.append(call)
-        return {"summary": Quantity(2, "count")}
+        return {"summary": (Quantity(2, "count"),) * len(call.points)}
 
     binding = DomainHostTransformBinding(
         transform,
@@ -163,25 +163,23 @@ def test_lowered_host_kernel_recovers_original_context_point_ref(
     )
 
     native_implementation.validate_transform(native_transform)
-    point = context.points[1]
+    points = context.points
     outputs = native_implementation.kernel(
         HostMeasurementTransformCall(
             transform_id=native_transform.id,
             semantic=native_transform.semantic,
-            logical_point_id=point_id(point),
-            point_index=point.ordinal,
+            points=tuple(RunPoint(point_id(point), {}) for point in points),
             input_ports=native_transform.inputs,
             output_ports=native_transform.outputs,
-            inputs={"raw": Quantity(3, "count")},
+            inputs={"raw": (Quantity(3, "count"),) * len(points)},
         )
     )
 
     assert validated == [transform]
     assert len(calls) == 1
-    assert calls[0].point is point
+    assert calls[0].points == points
     assert calls[0].transform is transform
-    assert calls[0].point_index == point.ordinal
-    assert outputs == {"summary": Quantity(2, "count")}
+    assert outputs == {"summary": (Quantity(2, "count"),) * len(points)}
 
 
 def test_domain_transform_lowering_rejects_foreign_product_ref(

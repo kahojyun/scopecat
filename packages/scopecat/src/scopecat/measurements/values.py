@@ -10,7 +10,7 @@ from typing import Protocol, cast
 
 from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.typed.products import ProductDef
-from scopecat.execution.points import RunPoint, RunPointCatalog
+from scopecat.execution.points import RunPoint, RunPointContract
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.errors import CheckFailed, ProviderContractError
 from scopecat.kernel.json_types import JsonValue
@@ -49,14 +49,12 @@ class MeasurementValueSelection(Protocol):
 
     def product_for_use(self, product_use_id: ProductUseId) -> ProductDef: ...
 
-    def point(self, logical_point_id: LogicalPointId) -> RunPoint: ...
-
 
 @dataclass(frozen=True, slots=True)
 class MeasurementValueCatalog:
-    """Closed point, product-use, and product inventory for one run."""
+    """Point-independent measurement product contract for one experiment."""
 
-    point_catalog: RunPointCatalog
+    point_contract: RunPointContract
     product_uses: tuple[ProductUse, ...]
     product_defs: tuple[ProductDef, ...]
     contract_fingerprint: str = field(init=False)
@@ -70,13 +68,9 @@ class MeasurementValueCatalog:
                 content_fingerprint(
                     {
                         "schema": "scopecat.measurement_value_contract.v1",
-                        "points": [
-                            {
-                                "logical_point_id": point.logical_id.value,
-                                "coordinates": point.coordinates,
-                            }
-                            for point in self.point_catalog.points
-                        ],
+                        "experiment_id": self.point_contract.experiment_id,
+                        "experiment_kind": self.point_contract.experiment_kind,
+                        "coordinate_ids": self.point_contract.coordinate_ids,
                         "product_uses": [
                             {
                                 "product_use_id": use.id.value,
@@ -106,12 +100,6 @@ class SelectedMeasurementValues:
         hash=False,
     )
     _product_by_use_id: Mapping[ProductUseId, ProductDef] = field(
-        init=False,
-        repr=False,
-        compare=False,
-        hash=False,
-    )
-    _point_by_id: Mapping[LogicalPointId, RunPoint] = field(
         init=False,
         repr=False,
         compare=False,
@@ -148,13 +136,6 @@ class SelectedMeasurementValues:
                 {use_id: all_products[use_id] for use_id in self.product_use_ids}
             ),
         )
-        object.__setattr__(
-            self,
-            "_point_by_id",
-            MappingProxyType(
-                {point.logical_id: point for point in self.catalog.point_catalog.points}
-            ),
-        )
 
     def product_use(self, product_use_id: ProductUseId) -> ProductUse:
         try:
@@ -168,13 +149,6 @@ class SelectedMeasurementValues:
             return self._product_by_use_id[product_use_id]
         except KeyError as error:
             msg = f"product use {product_use_id.value!r} is not selected"
-            raise KeyError(msg) from error
-
-    def point(self, logical_point_id: LogicalPointId) -> RunPoint:
-        try:
-            return self._point_by_id[logical_point_id]
-        except KeyError as error:
-            msg = f"logical point {logical_point_id.value!r} is not selected"
             raise KeyError(msg) from error
 
 
@@ -311,12 +285,14 @@ def select_measurement_values(
 def seal_measurement_values(
     selection: MeasurementValueSelection,
     candidates: Sequence[MeasurementValueCandidate],
+    *,
+    points: Sequence[RunPoint],
 ) -> ClosedMeasurementProductValues:
-    """Close the canonical logical value inventory once at the run boundary."""
+    """Close the canonical logical value inventory for one admitted coverage."""
 
     selected = selection
     supplied = tuple(candidates)
-    points = selected.catalog.point_catalog.points
+    points = tuple(points)
     expected_keys = {
         (point.logical_id, use_id)
         for point in points

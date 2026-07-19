@@ -13,13 +13,11 @@ from collections.abc import Sequence
 from typing import Literal
 
 from scopecat.sdk.domain import (
-    DomainEntryPointBinding,
     DomainPointRef,
     DomainPreparationBuilder,
     DomainProductUseRef,
+    DomainResultBinding,
     DomainResultMapping,
-    DomainResultUseBinding,
-    DomainTargetEntry,
 )
 
 from scopecat_quantum._ids import TargetCompileEntryId
@@ -40,25 +38,20 @@ def map_target_results(
     request: TargetCompileRequest,
     entry_points: Sequence[TargetEntryPoint],
     acquisition_uses: Sequence[TargetAcquisitionUse],
-) -> DomainResultMapping[TargetCompileEntryId, TargetAcquisitionAddress]:
+) -> DomainResultMapping[TargetAcquisitionAddress]:
     """Map one sealed target request inventory to exact logical outputs."""
 
+    point_by_entry = dict(entry_points)
+    expected_entry_ids = tuple(entry.id for entry in request.entries)
+    if len(point_by_entry) != len(entry_points) or set(point_by_entry) != set(
+        expected_entry_ids
+    ):
+        raise ValueError("quantum entry-point bindings must cover target entries")
     return preparation.map_measurements(
-        entries=tuple(
-            DomainTargetEntry(
-                entry_address=entry.id,
-                result_addresses=entry.acquisition_addresses,
-            )
-            for entry in request.entries
-        ),
-        entry_points=tuple(
-            DomainEntryPointBinding(entry_address=entry_id, point=point)
-            for entry_id, point in entry_points
-        ),
         results=tuple(
-            DomainResultUseBinding(
-                entry_address=address.entry_id,
+            DomainResultBinding(
                 result_address=address,
+                point=point_by_entry[address.entry_id],
                 product_use=product_use,
             )
             for address, product_use in acquisition_uses
@@ -68,23 +61,9 @@ def map_target_results(
 
 def validate_target_result_mapping(
     request: TargetCompileRequest,
-    domain_mapping: DomainResultMapping[
-        TargetCompileEntryId,
-        TargetAcquisitionAddress,
-    ],
+    domain_mapping: DomainResultMapping[TargetAcquisitionAddress],
 ) -> None:
     """Bind independently produced SDK mapping evidence to one request."""
-
-    expected_inventory = tuple(
-        (entry.id, entry.acquisition_addresses) for entry in request.entries
-    )
-    mapped_inventory = tuple(
-        (entry.entry_address, entry.result_addresses)
-        for entry in domain_mapping.target_entries
-    )
-    if mapped_inventory != expected_inventory:
-        msg = "domain mapping must retain the exact prepared batch inventory"
-        raise ValueError(msg)
 
     expected_addresses = request.acquisition_addresses
     mapped_addresses = tuple(result.result_address for result in domain_mapping.results)
@@ -92,12 +71,6 @@ def validate_target_result_mapping(
         expected_addresses
     ):
         msg = "domain mapping must exactly cover prepared acquisition addresses"
-        raise ValueError(msg)
-    if any(
-        result.entry_address != result.result_address.entry_id
-        for result in domain_mapping.results
-    ):
-        msg = "domain result parent entries must derive from quantum addresses"
         raise ValueError(msg)
 
 

@@ -16,11 +16,11 @@ def build_run_program_preview(
     """Project stable user-visible facts from a closed RunProgram."""
 
     selected = program.measurements
-    catalog = selected.catalog.point_catalog
+    catalog = program.points
     return ExperimentPreview(
         experiment_id=catalog.experiment_id,
         experiment_kind=catalog.experiment_kind,
-        schema=selected.schema,
+        schema=selected.schema_for(catalog.points),
         coordinate_ids=tuple(selected.coordinate_ids),
         points=tuple(
             ExperimentPreviewPoint(

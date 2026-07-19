@@ -80,6 +80,8 @@ from scopecat.composition.local import (
     local_workspace_services,
 )
 from scopecat.config.resolution import register_and_activate_config_profile
+from scopecat.execution.local.program import CollectOperation
+from scopecat.execution.points import RunPoint
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
 from scopecat.kernel.resource_identity import logical_resource_port_id
@@ -102,11 +104,11 @@ from tests.testkit.authoring import (
 from tests.testkit.authoring import (
     parameters as _parameters,
 )
-from tests.testkit.bound_plan import (
-    bound_coordinate_ids,
-    bound_plan_contract,
-    bound_state_fields,
+from tests.testkit.local_materialization import operations_of_type
+from tests.testkit.materialized_effects import (
     config_with_physical_resources,
+    materialized_effects_contract,
+    materialized_state_fields,
     measurement_projection_contract,
 )
 from tests.testkit.relation_plans import evaluate_scalar
@@ -252,14 +254,19 @@ def test_module_invocation_resolves_roles_scans_bindings_and_metadata() -> None:
     assert experiment.id == "authored-simple-scan"
     assert experiment.kind == "simple_scan"
     assert experiment.metadata == {"assembled_by": "template"}
-    preview = bound_plan_contract(experiment, resolved.parameters, config=load_config())
+    preview = materialized_effects_contract(
+        experiment, resolved.parameters, config=load_config()
+    )
+    projection = measurement_projection_contract(
+        experiment, resolved.parameters, config=load_config()
+    )
 
-    assert bound_coordinate_ids(preview) == ("drive_frequency",)
+    assert projection.coordinate_ids == ("drive_frequency",)
     assert preview.points[0].coordinates["drive_frequency"] == Quantity(
         value=4.9, unit="GHz"
     )
     assert [record.id for record in experiment.record_uses] == ["signal"]
-    _, state, field = bound_state_fields(preview)[0]
+    _, state, field = materialized_state_fields(preview)[0]
     assert state.instrument_id == "source-0"
     assert field.capability_id == "set_frequency"
     assert field.field_path == "frequency"
@@ -442,7 +449,7 @@ def test_template_can_scan_entity_input_without_subject_special_case() -> None:
         template.bind(),
         config_profile=load_config(),
     )
-    preview = bound_plan_contract(resolved.experiment, resolved.parameters)
+    preview = materialized_effects_contract(resolved.experiment, resolved.parameters)
     projection = measurement_projection_contract(
         resolved.experiment,
         resolved.parameters,
@@ -451,7 +458,12 @@ def test_template_can_scan_entity_input_without_subject_special_case() -> None:
     assert preview.points[0].coordinates["qubit"] == EntityRef(
         id="q0", kind="logical_device"
     )
-    schema = projection.schema
+    schema = projection.schema_for(
+        tuple(
+            RunPoint(point.logical_id, dict(point.coordinates))
+            for point in preview.points
+        )
+    )
     assert schema is not None
     coordinate = next(
         variable for variable in schema.variables if variable.id == "qubit"
@@ -573,14 +585,16 @@ def test_entity_scan_routes_resources_per_point() -> None:
         template.bind(),
         config_profile=config,
     )
-    preview = bound_plan_contract(
+    preview = materialized_effects_contract(
         resolved.experiment,
         resolved.parameters,
         config=config,
     )
 
     assert [point.point_index for point in preview.points] == [0, 1]
-    assert [state.instrument_id for _, state, _ in bound_state_fields(preview)] == [
+    assert [
+        state.instrument_id for _, state, _ in materialized_state_fields(preview)
+    ] == [
         "source-0",
         "source-1",
     ]
@@ -729,7 +743,7 @@ def test_runtime_entity_scan_feeds_routing_and_parameter_lookup() -> None:
         ),
         config_profile=config,
     )
-    preview = bound_plan_contract(
+    preview = materialized_effects_contract(
         resolved.experiment,
         resolved.parameters,
         config=config,
@@ -741,7 +755,7 @@ def test_runtime_entity_scan_feeds_routing_and_parameter_lookup() -> None:
     ]
     assert [
         (point_index, state.instrument_id, field.value.root)
-        for point_index, state, field in bound_state_fields(preview)
+        for point_index, state, field in materialized_state_fields(preview)
     ] == [
         (0, "source-0", Quantity(value=5.0, unit="GHz")),
         (1, "source-1", Quantity(value=5.1, unit="GHz")),
@@ -855,7 +869,7 @@ def test_runtime_entity_scan_can_drive_dependent_default_scan() -> None:
         ),
         config_profile=config,
     )
-    preview = bound_plan_contract(
+    preview = materialized_effects_contract(
         resolved.experiment,
         resolved.parameters,
         config=config,
@@ -1058,14 +1072,14 @@ def test_entity_series_routes_as_single_point_with_ordered_product_axis() -> Non
         template.bind(qubits=("q0", "q1")),
         config_profile=config,
     )
-    preview = bound_plan_contract(
+    preview = materialized_effects_contract(
         resolved.experiment,
         resolved.parameters,
         config=config,
     )
 
     assert len(preview.points) == 1
-    [operation] = preview.points[0].collect_operations
+    [operation] = operations_of_type(preview.points[0], CollectOperation)
     [request] = operation.command.requests
     assert operation.instrument_id == "readout-array"
     assert request.entity_ids == ["q0", "q1"]
@@ -1161,8 +1175,8 @@ def test_link_assembly_resolves_config_dependent_fragments() -> None:
 
     assert resolved.experiment.id == "authored-simple-scan"
     assert resolved.config.id == load_config().id
-    preview = bound_plan_contract(resolved.experiment, resolved.parameters)
-    assert bound_state_fields(preview)[0][1].instrument_id == "source-0"
+    preview = materialized_effects_contract(resolved.experiment, resolved.parameters)
+    assert materialized_state_fields(preview)[0][1].instrument_id == "source-0"
 
 
 def test_link_assembly_validates_parameter_contracts_owned_by_point_source() -> None:
@@ -1686,7 +1700,7 @@ def test_template_invocation_runs_composed_modules_directly() -> None:
         ),
         config_profile=load_config(),
     )
-    preview = bound_plan_contract(
+    preview = materialized_effects_contract(
         resolved.experiment,
         resolved.parameters,
     )
@@ -1856,7 +1870,7 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
         config_profile=config,
     )
 
-    preview = bound_plan_contract(
+    preview = materialized_effects_contract(
         resolved.experiment,
         resolved.parameters,
         config=config,
@@ -1866,7 +1880,7 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
     resource_target = state.resource_target
     assert isinstance(resource_target, LogicalStateResourceTarget)
     assert resource_target.port_id.qualified_name == "drive"
-    assert bound_state_fields(preview)[0][1].instrument_id == "source-1"
+    assert materialized_state_fields(preview)[0][1].instrument_id == "source-1"
 
 
 def test_module_can_materialize_background_state_from_parameter_table() -> None:
@@ -1958,7 +1972,7 @@ def test_module_can_materialize_background_state_from_parameter_table() -> None:
         ).bind(),
         config_profile=config,
     )
-    preview = bound_plan_contract(
+    preview = materialized_effects_contract(
         resolved.experiment,
         resolved.parameters,
         config=config,
@@ -1970,7 +1984,7 @@ def test_module_can_materialize_background_state_from_parameter_table() -> None:
             f"{field.capability_id}.{field.field_path}",
             field.value.root,
         )
-        for _, state, field in bound_state_fields(preview)
+        for _, state, field in materialized_state_fields(preview)
     ] == [
         ("flux-q0", "set_offset.offset", Quantity(value=0.1, unit="arb")),
         ("flux-q1", "set_offset.offset", Quantity(value=-0.2, unit="arb")),
@@ -2012,7 +2026,7 @@ def test_module_assembler_reports_ambiguous_resource_port() -> None:
         config_profile=config,
     )
     with pytest.raises(CheckFailed) as failure:
-        bound_plan_contract(
+        materialized_effects_contract(
             resolved.experiment,
             resolved.parameters,
             config=config,
@@ -2042,7 +2056,7 @@ def test_resolve_experiment_uses_active_config_and_input_defaults(
     assert resolved.config.id == load_config().id
     assert resolved.request.config_source == "active"
     experiment = resolved.experiment
-    preview = bound_plan_contract(experiment, _parameters())
+    preview = materialized_effects_contract(experiment, _parameters())
 
     assert preview.points[0].coordinates["drive_frequency"] == Quantity(
         value=4.9, unit="GHz"

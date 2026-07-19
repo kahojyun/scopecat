@@ -3,12 +3,15 @@
 from typing import Protocol
 
 from scopecat.records.measurement_recording import (
-    MeasurementRecordChunk,
-    MeasurementRecordReceipt,
+    MeasurementDatasetAppend,
+    MeasurementDatasetReceipt,
+    MeasurementDatasetSeal,
 )
 
 
-class MeasurementRecordCommitter(Protocol):
-    """Idempotently commit one chunk by deterministic operation identity."""
+class MeasurementDatasetWriter(Protocol):
+    """Idempotently append and seal one canonical dataset."""
 
-    def commit(self, chunk: MeasurementRecordChunk) -> MeasurementRecordReceipt: ...
+    def append(self, append: MeasurementDatasetAppend) -> MeasurementDatasetReceipt: ...
+
+    def seal(self, seal: MeasurementDatasetSeal) -> MeasurementDatasetReceipt: ...

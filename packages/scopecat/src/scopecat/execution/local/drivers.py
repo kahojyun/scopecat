@@ -6,7 +6,7 @@ import logging
 from typing import cast
 
 from scopecat.execution.events import RuntimeTransitionProjector
-from scopecat.execution.ports.journal import ExecutionJournal
+from scopecat.execution.ports.journal import ExecutionJournal, commit_transition
 from scopecat.execution.problems import problem_from_exception, runtime_problem
 from scopecat.kernel.problems import (
     LocationPathItem,
@@ -296,7 +296,7 @@ def _commit_setup_transition(
     problems: list[Problem],
 ) -> BaseException | None:
     try:
-        committed = journal.append(entry)
+        committed = commit_transition(journal, entry)
         transition_observer.observe(committed)
     except Exception as error:
         problems.append(

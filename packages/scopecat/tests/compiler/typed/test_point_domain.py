@@ -675,17 +675,25 @@ def test_verified_domain_is_a_defensive_snapshot() -> None:
     assert captured_root.rows == [{"x": 1}]
 
 
-def test_materialized_domain_rejects_a_forged_noncanonical_point_identity() -> None:
+def test_materialized_domain_accepts_nonzero_coverage_and_rejects_gaps() -> None:
     verified = verify_point_domain(_domain([1]), program_id="program")
-    forged = MaterializedPoint(
+    first = MaterializedPoint(
         LogicalPointId(verified.id, 7),
         {"x": 1},
     )
+    gap = MaterializedPoint(LogicalPointId(verified.id, 9), {"x": 2})
+
+    coverage = MaterializedPointDomain(
+        verified.id,
+        (first,),
+        verified.cardinality,
+    )
+    assert coverage.points == (first,)
 
     with pytest.raises(ValueError, match="canonical contiguous ordinal order"):
         MaterializedPointDomain(
             verified.id,
-            (forged,),
+            (first, gap),
             verified.cardinality,
         )
 

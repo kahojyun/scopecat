@@ -12,11 +12,6 @@ from scopecat.compiler.relations.model import (
 )
 from scopecat.compiler.relations.point_domain import POINT_UNIT
 from scopecat.compiler.relations.verification import RelationTypeBindings
-from scopecat.compiler.semantic.availability import (
-    ValueAvailability,
-    ValueRate,
-    ValueStage,
-)
 from scopecat.compiler.semantic.model import (
     ImplementationCatalog,
     ImplementationId,
@@ -33,9 +28,7 @@ from scopecat.compiler.typed.program import (
     TypedComputeOutput,
     ValueInput,
 )
-from scopecat.execution.effect_interpreter import (
-    versioned_value,
-)
+from scopecat.kernel.content_identity import content_fingerprint
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Bool, Float, Scalar, Series, Table
 from scopecat.records.entity import EntityRef
@@ -93,7 +86,6 @@ def test_bound_compute_call_carries_dependency_provenance() -> None:
         result=TypedComputeOutput(
             id=operation_result_id(operation_id),
             value_type=Scalar(Bool()),
-            availability=ValueAvailability(ValueStage.EXECUTE, ValueRate.POINT),
         ),
     )
     program = typed_program(
@@ -124,7 +116,7 @@ def test_bound_compute_call_carries_dependency_provenance() -> None:
 
     plan = materialize_local_execution(link_program(program, environment))
 
-    assert plan.points[0].compute_operations[0].dependencies == {
+    assert plan.run_compute_operations[0].dependencies == {
         "input_refs": (
             "calibrations_input",
             "gain_input",
@@ -135,7 +127,7 @@ def test_bound_compute_call_carries_dependency_provenance() -> None:
     }
 
 
-def test_entity_cache_fingerprint_uses_identity_not_metadata() -> None:
+def test_entity_content_fingerprint_uses_identity_not_metadata() -> None:
     configured = EntityRef(
         id="q0",
         kind="logical_qubit",
@@ -147,11 +139,11 @@ def test_entity_cache_fingerprint_uses_identity_not_metadata() -> None:
         metadata={"label": "observed"},
     )
 
-    assert versioned_value(configured) == versioned_value(observed)
-    assert versioned_value(configured) != versioned_value(
+    assert content_fingerprint(configured) == content_fingerprint(observed)
+    assert content_fingerprint(configured) != content_fingerprint(
         EntityRef(id="q0", kind="physical_qubit")
     )
-    assert versioned_value(configured) != versioned_value(
+    assert content_fingerprint(configured) != content_fingerprint(
         EntityRef(id="q1", kind="logical_qubit")
     )
 

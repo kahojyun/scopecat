@@ -23,6 +23,8 @@ from scopecat.kernel.problems import (
     StorageLocation,
 )
 from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.measurement import MeasurementRecord
+from scopecat.records.measurement_recording import MeasurementDatasetAppend
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.access import upsert_contents
@@ -45,7 +47,12 @@ class MemoryRunRepository:
         self._locks: defaultdict[str, RLock] = defaultdict(RLock)
 
     def exists(self, run_id: str, ref: str) -> bool:
-        return self._key(run_id, ref) in self._content
+        key = self._key(run_id, ref)
+        prefix = f"{ref}/"
+        return key in self._content or any(
+            stored_run_id == run_id and stored_ref.startswith(prefix)
+            for stored_run_id, stored_ref in self._content
+        )
 
     def read_manifest(self, run_id: str) -> RunManifest:
         key = self._key(run_id, MANIFEST_REF)
@@ -195,6 +202,29 @@ class MemoryRunRepository:
                 code="run.ref_invalid",
                 message="run record does not match its durable schema",
             ) from error
+
+    def read_measurement_records(
+        self,
+        run_id: str,
+        ref: str,
+    ) -> list[MeasurementRecord]:
+        if self.exists(run_id, ref):
+            return self.read_jsonl(run_id, ref, MeasurementRecord)
+        prefix = f"{ref}/chunks/"
+        chunk_refs = sorted(
+            stored_ref
+            for stored_run_id, stored_ref in self._content
+            if stored_run_id == run_id and stored_ref.startswith(prefix)
+        )
+        return [
+            record
+            for chunk_ref in chunk_refs
+            for record in self.read_model(
+                run_id,
+                chunk_ref,
+                MeasurementDatasetAppend,
+            ).records
+        ]
 
     def write_jsonl(
         self,

@@ -28,9 +28,7 @@ from scopecat.compiler.typed.state import StateSpecVariant
 from scopecat.execution.effect_interpreter import RunEffectInterpreter
 from scopecat.execution.local.program import (
     ApplyStateOperation,
-    ApplyStateStage,
-    CollectStage,
-    PointProgram,
+    CollectOperation,
     StateTarget,
 )
 from scopecat.kernel.errors import CheckFailed
@@ -48,9 +46,6 @@ from scopecat.kernel.resource_identity import (
 )
 from scopecat.kernel.state import StateValue
 from scopecat.kernel.value_types import Entity, Float, Scalar, String
-from scopecat.planning.local_materialization import (
-    MaterializedLocalEffects,
-)
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     RoutingChannelBinding,
@@ -77,14 +72,15 @@ from scopecat.sdk.instruments import (
     float_field,
 )
 from tests.testkit.authoring import load_config, parameters
-from tests.testkit.bound_plan import config_with_physical_resources
-from tests.testkit.local_effect_program import (
-    StubLocalEffectProgram,
-    complete_point_operations,
-    make_test_local_effect_program,
+from tests.testkit.local_materialization import (
+    MaterializedLocalEffects,
+    MaterializedPointEffects,
+    materialize_local_execution,
+    operations_of_type,
 )
-from tests.testkit.local_materialization import materialize_local_execution
+from tests.testkit.materialized_effects import config_with_physical_resources
 from tests.testkit.relation_plans import scalar_value_expr
+from tests.testkit.run_operations import complete_point_operations
 from tests.testkit.typed_program import (
     instrument_product_producer,
     link_program,
@@ -186,14 +182,10 @@ def test_record_products_keep_their_exact_logical_route_bindings() -> None:
     )
 
     plan = _bind(program, config=config)
-    execution = make_test_local_effect_program(plan, instrument_order=("source-0",))
+    execution = plan
 
-    collect_stage = next(
-        stage for stage in execution.points[0].stages if isinstance(stage, CollectStage)
-    )
-    requests = {
-        request.id: request for request in collect_stage.operations[0].command.requests
-    }
+    [collect_operation] = operations_of_type(execution.points[0], CollectOperation)
+    requests = {request.id: request for request in collect_operation.command.requests}
     assert {
         key: (
             tuple(request.entity_ids),
@@ -247,8 +239,8 @@ def test_instrument_product_producers_bind_distinct_collection_requests() -> Non
     source_0_plan = _bind(source_0_program, config=config)
     source_1_plan = _bind(source_1_program, config=config)
 
-    source_0_collect = source_0_plan.points[0].collect_operations[0]
-    source_1_collect = source_1_plan.points[0].collect_operations[0]
+    source_0_collect = operations_of_type(source_0_plan.points[0], CollectOperation)[0]
+    source_1_collect = operations_of_type(source_1_plan.points[0], CollectOperation)[0]
     source_0_request = source_0_collect.command.requests[0]
     source_1_request = source_1_collect.command.requests[0]
     assert source_0_request != source_1_request
@@ -304,7 +296,7 @@ def test_multi_capability_route_unions_capability_specific_edges() -> None:
 
     requests_by_key = {
         request.id: request
-        for operation in plan.points[0].collect_operations
+        for operation in operations_of_type(plan.points[0], CollectOperation)
         for request in operation.command.requests
     }
     assert {
@@ -383,7 +375,9 @@ def test_capability_unspecified_collection_stays_within_its_logical_port() -> No
 
     plan = _bind(program, config=config)
 
-    request = plan.points[0].collect_operations[0].command.requests[0]
+    request = operations_of_type(plan.points[0], CollectOperation)[0].command.requests[
+        0
+    ]
     assert [
         (binding.capability, binding.channel_id) for binding in request.channel_bindings
     ] == [(None, "drive-q0")]
@@ -443,9 +437,14 @@ def test_mixed_explicit_and_fallback_route_topology_closes_durably() -> None:
     plan = _bind(program, config=config)
     assert [
         (binding.capability, binding.channel_id)
-        for binding in plan.points[0].state_operations[0].targets[0].channel_bindings
+        for binding in operations_of_type(plan.points[0], ApplyStateOperation)[0]
+        .targets[0]
+        .channel_bindings
     ] == [("A", "drive-q0")]
-    assert plan.points[0].state_operations[0].instrument_id == "source-0"
+    assert (
+        operations_of_type(plan.points[0], ApplyStateOperation)[0].instrument_id
+        == "source-0"
+    )
 
 
 def test_direct_physical_state_bindings_reach_claims_and_shared_constraints() -> None:
@@ -469,12 +468,9 @@ def test_direct_physical_state_bindings_reach_claims_and_shared_constraints() ->
         _unit_program(experiment_id="direct-state-claims", state=(first_state,)),
         config=config,
     )
-    execution = make_test_local_effect_program(
-        single_plan,
-        instrument_order=("source-0",),
-    )
+    execution = single_plan
 
-    field = single_plan.points[0].state_operations[0].targets[0]
+    field = operations_of_type(single_plan.points[0], ApplyStateOperation)[0].targets[0]
     assert field.entity_ids == ("q0",)
     assert tuple(binding.channel_id for binding in field.channel_bindings) == (
         "drive-q0",
@@ -538,23 +534,19 @@ def test_entity_only_targets_survive_bound_and_execution_boundaries() -> None:
     )
 
     plan = _bind(program, config=config)
-    execution = make_test_local_effect_program(plan, instrument_order=("source-0",))
+    execution = plan
 
-    state_field = plan.points[0].state_operations[0].targets[0]
-    request = plan.points[0].collect_operations[0].command.requests[0]
+    state_field = operations_of_type(plan.points[0], ApplyStateOperation)[0].targets[0]
+    request = operations_of_type(plan.points[0], CollectOperation)[0].command.requests[
+        0
+    ]
     assert (state_field.entity_ids, state_field.channel_bindings) == (("q0",), ())
     assert (request.entity_ids, request.channel_bindings) == (["q0"], [])
 
-    state_stage = next(
-        stage
-        for stage in execution.points[0].stages
-        if isinstance(stage, ApplyStateStage)
-    )
-    collect_stage = next(
-        stage for stage in execution.points[0].stages if isinstance(stage, CollectStage)
-    )
-    target = state_stage.operations[0].targets[0]
-    request = collect_stage.operations[0].command.requests[0]
+    target = operations_of_type(execution.points[0], ApplyStateOperation)[0].targets[0]
+    request = operations_of_type(execution.points[0], CollectOperation)[
+        0
+    ].command.requests[0]
     assert (target.entity_ids, target.channel_bindings) == (("q0",), ())
     assert (tuple(request.entity_ids), tuple(request.channel_bindings)) == (("q0",), ())
 
@@ -627,52 +619,48 @@ def test_scoped_same_field_targets_survive_snapshot_reconciliation() -> None:
             ],
         )
     )
-    program = StubLocalEffectProgram(
-        experiment_id="scoped-same-field-reconciliation",
+    program = MaterializedLocalEffects(
         points=(
-            PointProgram(
+            MaterializedPointEffects(
                 point_index=0,
                 logical_id=LogicalPointId(
                     PointDomainId("scoped-same-field", "root"), 0
                 ),
                 coordinates={},
-                stages=(
-                    ApplyStateStage(
-                        operations=(
-                            ApplyStateOperation(
-                                operation_id="scoped-same-field-point.state.source-0",
-                                instrument_id="source-0",
-                                targets=(
-                                    StateTarget(
-                                        capability_id="set_gain",
-                                        field_path="gain",
-                                        value=StateValue(1.0),
-                                        entity_ids=("q0",),
-                                        channel_bindings=(q0_binding,),
-                                    ),
-                                    StateTarget(
-                                        capability_id="set_gain",
-                                        field_path="gain",
-                                        value=StateValue(2.0),
-                                        entity_ids=("q1",),
-                                        channel_bindings=(q1_binding,),
-                                    ),
-                                ),
+                operations=(
+                    ApplyStateOperation(
+                        operation_id="scoped-same-field-point.state.source-0",
+                        instrument_id="source-0",
+                        targets=(
+                            StateTarget(
+                                capability_id="set_gain",
+                                field_path="gain",
+                                value=StateValue(1.0),
+                                entity_ids=("q0",),
+                                channel_bindings=(q0_binding,),
+                            ),
+                            StateTarget(
+                                capability_id="set_gain",
+                                field_path="gain",
+                                value=StateValue(2.0),
+                                entity_ids=("q1",),
+                                channel_bindings=(q1_binding,),
                             ),
                         ),
                     ),
                 ),
             ),
         ),
-        product_uses=(),
-        collection_product_use_ids=(),
         resource_order=("source-0",),
         resource_claims=(ResourceClaim(id="source-0"),),
     )
 
     result = RunEffectInterpreter(
         run_id="scoped-same-field-run",
-        program=program,
+        experiment_id="test-local-effects",
+        experiment_kind="test-local-effects",
+        coordinate_ids=tuple(program.points[0].coordinates),
+        resource_order=program.resource_order,
         drivers={driver.instrument_id: driver},
         descriptions={driver.instrument_id: driver.describe()},
         journal=MemoryExecutionJournal(),

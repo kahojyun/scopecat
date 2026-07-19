@@ -8,7 +8,6 @@ from typing import override
 from scopecat.compiler.typed.products import ProductDef
 from scopecat.kernel.product_identity import ProductUseId
 from scopecat.measurements.semantics import (
-    MeasurementTransformRate,
     MeasurementTransformSemanticContract,
 )
 
@@ -66,11 +65,5 @@ class MeasurementTransformDef:
 
     id: NativeMeasurementTransformId
     semantic: MeasurementTransformSemanticContract
-    rate: MeasurementTransformRate
     inputs: tuple[MeasurementTransformInputPort, ...]
     outputs: tuple[MeasurementTransformOutputPort, ...]
-
-    def __post_init__(self) -> None:
-        if self.rate != "point":
-            msg = "measurement transform rate must be point"
-            raise ValueError(msg)

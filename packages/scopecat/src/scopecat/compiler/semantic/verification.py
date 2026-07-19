@@ -32,10 +32,9 @@ from scopecat.compiler.relations.verification import (
     PlanImportNamespace,
     RowType,
 )
-from scopecat.compiler.semantic.availability import (
-    ValueAvailability,
-    ValueRate,
-    ValueStage,
+from scopecat.compiler.semantic.dependencies import (
+    residual_operation_ids,
+    residual_value_ids,
 )
 from scopecat.compiler.semantic.model import (
     ActionId,
@@ -99,6 +98,21 @@ class VerifiedSemanticGraph:
         compare=False,
         hash=False,
     )
+    operations: Mapping[OperationId, SemanticOperation] = field(
+        init=False,
+        compare=False,
+        hash=False,
+    )
+    residual_value_ids: frozenset[ValueId] = field(
+        init=False,
+        compare=False,
+        hash=False,
+    )
+    residual_operation_ids: frozenset[OperationId] = field(
+        init=False,
+        compare=False,
+        hash=False,
+    )
     row_regions: Mapping[RowRegionId, StateEachRegion] = field(
         init=False,
         compare=False,
@@ -127,12 +141,24 @@ class VerifiedSemanticGraph:
         definitions = {
             definition.id: definition for definition in self.graph.value_defs
         }
+        operations = {operation.id: operation for operation in self.graph.operations}
         regions = {region.id: region for region in self.graph.row_regions}
         actions = {action.id: action for action in self.graph.actions}
         measurement_transforms = {
             transform.id: transform for transform in self.graph.measurement_transforms
         }
         object.__setattr__(self, "value_defs", MappingProxyType(definitions))
+        object.__setattr__(self, "operations", MappingProxyType(operations))
+        object.__setattr__(
+            self,
+            "residual_value_ids",
+            residual_value_ids(definitions, self.graph.operations),
+        )
+        object.__setattr__(
+            self,
+            "residual_operation_ids",
+            residual_operation_ids(definitions, self.graph.operations),
+        )
         object.__setattr__(self, "row_regions", MappingProxyType(regions))
         object.__setattr__(self, "actions", MappingProxyType(actions))
         object.__setattr__(
@@ -165,6 +191,7 @@ def verify_semantic_graph(graph: SemanticGraphIR) -> VerifiedSemanticGraph:
         for operation in graph.operations
         if operation.id not in ambiguous_operation_ids
     )
+    operations_by_id = {operation.id: operation for operation in unambiguous_operations}
     _verify_uses(
         unambiguous_operations,
         definitions,
@@ -191,6 +218,7 @@ def verify_semantic_graph(graph: SemanticGraphIR) -> VerifiedSemanticGraph:
         _verify_domain_execution(
             execution,
             definitions,
+            operations_by_id,
             ambiguous_value_ids,
             problems,
             execution_index=execution_index,
@@ -219,6 +247,7 @@ def verify_semantic_graph(graph: SemanticGraphIR) -> VerifiedSemanticGraph:
     _verify_row_regions(
         tuple(regions.values()),
         definitions,
+        operations_by_id,
         ambiguous_value_ids,
         problems,
     )
@@ -421,6 +450,7 @@ def _topological_measurement_transforms(
 def _verify_domain_execution(
     execution: SemanticDomainExecution,
     definitions: Mapping[ValueId, ValueDef],
+    operations: Mapping[OperationId, SemanticOperation],
     ambiguous_value_ids: frozenset[ValueId],
     problems: list[Problem],
     *,
@@ -484,7 +514,7 @@ def _verify_domain_execution(
                     name,
                 )
             )
-        if definition.availability.stage is not ValueStage.PLAN:
+        if _value_is_residual(definition, definitions, operations):
             problems.append(
                 _problem(
                     "semantic_domain_execution_input_stage_unavailable",
@@ -855,6 +885,7 @@ def _regions_by_id(
 def _verify_row_regions(
     declared: tuple[StateEachRegion, ...],
     definitions: Mapping[ValueId, ValueDef],
+    operations: Mapping[OperationId, SemanticOperation],
     ambiguous_value_ids: frozenset[ValueId],
     problems: list[Problem],
 ) -> None:
@@ -947,12 +978,13 @@ def _verify_row_regions(
                         *path,
                     )
                 )
-        _verify_region_body_shapes(region, definitions, problems)
+        _verify_region_body_shapes(region, definitions, operations, problems)
 
 
 def _verify_region_body_shapes(
     region: StateEachRegion,
     definitions: Mapping[ValueId, ValueDef],
+    operations: Mapping[OperationId, SemanticOperation],
     problems: list[Problem],
 ) -> None:
     location = ("row_regions", region.id.qualified_name)
@@ -992,7 +1024,9 @@ def _verify_region_body_shapes(
                 "value",
             )
         )
-    elif value is not None and not _valid_region_state_value_type(value):
+    elif value is not None and not _valid_region_state_value_type(
+        value, definitions, operations
+    ):
         problems.append(
             _problem(
                 "semantic_row_region_value_type_invalid",
@@ -1027,15 +1061,17 @@ def _verify_region_body_shapes(
             )
 
 
-def _valid_region_state_value_type(definition: ValueDef) -> bool:
+def _valid_region_state_value_type(
+    definition: ValueDef,
+    definitions: Mapping[ValueId, ValueDef],
+    operations: Mapping[OperationId, SemanticOperation],
+) -> bool:
     value_type = definition.value_type
     if not isinstance(value_type, Scalar) or value_type.nullable:
         return False
     atom = value_type.atom
-    if definition.availability.stage is ValueStage.EXECUTE:
+    if _value_is_residual(definition, definitions, operations):
         return isinstance(atom, Payload)
-    if definition.availability.stage is not ValueStage.PLAN:
-        return False
     if isinstance(atom, Int):
         try:
             return all(
@@ -1131,7 +1167,7 @@ def _verify_operation_regions(
             if (
                 definition is not None
                 and owner is not None
-                and definition.availability.stage is not ValueStage.PLAN
+                and isinstance(operation.contract.semantics, OpaqueSemantics)
             ):
                 problems.append(
                     _problem(
@@ -1311,19 +1347,6 @@ def _verify_scalar_operations(
                     result.id.qualified_name,
                 )
             )
-        expected_availability = ValueAvailability.combined(
-            left.availability,
-            right.availability,
-        )
-        if result.availability != expected_availability:
-            problems.append(
-                _problem(
-                    "semantic_scalar_binary_availability_mismatch",
-                    "scalar operation result availability does not match its operands",
-                    "values",
-                    result.id.qualified_name,
-                )
-            )
 
 
 def _verify_value_sources(
@@ -1369,39 +1392,6 @@ def _verify_value_sources(
             ):
                 _append_source_type_mismatch(definition, problems)
             _verify_plan_source_region(definition, source, regions, problems)
-            point_dependent = source.used_row_signature[0] is not None
-            row_dependent = bool(source.verified_plan.free_row_references.references)
-            expected_rate = (
-                ValueRate.ROW
-                if row_dependent
-                else ValueRate.POINT
-                if point_dependent
-                else ValueRate.RUN
-            )
-            if (
-                definition.availability.stage is ValueStage.PLAN
-                and definition.availability.rate is not expected_rate
-            ):
-                problems.append(
-                    _problem(
-                        "semantic_plan_expression_rate_mismatch",
-                        "plan expression value rate "
-                        f"{definition.availability.rate.value!r} does not match "
-                        f"inferred rate {expected_rate.value!r}",
-                        "values",
-                        definition.id.qualified_name,
-                    )
-                )
-            if definition.availability.stage is not ValueStage.PLAN:
-                problems.append(
-                    _problem(
-                        "semantic_plan_expression_availability_invalid",
-                        "plan expression values must be available at plan stage; "
-                        "their run/point/row rate remains explicit provenance",
-                        "values",
-                        definition.id.qualified_name,
-                    )
-                )
             continue
         if isinstance(source, LiteralValueSource):
             if not isinstance(value_type, Scalar):
@@ -1419,24 +1409,10 @@ def _verify_value_sources(
                             definition.id.qualified_name,
                         )
                     )
-            _verify_source_availability(
-                definition,
-                expected=ValueAvailability(ValueStage.PLAN, ValueRate.RUN),
-                code="semantic_literal_availability_invalid",
-                label="literal",
-                problems=problems,
-            )
             continue
         if isinstance(source, RouteValueSource):
             if not isinstance(value_type, Route):
                 _append_source_type_mismatch(definition, problems)
-            _verify_source_availability(
-                definition,
-                expected=ValueAvailability(ValueStage.PLAN, ValueRate.POINT),
-                code="semantic_route_availability_invalid",
-                label="route",
-                problems=problems,
-            )
             continue
         if isinstance(value_type, Route):
             _append_source_type_mismatch(definition, problems)
@@ -1645,24 +1621,14 @@ def _append_source_type_mismatch(
     )
 
 
-def _verify_source_availability(
+def _value_is_residual(
     definition: ValueDef,
-    *,
-    expected: ValueAvailability,
-    code: str,
-    label: str,
-    problems: list[Problem],
-) -> None:
-    if definition.availability == expected:
-        return
-    problems.append(
-        _problem(
-            code,
-            f"{label} values must have {expected.stage.value}/"
-            f"{expected.rate.value} availability",
-            "values",
-            definition.id.qualified_name,
-        )
+    definitions: Mapping[ValueId, ValueDef],
+    operations: Mapping[OperationId, SemanticOperation],
+) -> bool:
+    return definition.id in residual_value_ids(
+        definitions,
+        tuple(operations.values()),
     )
 
 
@@ -1679,8 +1645,7 @@ def _verify_opaque_operations(
             or definitions[value_id].source != OperationOutputSource(operation.id, port)
             for port, value_id in operation.outputs
         ):
-            # Output reciprocity owns missing/mismatched definitions.  Do not
-            # derive shape or availability facts from a non-reciprocal edge.
+            # Output reciprocity owns missing/mismatched definitions.
             continue
         outputs = dict(operation.outputs)
         if set(outputs) != {"result"}:
@@ -1693,21 +1658,6 @@ def _verify_opaque_operations(
                 )
             )
             continue
-        result = definitions.get(outputs["result"])
-        if result is None:
-            continue
-        if result.availability != ValueAvailability(
-            stage=ValueStage.EXECUTE,
-            rate=ValueRate.POINT,
-        ):
-            problems.append(
-                _problem(
-                    "semantic_opaque_operation_availability_invalid",
-                    "opaque local operation results must be execute/point values",
-                    "values",
-                    result.id.qualified_name,
-                )
-            )
 
 
 def _verify_operation_contracts(

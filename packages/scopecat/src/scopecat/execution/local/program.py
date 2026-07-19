@@ -13,11 +13,9 @@ from dataclasses import dataclass, field
 
 from scopecat.compiler.semantic.model import ValueId
 from scopecat.compiler.semantic.operation_contract import OperationContract
-from scopecat.kernel.point_identity import LogicalPointId
 from scopecat.kernel.product_identity import ProductId, ProductUseId
 from scopecat.kernel.state import StateValue
 from scopecat.kernel.value_types import ValueType
-from scopecat.measurements.results import CoordinateValue
 from scopecat.records.instrument import CommandChannelBinding
 from scopecat.sdk.instruments.contracts import (
     CollectCommand,
@@ -76,17 +74,11 @@ class ComputeOperation:
     kernel: ComputeKernel
     inputs: Mapping[str, ComputeInput]
     result: ComputeResultSlot
+    binding_signature: str | None = None
     dependencies: Mapping[str, tuple[str, ...]] = field(
         default_factory=_empty_dependencies
     )
     payload_slot: PayloadSlot | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class ComputeStage:
-    """Topologically ordered pure compute island."""
-
-    operations: tuple[ComputeOperation, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,13 +112,6 @@ class ApplyStateOperation:
 
 
 @dataclass(frozen=True, slots=True)
-class ApplyStateStage:
-    """Explicitly ordered state reconciliation operations."""
-
-    operations: tuple[ApplyStateOperation, ...]
-
-
-@dataclass(frozen=True, slots=True)
 class ActionField:
     """One concrete field supplied to a one-shot action."""
 
@@ -155,13 +140,6 @@ class InstrumentActionOperation:
 
 
 @dataclass(frozen=True, slots=True)
-class ActionStage:
-    """Explicitly ordered one-shot instrument effects."""
-
-    operations: tuple[InstrumentActionOperation, ...]
-
-
-@dataclass(frozen=True, slots=True)
 class CollectionResultBinding:
     """Map one provider response key to one logical product-use occurrence."""
 
@@ -180,84 +158,27 @@ class CollectOperation:
     result_bindings: tuple[CollectionResultBinding, ...]
 
 
-@dataclass(frozen=True, slots=True)
-class CollectStage:
-    """Explicitly ordered collection operations."""
-
-    operations: tuple[CollectOperation, ...]
-
-
-type ExecutionStage = ComputeStage | ApplyStateStage | ActionStage | CollectStage
-
-
-@dataclass(frozen=True, slots=True)
-class PointProgram:
-    """Concrete stages for one logical experiment point."""
-
-    point_index: int
-    logical_id: LogicalPointId
-    coordinates: Mapping[str, CoordinateValue]
-    stages: tuple[ExecutionStage, ...]
-
-    @property
-    def point_uid(self) -> str:
-        return self.logical_id.value
-
-    @property
-    def compute_operations(self) -> tuple[ComputeOperation, ...]:
-        return tuple(
-            operation
-            for stage in self.stages
-            if isinstance(stage, ComputeStage)
-            for operation in stage.operations
-        )
-
-    @property
-    def state_operations(self) -> tuple[ApplyStateOperation, ...]:
-        return tuple(
-            operation
-            for stage in self.stages
-            if isinstance(stage, ApplyStateStage)
-            for operation in stage.operations
-        )
-
-    @property
-    def actions(self) -> tuple[InstrumentActionOperation, ...]:
-        return tuple(
-            operation
-            for stage in self.stages
-            if isinstance(stage, ActionStage)
-            for operation in stage.operations
-        )
-
-    @property
-    def collect_operations(self) -> tuple[CollectOperation, ...]:
-        return tuple(
-            operation
-            for stage in self.stages
-            if isinstance(stage, CollectStage)
-            for operation in stage.operations
-        )
+type LocalOperation = (
+    ComputeOperation
+    | ApplyStateOperation
+    | InstrumentActionOperation
+    | CollectOperation
+)
 
 
 __all__ = [
     "ActionField",
-    "ActionStage",
     "ApplyStateOperation",
-    "ApplyStateStage",
     "BoundInput",
     "CollectOperation",
-    "CollectStage",
     "CollectionResultBinding",
     "ComputeInput",
     "ComputeKernel",
     "ComputeOperation",
     "ComputeResultSlot",
-    "ComputeStage",
-    "ExecutionStage",
     "InstrumentActionOperation",
+    "LocalOperation",
     "OutputInput",
     "PayloadSlot",
-    "PointProgram",
     "StateTarget",
 ]

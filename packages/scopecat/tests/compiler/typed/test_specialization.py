@@ -25,11 +25,6 @@ from scopecat.compiler.relations.point_domain import (
 from scopecat.compiler.relations.specialization import BindingTime
 from scopecat.compiler.relations.uses import RelationUse, relation_use
 from scopecat.compiler.relations.verification import RelationTypeBindings, RowType
-from scopecat.compiler.semantic.availability import (
-    ValueAvailability,
-    ValueRate,
-    ValueStage,
-)
 from scopecat.compiler.semantic.compute_result import ComputeResultRef
 from scopecat.compiler.semantic.model import (
     ActionId,
@@ -136,7 +131,6 @@ def test_core_specialization_folds_scalar_inputs_across_effect_kinds() -> None:
     assert isinstance(specialized_domain, TypedDomainExecution)
     domain_input = specialized_domain.inputs["gain"]
     assert isinstance(domain_input.value.plan.root, LiteralScalarExpr)
-    assert domain_input.binding_time is BindingTime.CONFIGURATION_STATIC
 
 
 def test_value_specialization_folds_series_and_table_parameters() -> None:
@@ -275,7 +269,6 @@ def test_core_specialization_prunes_dead_compute_nodes() -> None:
             result=TypedComputeOutput(
                 id=operation_result_id(operation_id),
                 value_type=value_type,
-                availability=ValueAvailability(ValueStage.EXECUTE, ValueRate.POINT),
             ),
             inputs=(
                 {}

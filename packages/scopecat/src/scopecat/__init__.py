@@ -120,9 +120,6 @@ if TYPE_CHECKING:
     from scopecat.execution.program import (
         RunDomainJob,
         RunHostBinding,
-        RunPointEnd,
-        RunPointStage,
-        RunPointStart,
         RunProgram,
     )
     from scopecat.kernel.problems import (
@@ -221,9 +218,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "ExperimentSystem": ("scopecat.planning.system", "ExperimentSystem"),
     "RunDomainJob": ("scopecat.execution.program", "RunDomainJob"),
     "RunHostBinding": ("scopecat.execution.program", "RunHostBinding"),
-    "RunPointEnd": ("scopecat.execution.program", "RunPointEnd"),
-    "RunPointStage": ("scopecat.execution.program", "RunPointStage"),
-    "RunPointStart": ("scopecat.execution.program", "RunPointStart"),
     "RunProgram": ("scopecat.execution.program", "RunProgram"),
     "EntityRef": ("scopecat.records.entity", "EntityRef"),
     "entity_ref": ("scopecat.records.entity", "entity_ref"),
@@ -379,9 +373,6 @@ __all__ = [
     "RunFinishedEvent",
     "RunHandle",
     "RunHostBinding",
-    "RunPointEnd",
-    "RunPointStage",
-    "RunPointStart",
     "RunProgram",
     "RunStartedEvent",
     "RuntimeEvent",

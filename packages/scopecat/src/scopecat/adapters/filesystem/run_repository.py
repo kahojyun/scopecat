@@ -46,6 +46,8 @@ from scopecat.kernel.problems import (
     StorageLocation,
 )
 from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.measurement import MeasurementRecord
+from scopecat.records.measurement_recording import MeasurementDatasetAppend
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.access import upsert_contents
@@ -273,6 +275,28 @@ class FilesystemRunRepository:
             ) from error
         except OSError as error:
             raise _storage_failure(run_id=run_id, ref=ref) from error
+
+    def read_measurement_records(
+        self,
+        run_id: str,
+        ref: str,
+    ) -> list[MeasurementRecord]:
+        path = self.ref_path(run_id, ref)
+        if path.is_file():
+            return self.read_jsonl(run_id, ref, MeasurementRecord)
+        try:
+            appends = tuple(
+                _read_model(chunk_path, MeasurementDatasetAppend)
+                for chunk_path in sorted((path / "chunks").glob("[0-9]*.json"))
+            )
+        except (OSError, UnicodeError, ValidationError) as error:
+            raise _integrity_failure(
+                run_id=run_id,
+                ref=ref,
+                code="run.ref_invalid",
+                message="run measurement chunks do not match their durable schema",
+            ) from error
+        return [record for append in appends for record in append.records]
 
     def write_jsonl(self, run_id: str, ref: str, records: Iterable[BaseModel]) -> None:
         path = self.ref_path(run_id, ref)

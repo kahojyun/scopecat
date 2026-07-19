@@ -16,6 +16,7 @@ from types import MappingProxyType
 from typing import cast
 
 from scopecat.compiler.diagnostics import compiler_problem
+from scopecat.execution.points import RunPoint
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.errors import (
     CheckFailed,
@@ -35,10 +36,7 @@ from scopecat.measurements.contracts import (
     measurement_value_contract_issues,
     validated_measurement_value_copy,
 )
-from scopecat.measurements.semantics import (
-    MeasurementTransformRate,
-    MeasurementTransformSemanticContract,
-)
+from scopecat.measurements.semantics import MeasurementTransformSemanticContract
 from scopecat.measurements.transform_model import (
     MeasurementTransformDef,
     MeasurementTransformInputPort,
@@ -58,10 +56,11 @@ from scopecat.records.measurement import (
 )
 from scopecat.records.parameter import Quantity
 
-type MeasurementTransformPortValues = Mapping[str, MeasurementValue]
+type MeasurementTransformColumn = tuple[MeasurementValue, ...]
+type MeasurementTransformPortValues = Mapping[str, MeasurementTransformColumn]
 type HostMeasurementTransformKernel = Callable[
     ["HostMeasurementTransformCall"],
-    Mapping[str, MeasurementValue],
+    Mapping[str, Sequence[MeasurementValue]],
 ]
 type HostMeasurementTransformValidator = Callable[["MeasurementTransformDef"], None]
 
@@ -75,7 +74,6 @@ class HostMeasurementTransformImplementation:
     id: str
     semantic_id: str
     semantic_version: str
-    rate: MeasurementTransformRate
     implementation_fingerprint: str
     validate_transform: HostMeasurementTransformValidator = field(
         repr=False,
@@ -93,40 +91,20 @@ class HostMeasurementTransformImplementation:
         if not all(fields):
             msg = "host measurement transform implementation fields must be non-empty"
             raise ValueError(msg)
-        if self.rate != "point":
-            msg = "host measurement transform rate must be point"
-            raise ValueError(msg)
-
-
-@dataclass(frozen=True, slots=True)
-class HostMeasurementTransformImplementationBinding:
-    """Explicit selection of one implementation for one transform identity."""
-
-    transform_id: NativeMeasurementTransformId
-    implementation_id: str
-
-    def __post_init__(self) -> None:
-        if not self.implementation_id:
-            msg = "host implementation binding id must be non-empty"
-            raise ValueError(msg)
 
 
 @dataclass(frozen=True, slots=True)
 class HostMeasurementTransformCall:
-    """Point-local invocation with copied measurement inputs for a host kernel."""
+    """One batch invocation over canonical logical point columns."""
 
     transform_id: NativeMeasurementTransformId
     semantic: MeasurementTransformSemanticContract
-    logical_point_id: LogicalPointId
-    point_index: int
+    points: tuple[RunPoint, ...]
     input_ports: tuple[MeasurementTransformInputPort, ...]
     output_ports: tuple[MeasurementTransformOutputPort, ...]
-    inputs: Mapping[str, MeasurementValue]
+    inputs: MeasurementTransformPortValues
 
     def __post_init__(self) -> None:
-        if self.point_index < 0:
-            msg = "host transform call point_index must be a non-negative integer"
-            raise ValueError(msg)
         if len({port.id for port in self.input_ports}) != len(self.input_ports):
             msg = "host transform call input port ids must be unique"
             raise ValueError(msg)
@@ -137,13 +115,18 @@ class HostMeasurementTransformCall:
         if set(input_candidates) != {port.id for port in self.input_ports}:
             msg = "host transform call inputs must exactly match its input ports"
             raise ValueError(msg)
+        if any(len(values) != len(self.points) for values in input_candidates.values()):
+            msg = "host transform input columns must match the point count"
+            raise ValueError(msg)
         object.__setattr__(
             self,
             "inputs",
             MappingProxyType(
                 {
-                    port_id: validated_measurement_value_copy(value)
-                    for port_id, value in input_candidates.items()
+                    port_id: tuple(
+                        validated_measurement_value_copy(value) for value in values
+                    )
+                    for port_id, values in input_candidates.items()
                 }
             ),
         )
@@ -170,7 +153,6 @@ class SelectedHostMeasurementTransforms:
             if (
                 implementation.semantic_id != transform.semantic.id
                 or implementation.semantic_version != transform.semantic.version
-                or implementation.rate != transform.rate
             ):
                 msg = "host implementation does not match its measurement transform"
                 raise ValueError(msg)
@@ -236,17 +218,16 @@ class ExecutedHostMeasurementTransforms:
 def select_host_measurement_transforms(
     graph: VerifiedMeasurementTransformGraph,
     implementations: Sequence[HostMeasurementTransformImplementation],
-    bindings: Sequence[HostMeasurementTransformImplementationBinding],
 ) -> SelectedHostMeasurementTransforms:
-    """Select explicitly bound host implementations for every POINT transform."""
+    """Select one registered implementation for every transform semantic."""
 
     selected_graph = graph
     candidates = tuple(implementations)
-    supplied_bindings = tuple(bindings)
-
     problems: list[Problem] = []
     implementation_counts = Counter(candidate.id for candidate in candidates)
-    implementations_by_id: dict[str, HostMeasurementTransformImplementation] = {}
+    implementations_by_contract: dict[
+        tuple[str, str], HostMeasurementTransformImplementation
+    ] = {}
     for implementation_index, candidate in enumerate(candidates):
         if implementation_counts[candidate.id] > 1:
             problems.append(
@@ -257,88 +238,35 @@ def select_host_measurement_transforms(
                     category=ProblemCategory.CONFLICT,
                 )
             )
-        implementations_by_id.setdefault(candidate.id, candidate)
-
-    transforms_by_id = {
-        transform.id: transform for transform in selected_graph.transforms
-    }
-    binding_counts = Counter(binding.transform_id for binding in supplied_bindings)
-    binding_by_transform: dict[
-        NativeMeasurementTransformId,
-        HostMeasurementTransformImplementationBinding,
-    ] = {}
-    for binding_index, binding in enumerate(supplied_bindings):
-        if binding_counts[binding.transform_id] > 1:
+        contract = (candidate.semantic_id, candidate.semantic_version)
+        if contract in implementations_by_contract:
             problems.append(
                 _check_problem(
-                    "measurement_transform_host_binding_duplicate",
-                    f"transform {binding.transform_id.value!r} has multiple host "
-                    "implementation bindings",
-                    path=("implementation_bindings", binding_index),
+                    "measurement_transform_host_implementation_contract_duplicate",
+                    (
+                        f"semantic implementation {contract!r} is registered "
+                        "more than once"
+                    ),
+                    path=("implementations", implementation_index),
                     category=ProblemCategory.CONFLICT,
                 )
             )
-        if binding.transform_id not in transforms_by_id:
-            problems.append(
-                _check_problem(
-                    "measurement_transform_host_binding_unknown_transform",
-                    f"host implementation binding references unknown transform "
-                    f"{binding.transform_id.value!r}",
-                    path=(
-                        "implementation_bindings",
-                        binding_index,
-                        "transform_id",
-                    ),
-                    category=ProblemCategory.NOT_FOUND,
-                )
-            )
-            continue
-        binding_by_transform.setdefault(binding.transform_id, binding)
-        if binding.implementation_id not in implementations_by_id:
-            problems.append(
-                _check_problem(
-                    "measurement_transform_host_binding_unknown_implementation",
-                    f"transform {binding.transform_id.value!r} selects unknown host "
-                    f"implementation {binding.implementation_id!r}",
-                    path=(
-                        "implementation_bindings",
-                        binding_index,
-                        "implementation_id",
-                    ),
-                    category=ProblemCategory.NOT_FOUND,
-                )
-            )
+        else:
+            implementations_by_contract[contract] = candidate
 
     selected: list[HostMeasurementTransformImplementation] = []
     for transform_index, transform in enumerate(selected_graph.transforms):
-        binding = binding_by_transform.get(transform.id)
-        if binding is None:
+        implementation = implementations_by_contract.get(
+            (transform.semantic.id, transform.semantic.version)
+        )
+        if implementation is None:
             problems.append(
                 _check_problem(
-                    "measurement_transform_host_binding_missing",
-                    f"measurement transform {transform.id.value!r} has no explicit "
-                    "host implementation binding",
+                    "measurement_transform_host_implementation_missing",
+                    f"measurement transform {transform.id.value!r} has no registered "
+                    "semantic implementation",
                     path=("transforms", transform_index, "implementation"),
                     category=ProblemCategory.NOT_FOUND,
-                )
-            )
-            continue
-        implementation = implementations_by_id.get(binding.implementation_id)
-        if implementation is None:
-            continue
-        if (
-            implementation.semantic_id != transform.semantic.id
-            or implementation.semantic_version != transform.semantic.version
-            or implementation.rate != transform.rate
-        ):
-            problems.append(
-                _check_problem(
-                    "measurement_transform_host_implementation_incompatible",
-                    f"host implementation {implementation.id!r} does not match "
-                    f"transform {transform.id.value!r} semantic family, version, "
-                    "and rate",
-                    path=("transforms", transform_index, "implementation"),
-                    category=ProblemCategory.CONFLICT,
                 )
             )
             continue
@@ -392,12 +320,14 @@ def bind_host_measurement_transforms(
 def execute_host_measurement_transforms(
     plan: BoundHostMeasurementTransforms,
     source_values: Sequence[MeasurementValueCandidate],
+    *,
+    points: Sequence[RunPoint],
 ) -> ExecutedHostMeasurementTransforms:
-    """Execute POINT kernels in graph order over logical value candidates."""
+    """Execute each transform once over canonical logical point columns."""
 
     bound = plan
     supplied = tuple(source_values)
-    points = bound.selection.graph.catalog.point_catalog.points
+    points = tuple(points)
     expected_keys = {
         (point.logical_id, use_id)
         for point in points
@@ -440,6 +370,8 @@ def execute_host_measurement_transforms(
         )
     if problems:
         raise MeasurementTransformExecutionError(problems)
+    if not points:
+        return ExecutedHostMeasurementTransforms(bound, supplied)
 
     derived_values: list[MeasurementValueCandidate] = []
     for transform, implementation in zip(
@@ -447,113 +379,118 @@ def execute_host_measurement_transforms(
         bound.selection.implementations,
         strict=True,
     ):
-        candidates: list[MeasurementValueCandidate] = []
-        for point in points:
-            try:
-                inputs = {
-                    port.id: value_by_output[
-                        (point.logical_id, port.product_use_id)
-                    ].value
-                    for port in transform.inputs
-                }
-            except KeyError as error:
-                msg = "bound measurement transform plan lost one closed graph input"
-                raise AssertionError(msg) from error
-            call = HostMeasurementTransformCall(
-                transform_id=transform.id,
-                semantic=transform.semantic,
-                logical_point_id=point.logical_id,
-                point_index=point.logical_ordinal,
-                input_ports=transform.inputs,
-                output_ports=transform.outputs,
-                inputs=inputs,
+        try:
+            inputs = {
+                port.id: tuple(
+                    value_by_output[(point.logical_id, port.product_use_id)].value
+                    for point in points
+                )
+                for port in transform.inputs
+            }
+        except KeyError as error:
+            msg = "bound measurement transform plan lost one closed graph input"
+            raise AssertionError(msg) from error
+        call = HostMeasurementTransformCall(
+            transform_id=transform.id,
+            semantic=transform.semantic,
+            points=points,
+            input_ports=transform.inputs,
+            output_ports=transform.outputs,
+            inputs=inputs,
+        )
+        try:
+            raw_candidate = _invoke_host_kernel(implementation.kernel, call)
+        except Exception as error:
+            logger.error(  # noqa: TRY400
+                "host measurement transform kernel raised",
+                extra={
+                    "transform_id": transform.id.value,
+                    "implementation_id": implementation.id,
+                    "semantic_id": transform.semantic.id,
+                    "point_count": len(points),
+                    "exception_type": _type_name(error),
+                    "problem_code": "measurement_transform_host_kernel_failed",
+                },
             )
-            try:
-                raw_candidate = _invoke_host_kernel(implementation.kernel, call)
-            except Exception as error:
-                # Kernel messages can contain sensitive input; omit the traceback.
-                logger.error(  # noqa: TRY400
-                    "host measurement transform kernel raised",
-                    extra={
-                        "transform_id": transform.id.value,
-                        "implementation_id": implementation.id,
-                        "semantic_id": transform.semantic.id,
-                        "logical_point_id": point.logical_id.value,
-                        "point_index": point.logical_ordinal,
-                        "exception_type": _type_name(error),
-                        "problem_code": "measurement_transform_host_kernel_failed",
-                    },
+            raise MeasurementTransformExecutionError(
+                (
+                    _execution_problem(
+                        "measurement_transform_host_kernel_failed",
+                        f"host implementation for transform "
+                        f"{transform.id.value!r} raised",
+                        path=("transforms", transform.id.value, "kernel"),
+                        details={
+                            "exception_type": _type_name(error),
+                            "transform_id": transform.id.value,
+                            "implementation_id": implementation.id,
+                            "semantic_id": transform.semantic.id,
+                            "point_count": len(points),
+                        },
+                        category=ProblemCategory.EXTERNAL_FAILURE,
+                    ),
                 )
+            ) from error
+        try:
+            raw_outputs = _materialize_kernel_outputs(raw_candidate)
+        except Exception as error:
+            raise MeasurementTransformExecutionError(
+                (
+                    _execution_problem(
+                        "measurement_transform_host_output_container_invalid",
+                        "host measurement transform returned unreadable outputs",
+                        path=("transforms", transform.id.value, "outputs"),
+                        details={"exception_type": _type_name(error)},
+                        category=ProblemCategory.OPERATION,
+                    ),
+                )
+            ) from error
+        expected_port_ids = {port.id for port in transform.outputs}
+        actual_port_ids = set(raw_outputs)
+        if actual_port_ids != expected_port_ids:
+            raise MeasurementTransformExecutionError(
+                (
+                    _execution_problem(
+                        "measurement_transform_host_output_inventory_mismatch",
+                        f"host transform {transform.id.value!r} returned a "
+                        "non-exact output port inventory",
+                        path=("transforms", transform.id.value, "outputs"),
+                        details={
+                            "expected": sorted(expected_port_ids),
+                            "actual": sorted(repr(item) for item in actual_port_ids),
+                        },
+                        category=ProblemCategory.OPERATION,
+                    ),
+                )
+            )
+        candidates: list[MeasurementValueCandidate] = []
+        for port in transform.outputs:
+            column = raw_outputs[port.id]
+            if not isinstance(column, Sequence) or isinstance(column, str | bytes):
                 raise MeasurementTransformExecutionError(
                     (
                         _execution_problem(
-                            "measurement_transform_host_kernel_failed",
-                            f"host implementation for transform "
-                            f"{transform.id.value!r} raised",
-                            path=(
-                                "transforms",
-                                transform.id.value,
-                                "kernel",
-                                point.logical_ordinal,
-                            ),
-                            details={
-                                "exception_type": _type_name(error),
-                                "transform_id": transform.id.value,
-                                "implementation_id": implementation.id,
-                                "semantic_id": transform.semantic.id,
-                                "logical_point_id": point.logical_id.value,
-                                "point_index": point.logical_ordinal,
-                            },
-                            category=ProblemCategory.EXTERNAL_FAILURE,
-                        ),
-                    )
-                ) from error
-            try:
-                raw_outputs = _materialize_kernel_outputs(raw_candidate)
-            except Exception as error:
-                raise MeasurementTransformExecutionError(
-                    (
-                        _execution_problem(
-                            "measurement_transform_host_output_container_invalid",
-                            "host measurement transform returned unreadable outputs",
-                            path=(
-                                "transforms",
-                                transform.id.value,
-                                "outputs",
-                                point.logical_ordinal,
-                            ),
-                            details={"exception_type": _type_name(error)},
-                            category=ProblemCategory.OPERATION,
-                        ),
-                    )
-                ) from error
-            expected_port_ids = {port.id for port in transform.outputs}
-            actual_port_ids = set(raw_outputs)
-            if actual_port_ids != expected_port_ids:
-                raise MeasurementTransformExecutionError(
-                    (
-                        _execution_problem(
-                            "measurement_transform_host_output_inventory_mismatch",
-                            f"host transform {transform.id.value!r} returned a "
-                            "non-exact output port inventory",
-                            path=(
-                                "transforms",
-                                transform.id.value,
-                                "outputs",
-                                point.logical_ordinal,
-                            ),
-                            details={
-                                "expected": sorted(expected_port_ids),
-                                "actual": sorted(
-                                    repr(item) for item in actual_port_ids
-                                ),
-                            },
+                            "measurement_transform_host_output_column_invalid",
+                            f"host transform output {port.id!r} is not a value column",
+                            path=("transforms", transform.id.value, "outputs", port.id),
                             category=ProblemCategory.OPERATION,
                         ),
                     )
                 )
-            for port in transform.outputs:
-                value = raw_outputs[port.id]
+            values = tuple(column)
+            if len(values) != len(points):
+                raise MeasurementTransformExecutionError(
+                    (
+                        _execution_problem(
+                            "measurement_transform_host_output_column_length_mismatch",
+                            f"host transform output {port.id!r} does not cover "
+                            "every point",
+                            path=("transforms", transform.id.value, "outputs", port.id),
+                            details={"expected": len(points), "actual": len(values)},
+                            category=ProblemCategory.OPERATION,
+                        ),
+                    )
+                )
+            for point, value in zip(points, values, strict=True):
                 if not _is_measurement_value(value):
                     raise MeasurementTransformExecutionError(
                         (
@@ -639,7 +576,6 @@ def _host_selection_fingerprint(
                         ),
                         "semantic_id": implementation.semantic_id,
                         "semantic_version": implementation.semantic_version,
-                        "rate": implementation.rate,
                     }
                     for transform, implementation in zip(
                         graph.transforms,
@@ -739,7 +675,10 @@ def _materialize_kernel_outputs(value: object) -> dict[str, object]:
 
 
 def _is_measurement_value(value: object) -> bool:
-    if not isinstance(value, Quantity | ComplexQuantity | MeasurementArray):
+    if not isinstance(
+        value,
+        Quantity | ComplexQuantity | MeasurementArray,
+    ):
         return False
     try:
         validated_measurement_value_copy(value)
@@ -753,7 +692,6 @@ __all__ = [
     "ExecutedHostMeasurementTransforms",
     "HostMeasurementTransformCall",
     "HostMeasurementTransformImplementation",
-    "HostMeasurementTransformImplementationBinding",
     "HostMeasurementTransformKernel",
     "HostMeasurementTransformValidator",
     "MeasurementTransformExecutionError",

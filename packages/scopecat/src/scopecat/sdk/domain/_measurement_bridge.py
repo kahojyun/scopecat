@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from scopecat.compiler.typed.products import ProductDef
 from scopecat.kernel.product_identity import ProductUseId
@@ -42,7 +42,6 @@ def lower_domain_measurement_transform(
     return MeasurementTransformDef(
         id=NativeMeasurementTransformId(transform.id),
         semantic=transform.semantic,
-        rate=transform.rate,
         inputs=tuple(
             _lower_input_port(context, port)
             for port in sorted(transform.inputs, key=lambda item: item.id)
@@ -73,7 +72,7 @@ def lower_domain_host_transform_implementation(
 
     def kernel(
         call: HostMeasurementTransformCall,
-    ) -> Mapping[str, MeasurementValue]:
+    ) -> Mapping[str, Sequence[MeasurementValue]]:
         if (
             call.transform_id != native_transform.id
             or call.semantic != native_transform.semantic
@@ -83,17 +82,19 @@ def lower_domain_host_transform_implementation(
             msg = "lowered host implementation received another transform call"
             raise ValueError(msg)
         try:
-            point = point_refs[call.logical_point_id]
+            points = tuple(point_refs[point.logical_id] for point in call.points)
         except KeyError as error:
             msg = "host transform call references a point outside its batch context"
             raise ValueError(msg) from error
-        if call.point_index != point.ordinal:
-            msg = "host transform call point index does not match its SDK reference"
+        if tuple(point.ordinal for point in points) != tuple(
+            point.logical_ordinal for point in call.points
+        ):
+            msg = "host transform call point order does not match its SDK references"
             raise ValueError(msg)
         return implementation.kernel(
             DomainHostTransformCall(
                 transform=transform,
-                point=point,
+                points=points,
                 inputs=call.inputs,
             )
         )
@@ -102,7 +103,6 @@ def lower_domain_host_transform_implementation(
         id=implementation.id,
         semantic_id=implementation.semantic_id,
         semantic_version=implementation.semantic_version,
-        rate=implementation.rate,
         implementation_fingerprint=implementation.implementation_fingerprint,
         validate_transform=validate,
         kernel=kernel,

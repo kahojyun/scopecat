@@ -67,7 +67,9 @@ def test_sealing_canonicalizes_candidate_order_and_copies_values() -> None:
     scenario, selected = _selection()
     candidates = list(measurement_value_candidates(scenario, scenario.uses))
 
-    values = seal_measurement_values(selected, tuple(reversed(candidates)))
+    values = seal_measurement_values(
+        selected, tuple(reversed(candidates)), points=scenario.points
+    )
     exposed = candidates[0].value
     assert isinstance(exposed, Quantity)
     object.__setattr__(exposed, "value", 999.0)
@@ -108,7 +110,7 @@ def test_sealing_requires_one_exact_candidate_per_point_and_use(
         )
 
     with pytest.raises(ProviderContractError) as captured:
-        seal_measurement_values(selected, candidates)
+        seal_measurement_values(selected, candidates, points=scenario.points)
 
     assert code in _codes(captured.value)
 
@@ -127,6 +129,7 @@ def test_sealing_rejects_values_outside_the_product_contract() -> None:
                     Quantity(value=1.0, unit="V"),
                 ),
             ),
+            points=scenario.points,
         )
 
     assert "measurement_value_unit_mismatch" in _codes(captured.value)
@@ -136,7 +139,13 @@ def test_zero_points_and_empty_inventories_close_without_special_cases() -> None
     zero_scenario, zero_selected = _selection(point_values=(), use_count=1)
     empty_scenario, empty_selected = _selection(use_count=0)
 
-    assert seal_measurement_values(zero_selected, ()).values == ()
-    assert seal_measurement_values(empty_selected, ()).values == ()
+    assert (
+        seal_measurement_values(zero_selected, (), points=zero_scenario.points).values
+        == ()
+    )
+    assert (
+        seal_measurement_values(empty_selected, (), points=empty_scenario.points).values
+        == ()
+    )
     assert zero_scenario.uses
     assert not empty_scenario.uses

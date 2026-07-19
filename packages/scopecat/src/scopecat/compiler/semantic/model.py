@@ -26,9 +26,6 @@ from scopecat.compiler.relations.verification import (
     TypedPlanImport,
     VerifiedRelationPlan,
 )
-from scopecat.compiler.semantic.availability import (
-    ValueAvailability,
-)
 from scopecat.compiler.semantic.operation_contract import (
     OperationContract,
 )
@@ -42,7 +39,6 @@ from scopecat.kernel.value_types import (
     ValueType,
 )
 from scopecat.measurements.semantics import (
-    MeasurementTransformRate,
     MeasurementTransformSemanticContract,
 )
 from scopecat.records.entity import EntityRef
@@ -390,11 +386,10 @@ type ValueSource = (
 
 @dataclass(frozen=True, slots=True)
 class ValueDef:
-    """The sole owner of a value's type and availability facts."""
+    """The sole owner of a value's type, source, and lexical scope."""
 
     id: ValueId
     value_type: SemanticValueType
-    availability: ValueAvailability
     source: ValueSource
     owner_region_id: RowRegionId | None = None
 
@@ -524,14 +519,10 @@ class SemanticMeasurementTransform:
 
     id: MeasurementTransformId
     semantic: MeasurementTransformSemanticContract
-    rate: MeasurementTransformRate
     inputs: tuple[tuple[str, ProductId], ...] = ()
     outputs: tuple[tuple[str, ProductId], ...] = ()
 
     def __post_init__(self) -> None:
-        if self.rate != "point":
-            msg = "semantic measurement transform rate is unsupported"
-            raise ValueError(msg)
         _require_unique_names("measurement transform input", self.inputs)
         _require_unique_names("measurement transform output", self.outputs)
         if not self.outputs:

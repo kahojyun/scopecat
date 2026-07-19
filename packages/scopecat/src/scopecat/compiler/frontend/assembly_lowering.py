@@ -75,7 +75,6 @@ from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
 )
-from scopecat.compiler.semantic.availability import ValueStage
 from scopecat.compiler.semantic.compute_result import ComputeResultRef
 from scopecat.compiler.semantic.model import (
     ImplementationCatalog,
@@ -217,19 +216,22 @@ def lower_semantic_compute_graph(
     *,
     type_bindings: RelationTypeBindings,
 ) -> tuple[tuple[TypedComputeNode, ...], ImplementationCatalog]:
-    """Lower execute-stage semantic operations to the current local artifact."""
+    """Lower implementation-defined operations to the local residual artifact."""
 
-    operations = {operation.id: operation for operation in graph.graph.operations}
+    operations = graph.operations
+    residual_operations = graph.residual_operation_ids
+    residual_values = graph.residual_value_ids
     nodes = tuple(
         _lower_semantic_operation(
             operation,
             definitions=graph.value_defs,
             operations=operations,
+            residual_values=residual_values,
             inputs=inputs,
             type_bindings=type_bindings,
         )
         for operation in graph.graph.operations
-        if _operation_is_execute_stage(operation, graph.value_defs)
+        if operation.id in residual_operations
     )
     node_ids = {node.id for node in nodes}
     selected_catalog = ImplementationCatalog(
@@ -251,7 +253,8 @@ def lower_semantic_domain_graph(
 ) -> tuple[tuple[TypedDomainExecution, ...], tuple[DomainProductProducer, ...]]:
     """Lower ordered prepare-stage domain effects and their product uses."""
 
-    operations = {operation.id: operation for operation in graph.graph.operations}
+    operations = graph.operations
+    residual_values = graph.residual_value_ids
     uses_by_product: dict[ProductId, list[ProductUseId]] = {}
     for use in product_uses:
         uses_by_product.setdefault(use.product_id, []).append(use.id)
@@ -273,6 +276,7 @@ def lower_semantic_domain_graph(
                 use.value_id,
                 definitions=graph.value_defs,
                 operations=operations,
+                residual_values=residual_values,
                 inputs=inputs,
                 type_bindings=type_bindings,
             )
@@ -311,22 +315,12 @@ def lower_semantic_domain_graph(
     return tuple(typed_executions), tuple(producers)
 
 
-def _operation_is_execute_stage(
-    operation: SemanticOperation,
-    definitions: Mapping[ValueId, ValueDef],
-) -> bool:
-    return any(
-        definitions[value_id].availability.stage is ValueStage.EXECUTE
-        for _port, value_id in operation.outputs
-        if value_id in definitions
-    )
-
-
 def _lower_semantic_operation(
     operation: SemanticOperation,
     *,
     definitions: Mapping[ValueId, ValueDef],
     operations: Mapping[OperationId, SemanticOperation],
+    residual_values: frozenset[ValueId],
     inputs: Mapping[str, object],
     type_bindings: RelationTypeBindings,
 ) -> TypedComputeNode:
@@ -342,6 +336,7 @@ def _lower_semantic_operation(
                 use.value_id,
                 definitions=definitions,
                 operations=operations,
+                residual_values=residual_values,
                 inputs=inputs,
                 type_bindings=type_bindings,
             )
@@ -350,7 +345,6 @@ def _lower_semantic_operation(
         result=TypedComputeOutput(
             id=output.id,
             value_type=output.value_type,
-            availability=output.availability,
         ),
     )
 
@@ -360,6 +354,7 @@ def _lower_semantic_input(
     *,
     definitions: Mapping[ValueId, ValueDef],
     operations: Mapping[OperationId, SemanticOperation],
+    residual_values: frozenset[ValueId],
     inputs: Mapping[str, object],
     type_bindings: RelationTypeBindings,
 ) -> ValueInput | ComputeEdge | RouteInput:
@@ -372,9 +367,7 @@ def _lower_semantic_input(
             port_id=source.port_id,
             value_type=definition.value_type,
         )
-    if isinstance(source, OperationOutputSource) and (
-        definition.availability.stage is ValueStage.EXECUTE
-    ):
+    if value_id in residual_values:
         if isinstance(definition.value_type, Route):
             raise AssertionError("compute edges cannot carry route values")
         return ComputeEdge(
@@ -459,7 +452,8 @@ def lower_state_region(
                 f"{region.resource_port}"
             )
         assert_port_capability(port, region.capability_id)
-    operations = {operation.id: operation for operation in graph.graph.operations}
+    operations = graph.operations
+    residual_values = graph.residual_value_ids
     row_type = RowType.from_table(region.row_argument.value_type)
     body_bindings = replace(
         type_bindings,
@@ -492,6 +486,7 @@ def lower_state_region(
         region.value,
         graph=graph,
         operations=operations,
+        residual_values=residual_values,
         inputs=inputs,
         type_bindings=body_bindings,
     )
@@ -533,7 +528,8 @@ def lower_action_effect(
             f"{action.resource_port_id}"
         )
     assert_port_capability(port, action.capability_id)
-    operations = {operation.id: operation for operation in graph.graph.operations}
+    operations = graph.operations
+    residual_values = graph.residual_value_ids
     return invoke_action(
         action.id,
         resource_port_id=action.resource_port_id,
@@ -543,6 +539,7 @@ def lower_action_effect(
                 use,
                 graph=graph,
                 operations=operations,
+                residual_values=residual_values,
                 inputs=inputs,
                 type_bindings=type_bindings,
             )
@@ -556,13 +553,12 @@ def _lower_state_region_value(
     *,
     graph: VerifiedSemanticGraph,
     operations: Mapping[OperationId, SemanticOperation],
+    residual_values: frozenset[ValueId],
     inputs: Mapping[str, object],
     type_bindings: RelationTypeBindings,
 ) -> ScalarValueExpr | ComputeResultRef:
     definition = graph.value_defs[use.value_id]
-    if isinstance(definition.source, OperationOutputSource) and (
-        definition.availability.stage is ValueStage.EXECUTE
-    ):
+    if definition.id in residual_values:
         return ComputeResultRef(value_id=definition.id)
     value = _lower_state_region_plan_value(
         use,

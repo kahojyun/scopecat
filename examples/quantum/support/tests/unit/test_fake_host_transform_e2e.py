@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from scopecat import Quantity
 from scopecat.adapters.memory import MemoryExecutionJournal
-from scopecat.adapters.memory.execution import MemoryMeasurementRecordCommitter
+from scopecat.adapters.memory.execution import MemoryMeasurementDatasetRepository
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.linked import (
     LinkedPointMaterializer,
@@ -50,7 +50,10 @@ from scopecat.measurements.projection import (
     project_measurement_records,
     select_measurement_projection,
 )
-from scopecat.measurements.recording import commit_measurement_records
+from scopecat.measurements.recording import (
+    append_measurement_dataset,
+    seal_measurement_dataset,
+)
 from scopecat.measurements.values import (
     seal_measurement_values,
     select_measurement_values,
@@ -61,7 +64,6 @@ from scopecat.sdk.domain import (
     DomainHostTransformBinding,
     DomainHostTransformCall,
     DomainHostTransformImplementation,
-    DomainMeasurementPlan,
     DomainPointRef,
     DomainProductUseRef,
     PreparedDomainExecution,
@@ -99,7 +101,6 @@ from scopecat_quantum import (
     QuantumTargetEntryPointBinding,
     QubitId,
     ReadoutSignal,
-    TargetAcquisitionAddress,
     TargetCompileEntryId,
     TargetCompilerId,
     binary_iq_probability_host_implementation,
@@ -136,10 +137,7 @@ class _Scenario:
     linked_points: MaterializedLinkedPoints
     context: DomainBatchContext
     prepared: PreparedDomainExecution
-    measurements: DomainMeasurementPlan[
-        TargetCompileEntryId,
-        TargetAcquisitionAddress,
-    ]
+    host_transforms: tuple[DomainHostTransformBinding, ...]
     runtime: FakeListDomainRuntime
     iq_use: DomainProductUseRef
     probability_0_use: DomainProductUseRef
@@ -231,7 +229,6 @@ def _linked_points() -> MaterializedLinkedPoints:
             TypedMeasurementTransform(
                 id=transform_id,
                 semantic=authored_transform.semantic,
-                rate="point",
                 inputs=(
                     TypedMeasurementTransformInput(
                         id="iq_shots",
@@ -451,10 +448,7 @@ def _scenario(
         realization,
         invocation_id="binary-iq-readout",
     )
-    measurements = preparation.measurement_plan(
-        mapping.domain_mapping,
-        host_transforms=(DomainHostTransformBinding(transform, host_implementation),),
-    )
+    host_transforms = (DomainHostTransformBinding(transform, host_implementation),)
     runtime = FakeListDomainRuntime()
 
     def realize(
@@ -463,7 +457,8 @@ def _scenario(
         return realize_fetched_fake_measurements(realization, fetched).result_values
 
     prepared = preparation.build(
-        measurements=measurements,
+        mapping=mapping.domain_mapping,
+        host_transforms=host_transforms,
         invocation=invocation,
         runtime=runtime,
         realize=realize,
@@ -472,7 +467,7 @@ def _scenario(
         linked_points=linked_points,
         context=context,
         prepared=prepared,
-        measurements=measurements,
+        host_transforms=host_transforms,
         runtime=runtime,
         iq_use=iq_use,
         probability_0_use=probability_0_use,
@@ -501,7 +496,7 @@ def test_fake_domain_iq_reaches_host_probabilities_and_durable_records() -> None
         scenario.linked_points.linked_plan.record_uses,
     )
     journal = MemoryExecutionJournal()
-    committer = MemoryMeasurementRecordCommitter()
+    committer = MemoryMeasurementDatasetRepository()
     run_id = "fake-host-transform-run"
     executed = seal_measurement_values(
         value_selection,
@@ -511,30 +506,42 @@ def test_fake_domain_iq_reaches_host_probabilities_and_durable_records() -> None
             run_id="fake-host-transform-run",
             journal=journal,
         ),
+        points=scenario.context.run_points,
     )
     projected = project_measurement_records(
         projection,
         executed,
         run_id=run_id,
+        points=scenario.context.run_points,
     )
-    committed = commit_measurement_records(
+    committed = append_measurement_dataset(
         projected,
         committer,
         journal,
     )
+    assert committed is not None
+    assert projected.schema is not None
+    seal_measurement_dataset(
+        run_id=run_id,
+        dataset_id=projected.schema.dataset_id,
+        recording_contract_fingerprint=projected.recording_contract_fingerprint,
+        point_count=len(projected.records),
+        append_content_hashes=(committed.dataset_content_hash,),
+        writer=committer,
+        journal=journal,
+    )
 
-    measurements = scenario.measurements
-    assert measurements.source_product_uses == (scenario.iq_use,)
-    assert measurements.derived_product_uses == (
+    assert scenario.context.direct_product_uses == (scenario.iq_use,)
+    assert scenario.context.derived_product_uses == (
         scenario.probability_0_use,
         scenario.probability_1_use,
     )
-    assert measurements.product_uses == (
+    assert scenario.context.product_uses == (
         scenario.iq_use,
         scenario.probability_0_use,
         scenario.probability_1_use,
     )
-    [host_binding] = measurements.host_transforms
+    [host_binding] = scenario.host_transforms
     assert host_binding.implementation is counted_implementation
     assert tuple(port.product_use for port in host_binding.transform.inputs) == (
         scenario.iq_use,
@@ -553,9 +560,8 @@ def test_fake_domain_iq_reaches_host_probabilities_and_durable_records() -> None
 
     points = scenario.linked_points.point_domain.points
     assert scenario.runtime.physical_execution_count == 1
-    assert [(call.point, call.point_index) for call in kernel_calls] == [
-        (point, point.ordinal) for point in scenario.context.points
-    ]
+    assert len(kernel_calls) == 1
+    assert kernel_calls[0].points == scenario.context.points
     assert all(
         tuple(port.id for port in call.input_ports) == ("iq_shots",)
         and {port.id for port in call.output_ports}
@@ -565,9 +571,9 @@ def test_fake_domain_iq_reaches_host_probabilities_and_durable_records() -> None
         for call in kernel_calls
     )
     assert len(projected.records) == len(points)
-    assert len(committer.chunks) == len(points)
-    assert committed == projected.records
-    assert len(committer.receipts) == len(points)
+    assert len(committer.appends) == 1
+    assert committed.dataset_content_hash == committer.appends[0].content_hash
+    assert len(committer.receipts) == 2
     assert all(
         set(record.observables)
         == {"probability_0", "probability_1", "probability_1_alias"}

@@ -19,10 +19,6 @@ from scopecat.compiler.frontend.resolution import (
 )
 from scopecat.compiler.relations.model import literal_rows
 from scopecat.compiler.relations.point_domain import point_rows
-from scopecat.compiler.semantic.availability import (
-    ValueRate,
-    ValueStage,
-)
 from scopecat.compiler.semantic.model import (
     ImplementationCatalog,
     LiteralValueSource,
@@ -301,7 +297,7 @@ def test_static_record_schema_is_checked_before_parameter_catalog() -> None:
     )
 
 
-def test_resource_selector_rejects_execute_stage_value() -> None:
+def test_resource_selector_rejects_external_operation_value() -> None:
     entity_type = sc.ScalarType(sc.EntityType())
     subject = sc.input("subject", entity_type)
     child = (
@@ -331,7 +327,7 @@ def test_resource_selector_rejects_execute_stage_value() -> None:
         _resolve(parent)
 
     problem = error.value.problems[0]
-    assert problem.code == "value_stage_unavailable"
+    assert problem.code == "value_requires_execution"
     assert problem.location == model_location(
         "resources",
         "resource-child",
@@ -341,10 +337,10 @@ def test_resource_selector_rejects_execute_stage_value() -> None:
         0,
     )
     assert "resource selector" in problem.message
-    assert "execute-stage" in problem.message
+    assert "external operation" in problem.message
 
 
-def test_record_axis_rejects_execute_stage_value() -> None:
+def test_record_axis_rejects_external_operation_value() -> None:
     size = sc.compute(
         "axis-size",
         fn=lambda: 2,
@@ -361,13 +357,13 @@ def test_record_axis_rejects_execute_stage_value() -> None:
         _resolve(module)
 
     problem = error.value.problems[0]
-    assert problem.code == "value_stage_unavailable"
+    assert problem.code == "record_axis_value_requires_execution"
     assert problem.location == model_location(
         "records", "signal", "axes", "sample", "size"
     )
 
 
-def test_record_axis_rejects_point_rate_value() -> None:
+def test_record_axis_rejects_point_dependent_value() -> None:
     size = sc.point("axis-size", sc.ScalarType(sc.IntType(minimum=1)))
     module = (
         sc.module("test.stage.record-point")
@@ -388,13 +384,13 @@ def test_record_axis_rejects_point_rate_value() -> None:
         )
 
     problem = error.value.problems[0]
-    assert problem.code == "value_rate_unavailable"
+    assert problem.code == "record_axis_value_depends_on_point"
     assert problem.location == model_location(
         "records", "signal", "axes", "sample", "size"
     )
 
 
-def test_state_route_selector_rejects_execute_stage_value() -> None:
+def test_state_route_selector_rejects_external_operation_value() -> None:
     rows = sc.parameter(
         "missing-state-rows",
         sc.TableType(columns=()),
@@ -423,7 +419,7 @@ def test_state_route_selector_rejects_execute_stage_value() -> None:
         _resolve(module)
 
     problem = error.value.problems[0]
-    assert problem.code == "value_stage_unavailable"
+    assert problem.code == "value_requires_execution"
     assert problem.location == model_location("state", 0, "route_entities", 0)
     assert "state route selector" in problem.message
 
@@ -624,12 +620,9 @@ def test_execute_scalar_expression_becomes_semantic_operation_graph() -> None:
 
     left = definitions[scalar_inputs["left"].value_id]
     right = definitions[scalar_inputs["right"].value_id]
-    result = definitions[scalar_output]
     assert left.source == OperationOutputSource(producer_operation.id)
     assert isinstance(right.source, LiteralValueSource)
     assert right.source.value == 1.0
-    assert result.availability.stage is ValueStage.EXECUTE
-    assert result.availability.rate is ValueRate.POINT
 
 
 def test_execute_core_operation_defers_local_implementation_selection() -> None:

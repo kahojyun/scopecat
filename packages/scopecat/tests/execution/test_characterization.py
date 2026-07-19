@@ -21,21 +21,17 @@ from scopecat.compiler.semantic.operation_contract import (
 from scopecat.execution.effect_interpreter import RunEffectInterpreter
 from scopecat.execution.local.program import (
     ActionField,
-    ActionStage,
     ApplyStateOperation,
-    ApplyStateStage,
     CollectionResultBinding,
     CollectOperation,
-    CollectStage,
     ComputeOperation,
     ComputeResultSlot,
-    ComputeStage,
     InstrumentActionOperation,
     OutputInput,
-    PointProgram,
     StateTarget,
 )
-from scopecat.execution.program import RunComputeStage, RunPointLoop
+from scopecat.execution.points import RunPoint
+from scopecat.execution.program import RunCompute, RunCoverageBlock, RunCoverageEffect
 from scopecat.kernel.content_identity import model_wire_content_hash
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
 from scopecat.kernel.problems import (
@@ -70,20 +66,53 @@ from scopecat.sdk.instruments import (
     InstrumentStateCommand,
     InstrumentStateSnapshot,
 )
-from tests.testkit.bound_plan import config_with_physical_resources
 from tests.testkit.instrument_drivers import SignalInstrumentDriver
-from tests.testkit.local_effect_program import (
-    StubLocalEffectProgram,
-    complete_point_operations,
+from tests.testkit.local_materialization import (
+    MaterializedLocalEffects,
+    MaterializedPointEffects,
 )
+from tests.testkit.materialized_effects import config_with_physical_resources
+from tests.testkit.run_operations import complete_point_operations
 
 
-def _logical_point_id(name: str) -> LogicalPointId:
-    return LogicalPointId(PointDomainId(name, "root"), 0)
+def _logical_point_id(name: str, ordinal: int = 0) -> LogicalPointId:
+    return LogicalPointId(PointDomainId(name, "root"), ordinal)
 
 
 def _claims(*instrument_ids: str) -> tuple[ResourceClaim, ...]:
     return tuple(ResourceClaim(id=instrument_id) for instrument_id in instrument_ids)
+
+
+def test_coverage_iterator_is_consumed_after_each_block_is_delivered() -> None:
+    delivered: list[tuple[int, ...]] = []
+    points = tuple(
+        RunPoint(_logical_point_id("incremental-source", ordinal), {})
+        for ordinal in range(2)
+    )
+
+    def operations():
+        yield RunCoverageBlock((points[0],), ())
+        assert delivered == [(0,)]
+        yield RunCoverageBlock((points[1],), ())
+
+    result = RunEffectInterpreter(
+        run_id="incremental-source-run",
+        experiment_id="test-local-effects",
+        experiment_kind="test-local-effects",
+        coordinate_ids=(),
+        resource_order=(),
+        drivers={},
+        journal=MemoryExecutionJournal(),
+        readbacks=MemoryCollectionRepository(),
+        payloads=MemoryPayloadEvidenceCommitter(),
+        coverage_observer=lambda block, _candidates: delivered.append(
+            block.point_indices
+        ),
+    ).run(operations())
+
+    assert not result.problems
+    assert delivered == [(0,), (1,)]
+    assert result.admitted_points == points
 
 
 class _SingleDriverProvider:
@@ -210,59 +239,53 @@ def test_compute_output_is_normalized_before_downstream_use() -> None:
         consumed.append(value)
         return value.value
 
-    program = StubLocalEffectProgram(
-        experiment_id="normalized-compute-output",
+    program = MaterializedLocalEffects(
         points=(
-            PointProgram(
+            MaterializedPointEffects(
                 point_index=0,
                 logical_id=_logical_point_id("normalized-output-point"),
                 coordinates={},
-                stages=(
-                    ComputeStage(
-                        operations=(
-                            ComputeOperation(
-                                operation_id=producer_id,
-                                semantic_operation_id="producer",
-                                implementation_id="python.producer.v1",
-                                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-                                kernel=lambda: Quantity(
-                                    value=5000.0,
-                                    unit="MHz",
-                                ),
-                                inputs={},
-                                result=ComputeResultSlot(
-                                    id=producer_result_id,
-                                    value_type=Scalar(QuantityType(unit="GHz")),
-                                ),
-                            ),
-                            ComputeOperation(
-                                operation_id=(
-                                    "normalized-output-point.compute.consumer"
-                                ),
-                                semantic_operation_id="consumer",
-                                implementation_id="python.consumer.v1",
-                                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-                                kernel=consume,
-                                inputs={"value": OutputInput(producer_result_id)},
-                                result=ComputeResultSlot(
-                                    id=consumer_result_id,
-                                    value_type=Scalar(Float()),
-                                ),
-                            ),
-                        )
+                operations=(
+                    ComputeOperation(
+                        operation_id=producer_id,
+                        semantic_operation_id="producer",
+                        implementation_id="python.producer.v1",
+                        contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
+                        kernel=lambda: Quantity(
+                            value=5000.0,
+                            unit="MHz",
+                        ),
+                        inputs={},
+                        result=ComputeResultSlot(
+                            id=producer_result_id,
+                            value_type=Scalar(QuantityType(unit="GHz")),
+                        ),
+                    ),
+                    ComputeOperation(
+                        operation_id=("normalized-output-point.compute.consumer"),
+                        semantic_operation_id="consumer",
+                        implementation_id="python.consumer.v1",
+                        contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
+                        kernel=consume,
+                        inputs={"value": OutputInput(producer_result_id)},
+                        result=ComputeResultSlot(
+                            id=consumer_result_id,
+                            value_type=Scalar(Float()),
+                        ),
                     ),
                 ),
             ),
         ),
-        product_uses=(),
-        collection_product_use_ids=(),
         resource_order=(),
         resource_claims=(),
     )
 
     result = RunEffectInterpreter(
         run_id="normalized-output-run",
-        program=program,
+        experiment_id="test-local-effects",
+        experiment_kind="test-local-effects",
+        coordinate_ids=tuple(program.points[0].coordinates),
+        resource_order=program.resource_order,
         drivers={},
         journal=MemoryExecutionJournal(),
         readbacks=MemoryCollectionRepository(),
@@ -290,69 +313,75 @@ def test_run_compute_is_shared_by_every_point_frame() -> None:
         consumed.append(value)
         return value + 1.0
 
-    run_stage = RunComputeStage(
-        ComputeStage(
-            (
-                ComputeOperation(
-                    operation_id="run.compute.producer",
-                    semantic_operation_id=producer_id.qualified_name,
-                    implementation_id="python.producer.v1",
-                    contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-                    kernel=produce,
-                    inputs={},
-                    result=ComputeResultSlot(
-                        id=producer_result_id,
-                        value_type=Scalar(Float()),
-                    ),
-                ),
-            )
+    run_compute = RunCompute(
+        ComputeOperation(
+            operation_id="run.compute.producer",
+            semantic_operation_id=producer_id.qualified_name,
+            implementation_id="python.producer.v1",
+            contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
+            kernel=produce,
+            inputs={},
+            result=ComputeResultSlot(
+                id=producer_result_id,
+                value_type=Scalar(Float()),
+            ),
         )
     )
     points = tuple(
-        PointProgram(
+        MaterializedPointEffects(
             point_index=index,
             logical_id=LogicalPointId(
                 PointDomainId("run-compute-sharing", "root"), index
             ),
             coordinates={},
-            stages=(
-                ComputeStage(
-                    (
-                        ComputeOperation(
-                            operation_id=f"point-{index}.compute.consumer",
-                            semantic_operation_id=consumer_id.qualified_name,
-                            implementation_id="python.consumer.v1",
-                            contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-                            kernel=consume,
-                            inputs={"value": OutputInput(producer_result_id)},
-                            result=ComputeResultSlot(
-                                id=consumer_result_id,
-                                value_type=Scalar(Float()),
-                            ),
-                        ),
-                    )
+            operations=(
+                ComputeOperation(
+                    operation_id=f"point-{index}.compute.consumer",
+                    semantic_operation_id=consumer_id.qualified_name,
+                    implementation_id="python.consumer.v1",
+                    contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
+                    kernel=consume,
+                    inputs={"value": OutputInput(producer_result_id)},
+                    result=ComputeResultSlot(
+                        id=consumer_result_id,
+                        value_type=Scalar(Float()),
+                    ),
                 ),
             ),
         )
         for index in range(2)
     )
-    program = StubLocalEffectProgram(
-        experiment_id="run-compute-sharing",
+    program = MaterializedLocalEffects(
         points=points,
-        product_uses=(),
-        collection_product_use_ids=(),
         resource_order=(),
         resource_claims=(),
     )
 
     result = RunEffectInterpreter(
         run_id="run-compute-sharing-run",
-        program=program,
+        experiment_id="test-local-effects",
+        experiment_kind="test-local-effects",
+        coordinate_ids=tuple(program.points[0].coordinates),
+        resource_order=program.resource_order,
         drivers={},
         journal=MemoryExecutionJournal(),
         readbacks=MemoryCollectionRepository(),
         payloads=MemoryPayloadEvidenceCommitter(),
-    ).run((run_stage, RunPointLoop(points)))
+    ).run(
+        (
+            run_compute,
+            *(
+                RunCoverageBlock(
+                    points=(RunPoint(point.logical_id, point.coordinates),),
+                    operations=tuple(
+                        RunCoverageEffect.at_point(point.point_index, operation)
+                        for operation in point.operations
+                    ),
+                )
+                for point in points
+            ),
+        )
+    )
 
     assert not result.problems and not result.indeterminate
     assert producer_calls == 1
@@ -372,54 +401,50 @@ def test_distinct_compute_operations_are_each_evaluated() -> None:
         calls.append("second")
         return 2.0
 
-    program = StubLocalEffectProgram(
-        experiment_id="implementation-cache-identity",
+    program = MaterializedLocalEffects(
         points=(
-            PointProgram(
+            MaterializedPointEffects(
                 point_index=0,
                 logical_id=_logical_point_id("implementation-cache-point"),
                 coordinates={},
-                stages=(
-                    ComputeStage(
-                        operations=(
-                            ComputeOperation(
-                                operation_id="implementation-cache-point.compute.first",
-                                semantic_operation_id="first",
-                                implementation_id="python.first.v1",
-                                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-                                kernel=first,
-                                inputs={},
-                                result=ComputeResultSlot(
-                                    id=first_result_id,
-                                    value_type=Scalar(Float()),
-                                ),
-                            ),
-                            ComputeOperation(
-                                operation_id="implementation-cache-point.compute.second",
-                                semantic_operation_id="second",
-                                implementation_id="python.second.v1",
-                                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-                                kernel=second,
-                                inputs={},
-                                result=ComputeResultSlot(
-                                    id=second_result_id,
-                                    value_type=Scalar(Float()),
-                                ),
-                            ),
-                        )
+                operations=(
+                    ComputeOperation(
+                        operation_id="implementation-cache-point.compute.first",
+                        semantic_operation_id="first",
+                        implementation_id="python.first.v1",
+                        contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
+                        kernel=first,
+                        inputs={},
+                        result=ComputeResultSlot(
+                            id=first_result_id,
+                            value_type=Scalar(Float()),
+                        ),
+                    ),
+                    ComputeOperation(
+                        operation_id="implementation-cache-point.compute.second",
+                        semantic_operation_id="second",
+                        implementation_id="python.second.v1",
+                        contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
+                        kernel=second,
+                        inputs={},
+                        result=ComputeResultSlot(
+                            id=second_result_id,
+                            value_type=Scalar(Float()),
+                        ),
                     ),
                 ),
             ),
         ),
-        product_uses=(),
-        collection_product_use_ids=(),
         resource_order=(),
         resource_claims=(),
     )
 
     result = RunEffectInterpreter(
         run_id="implementation-cache-run",
-        program=program,
+        experiment_id="test-local-effects",
+        experiment_kind="test-local-effects",
+        coordinate_ids=tuple(program.points[0].coordinates),
+        resource_order=program.resource_order,
         drivers={},
         journal=MemoryExecutionJournal(),
         readbacks=MemoryCollectionRepository(),
@@ -551,34 +576,30 @@ def _action_operation(point_uid: str, instrument_id: str) -> InstrumentActionOpe
 def test_identical_actions_are_delivered_at_every_point() -> None:
     driver = SignalInstrumentDriver()
     points = tuple(
-        PointProgram(
+        MaterializedPointEffects(
             point_index=index,
-            logical_id=_logical_point_id(f"action-point-{index}"),
+            logical_id=_logical_point_id(f"action-point-{index}", index),
             coordinates={},
-            stages=(
-                ActionStage(
-                    operations=(
-                        _action_operation(
-                            f"action-point-{index}",
-                            driver.instrument_id,
-                        ),
-                    )
+            operations=(
+                _action_operation(
+                    f"action-point-{index}",
+                    driver.instrument_id,
                 ),
             ),
         )
         for index in range(2)
     )
-    program = StubLocalEffectProgram(
-        experiment_id="action",
+    program = MaterializedLocalEffects(
         points=points,
-        product_uses=(),
-        collection_product_use_ids=(),
         resource_order=(driver.instrument_id,),
         resource_claims=_claims(driver.instrument_id),
     )
     result = RunEffectInterpreter(
         run_id="action-run",
-        program=program,
+        experiment_id="test-local-effects",
+        experiment_kind="test-local-effects",
+        coordinate_ids=tuple(program.points[0].coordinates),
+        resource_order=program.resource_order,
         drivers={driver.instrument_id: driver},
         journal=MemoryExecutionJournal(),
         readbacks=MemoryCollectionRepository(),
@@ -594,24 +615,24 @@ def test_unknown_action_is_not_retried_and_makes_run_indeterminate() -> None:
     point_uid = "unknown-action-point"
     operation = _action_operation(point_uid, driver.instrument_id)
     journal = MemoryExecutionJournal()
-    program = StubLocalEffectProgram(
-        experiment_id="unknown-action",
+    program = MaterializedLocalEffects(
         points=(
-            PointProgram(
+            MaterializedPointEffects(
                 point_index=0,
                 logical_id=_logical_point_id(point_uid),
                 coordinates={},
-                stages=(ActionStage(operations=(operation,)),),
+                operations=(operation,),
             ),
         ),
-        product_uses=(),
-        collection_product_use_ids=(),
         resource_order=(driver.instrument_id,),
         resource_claims=_claims(driver.instrument_id),
     )
     result = RunEffectInterpreter(
         run_id="unknown-action-run",
-        program=program,
+        experiment_id="test-local-effects",
+        experiment_kind="test-local-effects",
+        coordinate_ids=tuple(program.points[0].coordinates),
+        resource_order=program.resource_order,
         drivers={driver.instrument_id: driver},
         journal=journal,
         readbacks=MemoryCollectionRepository(),
@@ -649,18 +670,15 @@ class _BrokenFinalizationJournal(MemoryExecutionJournal):
 def test_invalid_apply_receipt_truth_table_is_rejected_at_normalize_boundary() -> None:
     driver = _MalformedApplyDriver()
     operation = _gain_operation(driver.instrument_id, 1.0)
-    program = StubLocalEffectProgram(
-        experiment_id="malformed-apply-receipt",
+    program = MaterializedLocalEffects(
         points=(
-            PointProgram(
+            MaterializedPointEffects(
                 point_index=0,
                 logical_id=_logical_point_id("malformed-apply-point"),
                 coordinates={},
-                stages=(ApplyStateStage(operations=(operation,)),),
+                operations=(operation,),
             ),
         ),
-        product_uses=(),
-        collection_product_use_ids=(),
         resource_order=(driver.instrument_id,),
         resource_claims=_claims(driver.instrument_id),
     )
@@ -668,7 +686,10 @@ def test_invalid_apply_receipt_truth_table_is_rejected_at_normalize_boundary() -
 
     result = RunEffectInterpreter(
         run_id="malformed-apply-run",
-        program=program,
+        experiment_id="test-local-effects",
+        experiment_kind="test-local-effects",
+        coordinate_ids=tuple(program.points[0].coordinates),
+        resource_order=program.resource_order,
         drivers={driver.instrument_id: driver},
         journal=journal,
         readbacks=MemoryCollectionRepository(),
@@ -690,18 +711,15 @@ def test_invalid_collect_receipt_is_rejected_at_normalize_boundary() -> None:
     driver = _MalformedCollectDriver()
     point_uid = "malformed-collect-point"
     operation = _collect_operation(point_uid, driver.instrument_id, "signal")
-    program = StubLocalEffectProgram(
-        experiment_id="malformed-collect-readback",
+    program = MaterializedLocalEffects(
         points=(
-            PointProgram(
+            MaterializedPointEffects(
                 point_index=0,
                 logical_id=_logical_point_id(point_uid),
                 coordinates={},
-                stages=(CollectStage(operations=(operation,)),),
+                operations=(operation,),
             ),
         ),
-        product_uses=(_collection_product_use("signal"),),
-        collection_product_use_ids=(_collection_product_use("signal").id,),
         resource_order=(driver.instrument_id,),
         resource_claims=_claims(driver.instrument_id),
     )
@@ -710,7 +728,10 @@ def test_invalid_collect_receipt_is_rejected_at_normalize_boundary() -> None:
 
     result = RunEffectInterpreter(
         run_id="malformed-collect-run",
-        program=program,
+        experiment_id="test-local-effects",
+        experiment_kind="test-local-effects",
+        coordinate_ids=tuple(program.points[0].coordinates),
+        resource_order=program.resource_order,
         drivers={driver.instrument_id: driver},
         journal=journal,
         readbacks=readbacks,
@@ -742,18 +763,15 @@ def test_mismatched_collection_receipt_is_indeterminate(
     driver = SignalInstrumentDriver()
     point_uid = "mismatched-collection-receipt-point"
     operation = _collect_operation(point_uid, driver.instrument_id, "signal")
-    program = StubLocalEffectProgram(
-        experiment_id="mismatched-collection-receipt",
+    program = MaterializedLocalEffects(
         points=(
-            PointProgram(
+            MaterializedPointEffects(
                 point_index=0,
                 logical_id=_logical_point_id(point_uid),
                 coordinates={},
-                stages=(CollectStage(operations=(operation,)),),
+                operations=(operation,),
             ),
         ),
-        product_uses=(_collection_product_use("signal"),),
-        collection_product_use_ids=(_collection_product_use("signal").id,),
         resource_order=(driver.instrument_id,),
         resource_claims=_claims(driver.instrument_id),
     )
@@ -762,7 +780,10 @@ def test_mismatched_collection_receipt_is_indeterminate(
 
     result = RunEffectInterpreter(
         run_id="mismatched-collection-receipt-run",
-        program=program,
+        experiment_id="test-local-effects",
+        experiment_kind="test-local-effects",
+        coordinate_ids=tuple(program.points[0].coordinates),
+        resource_order=program.resource_order,
         drivers={driver.instrument_id: driver},
         journal=journal,
         readbacks=readbacks,
@@ -785,32 +806,28 @@ def test_mismatched_collection_receipt_is_indeterminate(
 def test_finalization_journal_failure_cannot_block_abort_or_terminal_read() -> None:
     first = _MalformedApplyDriver(instrument_id="source-a")
     second = _FinalizationTrackingDriver(instrument_id="source-b")
-    program = StubLocalEffectProgram(
-        experiment_id="finalization-journal-failure",
+    program = MaterializedLocalEffects(
         points=(
-            PointProgram(
+            MaterializedPointEffects(
                 point_index=0,
                 logical_id=_logical_point_id("finalization-journal-point"),
                 coordinates={},
-                stages=(
-                    ApplyStateStage(
-                        operations=(
-                            _gain_operation("source-a", 1.0),
-                            _gain_operation("source-b", 2.0),
-                        )
-                    ),
+                operations=(
+                    _gain_operation("source-a", 1.0),
+                    _gain_operation("source-b", 2.0),
                 ),
             ),
         ),
-        product_uses=(),
-        collection_product_use_ids=(),
         resource_order=("source-a", "source-b"),
         resource_claims=_claims("source-a", "source-b"),
     )
 
     result = RunEffectInterpreter(
         run_id="finalization-journal-run",
-        program=program,
+        experiment_id="test-local-effects",
+        experiment_kind="test-local-effects",
+        coordinate_ids=tuple(program.points[0].coordinates),
+        resource_order=program.resource_order,
         drivers={"source-a": first, "source-b": second},
         journal=_BrokenFinalizationJournal(),
         readbacks=MemoryCollectionRepository(),
@@ -846,20 +863,15 @@ class _ReceiptEvidenceStateDriver(SignalInstrumentDriver):
 
 def test_apply_journal_persists_full_receipt_evidence() -> None:
     driver = _ReceiptEvidenceStateDriver()
-    program = StubLocalEffectProgram(
-        experiment_id="apply-receipt-evidence",
+    program = MaterializedLocalEffects(
         points=(
-            PointProgram(
+            MaterializedPointEffects(
                 point_index=0,
                 logical_id=_logical_point_id("apply-receipt-evidence-point"),
                 coordinates={},
-                stages=(
-                    ApplyStateStage(operations=(_gain_operation("source-0", 2.0),)),
-                ),
+                operations=(_gain_operation("source-0", 2.0),),
             ),
         ),
-        product_uses=(),
-        collection_product_use_ids=(),
         resource_order=("source-0",),
         resource_claims=_claims("source-0"),
     )
@@ -867,7 +879,10 @@ def test_apply_journal_persists_full_receipt_evidence() -> None:
 
     result = RunEffectInterpreter(
         run_id="apply-receipt-evidence-run",
-        program=program,
+        experiment_id="test-local-effects",
+        experiment_kind="test-local-effects",
+        coordinate_ids=tuple(program.points[0].coordinates),
+        resource_order=program.resource_order,
         drivers={driver.instrument_id: driver},
         journal=journal,
         readbacks=MemoryCollectionRepository(),
@@ -895,32 +910,28 @@ def test_apply_journal_persists_full_receipt_evidence() -> None:
 def test_state_apply_stops_on_blocking_result_without_committing_state() -> None:
     first = _BlockingStateDriver(instrument_id="source-a")
     second = SignalInstrumentDriver(instrument_id="source-b")
-    program = StubLocalEffectProgram(
-        experiment_id="blocking-state",
+    program = MaterializedLocalEffects(
         points=(
-            PointProgram(
+            MaterializedPointEffects(
                 point_index=0,
                 logical_id=_logical_point_id("blocking-state-point"),
                 coordinates={},
-                stages=(
-                    ApplyStateStage(
-                        operations=(
-                            _gain_operation("source-a", 1.0),
-                            _gain_operation("source-b", 2.0),
-                        )
-                    ),
+                operations=(
+                    _gain_operation("source-a", 1.0),
+                    _gain_operation("source-b", 2.0),
                 ),
             ),
         ),
-        product_uses=(),
-        collection_product_use_ids=(),
         resource_order=("source-a", "source-b"),
         resource_claims=_claims("source-a", "source-b"),
     )
     journal = MemoryExecutionJournal()
     engine = RunEffectInterpreter(
         run_id="blocking-state-run",
-        program=program,
+        experiment_id="test-local-effects",
+        experiment_kind="test-local-effects",
+        coordinate_ids=tuple(program.points[0].coordinates),
+        resource_order=program.resource_order,
         drivers={
             first.instrument_id: first,
             second.instrument_id: second,
@@ -986,23 +997,14 @@ def test_unexpected_product_stops_later_collection_and_fails_journal_entry() -> 
     point_uid = "blocking-collect-point"
     first_operation = _collect_operation(point_uid, "source-a", "first")
     second_operation = _collect_operation(point_uid, "source-b", "second")
-    program = StubLocalEffectProgram(
-        experiment_id="blocking-collect",
+    program = MaterializedLocalEffects(
         points=(
-            PointProgram(
+            MaterializedPointEffects(
                 point_index=0,
                 logical_id=_logical_point_id(point_uid),
                 coordinates={},
-                stages=(CollectStage(operations=(first_operation, second_operation)),),
+                operations=(first_operation, second_operation),
             ),
-        ),
-        product_uses=(
-            _collection_product_use("first"),
-            _collection_product_use("second"),
-        ),
-        collection_product_use_ids=(
-            _collection_product_use("first").id,
-            _collection_product_use("second").id,
         ),
         resource_order=("source-a", "source-b"),
         resource_claims=_claims("source-a", "source-b"),
@@ -1011,7 +1013,10 @@ def test_unexpected_product_stops_later_collection_and_fails_journal_entry() -> 
     readbacks = MemoryCollectionRepository()
     result = RunEffectInterpreter(
         run_id="blocking-collect-run",
-        program=program,
+        experiment_id="test-local-effects",
+        experiment_kind="test-local-effects",
+        coordinate_ids=tuple(program.points[0].coordinates),
+        resource_order=program.resource_order,
         drivers={
             first.instrument_id: first,
             second.instrument_id: second,
@@ -1050,56 +1055,48 @@ def test_unexpected_product_stops_later_collection_and_fails_journal_entry() -> 
 def test_unknown_receipt_with_blocking_problem_does_not_advance_state() -> None:
     first = _UnknownAppliedStateDriver(instrument_id="source-a")
     second = SignalInstrumentDriver(instrument_id="source-b")
-    program = StubLocalEffectProgram(
-        experiment_id="conflicting-applied-state",
+    program = MaterializedLocalEffects(
         points=(
-            PointProgram(
+            MaterializedPointEffects(
                 point_index=0,
                 logical_id=_logical_point_id("conflicting-applied-state-point"),
                 coordinates={},
-                stages=(
-                    ApplyStateStage(
-                        operations=(
-                            ApplyStateOperation(
-                                operation_id=(
-                                    "conflicting-applied-state-point.state.source-a"
-                                ),
-                                instrument_id="source-a",
-                                targets=(
-                                    StateTarget(
-                                        capability_id="set_gain",
-                                        field_path="gain",
-                                        value=StateValue(1.0),
-                                    ),
-                                ),
+                operations=(
+                    ApplyStateOperation(
+                        operation_id=("conflicting-applied-state-point.state.source-a"),
+                        instrument_id="source-a",
+                        targets=(
+                            StateTarget(
+                                capability_id="set_gain",
+                                field_path="gain",
+                                value=StateValue(1.0),
                             ),
-                            ApplyStateOperation(
-                                operation_id=(
-                                    "conflicting-applied-state-point.state.source-b"
-                                ),
-                                instrument_id="source-b",
-                                targets=(
-                                    StateTarget(
-                                        capability_id="set_gain",
-                                        field_path="gain",
-                                        value=StateValue(2.0),
-                                    ),
-                                ),
+                        ),
+                    ),
+                    ApplyStateOperation(
+                        operation_id=("conflicting-applied-state-point.state.source-b"),
+                        instrument_id="source-b",
+                        targets=(
+                            StateTarget(
+                                capability_id="set_gain",
+                                field_path="gain",
+                                value=StateValue(2.0),
                             ),
-                        )
+                        ),
                     ),
                 ),
             ),
         ),
-        product_uses=(),
-        collection_product_use_ids=(),
         resource_order=("source-a", "source-b"),
         resource_claims=_claims("source-a", "source-b"),
     )
     journal = MemoryExecutionJournal()
     engine = RunEffectInterpreter(
         run_id="conflicting-applied-state-run",
-        program=program,
+        experiment_id="test-local-effects",
+        experiment_kind="test-local-effects",
+        coordinate_ids=tuple(program.points[0].coordinates),
+        resource_order=program.resource_order,
         drivers={
             first.instrument_id: first,
             second.instrument_id: second,

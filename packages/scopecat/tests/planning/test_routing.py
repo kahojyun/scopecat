@@ -22,8 +22,8 @@ from scopecat.compiler.typed.program import (
     set_state_field,
 )
 from scopecat.execution.local.program import (
-    ApplyStateStage,
-    CollectStage,
+    ApplyStateOperation,
+    CollectOperation,
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.resource_identity import (
@@ -39,10 +39,7 @@ from scopecat.kernel.value_types import (
     Series,
     String,
 )
-from scopecat.planning.local_materialization import (
-    MaterializedLocalEffects,
-    channel_signature,
-)
+from scopecat.planning.local_materialization import channel_signature
 from scopecat.planning.routing import RoutingError, RoutingView
 from scopecat.planning.validation import validate_config
 from scopecat.records.config import (
@@ -58,8 +55,10 @@ from scopecat.records.config import (
 )
 from scopecat.records.entity import EntityRef
 from tests.testkit.authoring import load_config, parameters
-from tests.testkit.local_effect_program import make_test_local_effect_program
-from tests.testkit.local_materialization import materialize_local_execution
+from tests.testkit.local_materialization import (
+    MaterializedLocalEffects,
+    materialize_local_execution,
+)
 from tests.testkit.relation_plans import (
     scalar_value_expr,
     series_value_expr,
@@ -388,24 +387,25 @@ def test_multi_channel_entity_binding_reaches_state_and_collect_commands() -> No
     )
 
     plan = _bind(experiment, config=config)
-    program = make_test_local_effect_program(plan, instrument_order=("source-0",))
+    program = plan
 
     assert not validate_config(config)
-    state_stage = next(
-        stage
-        for stage in program.points[0].stages
-        if isinstance(stage, ApplyStateStage)
+    state_operation = next(
+        operation
+        for operation in program.points[0].operations
+        if isinstance(operation, ApplyStateOperation)
     )
-    collect_stage = next(
-        stage for stage in program.points[0].stages if isinstance(stage, CollectStage)
+    collect_operation = next(
+        operation
+        for operation in program.points[0].operations
+        if isinstance(operation, CollectOperation)
     )
     assert [
-        binding.channel_id
-        for binding in state_stage.operations[0].targets[0].channel_bindings
+        binding.channel_id for binding in state_operation.targets[0].channel_bindings
     ] == ["drive-q0", "readout-q0"]
     assert [
         binding.channel_id
-        for binding in collect_stage.operations[0].command.requests[0].channel_bindings
+        for binding in collect_operation.command.requests[0].channel_bindings
     ] == ["drive-q0", "readout-q0"]
 
 
@@ -511,7 +511,7 @@ def test_routing_view_rejects_explicit_resource_entity_mismatch() -> None:
     assert error.value.code == "module_resource_port_entity_mismatch"
 
 
-def test_bound_plan_reports_shared_group_resource_conflict() -> None:
+def test_materialized_effects_reports_shared_group_resource_conflict() -> None:
     config = _routing_constraint_config(
         resources=[
             RoutingResource(id="source-0", capabilities=["set_frequency"]),
@@ -554,7 +554,7 @@ def test_bound_plan_reports_shared_group_resource_conflict() -> None:
     }
 
 
-def test_bound_plan_allows_configured_shared_group_resource_fanout() -> None:
+def test_materialized_effects_allows_configured_shared_group_resource_fanout() -> None:
     config = _routing_constraint_config(
         resources=[
             RoutingResource(id="source-0", capabilities=["set_frequency"]),
@@ -603,7 +603,7 @@ def test_bound_plan_allows_configured_shared_group_resource_fanout() -> None:
     assert len(plan.points) == 1
 
 
-def test_bound_plan_reports_channel_shared_by_multiple_ports() -> None:
+def test_materialized_effects_reports_channel_shared_by_multiple_ports() -> None:
     config = _routing_constraint_config(
         resources=[RoutingResource(id="source-0", capabilities=["set_frequency"])],
         edges=[
@@ -639,7 +639,7 @@ def test_bound_plan_reports_channel_shared_by_multiple_ports() -> None:
     assert {problem.code for problem in problems} >= {"routing_channel_shared_by_ports"}
 
 
-def test_bound_plan_allows_configured_channel_route_port_fanout() -> None:
+def test_materialized_effects_allows_configured_channel_route_port_fanout() -> None:
     config = _routing_constraint_config(
         resources=[RoutingResource(id="source-0", capabilities=["set_frequency"])],
         edges=[
@@ -684,7 +684,9 @@ def test_bound_plan_allows_configured_channel_route_port_fanout() -> None:
     assert len(plan.points) == 1
 
 
-def test_bound_plan_rejects_product_duplicates_after_route_resolution() -> None:
+def test_materialized_effects_rejects_product_duplicates_after_route_resolution() -> (
+    None
+):
     config = load_config()
     channels = [
         channel.model_copy(update={"max_route_ports_per_point": 2})
@@ -738,7 +740,9 @@ def test_bound_plan_rejects_product_duplicates_after_route_resolution() -> None:
     ]
 
 
-def test_bound_plan_rejects_broadcast_and_explicit_product_duplicates() -> None:
+def test_materialized_effects_rejects_broadcast_and_explicit_product_duplicates() -> (
+    None
+):
     products = (
         observable_product("broadcast_signal"),
         observable_product("explicit_signal"),
@@ -769,7 +773,7 @@ def test_bound_plan_rejects_broadcast_and_explicit_product_duplicates() -> None:
     ]
 
 
-def test_bound_plan_reports_conflicting_state_field_values() -> None:
+def test_materialized_effects_reports_conflicting_state_field_values() -> None:
     experiment = typed_program(
         id="conflicting-state",
         kind="routing_test",
@@ -797,7 +801,7 @@ def test_bound_plan_reports_conflicting_state_field_values() -> None:
     }
 
 
-def test_bound_plan_reports_invalid_route_entity_member() -> None:
+def test_materialized_effects_reports_invalid_route_entity_member() -> None:
     experiment = typed_program(
         id="invalid-route-entity",
         kind="routing_test",

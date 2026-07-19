@@ -40,7 +40,6 @@ def test_measurement_transform_captures_ordered_local_product_bindings() -> None
     )
 
     assert transform.id == "derive"
-    assert transform.rate == "point"
     assert transform.semantic == semantic
     assert transform.semantic is semantic
     assert tuple(

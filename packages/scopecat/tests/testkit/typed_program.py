@@ -18,7 +18,6 @@ from scopecat.compiler.semantic.compute_result import ComputeResultRef
 from scopecat.compiler.semantic.model import (
     ImplementationCatalog,
     OperationId,
-    SourceMap,
     ValueId,
     operation_result_id,
 )
@@ -181,7 +180,6 @@ def typed_program(
     domain_execution: TypedDomainExecution | None = None,
     measurement_transforms: Sequence[TypedMeasurementTransform] = (),
     implementation_catalog: ImplementationCatalog | None = None,
-    source_map: SourceMap | None = None,
     state: Sequence[StateSpecVariant] = (),
     actions: Sequence[ActionSpec] = (),
     product_defs: Sequence[ProductDef] = (),
@@ -210,7 +208,6 @@ def typed_program(
         ),
         measurement_transforms=tuple(measurement_transforms),
         implementation_catalog=implementation_catalog or ImplementationCatalog(),
-        source_map=source_map or SourceMap(),
         product_defs=tuple(product_defs),
         instrument_product_producers=tuple(instrument_product_producers),
         domain_product_producers=tuple(domain_product_producers),

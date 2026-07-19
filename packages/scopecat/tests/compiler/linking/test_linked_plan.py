@@ -55,6 +55,7 @@ from scopecat.compiler.typed.program import (
     set_state_field,
 )
 from scopecat.compiler.typed.verification import seal_typed_program
+from scopecat.execution.local.program import ApplyStateOperation, CollectOperation
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
     ProblemCategory,
@@ -74,7 +75,10 @@ from scopecat.kernel.value_types import (
 )
 from scopecat.records.entity import EntityRef
 from tests.testkit.authoring import load_config
-from tests.testkit.local_materialization import materialize_local_execution
+from tests.testkit.local_materialization import (
+    materialize_local_execution,
+    operations_of_type,
+)
 from tests.testkit.relation_plans import scalar_value_expr, table_value_expr
 from tests.testkit.typed_program import instrument_product_producer, link_program
 from tests.testkit.workflow_fixtures import load_experiment
@@ -260,13 +264,13 @@ def test_unselected_product_definition_survives_link_without_collection() -> Non
     assert {
         binding.product_id
         for point in plan.points
-        for operation in point.collect_operations
+        for operation in operations_of_type(point, CollectOperation)
         for binding in operation.result_bindings
     } == {selected_id}
     assert unselected_id not in {
         binding.product_id
         for point in plan.points
-        for operation in point.collect_operations
+        for operation in operations_of_type(point, CollectOperation)
         for binding in operation.result_bindings
     }
 
@@ -568,7 +572,7 @@ def test_link_reports_every_missing_import_in_one_relation_consumer() -> None:
     } == set(missing_ids)
 
 
-def test_local_materialization_builds_the_executable_bound_plan() -> None:
+def test_local_materialization_builds_the_executable_materialized_effects() -> None:
     program = load_experiment()
     environment = _environment()
 
@@ -577,8 +581,10 @@ def test_local_materialization_builds_the_executable_bound_plan() -> None:
 
     assert actual == expected
     assert len(actual.points) == 3
-    assert all(point.state_operations for point in actual.points)
-    assert all(point.collect_operations for point in actual.points)
+    assert all(
+        operations_of_type(point, ApplyStateOperation) for point in actual.points
+    )
+    assert all(operations_of_type(point, CollectOperation) for point in actual.points)
 
 
 def test_linked_points_retain_exact_proofs_and_only_materialize_the_domain() -> None:

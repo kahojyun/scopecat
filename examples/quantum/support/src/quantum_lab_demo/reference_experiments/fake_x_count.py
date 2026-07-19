@@ -21,11 +21,11 @@ from scopecat import Quantity
 from scopecat.sdk.domain import (
     DomainHostTransformBinding,
     DomainHostTransformImplementation,
-    DomainMeasurementPlan,
     DomainMeasurementTransform,
     DomainPointRef,
     DomainPreparationBuilder,
     DomainProductUseRef,
+    DomainResultMapping,
 )
 from scopecat_quantum import (
     Acquire,
@@ -117,10 +117,10 @@ class PreparedFakeXCountReference:
     compiled_target: CompiledQuantumTarget[FakeListArtifact]
     realization: SelectedFakeMeasurementRealization = field(repr=False)
     invocation: FakeMeasurementInvocationSpec = field(repr=False)
-    measurements: DomainMeasurementPlan[
-        TargetCompileEntryId,
-        TargetAcquisitionAddress,
-    ] = field(repr=False)
+    measurement_mapping: DomainResultMapping[TargetAcquisitionAddress] = field(
+        repr=False
+    )
+    host_transforms: tuple[DomainHostTransformBinding, ...] = field(repr=False)
 
     @property
     def shots(self) -> int:
@@ -229,12 +229,7 @@ def prepare_fake_x_count_reference(
         if host_implementation is None
         else host_implementation
     )
-    measurements = preparation.measurement_plan(
-        mapping.domain_mapping,
-        host_transforms=(
-            DomainHostTransformBinding(products.transform, implementation),
-        ),
-    )
+    host_transforms = (DomainHostTransformBinding(products.transform, implementation),)
     return PreparedFakeXCountReference(
         preparation=preparation,
         products=products,
@@ -247,7 +242,8 @@ def prepare_fake_x_count_reference(
         compiled_target=compiled_target,
         realization=realization,
         invocation=invocation,
-        measurements=measurements,
+        measurement_mapping=mapping.domain_mapping,
+        host_transforms=host_transforms,
     )
 
 

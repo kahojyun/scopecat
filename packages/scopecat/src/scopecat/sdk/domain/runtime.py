@@ -22,7 +22,12 @@ from pydantic import (
     model_validator,
 )
 
-from scopecat.execution.ports.journal import ExecutionJournal
+from scopecat.execution.ports.journal import (
+    ExecutionJournal,
+)
+from scopecat.execution.ports.journal import (
+    commit_transition as _commit_transition,
+)
 from scopecat.execution.problems import (
     contextualize_problems,
     problem_from_exception,
@@ -283,11 +288,10 @@ class DomainRuntime[PayloadT, ResultT](Protocol):
 
 
 def plan_domain_submission[
-    EntryAddressT: Hashable,
     ResultAddressT: Hashable,
     PayloadT,
 ](
-    invocation: ClosedDomainInvocation[EntryAddressT, ResultAddressT, PayloadT],
+    invocation: ClosedDomainInvocation[ResultAddressT, PayloadT],
     *,
     run_id: str,
     semantic_operation_id: str,
@@ -336,13 +340,12 @@ def domain_receipt_identity(
 
 
 def submit_domain_invocation[
-    EntryAddressT: Hashable,
     ResultAddressT: Hashable,
     PayloadT,
     ResultT,
 ](
     runtime: DomainRuntime[PayloadT, ResultT],
-    invocation: ClosedDomainInvocation[EntryAddressT, ResultAddressT, PayloadT],
+    invocation: ClosedDomainInvocation[ResultAddressT, PayloadT],
     submission_id: DomainSubmissionId,
     *,
     journal: ExecutionJournal,
@@ -714,24 +717,6 @@ def _receipt_evidence(receipt: BaseModel) -> dict[str, JsonValue]:
         "receipt": receipt.model_dump(mode="json"),
         "receipt_content_hash": model_wire_content_hash(receipt),
     }
-
-
-def _commit_transition(
-    journal: ExecutionJournal, transition: ExecutionTransition
-) -> None:
-    committed = journal.append(transition)
-    if not isinstance(cast("object", committed), ExecutionTransition):
-        raise TypeError("execution journal returned no committed transition")
-    normalized = ExecutionTransition.model_validate(committed.model_dump(mode="json"))
-    if normalized.sequence is None:
-        raise ValueError("domain effects require durable journal sequence identity")
-    excluded = {"sequence", "timestamp"}
-    if normalized.model_dump(mode="json", exclude=excluded) != transition.model_dump(
-        mode="json", exclude=excluded
-    ):
-        raise ValueError(
-            "execution journal changed domain transition identity or evidence"
-        )
 
 
 def _append_before_effect(

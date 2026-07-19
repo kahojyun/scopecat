@@ -45,11 +45,6 @@ from scopecat.compiler.relations.operators import (
     require_sortable_scalar,
     scalar_operator_result_type,
 )
-from scopecat.compiler.semantic.availability import (
-    ValueAvailability,
-    ValueRate,
-    ValueStage,
-)
 from scopecat.compiler.semantic.compute_result import ComputeResultRef
 from scopecat.compiler.semantic.model import (
     OperationId,
@@ -1381,61 +1376,76 @@ def internal_value_ref_free_point_input_ids(value: ValueRef) -> frozenset[str]:
     return input_ids - internal_value_ref_bound_point_input_ids(value)
 
 
-def internal_value_ref_availability(value: ValueRef) -> ValueAvailability:
-    """Return the stage and rate of a complete, possibly bound value graph."""
+def internal_value_ref_requires_execution(value: ValueRef) -> bool:
+    """Return whether a value graph contains an opaque compute result."""
 
-    return _value_ref_availability(value, seen=frozenset())
+    return _value_ref_requires_execution(value, seen=frozenset())
 
 
-def _value_ref_availability(
+def _value_ref_requires_execution(
     value: ValueRef,
     *,
     seen: frozenset[_ValueDeclarationIdentity],
-) -> ValueAvailability:
+) -> bool:
     marker = internal_value_ref_declaration_identity(value)
     if marker in seen:
-        return ValueAvailability(ValueStage.PLAN, ValueRate.RUN)
+        return False
     nested_seen = seen | {marker}
     source = value.source
     if isinstance(source, _ComputeValueSource):
-        return ValueAvailability(ValueStage.EXECUTE, ValueRate.POINT)
-    if isinstance(source, _PointValueSource):
-        return ValueAvailability(ValueStage.PLAN, ValueRate.POINT)
-    if isinstance(source, _InputValueSource):
-        return ValueAvailability(ValueStage.PLAN, ValueRate.RUN)
+        return True
+    if isinstance(source, _PointValueSource | _InputValueSource):
+        return False
     if isinstance(source, _ModuleExportSource):
         msg = (
-            "cannot determine availability of unresolved module export "
+            "cannot determine dependencies of unresolved module export "
             f"{source.export_id!r}"
         )
         raise ValueError(msg)
     if isinstance(source, _ScalarOperationValueSource):
-        return ValueAvailability.combined(
-            *(
-                _value_ref_availability(operand, seen=nested_seen)
-                for operand in _scalar_operation_value_operands(source.operation)
-            )
+        return any(
+            _value_ref_requires_execution(operand, seen=nested_seen)
+            for operand in _scalar_operation_value_operands(source.operation)
         )
-
-    row_dependent = bool(free_row_references(source.expression).references)
-    availability = ValueAvailability(
-        ValueStage.PLAN,
-        (
-            ValueRate.ROW
-            if row_dependent
-            else ValueRate.POINT
-            if internal_value_ref_point_dependencies(value)
-            else ValueRate.RUN
-        ),
+    return any(
+        _value_ref_requires_execution(bound, seen=nested_seen)
+        for layer in source.input_binding_layers
+        for _input_id, bound in layer
     )
-    layers = source.input_binding_layers
-    return ValueAvailability.combined(
-        availability,
-        *(
-            _value_ref_availability(bound, seen=nested_seen)
-            for layer in layers
-            for _input_id, bound in layer
-        ),
+
+
+def internal_value_ref_is_row_dependent(value: ValueRef) -> bool:
+    """Return whether a value is lexically bound by a row region."""
+
+    return _value_ref_is_row_dependent(value, seen=frozenset())
+
+
+def _value_ref_is_row_dependent(
+    value: ValueRef,
+    *,
+    seen: frozenset[_ValueDeclarationIdentity],
+) -> bool:
+    marker = internal_value_ref_declaration_identity(value)
+    if marker in seen:
+        return False
+    nested_seen = seen | {marker}
+    source = value.source
+    if isinstance(source, _ModuleExportSource):
+        raise ValueError(
+            "cannot determine row dependencies of unresolved module export "
+            f"{source.export_id!r}"
+        )
+    if isinstance(source, _ScalarOperationValueSource):
+        return any(
+            _value_ref_is_row_dependent(operand, seen=nested_seen)
+            for operand in _scalar_operation_value_operands(source.operation)
+        )
+    if isinstance(source, _ComputeValueSource | _PointValueSource | _InputValueSource):
+        return False
+    return bool(free_row_references(source.expression).references) or any(
+        _value_ref_is_row_dependent(bound, seen=nested_seen)
+        for layer in source.input_binding_layers
+        for _input_id, bound in layer
     )
 
 
@@ -1492,7 +1502,7 @@ def _lower_scalar_operation_operand(
     lowered = internal_lower_value_ref(operand)
     if isinstance(lowered, ComputeResultRef):
         msg = (
-            "execute-stage scalar operations require semantic graph lowering; "
+            "externally dependent scalar operations require semantic graph lowering; "
             "they cannot be lowered as plan expressions"
         )
         raise TypeError(msg)

@@ -2,21 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 
-from scopecat.execution.local.program import (
-    ActionStage,
-    ApplyStateStage,
-    CollectStage,
-    ComputeStage,
-    ExecutionStage,
-    PointProgram,
-)
-from scopecat.kernel.point_identity import LogicalPointId
+from scopecat.execution.local.program import ComputeOperation, LocalOperation
+from scopecat.execution.points import RunPoint, RunPointCatalog
 from scopecat.kernel.resource_identity import ResourceClaim
 from scopecat.measurements.projection import MeasurementProjection
-from scopecat.measurements.results import CoordinateValue
 from scopecat.sdk.domain.execution import PreparedDomainExecution
 from scopecat.sdk.instruments.contracts import (
     InstrumentDescription,
@@ -33,122 +25,83 @@ class RunHostBinding:
     advertised_descriptions: dict[str, InstrumentDescription] = field(repr=False)
 
 
-@dataclass(frozen=True, slots=True)
+type DomainExecutionPreparation = Callable[[], PreparedDomainExecution]
+
+
+@dataclass(slots=True)
 class RunDomainJob:
-    """One fully prepared domain operation over exact logical points."""
+    """One lightweight, single-use domain operation over exact logical points."""
 
     id: str
     point_ordinals: tuple[int, ...]
-    prepared: PreparedDomainExecution = field(repr=False)
+    resource_claims: tuple[ResourceClaim, ...]
+    _prepare: DomainExecutionPreparation | None = field(repr=False, compare=False)
+
+    def prepare(self) -> PreparedDomainExecution:
+        """Materialize target payloads once and release the compiler closure."""
+
+        prepare = self._prepare
+        if prepare is None:
+            raise RuntimeError("domain job preparation is single-use")
+        self._prepare = None
+        return prepare()
+
+
+@dataclass(frozen=True, slots=True)
+class RunCoverageEffect:
+    """Execute one bound local operation over its exact logical coverage."""
+
+    point_indices: tuple[int, ...]
+    operation: LocalOperation
+
+    def __post_init__(self) -> None:
+        if not self.point_indices or len(self.point_indices) != len(
+            set(self.point_indices)
+        ):
+            raise ValueError("local effect coverage must be non-empty and unique")
+
+    @classmethod
+    def at_point(cls, point_index: int, operation: LocalOperation) -> RunCoverageEffect:
+        return cls((point_index,), operation)
+
+
+@dataclass(frozen=True, slots=True)
+class RunCoverageCheckpoint:
+    """Commit one completed logical prefix inside a larger effect block."""
+
+    point_indices: tuple[int, ...]
+
+    def __post_init__(self) -> None:
+        if not self.point_indices or len(self.point_indices) != len(
+            set(self.point_indices)
+        ):
+            raise ValueError("coverage checkpoint must be non-empty and unique")
+
+
+@dataclass(frozen=True, slots=True)
+class RunCompute:
+    """Execute one point-invariant computation for the complete run."""
+
+    operation: ComputeOperation
+
+
+type RunCoveredOperation = RunCoverageCheckpoint | RunCoverageEffect | RunDomainJob
+
+
+@dataclass(frozen=True, slots=True)
+class RunCoverageBlock:
+    """Execute bounded host/domain effects over one exact point coverage."""
+
+    points: tuple[RunPoint, ...]
+    operations: tuple[RunCoveredOperation, ...]
+    resource_claims: tuple[ResourceClaim, ...] = ()
 
     @property
-    def resource_claims(self) -> tuple[ResourceClaim, ...]:
-        return self.prepared.resource_claims
+    def point_indices(self) -> tuple[int, ...]:
+        return tuple(point.ordinal for point in self.points)
 
 
-@dataclass(frozen=True, slots=True)
-class RunPointStart:
-    """Open the execution frame for one logical point."""
-
-    point_index: int
-    logical_id: LogicalPointId
-    coordinates: Mapping[str, CoordinateValue]
-    compute_step_count: int
-    compute_operation_ids: tuple[str, ...]
-    route_count: int
-    state_resource_count: int
-    action_count: int
-    stage_count: int
-
-
-@dataclass(frozen=True, slots=True)
-class RunPointStage:
-    """Execute one already-ordered stage inside an open point frame."""
-
-    point_index: int
-    stage: ExecutionStage
-
-
-@dataclass(frozen=True, slots=True)
-class RunPointEnd:
-    """Close one logical point and emit its terminal point transition."""
-
-    point_index: int
-
-
-@dataclass(frozen=True, slots=True)
-class RunPointLoop:
-    """Budget-closed sequential loop over concrete logical point iterations."""
-
-    points: tuple[PointProgram, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class RunComputeStage:
-    """Execute point-invariant host computations once for the complete run."""
-
-    stage: ComputeStage
-
-
-type RunAtomicOperation = (
-    RunComputeStage | RunPointStart | RunPointStage | RunPointEnd | RunDomainJob
-)
-type RunOperation = RunAtomicOperation | RunPointLoop
-
-
-def run_point_start(point: PointProgram) -> RunPointStart:
-    """Project point identity and observation metadata into its start operation."""
-
-    return RunPointStart(
-        point_index=point.point_index,
-        logical_id=point.logical_id,
-        coordinates=point.coordinates,
-        compute_step_count=sum(
-            len(stage.operations)
-            for stage in point.stages
-            if isinstance(stage, ComputeStage)
-        ),
-        compute_operation_ids=tuple(
-            operation.semantic_operation_id
-            for stage in point.stages
-            if isinstance(stage, ComputeStage)
-            for operation in stage.operations
-        ),
-        route_count=sum(
-            len(operation.command.requests)
-            for stage in point.stages
-            if isinstance(stage, CollectStage)
-            for operation in stage.operations
-        ),
-        state_resource_count=sum(
-            len(stage.operations)
-            for stage in point.stages
-            if isinstance(stage, ApplyStateStage)
-        ),
-        action_count=sum(
-            len(stage.operations)
-            for stage in point.stages
-            if isinstance(stage, ActionStage)
-        ),
-        stage_count=len(point.stages),
-    )
-
-
-def iter_run_operations(
-    operations: Iterable[RunOperation],
-) -> Iterator[RunAtomicOperation]:
-    """Iterate the final atomic sequence without expanding stored point loops."""
-
-    for operation in operations:
-        if isinstance(operation, RunPointLoop):
-            for point in operation.points:
-                yield run_point_start(point)
-                yield from (
-                    RunPointStage(point.point_index, stage) for stage in point.stages
-                )
-                yield RunPointEnd(point.point_index)
-        else:
-            yield operation
+type RunOperation = RunCompute | RunCoverageBlock
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,13 +109,15 @@ class RunProgram:
     """Closed residual effect program consumed by the run interpreter."""
 
     host: RunHostBinding | None
-    operations: tuple[RunOperation, ...]
+    preamble: tuple[RunCompute, ...]
+    coverage: Iterator[RunCoverageBlock] = field(repr=False, compare=False)
+    points: RunPointCatalog = field(repr=False)
     measurements: MeasurementProjection = field(repr=False)
     resource_claims: tuple[ResourceClaim, ...]
 
     @property
     def experiment_id(self) -> str:
-        return self.measurements.catalog.point_catalog.experiment_id
+        return self.points.experiment_id
 
     @property
     def resource_order(self) -> tuple[str, ...]:

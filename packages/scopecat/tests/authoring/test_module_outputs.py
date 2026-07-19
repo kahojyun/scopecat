@@ -13,11 +13,6 @@ from scopecat.authoring._value_refs import (
 from scopecat.compiler.frontend.elaboration import elaborate_module
 from scopecat.compiler.relations.evaluation import EvalContext
 from scopecat.compiler.relations.model import ScalarExpr
-from scopecat.compiler.semantic.availability import (
-    ValueAvailability,
-    ValueRate,
-    ValueStage,
-)
 from scopecat.compiler.semantic.model import (
     LiteralValueSource,
     OperationId,
@@ -216,7 +211,6 @@ def test_nested_compute_exports_preserve_exact_typed_result_values(
         config_profile=load_config(),
     )
     nodes = {node.id: node for node in resolved.experiment.compute_nodes}
-    expected_availability = ValueAvailability(ValueStage.EXECUTE, ValueRate.POINT)
     expected_type = _payload_type()
 
     for wrapper_scope, sink_scope in (
@@ -232,7 +226,6 @@ def test_nested_compute_exports_preserve_exact_typed_result_values(
         edge = sink_node.inputs["payload"]
         assert isinstance(edge, ComputeEdge)
         assert producer_node.result.value_type == expected_type
-        assert producer_node.result.availability == expected_availability
         assert producer_node.result.id.scope == (
             wrapper_scope,
             "child",

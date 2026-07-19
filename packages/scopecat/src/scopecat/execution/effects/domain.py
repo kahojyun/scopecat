@@ -64,6 +64,7 @@ def execute_domain_job_values(
         else execute_host_measurement_transforms(
             transforms,
             source,
+            points=prepared.points,
         ).values
     )
 
@@ -109,15 +110,10 @@ def measurement_recording_terminal_problem(
     details: dict[str, object] = {
         "dataset_id": error.dataset_id,
         "recording_contract_fingerprint": error.recording_contract_fingerprint,
-        "logical_point_id": error.logical_point_id,
-        "point_index": error.point_index,
-        "committed_record_refs": [
-            receipt.record_ref for receipt in error.committed_prefix
-        ],
         "write_may_have_completed": error.write_may_have_completed,
     }
-    if error.pending_receipt is not None:
-        details["pending_record_ref"] = error.pending_receipt.record_ref
+    if error.receipt is not None:
+        details["dataset_ref"] = error.receipt.dataset_ref
     return runtime_problem(
         "measurement_recording_terminalized",
         (
@@ -126,7 +122,6 @@ def measurement_recording_terminal_problem(
         ),
         run_id=run_id,
         operation_id=error.operation_id,
-        point_index=error.point_index,
         phase=ProblemPhase.PERSISTENCE,
         category=ProblemCategory.STORAGE,
         details=details,

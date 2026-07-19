@@ -35,11 +35,6 @@ from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
 )
-from scopecat.compiler.semantic.availability import (
-    ValueAvailability,
-    ValueRate,
-    ValueStage,
-)
 from scopecat.compiler.semantic.model import (
     OperationId,
     operation_result_id,
@@ -47,8 +42,12 @@ from scopecat.compiler.semantic.model import (
 from scopecat.compiler.semantic.operation_contract import (
     LOCAL_OPAQUE_OPERATION_CONTRACT,
 )
-from scopecat.compiler.typed.dependencies import analyze_compute_dependencies
+from scopecat.compiler.typed.dependencies import (
+    ComputeScope,
+    analyze_compute_dependencies,
+)
 from scopecat.compiler.typed.program import (
+    ComputeEdge,
     TypedComputeNode,
     TypedComputeOutput,
     ValueInput,
@@ -228,7 +227,6 @@ def test_compute_dependencies_project_shared_plan_references() -> None:
         result=TypedComputeOutput(
             id=operation_result_id(operation_id),
             value_type=Scalar(Float()),
-            availability=ValueAvailability(ValueStage.EXECUTE, ValueRate.POINT),
         ),
     )
 
@@ -245,3 +243,48 @@ def test_compute_dependencies_project_shared_plan_references() -> None:
         ),
         "parameters": ("gain",),
     }
+    assert dependencies.scope is ComputeScope.POINT
+
+
+def test_compute_scope_propagates_through_compute_edges() -> None:
+    producer_id = OperationId(SymbolId(local_id="producer"))
+    consumer_id = OperationId(SymbolId(local_id="consumer"))
+    producer_output = operation_result_id(producer_id)
+    producer = TypedComputeNode(
+        id=producer_id,
+        contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
+        inputs={
+            "coordinate": ValueInput(
+                value=value_expr(
+                    point_col("frequency"),
+                    expected_type=Scalar(Float()),
+                    bindings=RelationTypeBindings(
+                        point_row=RowType((TableColumn("frequency", Scalar(Float())),))
+                    ),
+                )
+            )
+        },
+        result=TypedComputeOutput(
+            id=producer_output,
+            value_type=Scalar(Float()),
+        ),
+    )
+    consumer = TypedComputeNode(
+        id=consumer_id,
+        contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
+        inputs={
+            "value": ComputeEdge(
+                value_id=producer_output,
+                expected_type=Scalar(Float()),
+            )
+        },
+        result=TypedComputeOutput(
+            id=operation_result_id(consumer_id),
+            value_type=Scalar(Float()),
+        ),
+    )
+
+    dependencies = analyze_compute_dependencies((producer, consumer))
+
+    assert dependencies[producer_id].scope is ComputeScope.POINT
+    assert dependencies[consumer_id].scope is ComputeScope.POINT

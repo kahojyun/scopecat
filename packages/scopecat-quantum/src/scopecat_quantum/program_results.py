@@ -58,10 +58,7 @@ class QuantumTargetResultMapping:
     """Sealed exact mapping from one prepared mixed-program batch to outputs."""
 
     batch: PreparedQuantumTargetBatch
-    domain_mapping: DomainResultMapping[
-        TargetCompileEntryId,
-        TargetAcquisitionAddress,
-    ]
+    domain_mapping: DomainResultMapping[TargetAcquisitionAddress]
 
     def __post_init__(self) -> None:
         validate_target_result_mapping(self.batch.request, self.domain_mapping)

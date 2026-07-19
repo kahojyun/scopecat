@@ -18,11 +18,6 @@ from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
 )
-from scopecat.compiler.semantic.availability import (
-    ValueAvailability,
-    ValueRate,
-    ValueStage,
-)
 from scopecat.compiler.semantic.model import (
     ImplementationCatalog,
     ImplementationId,
@@ -43,7 +38,12 @@ from scopecat.compiler.typed.program import (
     ValueInput,
     set_state_field,
 )
-from scopecat.execution.local.program import BoundInput, OutputInput
+from scopecat.execution.local.program import (
+    ApplyStateOperation,
+    BoundInput,
+    ComputeOperation,
+    OutputInput,
+)
 from scopecat.kernel.content_identity import content_fingerprint
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
@@ -64,8 +64,11 @@ from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import Quantity
 from tests.testkit.authoring import load_config
-from tests.testkit.bound_plan import config_with_physical_resources
-from tests.testkit.local_materialization import materialize_local_execution
+from tests.testkit.local_materialization import (
+    materialize_local_execution,
+    operations_of_type,
+)
+from tests.testkit.materialized_effects import config_with_physical_resources
 from tests.testkit.relation_plans import (
     scalar_value_expr,
     table_value_expr,
@@ -90,9 +93,6 @@ def _operation_id(local_id: str) -> OperationId:
     return OperationId(SymbolId(local_id=local_id))
 
 
-_EXECUTE_POINT = ValueAvailability(ValueStage.EXECUTE, ValueRate.POINT)
-
-
 def _output(
     operation_id: OperationId,
     value_type: Scalar,
@@ -102,7 +102,6 @@ def _output(
     return TypedComputeOutput(
         id=value_id or operation_result_id(operation_id),
         value_type=value_type,
-        availability=_EXECUTE_POINT,
     )
 
 
@@ -200,11 +199,16 @@ def test_bound_state_preserves_primitive_field_types(
 
     plan = materialize_local_execution(link_program(program, environment))
 
-    assert plan.points[0].state_operations[0].targets[0].value.root == value
-    assert type(plan.points[0].state_operations[0].targets[0].value.root) is type(value)
+    assert (
+        operations_of_type(plan.points[0], ApplyStateOperation)[0].targets[0].value.root
+        == value
+    )
+    assert type(
+        operations_of_type(plan.points[0], ApplyStateOperation)[0].targets[0].value.root
+    ) is type(value)
 
 
-def test_bound_plan_uses_logical_point_and_content_addressed_payload_identity() -> None:
+def test_effects_use_logical_point_and_content_addressed_payload_identity() -> None:
     producer_id = _operation_id("produce")
     consumer_id = _operation_id("consume")
     unused_id = _operation_id("a-unused-payload")
@@ -286,30 +290,32 @@ def test_bound_plan_uses_logical_point_and_content_addressed_payload_identity() 
     ]
 
     payload_ids: list[str] = []
+    [unused] = [
+        call
+        for call in plan.run_compute_operations
+        if call.semantic_operation_id == unused_id.qualified_name
+    ]
+    assert unused.payload_slot is None
     for point in plan.points:
-        node_ids = [call.semantic_operation_id for call in point.compute_operations]
-        assert node_ids.index(unused_id.qualified_name) < node_ids.index(
-            consumer_id.qualified_name
-        )
+        node_ids = [
+            call.semantic_operation_id
+            for call in operations_of_type(point, ComputeOperation)
+        ]
         assert node_ids.index(producer_id.qualified_name) < node_ids.index(
             consumer_id.qualified_name
         )
         consumer = next(
             call
-            for call in point.compute_operations
+            for call in operations_of_type(point, ComputeOperation)
             if call.semantic_operation_id == consumer_id.qualified_name
-        )
-        unused = next(
-            call
-            for call in point.compute_operations
-            if call.semantic_operation_id == unused_id.qualified_name
         )
         assert consumer.inputs["value"] == OutputInput(producer_output_id)
         assert consumer.payload_slot is not None
-        assert unused.payload_slot is None
         payload_ids.append(consumer.payload_slot.id)
 
-        state_value = point.state_operations[0].targets[0].value.root
+        state_value = (
+            operations_of_type(point, ApplyStateOperation)[0].targets[0].value.root
+        )
         assert isinstance(state_value, PayloadRef)
         assert state_value.payload_id == consumer.payload_slot.id
 
@@ -435,7 +441,7 @@ def test_compute_inputs_are_normalized_before_binding() -> None:
         link_program(program, validate_config_environment(load_config()))
     )
 
-    calls = [point.compute_operations[0] for point in plan.points]
+    calls = [operations_of_type(point, ComputeOperation)[0] for point in plan.points]
     assert [call.inputs["frequency"] for call in calls] == [
         BoundInput(Quantity(value=5.0, unit="GHz")),
         BoundInput(Quantity(value=5.0, unit="GHz")),
@@ -510,8 +516,8 @@ def test_compute_mapping_inputs_preserve_key_types_and_values() -> None:
     )
 
     assert (
-        plan.points[0].compute_operations[0].inputs
-        != plan.points[1].compute_operations[0].inputs
+        operations_of_type(plan.points[0], ComputeOperation)[0].inputs
+        != operations_of_type(plan.points[1], ComputeOperation)[0].inputs
     )
 
 
@@ -541,4 +547,3 @@ def test_opaque_point_value_does_not_participate_in_logical_identity() -> None:
     )
 
     assert len(plan.points) == 1
-    assert plan.points[0].logical_id.logical_ordinal == 0

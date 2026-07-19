@@ -20,7 +20,7 @@ def _quantity_scan_parts() -> tuple[sc.ValueRef, sc.Compute]:
     return target, center
 
 
-def test_default_scan_center_requires_plan_stage() -> None:
+def test_default_scan_center_rejects_external_operation() -> None:
     target, center = _quantity_scan_parts()
     builder = (
         sc.module("test.scan-stage.default")
@@ -39,12 +39,12 @@ def test_default_scan_center_requires_plan_stage() -> None:
         builder.build()
 
     problem = error.value.problems[0]
-    assert problem.code == "value_stage_unavailable"
+    assert problem.code == "value_requires_execution"
     assert problem.location == model_location("template", "default_scans", 0, "center")
     assert "scan center" in problem.message
 
 
-def test_invocation_scan_center_requires_plan_stage() -> None:
+def test_invocation_scan_center_rejects_external_operation() -> None:
     target, center = _quantity_scan_parts()
     template = (
         sc.module("test.scan-stage.invocation")
@@ -64,11 +64,11 @@ def test_invocation_scan_center_requires_plan_stage() -> None:
         resolution.compile_prepared_invocation(prepare_invocation(invocation))
 
     problem = error.value.problems[0]
-    assert problem.code == "value_stage_unavailable"
+    assert problem.code == "value_requires_execution"
     assert problem.location == model_location("scans", 0, "center")
 
 
-def test_parameter_scan_key_requires_plan_stage() -> None:
+def test_parameter_scan_key_rejects_external_operation() -> None:
     entity_type = sc.ScalarType(sc.EntityType())
     key = sc.compute(
         "compute-key",
@@ -94,7 +94,7 @@ def test_parameter_scan_key_requires_plan_stage() -> None:
         builder.build()
 
     problem = error.value.problems[0]
-    assert problem.code == "value_stage_unavailable"
+    assert problem.code == "value_requires_execution"
     assert problem.location == model_location("template", "default_scans", 0, "device")
     assert "parameter scan key" in problem.message
 

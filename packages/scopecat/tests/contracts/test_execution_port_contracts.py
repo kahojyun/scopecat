@@ -5,23 +5,23 @@ from typing import override
 
 from scopecat.adapters.filesystem.execution import (
     FilesystemExecutionJournal,
-    FilesystemMeasurementRecordCommitter,
+    FilesystemMeasurementDatasetRepository,
     FilesystemPayloadEvidenceCommitter,
 )
 from scopecat.adapters.memory import (
     MemoryExecutionJournal,
-    MemoryMeasurementRecordCommitter,
+    MemoryMeasurementDatasetRepository,
     MemoryPayloadEvidenceCommitter,
 )
 from scopecat.execution.ports.journal import (
     ExecutionJournal,
     PayloadEvidenceCommitter,
 )
-from scopecat.execution.ports.measurement import MeasurementRecordCommitter
+from scopecat.execution.ports.measurement import MeasurementDatasetWriter
 from scopecat.records.execution_journal import ExecutionTransition
 from tests.contracts.execution_port_contracts import (
     ExecutionJournalContract,
-    MeasurementRecordCommitterContract,
+    MeasurementDatasetWriterContract,
     PayloadEvidenceCommitterContract,
 )
 
@@ -55,20 +55,20 @@ class TestFilesystemExecutionJournalContract(ExecutionJournalContract):
         return journal.entries()
 
 
-class TestMemoryMeasurementRecordCommitterContract(MeasurementRecordCommitterContract):
+class TestMemoryMeasurementDatasetRepositoryContract(MeasurementDatasetWriterContract):
     @override
     def make_committer(
         self,
         tmp_path: Path,
         *,
         run_id: str,
-    ) -> MeasurementRecordCommitter:
+    ) -> MeasurementDatasetWriter:
         del tmp_path, run_id
-        return MemoryMeasurementRecordCommitter()
+        return MemoryMeasurementDatasetRepository()
 
 
-class TestFilesystemMeasurementRecordCommitterContract(
-    MeasurementRecordCommitterContract
+class TestFilesystemMeasurementDatasetRepositoryContract(
+    MeasurementDatasetWriterContract
 ):
     @override
     def make_committer(
@@ -76,8 +76,8 @@ class TestFilesystemMeasurementRecordCommitterContract(
         tmp_path: Path,
         *,
         run_id: str,
-    ) -> MeasurementRecordCommitter:
-        return FilesystemMeasurementRecordCommitter(tmp_path, run_id=run_id)
+    ) -> MeasurementDatasetWriter:
+        return FilesystemMeasurementDatasetRepository(tmp_path, run_id=run_id)
 
 
 class TestMemoryPayloadEvidenceCommitterContract(PayloadEvidenceCommitterContract):

@@ -17,6 +17,9 @@ from scopecat.sdk.domain.compiler import (
     DomainCompiledJob,
     DomainCompileRequest,
     DomainInput,
+    DomainIterationLayout,
+    DomainIterationLeaf,
+    DomainIterationProduct,
     DomainLiteral,
     DomainPointAffine,
     DomainPointAxis,
@@ -62,6 +65,13 @@ def _request() -> DomainCompileRequest:
             )
             for input_id in input_ids
         ),
+    )
+
+
+def _layout(*axes: DomainPointAxis) -> DomainIterationLayout:
+    return DomainIterationLayout(
+        DomainIterationLeaf(tuple(axis.id for axis in axes), len(axes[0].values)),
+        axes,
     )
 
 
@@ -113,8 +123,56 @@ def test_compiler_controls_partition_within_barrier_regions() -> None:
     )
 
     assert [job.point_ordinals for job in compilation.jobs] == [(0, 1), (2,)]
-    assert [job.artifact for job in compilation.jobs] == ["artifact-0", "artifact-2"]
+    assert lowered == []
+    assert [job.take_artifact() for job in compilation.jobs] == [
+        "artifact-0",
+        "artifact-2",
+    ]
     assert lowered == [(0, 1), (2,)]
+
+
+def test_partition_preserves_complete_innermost_sweeps_when_capacity_allows() -> None:
+    layout = DomainIterationLayout(
+        DomainIterationProduct(
+            (
+                DomainIterationLeaf(("slow",), 2),
+                DomainIterationLeaf(("fast",), 3),
+            )
+        ),
+        (
+            DomainPointAxis("slow", (10, 20), repeat_each=3),
+            DomainPointAxis("fast", (1, 2, 3)),
+        ),
+    )
+    request = replace(
+        _request(),
+        barrier_regions=((0, 1, 2, 3, 4, 5),),
+        iteration_layout=layout,
+    )
+
+    assert request.partition(max_points=4) == ((0, 1, 2), (3, 4, 5))
+
+
+def test_partition_respects_barrier_clipping_before_axis_alignment() -> None:
+    layout = DomainIterationLayout(
+        DomainIterationProduct(
+            (
+                DomainIterationLeaf(("slow",), 2),
+                DomainIterationLeaf(("fast",), 3),
+            )
+        ),
+        (
+            DomainPointAxis("slow", (10, 20), repeat_each=3),
+            DomainPointAxis("fast", (1, 2, 3)),
+        ),
+    )
+    request = replace(
+        _request(),
+        barrier_regions=((1, 2, 3, 4, 5),),
+        iteration_layout=layout,
+    )
+
+    assert request.partition(max_points=4) == ((1, 2), (3, 4, 5))
 
 
 def test_compile_request_exposes_sdk_owned_input_normal_form() -> None:
@@ -162,7 +220,7 @@ def test_domain_bridge_rejects_multiple_or_nonlinear_point_columns() -> None:
 def test_compile_request_exposes_exact_finite_point_axis() -> None:
     request = replace(
         _request(),
-        point_axes=(DomainPointAxis("x", (1, 2, 3), repeat_each=2),),
+        iteration_layout=_layout(DomainPointAxis("x", (1, 2, 3), repeat_each=2)),
     )
 
     axis = request.point_axis("x")
@@ -170,6 +228,78 @@ def test_compile_request_exposes_exact_finite_point_axis() -> None:
     assert axis is not None
     assert axis.values_at((0, 1, 2, 3, 4, 5, 6)) == (1, 1, 2, 2, 3, 3, 1)
     assert request.point_axis("missing") is None
+
+
+def test_iteration_layout_partitions_coverage_by_selected_axes() -> None:
+    layout = DomainIterationLayout(
+        DomainIterationProduct(
+            (
+                DomainIterationLeaf(("slow",), 2),
+                DomainIterationLeaf(("fast",), 3),
+            )
+        ),
+        (
+            DomainPointAxis("slow", (10, 20), repeat_each=3),
+            DomainPointAxis("fast", (1, 2, 3)),
+        ),
+    )
+
+    assert layout.partition_by_axes(("slow",), range(6)) == (
+        (0, 1, 2),
+        (3, 4, 5),
+    )
+    assert layout.partition_by_axes(("fast",), range(6)) == (
+        (0,),
+        (1,),
+        (2,),
+        (3,),
+        (4,),
+        (5,),
+    )
+    assert layout.partition_by_axes((), (1, 2, 3, 4)) == ((1, 2, 3, 4),)
+    assert layout.partition_by_axes(("unknown",), range(6)) is None
+
+
+def test_partial_grid_leaf_exposes_known_axis_without_exact_extent() -> None:
+    layout = DomainIterationLayout(
+        DomainIterationLeaf(("fast",), None),
+        (DomainPointAxis("fast", (1, 2, 3)),),
+    )
+
+    assert layout.preferred_tile_size is None
+    assert layout.partition_by_axes(("fast",), range(6)) == (
+        (0,),
+        (1,),
+        (2,),
+        (3,),
+        (4,),
+        (5,),
+    )
+
+
+def test_compile_request_keeps_barriers_while_partitioning_by_axes() -> None:
+    request = replace(
+        _request(),
+        barrier_regions=((0, 1), (2, 3, 4, 5)),
+        iteration_layout=DomainIterationLayout(
+            DomainIterationProduct(
+                (
+                    DomainIterationLeaf(("slow",), 2),
+                    DomainIterationLeaf(("fast",), 3),
+                )
+            ),
+            (
+                DomainPointAxis("slow", (10, 20), repeat_each=3),
+                DomainPointAxis("fast", (1, 2, 3)),
+            ),
+        ),
+    )
+
+    assert request.partition_by_axes(("slow",)) == (
+        (0, 1),
+        (2,),
+        (3, 4, 5),
+    )
 
 
 def test_domain_input_resolution_uses_normal_forms_before_binder() -> None:
@@ -188,7 +318,7 @@ def test_domain_input_resolution_uses_normal_forms_before_binder() -> None:
                 normal_form=DomainPointAffine("x", 2, 1),
             ),
         ),
-        point_axes=(DomainPointAxis("x", (0, 1, 2)),),
+        iteration_layout=_layout(DomainPointAxis("x", (0, 1, 2))),
         input_binder=reject_binding,
     )
 
@@ -303,7 +433,7 @@ def test_domain_input_resolution_binds_only_inputs_without_normal_forms() -> Non
         ),
         inputs=(*request.inputs, second_input),
         input_binder=bind_inputs,
-        point_axes=(DomainPointAxis("x", (1, 2, 3)),),
+        iteration_layout=_layout(DomainPointAxis("x", (1, 2, 3))),
     )
 
     inputs = request.resolve_inputs(("x", "y"), (0, 2), max_points=2)
@@ -418,7 +548,7 @@ def test_compilation_absorption_must_select_known_transforms() -> None:
 def test_compilation_rejects_job_crossing_effect_region() -> None:
     request = _request()
     compilation = DomainCompilation(
-        jobs=(DomainCompiledJob("job-0", (0, 1, 2), artifact=object()),),
+        jobs=(DomainCompiledJob("job-0", (0, 1, 2), lambda: object()),),
     )
 
     with pytest.raises(ValueError, match="crosses a barrier region"):
@@ -428,7 +558,7 @@ def test_compilation_rejects_job_crossing_effect_region() -> None:
 def test_compilation_rejects_missing_logical_point() -> None:
     request = _request()
     compilation = DomainCompilation(
-        jobs=(DomainCompiledJob("job-0", (0, 1), artifact=object()),),
+        jobs=(DomainCompiledJob("job-0", (0, 1), lambda: object()),),
     )
 
     with pytest.raises(ValueError, match="cover every logical point exactly once"):

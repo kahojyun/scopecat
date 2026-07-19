@@ -127,11 +127,11 @@ def test_workspace_run_can_observe_transient_runtime_events(tmp_path: Path) -> N
                 event
                 for event in events
                 if isinstance(event, RuntimeTransitionEvent)
-                and event.stage == "record_measurement"
+                and event.stage == "seal_measurement"
                 and event.state == "completed"
             ]
         )
-        == 3
+        == 1
     )
 
 

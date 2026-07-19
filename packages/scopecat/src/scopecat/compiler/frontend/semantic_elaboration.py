@@ -23,7 +23,7 @@ from scopecat.authoring._value_refs import (
     ScalarOperationOperand,
     ValueRef,
     internal_lower_value_ref,
-    internal_value_ref_availability,
+    internal_value_ref_is_row_dependent,
     internal_value_ref_operation_id,
     internal_value_ref_scalar_operation,
     internal_value_ref_source_kind,
@@ -50,11 +50,6 @@ from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
     verify_relation_plan,
-)
-from scopecat.compiler.semantic.availability import (
-    ValueAvailability,
-    ValueRate,
-    ValueStage,
 )
 from scopecat.compiler.semantic.compute_result import ComputeResultRef
 from scopecat.compiler.semantic.model import (
@@ -301,7 +296,6 @@ class _SemanticGraphBuilder:
             ValueDef(
                 id=output_id,
                 value_type=declaration.output_type,
-                availability=ValueAvailability(ValueStage.EXECUTE, ValueRate.POINT),
                 source=OperationOutputSource(operation_id),
             )
         )
@@ -374,7 +368,6 @@ class _SemanticGraphBuilder:
             SemanticMeasurementTransform(
                 id=MeasurementTransformId(declaration.symbol_id),
                 semantic=declaration.semantic,
-                rate=declaration.rate,
                 inputs=declaration.input_bindings,
                 outputs=declaration.output_bindings,
             )
@@ -541,10 +534,6 @@ class _SemanticGraphBuilder:
                 ValueDef(
                     id=input_id,
                     value_type=value.value_type,
-                    availability=ValueAvailability(
-                        ValueStage.PLAN,
-                        ValueRate.POINT,
-                    ),
                     source=RouteValueSource(
                         port_id=value.port_id,
                     ),
@@ -602,10 +591,6 @@ class _SemanticGraphBuilder:
                 ValueDef(
                     id=value_id,
                     value_type=_literal_series_type(items),
-                    availability=ValueAvailability(
-                        ValueStage.PLAN,
-                        ValueRate.RUN,
-                    ),
                     source=self._plan_source(
                         expression,
                         expected_type=_literal_series_type(items),
@@ -649,7 +634,6 @@ class _SemanticGraphBuilder:
             ValueDef(
                 id=value_id,
                 value_type=value.value_type,
-                availability=internal_value_ref_availability(value),
                 source=self._plan_source(
                     lowered,
                     expected_type=value.value_type,
@@ -693,7 +677,6 @@ class _SemanticGraphBuilder:
         )
         if operation_id in self._operations:
             return output_id
-        availability = internal_value_ref_availability(value)
         operand_owners = {
             definition.owner_region_id
             for value_id in (left_id, right_id)
@@ -704,7 +687,7 @@ class _SemanticGraphBuilder:
             next(iter(operand_owners))
             if len(operand_owners) == 1
             else requested_region_id
-            if availability.rate is ValueRate.ROW
+            if internal_value_ref_is_row_dependent(value)
             else None
         )
         operation_contract = scalar_binary_operation_contract(scalar_operation.operator)
@@ -724,7 +707,6 @@ class _SemanticGraphBuilder:
             ValueDef(
                 id=output_id,
                 value_type=value.value_type,
-                availability=availability,
                 source=OperationOutputSource(operation_id),
                 owner_region_id=owner_region_id,
             )
@@ -793,7 +775,6 @@ class _SemanticGraphBuilder:
             ValueDef(
                 id=value_id,
                 value_type=literal_scalar_type(value),
-                availability=ValueAvailability(ValueStage.PLAN, ValueRate.RUN),
                 source=LiteralValueSource(value),
             )
         )

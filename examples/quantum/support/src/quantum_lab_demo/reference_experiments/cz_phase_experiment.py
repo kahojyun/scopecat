@@ -8,6 +8,7 @@ from typing import cast
 
 import scopecat as sc
 from scopecat import Quantity
+from scopecat.kernel.resource_identity import ResourceClaim
 from scopecat.sdk.domain import (
     CorrelatedDomainFetch,
     DomainBatchContext,
@@ -191,6 +192,14 @@ class CzPhaseDomainCompiler:
             for reference in self._preparations
         )
 
+    def claim_resources(
+        self,
+        call: DomainCallView,
+    ) -> tuple[ResourceClaim, ...] | None:
+        if not _accepts_execution(call):
+            return None
+        return (ResourceClaim(self.target.id.value, "target"),)
+
     def compile(self, request: DomainCompileRequest) -> DomainCompilation | None:
         if not _accepts_execution(request.call):
             return None
@@ -211,7 +220,7 @@ class CzPhaseDomainCompiler:
         context: DomainBatchContext,
     ) -> PreparedDomainExecution:
         execution = context.execution
-        artifact = cast("_CzPhaseArtifact", job.artifact)
+        artifact = cast("_CzPhaseArtifact", job.take_artifact())
         control_result, target_result = _validated_result_contracts(execution)
         preparation = context.new_preparation()
         reference = prepare_cz_phase_reference(
@@ -229,7 +238,8 @@ class CzPhaseDomainCompiler:
         )
         self._preparations.append(reference)
         return preparation.build(
-            measurements=reference.measurements,
+            mapping=reference.measurement_mapping,
+            host_transforms=reference.host_transforms,
             invocation=reference.invocation,
             runtime=reference.runtime,
             realize=lambda fetched: _realize(reference, fetched),

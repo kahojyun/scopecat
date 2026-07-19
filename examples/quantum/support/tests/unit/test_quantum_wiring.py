@@ -13,6 +13,7 @@ from scopecat.compiler.linking.linked import (
 from scopecat.composition.local import local_execution_services
 from scopecat.config.profiles import load_config_profile
 from scopecat.execution.interpreter import interpret_run_program
+from scopecat.execution.local.program import ApplyStateOperation, CollectOperation
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.planning.authoring import resolve_experiment
 from scopecat.planning.routing import RoutingView
@@ -49,7 +50,7 @@ from quantum_lab_demo.virtual_lab.wiring import (
     quantum_wiring_config_profile,
 )
 
-from .demo_lab_experiment_testkit import bound_plan
+from .demo_lab_experiment_testkit import materialized_effects, operations_of_type
 from .demo_lab_test_paths import EXPERIMENT_VIRTUAL_LAB_PROFILE
 
 
@@ -208,21 +209,21 @@ def test_default_quantum_wiring_closes_resolved_effect_channels(
     tmp_path: Path,
 ) -> None:
     del tmp_path
-    plan = bound_plan(
+    plan = materialized_effects(
         SIMULTANEOUS_RABI_TEMPLATE.bind(qubits=("q0", "q1")),
         config=quantum_wiring_config_profile(),
     )
 
     drive_channels = {
         (binding.line_id, binding.channel_id)
-        for state in plan.points[0].state_operations
+        for state in operations_of_type(plan.points[0], ApplyStateOperation)
         for field in state.targets
         for binding in field.channel_bindings
         if binding.line_id in {"q0.xy", "q1.xy"}
     }
     readout_channels = [
         (binding.line_id, binding.channel_id)
-        for operation in plan.points[0].collect_operations
+        for operation in operations_of_type(plan.points[0], CollectOperation)
         for request in operation.command.requests
         for binding in request.channel_bindings
     ]

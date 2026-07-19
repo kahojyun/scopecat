@@ -19,8 +19,8 @@ from scopecat.adapters.filesystem.io import (
 )
 from scopecat.adapters.filesystem.layout import FilesystemRunLayout
 from scopecat.execution.ports.journal import ExecutionJournalError
-from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.resource_identity import ResourceClaim
+from scopecat.measurements.datasets import MEASUREMENT_DATASET_KIND
 from scopecat.measurements.results import MeasurementRecord
 from scopecat.records.execution_journal import (
     CollectionChunk,
@@ -30,14 +30,17 @@ from scopecat.records.execution_journal import (
     PayloadEvidence,
 )
 from scopecat.records.measurement_recording import (
-    MeasurementRecordChunk,
-    MeasurementRecordReceipt,
+    MeasurementDatasetAppend,
+    MeasurementDatasetAppendIndex,
+    MeasurementDatasetReceipt,
+    MeasurementDatasetSeal,
+    measurement_dataset_content_hash,
 )
 from scopecat.runs.refs import (
     EXECUTION_JOURNAL_DIR,
-    EXECUTION_MEASUREMENTS_DIR,
     EXECUTION_PAYLOADS_DIR,
     EXECUTION_READBACKS_DIR,
+    dataset_content_ref,
 )
 
 
@@ -98,79 +101,194 @@ class FilesystemExecutionJournal:
             raise ExecutionJournalError(msg) from error
 
 
-class FilesystemMeasurementRecordCommitter:
-    """Commit one immutable measurement file before advancing to another point."""
+class FilesystemMeasurementDatasetRepository:
+    """Append immutable ranges and seal one canonical dataset."""
 
     def __init__(self, workspace: str | Path, *, run_id: str) -> None:
         self._run_id = run_id
         layout = FilesystemRunLayout.from_workspace(workspace)
-        self._directory = layout.run_dir(run_id) / EXECUTION_MEASUREMENTS_DIR
+        self._run_directory = layout.run_dir(run_id)
         self._thread_lock = Lock()
 
-    def commit(self, chunk: MeasurementRecordChunk) -> MeasurementRecordReceipt:
-        durable_chunk = MeasurementRecordChunk.model_validate(
-            chunk.model_dump(mode="python")
+    def append(self, append: MeasurementDatasetAppend) -> MeasurementDatasetReceipt:
+        durable = MeasurementDatasetAppend.model_validate(
+            append.model_dump(mode="python")
         )
-        if durable_chunk.run_id != self._run_id:
+        if durable.run_id != self._run_id:
             msg = "measurement run_id does not match its execution committer"
             raise ExecutionJournalError(msg)
-        ensure_durable_directory(self._directory)
-        path = self._measurement_path(durable_chunk)
+        dataset_dir = self._dataset_directory(
+            durable.run_id,
+            durable.dataset_id,
+        )
+        path = dataset_dir / "chunks" / f"{durable.start_index:020d}.json"
+        index_path = dataset_dir / "index" / f"{durable.start_index:020d}.json"
         with self._thread_lock:
             try:
-                if not write_model_if_absent(path, durable_chunk):
-                    existing = read_model(path, MeasurementRecordChunk)
-                    if (
-                        existing.operation_id != durable_chunk.operation_id
-                        or existing.content_hash != durable_chunk.content_hash
-                    ):
-                        msg = (
-                            f"point {durable_chunk.point_index} has a different "
-                            "committed measurement chunk"
+                ensure_durable_directory(dataset_dir)
+                if (dataset_dir / "seal.json").exists():
+                    raise ExecutionJournalError("measurement dataset is already sealed")
+                if path.exists():
+                    existing = read_model(path, MeasurementDatasetAppend)
+                    if existing.content_hash != durable.content_hash:
+                        raise ExecutionJournalError(
+                            "measurement dataset append already has different content"
                         )
-                        raise ExecutionJournalError(msg)
-                record_ref = f"{EXECUTION_MEASUREMENTS_DIR}/{path.name}"
-                return MeasurementRecordReceipt(
-                    operation_id=durable_chunk.operation_id,
-                    chunk_content_hash=durable_chunk.content_hash,
-                    record_ref=record_ref,
+                else:
+                    indices = self._read_indices(dataset_dir)
+                    if durable.start_index != sum(
+                        item.record_count for item in indices
+                    ):
+                        raise ExecutionJournalError(
+                            "measurement dataset append is not the next "
+                            "contiguous range"
+                        )
+                    if any(
+                        item.recording_contract_fingerprint
+                        != durable.recording_contract_fingerprint
+                        for item in indices
+                    ):
+                        raise ExecutionJournalError(
+                            "measurement dataset append changed its contract"
+                        )
+                    write_model(path, durable)
+                index = MeasurementDatasetAppendIndex.from_append(durable)
+                if not write_model_if_absent(index_path, index):
+                    existing_index = read_model(
+                        index_path,
+                        MeasurementDatasetAppendIndex,
+                    )
+                    if existing_index != index:
+                        raise ExecutionJournalError(
+                            "measurement dataset append index has different content"
+                        )
+                dataset_ref = self._dataset_ref(
+                    dataset_dir,
+                    f"chunks/{path.name}",
+                )
+                return MeasurementDatasetReceipt(
+                    operation_id=durable.operation_id,
+                    dataset_content_hash=durable.content_hash,
+                    dataset_ref=dataset_ref,
                 )
             except Exception as error:
                 if isinstance(error, ExecutionJournalError):
                     raise
-                msg = f"failed to commit point measurement: {error}"
+                msg = f"failed to append measurement dataset: {error}"
                 raise ExecutionJournalError(msg) from error
 
-    def measurements(self) -> tuple[MeasurementRecord, ...]:
-        if not self._directory.is_dir():
-            return ()
-        chunks = tuple(
-            sorted(
-                (
-                    read_model(path, MeasurementRecordChunk)
-                    for path in self._directory.glob("[0-9a-f]*.json")
-                ),
-                key=lambda chunk: (
-                    chunk.point_index,
-                    chunk.dataset_id,
-                    chunk.operation_id,
-                ),
+    def seal(self, seal: MeasurementDatasetSeal) -> MeasurementDatasetReceipt:
+        durable = MeasurementDatasetSeal.model_validate(seal.model_dump(mode="python"))
+        if durable.run_id != self._run_id:
+            raise ExecutionJournalError(
+                "measurement run_id does not match its execution committer"
             )
+        dataset_dir = self._dataset_directory(durable.run_id, durable.dataset_id)
+        path = dataset_dir / "seal.json"
+        with self._thread_lock:
+            try:
+                ensure_durable_directory(dataset_dir)
+                if path.exists():
+                    existing = read_model(path, MeasurementDatasetSeal)
+                    if existing.content_hash != durable.content_hash:
+                        raise ExecutionJournalError(
+                            "measurement dataset seal already has different content"
+                        )
+                else:
+                    indices = self._read_indices(dataset_dir)
+                    if (
+                        sum(item.record_count for item in indices)
+                        != durable.point_count
+                    ):
+                        raise ExecutionJournalError(
+                            "measurement dataset seal point count is incomplete"
+                        )
+                    if any(
+                        item.recording_contract_fingerprint
+                        != durable.recording_contract_fingerprint
+                        for item in indices
+                    ):
+                        raise ExecutionJournalError(
+                            "measurement dataset seal changed its contract"
+                        )
+                    actual_hash = measurement_dataset_content_hash(
+                        recording_contract_fingerprint=(
+                            durable.recording_contract_fingerprint
+                        ),
+                        append_content_hashes=tuple(
+                            item.append_content_hash for item in indices
+                        ),
+                    )
+                    if actual_hash != durable.dataset_content_hash:
+                        raise ExecutionJournalError(
+                            "measurement dataset seal content hash does not "
+                            "match appends"
+                        )
+                    write_model(path, durable)
+                return MeasurementDatasetReceipt(
+                    operation_id=durable.operation_id,
+                    dataset_content_hash=durable.dataset_content_hash,
+                    dataset_ref=self._dataset_ref(dataset_dir, path.name),
+                )
+            except Exception as error:
+                if isinstance(error, ExecutionJournalError):
+                    raise
+                raise ExecutionJournalError(
+                    f"failed to seal measurement dataset: {error}"
+                ) from error
+
+    def measurements(self) -> tuple[MeasurementRecord, ...]:
+        if not self._run_directory.is_dir():
+            return ()
+        appends = tuple(
+            append
+            for dataset_dir in self._dataset_directories()
+            for append in self._read_appends(dataset_dir)
         )
         return tuple(
-            MeasurementRecord.model_validate(chunk.record.model_dump(mode="python"))
-            for chunk in chunks
+            MeasurementRecord.model_validate(record.model_dump(mode="python"))
+            for append in appends
+            for record in append.records
         )
 
-    def _measurement_path(self, chunk: MeasurementRecordChunk) -> Path:
-        digest = stable_content_hash(
-            {
-                "dataset_id": chunk.dataset_id,
-                "logical_point_id": chunk.logical_point_id,
-                "point_index": chunk.point_index,
-            }
+    def append_indices(self) -> tuple[MeasurementDatasetAppendIndex, ...]:
+        return tuple(
+            index
+            for dataset_dir in self._dataset_directories()
+            for index in self._read_indices(dataset_dir)
         )
-        return self._directory / f"{digest}.json"
+
+    def _dataset_directory(self, run_id: str, dataset_id: str) -> Path:
+        if run_id != self._run_id:
+            raise ExecutionJournalError("measurement dataset run_id is foreign")
+        return self._run_directory / dataset_content_ref(
+            dataset_id=dataset_id,
+            kind=MEASUREMENT_DATASET_KIND,
+        )
+
+    def _read_appends(self, dataset_dir: Path) -> tuple[MeasurementDatasetAppend, ...]:
+        return tuple(
+            read_model(path, MeasurementDatasetAppend)
+            for path in sorted((dataset_dir / "chunks").glob("[0-9]*.json"))
+        )
+
+    def _read_indices(
+        self,
+        dataset_dir: Path,
+    ) -> tuple[MeasurementDatasetAppendIndex, ...]:
+        return tuple(
+            read_model(path, MeasurementDatasetAppendIndex)
+            for path in sorted((dataset_dir / "index").glob("[0-9]*.json"))
+        )
+
+    def _dataset_directories(self) -> tuple[Path, ...]:
+        data_root = self._run_directory / "data" / MEASUREMENT_DATASET_KIND
+        if not data_root.is_dir():
+            return ()
+        return tuple(sorted(path for path in data_root.iterdir() if path.is_dir()))
+
+    def _dataset_ref(self, dataset_dir: Path, name: str) -> str:
+        return (dataset_dir / name).relative_to(self._run_directory).as_posix()
 
 
 class FilesystemCollectionRepository:

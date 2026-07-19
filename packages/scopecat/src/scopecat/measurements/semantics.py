@@ -14,7 +14,6 @@ from scopecat.kernel.frozen import (
 )
 from scopecat.kernel.json_types import JsonValue
 
-type MeasurementTransformRate = Literal["point"]
 type MeasurementTransformPortability = Literal["portable", "host_only"]
 
 _SEMANTIC_CONTRACT_SCHEMA = "scopecat.measurement_transform_semantic.v1"

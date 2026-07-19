@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import cast
 
 import scopecat as sc
+from scopecat.kernel.resource_identity import ResourceClaim
 from scopecat.sdk.domain import (
     CorrelatedDomainFetch,
     DomainBatchContext,
@@ -166,6 +167,14 @@ class FakeXCountDomainCompiler:
     def target_id(self) -> str:
         return self.target.id.value
 
+    def claim_resources(
+        self,
+        call: DomainCallView,
+    ) -> tuple[ResourceClaim, ...] | None:
+        if not _accepts_execution(call):
+            return None
+        return (ResourceClaim(self.target.id.value, "target"),)
+
     def compile(self, request: DomainCompileRequest) -> DomainCompilation | None:
         if not _accepts_execution(request.call):
             return None
@@ -191,7 +200,7 @@ class FakeXCountDomainCompiler:
         context: DomainBatchContext,
     ) -> PreparedDomainExecution:
         execution = context.execution
-        artifact = cast("_FakeXCountArtifact", job.artifact)
+        artifact = cast("_FakeXCountArtifact", job.take_artifact())
         preparation = context.new_preparation()
         iq_result = _validated_result_contracts(execution)
         products = _product_binding(execution)
@@ -214,7 +223,8 @@ class FakeXCountDomainCompiler:
             invocation_id=f"fake-x-count.batch-{context.batch_ordinal}",
         )
         return preparation.build(
-            measurements=reference.measurements,
+            mapping=reference.measurement_mapping,
+            host_transforms=reference.host_transforms,
             invocation=reference.invocation,
             runtime=self.runtime,
             realize=lambda fetched: _realize(reference, fetched),

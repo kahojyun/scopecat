@@ -13,11 +13,6 @@ from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
 )
-from scopecat.compiler.semantic.availability import (
-    ValueAvailability,
-    ValueRate,
-    ValueStage,
-)
 from scopecat.compiler.semantic.model import (
     ImplementationCatalog,
     ImplementationId,
@@ -39,6 +34,10 @@ from scopecat.compiler.typed.program import (
 from scopecat.compiler.typed.program import (
     set_state_field as set_typed_state_field,
 )
+from scopecat.execution.local.program import (
+    ApplyStateOperation,
+    CollectOperation,
+)
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.resource_identity import (
     PhysicalResourceId,
@@ -49,11 +48,12 @@ from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Payload, Scalar, String
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.records.parameter import Quantity
-from tests.testkit.bound_plan import (
-    bound_coordinate_ids,
-    bound_plan_contract,
-    bound_state_fields,
+from tests.testkit.local_materialization import operations_of_type
+from tests.testkit.materialized_effects import (
     config_with_physical_resources,
+    materialized_effects_contract,
+    materialized_state_fields,
+    measurement_projection_contract,
 )
 from tests.testkit.parameter_fixtures import (
     PARAMETER_TYPES,
@@ -84,7 +84,7 @@ def _point_domain(expr: RelationExpr) -> PointDomain:
     )
 
 
-def test_bound_plan_contract_summarizes_points_and_state() -> None:
+def test_materialized_effects_contract_summarizes_points_and_state() -> None:
     points = _point_domain(
         grid(
             readout=table("readout_devices").filter(col("enabled").eq(True)),
@@ -139,27 +139,33 @@ def test_bound_plan_contract_summarizes_points_and_state() -> None:
         record_uses=[record_use],
     )
 
-    preview = bound_plan_contract(
+    test_config = config_with_physical_resources(
+        {"readout-a": ("pulse",), "readout-b": ("pulse",)}
+    )
+    preview = materialized_effects_contract(
         spec,
         _parameters(),
-        config=config_with_physical_resources(
-            {"readout-a": ("pulse",), "readout-b": ("pulse",)}
-        ),
+        config=test_config,
+    )
+    projection = measurement_projection_contract(
+        spec,
+        _parameters(),
+        config=test_config,
     )
 
     assert len(preview.points) == 2
-    assert bound_coordinate_ids(preview) == ("readout_frequency",)
+    assert projection.coordinate_ids == ("readout_frequency",)
     assert [point.coordinates["readout_frequency"] for point in preview.points] == [
         Quantity(value=5.9, unit="GHz"),
         Quantity(value=6.0, unit="GHz"),
     ]
-    assert [field.value.root for _, _, field in bound_state_fields(preview)] == [
+    assert [field.value.root for _, _, field in materialized_state_fields(preview)] == [
         Quantity(value=5.9, unit="GHz"),
         Quantity(value=6.0, unit="GHz"),
     ]
 
 
-def test_bound_plan_contract_summarizes_compute_payload_boundary() -> None:
+def test_materialized_effects_contract_summarizes_compute_payload_boundary() -> None:
     def build_waveform() -> dict[str, object]:
         return {"kind": "waveform"}
 
@@ -191,10 +197,6 @@ def test_bound_plan_contract_summarizes_compute_payload_boundary() -> None:
                 result=TypedComputeOutput(
                     id=result_id,
                     value_type=Scalar(Payload("waveform_bundle")),
-                    availability=ValueAvailability(
-                        ValueStage.EXECUTE,
-                        ValueRate.POINT,
-                    ),
                 ),
                 inputs={},
             )
@@ -211,13 +213,13 @@ def test_bound_plan_contract_summarizes_compute_payload_boundary() -> None:
         ),
     )
 
-    preview = bound_plan_contract(
+    preview = materialized_effects_contract(
         spec,
         _parameters(),
         config=config_with_physical_resources({"drive-a": ("play_waveforms",)}),
     )
 
-    [step] = preview.points[0].compute_operations
+    [step] = preview.run_compute_operations
     assert step.payload_slot is not None
     assert (
         preview.points[0].point_index,
@@ -232,13 +234,13 @@ def test_bound_plan_contract_summarizes_compute_payload_boundary() -> None:
             field.capability_id,
             field.field_path,
         )
-        for state in preview.points[0].state_operations
+        for state in operations_of_type(preview.points[0], ApplyStateOperation)
         for field in state.targets
         if isinstance(field.value.root, PayloadRef)
     ] == [("drive-a", "play_waveforms", "program")]
 
 
-def test_bound_plan_groups_shared_typed_compute_result() -> None:
+def test_materialized_effects_groups_shared_typed_compute_result() -> None:
     operation_id = OperationId(SymbolId(local_id="build-waveform"))
     result_id = operation_result_id(operation_id)
 
@@ -270,10 +272,6 @@ def test_bound_plan_groups_shared_typed_compute_result() -> None:
                 result=TypedComputeOutput(
                     id=result_id,
                     value_type=Scalar(Payload("waveform_bundle")),
-                    availability=ValueAvailability(
-                        ValueStage.EXECUTE,
-                        ValueRate.POINT,
-                    ),
                 ),
             )
         ],
@@ -289,19 +287,19 @@ def test_bound_plan_groups_shared_typed_compute_result() -> None:
         ),
     )
 
-    preview = bound_plan_contract(
+    preview = materialized_effects_contract(
         spec,
         _parameters(),
         config=config_with_physical_resources({"drive-a": ("play_waveforms",)}),
     )
 
-    [step] = preview.points[0].compute_operations
+    [step] = preview.run_compute_operations
     assert step.payload_slot is not None
     assert step.payload_slot.id.startswith(f"{result_id.qualified_name}.payload.")
     assert step.payload_slot.schema_id == "waveform_bundle"
     assert [
         (field.capability_id, field.field_path)
-        for state in preview.points[0].state_operations
+        for state in operations_of_type(preview.points[0], ApplyStateOperation)
         for field in state.targets
         if isinstance(field.value.root, PayloadRef)
     ] == [
@@ -310,7 +308,7 @@ def test_bound_plan_groups_shared_typed_compute_result() -> None:
     ]
 
 
-def test_bound_plan_contract_rejects_unknown_compute_payload_nodes() -> None:
+def test_materialized_effects_contract_rejects_unknown_compute_payload_nodes() -> None:
     spec = typed_program(
         id="preview-unknown-payload-node",
         kind="problem",
@@ -326,7 +324,7 @@ def test_bound_plan_contract_rejects_unknown_compute_payload_nodes() -> None:
     )
 
     with pytest.raises(CheckFailed) as failure:
-        bound_plan_contract(
+        materialized_effects_contract(
             spec,
             _parameters(),
             config=config_with_physical_resources({"drive-a": ("play_waveforms",)}),
@@ -337,7 +335,7 @@ def test_bound_plan_contract_rejects_unknown_compute_payload_nodes() -> None:
     ]
 
 
-def test_bound_plan_selects_local_product_realization() -> None:
+def test_materialized_effects_selects_local_product_realization() -> None:
     product = observable_product(
         "iq_trace",
         unit="V",
@@ -358,8 +356,8 @@ def test_bound_plan_selects_local_product_realization() -> None:
         record_uses=[record_use],
     )
     config = config_with_physical_resources({"readout-a": ()})
-    preview = bound_plan_contract(spec, _parameters(), config=config)
-    [operation] = preview.points[0].collect_operations
+    preview = materialized_effects_contract(spec, _parameters(), config=config)
+    [operation] = operations_of_type(preview.points[0], CollectOperation)
     [binding] = operation.result_bindings
     assert operation.instrument_id == "readout-a"
     assert binding.product_use_id == product_use.id

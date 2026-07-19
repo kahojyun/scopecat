@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import cast, override
 
@@ -8,10 +9,11 @@ import scopecat as sc
 from scopecat import Quantity
 from scopecat.adapters.filesystem.execution import (
     FilesystemExecutionJournal,
-    FilesystemMeasurementRecordCommitter,
+    FilesystemMeasurementDatasetRepository,
 )
 from scopecat.compiler.linking.linked import LinkedPointMaterializer
-from scopecat.kernel.errors import CheckFailed, RunIndeterminate
+from scopecat.execution.observation import RuntimeEvent, RuntimeTransitionEvent
+from scopecat.kernel.errors import CheckFailed, RunFailed, RunIndeterminate
 from scopecat.kernel.problems import (
     ProblemCategory,
     ProblemPhase,
@@ -46,6 +48,7 @@ from quantum_lab_demo.targets.fake_list_mode import (
     FakeListDomainRuntime,
     FakeListRun,
     SelectedFakeMeasurementRealization,
+    default_fake_list_target,
 )
 
 
@@ -86,6 +89,17 @@ class _IndeterminateFakeXCountCompiler(FakeXCountDomainCompiler):
     def __init__(self) -> None:
         super().__init__()
         self.runtime = _IndeterminateFakeListDomainRuntime()
+
+
+class _SecondSubmitIndeterminateFakeListDomainRuntime(FakeListDomainRuntime):
+    @override
+    def submit(
+        self,
+        request: DomainSubmitRequest[SelectedFakeMeasurementRealization],
+    ) -> DomainSubmitReceipt:
+        if self.submit_calls == 1:
+            raise RuntimeError("second target submission returned no evidence")
+        return super().submit(request)
 
 
 class _RaisingCompiler(FakeXCountDomainCompiler):
@@ -205,7 +219,8 @@ def test_fake_x_count_authoring_paths_share_one_standard_domain_semantics(
         assert {entry.stage for entry in journal.entries()} >= {
             "domain_submit",
             "domain_fetch",
-            "record_measurement",
+            "append_measurement",
+            "seal_measurement",
         }
         for record in dataset.records:
             probability_0 = record.observables["probability_0"]
@@ -368,7 +383,7 @@ def test_domain_only_system_reports_missing_local_provider(
 
 
 @pytest.mark.parametrize("compiler", [_RaisingCompiler(), _WrongResultCompiler()])
-def test_adapter_boundary_normalizes_ordinary_contract_defects_before_run(
+def test_adapter_boundary_normalizes_deferred_contract_defects_during_run(
     compiler: object,
     tmp_path: Path,
 ) -> None:
@@ -382,11 +397,15 @@ def test_adapter_boundary_normalizes_ordinary_contract_defects_before_run(
 
     report = experiment.check()
 
-    assert not report.ok
-    assert report.problems[0].code == "experiment_system_prepare_failed"
-    with pytest.raises(CheckFailed):
+    assert report.ok
+    with pytest.raises(RunFailed) as caught:
         experiment.run()
-    assert lab.runs() == ()
+    assert any(
+        problem.code == "domain_execution_failed"
+        for problem in caught.value.outcome.problems
+    )
+    [run] = lab.runs()
+    assert run.manifest.status == "failed"
 
 
 def test_indeterminate_submit_retains_durable_target_correlation_context(
@@ -399,8 +418,9 @@ def test_indeterminate_submit_retains_durable_target_correlation_context(
         system=_domain_only(adapter),
     )
 
+    events: list[RuntimeEvent] = []
     with pytest.raises(RunIndeterminate) as caught:
-        experiment.run()
+        experiment.run(event_sink=events.append)
 
     recovery = next(
         problem
@@ -425,6 +445,58 @@ def test_indeterminate_submit_retains_durable_target_correlation_context(
         entry.stage == "domain_submit" and entry.state == "unknown"
         for entry in journal.entries()
     )
+    failed_points = [
+        event
+        for event in events
+        if isinstance(event, RuntimeTransitionEvent)
+        and event.stage == "point"
+        and event.state == "failed"
+        and event.point_indices
+    ]
+    assert [event.point_indices for event in failed_points] == [(0, 1, 2, 3)]
+    assert not any(
+        isinstance(event, RuntimeTransitionEvent)
+        and event.stage == "point"
+        and event.state == "started"
+        for event in events
+    )
+
+
+def test_later_domain_job_failure_preserves_points_from_earlier_jobs(
+    tmp_path: Path,
+) -> None:
+    target = replace(default_fake_list_target(), max_list_entries=2)
+    adapter = FakeXCountDomainCompiler(target=target)
+    adapter.runtime = _SecondSubmitIndeterminateFakeListDomainRuntime()
+    lab = quantum_lab(workspace=tmp_path)
+    events: list[RuntimeEvent] = []
+
+    with pytest.raises(RunIndeterminate):
+        lab.prepare(
+            FAKE_X_COUNT_TEMPLATE,
+            system=_domain_only(adapter),
+        ).run(event_sink=events.append)
+
+    failed_points = [
+        event.point_indices
+        for event in events
+        if isinstance(event, RuntimeTransitionEvent)
+        and event.stage == "point"
+        and event.state == "failed"
+        and event.point_indices
+    ]
+    completed_points = [
+        event.point_indices
+        for event in events
+        if isinstance(event, RuntimeTransitionEvent)
+        and event.stage == "point"
+        and event.state == "completed"
+        and event.point_indices
+    ]
+    assert adapter.runtime.physical_execution_count == 1
+    assert adapter.runtime.submit_calls == 1
+    assert completed_points == [(0,), (1,)]
+    assert failed_points == [(2, 3)]
 
 
 def test_unknown_fetch_terminalizes_as_indeterminate_with_known_job_context(
@@ -466,8 +538,8 @@ def test_uncertain_measurement_write_retains_durable_correlation(
         raise RuntimeError("record store returned no receipt")
 
     monkeypatch.setattr(
-        FilesystemMeasurementRecordCommitter,
-        "commit",
+        FilesystemMeasurementDatasetRepository,
+        "append",
         fail_record_write,
     )
     adapter = FakeXCountDomainCompiler()
@@ -486,7 +558,7 @@ def test_uncertain_measurement_write_retains_durable_correlation(
         if problem.code == "measurement_recording_terminalized"
     )
     assert recovery.details["write_may_have_completed"] is True
-    assert recovery.details["point_index"] == 0
+    assert recovery.details["dataset_id"] == "raw-measurements"
     assert "retry_contract" not in recovery.details
     assert "reconciliation" not in recovery.details
     assert adapter.runtime.physical_execution_count == 1
@@ -502,7 +574,7 @@ def test_successful_recording_does_not_reload_committed_measurements(
         raise OSError("measurement chunk could not be read")
 
     monkeypatch.setattr(
-        FilesystemMeasurementRecordCommitter,
+        FilesystemMeasurementDatasetRepository,
         "measurements",
         fail_measurement_reload,
     )

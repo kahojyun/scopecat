@@ -19,15 +19,10 @@ from scopecat.compiler.relations.model import (
     literal_rows,
     point_col,
 )
-from scopecat.compiler.relations.point_domain import point_rows
+from scopecat.compiler.relations.point_domain import point_product, point_rows
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
-)
-from scopecat.compiler.semantic.availability import (
-    ValueAvailability,
-    ValueRate,
-    ValueStage,
 )
 from scopecat.compiler.semantic.model import (
     ImplementationCatalog,
@@ -54,11 +49,7 @@ from scopecat.execution.evidence import (
     instrument_state_evidence_ref,
     run_outcome_ref,
 )
-from scopecat.execution.local.executor import (
-    preflight_instrument_provider,
-    validate_run_host_binding,
-)
-from scopecat.execution.local.program import CollectStage
+from scopecat.execution.local.program import CollectOperation
 from scopecat.execution.observation import (
     RunFinishedEvent,
     RuntimeEvent,
@@ -81,8 +72,9 @@ from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Payload, Scalar, String, TableColumn
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Table as TableType
-from scopecat.planning.local_materialization import (
-    MaterializedLocalEffects,
+from scopecat.planning.provider_binding import (
+    preflight_instrument_provider,
+    validate_run_host_binding,
 )
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.execution import InstrumentStateEvidence
@@ -111,13 +103,16 @@ from scopecat.sdk.instruments.contracts import (
     InstrumentStateCommandField,
     product_axis,
 )
-from tests.testkit.bound_plan import config_with_physical_resources
 from tests.testkit.execution import execute_bound_run, execute_program_run
 from tests.testkit.instrument_drivers import SignalInstrumentDriver
-from tests.testkit.local_materialization import materialize_local_execution
+from tests.testkit.local_materialization import (
+    MaterializedLocalEffects,
+    materialize_local_execution,
+    operations_of_type,
+)
+from tests.testkit.materialized_effects import config_with_physical_resources
 from tests.testkit.records import (
     assert_model_round_trip,
-    read_measurement_records,
     read_model,
 )
 from tests.testkit.relation_plans import (
@@ -254,7 +249,10 @@ def test_run_persists_measurements_and_run_files(
     assert not (run_dir / "experiment-plan.json").exists()
     assert not (run_dir / "records" / "device_program" / "device-program.json").exists()
 
-    measurements = read_measurement_records(run_dir / dataset_storage_ref(raw_dataset))
+    measurements = local_run_repository(tmp_path).read_measurement_records(
+        manifest.run_id,
+        dataset_storage_ref(raw_dataset),
+    )
     assert [item.point_index for item in measurements] == [0, 1, 2]
     drive_frequencies: list[float] = []
     for item in measurements:
@@ -348,11 +346,14 @@ def test_run_round_trips_non_finite_terminal_measurements(
     raw_path = (
         tmp_path / "runs" / manifest.run_id / dataset_storage_ref(manifest.datasets[0])
     )
-    wire = raw_path.read_text()
+    wire = "".join(path.read_text() for path in sorted((raw_path / "chunks").iterdir()))
     assert "NaN" in wire
     assert "Infinity" in wire
     assert "-Infinity" in wire
-    measurements = read_measurement_records(raw_path)
+    measurements = local_run_repository(tmp_path).read_measurement_records(
+        manifest.run_id,
+        dataset_storage_ref(manifest.datasets[0]),
+    )
     values = [
         cast("Quantity", measurement.observables["signal"]).value
         for measurement in measurements
@@ -372,7 +373,7 @@ class _RecordingLeaseManager:
         self,
         claims: tuple[ResourceClaim, ...],
     ) -> Generator[None, None, None]:
-        self.claims = claims
+        self.claims = tuple(dict.fromkeys((*self.claims, *claims)))
         self.events.append("lease.enter")
         self.active = True
         try:
@@ -876,8 +877,9 @@ def _lower_test_host_binding(
         advertised_descriptions=preflight.advertised_descriptions,
     )
     return validate_run_host_binding(
-        program=program,
-        points=plan.points,
+        host=program,
+        preamble_operations=plan.run_compute_operations,
+        effect_blocks=tuple(point.operations for point in plan.points),
         problems=(*planning_problems, *preflight.problems),
     )
 
@@ -917,7 +919,7 @@ def test_provider_abi_problems_are_aggregated_in_stable_order_before_run(
             category=ProblemCategory.INVALID_INPUT,
             phase=ProblemPhase.PLANNING,
             message="materialized local semantics warning",
-            location=model_location("bound_plan"),
+            location=model_location("materialized_effects"),
         ),
     )
 
@@ -1022,7 +1024,7 @@ def test_provider_product_unit_mismatch_is_rejected_before_run(
     assert problem.location == model_location(
         "execution_program",
         "operations",
-        f"{plan.points[0].logical_id.value}.collect.source-0",
+        operations_of_type(plan.points[0], CollectOperation)[0].operation_id,
         "requests",
         "signal",
         "unit",
@@ -1047,7 +1049,8 @@ def test_provider_product_axis_unit_mismatch_is_rejected_before_run(
     experiment = load_experiment()
     plan = materialize_local_execution(link_program(experiment, environment))
     point = plan.points[0]
-    collect = point.collect_operations[0]
+    point_operations = point.operations
+    collect = operations_of_type(point_operations, CollectOperation)[0]
     request = collect.command.requests[0].model_copy(
         update={
             "dimensions": [
@@ -1059,19 +1062,11 @@ def test_provider_product_axis_unit_mismatch_is_rejected_before_run(
         collect,
         command=collect.command.model_copy(update={"requests": [request]}),
     )
-    point = replace(
-        point,
-        stages=tuple(
-            CollectStage((updated_collect,))
-            if isinstance(stage, CollectStage)
-            else stage
-            for stage in point.stages
-        ),
+    point_operations = tuple(
+        updated_collect if isinstance(operation, CollectOperation) else operation
+        for operation in point_operations
     )
-    plan = replace(
-        plan,
-        points=(point,),
-    )
+    plan = replace(plan, points=(replace(point, operations=point_operations),))
 
     with pytest.raises(ProviderContractError) as captured:
         _lower_test_host_binding(plan, config, provider)
@@ -1082,7 +1077,7 @@ def test_provider_product_axis_unit_mismatch_is_rejected_before_run(
     assert problem.location == model_location(
         "execution_program",
         "operations",
-        f"{point.logical_id.value}.collect.source-0",
+        updated_collect.operation_id,
         "requests",
         "signal",
         "axes",
@@ -1140,11 +1135,6 @@ def test_run_emits_transient_runtime_events(tmp_path: Path) -> None:
     transitions = [
         event for event in events if isinstance(event, RuntimeTransitionEvent)
     ]
-    point_started = [
-        event
-        for event in transitions
-        if event.stage == "point" and event.state == "started"
-    ]
     point_finished = [
         event
         for event in transitions
@@ -1153,12 +1143,12 @@ def test_run_emits_transient_runtime_events(tmp_path: Path) -> None:
     committed_records = [
         event
         for event in transitions
-        if event.stage == "record_measurement" and event.state == "completed"
+        if event.stage == "seal_measurement" and event.state == "completed"
     ]
-    assert len(point_started) == 3
-    assert len(point_finished) == 3
-    assert len(committed_records) == 3
-    assert all(event.sequence is None for event in (*point_started, *point_finished))
+    assert [event.point_indices for event in point_finished] == [(0,), (1,), (2,)]
+    assert [event.progress.completed_points for event in point_finished] == [1, 2, 3]
+    assert len(committed_records) == 1
+    assert all(event.sequence is None for event in point_finished)
     durable_transitions = FilesystemExecutionJournal(
         tmp_path,
         run_id=manifest.run_id,
@@ -1171,12 +1161,7 @@ def test_run_emits_transient_runtime_events(tmp_path: Path) -> None:
         "setup_terminal_readback",
     } & {transition.stage for transition in durable_transitions}
     assert all(event.sequence is not None for event in committed_records)
-    assert [event.metrics["compute_step_count"] for event in point_started] == [
-        0,
-        0,
-        0,
-    ]
-    assert [event.progress.completed_points for event in point_finished] == [1, 2, 3]
+    assert all(event.metrics == {} for event in point_finished)
     assert all(event.state == "completed" for event in point_finished)
     finished = events[-1]
     assert isinstance(finished, RunFinishedEvent)
@@ -1210,7 +1195,7 @@ def test_runtime_event_sink_failure_does_not_change_durable_execution(
         for transition in durable_transitions
     )
     assert any(
-        transition.stage == "record_measurement" and transition.state == "completed"
+        transition.stage == "seal_measurement" and transition.state == "completed"
         for transition in durable_transitions
     )
     assert manifest.outcome is not None
@@ -1220,7 +1205,7 @@ def test_runtime_event_sink_failure_does_not_change_durable_execution(
     )
 
 
-def test_run_evaluates_each_residual_point_compute(tmp_path: Path) -> None:
+def test_run_shares_identical_residual_point_compute(tmp_path: Path) -> None:
     calls: list[Quantity] = []
 
     def build_program(*, value: object) -> dict[str, object]:
@@ -1230,8 +1215,16 @@ def test_run_evaluates_each_residual_point_compute(tmp_path: Path) -> None:
 
     operation_id = OperationId(SymbolId(local_id="build-program"))
     result_id = operation_result_id(operation_id)
+    slow_axis_type = TableType(
+        columns=(TableColumn("frequency", Scalar(QuantityType())),),
+        allow_extra_columns=True,
+    )
+    fast_axis_type = TableType(
+        columns=(TableColumn("amplitude", Scalar(String())),),
+        allow_extra_columns=True,
+    )
     point_type = TableType(
-        columns=(TableColumn("value", Scalar(QuantityType())),),
+        columns=(*slow_axis_type.columns, *fast_axis_type.columns),
         allow_extra_columns=True,
     )
     product = observable_product("signal")
@@ -1244,26 +1237,30 @@ def test_run_evaluates_each_residual_point_compute(tmp_path: Path) -> None:
         id="cached-compute-run",
         kind="cached_compute",
         point_domain=PointDomain(
-            root=point_rows(
-                table_value_expr(
-                    literal_rows(
-                        [
-                            {
-                                "sequence_index": 0,
-                                "value": Quantity(value=4.9, unit="GHz"),
-                            },
-                            {
-                                "sequence_index": 1,
-                                "value": Quantity(value=4.9, unit="GHz"),
-                            },
-                            {
-                                "sequence_index": 2,
-                                "value": Quantity(value=5.1, unit="GHz"),
-                            },
-                        ]
+            root=point_product(
+                point_rows(
+                    table_value_expr(
+                        literal_rows(
+                            [
+                                {"frequency": Quantity(value=4.9, unit="GHz")},
+                                {"frequency": Quantity(value=5.1, unit="GHz")},
+                            ]
+                        ),
+                        expected_type=slow_axis_type,
                     ),
-                    expected_type=point_type,
-                )
+                ),
+                point_rows(
+                    table_value_expr(
+                        literal_rows(
+                            [
+                                {"amplitude": "low"},
+                                {"amplitude": "medium"},
+                                {"amplitude": "high"},
+                            ]
+                        ),
+                        expected_type=fast_axis_type,
+                    ),
+                ),
             ),
         ),
         state=[
@@ -1288,15 +1285,11 @@ def test_run_evaluates_each_residual_point_compute(tmp_path: Path) -> None:
                 result=TypedComputeOutput(
                     id=result_id,
                     value_type=Scalar(Payload("pulse_program")),
-                    availability=ValueAvailability(
-                        ValueStage.EXECUTE,
-                        ValueRate.POINT,
-                    ),
                 ),
                 inputs={
                     "value": ValueInput(
                         value=value_expr(
-                            point_col("value"),
+                            point_col("frequency"),
                             expected_type=Scalar(QuantityType()),
                             bindings=RelationTypeBindings(
                                 point_row=RowType.from_table(point_type)
@@ -1352,10 +1345,9 @@ def test_run_evaluates_each_residual_point_compute(tmp_path: Path) -> None:
     assert manifest.status == "completed"
     assert calls == [
         Quantity(value=4.9, unit="GHz"),
-        Quantity(value=4.9, unit="GHz"),
         Quantity(value=5.1, unit="GHz"),
     ]
-    assert len(compute_events) == 3
+    assert len(compute_events) == 2
     assert all(event.sequence is None for event in compute_events)
     assert all(
         transition.stage != "compute"
@@ -1368,8 +1360,7 @@ def test_run_evaluates_each_residual_point_compute(tmp_path: Path) -> None:
         "list[str]",
         [event.metrics["payload_id"] for event in compute_events],
     )
-    assert payload_ids[0] == payload_ids[1]
-    assert payload_ids[2] != payload_ids[0]
+    assert payload_ids[1] != payload_ids[0]
     assert all(
         payload_id.startswith(f"{result_id.qualified_name}.payload.")
         for payload_id in payload_ids
@@ -1382,9 +1373,8 @@ def test_run_evaluates_each_residual_point_compute(tmp_path: Path) -> None:
     } == {"build-program"}
     assert [
         observation.summary["implementation_id"] for observation in payload_observations
-    ] == ["python.build-program.v1"] * 3
+    ] == ["python.build-program.v1"] * 2
     assert [observation.payload.payload for observation in payload_observations] == [
-        {"value": Quantity(value=4.9, unit="GHz")},
         {"value": Quantity(value=4.9, unit="GHz")},
         {"value": Quantity(value=5.1, unit="GHz")},
     ]
@@ -1392,14 +1382,11 @@ def test_run_evaluates_each_residual_point_compute(tmp_path: Path) -> None:
     assert [
         event.metrics["compute_evaluated_node_count"] for event in state_events
     ] == [1, 1]
-    assert [event.state for event in state_reconciled] == ["skipped"]
-    assert [
-        event.metrics["compute_evaluated_node_count"] for event in state_reconciled
-    ] == [1]
+    assert state_reconciled == []
     finished = events[-1]
     assert isinstance(finished, RunFinishedEvent)
-    assert finished.compute_evaluated_node_count == 3
-    assert finished.compute_payload_count == 3
+    assert finished.compute_evaluated_node_count == 2
+    assert finished.compute_payload_count == 2
 
 
 def test_run_skips_unchanged_state_fields(tmp_path: Path) -> None:
@@ -1448,11 +1435,4 @@ def test_run_skips_unchanged_state_fields(tmp_path: Path) -> None:
     ]
     assert [event.metrics["changed_field_count"] for event in state_events] == [1]
     assert [event.metrics["skipped_field_count"] for event in state_events] == [0]
-    assert [event.state for event in reconciled_events] == [
-        "skipped",
-        "skipped",
-    ]
-    assert [event.metrics["skipped_field_count"] for event in reconciled_events] == [
-        1,
-        1,
-    ]
+    assert reconciled_events == []

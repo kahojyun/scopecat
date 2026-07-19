@@ -24,22 +24,20 @@ from scopecat.authoring._record_intents import (
 from scopecat.authoring._value_refs import (
     ValueRef,
     internal_lower_value_ref,
-    internal_value_ref_availability,
+    internal_value_ref_is_row_dependent,
+    internal_value_ref_point_dependencies,
+    internal_value_ref_requires_execution,
 )
 from scopecat.compiler.frontend.elaboration import SemanticExperimentIR
 from scopecat.compiler.frontend.semantic_elaboration import semantic_value_id
 from scopecat.compiler.relations.model import ScalarExpr, SeriesExpr
-from scopecat.compiler.semantic.availability import (
-    ValueAvailabilityError,
-    ValueRate,
-    ValueStage,
-    require_value_availability,
-)
+from scopecat.compiler.semantic.dependencies import residual_value_ids
 from scopecat.compiler.semantic.model import (
     ImplementationCatalog,
     OperationOutputSource,
     RouteValueSource,
     SourceMap,
+    ValueDef,
     ValueUse,
 )
 from scopecat.compiler.semantic.operation_contract import ScalarBinarySemantics
@@ -130,12 +128,12 @@ def verify_assembly_graph(
         source_map = None
     resource_ports = _resource_ports(assembly.resource_ports, problems)
     if semantic_graph is not None:
-        _verify_compute_input_availability(semantic_graph, problems)
+        _verify_compute_input_scope(semantic_graph, problems)
         _verify_compute_routes(semantic_graph, resource_ports, problems)
         _verify_state_compute_values(assembly, semantic_graph, problems)
     _verify_state_resource_ports(assembly, resource_ports, problems)
     if semantic_graph is not None:
-        _verify_plan_value_availability(assembly, semantic_graph, problems)
+        _verify_static_value_dependencies(assembly, semantic_graph, problems)
     product_ports = _verify_record_schema(assembly, resource_ports, problems)
     if problems:
         raise CheckFailed(problems)
@@ -320,7 +318,7 @@ def _verify_resource_port_capability(
         )
 
 
-def _verify_compute_input_availability(
+def _verify_compute_input_scope(
     graph: VerifiedSemanticGraph,
     problems: list[Problem],
 ) -> None:
@@ -336,23 +334,16 @@ def _verify_compute_input_availability(
                 "inputs",
                 input_name,
             )
-            try:
-                require_value_availability(
-                    definition.availability,
-                    stages=(ValueStage.PLAN, ValueStage.EXECUTE),
-                    rates=(
-                        (ValueRate.RUN, ValueRate.POINT, ValueRate.ROW)
-                        if isinstance(
-                            operation.contract.semantics,
-                            ScalarBinarySemantics,
-                        )
-                        else (ValueRate.RUN, ValueRate.POINT)
-                    ),
-                    context="compute input",
-                    location=location,
+            if definition.owner_region_id is not None and not isinstance(
+                operation.contract.semantics, ScalarBinarySemantics
+            ):
+                problems.append(
+                    _problem(
+                        "value_row_scope_unavailable",
+                        "compute input cannot escape its row region",
+                        location,
+                    )
                 )
-            except ValueAvailabilityError as error:
-                problems.append(_availability_problem(error))
 
 
 def _verify_state_compute_values(
@@ -367,19 +358,7 @@ def _verify_state_compute_values(
     for location, value in values:
         if not isinstance(value, ValueRef):
             continue
-        availability = internal_value_ref_availability(value)
-        try:
-            require_value_availability(
-                availability,
-                stages=(ValueStage.PLAN, ValueStage.EXECUTE),
-                rates=(ValueRate.RUN, ValueRate.POINT, ValueRate.ROW),
-                context="state value",
-                location=location,
-            )
-        except ValueAvailabilityError as error:
-            problems.append(_availability_problem(error))
-            continue
-        if availability.stage == ValueStage.PLAN:
+        if not internal_value_ref_requires_execution(value):
             lowered = internal_lower_value_ref(value)
             if not (
                 isinstance(value.value_type, Scalar) and isinstance(lowered, ScalarExpr)
@@ -431,18 +410,7 @@ def _verify_state_compute_values(
         if definition is None:
             continue
         location = model_location("state", index, "value")
-        try:
-            require_value_availability(
-                definition.availability,
-                stages=(ValueStage.PLAN, ValueStage.EXECUTE),
-                rates=(ValueRate.RUN, ValueRate.POINT, ValueRate.ROW),
-                context="state value",
-                location=location,
-            )
-        except ValueAvailabilityError as error:
-            problems.append(_availability_problem(error))
-            continue
-        if definition.availability.stage is ValueStage.PLAN:
+        if not _definition_is_residual(graph, definition):
             assert isinstance(definition.value_type, Scalar), (  # noqa: S101
                 "verified row-region state values must be scalar-shaped"
             )
@@ -476,18 +444,16 @@ def _verify_state_compute_values(
                 "fields",
                 field_name,
             )
-            try:
-                require_value_availability(
-                    definition.availability,
-                    stages=(ValueStage.PLAN, ValueStage.EXECUTE),
-                    rates=(ValueRate.RUN, ValueRate.POINT),
-                    context="action field",
-                    location=location,
+            if definition.owner_region_id is not None:
+                problems.append(
+                    _problem(
+                        "value_row_scope_unavailable",
+                        "action field cannot escape its row region",
+                        location,
+                    )
                 )
-            except ValueAvailabilityError as error:
-                problems.append(_availability_problem(error))
                 continue
-            if definition.availability.stage is ValueStage.PLAN:
+            if not _definition_is_residual(graph, definition):
                 if not isinstance(definition.value_type, Scalar):
                     problems.append(
                         _problem(
@@ -521,7 +487,7 @@ def _is_payload_type(value_type: object) -> bool:
     return isinstance(value_type, Scalar) and isinstance(value_type.atom, Payload)
 
 
-def _verify_plan_value_availability(
+def _verify_static_value_dependencies(
     assembly: SemanticExperimentIR,
     graph: VerifiedSemanticGraph,
     problems: list[Problem],
@@ -571,7 +537,7 @@ def _verify_plan_value_availability(
                 context="state resource selector",
                 location=model_location("state", index, "resource"),
                 problems=problems,
-                rates=(ValueRate.RUN, ValueRate.POINT, ValueRate.ROW),
+                allow_row=True,
             )
         for route_index, route_entity in enumerate(state.route_entities):
             route = graph.value_defs[route_entity.value_id]
@@ -589,29 +555,44 @@ def _verify_plan_value_availability(
                     route_index,
                 ),
                 problems=problems,
-                rates=(ValueRate.RUN, ValueRate.POINT, ValueRate.ROW),
+                allow_row=True,
             )
 
     for record in (*assembly.records, *assembly.product_ports):
         for axis in record.axes:
             if not isinstance(axis.size, ValueRef):
                 continue
-            try:
-                require_value_availability(
-                    internal_value_ref_availability(axis.size),
-                    stages=(ValueStage.PLAN,),
-                    rates=(ValueRate.RUN,),
-                    context="record axis",
-                    location=model_location(
-                        "records",
-                        record.id,
-                        "axes",
-                        axis.id,
-                        "size",
-                    ),
+            location = model_location(
+                "records",
+                record.id,
+                "axes",
+                axis.id,
+                "size",
+            )
+            if internal_value_ref_requires_execution(axis.size):
+                problems.append(
+                    _problem(
+                        "record_axis_value_requires_execution",
+                        "record axis size cannot depend on an external operation",
+                        location,
+                    )
                 )
-            except ValueAvailabilityError as error:
-                problems.append(_availability_problem(error))
+            elif internal_value_ref_point_dependencies(axis.size):
+                problems.append(
+                    _problem(
+                        "record_axis_value_depends_on_point",
+                        "record axis size cannot depend on point coordinates",
+                        location,
+                    )
+                )
+            elif internal_value_ref_is_row_dependent(axis.size):
+                problems.append(
+                    _problem(
+                        "record_axis_value_depends_on_row",
+                        "record axis size cannot depend on a row scope",
+                        location,
+                    )
+                )
 
 
 def _verify_resource_entity_input(
@@ -648,18 +629,25 @@ def _require_plan_value(
     context: str,
     location: ModelLocation,
     problems: list[Problem],
-    rates: tuple[ValueRate, ...] = (ValueRate.RUN, ValueRate.POINT),
+    allow_row: bool = False,
 ) -> bool:
-    try:
-        require_value_availability(
-            internal_value_ref_availability(value),
-            stages=(ValueStage.PLAN,),
-            rates=rates,
-            context=context,
-            location=location,
+    if internal_value_ref_requires_execution(value):
+        problems.append(
+            _problem(
+                "value_requires_execution",
+                f"{context} cannot depend on an external operation",
+                location,
+            )
         )
-    except ValueAvailabilityError as error:
-        problems.append(_availability_problem(error))
+        return False
+    if not allow_row and internal_value_ref_is_row_dependent(value):
+        problems.append(
+            _problem(
+                "value_row_scope_unavailable",
+                f"{context} cannot depend on a row scope",
+                location,
+            )
+        )
         return False
     return True
 
@@ -671,21 +659,37 @@ def _require_semantic_plan_value(
     context: str,
     location: ModelLocation,
     problems: list[Problem],
-    rates: tuple[ValueRate, ...] = (ValueRate.RUN, ValueRate.POINT),
+    allow_row: bool = False,
 ) -> None:
     definition = graph.value_defs.get(use.value_id)
     if definition is None:
         return
-    try:
-        require_value_availability(
-            definition.availability,
-            stages=(ValueStage.PLAN,),
-            rates=rates,
-            context=context,
-            location=location,
+    if _definition_is_residual(graph, definition):
+        problems.append(
+            _problem(
+                "value_requires_execution",
+                f"{context} cannot depend on an external operation",
+                location,
+            )
         )
-    except ValueAvailabilityError as error:
-        problems.append(_availability_problem(error))
+    elif not allow_row and definition.owner_region_id is not None:
+        problems.append(
+            _problem(
+                "value_row_scope_unavailable",
+                f"{context} cannot depend on a row scope",
+                location,
+            )
+        )
+
+
+def _definition_is_residual(
+    graph: VerifiedSemanticGraph,
+    definition: ValueDef,
+) -> bool:
+    return definition.id in residual_value_ids(
+        graph.value_defs,
+        graph.graph.operations,
+    )
 
 
 def _verify_record_schema(
@@ -1003,7 +1007,3 @@ def _problem(
         location=location,
         related_locations=related_locations,
     )
-
-
-def _availability_problem(error: ValueAvailabilityError) -> Problem:
-    return _problem(error.code, str(error), error.location)

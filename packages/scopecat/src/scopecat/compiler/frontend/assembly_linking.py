@@ -223,7 +223,6 @@ def _bind_verified_assembly(
         ),
         measurement_transforms=measurement_transforms.transforms,
         implementation_catalog=implementation_catalog,
-        source_map=verified_graph.source_map,
         parameter_overlays=tuple(
             lower_parameter_overlay_intent(
                 parameter_catalog,

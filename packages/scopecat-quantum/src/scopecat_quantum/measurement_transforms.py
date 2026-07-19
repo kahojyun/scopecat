@@ -107,7 +107,6 @@ def binary_iq_probability_transform(
     return measurement_transform(
         transform_id,
         semantic=_binary_iq_semantic(discriminator),
-        rate="point",
         inputs={_IQ_SHOTS_ROLE: iq_shots},
         outputs={
             _PROBABILITY_0_ROLE: probability_0,
@@ -136,7 +135,6 @@ def binary_iq_probability_host_implementation() -> DomainHostTransformImplementa
         id=_BINARY_IQ_IMPLEMENTATION_ID,
         semantic_id=_BINARY_IQ_SEMANTIC_ID,
         semantic_version=_BINARY_IQ_SEMANTIC_VERSION,
-        rate="point",
         implementation_fingerprint=_BINARY_IQ_IMPLEMENTATION_FINGERPRINT,
         validate_transform=_validate_binary_iq_probability_transform,
         kernel=_binary_iq_probability_kernel,
@@ -145,7 +143,7 @@ def binary_iq_probability_host_implementation() -> DomainHostTransformImplementa
 
 def _binary_iq_probability_kernel(
     call: DomainHostTransformCall,
-) -> dict[str, MeasurementValue]:
+) -> dict[str, tuple[MeasurementValue, ...]]:
     semantic = call.semantic
     if (
         semantic.id != _BINARY_IQ_SEMANTIC_ID
@@ -158,7 +156,20 @@ def _binary_iq_probability_kernel(
     if set(call.inputs) != {_IQ_SHOTS_ROLE}:
         msg = "binary IQ host implementation requires its exact IQ-shot input"
         raise ValueError(msg)
-    value = call.inputs[_IQ_SHOTS_ROLE]
+    results = tuple(
+        _binary_iq_probability_value(value, discriminator)
+        for value in call.inputs[_IQ_SHOTS_ROLE]
+    )
+    return {
+        _PROBABILITY_0_ROLE: tuple(result[0] for result in results),
+        _PROBABILITY_1_ROLE: tuple(result[1] for result in results),
+    }
+
+
+def _binary_iq_probability_value(
+    value: MeasurementValue,
+    discriminator: BinaryIqDiscriminator,
+) -> tuple[Quantity, Quantity]:
     if not isinstance(value, MeasurementArray):
         msg = "binary IQ host implementation requires a MeasurementArray"
         raise TypeError(msg)
@@ -184,10 +195,10 @@ def _binary_iq_probability_kernel(
 
     probability_0 = state_0_count / len(shots)
     probability_1 = 1.0 - probability_0
-    return {
-        _PROBABILITY_0_ROLE: Quantity(value=probability_0, unit="ratio"),
-        _PROBABILITY_1_ROLE: Quantity(value=probability_1, unit="ratio"),
-    }
+    return (
+        Quantity(value=probability_0, unit="ratio"),
+        Quantity(value=probability_1, unit="ratio"),
+    )
 
 
 def _discriminator_from_semantic(
@@ -215,9 +226,6 @@ def _validate_binary_iq_probability_transform(
     transform: DomainMeasurementTransform,
 ) -> None:
     _discriminator_from_semantic(transform.semantic)
-    if transform.rate != "point":
-        msg = "binary IQ host implementation requires point rate"
-        raise ValueError(msg)
     if tuple(port.id for port in transform.inputs) != (_IQ_SHOTS_ROLE,):
         msg = "binary IQ transform requires the exact iq_shots input role"
         raise ValueError(msg)

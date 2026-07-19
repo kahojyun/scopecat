@@ -11,7 +11,7 @@ from scopecat.adapters.memory.config_registry import (
 from scopecat.adapters.memory.execution import (
     MemoryCollectionRepository,
     MemoryExecutionJournal,
-    MemoryMeasurementRecordCommitter,
+    MemoryMeasurementDatasetRepository,
     MemoryPayloadEvidenceCommitter,
 )
 from scopecat.adapters.memory.resources import MemoryResourceLeaseManager
@@ -51,10 +51,11 @@ class _MemoryCollectionRecordRepository:
 class MemoryWorkspaceExecutionState:
     """Own all execution state whose lifetime matches an in-memory workspace."""
 
-    def __init__(self) -> None:
+    def __init__(self, runs: MemoryRunRepository) -> None:
+        self._runs = runs
         self.resources = MemoryResourceLeaseManager()
         self._journals: dict[str, _MemoryExecutionJournalStore] = {}
-        self._measurements: dict[str, MemoryMeasurementRecordCommitter] = {}
+        self._measurements: dict[str, MemoryMeasurementDatasetRepository] = {}
         self._collections: dict[str, _MemoryCollectionRecordRepository] = {}
         self._payloads: dict[str, MemoryPayloadEvidenceCommitter] = {}
         self._lock = Lock()
@@ -67,11 +68,14 @@ class MemoryWorkspaceExecutionState:
                 self._journals[run_id] = journal
             return journal
 
-    def measurements_for(self, run_id: str) -> MemoryMeasurementRecordCommitter:
+    def measurements_for(self, run_id: str) -> MemoryMeasurementDatasetRepository:
         with self._lock:
             measurements = self._measurements.get(run_id)
             if measurements is None:
-                measurements = MemoryMeasurementRecordCommitter()
+                measurements = MemoryMeasurementDatasetRepository(
+                    run_id=run_id,
+                    run_repository=self._runs,
+                )
                 self._measurements[run_id] = measurements
             return measurements
 
@@ -98,7 +102,7 @@ class MemoryWorkspaceStore:
     def __init__(self) -> None:
         self.runs = MemoryRunRepository()
         self.registry = MemoryConfigRegistryRepository()
-        self.execution = MemoryWorkspaceExecutionState()
+        self.execution = MemoryWorkspaceExecutionState(self.runs)
         self._lock = RLock()
 
     def unit_of_work(self) -> MemoryWorkspaceUnitOfWork:

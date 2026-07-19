@@ -214,7 +214,6 @@ def test_binary_iq_builder_retains_complete_authored_semantics_and_edges() -> No
     transform = _authored_transform(discriminator=_discriminator(tie_policy="state_1"))
 
     assert isinstance(transform, MeasurementTransform)
-    assert transform.rate == "point"
     assert [(role, product.local_id) for role, product in transform.input_bindings] == [
         ("iq_shots", "default-iq")
     ]
@@ -367,17 +366,19 @@ def test_reference_host_implementation_classifies_shots_and_applies_tie_policy()
     implementation = binary_iq_probability_host_implementation()
     call = DomainHostTransformCall(
         transform=transform,
-        point=_point(),
+        points=(_point(),),
         inputs={
-            transform.inputs[0].id: MeasurementArray(
-                dtype="complex128",
-                unit="ratio",
-                shape=[3],
-                values=[
-                    ComplexQuantity(real=-0.9, imag=0.0, unit="ratio"),
-                    ComplexQuantity(real=0.9, imag=0.0, unit="ratio"),
-                    ComplexQuantity(real=0.0, imag=0.0, unit="ratio"),
-                ],
+            transform.inputs[0].id: (
+                MeasurementArray(
+                    dtype="complex128",
+                    unit="ratio",
+                    shape=[3],
+                    values=[
+                        ComplexQuantity(real=-0.9, imag=0.0, unit="ratio"),
+                        ComplexQuantity(real=0.9, imag=0.0, unit="ratio"),
+                        ComplexQuantity(real=0.0, imag=0.0, unit="ratio"),
+                    ],
+                ),
             )
         },
     )
@@ -386,10 +387,9 @@ def test_reference_host_implementation_classifies_shots_and_applies_tie_policy()
 
     assert implementation.semantic_id == transform.semantic.id
     assert implementation.semantic_version == transform.semantic.version
-    assert implementation.rate == "point"
     assert set(outputs) == {"probability_0", "probability_1"}
-    probability_0 = outputs["probability_0"]
-    probability_1 = outputs["probability_1"]
+    [probability_0] = outputs["probability_0"]
+    [probability_1] = outputs["probability_1"]
     assert isinstance(probability_0, Quantity)
     assert isinstance(probability_1, Quantity)
     assert probability_0.value == pytest.approx(1 / 3)
@@ -404,13 +404,15 @@ def test_reference_host_implementation_rejects_non_finite_shots() -> None:
     implementation = binary_iq_probability_host_implementation()
     call = DomainHostTransformCall(
         transform=transform,
-        point=_point(),
+        points=(_point(),),
         inputs={
-            transform.inputs[0].id: MeasurementArray(
-                dtype="complex128",
-                unit="ratio",
-                shape=[1],
-                values=[ComplexQuantity(real=math.inf, imag=0.0, unit="ratio")],
+            transform.inputs[0].id: (
+                MeasurementArray(
+                    dtype="complex128",
+                    unit="ratio",
+                    shape=[1],
+                    values=[ComplexQuantity(real=math.inf, imag=0.0, unit="ratio")],
+                ),
             )
         },
     )
@@ -427,9 +429,9 @@ def test_domain_host_call_snapshots_sdk_measurement_inputs() -> None:
         shape=[1],
         values=[ComplexQuantity(real=-1.0, imag=0.0, unit="ratio")],
     )
-    raw: dict[str, MeasurementValue] = {"iq_shots": value}
+    raw: dict[str, tuple[MeasurementValue, ...]] = {"iq_shots": (value,)}
 
-    call = DomainHostTransformCall(transform, _point(), raw)
+    call = DomainHostTransformCall(transform, (_point(),), raw)
     raw.clear()
 
     assert set(call.inputs) == {"iq_shots"}

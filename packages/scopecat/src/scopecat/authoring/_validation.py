@@ -25,15 +25,10 @@ from scopecat.authoring._scan_intents import (
 )
 from scopecat.authoring._value_refs import (
     ValueRef,
-    internal_value_ref_availability,
     internal_value_ref_input_id,
+    internal_value_ref_requires_execution,
 )
 from scopecat.authoring.domain import DomainExecution
-from scopecat.compiler.semantic.availability import (
-    ValueAvailabilityError,
-    ValueStage,
-    require_value_availability,
-)
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
     ModelLocation,
@@ -123,7 +118,7 @@ def validate_invocation_scans(
 ) -> None:
     """Check invocation scan values before semantic or relation lowering."""
 
-    problems = _scan_availability_problems(
+    problems = _scan_dependency_problems(
         scans,
         location=model_location("scans"),
     )
@@ -267,7 +262,7 @@ def _validate_default_scans(
         )
 
     problems.extend(
-        _scan_availability_problems(
+        _scan_dependency_problems(
             scans,
             location=model_location("template", "default_scans"),
         )
@@ -297,14 +292,14 @@ def _validate_default_scans(
     return problems
 
 
-def _scan_availability_problems(
+def _scan_dependency_problems(
     scans: Sequence[Scan],
     *,
     location: ModelLocation,
 ) -> list[Problem]:
     problems: list[Problem] = []
     for index, scan in enumerate(scans):
-        _scan_value_availability_problems(
+        _scan_value_dependency_problems(
             scan,
             location=model_location(location.root, *location.path, index),
             problems=problems,
@@ -312,7 +307,7 @@ def _scan_availability_problems(
     return problems
 
 
-def _scan_value_availability_problems(
+def _scan_value_dependency_problems(
     scan: Scan,
     *,
     location: ModelLocation,
@@ -320,7 +315,7 @@ def _scan_value_availability_problems(
 ) -> None:
     if isinstance(scan, ScanGroupIntent):
         for index, child in enumerate(scan.scans):
-            _scan_value_availability_problems(
+            _scan_value_dependency_problems(
                 child,
                 location=model_location(
                     location.root,
@@ -347,20 +342,13 @@ def _scan_value_availability_problems(
             *location.path,
             value_id,
         )
-        try:
-            require_value_availability(
-                internal_value_ref_availability(value),
-                stages=(ValueStage.PLAN,),
-                context=context,
-                location=value_location,
-            )
-        except ValueAvailabilityError as error:
+        if internal_value_ref_requires_execution(value):
             problems.append(
                 problem(
-                    error.code,
-                    str(error),
-                    error.location.root,
-                    path=error.location.path,
+                    "value_requires_execution",
+                    f"{context} cannot depend on an external operation",
+                    value_location.root,
+                    path=value_location.path,
                 )
             )
 

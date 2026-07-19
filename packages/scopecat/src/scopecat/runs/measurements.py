@@ -36,7 +36,7 @@ def read_measurement_records(
             category=ProblemCategory.NOT_FOUND,
         )
     try:
-        records = storage.read_jsonl(run_id, ref, MeasurementRecord)
+        records = storage.read_measurement_records(run_id, ref)
     except DataIntegrityError as error:
         raise measurement_records_error(
             invalid_code,

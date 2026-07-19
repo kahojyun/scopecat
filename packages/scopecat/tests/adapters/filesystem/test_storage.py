@@ -13,7 +13,7 @@ import scopecat.adapters.filesystem.run_repository as run_repository
 from scopecat.adapters.filesystem.execution import (
     FilesystemCollectionRepository,
     FilesystemExecutionJournal,
-    FilesystemMeasurementRecordCommitter,
+    FilesystemMeasurementDatasetRepository,
 )
 from scopecat.adapters.filesystem.layout import FilesystemRunLayout
 from scopecat.adapters.filesystem.measurement_files import (
@@ -37,8 +37,8 @@ from scopecat.records.execution_journal import (
 )
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.measurement_recording import (
-    MeasurementRecordChunk,
-    MeasurementRecordReceipt,
+    MeasurementDatasetAppend,
+    MeasurementDatasetReceipt,
 )
 from scopecat.records.parameter import Quantity
 from scopecat.records.run import RunManifest, RunOutcome
@@ -484,45 +484,44 @@ def test_local_measurement_commit_is_canonical_and_nan_idempotent(
         observables={"signal": Quantity(value=float("nan"), unit="ratio")},
         metadata={"stable": ["json", 1]},
     )
-    committer = FilesystemMeasurementRecordCommitter(
+    committer = FilesystemMeasurementDatasetRepository(
         tmp_path,
         run_id=measurement.run_id,
     )
-    chunk = MeasurementRecordChunk(
+    append = MeasurementDatasetAppend(
         run_id=measurement.run_id,
         dataset_id="raw-measurements",
         recording_contract_fingerprint="test-recording-contract",
-        logical_point_id="point-0",
-        point_index=measurement.point_index,
-        record=measurement,
+        start_index=0,
+        records=(measurement,),
     )
 
-    first = committer.commit(chunk)
-    second = committer.commit(chunk.model_copy(deep=True))
+    first = committer.append(append)
+    second = committer.append(append.model_copy(deep=True))
     stored = local_io.read_model(
-        FilesystemRunRepository(tmp_path).ref_path(chunk.run_id, first.record_ref),
-        MeasurementRecordChunk,
+        FilesystemRunRepository(tmp_path).ref_path(append.run_id, first.dataset_ref),
+        MeasurementDatasetAppend,
     )
 
     assert (
         first
         == second
-        == MeasurementRecordReceipt(
-            operation_id=chunk.operation_id,
-            chunk_content_hash=chunk.content_hash,
-            record_ref=first.record_ref,
+        == MeasurementDatasetReceipt(
+            operation_id=append.operation_id,
+            dataset_content_hash=append.content_hash,
+            dataset_ref=first.dataset_ref,
         )
     )
-    assert stored.operation_id == chunk.operation_id
-    assert stored.content_hash == chunk.content_hash
+    assert stored.operation_id == append.operation_id
+    assert stored.content_hash == append.content_hash
     assert len(committer.measurements()) == 1
     assert committer.measurements()[0].logical_point_id == "point-0"
     assert committer.measurements()[0].metadata == {"stable": ["json", 1]}
     different = measurement.model_copy(
         update={"observables": {"signal": Quantity(value=float("inf"), unit="ratio")}}
     )
-    with pytest.raises(ExecutionJournalError, match="different committed"):
-        committer.commit(chunk.model_copy(update={"record": different}))
+    with pytest.raises(ExecutionJournalError, match="different content"):
+        committer.append(append.model_copy(update={"records": (different,)}))
 
 
 def test_local_measurement_commit_allows_distinct_datasets_for_same_point(
@@ -530,22 +529,21 @@ def test_local_measurement_commit_allows_distinct_datasets_for_same_point(
 ) -> None:
     measurement = MeasurementRecord(
         run_id="run-multi-dataset",
-        logical_point_id="point-3",
-        point_index=3,
+        logical_point_id="point-0",
+        point_index=0,
         coordinates={},
         observables={"signal": Quantity(value=1.0, unit="ratio")},
     )
-    committer = FilesystemMeasurementRecordCommitter(
+    committer = FilesystemMeasurementDatasetRepository(
         tmp_path,
         run_id=measurement.run_id,
     )
-    raw = MeasurementRecordChunk(
+    raw = MeasurementDatasetAppend(
         run_id=measurement.run_id,
         dataset_id="raw-measurements",
         recording_contract_fingerprint="raw-contract",
-        logical_point_id="point-3",
-        point_index=measurement.point_index,
-        record=measurement,
+        start_index=0,
+        records=(measurement,),
     )
     derived = raw.model_copy(
         update={
@@ -554,11 +552,11 @@ def test_local_measurement_commit_allows_distinct_datasets_for_same_point(
         }
     )
 
-    raw_receipt = committer.commit(raw)
-    derived_receipt = committer.commit(derived)
+    raw_receipt = committer.append(raw)
+    derived_receipt = committer.append(derived)
 
     assert raw.operation_id != derived.operation_id
-    assert raw_receipt.record_ref != derived_receipt.record_ref
+    assert raw_receipt.dataset_ref != derived_receipt.dataset_ref
     assert len(committer.measurements()) == 2
 
 
@@ -567,30 +565,29 @@ def test_local_measurement_commit_rejects_contract_change_in_canonical_slot(
 ) -> None:
     measurement = MeasurementRecord(
         run_id="run-contract-conflict",
-        logical_point_id="point-4",
-        point_index=4,
+        logical_point_id="point-0",
+        point_index=0,
         coordinates={},
         observables={"signal": Quantity(value=1.0, unit="ratio")},
     )
-    committer = FilesystemMeasurementRecordCommitter(
+    committer = FilesystemMeasurementDatasetRepository(
         tmp_path,
         run_id=measurement.run_id,
     )
-    original = MeasurementRecordChunk(
+    original = MeasurementDatasetAppend(
         run_id=measurement.run_id,
         dataset_id="raw-measurements",
         recording_contract_fingerprint="original-contract",
-        logical_point_id="point-4",
-        point_index=measurement.point_index,
-        record=measurement,
+        start_index=0,
+        records=(measurement,),
     )
     changed_contract = original.model_copy(
         update={"recording_contract_fingerprint": "changed-contract"}
     )
 
-    committer.commit(original)
-    with pytest.raises(ExecutionJournalError, match="different committed"):
-        committer.commit(changed_contract)
+    committer.append(original)
+    with pytest.raises(ExecutionJournalError, match="different content"):
+        committer.append(changed_contract)
 
     assert original.operation_id != changed_contract.operation_id
     assert len(committer.measurements()) == 1

@@ -107,7 +107,6 @@ def lower_semantic_measurement_transform_graph(
             TypedMeasurementTransform(
                 id=transform.id,
                 semantic=transform.semantic,
-                rate=transform.rate,
                 inputs=tuple(inputs),
                 outputs=tuple(outputs),
             )

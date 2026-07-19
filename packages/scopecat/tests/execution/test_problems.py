@@ -10,7 +10,7 @@ import pytest
 from scopecat.compiler.typed.program import core_state
 from scopecat.compiler.typed.state import SetStateSpec
 from scopecat.composition.local import local_run_repository
-from scopecat.kernel.errors import ProviderContractError, RunFailed, RunIndeterminate
+from scopecat.kernel.errors import RunFailed, RunIndeterminate
 from scopecat.records.instrument import InstrumentReadback
 from scopecat.records.parameter import Quantity
 from scopecat.sdk.instruments.contracts import (
@@ -80,7 +80,7 @@ class FailAfterFirstCollectInstrument(TestSignalInstrument):
 
 
 def test_run_rejects_missing_instrument(tmp_path: Path) -> None:
-    with pytest.raises(ProviderContractError) as error:
+    with pytest.raises(RunFailed) as error:
         execute_bound_run(
             config=load_config(),
             experiment=load_experiment(),
@@ -88,8 +88,10 @@ def test_run_rejects_missing_instrument(tmp_path: Path) -> None:
             workspace=tmp_path,
         )
 
-    assert error.value.problems[-1].code == "missing_instrument_description"
-    assert local_run_repository(tmp_path).list_runs() == []
+    assert "missing_instrument_description" in {
+        problem.code for problem in error.value.problems
+    }
+    assert local_run_repository(tmp_path).list_runs()[0].lifecycle == "terminal"
 
 
 def test_run_rejects_unsupported_field(tmp_path: Path) -> None:
@@ -99,7 +101,7 @@ def test_run_rejects_unsupported_field(tmp_path: Path) -> None:
     state = replace(selected_state, field_path="amplitude")
     experiment = replace(experiment, effects=(state,))
 
-    with pytest.raises(ProviderContractError) as error:
+    with pytest.raises(RunFailed) as error:
         execute_bound_run(
             config=load_config(),
             experiment=experiment,
@@ -107,8 +109,10 @@ def test_run_rejects_unsupported_field(tmp_path: Path) -> None:
             workspace=tmp_path,
         )
 
-    assert error.value.problems[-1].code == "instrument_driver_unsupported_field"
-    assert local_run_repository(tmp_path).list_runs() == []
+    assert "instrument_driver_unsupported_field" in {
+        problem.code for problem in error.value.problems
+    }
+    assert local_run_repository(tmp_path).list_runs()[0].lifecycle == "terminal"
 
 
 def test_run_rejects_unsupported_instrument_product(tmp_path: Path) -> None:
@@ -120,7 +124,7 @@ def test_run_rejects_unsupported_instrument_product(tmp_path: Path) -> None:
         ),
     )
 
-    with pytest.raises(ProviderContractError) as error:
+    with pytest.raises(RunFailed) as error:
         execute_bound_run(
             config=load_config(),
             experiment=experiment,
@@ -128,8 +132,10 @@ def test_run_rejects_unsupported_instrument_product(tmp_path: Path) -> None:
             workspace=tmp_path,
         )
 
-    assert error.value.problems[-1].code == "instrument_product_unsupported"
-    assert local_run_repository(tmp_path).list_runs() == []
+    assert "instrument_product_unsupported" in {
+        problem.code for problem in error.value.problems
+    }
+    assert local_run_repository(tmp_path).list_runs()[0].lifecycle == "terminal"
 
 
 def test_run_rejects_instrument_product_dtype_mismatch(tmp_path: Path) -> None:
@@ -139,7 +145,7 @@ def test_run_rejects_instrument_product_dtype_mismatch(tmp_path: Path) -> None:
         product_defs=(replace(experiment.product_defs[0], dtype="int64"),),
     )
 
-    with pytest.raises(ProviderContractError) as error:
+    with pytest.raises(RunFailed) as error:
         execute_bound_run(
             config=load_config(),
             experiment=experiment,
@@ -147,8 +153,10 @@ def test_run_rejects_instrument_product_dtype_mismatch(tmp_path: Path) -> None:
             workspace=tmp_path,
         )
 
-    assert error.value.problems[-1].code == "instrument_product_dtype_mismatch"
-    assert local_run_repository(tmp_path).list_runs() == []
+    assert "instrument_product_dtype_mismatch" in {
+        problem.code for problem in error.value.problems
+    }
+    assert local_run_repository(tmp_path).list_runs()[0].lifecycle == "terminal"
 
 
 def test_instrument_exception_keeps_unknown_run(tmp_path: Path) -> None:
@@ -222,7 +230,7 @@ def test_keyboard_interrupt_commits_interrupted_terminal_run(tmp_path: Path) -> 
     assert collect_states == ["started", "unknown"]
 
 
-def test_failed_run_retains_fragments_without_publishing_incomplete_dataset(
+def test_failed_run_publishes_committed_prefix_as_incomplete_dataset(
     tmp_path: Path,
 ) -> None:
     instrument = FailAfterFirstCollectInstrument()
@@ -237,7 +245,9 @@ def test_failed_run_retains_fragments_without_publishing_incomplete_dataset(
 
     manifest = local_run_repository(tmp_path).list_runs()[0]
     assert manifest.status == "unknown"
-    assert manifest.datasets == ()
+    [dataset] = manifest.datasets
+    assert dataset.metadata["partial"] is True
+    assert dataset.metadata["expected_record_count"] == 3
     readback_files = list(
         (tmp_path / "runs" / manifest.run_id / "execution" / "readbacks").glob("*.json")
     )

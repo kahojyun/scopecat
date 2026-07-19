@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from math import prod
 from typing import TypeGuard, cast
 
 from scopecat.compiler.linking.linked import (
@@ -12,7 +11,6 @@ from scopecat.compiler.linking.linked import (
 )
 from scopecat.compiler.relations.model import (
     BinaryScalarExpr,
-    LiteralRowsRelationExpr,
     LiteralScalarExpr,
     PointColumnScalarExpr,
     RelationExpr,
@@ -20,19 +18,18 @@ from scopecat.compiler.relations.model import (
     ScalarExpression,
     SeriesExpr,
 )
-from scopecat.compiler.relations.point_domain import (
-    PointDependentProduct,
-    PointDomainPath,
-    PointRelationRows,
-    PointUnit,
-    PointZip,
-)
-from scopecat.compiler.relations.scalar_eval import read_path
 from scopecat.compiler.semantic.model import MeasurementTransformId
 from scopecat.compiler.typed.domain_results import (
     DomainResultClosure,
 )
-from scopecat.compiler.typed.point_domain import CompilerPointDomainExpr
+from scopecat.compiler.typed.iteration import (
+    PointIterationDependent,
+    PointIterationLeaf,
+    PointIterationNode,
+    PointIterationOpaque,
+    PointIterationProduct,
+    PointIterationUnit,
+)
 from scopecat.compiler.typed.products import ProductDef
 from scopecat.compiler.typed.program import (
     TypedDomainExecution,
@@ -41,11 +38,23 @@ from scopecat.compiler.typed.program import (
 )
 from scopecat.kernel.point_identity import LogicalPointId
 from scopecat.kernel.product_identity import ProductId, ProductUseId
-from scopecat.measurements._bridge import project_measurement_catalog
+from scopecat.measurements._bridge import (
+    project_measurement_catalog,
+    project_run_point_catalog,
+)
 from scopecat.sdk.domain.compiler import (
     DomainCompileRequest,
+    DomainCompileTemplate,
     DomainInput,
     DomainInputBinder,
+    DomainIterationDependent,
+    DomainIterationLayout,
+    DomainIterationLeaf,
+    DomainIterationNode,
+    DomainIterationOpaque,
+    DomainIterationProduct,
+    DomainIterationUnit,
+    DomainIterationZip,
     DomainLiteral,
     DomainPointAffine,
     DomainPointAxis,
@@ -78,6 +87,20 @@ def make_domain_compile_request(
 ) -> DomainCompileRequest:
     """Project one typed symbolic domain call for pure target compilation."""
 
+    return make_domain_compile_template(
+        linked,
+        execution_id,
+        result_closure,
+    ).bind_coverage(barrier_regions, bind_inputs)
+
+
+def make_domain_compile_template(
+    linked: LinkedPlan,
+    execution_id: str,
+    result_closure: DomainResultClosure,
+) -> DomainCompileTemplate:
+    """Project static domain semantics once before coverage binding."""
+
     typed_execution = next(
         item
         for item in core_domain_executions(linked.program)
@@ -99,7 +122,7 @@ def make_domain_compile_request(
             )
         )
     owned_use_ids = set(result_closure.product_use_ids)
-    return DomainCompileRequest(
+    return DomainCompileTemplate(
         call=DomainCallView(
             id=typed_execution.id,
             program=_domain_program_view(typed_execution.program),
@@ -118,9 +141,7 @@ def make_domain_compile_request(
             ),
         ),
         inputs=tuple(inputs),
-        barrier_regions=barrier_regions,
-        input_binder=bind_inputs,
-        point_axes=_finite_point_axes(linked),
+        iteration_layout=_iteration_layout(linked),
     )
 
 
@@ -199,66 +220,36 @@ def _is_affine_number(value: object) -> TypeGuard[int | float]:
     return type(value) in {int, float}
 
 
-def _finite_point_axes(linked: LinkedPlan) -> tuple[DomainPointAxis, ...]:
-    point_space = linked.verified_program.point_domain
-    coordinate_ids = {column.id for column in point_space.coordinate_columns}
+def _iteration_layout(linked: LinkedPlan) -> DomainIterationLayout:
+    source = linked.verified_program.iteration_layout
 
-    def exact_count(path: PointDomainPath) -> int | None:
-        cardinality = point_space.analysis.facts[path].cardinality
-        return (
-            cardinality.minimum if cardinality.maximum == cardinality.minimum else None
+    def project(node: PointIterationNode) -> DomainIterationNode:
+        if isinstance(node, PointIterationUnit):
+            return DomainIterationUnit()
+        if isinstance(node, PointIterationLeaf):
+            return DomainIterationLeaf(node.axis_ids, node.extent)
+        if isinstance(node, PointIterationOpaque):
+            return DomainIterationOpaque(node.extent)
+        if isinstance(node, PointIterationProduct):
+            return DomainIterationProduct(tuple(project(item) for item in node.factors))
+        if isinstance(node, PointIterationDependent):
+            return DomainIterationDependent(
+                project(node.left),
+                project(node.right),
+                node.extent,
+            )
+        return DomainIterationZip(
+            tuple(project(item) for item in node.sources),
+            node.extent,
         )
 
-    def project(
-        node: CompilerPointDomainExpr,
-        path: PointDomainPath,
-        *,
-        repeat_each: int,
-    ) -> tuple[DomainPointAxis, ...]:
-        if isinstance(node, PointUnit | PointDependentProduct):
-            return ()
-        if isinstance(node, PointRelationRows):
-            relation = node.rows.plan.root
-            if not isinstance(relation, LiteralRowsRelationExpr):
-                return ()
-            return tuple(
-                DomainPointAxis(
-                    column.id,
-                    tuple(read_path(row, column.id) for row in relation.rows),
-                    repeat_each=repeat_each,
-                )
-                for column in node.rows.value_type.columns
-                if column.id in coordinate_ids
-            )
-        if isinstance(node, PointZip):
-            return tuple(
-                axis
-                for index, source in enumerate(node.sources)
-                for axis in project(
-                    source,
-                    (*path, "sources", index),
-                    repeat_each=repeat_each,
-                )
-            )
-        axes: list[DomainPointAxis] = []
-        for index, factor in enumerate(node.factors):
-            suffix_counts = tuple(
-                exact_count((*path, "factors", suffix_index))
-                for suffix_index in range(index + 1, len(node.factors))
-            )
-            if any(count is None for count in suffix_counts):
-                continue
-            axes.extend(
-                project(
-                    factor,
-                    (*path, "factors", index),
-                    repeat_each=repeat_each
-                    * prod(cast("tuple[int, ...]", suffix_counts)),
-                )
-            )
-        return tuple(axes)
-
-    return project(point_space.root, (), repeat_each=1)
+    return DomainIterationLayout(
+        project(source.root),
+        tuple(
+            DomainPointAxis(axis.id, axis.values, axis.repeat_each)
+            for axis in source.axes
+        ),
+    )
 
 
 def make_domain_batch_context(
@@ -283,9 +274,10 @@ def make_domain_batch_context(
     )
     residual_input_ids = tuple(name for name, _values in residual_inputs.columns)
     residual_input_set = set(residual_input_ids)
-    selected_points = tuple(
-        linked_points.point_domain.points[ordinal] for ordinal in point_ordinals
-    )
+    points_by_ordinal = {
+        point.logical_ordinal: point for point in linked_points.point_domain.points
+    }
+    selected_points = tuple(points_by_ordinal[ordinal] for ordinal in point_ordinals)
     point_refs = tuple(
         DomainPointRef(
             id=point.logical_id.value,
@@ -357,13 +349,16 @@ def make_domain_batch_context(
     return DomainBatchContext(
         batch_ordinal=batch_ordinal,
         execution=execution,
-        product_uses=owned,
         direct_product_uses=direct,
         derived_product_uses=derived,
         measurement_catalog=project_measurement_catalog(
             linked_points,
             point_ordinals,
         ),
+        run_points=project_run_point_catalog(
+            linked_points,
+            point_ordinals,
+        ).points,
     )
 
 

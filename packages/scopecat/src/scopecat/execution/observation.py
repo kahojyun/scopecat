@@ -21,7 +21,7 @@ from scopecat.records.run import RunCertainty, RunResult
 @dataclass(frozen=True, slots=True, kw_only=True)
 class RuntimeProgress:
     completed_points: int
-    total_points: int
+    total_points: int | None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -57,6 +57,7 @@ class RuntimeTransitionEvent(_RuntimeEvent):
     progress: RuntimeProgress
     sequence: int | None = None
     point_index: int | None = None
+    point_indices: tuple[int, ...] = ()
     instrument_id: str | None = None
     metrics: dict[str, JsonValue] = field(default_factory=dict)
     kind: Literal["transition"] = field(default="transition", init=False)

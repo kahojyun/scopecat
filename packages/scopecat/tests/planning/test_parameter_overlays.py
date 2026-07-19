@@ -32,8 +32,11 @@ from scopecat.kernel.value_types import Scalar, String
 from scopecat.kernel.value_types import Table as TableType
 from scopecat.records.parameter import Quantity
 from tests.testkit.authoring import load_config
-from tests.testkit.bound_plan import bound_state_fields, config_with_physical_resources
 from tests.testkit.local_materialization import materialize_local_execution
+from tests.testkit.materialized_effects import (
+    config_with_physical_resources,
+    materialized_state_fields,
+)
 from tests.testkit.parameter_fixtures import PARAMETER_TYPES, parameters
 from tests.testkit.relation_plans import (
     each_state,
@@ -157,7 +160,7 @@ def test_point_parameter_overlay_replaces_only_one_existing_cell() -> None:
         link_program(replace(spec, parameter_overlays=()), environment)
     )
 
-    assert [field.value.root for _, _, field in bound_state_fields(plan)] == [
+    assert [field.value.root for _, _, field in materialized_state_fields(plan)] == [
         Quantity(value=5.9, unit="GHz"),
         Quantity(value=6.1, unit="GHz"),
         Quantity(value=5.95, unit="GHz"),

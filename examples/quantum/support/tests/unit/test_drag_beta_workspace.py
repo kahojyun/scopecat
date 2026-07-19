@@ -379,7 +379,7 @@ def test_drag_beta_response_and_evidence_remain_batch_local(tmp_path: Path) -> N
 
     assert run.manifest.status == "completed"
     assert len(run.data().measurements().dataset.records) == 15
-    assert compiler.physical_execution_count == 4
+    assert compiler.physical_execution_count == 5
     assert float(analysis.fit.beta_hat.to("ns").value) == pytest.approx(0.765)
     assert analysis.assessment.eligible
     assert analysis.proposal_id == DRAG_BETA_PROPOSAL_ID

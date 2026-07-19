@@ -7,10 +7,9 @@ implementations, but they cannot create or rewire transform declarations.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Literal
 
 from scopecat.measurements.contracts import validated_measurement_value_copy
 from scopecat.measurements.semantics import MeasurementTransformSemanticContract
@@ -22,21 +21,20 @@ from scopecat.sdk.domain.view import (
     DomainTransformOutputPort,
 )
 
-type DomainTransformRate = Literal["point"]
 type DomainHostTransformValidator = Callable[["DomainMeasurementTransform"], None]
 type DomainHostTransformKernel = Callable[
     ["DomainHostTransformCall"],
-    Mapping[str, MeasurementValue],
+    Mapping[str, Sequence[MeasurementValue]],
 ]
 
 
 @dataclass(frozen=True, slots=True)
 class DomainHostTransformCall:
-    """One point-local SDK call delivered to a laboratory host kernel."""
+    """One columnar SDK call over the complete ordered point coverage."""
 
     transform: DomainMeasurementTransform
-    point: DomainPointRef
-    inputs: Mapping[str, MeasurementValue] = field(repr=False)
+    points: tuple[DomainPointRef, ...]
+    inputs: Mapping[str, tuple[MeasurementValue, ...]] = field(repr=False)
 
     def __post_init__(self) -> None:
         candidates = dict(self.inputs)
@@ -46,13 +44,18 @@ class DomainHostTransformCall:
             raise ValueError(msg)
         try:
             selected = {
-                port_id: validated_measurement_value_copy(value)
-                for port_id, value in candidates.items()
+                port_id: tuple(
+                    validated_measurement_value_copy(value) for value in values
+                )
+                for port_id, values in candidates.items()
             }
         except (AttributeError, TypeError, ValueError) as error:
             msg = "domain host transform call inputs must be measurement values"
             raise TypeError(msg) from error
         object.__setattr__(self, "inputs", MappingProxyType(selected))
+        if any(len(values) != len(self.points) for values in selected.values()):
+            msg = "domain host transform input columns must match the point count"
+            raise ValueError(msg)
 
     @property
     def transform_id(self) -> str:
@@ -70,10 +73,6 @@ class DomainHostTransformCall:
     def output_ports(self) -> tuple[DomainTransformOutputPort, ...]:
         return self.transform.outputs
 
-    @property
-    def point_index(self) -> int:
-        return self.point.ordinal
-
 
 @dataclass(frozen=True, slots=True)
 class DomainHostTransformImplementation:
@@ -88,7 +87,6 @@ class DomainHostTransformImplementation:
         compare=False,
     )
     kernel: DomainHostTransformKernel = field(repr=False, compare=False)
-    rate: DomainTransformRate = "point"
 
     def __post_init__(self) -> None:
         text_fields = (
@@ -99,9 +97,6 @@ class DomainHostTransformImplementation:
         )
         if not all(text_fields):
             msg = "domain host transform implementation fields must be non-empty"
-            raise ValueError(msg)
-        if self.rate != "point":
-            msg = "domain host transform implementations support point rate only"
             raise ValueError(msg)
 
 
@@ -118,7 +113,6 @@ class DomainHostTransformBinding:
         if (
             implementation.semantic_id != semantic.id
             or implementation.semantic_version != semantic.version
-            or implementation.rate != self.transform.rate
         ):
             msg = "domain host transform implementation is semantically incompatible"
             raise ValueError(msg)
@@ -131,6 +125,5 @@ __all__ = [
     "DomainMeasurementTransform",
     "DomainTransformInputPort",
     "DomainTransformOutputPort",
-    "DomainTransformRate",
     "MeasurementTransformSemanticContract",
 ]

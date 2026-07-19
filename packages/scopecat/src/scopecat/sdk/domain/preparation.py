@@ -11,12 +11,10 @@ from scopecat.compiler.typed.products import ProductDef
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.point_identity import LogicalPointId
 from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
-from scopecat.kernel.resource_identity import ResourceClaim
 from scopecat.measurements.host_transforms import (
     BoundHostMeasurementTransforms,
     HostMeasurementTransformCall,
     HostMeasurementTransformImplementation,
-    HostMeasurementTransformImplementationBinding,
     bind_host_measurement_transforms,
     select_host_measurement_transforms,
 )
@@ -45,7 +43,6 @@ from scopecat.sdk.domain.invocation import (
 )
 from scopecat.sdk.domain.job import (
     DomainInvocationSpec,
-    DomainResourceClaim,
     DomainResultValue,
 )
 from scopecat.sdk.domain.measurements import DomainHostTransformBinding
@@ -54,60 +51,45 @@ from scopecat.sdk.domain.view import DomainPointRef, DomainProductUseRef
 
 
 @dataclass(frozen=True, slots=True)
-class DomainTargetEntry[EntryAddressT: Hashable, ResultAddressT: Hashable]:
-    """One target entry and its complete physical result-address inventory."""
+class DomainResultBinding[ResultAddressT: Hashable]:
+    """Opaque target result location bound to one logical product occurrence."""
 
-    entry_address: EntryAddressT
-    result_addresses: tuple[ResultAddressT, ...] = ()
-
-    def __post_init__(self) -> None:
-        if len(self.result_addresses) != len(set(self.result_addresses)):
-            msg = "domain target result addresses must be unique within an entry"
-            raise ValueError(msg)
-
-
-@dataclass(frozen=True, slots=True)
-class DomainEntryPointBinding[EntryAddressT: Hashable]:
-    """Target entry edge to one SDK-owned logical point reference."""
-
-    entry_address: EntryAddressT
-    point: DomainPointRef
-
-
-@dataclass(frozen=True, slots=True)
-class DomainResultUseBinding[EntryAddressT: Hashable, ResultAddressT: Hashable]:
-    """Physical result edge to one SDK-owned logical product occurrence."""
-
-    entry_address: EntryAddressT
     result_address: ResultAddressT
+    point: DomainPointRef
     product_use: DomainProductUseRef
 
 
 @dataclass(frozen=True, slots=True)
-class DomainMappedResult[EntryAddressT: Hashable, ResultAddressT: Hashable]:
-    """One physical result and every SDK-owned logical occurrence it supplies."""
+class DomainMappedResult[ResultAddressT: Hashable]:
+    """One opaque result location and its exact logical output ownership."""
 
-    entry_address: EntryAddressT
     result_address: ResultAddressT
     point: DomainPointRef
     product_uses: tuple[DomainProductUseRef, ...]
-    logical_point_id: LogicalPointId = field(repr=False)
-    product_use_ids: tuple[ProductUseId, ...] = field(repr=False)
-    product_id: ProductId = field(repr=False)
     product: ProductDef = field(repr=False)
+
+    @property
+    def logical_point_id(self) -> LogicalPointId:
+        return point_id(self.point)
+
+    @property
+    def product_use_ids(self) -> tuple[ProductUseId, ...]:
+        return tuple(product_use_id(use) for use in self.product_uses)
+
+    @property
+    def product_id(self) -> ProductId:
+        return self.product.id
 
 
 @dataclass(frozen=True, slots=True)
 class DomainResultMapping[
-    EntryAddressT: Hashable,
     ResultAddressT: Hashable,
 ]:
-    """Exact public inventory from physical results to SDK-owned references.
+    """Exact inventory from opaque result locations to SDK-owned references.
 
-    ``target_entries`` retains target order. ``entries`` retains canonical
-    logical-point order, while ``results`` retains canonical product-use order.
-    All point and product-use values are the exact references assembled for the
-    preparation context; callers never need compiler-owned identities.
+    ``results`` follows canonical logical-point and product-use order. All point
+    and product-use values are the exact references assembled for the
+    preparation context; physical entry structure remains adapter-owned.
     """
 
     context: DomainBatchContext
@@ -115,15 +97,14 @@ class DomainResultMapping[
     product_uses: tuple[DomainProductUseRef, ...]
     selected_product_use_ids: tuple[ProductUseId, ...] = field(repr=False)
     selected_product_uses: tuple[ProductUse, ...] = field(repr=False)
-    target_entries: tuple[DomainTargetEntry[EntryAddressT, ResultAddressT], ...]
-    results: tuple[DomainMappedResult[EntryAddressT, ResultAddressT], ...]
+    results: tuple[DomainMappedResult[ResultAddressT], ...]
     result_by_address: Mapping[
         ResultAddressT,
-        DomainMappedResult[EntryAddressT, ResultAddressT],
+        DomainMappedResult[ResultAddressT],
     ] = field(repr=False, compare=False)
     result_by_output_identity: Mapping[
         tuple[int, int],
-        DomainMappedResult[EntryAddressT, ResultAddressT],
+        DomainMappedResult[ResultAddressT],
     ] = field(repr=False, compare=False)
     product_by_use_id: Mapping[ProductUseId, ProductDef] = field(
         repr=False, compare=False
@@ -143,7 +124,7 @@ class DomainResultMapping[
     def result_for_address(
         self,
         result_address: ResultAddressT,
-    ) -> DomainMappedResult[EntryAddressT, ResultAddressT]:
+    ) -> DomainMappedResult[ResultAddressT]:
         """Return the canonical result for one target-owned physical address."""
 
         try:
@@ -156,7 +137,7 @@ class DomainResultMapping[
         self,
         point: DomainPointRef,
         product_use: DomainProductUseRef,
-    ) -> DomainMappedResult[EntryAddressT, ResultAddressT]:
+    ) -> DomainMappedResult[ResultAddressT]:
         """Return the result supplying one exact context-owned logical output."""
 
         try:
@@ -167,25 +148,6 @@ class DomainResultMapping[
                 f"point={point.id!r}, product_use={product_use.id!r}"
             )
             raise KeyError(msg) from error
-
-
-@dataclass(frozen=True, slots=True)
-class DomainMeasurementPlan[
-    EntryAddressT: Hashable,
-    ResultAddressT: Hashable,
-]:
-    """Context-bound source and host-transform ownership for one invocation."""
-
-    context: DomainBatchContext
-    mapping: DomainResultMapping[EntryAddressT, ResultAddressT]
-    source_product_uses: tuple[DomainProductUseRef, ...]
-    derived_product_uses: tuple[DomainProductUseRef, ...]
-    product_uses: tuple[DomainProductUseRef, ...]
-    host_transforms: tuple[DomainHostTransformBinding, ...]
-    transforms: BoundHostMeasurementTransforms | None = field(
-        default=None,
-        repr=False,
-    )
 
 
 class DomainPreparationBuilder:
@@ -206,25 +168,20 @@ class DomainPreparationBuilder:
         return self._context
 
     def map_measurements[
-        EntryAddressT: Hashable,
         ResultAddressT: Hashable,
     ](
         self,
         *,
-        entries: Sequence[DomainTargetEntry[EntryAddressT, ResultAddressT]],
-        entry_points: Sequence[DomainEntryPointBinding[EntryAddressT]],
-        results: Sequence[DomainResultUseBinding[EntryAddressT, ResultAddressT]],
-    ) -> DomainResultMapping[EntryAddressT, ResultAddressT]:
+        results: Sequence[DomainResultBinding[ResultAddressT]],
+    ) -> DomainResultMapping[ResultAddressT]:
         """Close exact direct-result coverage for the current selected batch."""
 
-        selected_entries = tuple(entries)
-        selected_entry_points = tuple(entry_points)
         selected_results = tuple(results)
 
         context = self._context
         point_ids = {id(point) for point in context.points}
-        if any(id(binding.point) not in point_ids for binding in selected_entry_points):
-            msg = "domain entry binding references a point outside this batch context"
+        if any(id(binding.point) not in point_ids for binding in selected_results):
+            msg = "domain result binding references a point outside this batch context"
             raise ValueError(msg)
         direct_use_ids = {
             id(product_use) for product_use in context.direct_product_uses
@@ -238,128 +195,33 @@ class DomainPreparationBuilder:
 
         return _close_result_mapping(
             context,
-            selected_entries,
-            selected_entry_points,
             selected_results,
         )
 
-    def measurement_plan[
-        EntryAddressT: Hashable,
-        ResultAddressT: Hashable,
-    ](
-        self,
-        mapping: DomainResultMapping[EntryAddressT, ResultAddressT],
-        *,
-        host_transforms: Sequence[DomainHostTransformBinding] = (),
-    ) -> DomainMeasurementPlan[EntryAddressT, ResultAddressT]:
-        """Compile exact direct and host-derived value ownership before effects."""
-
-        context = self._context
-        if mapping.context is not context:
-            msg = "domain measurement mapping belongs to another batch context"
-            raise ValueError(msg)
-        if not _same_refs(mapping.product_uses, context.direct_product_uses):
-            msg = "domain measurement mapping changed direct product ownership"
-            raise ValueError(msg)
-        supplied_bindings = tuple(host_transforms)
-
-        authored_identity = {
-            id(transform): transform for transform in context.measurement_transforms
-        }
-        if any(
-            id(binding.transform) not in authored_identity
-            for binding in supplied_bindings
-        ):
-            msg = (
-                "domain host bindings must reference transforms authored in "
-                "this batch context"
-            )
-            raise ValueError(msg)
-        binding_by_transform = {
-            id(binding.transform): binding for binding in supplied_bindings
-        }
-        if len(binding_by_transform) != len(supplied_bindings):
-            msg = "domain host transform bindings must be unique"
-            raise ValueError(msg)
-        if set(binding_by_transform) != set(authored_identity):
-            msg = "domain host bindings must exactly cover authored transforms"
-            raise ValueError(msg)
-        selected_bindings = tuple(
-            binding_by_transform[id(transform)]
-            for transform in context.measurement_transforms
-        )
-
-        native_pairs = tuple(
-            lower_domain_host_transform_binding(context, binding)
-            for binding in selected_bindings
-        )
-        native_transforms = tuple(transform for transform, _ in native_pairs)
-        transforms: BoundHostMeasurementTransforms | None = None
-        if native_transforms:
-            graph = verify_measurement_transform_graph(
-                context.measurement_catalog,
-                native_transforms,
-            )
-            implementations = _native_host_implementations(native_pairs)
-            selection = select_host_measurement_transforms(
-                graph,
-                implementations,
-                tuple(
-                    HostMeasurementTransformImplementationBinding(
-                        transform.id,
-                        implementation.id,
-                    )
-                    for transform, implementation in native_pairs
-                ),
-            )
-            transforms = bind_host_measurement_transforms(
-                selection,
-                tuple(
-                    product_use_id(product_use)
-                    for product_use in context.direct_product_uses
-                ),
-            )
-
-        return DomainMeasurementPlan(
-            context=context,
-            mapping=mapping,
-            source_product_uses=context.direct_product_uses,
-            derived_product_uses=context.derived_product_uses,
-            product_uses=context.product_uses,
-            host_transforms=selected_bindings,
-            transforms=transforms,
-        )
-
     def build[
-        EntryAddressT: Hashable,
         ResultAddressT: Hashable,
         PayloadT,
         ResultT,
     ](
         self,
         *,
-        measurements: DomainMeasurementPlan[EntryAddressT, ResultAddressT],
+        mapping: DomainResultMapping[ResultAddressT],
+        host_transforms: Sequence[DomainHostTransformBinding] = (),
         invocation: DomainInvocationSpec[PayloadT],
         runtime: DomainRuntime[PayloadT, ResultT],
         realize: Callable[
             [CorrelatedDomainFetch[ResultT]],
             Sequence[DomainResultValue[ResultAddressT]],
         ],
-        resource_claims: Sequence[DomainResourceClaim] = (),
     ) -> PreparedDomainExecution:
         """Close one declarative target job behind the core execution ABI."""
 
-        if measurements.context is not self._context:
-            msg = "domain measurement plan belongs to another batch context"
+        if mapping.context is not self._context:
+            msg = "domain result mapping belongs to another batch context"
             raise ValueError(msg)
-        selected_claims = tuple(resource_claims)
-        if len(selected_claims) != len(set(selected_claims)):
-            msg = "domain execution resource claims must be unique"
-            raise ValueError(msg)
-
         target = invocation.target
         native_invocation = close_domain_invocation(
-            measurements.mapping,
+            mapping,
             invocation_id=invocation.invocation_id,
             target_id=target.target_id,
             compiler_id=target.compiler_id,
@@ -375,7 +237,7 @@ class DomainPreparationBuilder:
         ) -> tuple[MeasurementValueCandidate, ...]:
             candidates = tuple(realize(fetched))
             return seal_domain_output_values(
-                measurements.mapping,
+                mapping,
                 tuple(
                     DomainOutputValue(candidate.result_address, candidate.value)
                     for candidate in candidates
@@ -386,84 +248,93 @@ class DomainPreparationBuilder:
             invocation=cast("ErasedDomainInvocation", native_invocation),
             runtime=cast("ErasedDomainRuntime", runtime),
             realize=cast("ErasedDomainRealizer", close_realized_values),
-            resource_claims=tuple(
-                ResourceClaim(claim.id, claim.kind) for claim in selected_claims
+            points=self._context.run_points,
+            transforms=_bind_host_transforms(
+                self._context,
+                mapping,
+                tuple(host_transforms),
             ),
-            transforms=measurements.transforms,
         )
 
 
-def _close_result_mapping[
-    EntryAddressT: Hashable,
+def _bind_host_transforms[
     ResultAddressT: Hashable,
 ](
     context: DomainBatchContext,
-    target_entries: tuple[DomainTargetEntry[EntryAddressT, ResultAddressT], ...],
-    entry_points: tuple[DomainEntryPointBinding[EntryAddressT], ...],
-    result_uses: tuple[DomainResultUseBinding[EntryAddressT, ResultAddressT], ...],
-) -> DomainResultMapping[EntryAddressT, ResultAddressT]:
-    entry_by_address = {entry.entry_address: entry for entry in target_entries}
-    if len(entry_by_address) != len(target_entries):
-        raise ValueError("domain target entry addresses must be unique")
-    parent_by_result = {
-        result_address: entry.entry_address
-        for entry in target_entries
-        for result_address in entry.result_addresses
+    mapping: DomainResultMapping[ResultAddressT],
+    supplied_bindings: tuple[DomainHostTransformBinding, ...],
+) -> BoundHostMeasurementTransforms | None:
+    if not _same_refs(mapping.product_uses, context.direct_product_uses):
+        raise ValueError("domain result mapping changed direct product ownership")
+    authored = {
+        id(transform): transform for transform in context.measurement_transforms
     }
-    if sum(len(entry.result_addresses) for entry in target_entries) != len(
-        parent_by_result
-    ):
-        raise ValueError("domain result addresses must be globally unique")
-
-    point_by_entry = {binding.entry_address: binding.point for binding in entry_points}
-    if len(point_by_entry) != len(entry_points) or set(point_by_entry) != set(
-        entry_by_address
-    ):
-        raise ValueError(
-            "domain entry-point bindings: domain entry bindings must exactly "
-            "cover target entries"
-        )
-    if len({id(point) for point in point_by_entry.values()}) != len(context.points):
-        raise ValueError(
-            "domain entry-point bindings must exactly cover materialized logical points"
-        )
-    entry_by_point_identity = {
-        id(point): entry_address for entry_address, point in point_by_entry.items()
+    if any(id(binding.transform) not in authored for binding in supplied_bindings):
+        raise ValueError("domain host binding references a foreign transform")
+    binding_by_transform = {
+        id(binding.transform): binding for binding in supplied_bindings
     }
+    if len(binding_by_transform) != len(supplied_bindings):
+        raise ValueError("domain host transform bindings must be unique")
+    if set(binding_by_transform) != set(authored):
+        raise ValueError("domain host bindings must exactly cover residual transforms")
+    selected = tuple(
+        binding_by_transform[id(transform)]
+        for transform in context.measurement_transforms
+    )
+    native_pairs = tuple(
+        lower_domain_host_transform_binding(context, binding) for binding in selected
+    )
+    if not native_pairs:
+        return None
+    graph = verify_measurement_transform_graph(
+        context.measurement_catalog,
+        tuple(transform for transform, _implementation in native_pairs),
+    )
+    selection = select_host_measurement_transforms(
+        graph,
+        _native_host_implementations(native_pairs),
+    )
+    return bind_host_measurement_transforms(
+        selection,
+        tuple(product_use_id(use) for use in context.direct_product_uses),
+    )
 
+
+def _close_result_mapping[
+    ResultAddressT: Hashable,
+](
+    context: DomainBatchContext,
+    result_bindings: tuple[DomainResultBinding[ResultAddressT], ...],
+) -> DomainResultMapping[ResultAddressT]:
     use_refs = context.direct_product_uses
     use_ref_by_id = {product_use_id(use): use for use in use_refs}
     use_order = {use_id: index for index, use_id in enumerate(use_ref_by_id)}
+    point_order = {id(point): index for index, point in enumerate(context.points)}
     bindings_by_result: dict[
         ResultAddressT,
-        list[DomainResultUseBinding[EntryAddressT, ResultAddressT]],
-    ] = {address: [] for address in parent_by_result}
+        list[DomainResultBinding[ResultAddressT]],
+    ] = {}
     output_owners: dict[tuple[int, ProductUseId], ResultAddressT] = {}
-    for binding in result_uses:
-        if parent_by_result.get(binding.result_address) != binding.entry_address:
-            raise ValueError(
-                "domain result-use bindings must belong to their target entry"
-            )
+    for binding in result_bindings:
         use_id = product_use_id(binding.product_use)
         if use_ref_by_id.get(use_id) is not binding.product_use:
             raise ValueError("domain result binding references a foreign product use")
-        output = (id(point_by_entry[binding.entry_address]), use_id)
+        output = (id(binding.point), use_id)
         if output in output_owners:
             raise ValueError(
-                "domain result-use bindings require unique result/product-use edges"
+                "domain result bindings require unique point/product-use outputs"
             )
         output_owners[output] = binding.result_address
-        bindings_by_result[binding.result_address].append(binding)
+        bindings_by_result.setdefault(binding.result_address, []).append(binding)
 
     expected_outputs = {
         (id(point), use_id) for point in context.points for use_id in use_ref_by_id
     }
     if set(output_owners) != expected_outputs:
         raise ValueError(
-            "domain result-use bindings must exactly cover every logical output"
+            "domain result bindings must exactly cover every logical output"
         )
-    if any(not bindings for bindings in bindings_by_result.values()):
-        raise ValueError("every declared domain result address must supply an output")
 
     catalog = context.measurement_catalog
     core_use_by_id = {use.id: use for use in catalog.product_uses}
@@ -472,50 +343,56 @@ def _close_result_mapping[
         use_id: product_by_id[core_use_by_id[use_id].product_id]
         for use_id in use_ref_by_id
     }
-    mapped_results: list[DomainMappedResult[EntryAddressT, ResultAddressT]] = []
-    for point in context.points:
-        entry_address = entry_by_point_identity[id(point)]
-        entry_results: list[DomainMappedResult[EntryAddressT, ResultAddressT]] = []
-        product_addresses: dict[ProductId, ResultAddressT] = {}
-        for result_address in entry_by_address[entry_address].result_addresses:
-            bindings = bindings_by_result[result_address]
-            use_ids = tuple(
-                use_id
-                for use_id in use_ref_by_id
-                if any(
-                    product_use_id(binding.product_use) == use_id
-                    for binding in bindings
-                )
+    address_by_logical_product: dict[
+        tuple[int, ProductId],
+        ResultAddressT,
+    ] = {}
+    for binding in result_bindings:
+        use_id = product_use_id(binding.product_use)
+        output = (id(binding.point), product_by_use_id[use_id].id)
+        previous = address_by_logical_product.setdefault(
+            output,
+            binding.result_address,
+        )
+        if previous != binding.result_address:
+            raise ValueError(
+                "one logical product result cannot be split across locations"
             )
-            product_ids = {product_by_use_id[use_id].id for use_id in use_ids}
-            if len(product_ids) != 1:
-                raise ValueError(
-                    "one domain result may fan out only within one logical product"
-                )
-            product_id_value = next(iter(product_ids))
-            if product_id_value in product_addresses:
-                raise ValueError(
-                    "one logical product result cannot be split across addresses"
-                )
-            product_addresses[product_id_value] = result_address
-            entry_results.append(
-                DomainMappedResult(
-                    entry_address=entry_address,
-                    result_address=result_address,
-                    point=point,
-                    product_uses=tuple(use_ref_by_id[use_id] for use_id in use_ids),
-                    logical_point_id=point_id(point),
-                    product_use_ids=use_ids,
-                    product_id=product_id_value,
-                    product=product_by_use_id[use_ids[0]],
-                )
+    mapped_results: list[DomainMappedResult[ResultAddressT]] = []
+    for result_address, bindings in bindings_by_result.items():
+        points = {id(binding.point): binding.point for binding in bindings}
+        if len(points) != 1:
+            raise ValueError(
+                "one domain result location may supply only one logical point"
             )
-        entry_results.sort(
-            key=lambda result: min(
-                use_order[use_id] for use_id in result.product_use_ids
+        point = next(iter(points.values()))
+        use_ids = tuple(
+            use_id
+            for use_id in use_ref_by_id
+            if any(
+                product_use_id(binding.product_use) == use_id for binding in bindings
             )
         )
-        mapped_results.extend(entry_results)
+        product_ids = {product_by_use_id[use_id].id for use_id in use_ids}
+        if len(product_ids) != 1:
+            raise ValueError(
+                "one domain result may fan out only within one logical product"
+            )
+        mapped_results.append(
+            DomainMappedResult(
+                result_address=result_address,
+                point=point,
+                product_uses=tuple(use_ref_by_id[use_id] for use_id in use_ids),
+                product=product_by_use_id[use_ids[0]],
+            )
+        )
+
+    mapped_results.sort(
+        key=lambda result: (
+            point_order[id(result.point)],
+            min(use_order[use_id] for use_id in result.product_use_ids),
+        )
+    )
 
     selected_results = tuple(mapped_results)
     selected_use_ids = tuple(use_ref_by_id)
@@ -523,14 +400,7 @@ def _close_result_mapping[
     fingerprint = stable_content_hash(
         content_fingerprint(
             {
-                "schema": "scopecat.domain_result_contract.v4",
-                "entries": [
-                    {
-                        "entry_address": entry_by_point_identity[id(point)],
-                        "logical_point_id": point_id(point).value,
-                    }
-                    for point in context.points
-                ],
+                "schema": "scopecat.domain_result_contract.v5",
                 "selected_product_uses": [
                     {
                         "product_use_id": use.id.value,
@@ -540,7 +410,6 @@ def _close_result_mapping[
                 ],
                 "results": [
                     {
-                        "entry_address": result.entry_address,
                         "result_address": result.result_address,
                         "logical_point_id": result.logical_point_id.value,
                         "product_use_ids": [
@@ -559,7 +428,6 @@ def _close_result_mapping[
         product_uses=use_refs,
         selected_product_use_ids=selected_use_ids,
         selected_product_uses=selected_core_uses,
-        target_entries=target_entries,
         results=selected_results,
         result_by_address=MappingProxyType(
             {result.result_address: result for result in selected_results}
@@ -609,14 +477,12 @@ def _host_implementation_dispatcher(
     contract = (
         first.semantic_id,
         first.semantic_version,
-        first.rate,
         first.implementation_fingerprint,
     )
     if any(
         (
             implementation.semantic_id,
             implementation.semantic_version,
-            implementation.rate,
             implementation.implementation_fingerprint,
         )
         != contract
@@ -639,7 +505,7 @@ def _host_implementation_dispatcher(
 
     def kernel(
         call: HostMeasurementTransformCall,
-    ) -> Mapping[str, MeasurementValue]:
+    ) -> Mapping[str, Sequence[MeasurementValue]]:
         try:
             implementation = by_transform[call.transform_id]
         except KeyError as error:
@@ -651,7 +517,6 @@ def _host_implementation_dispatcher(
         id=first.id,
         semantic_id=first.semantic_id,
         semantic_version=first.semantic_version,
-        rate=first.rate,
         implementation_fingerprint=first.implementation_fingerprint,
         validate_transform=validate,
         kernel=kernel,

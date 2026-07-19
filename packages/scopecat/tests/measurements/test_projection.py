@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from scopecat.measurements._bridge import project_measurement_catalog
+from scopecat.measurements._bridge import (
+    project_measurement_catalog,
+    project_run_point_catalog,
+)
 from scopecat.measurements.projection import (
     project_measurement_records,
     select_measurement_projection,
@@ -35,18 +38,24 @@ def test_projection_selects_record_backed_uses_without_changing_assembly() -> No
 
 def test_projection_selects_only_the_linked_point_batch() -> None:
     scenario = measurement_assembly_scenario(point_values=(0.0, 1.0, 2.0), use_count=2)
+    complete_projection = select_measurement_projection(
+        scenario.catalog,
+        scenario.records,
+    )
     catalog = project_measurement_catalog(scenario.linked_points, (1, 2))
     projection = select_measurement_projection(catalog, scenario.records)
 
-    ordinals = tuple(point.ordinal for point in projection.catalog.point_catalog.points)
+    selected_points = project_run_point_catalog(scenario.linked_points, (1, 2)).points
+    ordinals = tuple(point.ordinal for point in selected_points)
     assert ordinals == (1, 2)
     assert projection.coordinate_ids == ("x",)
-    assert projection.schema is not None
+    assert projection.catalog_fingerprint == complete_projection.catalog_fingerprint
+    assert projection.contract_fingerprint == complete_projection.contract_fingerprint
+    schema = projection.schema_for(selected_points)
+    assert schema is not None
     assert (
         next(
-            dimension
-            for dimension in projection.schema.dimensions
-            if dimension.id == "point"
+            dimension for dimension in schema.dimensions if dimension.id == "point"
         ).size
         == 2
     )
@@ -64,6 +73,7 @@ def test_explicit_record_subset_keeps_projection_separate_from_value_assembly() 
         projection,
         assembled,
         run_id="record-subset-run",
+        points=scenario.points,
     )
 
     assert projection.required_product_use_ids == (scenario.uses[0].id,)
@@ -79,6 +89,7 @@ def test_record_aliases_project_one_value_twice_without_expanding_assembly() -> 
         projection,
         assembled,
         run_id="projection-run",
+        points=scenario.points,
     )
 
     assert len(assembled.values) == len(scenario.linked_points.point_domain.points) * 3
@@ -97,6 +108,7 @@ def test_projection_filters_non_coordinate_point_values() -> None:
         projection,
         assembled,
         run_id="coordinate-filter-run",
+        points=scenario.points,
     )
 
     assert [record.coordinates for record in projected.records] == [
@@ -113,6 +125,7 @@ def test_record_metadata_changes_schema_not_product_value_assembly() -> None:
         projection,
         assembled,
         run_id="record-metadata-run",
+        points=scenario.points,
     )
 
     assert len(assembled.values) == 6
@@ -141,6 +154,7 @@ def test_duplicate_coordinate_rows_keep_distinct_canonical_point_indices() -> No
         projection,
         assembled,
         run_id="duplicate-coordinate-run",
+        points=scenario.points,
     )
 
     assert [record.point_index for record in projected.records] == [0, 1]
@@ -164,6 +178,7 @@ def test_projection_snapshots_values_and_emits_complete_run_records() -> None:
     assembled = seal_measurement_values(
         selected,
         candidates,
+        points=scenario.points,
     )
     exposed_candidate_value = candidates[0].value
     assert isinstance(exposed_candidate_value, Quantity)
@@ -175,6 +190,7 @@ def test_projection_snapshots_values_and_emits_complete_run_records() -> None:
         projection,
         assembled,
         run_id="complete-record-run",
+        points=scenario.points,
     )
 
     assert len(projected.records) == 1
@@ -201,6 +217,7 @@ def test_zero_points_and_no_record_projection_produce_no_measurement_records() -
     zero_values = seal_measurement_values(
         zero_selected,
         (),
+        points=zero.points,
     )
     zero_projection = select_measurement_projection(zero.catalog, zero.records)
 
@@ -209,6 +226,7 @@ def test_zero_points_and_no_record_projection_produce_no_measurement_records() -
             zero_projection,
             zero_values,
             run_id="zero-run",
+            points=zero.points,
         ).records
         == ()
     )
@@ -218,7 +236,7 @@ def test_zero_points_and_no_record_projection_produce_no_measurement_records() -
         no_records.catalog,
         required_product_use_ids=(),
     )
-    empty_values = seal_measurement_values(empty_selected, ())
+    empty_values = seal_measurement_values(empty_selected, (), points=no_records.points)
     empty_projection = select_measurement_projection(
         no_records.catalog, no_records.records
     )
@@ -228,6 +246,7 @@ def test_zero_points_and_no_record_projection_produce_no_measurement_records() -
             empty_projection,
             empty_values,
             run_id="no-record-run",
+            points=no_records.points,
         ).records
         == ()
     )
@@ -240,6 +259,9 @@ def test_projected_recording_contract_matches_bound_projection() -> None:
     )
 
     first = project_measurement_records(
-        projection, assembled, run_id="stable-record-run"
+        projection,
+        assembled,
+        run_id="stable-record-run",
+        points=_scenario_value.points,
     )
     assert first.recording_contract_fingerprint == projection.contract_fingerprint

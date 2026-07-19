@@ -14,13 +14,11 @@ from typing import cast
 from scopecat.compiler.relations.model import (
     RowScopeId,
 )
-from scopecat.compiler.relations.specialization import BindingTime
 from scopecat.compiler.relations.uses import (
     RelationUse,
     RelationUseId,
     relation_use,
 )
-from scopecat.compiler.semantic.availability import ValueAvailability
 from scopecat.compiler.semantic.compute_result import ComputeResultRef
 from scopecat.compiler.semantic.model import (
     ActionId,
@@ -30,7 +28,6 @@ from scopecat.compiler.semantic.model import (
     ImplementationCatalog,
     MeasurementTransformId,
     OperationId,
-    SourceMap,
     ValueId,
 )
 from scopecat.compiler.semantic.operation_contract import OperationContract
@@ -76,7 +73,6 @@ from scopecat.kernel.resource_identity import (
 from scopecat.kernel.value_types import Route, String, ValueType
 from scopecat.measurements.results import MeasurementDType
 from scopecat.measurements.semantics import (
-    MeasurementTransformRate,
     MeasurementTransformSemanticContract,
 )
 
@@ -93,7 +89,6 @@ class ValueInput:
     value: ValueExpr
     relation_use_id: RelationUseId = field(default_factory=RelationUseId.fresh)
     origin_input_ids: tuple[str, ...] = ()
-    binding_time: BindingTime | None = None
 
     @property
     def value_type(self) -> ValueType:
@@ -227,7 +222,6 @@ class TypedMeasurementTransform:
 
     id: MeasurementTransformId
     semantic: MeasurementTransformSemanticContract
-    rate: MeasurementTransformRate
     inputs: tuple[TypedMeasurementTransformInput, ...] = ()
     outputs: tuple[TypedMeasurementTransformOutput, ...] = ()
 
@@ -238,7 +232,6 @@ class TypedComputeOutput:
 
     id: ValueId
     value_type: ValueType
-    availability: ValueAvailability
 
 
 @dataclass(frozen=True, slots=True)
@@ -280,7 +273,6 @@ class CoreProgram:
     implementation_catalog: ImplementationCatalog = field(
         default_factory=ImplementationCatalog
     )
-    source_map: SourceMap = field(default_factory=SourceMap)
     product_defs: tuple[ProductDef, ...] = ()
     instrument_product_producers: tuple[InstrumentProductProducer, ...] = ()
     domain_product_producers: tuple[DomainProductProducer, ...] = ()

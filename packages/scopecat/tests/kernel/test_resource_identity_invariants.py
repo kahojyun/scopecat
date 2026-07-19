@@ -31,6 +31,7 @@ from scopecat.compiler.typed.program import (
     set_state_field,
 )
 from scopecat.compiler.typed.verification import seal_typed_program
+from scopecat.execution.local.program import ApplyStateOperation, CollectOperation
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import ModelLocation, ProblemPhase, model_location
 from scopecat.kernel.resource_identity import (
@@ -42,7 +43,10 @@ from scopecat.kernel.value_types import Float, Scalar, String, Table, TableColum
 from scopecat.planning.authoring import resolve_experiment
 from scopecat.records.config import ConfigProfileSnapshot, RoutingGraph, RoutingResource
 from tests.testkit.authoring import load_config
-from tests.testkit.local_materialization import materialize_local_execution
+from tests.testkit.local_materialization import (
+    materialize_local_execution,
+    operations_of_type,
+)
 from tests.testkit.relation_plans import point_domain, scalar_value_expr
 from tests.testkit.typed_program import instrument_product_producer, link_program
 
@@ -250,7 +254,10 @@ def test_public_dsl_direct_physical_state_is_not_captured_by_same_named_port(
         link_verified_program(resolved.verified_program, resolved.environment)
     )
 
-    assert plan.points[0].state_operations[0].instrument_id == "source-0"
+    assert (
+        operations_of_type(plan.points[0], ApplyStateOperation)[0].instrument_id
+        == "source-0"
+    )
 
 
 def test_direct_physical_record_is_not_captured_by_same_named_logical_port() -> None:
@@ -282,7 +289,10 @@ def test_direct_physical_record_is_not_captured_by_same_named_logical_port() -> 
 
     producer_target = program.instrument_product_producers[0].resource_target
     assert producer_target == PhysicalResourceId("source-0")
-    assert plan.points[0].collect_operations[0].instrument_id == "source-0"
+    assert (
+        operations_of_type(plan.points[0], CollectOperation)[0].instrument_id
+        == "source-0"
+    )
 
 
 @pytest.mark.parametrize(
@@ -412,7 +422,7 @@ def test_unused_logical_product_producer_does_not_constrain_route_placement() ->
         link_verified_program(linked.verified_program, linked.environment)
     )
 
-    assert plan.points[0].collect_operations == ()
+    assert operations_of_type(plan.points[0], CollectOperation) == ()
 
 
 def test_demanded_logical_product_producer_requires_instrument_during_binding() -> None:

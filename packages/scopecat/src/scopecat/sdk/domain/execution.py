@@ -16,13 +16,13 @@ from collections.abc import Callable, Hashable
 from dataclasses import dataclass, field
 from typing import Literal
 
-from scopecat.kernel.resource_identity import ResourceClaim
+from scopecat.execution.points import RunPoint
 from scopecat.measurements.host_transforms import BoundHostMeasurementTransforms
 from scopecat.measurements.values import MeasurementValueCandidate
 from scopecat.sdk.domain.invocation import ClosedDomainInvocation
 from scopecat.sdk.domain.runtime import CorrelatedDomainFetch, DomainRuntime
 
-type ErasedDomainInvocation = ClosedDomainInvocation[Hashable, Hashable, object]
+type ErasedDomainInvocation = ClosedDomainInvocation[Hashable, object]
 type ErasedDomainRuntime = DomainRuntime[object, object]
 type ErasedDomainRealizer = Callable[
     [CorrelatedDomainFetch[object]],
@@ -42,7 +42,7 @@ class PreparedDomainExecution:
     invocation: ErasedDomainInvocation = field(repr=False)
     runtime: ErasedDomainRuntime = field(repr=False, compare=False)
     realize: ErasedDomainRealizer = field(repr=False, compare=False)
-    resource_claims: tuple[ResourceClaim, ...] = ()
+    points: tuple[RunPoint, ...] = field(default=(), repr=False)
     transforms: BoundHostMeasurementTransforms | None = field(
         default=None,
         repr=False,

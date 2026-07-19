@@ -10,7 +10,6 @@ from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.linked import (
     LinkedPlan,
     LinkedPointMaterializer,
-    MaterializedLinkedPoints,
     specialize_linked_program,
 )
 from scopecat.compiler.relations.evaluation import ParameterRelationData
@@ -32,7 +31,7 @@ from scopecat.compiler.semantic.model import (
     MeasurementTransformId,
 )
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
-from scopecat.compiler.typed.point_domain import PointDomain
+from scopecat.compiler.typed.point_domain import MaterializedPointDomain, PointDomain
 from scopecat.compiler.typed.products import (
     DomainProductProducer,
     MeasurementTransformProductProducer,
@@ -50,14 +49,12 @@ from scopecat.compiler.typed.program import (
     record_product,
     set_state_field,
 )
-from scopecat.execution.local.program import ApplyStateStage
+from scopecat.execution.local.program import ApplyStateOperation
 from scopecat.execution.program import (
-    RunComputeStage,
+    RunCoverageBlock,
+    RunCoverageCheckpoint,
+    RunCoverageEffect,
     RunDomainJob,
-    RunPointEnd,
-    RunPointStage,
-    RunPointStart,
-    iter_run_operations,
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import ProblemPhase
@@ -95,9 +92,7 @@ from scopecat.sdk.domain.job import (
     DomainTargetArtifactIdentity,
 )
 from scopecat.sdk.domain.preparation import (
-    DomainEntryPointBinding,
-    DomainResultUseBinding,
-    DomainTargetEntry,
+    DomainResultBinding,
 )
 from scopecat.sdk.domain.runtime import (
     CorrelatedDomainFetch,
@@ -106,6 +101,7 @@ from scopecat.sdk.domain.runtime import (
     DomainSubmitReceipt,
     DomainSubmitRequest,
 )
+from scopecat.sdk.domain.view import DomainCallView
 from scopecat.sdk.instruments import (
     InstrumentProviderContext,
     InstrumentProviderDescription,
@@ -155,12 +151,27 @@ class _DomainCompiler:
     resource_claims: tuple[DomainResourceClaim, ...] = ()
     max_points_per_job: int = 100
     runtime: _EffectProbeRuntime = field(default_factory=_EffectProbeRuntime)
+    claim_calls: int = 0
     compile_calls: int = 0
     compile_requests: list[DomainCompileRequest] = field(default_factory=list)
     prepare_calls: int = 0
     prepared_inputs: list[tuple[object, ...]] = field(default_factory=list)
     events: list[str] | None = None
     route_target_by_execution: bool = False
+
+    def claim_resources(
+        self,
+        call: DomainCallView,
+    ) -> tuple[ResourceClaim, ...]:
+        self.claim_calls += 1
+        target_id = (
+            f"{self.compiler_id}.{call.id}.target"
+            if self.route_target_by_execution
+            else f"{self.compiler_id}.target"
+        )
+        return tuple(
+            ResourceClaim(claim.id, claim.kind) for claim in self.resource_claims
+        ) or (ResourceClaim(target_id, "target"),)
 
     def compile(
         self,
@@ -190,33 +201,26 @@ class _DomainCompiler:
             )
         preparation = context.new_preparation()
         product_uses = context.direct_product_uses
-        entries = tuple(
-            DomainTargetEntry(
-                f"{self.compiler_id}.entry.{point.ordinal}",
-                tuple(
-                    f"{self.compiler_id}.result.{point.ordinal}.{use_index}"
-                    for use_index in range(len(product_uses))
-                ),
+        result_addresses = tuple(
+            tuple(
+                f"{self.compiler_id}.result.{point.ordinal}.{use_index}"
+                for use_index in range(len(product_uses))
             )
             for point in context.points
         )
         mapping = preparation.map_measurements(
-            entries=entries,
-            entry_points=tuple(
-                DomainEntryPointBinding(entry.entry_address, point)
-                for entry, point in zip(entries, context.points, strict=True)
-            ),
             results=tuple(
-                DomainResultUseBinding(
-                    entry.entry_address,
+                DomainResultBinding(
                     result_address,
+                    point,
                     product_uses[use_index],
                 )
-                for entry in entries
-                for use_index, result_address in enumerate(entry.result_addresses)
+                for point, addresses in zip(
+                    context.points, result_addresses, strict=True
+                )
+                for use_index, result_address in enumerate(addresses)
             ),
         )
-        measurements = preparation.measurement_plan(mapping)
         target_id = (
             f"{self.compiler_id}.{context.execution.id}.target"
             if self.route_target_by_execution
@@ -245,11 +249,10 @@ class _DomainCompiler:
             },
         )
         return preparation.build(
-            measurements=measurements,
+            mapping=mapping,
             invocation=invocation,
             runtime=self.runtime,
             realize=_reject_realization,
-            resource_claims=self.resource_claims,
         )
 
 
@@ -257,6 +260,13 @@ class _DomainCompiler:
 class _BindingProbeCompiler:
     bound_ordinals: tuple[int, ...] = ()
     compile_request: DomainCompileRequest | None = field(default=None, init=False)
+
+    def claim_resources(
+        self,
+        call: DomainCallView,
+    ) -> tuple[ResourceClaim, ...] | None:
+        del call
+        return None
 
     def compile(self, request: DomainCompileRequest) -> None:
         self.compile_request = request
@@ -314,6 +324,7 @@ def _linked_program(
     domain_product_count: int | None = None,
     domain_call_count: int = 1,
     state_mode: Literal["none", "constant", "varying"] = "none",
+    domain_before_state: bool = False,
     point_count: Literal[0, 2] = 2,
     equal_point_values: bool = False,
     domain_input: ValueInput | None = None,
@@ -486,7 +497,11 @@ def _linked_program(
         kind="compiler_test",
         point_domain=points,
         parameter_overlays=tuple(parameter_overlays),
-        effects=(*state, *domain_executions),
+        effects=(
+            (*domain_executions, *state)
+            if domain_before_state
+            else (*state, *domain_executions)
+        ),
         product_defs=products,
         instrument_product_producers=instrument_product_producers,
         domain_product_producers=tuple(domain_product_producers),
@@ -531,7 +546,6 @@ def _linked_instrument_fed_transform_program() -> LinkedPlan:
             version="1",
             portability="host_only",
         ),
-        rate="point",
         inputs=(
             TypedMeasurementTransformInput(
                 id="source",
@@ -647,18 +661,22 @@ def test_planning_reports_unplaced_transform_as_a_capability_boundary() -> None:
     assert captured.value.problems[0].phase is ProblemPhase.PLANNING
 
 
-def test_run_compilation_enforces_explicit_point_materialization_budget() -> None:
+def test_run_compilation_materializes_large_space_in_bounded_blocks() -> None:
     linked = _linked_program(point_count=2)
     compiler = _DomainCompiler("tests.materialization-budget")
 
-    with pytest.raises(CheckFailed) as captured:
-        ExperimentSystem(
-            domain_compiler=compiler,
-            max_materialized_points=1,
-        ).compile(linked, config=load_config())
+    plan = ExperimentSystem(
+        domain_compiler=compiler,
+        coverage_block_size=1,
+    ).compile(linked, config=load_config())
 
-    assert _problem_codes(captured.value) == {"point_materialization_budget_exceeded"}
-    assert compiler.compile_calls == 0
+    assert len(plan.points.points) == 2
+    assert [
+        operation.point_indices
+        for operation in plan.coverage
+        if isinstance(operation, RunCoverageBlock)
+    ] == [(0,), (1,)]
+    assert compiler.compile_calls == 2
 
 
 def test_parameter_scan_binding_is_shared_with_domain_inputs() -> None:
@@ -705,6 +723,16 @@ def test_parameter_scan_binding_is_shared_with_domain_inputs() -> None:
     )
 
     assert plan.host is None
+    [block] = plan.coverage
+    assert isinstance(block, RunCoverageBlock)
+    assert block.point_indices == (0, 1)
+    [domain_job] = (
+        operation
+        for operation in block.operations
+        if isinstance(operation, RunDomainJob)
+    )
+    assert isinstance(domain_job, RunDomainJob)
+    domain_job.prepare()
     assert compiler.prepared_inputs == [
         (
             Quantity(value=4.9, unit="GHz"),
@@ -713,7 +741,7 @@ def test_parameter_scan_binding_is_shared_with_domain_inputs() -> None:
     ]
 
 
-def test_varying_local_state_forms_domain_effect_barriers() -> None:
+def test_unclaimed_local_state_does_not_fragment_domain_jobs() -> None:
     linked = _linked_program(state_mode="varying")
     compiler = _DomainCompiler("tests.effect-regions")
     provider = _TrackingProvider()
@@ -725,33 +753,84 @@ def test_varying_local_state_forms_domain_effect_barriers() -> None:
     plan = system.compile(linked, config=load_config())
 
     observed: list[tuple[str, int | tuple[int, ...]]] = []
-    for operation in iter_run_operations(plan.operations):
-        if isinstance(operation, RunDomainJob):
-            observed.append(("domain", operation.point_ordinals))
-        elif isinstance(operation, RunPointStart | RunPointStage | RunPointEnd):
-            observed.append((type(operation).__name__, operation.point_index))
-        else:
-            assert isinstance(operation, RunComputeStage)
-            raise AssertionError("test program unexpectedly contains run compute")
+    for block in plan.coverage:
+        assert isinstance(block, RunCoverageBlock)
+        for operation in block.operations:
+            if isinstance(operation, RunDomainJob):
+                observed.append(("domain", operation.point_ordinals))
+            elif isinstance(operation, RunCoverageCheckpoint):
+                observed.append(("checkpoint", operation.point_indices))
+            else:
+                assert isinstance(operation, RunCoverageEffect)
+                observed.append((type(operation).__name__, operation.point_indices))
+        observed.append((type(block).__name__, block.point_indices))
 
     assert observed == [
-        ("RunPointStart", 0),
-        ("RunPointStage", 0),
-        ("domain", (0,)),
-        ("RunPointEnd", 0),
-        ("RunPointStart", 1),
-        ("RunPointStage", 1),
-        ("domain", (1,)),
-        ("RunPointEnd", 1),
+        ("RunCoverageEffect", (0,)),
+        ("domain", (0, 1)),
+        ("checkpoint", (0,)),
+        ("RunCoverageEffect", (1,)),
+        ("checkpoint", (1,)),
+        ("RunCoverageBlock", (0, 1)),
     ]
     assert provider.describe_calls == 1
     assert provider.provide_calls == 0
     assert compiler.compile_calls == 1
-    assert compiler.prepare_calls == 2
+    assert compiler.claim_calls == 1
+    assert compiler.prepare_calls == 0
     _assert_no_domain_effects(compiler)
 
 
-def test_point_dependency_forms_barriers_even_when_values_happen_to_match() -> None:
+def test_domain_and_local_state_retain_declared_effect_order() -> None:
+    linked = _linked_program(
+        state_mode="constant",
+        domain_before_state=True,
+    )
+    plan = ExperimentSystem(
+        provider=_TrackingProvider(),
+        domain_compiler=_DomainCompiler("tests.declared-effect-order"),
+    ).compile(linked, config=load_config())
+
+    [block] = plan.coverage
+    consequential = tuple(
+        operation
+        for operation in block.operations
+        if not isinstance(operation, RunCoverageCheckpoint)
+    )
+
+    assert isinstance(consequential[0], RunDomainJob)
+    assert isinstance(consequential[1], RunCoverageEffect)
+    assert isinstance(consequential[1].operation, ApplyStateOperation)
+
+
+def test_conflicting_local_state_refines_domain_jobs_by_exact_coverage() -> None:
+    linked = _linked_program(state_mode="varying")
+    compiler = _DomainCompiler(
+        "tests.state-conflict",
+        resource_claims=(DomainResourceClaim("instrument", "source-0"),),
+    )
+
+    plan = ExperimentSystem(
+        provider=_TrackingProvider(),
+        domain_compiler=compiler,
+    ).compile(linked, config=load_config())
+
+    [block] = plan.coverage
+    assert block.point_indices == (0, 1)
+    assert [
+        operation.point_ordinals
+        for operation in block.operations
+        if isinstance(operation, RunDomainJob)
+    ] == [(0,), (1,)]
+    assert compiler.compile_calls == 2
+    assert compiler.claim_calls == 1
+    assert [request.barrier_regions for request in compiler.compile_requests] == [
+        ((0,),),
+        ((1,),),
+    ]
+
+
+def test_equal_materialized_state_values_share_one_domain_region() -> None:
     linked = _linked_program(state_mode="varying", equal_point_values=True)
     compiler = _DomainCompiler("tests.typed-effect-dependencies")
 
@@ -760,13 +839,15 @@ def test_point_dependency_forms_barriers_even_when_values_happen_to_match() -> N
         domain_compiler=compiler,
     ).compile(linked, config=load_config())
 
+    blocks = tuple(plan.coverage)
     jobs = tuple(
         operation
-        for operation in iter_run_operations(plan.operations)
+        for block in blocks
+        for operation in block.operations
         if isinstance(operation, RunDomainJob)
     )
-    assert tuple(job.point_ordinals for job in jobs) == ((0,), (1,))
-    assert compiler.prepare_calls == 2
+    assert tuple(job.point_ordinals for job in jobs) == ((0, 1),)
+    assert compiler.prepare_calls == 0
 
 
 def test_domain_compiler_batches_one_state_stable_region() -> None:
@@ -781,7 +862,7 @@ def test_domain_compiler_batches_one_state_stable_region() -> None:
     plan = system.compile(linked, config=load_config())
     local_effects = plan.host
     assert local_effects is not None
-    point_catalog = plan.measurements.catalog.point_catalog
+    point_catalog = plan.points
     assert point_catalog.experiment_id == linked.program.id
     assert point_catalog.experiment_kind == linked.program.kind
     assert point_catalog.coordinate_ids == ("frequency",)
@@ -792,19 +873,22 @@ def test_domain_compiler_batches_one_state_stable_region() -> None:
     ]
     domain_jobs = tuple(
         operation
-        for operation in iter_run_operations(plan.operations)
+        for block in plan.coverage
+        for operation in block.operations
         if isinstance(operation, RunDomainJob)
     )
     assert tuple(job.point_ordinals for job in domain_jobs) == ((0, 1),)
     [domain_job] = domain_jobs
     assert not hasattr(domain_job, "compiled")
-    assert not hasattr(domain_job.prepared, "context")
-    assert not hasattr(domain_job.prepared, "compiler_id")
+    assert not hasattr(domain_job, "prepared")
+    prepared = domain_job.prepare()
+    assert not hasattr(prepared, "context")
+    assert not hasattr(prepared, "compiler_id")
     assert provider.describe_calls == 1
     assert provider.provide_calls == 0
     assert compiler.compile_calls == 1
     assert compiler.prepare_calls == 1
-    assert [job.id for job in domain_jobs] == ["domain:job-0"]
+    assert [job.id for job in domain_jobs] == ["domain:coverage-0:job-0"]
     _assert_no_domain_effects(compiler)
 
 
@@ -821,19 +905,23 @@ def test_ordered_domain_calls_share_one_target_resource_and_keep_job_identity() 
         config=load_config(),
     )
 
+    blocks = tuple(plan.coverage)
     jobs = tuple(
         operation
-        for operation in iter_run_operations(plan.operations)
+        for block in blocks
+        for operation in block.operations
         if isinstance(operation, RunDomainJob)
     )
     assert [job.id for job in jobs] == [
-        "domain-0:job-0",
-        "domain-1:job-0",
+        "domain-0:coverage-0:job-0",
+        "domain-1:coverage-0:job-0",
     ]
     assert all(not hasattr(job, "source_id") for job in jobs)
-    assert plan.resource_claims == (ResourceClaim("tests.multi-call.target", "target"),)
+    assert {claim for block in blocks for claim in block.resource_claims} == {
+        ResourceClaim("tests.multi-call.target", "target")
+    }
     assert compiler.compile_calls == 2
-    assert compiler.prepare_calls == 2
+    assert compiler.prepare_calls == 0
     _assert_no_domain_effects(compiler)
 
 
@@ -853,70 +941,45 @@ def test_system_compiler_can_route_domain_calls_to_distinct_targets() -> None:
         config=load_config(),
     )
 
-    assert plan.resource_claims == (
+    assert {claim for block in plan.coverage for claim in block.resource_claims} == {
         ResourceClaim("tests.multi-target.domain-0.target", "target"),
         ResourceClaim("tests.multi-target.domain-1.target", "target"),
-    )
+    }
 
 
-def test_symbolic_domain_compile_precedes_point_materialization(
+def test_point_inventory_closes_before_first_streaming_domain_block(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     linked = _linked_program(domain_input=_point_frequency_domain_input())
     events: list[str] = []
     compiler = _DomainCompiler("tests.symbolic-first", events=events)
-    original_materialize = LinkedPointMaterializer.materialize
+    original_materialize = LinkedPointMaterializer.materialize_point_domain
 
     def track_materialization(
         materializer: LinkedPointMaterializer,
-    ) -> MaterializedLinkedPoints:
+    ) -> MaterializedPointDomain:
         events.append("materialize")
         return original_materialize(materializer)
 
     monkeypatch.setattr(
         LinkedPointMaterializer,
-        "materialize",
+        "materialize_point_domain",
         track_materialization,
     )
 
-    ExperimentSystem(domain_compiler=compiler).compile(
+    plan = ExperimentSystem(domain_compiler=compiler).compile(
         linked,
         config=load_config(),
     )
 
-    assert events == ["compile", "materialize"]
+    assert events == ["materialize"]
+    tuple(plan.coverage)
+    assert events == ["materialize", "compile"]
 
 
-def test_domain_binder_resolves_selected_inputs_without_full_materialization(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_rejected_domain_call_does_not_bind_point_inputs() -> None:
     linked = _linked_program(domain_input=_point_frequency_domain_input())
     compiler = _BindingProbeCompiler()
-
-    def reject_full_materialization(
-        _materializer: LinkedPointMaterializer,
-    ) -> MaterializedLinkedPoints:
-        raise AssertionError("point binding must not close the full linked plan")
-
-    def reject_full_point_domain(*_args: object, **_kwargs: object) -> Never:
-        raise AssertionError("point binding must not expand the complete point domain")
-
-    def reject_full_relation(*_args: object, **_kwargs: object) -> Never:
-        raise AssertionError("point binding must not evaluate the complete relation")
-
-    monkeypatch.setattr(
-        LinkedPointMaterializer,
-        "materialize",
-        reject_full_materialization,
-    )
-    monkeypatch.setattr(
-        "scopecat.compiler.linking.linked.materialize_point_domain",
-        reject_full_point_domain,
-    )
-    monkeypatch.setattr(
-        "scopecat.compiler.relations.evaluator.evaluate_relation_expression",
-        reject_full_relation,
-    )
 
     with pytest.raises(CheckFailed) as captured:
         ExperimentSystem(domain_compiler=compiler).compile(
@@ -925,7 +988,8 @@ def test_domain_binder_resolves_selected_inputs_without_full_materialization(
         )
 
     assert _problem_codes(captured.value) == {"domain_compiler_missing"}
-    assert compiler.bound_ordinals == (1,)
+    assert compiler.compile_request is None
+    assert compiler.bound_ordinals == ()
 
 
 def test_complete_point_materialization_does_not_evaluate_domain_inputs(
@@ -968,10 +1032,12 @@ def test_mixed_plan_preview_combines_domain_records_with_local_runtime() -> None
     local_effects = plan.host
     assert local_effects is not None
     assert any(
-        operation.stage.operations
-        for operation in iter_run_operations(plan.operations)
-        if isinstance(operation, RunPointStage)
-        and isinstance(operation.stage, ApplyStateStage)
+        operation.operation
+        for block in plan.coverage
+        if isinstance(block, RunCoverageBlock)
+        for operation in block.operations
+        if isinstance(operation, RunCoverageEffect)
+        and isinstance(operation.operation, ApplyStateOperation)
     )
     _assert_no_domain_effects(compiler)
 
@@ -984,10 +1050,10 @@ def test_zero_point_domain_plan_retains_direct_product_ownership() -> None:
         linked,
         config=load_config(),
     )
-    assert plan.operations == ()
+    assert tuple(plan.coverage) == ()
     assert plan.measurements.product_values.product_use_ids == tuple(
         use.id for use in linked.product_uses
     )
-    assert compiler.compile_calls == 1
+    assert compiler.compile_calls == 0
     assert compiler.prepare_calls == 0
-    assert plan.measurements.catalog.point_catalog.points == ()
+    assert plan.points.points == ()

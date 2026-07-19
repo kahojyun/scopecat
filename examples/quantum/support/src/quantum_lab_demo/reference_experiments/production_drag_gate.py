@@ -9,6 +9,7 @@ from typing import cast
 
 import scopecat as sc
 from scopecat import Quantity
+from scopecat.kernel.resource_identity import ResourceClaim
 from scopecat.sdk.domain import (
     CorrelatedDomainFetch,
     DomainBatchContext,
@@ -19,10 +20,10 @@ from scopecat.sdk.domain import (
     DomainExecutionView,
     DomainHostTransformBinding,
     DomainHostTransformImplementation,
-    DomainMeasurementPlan,
     DomainMeasurementTransform,
     DomainPreparationBuilder,
     DomainProductUseRef,
+    DomainResultMapping,
     PreparedDomainExecution,
     compiled_jobs,
 )
@@ -232,10 +233,10 @@ class PreparedProductionDragGate:
     runtime: FakeListDomainRuntime = field(repr=False)
     realization: SelectedFakeMeasurementRealization = field(repr=False)
     invocation: FakeMeasurementInvocationSpec = field(repr=False)
-    measurements: DomainMeasurementPlan[
-        TargetCompileEntryId,
-        TargetAcquisitionAddress,
-    ] = field(repr=False)
+    measurement_mapping: DomainResultMapping[TargetAcquisitionAddress] = field(
+        repr=False
+    )
+    host_transforms: tuple[DomainHostTransformBinding, ...] = field(repr=False)
 
     @property
     def trusted_reference_beta(self) -> Quantity:
@@ -340,12 +341,7 @@ def prepare_production_drag_gate(
         if host_implementation is None
         else host_implementation
     )
-    measurements = preparation.measurement_plan(
-        mapping.domain_mapping,
-        host_transforms=(
-            DomainHostTransformBinding(products.transform, implementation),
-        ),
-    )
+    host_transforms = (DomainHostTransformBinding(products.transform, implementation),)
     return PreparedProductionDragGate(
         preparation=preparation,
         products=products,
@@ -359,7 +355,8 @@ def prepare_production_drag_gate(
         runtime=runtime,
         realization=realization,
         invocation=invocation,
-        measurements=measurements,
+        measurement_mapping=mapping.domain_mapping,
+        host_transforms=host_transforms,
     )
 
 
@@ -394,6 +391,14 @@ class ProductionDragGateCompiler:
     def physical_execution_count(self) -> int:
         return sum(item.runtime.physical_execution_count for item in self._preparations)
 
+    def claim_resources(
+        self,
+        call: DomainCallView,
+    ) -> tuple[ResourceClaim, ...] | None:
+        if not _accepts_execution(call):
+            return None
+        return (ResourceClaim(self.target.id.value, "target"),)
+
     def compile(self, request: DomainCompileRequest) -> DomainCompilation | None:
         if not _accepts_execution(request.call):
             return None
@@ -414,7 +419,7 @@ class ProductionDragGateCompiler:
         context: DomainBatchContext,
     ) -> PreparedDomainExecution:
         execution = context.execution
-        artifact = cast("_ProductionDragArtifact", job.artifact)
+        artifact = cast("_ProductionDragArtifact", job.take_artifact())
         if len(execution.points) != 1:
             msg = "production DRAG execution requires exactly one logical point"
             raise ValueError(msg)
@@ -430,7 +435,8 @@ class ProductionDragGateCompiler:
             invocation_id=f"production-drag-gate.batch-{context.batch_ordinal}",
         )
         prepared = preparation.build(
-            measurements=reference.measurements,
+            mapping=reference.measurement_mapping,
+            host_transforms=reference.host_transforms,
             invocation=reference.invocation,
             runtime=reference.runtime,
             realize=lambda fetched: _realize(reference, fetched),

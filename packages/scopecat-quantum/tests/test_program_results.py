@@ -312,7 +312,7 @@ def _compile(
     )
 
 
-def test_mapping_preserves_exact_inventory_order_and_mixed_source_origins() -> None:
+def test_mapping_preserves_logical_order_and_mixed_source_origins() -> None:
     preparation, batch, entry_bindings, acquisition_bindings = _valid_inputs()
 
     mapping = seal_quantum_target_result_mapping(
@@ -326,10 +326,8 @@ def test_mapping_preserves_exact_inventory_order_and_mixed_source_origins() -> N
     assert isinstance(mapping.domain_mapping, DomainResultMapping)
     assert mapping.domain_mapping.context is preparation.context
     assert tuple(
-        (entry.entry_address, entry.result_addresses)
-        for entry in mapping.domain_mapping.target_entries
-    ) == tuple((entry.id, entry.acquisition_addresses) for entry in batch.entries)
-    assert tuple(result.entry_address for result in mapping.domain_mapping.results) == (
+        result.result_address.entry_id for result in mapping.domain_mapping.results
+    ) == (
         batch.entries[1].id,
         batch.entries[0].id,
     )
@@ -348,11 +346,11 @@ def test_mapping_preserves_exact_inventory_order_and_mixed_source_origins() -> N
         )
         assert (
             origin.source_program_id
-            == mapping.batch.entry_for(result.entry_address).source_program_id
+            == mapping.batch.entry_for(result.result_address.entry_id).source_program_id
         )
 
 
-def test_mapping_rejects_another_batch_order() -> None:
+def test_mapping_accepts_adapter_owned_batch_reordering() -> None:
     preparation, batch, entry_bindings, acquisition_bindings = _valid_inputs()
     mapping = seal_quantum_target_result_mapping(
         preparation,
@@ -368,8 +366,10 @@ def test_mapping_rejects_another_batch_order() -> None:
         repetitions=batch.request.repetitions,
     )
 
-    with pytest.raises(ValueError, match="exact prepared batch inventory"):
-        QuantumTargetResultMapping(reversed_batch, mapping.domain_mapping)
+    rebound = QuantumTargetResultMapping(reversed_batch, mapping.domain_mapping)
+
+    assert rebound.batch is reversed_batch
+    assert rebound.domain_mapping is mapping.domain_mapping
 
 
 @pytest.mark.parametrize("change", ("missing", "duplicate", "foreign"))
@@ -415,7 +415,13 @@ def test_acquisition_mapping_requires_exact_qualified_addresses(change: str) -> 
             ),
         )
 
-    with pytest.raises(ValueError, match="result-use bindings"):
+    with pytest.raises(
+        ValueError,
+        match=(
+            r"logical output|point/product-use outputs|"
+            r"prepared acquisition addresses"
+        ),
+    ):
         seal_quantum_target_result_mapping(
             preparation,
             batch,

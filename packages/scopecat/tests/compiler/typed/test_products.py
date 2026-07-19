@@ -17,7 +17,7 @@ from scopecat.compiler.typed.products import (
 from scopecat.compiler.typed.program import CoreProgram
 from scopecat.compiler.typed.records import RecordAxisPlan, RecordPlan, RecordUse
 from scopecat.compiler.typed.verification import verify_core_program
-from scopecat.execution.local.program import CollectStage
+from scopecat.execution.local.program import CollectOperation
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.product_identity import (
@@ -27,9 +27,11 @@ from scopecat.kernel.product_identity import (
     product_use,
 )
 from tests.testkit.authoring import load_config
-from tests.testkit.bound_plan import config_with_physical_resources
-from tests.testkit.local_effect_program import make_test_local_effect_program
-from tests.testkit.local_materialization import materialize_local_execution
+from tests.testkit.local_materialization import (
+    materialize_local_execution,
+    operations_of_type,
+)
+from tests.testkit.materialized_effects import config_with_physical_resources
 from tests.testkit.typed_program import instrument_product_producer, link_program
 
 
@@ -178,16 +180,15 @@ def test_record_aliases_share_one_product_realization() -> None:
         link_program(program, validate_config_environment(load_config()))
     )
 
-    operation = plan.points[0].collect_operations[0]
+    operation = operations_of_type(plan.points[0], CollectOperation)[0]
     requests = operation.command.requests
     assert len(requests) == 1
     assert operation.result_bindings[0].product_use_id == use.id
     assert requests[0].metadata == {"producer": "signal"}
 
-    execution = make_test_local_effect_program(plan, instrument_order=("source-0",))
-    collect = execution.points[0].stages[-1]
-    assert isinstance(collect, CollectStage)
-    assert len(collect.operations[0].command.requests) == 1
+    execution = plan
+    [collect] = operations_of_type(execution.points[0], CollectOperation)
+    assert len(collect.command.requests) == 1
 
 
 def test_record_policy_does_not_change_collection_request() -> None:
@@ -217,10 +218,9 @@ def test_record_policy_does_not_change_collection_request() -> None:
     first_plan = materialize_local_execution(link_program(first, environment))
     second_plan = materialize_local_execution(link_program(second, environment))
 
-    assert (
-        first_plan.points[0].collect_operations
-        == second_plan.points[0].collect_operations
-    )
+    assert operations_of_type(
+        first_plan.points[0], CollectOperation
+    ) == operations_of_type(second_plan.points[0], CollectOperation)
 
 
 def test_unused_product_producer_is_linked_without_placement() -> None:
@@ -243,7 +243,7 @@ def test_unused_product_producer_is_linked_without_placement() -> None:
         link_verified_program(linked.verified_program, linked.environment)
     )
 
-    assert plan.points[0].collect_operations == ()
+    assert operations_of_type(plan.points[0], CollectOperation) == ()
 
 
 def test_unrecorded_product_use_is_still_realized_once() -> None:
@@ -260,7 +260,7 @@ def test_unrecorded_product_use_is_still_realized_once() -> None:
 
     assert [
         binding.product_use_id
-        for operation in plan.points[0].collect_operations
+        for operation in operations_of_type(plan.points[0], CollectOperation)
         for binding in operation.result_bindings
     ] == [use.id]
 

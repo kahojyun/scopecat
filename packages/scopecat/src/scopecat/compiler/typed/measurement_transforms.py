@@ -100,14 +100,6 @@ def typed_measurement_transform_problems(
             "measurement_transforms",
             transform.id.qualified_name,
         )
-        if transform.rate != "point":
-            problems.append(
-                _problem(
-                    "measurement_transform_rate_unsupported",
-                    "typed measurement transforms currently support point rate only",
-                    model_location(location.root, *location.path, "rate"),
-                )
-            )
         input_roles = tuple(item.id for item in transform.inputs)
         for role in sorted(
             {role for role in input_roles if input_roles.count(role) > 1}

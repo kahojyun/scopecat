@@ -5,9 +5,12 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, field
+from itertools import pairwise
+from math import prod
 from typing import Protocol, cast
 
 from scopecat.compiler.relations.scalar_eval import CellValue, eval_binary
+from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.resource_identity import ResourceClaim
 from scopecat.sdk.domain.context import DomainBatchContext
 from scopecat.sdk.domain.execution import PreparedDomainExecution
@@ -64,6 +67,194 @@ class DomainPointAxis:
             self.values[(ordinal // self.repeat_each) % len(self.values)]
             for ordinal in ordinals
         )
+
+
+@dataclass(frozen=True, slots=True)
+class DomainIterationUnit:
+    """Exact-one identity in a projected iteration layout."""
+
+    @property
+    def extent(self) -> int:
+        return 1
+
+
+@dataclass(frozen=True, slots=True)
+class DomainIterationLeaf:
+    """One positional relation leaf providing zero or more point axes."""
+
+    axis_ids: tuple[str, ...]
+    extent: int | None
+
+    def __post_init__(self) -> None:
+        if self.extent is not None and self.extent < 0:
+            raise ValueError("domain iteration leaf extent must be nonnegative")
+        if len(self.axis_ids) != len(set(self.axis_ids)):
+            raise ValueError("domain iteration leaf axis ids must be unique")
+
+
+@dataclass(frozen=True, slots=True)
+class DomainIterationOpaque:
+    """A layout region whose structure is not safely projectable."""
+
+    extent: int | None
+
+    def __post_init__(self) -> None:
+        if self.extent is not None and self.extent < 0:
+            raise ValueError("domain opaque iteration extent must be nonnegative")
+
+
+@dataclass(frozen=True, slots=True)
+class DomainIterationDependent:
+    """Ordered product whose right layout is evaluated per left point."""
+
+    left: DomainIterationNode
+    right: DomainIterationNode
+    extent: int | None
+
+    def __post_init__(self) -> None:
+        if self.extent is not None and self.extent < 0:
+            raise ValueError("domain dependent iteration extent must be nonnegative")
+
+
+@dataclass(frozen=True, slots=True)
+class DomainIterationProduct:
+    """Ordered left-major Cartesian iteration; the last factor is fastest."""
+
+    factors: tuple[DomainIterationNode, ...]
+
+    def __post_init__(self) -> None:
+        if len(self.factors) < 2:
+            raise ValueError("domain iteration product requires at least two factors")
+
+    @property
+    def extent(self) -> int | None:
+        extents = tuple(factor.extent for factor in self.factors)
+        if any(item is None for item in extents):
+            return None
+        return prod(cast("tuple[int, ...]", extents))
+
+
+@dataclass(frozen=True, slots=True)
+class DomainIterationZip:
+    """Positional iteration of equally long sources."""
+
+    sources: tuple[DomainIterationNode, ...]
+    extent: int | None
+
+    def __post_init__(self) -> None:
+        if len(self.sources) < 2:
+            raise ValueError("domain iteration zip requires at least two sources")
+        if self.extent is not None and self.extent < 0:
+            raise ValueError("domain iteration zip extent must be nonnegative")
+
+
+type DomainIterationNode = (
+    DomainIterationUnit
+    | DomainIterationLeaf
+    | DomainIterationOpaque
+    | DomainIterationDependent
+    | DomainIterationProduct
+    | DomainIterationZip
+)
+
+
+@dataclass(frozen=True, slots=True)
+class DomainIterationLayout:
+    """SDK-owned exact/opaque projection of logical scan nesting and axes."""
+
+    root: DomainIterationNode
+    axes: tuple[DomainPointAxis, ...] = ()
+
+    def __post_init__(self) -> None:
+        axes = tuple(self.axes)
+        axis_ids = tuple(axis.id for axis in axes)
+        if len(axis_ids) != len(set(axis_ids)):
+            raise ValueError("domain point axis ids must be unique")
+        leaf_axis_ids = tuple(_iteration_axis_ids(self.root))
+        if leaf_axis_ids != axis_ids:
+            raise ValueError(
+                "domain iteration leaves must own projected axes in layout order"
+            )
+        object.__setattr__(self, "axes", axes)
+
+    def point_axis(self, name: str) -> DomainPointAxis | None:
+        return next((axis for axis in self.axes if axis.id == name), None)
+
+    def partition_by_axes(
+        self,
+        axis_ids: Sequence[str],
+        ordinals: Sequence[int],
+    ) -> tuple[tuple[int, ...], ...] | None:
+        """Partition selected ordinals by exact values of the requested axes.
+
+        ``None`` means at least one requested axis crosses an opaque layout
+        boundary. Empty support is one invariant coverage. Only adjacent equal
+        projections are joined, so effect and capacity boundaries supplied by
+        the caller remain authoritative.
+        """
+
+        selected = tuple(ordinals)
+        requested = tuple(axis_ids)
+        if len(requested) != len(set(requested)):
+            raise ValueError("domain variation axis ids must be unique")
+        axes = tuple(self.point_axis(axis_id) for axis_id in requested)
+        if any(axis is None for axis in axes):
+            return None
+        if not selected:
+            return ()
+        exact_axes = cast("tuple[DomainPointAxis, ...]", axes)
+        signatures = tuple(
+            stable_content_hash(
+                tuple(
+                    content_fingerprint(value)
+                    for axis in exact_axes
+                    for value in axis.values_at((ordinal,))
+                )
+            )
+            for ordinal in selected
+        )
+        partitions: list[tuple[int, ...]] = []
+        start = 0
+        for offset in range(1, len(selected)):
+            if signatures[offset] != signatures[start]:
+                partitions.append(selected[start:offset])
+                start = offset
+        partitions.append(selected[start:])
+        return tuple(partitions)
+
+    @property
+    def preferred_tile_size(self) -> int | None:
+        """Return the complete innermost sweep size when it is exact."""
+
+        node = (
+            self.root.factors[-1]
+            if isinstance(self.root, DomainIterationProduct)
+            else self.root.right
+            if isinstance(self.root, DomainIterationDependent)
+            else self.root
+        )
+        extent = node.extent
+        return extent if extent not in {None, 0} else None
+
+
+def _iteration_axis_ids(node: DomainIterationNode) -> tuple[str, ...]:
+    if isinstance(node, DomainIterationLeaf):
+        return node.axis_ids
+    if isinstance(node, DomainIterationProduct):
+        return tuple(
+            axis_id
+            for factor in node.factors
+            for axis_id in _iteration_axis_ids(factor)
+        )
+    if isinstance(node, DomainIterationDependent):
+        return (*_iteration_axis_ids(node.left), *_iteration_axis_ids(node.right))
+    if isinstance(node, DomainIterationZip):
+        return tuple(
+            axis_id
+            for source in node.sources
+            for axis_id in _iteration_axis_ids(source)
+        )
+    return ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,6 +338,28 @@ type DomainInputBinder = Callable[
 
 
 @dataclass(frozen=True, slots=True)
+class DomainCompileTemplate:
+    """Static domain target projection shared by every coverage request."""
+
+    call: DomainCallView
+    inputs: tuple[DomainInput, ...]
+    iteration_layout: DomainIterationLayout | None = None
+
+    def bind_coverage(
+        self,
+        barrier_regions: Sequence[Sequence[int]],
+        input_binder: DomainInputBinder,
+    ) -> DomainCompileRequest:
+        return DomainCompileRequest(
+            call=self.call,
+            inputs=self.inputs,
+            barrier_regions=tuple(tuple(region) for region in barrier_regions),
+            input_binder=input_binder,
+            iteration_layout=self.iteration_layout,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class DomainCompileRequest:
     """One symbolic point space and its bounded domain-call region."""
 
@@ -154,7 +367,7 @@ class DomainCompileRequest:
     inputs: tuple[DomainInput, ...]
     barrier_regions: tuple[tuple[int, ...], ...]
     input_binder: DomainInputBinder = field(repr=False, compare=False)
-    point_axes: tuple[DomainPointAxis, ...] = ()
+    iteration_layout: DomainIterationLayout | None = None
 
     def __post_init__(self) -> None:
         inputs = tuple(self.inputs)
@@ -167,17 +380,16 @@ class DomainCompileRequest:
             msg = "domain inputs must follow the complete program input order"
             raise ValueError(msg)
         selected_ordinals = tuple(ordinal for region in regions for ordinal in region)
-        if selected_ordinals != tuple(range(len(selected_ordinals))):
-            msg = "domain barrier regions must exactly partition logical point ordinals"
+        if any(
+            following != preceding + 1
+            for preceding, following in pairwise(selected_ordinals)
+        ):
+            msg = "domain barrier regions must select contiguous logical point ordinals"
             raise ValueError(msg)
         if any(not region for region in regions):
             raise ValueError("domain barrier regions must be non-empty")
-        axis_ids = tuple(axis.id for axis in self.point_axes)
-        if len(axis_ids) != len(set(axis_ids)):
-            raise ValueError("domain point axis ids must be unique")
         object.__setattr__(self, "inputs", inputs)
         object.__setattr__(self, "barrier_regions", regions)
-        object.__setattr__(self, "point_axes", tuple(self.point_axes))
 
     def input(self, name: str) -> DomainInput:
         for input_value in self.inputs:
@@ -188,17 +400,44 @@ class DomainCompileRequest:
     def point_axis(self, name: str) -> DomainPointAxis | None:
         """Return an exact finite point axis when core specialization exposed one."""
 
-        return next((axis for axis in self.point_axes if axis.id == name), None)
+        layout = self.iteration_layout
+        return None if layout is None else layout.point_axis(name)
+
+    def partition_by_axes(
+        self,
+        axis_ids: Sequence[str],
+    ) -> tuple[tuple[int, ...], ...] | None:
+        """Project exact axis variation inside the current effect barriers."""
+
+        layout = self.iteration_layout
+        if layout is None:
+            return None
+        partitions: list[tuple[int, ...]] = []
+        for region in self.barrier_regions:
+            projected = layout.partition_by_axes(axis_ids, region)
+            if projected is None:
+                return None
+            partitions.extend(projected)
+        return tuple(partitions)
 
     def partition(self, *, max_points: int) -> tuple[tuple[int, ...], ...]:
         """Return a contiguous capacity-limited partition within barriers."""
 
         if type(max_points) is not int or max_points <= 0:
             raise ValueError("domain job capacity must be a positive integer")
+        preferred = (
+            None
+            if self.iteration_layout is None
+            else self.iteration_layout.preferred_tile_size
+        )
         return tuple(
-            tuple(region[offset : offset + max_points])
+            block
             for region in self.barrier_regions
-            for offset in range(0, len(region), max_points)
+            for block in _partition_region(
+                region,
+                max_points=max_points,
+                preferred_tile_size=preferred,
+            )
         )
 
     def resolve_inputs(
@@ -268,12 +507,11 @@ class DomainCompileRequest:
 
 @dataclass(frozen=True, slots=True)
 class DomainCompiledJob:
-    """One pure target artifact assigned to exact logical point ordinals."""
+    """One lightweight target recipe assigned to exact logical point ordinals."""
 
     id: str
     point_ordinals: tuple[int, ...]
-    artifact: object = field(repr=False)
-    resource_claims: tuple[ResourceClaim, ...] = ()
+    artifact_factory: Callable[[], object] | None = field(repr=False)
 
     def __post_init__(self) -> None:
         ordinals = tuple(self.point_ordinals)
@@ -283,7 +521,15 @@ class DomainCompiledJob:
             msg = "compiled domain job ordinals must be unique and canonical"
             raise ValueError(msg)
         object.__setattr__(self, "point_ordinals", ordinals)
-        object.__setattr__(self, "resource_claims", tuple(self.resource_claims))
+
+    def take_artifact(self) -> object:
+        """Materialize and release this job's one-shot target recipe."""
+
+        factory = self.artifact_factory
+        if factory is None:
+            raise RuntimeError(f"compiled domain job {self.id!r} was already prepared")
+        object.__setattr__(self, "artifact_factory", None)
+        return factory()
 
 
 @dataclass(frozen=True, slots=True)
@@ -313,6 +559,11 @@ class DomainCompilation:
 
 class DomainCompiler(Protocol):
     """Pure system compiler plus runtime binding for domain calls."""
+
+    def claim_resources(
+        self,
+        call: DomainCallView,
+    ) -> tuple[ResourceClaim, ...] | None: ...
 
     def compile(self, request: DomainCompileRequest) -> DomainCompilation | None: ...
 
@@ -419,6 +670,38 @@ def _canonical_absorbed_ids(
     return tuple(item for item in canonical_ids if item in selected)
 
 
+def _partition_region(
+    region: tuple[int, ...],
+    *,
+    max_points: int,
+    preferred_tile_size: int | None,
+) -> tuple[tuple[int, ...], ...]:
+    if preferred_tile_size is None or preferred_tile_size > max_points:
+        return tuple(
+            tuple(region[offset : offset + max_points])
+            for offset in range(0, len(region), max_points)
+        )
+    blocks: list[tuple[int, ...]] = []
+    offset = 0
+    while offset < len(region):
+        remaining = len(region) - offset
+        if remaining <= max_points:
+            blocks.append(tuple(region[offset:]))
+            break
+        limit = offset + max_points
+        aligned_end = next(
+            (
+                end
+                for end in range(limit, offset, -1)
+                if (region[end - 1] + 1) % preferred_tile_size == 0
+            ),
+            limit,
+        )
+        blocks.append(tuple(region[offset:aligned_end]))
+        offset = aligned_end
+    return tuple(blocks)
+
+
 def compiled_jobs(
     request: DomainCompileRequest,
     *,
@@ -454,10 +737,14 @@ def compiled_jobs(
             DomainCompiledJob(
                 id=f"job-{index}",
                 point_ordinals=ordinals,
-                artifact=(
-                    ordinals
+                artifact_factory=(
+                    (lambda selected=ordinals: selected)
                     if compile_artifact is None
-                    else compile_artifact(resolved_inputs)
+                    else (
+                        lambda lower=compile_artifact, inputs=resolved_inputs: lower(
+                            inputs
+                        )
+                    )
                 ),
             )
         )
@@ -478,10 +765,19 @@ def compiled_jobs(
 __all__ = [
     "DomainCompilation",
     "DomainCompileRequest",
+    "DomainCompileTemplate",
     "DomainCompiledJob",
     "DomainCompiler",
     "DomainInput",
     "DomainInputBinder",
+    "DomainIterationDependent",
+    "DomainIterationLayout",
+    "DomainIterationLeaf",
+    "DomainIterationNode",
+    "DomainIterationOpaque",
+    "DomainIterationProduct",
+    "DomainIterationUnit",
+    "DomainIterationZip",
     "DomainLiteral",
     "DomainPointAffine",
     "DomainPointAxis",

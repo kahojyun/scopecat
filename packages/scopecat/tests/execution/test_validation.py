@@ -3,8 +3,6 @@ from __future__ import annotations
 from scopecat.execution.local.program import (
     CollectionResultBinding,
     CollectOperation,
-    CollectStage,
-    PointProgram,
 )
 from scopecat.execution.local.validation import validate_local_effect_block_instruments
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
@@ -25,18 +23,24 @@ from scopecat.sdk.instruments.contracts import (
     capability,
     product,
 )
-from tests.testkit.local_effect_program import StubLocalEffectProgram
+from tests.testkit.local_materialization import (
+    MaterializedLocalEffects,
+    MaterializedPointEffects,
+)
 
 
 def _validate(
-    program: StubLocalEffectProgram,
+    program: MaterializedLocalEffects,
     *,
     descriptions: dict[str, InstrumentDescription],
 ):
     return validate_local_effect_block_instruments(
         resource_order=program.resource_order,
-        stages=tuple(stage for point in program.points for stage in point.stages),
+        operations=tuple(
+            operation for point in program.points for operation in point.operations
+        ),
         descriptions=descriptions,
+        available_payloads={},
     )
 
 
@@ -118,50 +122,43 @@ def _collect_program(
     *,
     capability_id: str | None,
     dtype: MeasurementDType,
-) -> StubLocalEffectProgram:
+) -> MaterializedLocalEffects:
     operation_id = "point-0.collect.source-0"
     signal_use = product_use(product_id("signal"))
-    return StubLocalEffectProgram(
-        experiment_id="product-lookup",
+    return MaterializedLocalEffects(
         points=(
-            PointProgram(
+            MaterializedPointEffects(
                 point_index=0,
                 logical_id=LogicalPointId(PointDomainId("product-lookup", "root"), 0),
                 coordinates={},
-                stages=(
-                    CollectStage(
-                        operations=(
-                            CollectOperation(
-                                operation_id=operation_id,
-                                instrument_id="source-0",
-                                command=CollectCommand(
-                                    operation_id=operation_id,
-                                    instrument_id="source-0",
-                                    point_index=0,
-                                    point_count=1,
-                                    requests=[
-                                        CollectProductRequest(
-                                            id="signal",
-                                            capability_id=capability_id,
-                                            dtype=dtype,
-                                        )
-                                    ],
-                                ),
-                                result_bindings=(
-                                    CollectionResultBinding(
-                                        provider_key="signal",
-                                        product_use_id=signal_use.id,
-                                        product_id=signal_use.product_id,
-                                    ),
-                                ),
+                operations=(
+                    CollectOperation(
+                        operation_id=operation_id,
+                        instrument_id="source-0",
+                        command=CollectCommand(
+                            operation_id=operation_id,
+                            instrument_id="source-0",
+                            point_index=0,
+                            point_count=1,
+                            requests=[
+                                CollectProductRequest(
+                                    id="signal",
+                                    capability_id=capability_id,
+                                    dtype=dtype,
+                                )
+                            ],
+                        ),
+                        result_bindings=(
+                            CollectionResultBinding(
+                                provider_key="signal",
+                                product_use_id=signal_use.id,
+                                product_id=signal_use.product_id,
                             ),
-                        )
+                        ),
                     ),
                 ),
             ),
         ),
-        product_uses=(signal_use,),
-        collection_product_use_ids=(signal_use.id,),
         resource_order=("source-0",),
         resource_claims=(ResourceClaim(id="source-0"),),
     )

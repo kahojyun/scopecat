@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import cast
 
 from scopecat.compiler.diagnostics import compiler_problem
@@ -17,6 +17,7 @@ from scopecat.compiler.typed.records import (
     plan_records,
     validate_record_plan,
 )
+from scopecat.execution.points import RunPoint
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import Problem, ProblemCategory, model_location
@@ -43,7 +44,6 @@ class MeasurementProjection:
     _records: tuple[RecordPlan, ...] = field(repr=False)
     required_product_use_ids: tuple[ProductUseId, ...]
     coordinate_ids: tuple[str, ...]
-    _schema: MeasurementDatasetSchema | None = field(repr=False)
     product_values: MeasurementValueSelection = field(repr=False)
     catalog_fingerprint: str
     contract_fingerprint: str
@@ -54,7 +54,6 @@ class MeasurementProjection:
         records: tuple[RecordPlan, ...],
         required_product_use_ids: tuple[ProductUseId, ...],
         coordinate_ids: tuple[str, ...],
-        schema: MeasurementDatasetSchema | None,
         product_values: MeasurementValueSelection,
     ) -> None:
         object.__setattr__(self, "catalog", catalog)
@@ -65,11 +64,6 @@ class MeasurementProjection:
             required_product_use_ids,
         )
         object.__setattr__(self, "coordinate_ids", coordinate_ids)
-        object.__setattr__(
-            self,
-            "_schema",
-            None if schema is None else schema.model_copy(deep=True),
-        )
         object.__setattr__(self, "product_values", product_values)
         catalog_fingerprint = measurement_value_contract_fingerprint(catalog)
         object.__setattr__(self, "catalog_fingerprint", catalog_fingerprint)
@@ -84,7 +78,6 @@ class MeasurementProjection:
                         records,
                         required_product_use_ids,
                         coordinate_ids,
-                        schema,
                     ),
                     "value_contract_fingerprint": product_values.contract_fingerprint,
                 }
@@ -95,14 +88,26 @@ class MeasurementProjection:
     def records(self) -> tuple[RecordPlan, ...]:
         return self._records
 
-    @property
-    def schema(self) -> MeasurementDatasetSchema | None:
-        return None if self._schema is None else self._schema.model_copy(deep=True)
+    def schema_for(
+        self,
+        points: Sequence[RunPoint],
+    ) -> MeasurementDatasetSchema | None:
+        selected = tuple(points)
+        if not self.records:
+            return None
+        return expected_dataset_schema(
+            experiment_id=self.catalog.point_contract.experiment_id,
+            points=selected,
+            records=tuple(
+                replace(record, shape=(len(selected), *record.shape[1:]))
+                for record in self.records
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True, init=False)
-class MeasurementRecordBatch:
-    """Canonical complete MeasurementRecord values for one projection."""
+class ProjectedMeasurementDataset:
+    """Canonical measurement records for one projection and point range."""
 
     projection: MeasurementProjection = field(repr=False)
     run_id: str
@@ -114,6 +119,8 @@ class MeasurementRecordBatch:
         projection: MeasurementProjection,
         run_id: str,
         records: tuple[MeasurementRecord, ...],
+        *,
+        points: Sequence[RunPoint],
     ) -> None:
         object.__setattr__(self, "projection", projection)
         object.__setattr__(self, "run_id", run_id)
@@ -122,7 +129,7 @@ class MeasurementRecordBatch:
         object.__setattr__(
             self,
             "_schema",
-            projection.schema,
+            projection.schema_for(points),
         )
 
     @property
@@ -219,14 +226,13 @@ def select_measurement_projection(
     if problems:
         raise CheckFailed(problems)
 
-    points = catalog.point_catalog.points
-    coordinate_ids = catalog.point_catalog.coordinate_ids
+    coordinate_ids = catalog.point_contract.coordinate_ids
     record_plans = tuple(
         plan_records(
             product_defs,
             product_uses,
             selected_records,
-            point_count=len(points),
+            point_count=0,
         )
     )
     record_problems = validate_record_plan(
@@ -235,11 +241,6 @@ def select_measurement_projection(
     )
     if record_problems:
         raise CheckFailed(record_problems)
-    schema = expected_dataset_schema(
-        experiment_id=catalog.point_catalog.experiment_id,
-        points=points,
-        records=record_plans,
-    )
     selected_use_set = {record.product_use_id for record in selected_records}
     required_use_ids = tuple(
         use.id for use in product_uses if use.id in selected_use_set
@@ -249,7 +250,6 @@ def select_measurement_projection(
         record_plans,
         required_use_ids,
         coordinate_ids,
-        schema,
         product_values,
     )
 
@@ -259,8 +259,9 @@ def project_measurement_records(
     product_values: ClosedMeasurementProductValues,
     *,
     run_id: str,
-) -> MeasurementRecordBatch:
-    """Project complete canonical point records without changing product values."""
+    points: Sequence[RunPoint],
+) -> ProjectedMeasurementDataset:
+    """Project one closed admitted point range without changing product values."""
 
     if not run_id:
         msg = "measurement projection run_id must be non-empty"
@@ -273,6 +274,7 @@ def project_measurement_records(
         msg = "assembled measurement values do not belong to this projection"
         raise ValueError(msg)
     record_plans = projection.records
+    points = tuple(points)
     if not record_plans:
         records: tuple[MeasurementRecord, ...] = ()
     else:
@@ -290,12 +292,13 @@ def project_measurement_records(
                     for record in record_plans
                 },
             )
-            for point in projection.catalog.point_catalog.points
+            for point in points
         )
-    return MeasurementRecordBatch(
+    return ProjectedMeasurementDataset(
         projection,
         run_id,
         records,
+        points=points,
     )
 
 
@@ -304,19 +307,19 @@ def _projection_contract_fingerprint(
     records: Sequence[RecordPlan],
     required_product_use_ids: Sequence[ProductUseId],
     coordinate_ids: Sequence[str],
-    schema: MeasurementDatasetSchema | None,
 ) -> str:
     return stable_content_hash(
         content_fingerprint(
             {
                 "schema": "scopecat.measurements.projection_contract.v1",
                 "catalog_fingerprint": catalog_fingerprint,
-                "records": tuple(records),
+                "records": tuple(
+                    replace(record, shape=(0, *record.shape[1:])) for record in records
+                ),
                 "required_product_use_ids": tuple(
                     use_id.value for use_id in required_product_use_ids
                 ),
                 "coordinate_ids": tuple(coordinate_ids),
-                "dataset_schema": schema,
             }
         )
     )

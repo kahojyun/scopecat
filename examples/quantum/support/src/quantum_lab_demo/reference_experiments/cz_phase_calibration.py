@@ -10,11 +10,11 @@ from scopecat import IntType, Quantity, QuantityType, ScalarType
 from scopecat.sdk.domain import (
     DomainHostTransformBinding,
     DomainHostTransformImplementation,
-    DomainMeasurementPlan,
     DomainMeasurementTransform,
     DomainPointRef,
     DomainPreparationBuilder,
     DomainProductUseRef,
+    DomainResultMapping,
 )
 from scopecat_quantum import (
     AcquisitionSlotId,
@@ -277,10 +277,10 @@ class PreparedCzPhaseReference:
     runtime: FakeListDomainRuntime = field(repr=False)
     realization: SelectedFakeMeasurementRealization = field(repr=False)
     invocation: FakeMeasurementInvocationSpec = field(repr=False)
-    measurements: DomainMeasurementPlan[
-        TargetCompileEntryId,
-        TargetAcquisitionAddress,
-    ] = field(repr=False)
+    measurement_mapping: DomainResultMapping[TargetAcquisitionAddress] = field(
+        repr=False
+    )
+    host_transforms: tuple[DomainHostTransformBinding, ...] = field(repr=False)
 
     @property
     def shots(self) -> int:
@@ -440,12 +440,9 @@ def prepare_cz_phase_reference(
         if host_implementation is None
         else host_implementation
     )
-    measurements = preparation.measurement_plan(
-        mapping.domain_mapping,
-        host_transforms=(
-            DomainHostTransformBinding(products.control_transform, implementation),
-            DomainHostTransformBinding(products.target_transform, implementation),
-        ),
+    host_transforms = (
+        DomainHostTransformBinding(products.control_transform, implementation),
+        DomainHostTransformBinding(products.target_transform, implementation),
     )
     return PreparedCzPhaseReference(
         preparation=preparation,
@@ -463,7 +460,8 @@ def prepare_cz_phase_reference(
         runtime=runtime,
         realization=realization,
         invocation=invocation,
-        measurements=measurements,
+        measurement_mapping=mapping.domain_mapping,
+        host_transforms=host_transforms,
     )
 
 

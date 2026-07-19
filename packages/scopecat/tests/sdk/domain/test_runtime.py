@@ -42,7 +42,7 @@ from scopecat.sdk.domain.runtime import (
     submit_domain_invocation,
 )
 
-type _Invocation = ClosedDomainInvocation[str, str, dict[str, str]]
+type _Invocation = ClosedDomainInvocation[str, dict[str, str]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,7 +74,7 @@ def _identity() -> DomainReceiptIdentity:
 
 def _closed_invocation(*, target_intent: object | None = None) -> _Invocation:
     mapping = cast(
-        "DomainResultMappingContract[str, str]",
+        "DomainResultMappingContract[str]",
         cast("object", _RuntimeResultContract()),
     )
     return close_domain_invocation(

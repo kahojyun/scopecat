@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Literal
 
 from scopecat.kernel.product_identity import ProductId, product_id
 from scopecat.kernel.symbols import SymbolId
@@ -19,7 +18,6 @@ class MeasurementTransform:
     semantic: MeasurementTransformSemanticContract
     input_bindings: tuple[tuple[str, ProductId], ...] = ()
     output_bindings: tuple[tuple[str, ProductId], ...] = ()
-    rate: Literal["point"] = "point"
     scope: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
@@ -31,8 +29,6 @@ class MeasurementTransform:
             raise ValueError("measurement transform output roles must be non-empty")
         if not self.output_bindings:
             raise ValueError("measurement transforms require at least one output")
-        if self.rate != "point":
-            raise ValueError("authored measurement transforms support point rate only")
         if any(not segment for segment in self.scope):
             raise ValueError(
                 "measurement transform scope must contain non-empty strings"
@@ -57,7 +53,6 @@ def measurement_transform(
     semantic: MeasurementTransformSemanticContract,
     inputs: Mapping[str, str] | None = None,
     outputs: Mapping[str, str],
-    rate: Literal["point"] = "point",
 ) -> MeasurementTransform:
     """Declare one ordered pure transform over module-local product names."""
 
@@ -79,7 +74,6 @@ def measurement_transform(
         output_bindings=tuple(
             (role, product_id(product_name)) for role, product_name in outputs.items()
         ),
-        rate=rate,
     )
 
 

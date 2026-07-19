@@ -11,13 +11,14 @@ from scopecat.authoring import (
 )
 from scopecat.execution.local.program import (
     ApplyStateOperation,
+    ComputeOperation,
     StateTarget,
 )
 from scopecat.execution.observation import RuntimePayloadObservation
+from scopecat.execution.points import RunPoint
 from scopecat.kernel.errors import CheckFailed
 from scopecat.measurements.projection import MeasurementProjection
 from scopecat.planning.authoring import resolve_experiment
-from scopecat.planning.local_materialization import MaterializedLocalEffects
 from scopecat.records.artifact import CommandPayload
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter import Quantity
@@ -77,9 +78,11 @@ from quantum_lab_demo.experiments.templates import (
 from quantum_lab_demo.lab import quantum_lab
 
 from .demo_lab_experiment_testkit import (
-    bound_plan,
+    MaterializedLocalEffects,
     load_experiment_config,
-    measurement_projection,
+    materialized_effects,
+    measurement_projection_and_points,
+    operations_of_type,
 )
 
 
@@ -264,13 +267,14 @@ def test_experiment_system_resolve_to_and_preview_invocation(
     assert resolved.template_id == template_id
     assert resolved.experiment.kind == kind
 
-    projection = _measurement_projection(tmp_path, invocation, config)
-    assert projection.schema is not None
-    assert projection.schema.primary_observables, label
+    projection, points = _measurement_projection(tmp_path, invocation, config)
+    schema = projection.schema_for(points)
+    assert schema is not None
+    assert schema.primary_observables, label
 
 
 def test_rabi_infers_default_scan_from_config(tmp_path: Path) -> None:
-    preview = _bound_plan(tmp_path, RABI_TEMPLATE.bind(qubit="q0"))
+    preview = _materialized_effects(tmp_path, RABI_TEMPLATE.bind(qubit="q0"))
 
     assert len(preview.points) == 5
     assert preview.points[0].coordinates["drive_length"] == Quantity(
@@ -313,13 +317,13 @@ def test_rabi_runtime_qubit_scan_drives_default_length_center(
 def test_rabi_generates_point_local_pulse_programs(tmp_path: Path) -> None:
     config = load_experiment_config()
     invocation = RABI_TEMPLATE.bind(qubit="q0")
-    preview = _bound_plan(tmp_path, invocation, config)
+    preview = _materialized_effects(tmp_path, invocation, config)
     payloads = _run_observed_payloads(tmp_path, invocation)
 
     assert {
         (call.semantic_operation_id, call.payload_slot.schema_id)
         for point in preview.points
-        for call in point.compute_operations
+        for call in operations_of_type(point, ComputeOperation)
         if call.payload_slot is not None
     } == {
         (
@@ -366,7 +370,7 @@ def test_simultaneous_rabi_generates_entity_series_waveform_payloads(
 
 def test_flux_background_rabi_adds_background_state(tmp_path: Path) -> None:
     config = load_experiment_config()
-    preview = _bound_plan(
+    preview = _materialized_effects(
         tmp_path,
         FLUX_BACKGROUND_RABI_TEMPLATE.bind(
             qubit="q0",
@@ -395,7 +399,7 @@ def test_system_background_rabi_materializes_coupler_parking_table(
     tmp_path: Path,
 ) -> None:
     config = load_experiment_config()
-    preview = _bound_plan(
+    preview = _materialized_effects(
         tmp_path, SYSTEM_BACKGROUND_RABI_TEMPLATE.bind(qubit="q0"), config
     )
 
@@ -432,7 +436,7 @@ def test_system_background_rabi_materializes_coupler_parking_table(
 def test_multiplexed_readout_is_single_point_entity_axis_record(
     tmp_path: Path,
 ) -> None:
-    projection = _measurement_projection(
+    projection, points = _measurement_projection(
         tmp_path,
         MULTIPLEXED_READOUT_TEMPLATE.bind(qubits=("q0", "q1")),
     )
@@ -440,16 +444,16 @@ def test_multiplexed_readout_is_single_point_entity_axis_record(
     observable = next(
         record for record in projection.records if record.id == "multiplexed_iq"
     )
-    assert len(projection.catalog.point_catalog.points) == 1
+    assert len(points) == 1
     assert observable.dtype == "complex128"
     assert observable.dims == ("point", "qubit")
-    assert observable.shape == (1, 2)
+    assert (len(points), *observable.shape[1:]) == (1, 2)
 
 
 def test_multiplexed_readout_calibration_scans_shared_readout_pulse(
     tmp_path: Path,
 ) -> None:
-    projection = _measurement_projection(
+    projection, points = _measurement_projection(
         tmp_path,
         MULTIPLEXED_READOUT_CALIBRATION_TEMPLATE.bind(qubits=("q0", "q1")),
     )
@@ -457,9 +461,9 @@ def test_multiplexed_readout_calibration_scans_shared_readout_pulse(
     observable = next(
         record for record in projection.records if record.id == "multiplexed_iq"
     )
-    assert len(projection.catalog.point_catalog.points) == 5
+    assert len(points) == 5
     assert observable.dims == ("point", "qubit")
-    assert observable.shape == (5, 2)
+    assert (len(points), *observable.shape[1:]) == (5, 2)
 
 
 def test_cz_chevron_generates_drive_and_coupler_payloads(tmp_path: Path) -> None:
@@ -476,7 +480,7 @@ def test_cz_chevron_generates_drive_and_coupler_payloads(tmp_path: Path) -> None
             unit="arb",
         )
     )
-    preview = _bound_plan(tmp_path, invocation, config)
+    preview = _materialized_effects(tmp_path, invocation, config)
 
     payloads = _run_observed_payloads(tmp_path, invocation)
     waveform_payloads = [
@@ -516,7 +520,7 @@ def test_cz_chevron_generates_drive_and_coupler_payloads(tmp_path: Path) -> None
     assert cz_program.parameters == ("qubits", "two_qubit_gates")
     build_payload = next(
         call
-        for call in preview.points[0].compute_operations
+        for call in operations_of_type(preview.points[0], ComputeOperation)
         if call.semantic_operation_id == ("cz_chevron/build-cz-chevron-program")
     )
     assert dict(build_payload.dependencies) == {
@@ -624,7 +628,7 @@ def test_run_time_parameter_scan_extends_template_without_duplicate_template(
 
 def test_spectator_cz_adds_background_state(tmp_path: Path) -> None:
     config = load_experiment_config()
-    preview = _bound_plan(
+    preview = _materialized_effects(
         tmp_path,
         SPECTATOR_CZ_TEMPLATE.bind(
             control_qubit="q0",
@@ -809,7 +813,7 @@ def test_parallel_gate_table_drives_program_and_resource_route_order(
 def test_toy_surface_code_round_uses_round_and_entity_axes(tmp_path: Path) -> None:
     config = load_experiment_config()
     invocation = TOY_SURFACE_CODE_ROUND_TEMPLATE.bind(rounds=2)
-    projection = _measurement_projection(tmp_path, invocation, config)
+    projection, points = _measurement_projection(tmp_path, invocation, config)
 
     payloads = _run_observed_payloads(tmp_path, invocation)
     surface_program = next(
@@ -825,13 +829,13 @@ def test_toy_surface_code_round_uses_round_and_entity_axes(tmp_path: Path) -> No
     assert surface_program.patch_qubits == ("q0", "q1", "q2", "q3")
     assert len(surface_program.schedule) == 4
     assert observable.dims == ("point", "round", "qubit")
-    assert observable.shape == (1, 2, 4)
+    assert (len(points), *observable.shape[1:]) == (1, 2, 4)
 
 
 def test_qnd_repeated_measurement_keeps_dense_round_shot_array(
     tmp_path: Path,
 ) -> None:
-    projection = _measurement_projection(
+    projection, points = _measurement_projection(
         tmp_path,
         QND_REPEATED_MEASUREMENT_TEMPLATE.bind(
             qubit="q0",
@@ -842,9 +846,9 @@ def test_qnd_repeated_measurement_keeps_dense_round_shot_array(
 
     observable = next(record for record in projection.records if record.id == "qnd_iq")
 
-    assert len(projection.catalog.point_catalog.points) == 1
+    assert len(points) == 1
     assert observable.dims == ("point", "round", "shot")
-    assert observable.shape == (1, 3, 5)
+    assert (len(points), *observable.shape[1:]) == (1, 3, 5)
 
 
 def test_backend_batch_keeps_logical_backend_points_inside_payload_and_record(
@@ -855,7 +859,7 @@ def test_backend_batch_keeps_logical_backend_points_inside_payload_and_record(
         logical_points=4,
         seed=5,
     )
-    projection = _measurement_projection(tmp_path, invocation, config)
+    projection, points = _measurement_projection(tmp_path, invocation, config)
 
     payloads = _run_observed_payloads(tmp_path, invocation)
     batch_job = next(
@@ -872,7 +876,7 @@ def test_backend_batch_keeps_logical_backend_points_inside_payload_and_record(
     assert sorted(batch_job.returned_order) == [0, 1, 2, 3]
     assert batch_job.returned_order != (0, 1, 2, 3)
     assert observable.dims == ("point", "backend_point")
-    assert observable.shape == (1, 4)
+    assert (len(points), *observable.shape[1:]) == (1, 4)
 
 
 def test_template_rejects_removed_scan_input_alias(tmp_path: Path) -> None:
@@ -904,22 +908,22 @@ def _run_observed_payloads(
     return [observation.payload for observation in observations]
 
 
-def _bound_plan(
+def _materialized_effects(
     tmp_path: Path,
     invocation: ExperimentInvocation,
     config: ConfigProfileSnapshot | None = None,
 ) -> MaterializedLocalEffects:
     del tmp_path
-    return bound_plan(invocation, config=config)
+    return materialized_effects(invocation, config=config)
 
 
 def _measurement_projection(
     tmp_path: Path,
     invocation: ExperimentInvocation,
     config: ConfigProfileSnapshot | None = None,
-) -> MeasurementProjection:
+) -> tuple[MeasurementProjection, tuple[RunPoint, ...]]:
     del tmp_path
-    return measurement_projection(invocation, config=config)
+    return measurement_projection_and_points(invocation, config=config)
 
 
 def _state_fields(
@@ -928,6 +932,6 @@ def _state_fields(
     return tuple(
         (point.point_index, state, field)
         for point in plan.points
-        for state in point.state_operations
+        for state in operations_of_type(point, ApplyStateOperation)
         for field in state.targets
     )

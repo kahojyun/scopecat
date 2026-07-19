@@ -14,6 +14,7 @@ from typing import Protocol
 from pydantic import BaseModel
 
 from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
 
@@ -77,6 +78,12 @@ class RunRepository(Protocol):
     def read_jsonl[TModel: BaseModel](
         self, run_id: str, ref: str, model_type: type[TModel]
     ) -> list[TModel]: ...
+
+    def read_measurement_records(
+        self,
+        run_id: str,
+        ref: str,
+    ) -> list[MeasurementRecord]: ...
 
     def write_jsonl(
         self, run_id: str, ref: str, records: Iterable[BaseModel]

@@ -181,7 +181,7 @@ class MaterializedLinkedPoints:
 def materialize_linked_points(
     linked: LinkedPlan,
     *,
-    max_points: int | None = None,
+    block_size: int = 100_000,
 ) -> MaterializedLinkedPoints:
     """Materialize the logical point domain and parameter bindings.
 
@@ -189,22 +189,17 @@ def materialize_linked_points(
     boundary as structured :class:`CheckFailed` problems.
     """
 
-    return LinkedPointMaterializer(linked, max_points=max_points).materialize()
+    return LinkedPointMaterializer(linked, block_size=block_size).materialize()
 
 
 @dataclass(slots=True)
 class LinkedPointMaterializer:
-    """Budgeted shared closure of one linked symbolic point space."""
+    """Shared closure of a symbolic point space in bounded ordinal blocks."""
 
     linked: LinkedPlan
-    max_points: int | None = None
+    block_size: int = 100_000
     _point_domain: MaterializedPointDomain | None = field(
         default=None,
-        init=False,
-        repr=False,
-    )
-    _point_parameters: dict[int, ParameterRelationData] = field(
-        default_factory=dict,
         init=False,
         repr=False,
     )
@@ -213,40 +208,23 @@ class LinkedPointMaterializer:
         init=False,
         repr=False,
     )
-    _domain_input_values: dict[tuple[str, int, str], object] = field(
-        default_factory=dict, init=False, repr=False
-    )
 
     def __post_init__(self) -> None:
-        if self.max_points is not None and (
-            type(self.max_points) is not int or self.max_points <= 0
-        ):
-            raise ValueError("point materialization budget must be a positive integer")
+        if type(self.block_size) is not int or self.block_size <= 0:
+            raise ValueError("point materialization block size must be positive")
 
     def point_count(self) -> int:
         """Return exact logical cardinality, evaluating the point root if needed."""
 
-        self._check_declared_budget()
         maximum = self.linked.cardinality.maximum
         if maximum == self.linked.cardinality.minimum:
             return self.linked.cardinality.minimum
         return len(self._materialize_point_domain().points)
 
-    def _check_declared_budget(self) -> None:
-        maximum = self.linked.cardinality.maximum
-        if (
-            self.max_points is not None
-            and maximum is not None
-            and maximum > self.max_points
-        ):
-            raise CheckFailed(
-                (
-                    _point_materialization_budget_problem(
-                        maximum=maximum,
-                        budget=self.max_points,
-                    ),
-                )
-            )
+    def materialize_point_domain(self) -> MaterializedPointDomain:
+        """Materialize canonical point rows without retaining point parameters."""
+
+        return self._materialize_point_domain()
 
     def bind_domain_inputs(
         self,
@@ -255,6 +233,7 @@ class LinkedPointMaterializer:
         ordinals: Sequence[int],
         *,
         max_points: int,
+        coverage: MaterializedLinkedPoints | None = None,
     ) -> tuple[tuple[str, tuple[object, ...]], ...]:
         """Evaluate selected domain inputs for selected logical ordinals."""
 
@@ -286,6 +265,25 @@ class LinkedPointMaterializer:
             selected,
             max_points=max_points,
         )
+        coverage_parameters = (
+            {}
+            if coverage is None
+            else {
+                point.logical_ordinal: parameters
+                for point, parameters in zip(
+                    coverage.point_domain.points,
+                    coverage.point_parameters,
+                    strict=True,
+                )
+            }
+        )
+        if coverage is not None and coverage.linked_plan is not self.linked:
+            raise ValueError("domain input coverage belongs to a different plan")
+        if coverage is not None and any(
+            point.logical_ordinal not in coverage_parameters
+            for point in selected_points
+        ):
+            raise ValueError("domain input ordinals fall outside the bound coverage")
         problems: list[Problem] = []
         columns: dict[str, list[object]] = {
             input_id: [] for input_id in selected_input_ids
@@ -295,6 +293,7 @@ class LinkedPointMaterializer:
                 execution,
                 point,
                 selected_input_ids,
+                parameters=coverage_parameters.get(point.logical_ordinal),
                 problems=problems,
             )
             if input_values is not None:
@@ -307,9 +306,31 @@ class LinkedPointMaterializer:
         )
 
     def materialize(self) -> MaterializedLinkedPoints:
-        """Close canonical points without evaluating domain execution inputs."""
+        """Close canonical points by bounded blocks, without domain inputs."""
 
-        point_domain = self._materialize_point_domain()
+        cardinality = self.linked.cardinality
+        if (
+            cardinality.maximum == cardinality.minimum
+            and cardinality.minimum > self.block_size
+        ):
+            points = tuple(
+                point
+                for start in range(0, cardinality.minimum, self.block_size)
+                for point in self._materialize_selected_points(
+                    tuple(
+                        range(start, min(start + self.block_size, cardinality.minimum))
+                    ),
+                    max_points=self.block_size,
+                )
+            )
+            point_domain = MaterializedPointDomain(
+                self.linked.point_domain.id,
+                points,
+                cardinality,
+            )
+            self._point_domain = point_domain
+        else:
+            point_domain = self._materialize_point_domain()
         problems: list[Problem] = []
         point_parameters = tuple(
             self._point_parameter(point, problems=problems)
@@ -323,10 +344,51 @@ class LinkedPointMaterializer:
             point_parameters,
         )
 
+    def materialize_ordinals(
+        self,
+        ordinals: Sequence[int],
+        *,
+        max_points: int,
+    ) -> MaterializedLinkedPoints:
+        """Materialize one bounded logical coverage without closing other points."""
+
+        selected_ordinals = tuple(ordinals)
+        if len(selected_ordinals) > max_points:
+            raise ValueError("point materialization exceeds the requested budget")
+        points = self._materialize_selected_points(
+            selected_ordinals,
+            max_points=max_points,
+        )
+        problems: list[Problem] = []
+        variation_support = self.linked.verified_program.variation_analysis.parameters
+        point_by_ordinal = {point.logical_ordinal: point for point in points}
+        parameter_by_ordinal: dict[int, ParameterRelationData] = {}
+        for coverage in self.linked.verified_program.iteration_layout.partition(
+            variation_support.point_columns,
+            selected_ordinals,
+            rows={ordinal: point.row for ordinal, point in point_by_ordinal.items()},
+        ):
+            parameters = self._point_parameter(
+                point_by_ordinal[coverage[0]],
+                problems=problems,
+            )
+            for ordinal in coverage:
+                parameter_by_ordinal[ordinal] = parameters
+        if has_blocking_problems(problems):
+            raise CheckFailed(problems)
+        return MaterializedLinkedPoints(
+            self.linked,
+            MaterializedPointDomain(
+                self.linked.point_domain.id,
+                points,
+                self.linked.cardinality,
+            ),
+            tuple(parameter_by_ordinal[point.logical_ordinal] for point in points),
+        )
+
     def _materialize_point_domain(self) -> MaterializedPointDomain:
         if self._point_domain is not None:
             return self._point_domain
-        self._check_declared_budget()
         problems: list[Problem] = []
         try:
             point_domain = materialize_point_domain(
@@ -361,15 +423,6 @@ class LinkedPointMaterializer:
             raise CheckFailed(problems) from error
         if has_blocking_problems(problems):
             raise CheckFailed(problems)
-        if self.max_points is not None and len(point_domain.points) > self.max_points:
-            raise CheckFailed(
-                (
-                    _point_materialization_budget_problem(
-                        point_count=len(point_domain.points),
-                        budget=self.max_points,
-                    ),
-                )
-            )
         if self._selected_points:
             points = list(point_domain.points)
             for ordinal, selected in self._selected_points.items():
@@ -447,11 +500,8 @@ class LinkedPointMaterializer:
         *,
         problems: list[Problem],
     ) -> ParameterRelationData:
-        cached = self._point_parameters.get(point.logical_ordinal)
-        if cached is not None:
-            return cached
         try:
-            parameters = resolve_point_parameters(
+            return resolve_point_parameters(
                 self.linked.environment.parameters,
                 self.linked.program.parameter_overlays,
                 point_row=point.row,
@@ -460,8 +510,6 @@ class LinkedPointMaterializer:
         except CompilerProblemError as error:
             problems.append(error.problem)
             return ParameterRelationData()
-        self._point_parameters[point.logical_ordinal] = parameters
-        return parameters
 
     def _domain_inputs(
         self,
@@ -469,30 +517,27 @@ class LinkedPointMaterializer:
         point: MaterializedPoint,
         input_ids: tuple[str, ...],
         *,
+        parameters: ParameterRelationData | None = None,
         problems: list[Problem],
     ) -> tuple[tuple[str, object], ...] | None:
-        parameters = self._point_parameter(point, problems=problems)
+        if parameters is None:
+            parameters = self._point_parameter(point, problems=problems)
         if has_blocking_problems(problems):
             return None
         input_values: list[tuple[str, object]] = []
         failed = False
         for input_name in input_ids:
-            input_key = (execution.id, point.logical_ordinal, input_name)
-            if input_key in self._domain_input_values:
-                value = self._domain_input_values[input_key]
-            else:
-                success, value = _materialize_domain_execution_input(
-                    execution,
-                    input_name=input_name,
-                    point=point,
-                    verified_program=self.linked.verified_program,
-                    parameters=parameters,
-                    problems=problems,
-                )
-                if not success:
-                    failed = True
-                    continue
-                self._domain_input_values[input_key] = value
+            success, value = _materialize_domain_execution_input(
+                execution,
+                input_name=input_name,
+                point=point,
+                verified_program=self.linked.verified_program,
+                parameters=parameters,
+                problems=problems,
+            )
+            if not success:
+                failed = True
+                continue
             input_values.append((input_name, value))
         if failed:
             return None
@@ -549,31 +594,6 @@ def _materialize_domain_execution_input(
             )
         )
         return False, None
-
-
-def _point_materialization_budget_problem(
-    *,
-    budget: int,
-    maximum: int | None = None,
-    point_count: int | None = None,
-) -> Problem:
-    symbolic = maximum is not None
-    return compiler_problem(
-        "point_materialization_budget_exceeded",
-        (
-            "symbolic point space exceeds the explicit materialization budget"
-            if symbolic
-            else "materialized point space exceeds the explicit budget"
-        ),
-        model_location("point_domain"),
-        phase=ProblemPhase.PLANNING,
-        details={
-            "maximum" if symbolic else "point_count": (
-                maximum if symbolic else point_count
-            ),
-            "budget": budget,
-        },
-    )
 
 
 def _evaluate_domain_input(

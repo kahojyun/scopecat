@@ -3,13 +3,10 @@
 from __future__ import annotations
 
 from scopecat.execution.effect_interpreter import RunEffectResult
-from scopecat.execution.persistence import (
-    build_raw_measurement_dataset,
-    build_run_manifest,
-    ref_for_dataset,
-)
+from scopecat.execution.persistence import build_run_manifest, ref_for_dataset
 from scopecat.kernel.content_identity import model_wire_content_hash
-from scopecat.measurements.results import MeasurementDatasetSchema, MeasurementRecord
+from scopecat.measurements.datasets import MEASUREMENT_DATASET_KIND
+from scopecat.measurements.results import MeasurementDatasetSchema
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigContentHash
 from scopecat.records.execution import InstrumentStateEvidence
@@ -52,26 +49,31 @@ def build_execution_manifest(
     *,
     run_id: str,
     outcome: RunOutcome,
-    measurements: list[MeasurementRecord],
-    expected_schema: MeasurementDatasetSchema | None,
+    measurement_count: int,
+    dataset_content_hash: str | None,
+    dataset_schema: MeasurementDatasetSchema | None,
+    expected_record_count: int | None,
     config_content_hash: ConfigContentHash,
     config_source: RunConfigSource | None,
     instrument_state: InstrumentStateEvidence | None,
 ) -> RunManifest:
     incomplete_run = outcome.result != "succeeded"
-    expected_record_count = (
-        _expected_record_count(expected_schema) if expected_schema is not None else None
-    )
     partial = incomplete_run and (
-        expected_record_count is None or expected_record_count != len(measurements)
+        expected_record_count is None or expected_record_count != measurement_count
     )
     datasets: list[RunContentEntry] = []
-    if measurements:
+    if measurement_count:
+        if dataset_content_hash is None or dataset_schema is None:
+            raise ValueError("recorded measurements require a sealed dataset contract")
         datasets.append(
-            build_raw_measurement_dataset(
-                dataset_id=RAW_MEASUREMENTS_DATASET_ID,
-                records=measurements,
-                expected_schema=None if incomplete_run else expected_schema,
+            RunContentEntry(
+                role="dataset",
+                id=RAW_MEASUREMENTS_DATASET_ID,
+                kind=MEASUREMENT_DATASET_KIND,
+                media_type="application/x-ndjson",
+                dataset_role="raw",
+                schema=dataset_schema.model_dump(mode="json"),
+                content_hash=dataset_content_hash,
                 metadata=(
                     {
                         "partial": partial,
@@ -79,12 +81,12 @@ def build_execution_manifest(
                         "run_certainty": outcome.certainty,
                         **(
                             {"expected_record_count": expected_record_count}
-                            if expected_schema is not None
+                            if expected_record_count is not None
                             else {}
                         ),
                     }
                     if partial
-                    else None
+                    else {}
                 ),
             )
         )
@@ -99,13 +101,6 @@ def build_execution_manifest(
             *datasets,
         ),
     )
-
-
-def _expected_record_count(schema: MeasurementDatasetSchema) -> int | None:
-    for dimension in schema.dimensions:
-        if dimension.kind == "point" or dimension.id == "point":
-            return dimension.size
-    return None
 
 
 def build_instrument_state_evidence(

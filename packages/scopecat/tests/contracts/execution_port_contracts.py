@@ -17,7 +17,7 @@ from scopecat.execution.ports.journal import (
     ExecutionJournalError,
     PayloadEvidenceCommitter,
 )
-from scopecat.execution.ports.measurement import MeasurementRecordCommitter
+from scopecat.execution.ports.measurement import MeasurementDatasetWriter
 from scopecat.records.execution_journal import (
     CommittedPayloadEvidence,
     ExecutionTransition,
@@ -25,8 +25,10 @@ from scopecat.records.execution_journal import (
 )
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.measurement_recording import (
-    MeasurementRecordChunk,
-    MeasurementRecordReceipt,
+    MeasurementDatasetAppend,
+    MeasurementDatasetReceipt,
+    MeasurementDatasetSeal,
+    measurement_dataset_content_hash,
 )
 from scopecat.records.parameter import Quantity
 
@@ -49,26 +51,27 @@ def _transition_body(transition: ExecutionTransition) -> dict[str, object]:
     )
 
 
-def _measurement_chunk(
+def _measurement_append(
     run_id: str,
     *,
     dataset_id: str = "raw-measurements",
     point_index: int = 0,
     value: float = 1.0,
-) -> MeasurementRecordChunk:
+) -> MeasurementDatasetAppend:
     logical_point_id = f"point-{point_index}"
-    return MeasurementRecordChunk(
+    return MeasurementDatasetAppend(
         run_id=run_id,
         dataset_id=dataset_id,
         recording_contract_fingerprint=f"{dataset_id}.contract.v1",
-        logical_point_id=logical_point_id,
-        point_index=point_index,
-        record=MeasurementRecord(
-            run_id=run_id,
-            logical_point_id=logical_point_id,
-            point_index=point_index,
-            coordinates={},
-            observables={"signal": Quantity(value=value, unit="ratio")},
+        start_index=point_index,
+        records=(
+            MeasurementRecord(
+                run_id=run_id,
+                logical_point_id=logical_point_id,
+                point_index=point_index,
+                coordinates={},
+                observables={"signal": Quantity(value=value, unit="ratio")},
+            ),
         ),
     )
 
@@ -157,49 +160,49 @@ class ExecutionJournalContract:
         }
 
 
-class MeasurementRecordCommitterContract:
-    """Shared idempotency contract for measurement record committers."""
+class MeasurementDatasetWriterContract:
+    """Shared idempotency contract for append-only measurement datasets."""
 
     def make_committer(
         self,
         tmp_path: Path,
         *,
         run_id: str,
-    ) -> MeasurementRecordCommitter:
+    ) -> MeasurementDatasetWriter:
         raise NotImplementedError
 
     def test_replay_returns_the_same_exact_receipt(self, tmp_path: Path) -> None:
         run_id = "run-measurement-committer-contract"
         committer = self.make_committer(tmp_path, run_id=run_id)
-        chunk = _measurement_chunk(run_id)
+        append = _measurement_append(run_id)
 
-        first = committer.commit(chunk)
-        repeated = committer.commit(chunk.model_copy(deep=True))
+        first = committer.append(append)
+        repeated = committer.append(append.model_copy(deep=True))
 
         assert repeated == first
-        assert first == MeasurementRecordReceipt(
-            operation_id=chunk.operation_id,
-            chunk_content_hash=chunk.content_hash,
-            record_ref=first.record_ref,
+        assert first == MeasurementDatasetReceipt(
+            operation_id=append.operation_id,
+            dataset_content_hash=append.content_hash,
+            dataset_ref=first.dataset_ref,
         )
 
     def test_same_operation_rejects_different_content(self, tmp_path: Path) -> None:
         run_id = "run-measurement-conflict-contract"
         committer = self.make_committer(tmp_path, run_id=run_id)
-        chunk = _measurement_chunk(run_id)
-        changed_record = chunk.record.model_copy(
+        append = _measurement_append(run_id)
+        changed_record = append.records[0].model_copy(
             update={
                 "observables": {"signal": Quantity(value=2.0, unit="ratio")},
             }
         )
-        conflicting = chunk.model_copy(update={"record": changed_record})
-        assert conflicting.operation_id == chunk.operation_id
-        assert conflicting.content_hash != chunk.content_hash
+        conflicting = append.model_copy(update={"records": (changed_record,)})
+        assert conflicting.operation_id == append.operation_id
+        assert conflicting.content_hash != append.content_hash
 
-        committer.commit(chunk)
+        committer.append(append)
 
         with pytest.raises(ExecutionJournalError):
-            committer.commit(conflicting)
+            committer.append(conflicting)
 
     def test_distinct_dataset_operations_commit_independently(
         self,
@@ -207,7 +210,7 @@ class MeasurementRecordCommitterContract:
     ) -> None:
         run_id = "run-measurement-dataset-contract"
         committer = self.make_committer(tmp_path, run_id=run_id)
-        raw = _measurement_chunk(run_id)
+        raw = _measurement_append(run_id)
         derived = raw.model_copy(
             update={
                 "dataset_id": "derived-measurements",
@@ -215,31 +218,54 @@ class MeasurementRecordCommitterContract:
             }
         )
 
-        raw_receipt = committer.commit(raw)
-        derived_receipt = committer.commit(derived)
+        raw_receipt = committer.append(raw)
+        derived_receipt = committer.append(derived)
 
         assert raw.operation_id != derived.operation_id
         assert raw_receipt.operation_id == raw.operation_id
         assert derived_receipt.operation_id == derived.operation_id
-        assert raw_receipt.record_ref != derived_receipt.record_ref
+        assert raw_receipt.dataset_ref != derived_receipt.dataset_ref
 
     def test_concurrent_replay_is_idempotent(self, tmp_path: Path) -> None:
         run_id = "run-measurement-concurrency-contract"
         committer = self.make_committer(tmp_path, run_id=run_id)
-        chunk = _measurement_chunk(run_id)
+        append = _measurement_append(run_id)
 
-        def replay_chunk(_ordinal: int) -> MeasurementRecordReceipt:
-            return committer.commit(chunk.model_copy(deep=True))
+        def replay_append(_ordinal: int) -> MeasurementDatasetReceipt:
+            return committer.append(append.model_copy(deep=True))
 
         with ThreadPoolExecutor(max_workers=4) as executor:
             receipts = tuple(
                 executor.map(
-                    replay_chunk,
+                    replay_append,
                     range(8),
                 )
             )
 
         assert len({receipt.model_dump_json() for receipt in receipts}) == 1
+
+    def test_seal_is_idempotent_and_rejects_later_appends(self, tmp_path: Path) -> None:
+        run_id = "run-measurement-seal-contract"
+        committer = self.make_committer(tmp_path, run_id=run_id)
+        append = _measurement_append(run_id)
+        committer.append(append)
+        seal = MeasurementDatasetSeal(
+            run_id=run_id,
+            dataset_id=append.dataset_id,
+            recording_contract_fingerprint=append.recording_contract_fingerprint,
+            point_count=1,
+            dataset_content_hash=measurement_dataset_content_hash(
+                recording_contract_fingerprint=(append.recording_contract_fingerprint),
+                append_content_hashes=(append.content_hash,),
+            ),
+        )
+
+        first = committer.seal(seal)
+        repeated = committer.seal(seal.model_copy(deep=True))
+
+        assert repeated == first
+        with pytest.raises(ExecutionJournalError):
+            committer.append(_measurement_append(run_id, point_index=1))
 
 
 class PayloadEvidenceCommitterContract:
@@ -301,6 +327,6 @@ class PayloadEvidenceCommitterContract:
 
 __all__ = [
     "ExecutionJournalContract",
-    "MeasurementRecordCommitterContract",
+    "MeasurementDatasetWriterContract",
     "PayloadEvidenceCommitterContract",
 ]

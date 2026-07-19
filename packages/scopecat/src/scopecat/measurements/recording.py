@@ -1,332 +1,287 @@
-"""Journaled, point-canonical recording of projected measurements."""
+"""Journaled append and seal operations for one canonical measurement dataset."""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from typing import Literal, cast
+from typing import Literal, Protocol
 
 from pydantic import JsonValue
 
 from scopecat.execution.ports.journal import ExecutionJournal
-from scopecat.execution.ports.measurement import MeasurementRecordCommitter
+from scopecat.execution.ports.journal import commit_transition as _commit_transition
+from scopecat.execution.ports.measurement import MeasurementDatasetWriter
 from scopecat.execution.problems import problem_from_exception, runtime_problem
 from scopecat.kernel.errors import MeasurementRecordingError
 from scopecat.kernel.problems import Problem, ProblemCategory, ProblemPhase
-from scopecat.measurements.projection import MeasurementRecordBatch
-from scopecat.records.execution_journal import ExecutionTransition
-from scopecat.records.measurement import MeasurementRecord
+from scopecat.measurements.projection import ProjectedMeasurementDataset
+from scopecat.records.execution_journal import ExecutionStage, ExecutionTransition
 from scopecat.records.measurement_recording import (
-    MeasurementRecordChunk,
-    MeasurementRecordReceipt,
+    MeasurementDatasetAppend,
+    MeasurementDatasetReceipt,
+    MeasurementDatasetSeal,
+    measurement_dataset_content_hash,
 )
 
 
-def commit_measurement_records(
-    batch: MeasurementRecordBatch,
-    committer: MeasurementRecordCommitter,
+class _DatasetOperation(Protocol):
+    run_id: str
+    dataset_id: str
+    recording_contract_fingerprint: str
+
+    @property
+    def operation_id(self) -> str: ...
+
+
+def append_measurement_dataset(
+    dataset: ProjectedMeasurementDataset,
+    writer: MeasurementDatasetWriter,
     journal: ExecutionJournal,
     *,
     transition_observer: Callable[[ExecutionTransition], None] | None = None,
-) -> tuple[MeasurementRecord, ...]:
-    """Commit a canonical projected batch with journaled point-level evidence."""
+) -> MeasurementDatasetReceipt | None:
+    """Append one contiguous projected point range."""
 
-    # Construct every durable chunk before the first journal or committer
-    # effect. No later point can reveal a structural batch error.
-    chunks = _chunks_for_batch(batch)
-    operation_ids = tuple(chunk.operation_id for chunk in chunks)
-    if len(operation_ids) != len(set(operation_ids)):
-        msg = "projected measurement records require unique operation identities"
-        raise ValueError(msg)
-    prepared_chunks = tuple((chunk, chunk.content_hash) for chunk in chunks)
-    committed: list[MeasurementRecordReceipt] = []
-
-    for chunk, expected_chunk_hash in prepared_chunks:
-        started = _recording_transition(
-            chunk,
-            state="started",
-            evidence=_chunk_evidence(chunk, expected_chunk_hash),
-        )
-        try:
-            committed_started = _commit_transition(journal, started)
-            if transition_observer is not None:
-                transition_observer(committed_started)
-        except Exception as error:
-            problem = _exception_problem(
-                chunk,
-                code="measurement_record_intent_persistence_failed",
-                message="failed to persist measurement record intent before writing",
-                error=error,
-                category=ProblemCategory.STORAGE,
-            )
-            raise _recording_error(
-                chunk,
-                problems=(problem,),
-                committed=committed,
-                pending_receipt=None,
-                write_may_have_completed=False,
-            ) from error
-
-        try:
-            raw_receipt = committer.commit(chunk)
-        except Exception as error:
-            problem = _exception_problem(
-                chunk,
-                code="measurement_record_commit_raised",
-                message="measurement record committer raised while writing the chunk",
-                error=error,
-                category=ProblemCategory.EXTERNAL_FAILURE,
-            )
-            problems = _append_unknown_best_effort(
-                journal,
-                started,
-                chunk=chunk,
-                problems=(problem,),
-                pending_receipt=None,
-            )
-            raise _recording_error(
-                chunk,
-                problems=problems,
-                committed=committed,
-                pending_receipt=None,
-                write_may_have_completed=True,
-            ) from error
-        except BaseException:
-            problem = runtime_problem(
-                "measurement_record_commit_interrupted",
-                "measurement record commit was interrupted",
-                run_id=chunk.run_id,
-                operation_id=chunk.operation_id,
-                point_index=chunk.point_index,
-                phase=ProblemPhase.PERSISTENCE,
-                category=ProblemCategory.INTERRUPTED,
-            )
-            _append_unknown_best_effort(
-                journal,
-                started,
-                chunk=chunk,
-                problems=(problem,),
-                pending_receipt=None,
-            )
-            raise
-
-        pending_receipt: MeasurementRecordReceipt | None = None
-        try:
-            receipt = _normalize_receipt(raw_receipt)
-            pending_receipt = receipt
-            _require_receipt_correlation(
-                chunk,
-                receipt,
-                expected_chunk_hash=expected_chunk_hash,
-                committed_record_refs={item.record_ref for item in committed},
-            )
-        except Exception as error:
-            problem = runtime_problem(
-                "measurement_record_receipt_invalid",
-                "measurement record committer returned an invalid receipt",
-                run_id=chunk.run_id,
-                operation_id=chunk.operation_id,
-                point_index=chunk.point_index,
-                phase=ProblemPhase.PERSISTENCE,
-                category=ProblemCategory.PROVIDER_CONTRACT,
-                details={
-                    "error_type": f"{type(error).__module__}.{type(error).__qualname__}"
-                },
-            )
-            problems = _append_unknown_best_effort(
-                journal,
-                started,
-                chunk=chunk,
-                problems=(problem,),
-                pending_receipt=pending_receipt,
-            )
-            raise _recording_error(
-                chunk,
-                problems=problems,
-                committed=committed,
-                pending_receipt=pending_receipt,
-                write_may_have_completed=True,
-            ) from error
-
-        completed = _recording_transition(
-            chunk,
-            state="completed",
-            evidence={
-                **_chunk_evidence(chunk, expected_chunk_hash),
-                "receipt": receipt.model_dump(mode="json"),
-                "receipt_content_hash": receipt.content_hash,
-            },
-        )
-        try:
-            committed_completed = _commit_transition(journal, completed)
-            if transition_observer is not None:
-                transition_observer(committed_completed)
-        except Exception as error:
-            problem = _exception_problem(
-                chunk,
-                code="measurement_record_receipt_persistence_failed",
-                message="failed to persist measurement record receipt after writing",
-                error=error,
-                category=ProblemCategory.STORAGE,
-            )
-            raise _recording_error(
-                chunk,
-                problems=(problem,),
-                committed=committed,
-                pending_receipt=receipt,
-                write_may_have_completed=True,
-            ) from error
-        committed.append(receipt)
-
-    return batch.records
-
-
-def _chunks_for_batch(
-    batch: MeasurementRecordBatch,
-) -> tuple[MeasurementRecordChunk, ...]:
-    # Keep the dependency one-way at import time: errors can describe receipt
-    # evidence without importing this runtime module.
-    selected = batch
-    records = selected.records
+    records = dataset.records
     if not records:
-        return ()
-    schema = selected.schema
-    if schema is None:
-        msg = "projected measurement records require a dataset schema before writing"
-        raise ValueError(msg)
-    points = selected.projection.catalog.point_catalog.points
-    return tuple(
-        MeasurementRecordChunk(
-            run_id=selected.run_id,
-            dataset_id=schema.dataset_id,
-            recording_contract_fingerprint=(selected.recording_contract_fingerprint),
-            logical_point_id=point.logical_id.value,
-            point_index=point.logical_ordinal,
-            record=record,
-        )
-        for point, record in zip(points, records, strict=True)
+        return None
+    if dataset.schema is None:
+        raise ValueError("projected measurement records require a dataset schema")
+    append = MeasurementDatasetAppend(
+        run_id=dataset.run_id,
+        dataset_id=dataset.schema.dataset_id,
+        recording_contract_fingerprint=dataset.recording_contract_fingerprint,
+        start_index=records[0].point_index,
+        records=records,
+    )
+    return _record_operation(
+        append,
+        expected_hash=append.content_hash,
+        stage="append_measurement",
+        evidence={
+            "dataset_id": append.dataset_id,
+            "start_index": append.start_index,
+            "record_count": len(append.records),
+            "append_content_hash": append.content_hash,
+        },
+        invoke=lambda: writer.append(append),
+        journal=journal,
+        transition_observer=transition_observer,
     )
 
 
-def _recording_transition(
-    chunk: MeasurementRecordChunk,
+def seal_measurement_dataset(
     *,
+    run_id: str,
+    dataset_id: str,
+    recording_contract_fingerprint: str,
+    point_count: int,
+    append_content_hashes: tuple[str, ...],
+    writer: MeasurementDatasetWriter,
+    journal: ExecutionJournal,
+    transition_observer: Callable[[ExecutionTransition], None] | None = None,
+) -> MeasurementDatasetReceipt:
+    """Seal the dataset after all admitted point ranges have been appended."""
+
+    seal = MeasurementDatasetSeal(
+        run_id=run_id,
+        dataset_id=dataset_id,
+        recording_contract_fingerprint=recording_contract_fingerprint,
+        point_count=point_count,
+        dataset_content_hash=measurement_dataset_content_hash(
+            recording_contract_fingerprint=recording_contract_fingerprint,
+            append_content_hashes=append_content_hashes,
+        ),
+    )
+    return _record_operation(
+        seal,
+        expected_hash=seal.dataset_content_hash,
+        stage="seal_measurement",
+        evidence={
+            "dataset_id": seal.dataset_id,
+            "point_count": seal.point_count,
+            "dataset_content_hash": seal.dataset_content_hash,
+        },
+        invoke=lambda: writer.seal(seal),
+        journal=journal,
+        transition_observer=transition_observer,
+    )
+
+
+def _record_operation(
+    operation: _DatasetOperation,
+    *,
+    expected_hash: str,
+    stage: ExecutionStage,
+    evidence: dict[str, JsonValue],
+    invoke: Callable[[], object],
+    journal: ExecutionJournal,
+    transition_observer: Callable[[ExecutionTransition], None] | None,
+) -> MeasurementDatasetReceipt:
+    started = _transition(
+        operation,
+        stage=stage,
+        state="started",
+        evidence=evidence,
+    )
+    try:
+        committed_started = _commit_transition(journal, started)
+        if transition_observer is not None:
+            transition_observer(committed_started)
+    except Exception as error:
+        raise _error(
+            operation,
+            problems=(
+                _problem(
+                    operation,
+                    "measurement_dataset_intent_persistence_failed",
+                    "failed to persist measurement dataset intent",
+                    error,
+                    ProblemCategory.STORAGE,
+                ),
+            ),
+            receipt=None,
+            uncertain=False,
+        ) from error
+    try:
+        raw_receipt = invoke()
+    except Exception as error:
+        problem = _problem(
+            operation,
+            "measurement_dataset_operation_raised",
+            "measurement dataset writer raised",
+            error,
+            ProblemCategory.EXTERNAL_FAILURE,
+        )
+        _append_unknown(journal, started, operation, stage, (problem,), None)
+        raise _error(
+            operation,
+            problems=(problem,),
+            receipt=None,
+            uncertain=True,
+        ) from error
+    except BaseException:
+        problem = runtime_problem(
+            "measurement_dataset_operation_interrupted",
+            "measurement dataset operation was interrupted",
+            run_id=operation.run_id,
+            operation_id=operation.operation_id,
+            phase=ProblemPhase.PERSISTENCE,
+            category=ProblemCategory.INTERRUPTED,
+        )
+        _append_unknown(journal, started, operation, stage, (problem,), None)
+        raise
+    receipt: MeasurementDatasetReceipt | None = None
+    try:
+        if not isinstance(raw_receipt, MeasurementDatasetReceipt):
+            raise TypeError("measurement writer must return MeasurementDatasetReceipt")
+        receipt = MeasurementDatasetReceipt.model_validate(
+            raw_receipt.model_dump(mode="json")
+        )
+        if (
+            receipt.operation_id != operation.operation_id
+            or receipt.dataset_content_hash != expected_hash
+        ):
+            raise ValueError("measurement dataset receipt does not correlate")
+    except Exception as error:
+        problem = runtime_problem(
+            "measurement_dataset_receipt_invalid",
+            "measurement dataset writer returned an invalid receipt",
+            run_id=operation.run_id,
+            operation_id=operation.operation_id,
+            phase=ProblemPhase.PERSISTENCE,
+            category=ProblemCategory.PROVIDER_CONTRACT,
+            details={
+                "error_type": f"{type(error).__module__}.{type(error).__qualname__}"
+            },
+        )
+        _append_unknown(journal, started, operation, stage, (problem,), receipt)
+        raise _error(
+            operation,
+            problems=(problem,),
+            receipt=receipt,
+            uncertain=True,
+        ) from error
+    completed = _transition(
+        operation,
+        stage=stage,
+        state="completed",
+        evidence={
+            **evidence,
+            "receipt": receipt.model_dump(mode="json"),
+            "receipt_content_hash": receipt.content_hash,
+        },
+    )
+    try:
+        committed_completed = _commit_transition(journal, completed)
+        if transition_observer is not None:
+            transition_observer(committed_completed)
+    except Exception as error:
+        raise _error(
+            operation,
+            problems=(
+                _problem(
+                    operation,
+                    "measurement_dataset_receipt_persistence_failed",
+                    "failed to persist measurement dataset receipt",
+                    error,
+                    ProblemCategory.STORAGE,
+                ),
+            ),
+            receipt=receipt,
+            uncertain=True,
+        ) from error
+    return receipt
+
+
+def _transition(
+    operation: _DatasetOperation,
+    *,
+    stage: ExecutionStage,
     state: Literal["started", "completed", "unknown"],
     evidence: dict[str, JsonValue],
     problems: Sequence[Problem] = (),
 ) -> ExecutionTransition:
     return ExecutionTransition(
-        run_id=chunk.run_id,
-        operation_id=chunk.operation_id,
-        stage="record_measurement",
+        run_id=operation.run_id,
+        operation_id=operation.operation_id,
+        stage=stage,
         effect="persistence",
         state=state,
-        point_index=chunk.point_index,
+        point_index=None,
         problems=tuple(problems),
         evidence=evidence,
     )
 
 
-def _chunk_evidence(
-    chunk: MeasurementRecordChunk,
-    content_hash: str,
-) -> dict[str, JsonValue]:
-    return {
-        "dataset_id": chunk.dataset_id,
-        "recording_contract_fingerprint": chunk.recording_contract_fingerprint,
-        "logical_point_id": chunk.logical_point_id,
-        "chunk_content_hash": content_hash,
-    }
-
-
-def _commit_transition(
-    journal: ExecutionJournal,
-    transition: ExecutionTransition,
-) -> ExecutionTransition:
-    expected = transition.model_dump(
-        mode="json",
-        exclude={"sequence", "timestamp"},
-    )
-    committed = journal.append(transition)
-    if not isinstance(cast("object", committed), ExecutionTransition):
-        msg = "execution journal returned no committed measurement transition"
-        raise TypeError(msg)
-    normalized = ExecutionTransition.model_validate(committed.model_dump(mode="json"))
-    if normalized.sequence is None:
-        msg = "measurement recording requires a journal-assigned durable sequence"
-        raise ValueError(msg)
-    actual = normalized.model_dump(
-        mode="json",
-        exclude={"sequence", "timestamp"},
-    )
-    if actual != expected:
-        msg = "execution journal changed measurement transition identity or evidence"
-        raise ValueError(msg)
-    return normalized
-
-
-def _require_receipt_correlation(
-    chunk: MeasurementRecordChunk,
-    receipt: MeasurementRecordReceipt,
-    *,
-    expected_chunk_hash: str | None = None,
-    committed_record_refs: set[str] | None = None,
-) -> None:
-    expected_hash = (
-        chunk.content_hash if expected_chunk_hash is None else expected_chunk_hash
-    )
-    if receipt.operation_id != chunk.operation_id:
-        msg = "measurement record receipt operation id does not match its chunk"
-        raise ValueError(msg)
-    if receipt.chunk_content_hash != expected_hash:
-        msg = "measurement record receipt content hash does not match its chunk"
-        raise ValueError(msg)
-    if (
-        committed_record_refs is not None
-        and receipt.record_ref in committed_record_refs
-    ):
-        msg = "measurement record receipt reuses an already committed durable ref"
-        raise ValueError(msg)
-
-
-def _append_unknown_best_effort(
+def _append_unknown(
     journal: ExecutionJournal,
     started: ExecutionTransition,
-    *,
-    chunk: MeasurementRecordChunk,
+    operation: _DatasetOperation,
+    stage: ExecutionStage,
     problems: tuple[Problem, ...],
-    pending_receipt: MeasurementRecordReceipt | None,
-) -> tuple[Problem, ...]:
+    receipt: MeasurementDatasetReceipt | None,
+) -> None:
     evidence = dict(started.evidence)
-    if pending_receipt is not None:
-        evidence.update(
-            {
-                "pending_receipt": pending_receipt.model_dump(mode="json"),
-                "pending_receipt_content_hash": pending_receipt.content_hash,
-            }
-        )
-    unknown = _recording_transition(
-        chunk,
-        state="unknown",
-        evidence=evidence,
-        problems=problems,
-    )
+    if receipt is not None:
+        evidence["receipt"] = receipt.model_dump(mode="json")
+        evidence["receipt_content_hash"] = receipt.content_hash
     try:
-        _commit_transition(journal, unknown)
-    except Exception as error:
-        persistence_problem = _exception_problem(
-            chunk,
-            code="measurement_record_unknown_persistence_failed",
-            message="failed to persist uncertain measurement record outcome",
-            error=error,
-            category=ProblemCategory.STORAGE,
+        _commit_transition(
+            journal,
+            _transition(
+                operation,
+                stage=stage,
+                state="unknown",
+                evidence=evidence,
+                problems=problems,
+            ),
         )
-        return (*problems, persistence_problem)
-    return problems
+    except Exception:
+        return
 
 
-def _exception_problem(
-    chunk: MeasurementRecordChunk,
-    *,
+def _problem(
+    operation: _DatasetOperation,
     code: str,
     message: str,
     error: Exception,
@@ -335,47 +290,37 @@ def _exception_problem(
     return problem_from_exception(
         code,
         message,
-        run_id=chunk.run_id,
-        operation_id=chunk.operation_id,
-        point_index=chunk.point_index,
+        run_id=operation.run_id,
+        operation_id=operation.operation_id,
         error=error,
         phase=ProblemPhase.PERSISTENCE,
         category=category,
     )
 
 
-def _recording_error(
-    chunk: MeasurementRecordChunk,
+def _error(
+    operation: _DatasetOperation,
     *,
     problems: Sequence[Problem],
-    committed: Sequence[MeasurementRecordReceipt],
-    pending_receipt: MeasurementRecordReceipt | None,
-    write_may_have_completed: bool,
+    receipt: MeasurementDatasetReceipt | None,
+    uncertain: bool,
 ) -> MeasurementRecordingError:
     return MeasurementRecordingError(
         problems,
-        run_id=chunk.run_id,
-        dataset_id=chunk.dataset_id,
-        recording_contract_fingerprint=chunk.recording_contract_fingerprint,
-        operation_id=chunk.operation_id,
-        logical_point_id=chunk.logical_point_id,
-        point_index=chunk.point_index,
-        committed_prefix=tuple(committed),
-        pending_receipt=pending_receipt,
-        write_may_have_completed=write_may_have_completed,
+        run_id=operation.run_id,
+        dataset_id=operation.dataset_id,
+        recording_contract_fingerprint=operation.recording_contract_fingerprint,
+        operation_id=operation.operation_id,
+        receipt=receipt,
+        write_may_have_completed=uncertain,
     )
 
 
-def _normalize_receipt(value: object) -> MeasurementRecordReceipt:
-    if not isinstance(value, MeasurementRecordReceipt):
-        msg = "measurement record committer must return MeasurementRecordReceipt"
-        raise TypeError(msg)
-    return MeasurementRecordReceipt.model_validate(value.model_dump(mode="json"))
-
-
 __all__ = [
-    "MeasurementRecordChunk",
-    "MeasurementRecordCommitter",
-    "MeasurementRecordReceipt",
-    "commit_measurement_records",
+    "MeasurementDatasetAppend",
+    "MeasurementDatasetReceipt",
+    "MeasurementDatasetSeal",
+    "MeasurementDatasetWriter",
+    "append_measurement_dataset",
+    "seal_measurement_dataset",
 ]

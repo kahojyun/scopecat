@@ -12,10 +12,14 @@ from scopecat.compiler.relations.point_domain import point_rows
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import CoreProgram, product_output
 from scopecat.compiler.typed.records import RecordUse
+from scopecat.execution.points import RunPoint
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.product_identity import ProductUse, product_use
 from scopecat.kernel.value_types import Float, Payload, Scalar, Table, TableColumn
-from scopecat.measurements._bridge import project_measurement_catalog
+from scopecat.measurements._bridge import (
+    project_measurement_catalog,
+    project_run_point_catalog,
+)
 from scopecat.measurements.values import (
     ClosedMeasurementProductValues,
     MeasurementValueCandidate,
@@ -36,6 +40,10 @@ class MeasurementAssemblyScenario:
     catalog: MeasurementValueCatalog
     uses: tuple[ProductUse, ...]
     records: tuple[RecordUse, ...]
+
+    @property
+    def points(self) -> tuple[RunPoint, ...]:
+        return project_run_point_catalog(self.linked_points).points
 
 
 def measurement_assembly_scenario(
@@ -169,6 +177,7 @@ def assembled_measurement_values_for_all_uses(
     values = seal_measurement_values(
         selected,
         measurement_value_candidates(scenario, scenario.uses),
+        points=scenario.points,
     )
     return scenario, selected, values
 

@@ -106,17 +106,17 @@ class RunIndeterminate(RunFailure):
 DomainRuntimeRetry = Literal["safe", "not_retryable"]
 
 
-class MeasurementRecordReceiptEvidence(Protocol):
-    """Runtime-resolvable boundary for one durable measurement-record receipt."""
+class MeasurementDatasetReceiptEvidence(Protocol):
+    """Runtime-resolvable boundary for one durable dataset receipt."""
 
     @property
     def operation_id(self) -> str: ...
 
     @property
-    def chunk_content_hash(self) -> str: ...
+    def dataset_content_hash(self) -> str: ...
 
     @property
-    def record_ref(self) -> str: ...
+    def dataset_ref(self) -> str: ...
 
 
 class MeasurementRecordingError(StorageError):
@@ -130,10 +130,7 @@ class MeasurementRecordingError(StorageError):
         dataset_id: str,
         recording_contract_fingerprint: str,
         operation_id: str,
-        logical_point_id: str,
-        point_index: int,
-        committed_prefix: Sequence[MeasurementRecordReceiptEvidence],
-        pending_receipt: MeasurementRecordReceiptEvidence | None,
+        receipt: MeasurementDatasetReceiptEvidence | None,
         write_may_have_completed: bool,
     ) -> None:
         if (
@@ -141,37 +138,17 @@ class MeasurementRecordingError(StorageError):
             or not dataset_id
             or not recording_contract_fingerprint
             or not operation_id
-            or not logical_point_id
         ):
             msg = "measurement recording identity fields must be non-empty"
             raise ValueError(msg)
-        if isinstance(point_index, bool) or point_index < 0:
-            msg = "measurement recording point index must be a non-negative integer"
-            raise ValueError(msg)
-        selected_prefix = tuple(committed_prefix)
-        operation_ids = tuple(receipt.operation_id for receipt in selected_prefix)
-        if any(not value for value in operation_ids) or len(operation_ids) != len(
-            set(operation_ids)
-        ):
-            msg = "committed measurement receipt operation ids must be unique"
-            raise ValueError(msg)
-        record_refs = tuple(receipt.record_ref for receipt in selected_prefix)
-        if any(not value for value in record_refs) or len(record_refs) != len(
-            set(record_refs)
-        ):
-            msg = "committed measurement receipt refs must be unique"
-            raise ValueError(msg)
-        if pending_receipt is not None and not pending_receipt.operation_id:
-            msg = "pending measurement receipt operation id must be non-empty"
+        if receipt is not None and not receipt.operation_id:
+            msg = "measurement dataset receipt operation id must be non-empty"
             raise ValueError(msg)
         self.run_id = run_id
         self.dataset_id = dataset_id
         self.recording_contract_fingerprint = recording_contract_fingerprint
         self.operation_id = operation_id
-        self.logical_point_id = logical_point_id
-        self.point_index = point_index
-        self.committed_prefix = selected_prefix
-        self.pending_receipt = pending_receipt
+        self.receipt = receipt
         self.write_may_have_completed = write_may_have_completed
         super().__init__(problems)
 

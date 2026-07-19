@@ -22,10 +22,10 @@ from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar, String
 from scopecat.kernel.value_types import Table as TableType
 from scopecat.records.parameter import Quantity
-from tests.testkit.bound_plan import (
-    bound_plan_contract,
-    bound_state_fields,
+from tests.testkit.materialized_effects import (
     config_with_physical_resources,
+    materialized_effects_contract,
+    materialized_state_fields,
 )
 from tests.testkit.parameter_fixtures import (
     PARAMETER_TYPES,
@@ -81,7 +81,7 @@ def _state_bindings(
     )
 
 
-def test_bound_plan_binds_desired_state_for_each_point() -> None:
+def test_materialized_effects_binds_desired_state_for_each_point() -> None:
     unchanged_points = _point_domain(grid(index=[0, 1]))
     unchanged = typed_program(
         id="unchanged-state-patches",
@@ -114,8 +114,10 @@ def test_bound_plan_binds_desired_state_for_each_point() -> None:
     )
 
     config = config_with_physical_resources({"drive-a": ("drive",)})
-    unchanged_preview = bound_plan_contract(unchanged, _parameters(), config=config)
-    swept_preview = bound_plan_contract(swept, _parameters(), config=config)
+    unchanged_preview = materialized_effects_contract(
+        unchanged, _parameters(), config=config
+    )
+    swept_preview = materialized_effects_contract(swept, _parameters(), config=config)
     unchanged_state = [
         (
             point_index,
@@ -123,7 +125,7 @@ def test_bound_plan_binds_desired_state_for_each_point() -> None:
             f"{field.capability_id}.{field.field_path}",
             _state_literal(field.value),
         )
-        for point_index, state, field in bound_state_fields(unchanged_preview)
+        for point_index, state, field in materialized_state_fields(unchanged_preview)
     ]
     swept_state = [
         (
@@ -132,7 +134,7 @@ def test_bound_plan_binds_desired_state_for_each_point() -> None:
             f"{field.capability_id}.{field.field_path}",
             _state_literal(field.value),
         )
-        for point_index, state, field in bound_state_fields(swept_preview)
+        for point_index, state, field in materialized_state_fields(swept_preview)
     ]
 
     assert unchanged_state == [
@@ -166,7 +168,7 @@ def test_bound_plan_binds_desired_state_for_each_point() -> None:
     assert unchanged_state != swept_state
 
 
-def test_bound_plan_repeated_state_uses_outer_point_row() -> None:
+def test_materialized_effects_repeated_state_uses_outer_point_row() -> None:
     points = _point_domain(grid(lo_frequency=linspace(4.9, 5.0, 2, unit="GHz")))
     point_bindings = _point_bindings(points)
     spec = typed_program(
@@ -188,7 +190,7 @@ def test_bound_plan_repeated_state_uses_outer_point_row() -> None:
         ],
     )
 
-    preview = bound_plan_contract(
+    preview = materialized_effects_contract(
         spec,
         _parameters(),
         config=config_with_physical_resources({"xy0": ("drive",), "xy1": ("drive",)}),
@@ -205,7 +207,7 @@ def test_bound_plan_repeated_state_uses_outer_point_row() -> None:
             f"{field.capability_id}.{field.field_path}",
             _state_literal(field.value),
         )
-        for point_index, state, field in bound_state_fields(preview)
+        for point_index, state, field in materialized_state_fields(preview)
     ] == [
         (0, "xy0", "drive.carrier_frequency", Quantity(value=5.0, unit="GHz")),
         (0, "xy1", "drive.carrier_frequency", Quantity(value=5.02, unit="GHz")),
@@ -214,7 +216,9 @@ def test_bound_plan_repeated_state_uses_outer_point_row() -> None:
     ]
 
 
-def test_bound_plan_selected_target_table_plans_simultaneous_resources() -> None:
+def test_materialized_effects_selected_target_table_plans_simultaneous_resources() -> (
+    None
+):
     points = _point_domain(
         table("readout_devices")
         .join(
@@ -269,7 +273,7 @@ def test_bound_plan_selected_target_table_plans_simultaneous_resources() -> None
         ],
     )
 
-    preview = bound_plan_contract(
+    preview = materialized_effects_contract(
         spec,
         _parameters(),
         config=config_with_physical_resources(
@@ -290,7 +294,7 @@ def test_bound_plan_selected_target_table_plans_simultaneous_resources() -> None
             f"{field.capability_id}.{field.field_path}",
             _state_literal(field.value),
         )
-        for point_index, state, field in bound_state_fields(preview)
+        for point_index, state, field in materialized_state_fields(preview)
     ] == [
         (0, "readout-a", "readout.frequency", Quantity(value=6.0, unit="GHz")),
         (0, "xy0", "drive.carrier_frequency", Quantity(value=6.05, unit="GHz")),

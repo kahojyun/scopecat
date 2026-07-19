@@ -42,10 +42,7 @@ from scopecat.measurements.values import (
 from scopecat.records.measurement import MeasurementValue
 
 
-class DomainResultContract[EntryAddressT: Hashable, ResultAddressT: Hashable](Protocol):
-    @property
-    def entry_address(self) -> EntryAddressT: ...
-
+class DomainResultContract[ResultAddressT: Hashable](Protocol):
     @property
     def result_address(self) -> ResultAddressT: ...
 
@@ -62,10 +59,7 @@ class DomainResultContract[EntryAddressT: Hashable, ResultAddressT: Hashable](Pr
     def product(self) -> ProductDef: ...
 
 
-class DomainResultMappingContract[
-    EntryAddressT: Hashable,
-    ResultAddressT: Hashable,
-](Protocol):
+class DomainResultMappingContract[ResultAddressT: Hashable](Protocol):
     @property
     def catalog(self) -> MeasurementValueCatalog: ...
 
@@ -78,7 +72,7 @@ class DomainResultMappingContract[
     @property
     def results(
         self,
-    ) -> tuple[DomainResultContract[EntryAddressT, ResultAddressT], ...]: ...
+    ) -> tuple[DomainResultContract[ResultAddressT], ...]: ...
 
     @property
     def contract_fingerprint(self) -> str: ...
@@ -87,7 +81,7 @@ class DomainResultMappingContract[
 
     def result_for_address(
         self, result_address: ResultAddressT
-    ) -> DomainResultContract[EntryAddressT, ResultAddressT]: ...
+    ) -> DomainResultContract[ResultAddressT]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,7 +157,6 @@ class DomainInvocationIntent(BaseModel):
 
 @dataclass(frozen=True, slots=True)
 class ClosedDomainInvocation[
-    EntryAddressT: Hashable,
     ResultAddressT: Hashable,
     PayloadT,
 ]:
@@ -175,10 +168,7 @@ class ClosedDomainInvocation[
     """
 
     intent: DomainInvocationIntent
-    result_mapping: DomainResultMappingContract[
-        EntryAddressT,
-        ResultAddressT,
-    ] = field(repr=False)
+    result_mapping: DomainResultMappingContract[ResultAddressT] = field(repr=False)
     payload: PayloadT = field(repr=False)
 
     def __post_init__(self) -> None:
@@ -191,14 +181,10 @@ class ClosedDomainInvocation[
 
 
 def close_domain_invocation[
-    EntryAddressT: Hashable,
     ResultAddressT: Hashable,
     PayloadT,
 ](
-    result_mapping: DomainResultMappingContract[
-        EntryAddressT,
-        ResultAddressT,
-    ],
+    result_mapping: DomainResultMappingContract[ResultAddressT],
     *,
     invocation_id: str,
     target_id: str,
@@ -208,7 +194,7 @@ def close_domain_invocation[
     artifact_fingerprint: str,
     target_intent: object,
     payload: PayloadT,
-) -> ClosedDomainInvocation[EntryAddressT, ResultAddressT, PayloadT]:
+) -> ClosedDomainInvocation[ResultAddressT, PayloadT]:
     """Close stable target and output facts around an opaque target payload."""
 
     result_contract_fingerprint = result_mapping.contract_fingerprint
@@ -249,10 +235,9 @@ def close_domain_invocation[
 
 
 def _domain_measurement_output_selection_problems[
-    EntryAddressT: Hashable,
     ResultAddressT: Hashable,
 ](
-    mapping: DomainResultMappingContract[EntryAddressT, ResultAddressT],
+    mapping: DomainResultMappingContract[ResultAddressT],
 ) -> tuple[Problem, ...]:
     problems: list[Problem] = []
     for use_index, product_use in enumerate(mapping.selected_product_uses):
@@ -297,10 +282,9 @@ def _domain_measurement_output_selection_problems[
 
 
 def seal_domain_output_values[
-    EntryAddressT: Hashable,
     ResultAddressT: Hashable,
 ](
-    mapping: DomainResultMappingContract[EntryAddressT, ResultAddressT],
+    mapping: DomainResultMappingContract[ResultAddressT],
     values: Sequence[DomainOutputValue[ResultAddressT]],
 ) -> tuple[MeasurementValueCandidate, ...]:
     """Accept exact observable-value coverage against retained contracts.
@@ -449,10 +433,9 @@ def _domain_invocation_intent_fingerprint(
 
 
 def _domain_output_identity_details[
-    EntryAddressT: Hashable,
     ResultAddressT: Hashable,
 ](
-    result: DomainResultContract[EntryAddressT, ResultAddressT],
+    result: DomainResultContract[ResultAddressT],
 ) -> dict[str, object]:
     return {
         "logical_point_id": result.logical_point_id.value,

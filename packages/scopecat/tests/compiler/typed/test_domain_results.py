@@ -52,7 +52,6 @@ def test_domain_result_closure_follows_exact_product_use_edges() -> None:
     transform = TypedMeasurementTransform(
         id=MeasurementTransformId(SymbolId(local_id="derive")),
         semantic=MeasurementTransformSemanticContract(id="test.derive", version="1"),
-        rate="point",
         inputs=(
             TypedMeasurementTransformInput(
                 id="source",

@@ -40,7 +40,6 @@ _OBSERVATION_METRIC_KEYS = frozenset(
         "changed_field_count",
         "compute_evaluated_node_count",
         "compute_payload_count",
-        "compute_step_count",
         "compiler_id",
         "dependencies",
         "dtype",
@@ -82,22 +81,45 @@ class RuntimeTransitionProjector:
         *,
         event_sink: RuntimeEventSink | None,
         experiment_id: str,
-        point_count: int,
+        point_count: int | None,
     ) -> None:
         self._event_sink = event_sink
         self._experiment_id = experiment_id
         self._point_count = point_count
         self._completed_points: set[int] = set()
+        self._compute_evaluated_node_count = 0
+        self._compute_payload_count = 0
+
+    @property
+    def compute_evaluated_node_count(self) -> int:
+        return self._compute_evaluated_node_count
+
+    @property
+    def compute_payload_count(self) -> int:
+        return self._compute_payload_count
+
+    @property
+    def completed_point_count(self) -> int:
+        return len(self._completed_points)
 
     def observe(self, transition: ExecutionTransition) -> None:
         """Emit one transition without changing execution semantics."""
 
-        if (
-            transition.stage == "point"
-            and transition.state == "completed"
-            and transition.point_index is not None
-        ):
-            self._completed_points.add(transition.point_index)
+        raw_point_indices = transition.evidence.get("point_indices")
+        point_indices = (
+            tuple(value for value in raw_point_indices if isinstance(value, int))
+            if isinstance(raw_point_indices, list)
+            else ()
+        )
+        if transition.stage == "point" and transition.state == "completed":
+            if point_indices:
+                self._completed_points.update(point_indices)
+            elif transition.point_index is not None:
+                self._completed_points.add(transition.point_index)
+        if transition.stage == "compute" and transition.state == "completed":
+            self._compute_evaluated_node_count += 1
+            if "payload_id" in transition.evidence:
+                self._compute_payload_count += 1
         _emit(
             self._event_sink,
             RuntimeTransitionEvent(
@@ -110,6 +132,7 @@ class RuntimeTransitionProjector:
                 effect=transition.effect,
                 state=transition.state,
                 point_index=transition.point_index,
+                point_indices=point_indices,
                 instrument_id=transition.instrument_id,
                 progress=RuntimeProgress(
                     completed_points=len(self._completed_points),
@@ -125,7 +148,7 @@ def emit_run_started(
     event_sink: RuntimeEventSink | None,
     run_id: str,
     experiment_id: str,
-    point_count: int,
+    point_count: int | None,
     instrument_ids: list[str],
     output_ids: list[str],
 ) -> None:
@@ -148,7 +171,7 @@ def emit_run_finished(
     experiment_id: str,
     outcome: RunOutcome,
     completed_point_count: int,
-    point_count: int,
+    point_count: int | None,
     measurement_count: int,
     problem_count: int,
     compute_evaluated_node_count: int,

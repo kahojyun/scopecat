@@ -24,10 +24,9 @@ from scopecat.compiler.relations.verification import (
     RowType,
     verify_relation_plan,
 )
-from scopecat.compiler.semantic.availability import (
-    ValueAvailability,
-    ValueRate,
-    ValueStage,
+from scopecat.compiler.semantic.dependencies import (
+    residual_operation_ids,
+    residual_value_ids,
 )
 from scopecat.compiler.semantic.model import (
     ImplementationCatalog,
@@ -37,7 +36,6 @@ from scopecat.compiler.semantic.model import (
     OperationId,
     OperationOutputSource,
     PlanExpressionSource,
-    RouteValueSource,
     RowArgumentDef,
     SemanticGraphIR,
     SemanticOperation,
@@ -71,7 +69,6 @@ from scopecat.kernel.value_types import (
     Float,
     Int,
     Payload,
-    Route,
     Scalar,
     Table,
     TableColumn,
@@ -80,9 +77,6 @@ from scopecat.kernel.value_types import (
 
 FLOAT = Scalar(Float())
 BOOL = Scalar(Bool())
-PLAN_RUN = ValueAvailability(ValueStage.PLAN, ValueRate.RUN)
-PLAN_POINT = ValueAvailability(ValueStage.PLAN, ValueRate.POINT)
-EXECUTE_POINT = ValueAvailability(ValueStage.EXECUTE, ValueRate.POINT)
 
 
 def _operation_id(local_id: str, *scope: str) -> OperationId:
@@ -112,7 +106,6 @@ def _plan_value(
     local_id: str,
     *,
     value_type: ValueType = FLOAT,
-    availability: ValueAvailability = PLAN_RUN,
 ) -> ValueDef:
     expression = (
         literal_rows([]) if isinstance(value_type, Table) else as_scalar_expr(1.0)
@@ -120,7 +113,6 @@ def _plan_value(
     return ValueDef(
         id=_value_id(local_id),
         value_type=value_type,
-        availability=availability,
         source=_plan_source(expression, expected_type=value_type),
     )
 
@@ -146,7 +138,6 @@ def _opaque_operation(
         ValueDef(
             id=result_id,
             value_type=FLOAT,
-            availability=EXECUTE_POINT,
             source=OperationOutputSource(operation_id),
         ),
     )
@@ -157,19 +148,14 @@ def _binary_graph(
     left_type: ValueType = FLOAT,
     right_type: ValueType = FLOAT,
     result_type: ValueType = FLOAT,
-    left_availability: ValueAvailability = PLAN_RUN,
-    right_availability: ValueAvailability = PLAN_RUN,
-    result_availability: ValueAvailability = PLAN_RUN,
 ) -> SemanticGraphIR:
     left = _plan_value(
         "left",
         value_type=left_type,
-        availability=left_availability,
     )
     right = _plan_value(
         "right",
         value_type=right_type,
-        availability=right_availability,
     )
     operation_id = _operation_id("add")
     result_id = operation_result_id(operation_id)
@@ -185,7 +171,6 @@ def _binary_graph(
     result = ValueDef(
         id=result_id,
         value_type=result_type,
-        availability=result_availability,
         source=OperationOutputSource(operation_id),
     )
     return SemanticGraphIR(
@@ -196,6 +181,36 @@ def _binary_graph(
 
 def _problem_codes(error: CheckFailed) -> list[str]:
     return [problem.code for problem in error.problems]
+
+
+def test_residual_dependency_closure_includes_portable_downstream_operations() -> None:
+    producer, produced = _opaque_operation("produce")
+    literal = _plan_value("literal")
+    operation_id = _operation_id("add")
+    result_id = operation_result_id(operation_id)
+    operation = SemanticOperation(
+        id=operation_id,
+        contract=scalar_binary_operation_contract("+"),
+        inputs=(
+            ("left", ValueUse(produced.id)),
+            ("right", ValueUse(literal.id)),
+        ),
+        outputs=(("result", result_id),),
+    )
+    result = ValueDef(
+        id=result_id,
+        value_type=FLOAT,
+        source=OperationOutputSource(operation_id),
+    )
+    definitions = {item.id: item for item in (produced, literal, result)}
+    operations = (producer, operation)
+
+    assert residual_value_ids(definitions, operations) == frozenset(
+        {produced.id, result.id}
+    )
+    assert residual_operation_ids(definitions, operations) == frozenset(
+        {producer.id, operation.id}
+    )
 
 
 def test_operation_and_value_ids_are_nominal_structural_identities() -> None:
@@ -264,7 +279,6 @@ def test_duplicate_value_definition_diagnostic_is_declaration_independent() -> N
     second = ValueDef(
         id=first.id,
         value_type=FLOAT,
-        availability=EXECUTE_POINT,
         source=LiteralValueSource(True),
     )
 
@@ -352,13 +366,11 @@ def test_operation_cycles_are_reported_in_identity_order() -> None:
         ValueDef(
             id=left_result,
             value_type=FLOAT,
-            availability=EXECUTE_POINT,
             source=OperationOutputSource(left_id),
         ),
         ValueDef(
             id=right_result,
             value_type=FLOAT,
-            availability=EXECUTE_POINT,
             source=OperationOutputSource(right_id),
         ),
     )
@@ -388,7 +400,6 @@ def test_operation_outputs_and_value_producers_must_be_reciprocal() -> None:
     orphan_definition = ValueDef(
         id=orphan,
         value_type=FLOAT,
-        availability=EXECUTE_POINT,
         source=OperationOutputSource(operation_id, "orphan"),
     )
 
@@ -418,7 +429,6 @@ def test_operation_output_definition_must_point_back_to_its_port() -> None:
     unrelated_definition = ValueDef(
         id=result_id,
         value_type=FLOAT,
-        availability=PLAN_RUN,
         source=_plan_source(as_scalar_expr(1.0), expected_type=FLOAT),
     )
 
@@ -445,7 +455,6 @@ def test_opaque_operation_requires_one_execute_point_result() -> None:
     output = ValueDef(
         id=output_id,
         value_type=FLOAT,
-        availability=PLAN_RUN,
         source=OperationOutputSource(operation_id, "other"),
     )
 
@@ -455,25 +464,6 @@ def test_opaque_operation_requires_one_execute_point_result() -> None:
         )
 
     assert _problem_codes(caught.value) == ["semantic_opaque_operation_shape_invalid"]
-
-
-def test_opaque_operation_rejects_plan_available_result() -> None:
-    operation, result = _opaque_operation("opaque")
-    plan_result = ValueDef(
-        id=result.id,
-        value_type=result.value_type,
-        availability=PLAN_RUN,
-        source=result.source,
-    )
-
-    with pytest.raises(CheckFailed) as caught:
-        verify_semantic_graph(
-            SemanticGraphIR(value_defs=(plan_result,), operations=(operation,))
-        )
-
-    assert _problem_codes(caught.value) == [
-        "semantic_opaque_operation_availability_invalid"
-    ]
 
 
 def test_plan_expression_source_retains_semantics() -> None:
@@ -537,7 +527,6 @@ def test_semantic_graph_rejects_conflicting_types_for_one_input_import() -> None
         ValueDef(
             id=_value_id("float-use"),
             value_type=FLOAT,
-            availability=PLAN_RUN,
             source=_plan_source(
                 input_ref("shared"),
                 expected_type=FLOAT,
@@ -547,7 +536,6 @@ def test_semantic_graph_rejects_conflicting_types_for_one_input_import() -> None
         ValueDef(
             id=_value_id("int-use"),
             value_type=integer,
-            availability=PLAN_RUN,
             source=_plan_source(
                 input_ref("shared"),
                 expected_type=integer,
@@ -568,7 +556,6 @@ def test_semantic_graph_rejects_conflicting_point_column_types() -> None:
         ValueDef(
             id=_value_id("float-point"),
             value_type=FLOAT,
-            availability=PLAN_POINT,
             source=_plan_source(
                 point_col("shared"),
                 expected_type=FLOAT,
@@ -580,7 +567,6 @@ def test_semantic_graph_rejects_conflicting_point_column_types() -> None:
         ValueDef(
             id=_value_id("int-point"),
             value_type=integer,
-            availability=PLAN_POINT,
             source=_plan_source(
                 point_col("shared"),
                 expected_type=integer,
@@ -608,7 +594,6 @@ def test_point_cross_internal_point_reference_does_not_raise_value_rate() -> Non
     definition = ValueDef(
         id=_value_id("internal-point"),
         value_type=expected,
-        availability=PLAN_RUN,
         source=_plan_source(
             expression,
             expected_type=expected,
@@ -620,7 +605,7 @@ def test_point_cross_internal_point_reference_does_not_raise_value_rate() -> Non
 
     verified = verify_semantic_graph(SemanticGraphIR(value_defs=(definition,)))
 
-    assert verified.value_defs[definition.id].availability == PLAN_RUN
+    assert verified.value_defs[definition.id] == definition
 
 
 def test_literal_source_captures_and_projects_by_value() -> None:
@@ -651,7 +636,6 @@ def test_literal_source_reuses_immutable_opaque_payload_without_deepcopy() -> No
     definition = ValueDef(
         id=_value_id("payload"),
         value_type=Scalar(Payload("program", python_type=Undeepcopyable)),
-        availability=PLAN_RUN,
         source=source,
     )
     verify_semantic_graph(SemanticGraphIR(value_defs=(definition,)))
@@ -672,7 +656,6 @@ def test_literal_source_value_must_match_declared_scalar_type(
     definition = ValueDef(
         id=_value_id("literal"),
         value_type=value_type,
-        availability=PLAN_RUN,
         source=LiteralValueSource(value),
     )
 
@@ -698,7 +681,6 @@ def test_literal_source_accepts_values_in_declared_scalar_domain(
     definition = ValueDef(
         id=_value_id("literal"),
         value_type=value_type,
-        availability=PLAN_RUN,
         source=LiteralValueSource(value),
     )
 
@@ -707,44 +689,11 @@ def test_literal_source_accepts_values_in_declared_scalar_domain(
     assert verified.value_defs[definition.id] == definition
 
 
-def test_plan_literal_and_route_sources_require_canonical_availability() -> None:
-    definitions = (
-        ValueDef(
-            id=_value_id("plan"),
-            value_type=FLOAT,
-            availability=EXECUTE_POINT,
-            source=_plan_source(as_scalar_expr(1.0), expected_type=FLOAT),
-        ),
-        ValueDef(
-            id=_value_id("literal"),
-            value_type=Scalar(Int()),
-            availability=EXECUTE_POINT,
-            source=LiteralValueSource(1),
-        ),
-        ValueDef(
-            id=_value_id("route"),
-            value_type=Route(),
-            availability=PLAN_RUN,
-            source=RouteValueSource(LogicalResourcePortId(SymbolId(local_id="port"))),
-        ),
-    )
-
-    with pytest.raises(CheckFailed) as caught:
-        verify_semantic_graph(SemanticGraphIR(value_defs=definitions))
-
-    assert _problem_codes(caught.value) == [
-        "semantic_literal_availability_invalid",
-        "semantic_plan_expression_availability_invalid",
-        "semantic_route_availability_invalid",
-    ]
-
-
-def test_plan_expression_accepts_explicit_run_and_point_rates_at_plan_stage() -> None:
+def test_plan_expression_accepts_run_and_point_dependencies() -> None:
     point_row = RowType(columns=(TableColumn("frequency", FLOAT),))
     point = ValueDef(
         id=_value_id("point"),
         value_type=FLOAT,
-        availability=PLAN_POINT,
         source=_plan_source(
             point_col("frequency"),
             expected_type=FLOAT,
@@ -757,66 +706,6 @@ def test_plan_expression_accepts_explicit_run_and_point_rates_at_plan_stage() ->
 
     assert verified.value_defs[point.id] == point
     assert verified.value_defs[run.id] == run
-
-    wrong_stage = replace(point, availability=EXECUTE_POINT)
-    with pytest.raises(CheckFailed) as caught:
-        verify_semantic_graph(SemanticGraphIR(value_defs=(wrong_stage,)))
-    assert _problem_codes(caught.value) == [
-        "semantic_plan_expression_availability_invalid"
-    ]
-
-
-def test_plan_expression_rate_must_match_point_and_row_references() -> None:
-    row_scope = RowScopeId(SymbolId(local_id="row"))
-    region_id = state_each_region_id(row_scope)
-    row_type = Table(columns=(TableColumn("frequency", FLOAT),))
-    row_signature = RowType.from_table(row_type)
-    relation = _plan_value("rows", value_type=row_type)
-    point = ValueDef(
-        id=_value_id("point-at-run-rate"),
-        value_type=FLOAT,
-        availability=PLAN_RUN,
-        source=_plan_source(
-            point_col("frequency"),
-            expected_type=FLOAT,
-            bindings=RelationTypeBindings(point_row=row_signature),
-        ),
-    )
-    row = ValueDef(
-        id=_value_id("row-at-run-rate"),
-        value_type=FLOAT,
-        availability=PLAN_RUN,
-        source=_plan_source(
-            col("frequency", row_scope_id=row_scope),
-            expected_type=FLOAT,
-            bindings=RelationTypeBindings(row_arguments={row_scope: row_signature}),
-        ),
-        owner_region_id=region_id,
-    )
-    definitions = (
-        point,
-        relation,
-        row,
-    )
-    region = StateEachRegion(
-        id=region_id,
-        row_argument=RowArgumentDef(row_scope, row_type),
-        relation=ValueUse(relation.id),
-        resource_port=LogicalResourcePortId(SymbolId(local_id="source")),
-        capability_id="set_frequency",
-        field_path="frequency",
-        value=ValueUse(row.id),
-    )
-
-    with pytest.raises(CheckFailed) as caught:
-        verify_semantic_graph(
-            SemanticGraphIR(value_defs=definitions, row_regions=(region,))
-        )
-
-    assert _problem_codes(caught.value) == [
-        "semantic_plan_expression_rate_mismatch",
-        "semantic_plan_expression_rate_mismatch",
-    ]
 
 
 def test_row_region_relation_is_evaluated_before_its_own_binder() -> None:
@@ -870,14 +759,13 @@ def test_row_region_binder_collision_is_rejected_before_graph_construction() -> 
     assert caught.value.code == "row_binder_collision"
 
 
-def test_scalar_binary_infers_result_type_and_combines_availability() -> None:
+def test_scalar_binary_infers_result_type() -> None:
     graph = _binary_graph()
 
     verified = verify_semantic_graph(graph)
 
     result_id = operation_result_id(_operation_id("add"))
     assert verified.value_defs[result_id].value_type == FLOAT
-    assert verified.value_defs[result_id].availability == PLAN_RUN
 
 
 def test_scalar_binary_requires_portable_semantics() -> None:
@@ -936,18 +824,14 @@ def test_scalar_binary_requires_left_and_right_inputs() -> None:
     assert _problem_codes(caught.value) == ["semantic_scalar_binary_shape_invalid"]
 
 
-def test_scalar_binary_collects_result_type_and_availability_mismatches() -> None:
-    graph = _binary_graph(
-        result_type=BOOL,
-        result_availability=EXECUTE_POINT,
-    )
+def test_scalar_binary_reports_result_type_mismatch() -> None:
+    graph = _binary_graph(result_type=BOOL)
 
     with pytest.raises(CheckFailed) as caught:
         verify_semantic_graph(graph)
 
     assert _problem_codes(caught.value) == [
-        "semantic_scalar_binary_result_type_mismatch",
-        "semantic_scalar_binary_availability_mismatch",
+        "semantic_scalar_binary_result_type_mismatch"
     ]
 
 
@@ -956,7 +840,6 @@ def test_scalar_binary_preserves_null_literal_type_inference() -> None:
     null = ValueDef(
         id=_value_id("null"),
         value_type=Scalar(Float(), nullable=True),
-        availability=PLAN_RUN,
         source=LiteralValueSource(None),
     )
     operation_id = _operation_id("equals-null")
@@ -970,7 +853,6 @@ def test_scalar_binary_preserves_null_literal_type_inference() -> None:
     result = ValueDef(
         id=result_id,
         value_type=BOOL,
-        availability=PLAN_RUN,
         source=OperationOutputSource(operation_id),
     )
 

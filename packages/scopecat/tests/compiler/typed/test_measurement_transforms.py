@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Literal
 
 import pytest
 
@@ -61,7 +60,6 @@ def _transform(
     source_use: ProductUse,
     output: ProductId,
     output_uses: tuple[ProductUse, ...],
-    rate: Literal["point"] = "point",
 ) -> TypedMeasurementTransform:
     transform_id = _transform_id(name)
     return TypedMeasurementTransform(
@@ -70,7 +68,6 @@ def _transform(
             id=f"test.{name}",
             version="1",
         ),
-        rate=rate,
         inputs=(
             TypedMeasurementTransformInput(
                 id="source",
@@ -251,14 +248,14 @@ def test_typed_transform_input_requires_matching_use_and_producer() -> None:
     assert "measurement_transform_input_producer_missing" in codes
 
 
-def test_typed_transform_rejects_point_set_rate_and_cross_kind_producer() -> None:
+def test_typed_transform_rejects_cross_kind_producer() -> None:
     program = _chain_program()
     second, first = program.measurement_transforms
     invalid = replace(
         program,
         measurement_transforms=(
             second,
-            replace(first, rate="point_set"),
+            first,
         ),
         instrument_product_producers=(
             *program.instrument_product_producers,
@@ -271,7 +268,6 @@ def test_typed_transform_rejects_point_set_rate_and_cross_kind_producer() -> Non
     )
 
     codes = _problem_codes(invalid)
-    assert "measurement_transform_rate_unsupported" in codes
     assert "measurement_transform_product_instrument_producer_conflict" in codes
 
 

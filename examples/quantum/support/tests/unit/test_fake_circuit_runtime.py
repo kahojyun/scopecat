@@ -10,7 +10,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from scopecat import Quantity
 from scopecat.adapters.memory import MemoryExecutionJournal
-from scopecat.adapters.memory.execution import MemoryMeasurementRecordCommitter
+from scopecat.adapters.memory.execution import MemoryMeasurementDatasetRepository
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.linked import (
     LinkedPointMaterializer,
@@ -53,7 +53,10 @@ from scopecat.measurements.projection import (
     project_measurement_records,
     select_measurement_projection,
 )
-from scopecat.measurements.recording import commit_measurement_records
+from scopecat.measurements.recording import (
+    append_measurement_dataset,
+    seal_measurement_dataset,
+)
 from scopecat.measurements.results import (
     ComplexQuantity,
     MeasurementArray,
@@ -870,9 +873,7 @@ def _prepared_mixed_execution(
         _mixed_bindings(scenario),
     )
     return scenario.preparation.build(
-        measurements=scenario.preparation.measurement_plan(
-            scenario.mapping.domain_mapping
-        ),
+        mapping=scenario.mapping.domain_mapping,
         invocation=fake_measurement_invocation_spec(
             selection,
             invocation_id="mixed-readout",
@@ -889,7 +890,6 @@ def _prepared_mixed_execution(
 
 
 type _ClosedMixedInvocation = ClosedDomainInvocation[
-    TargetCompileEntryId,
     TargetAcquisitionAddress,
     SelectedFakeMeasurementRealization,
 ]
@@ -1845,7 +1845,7 @@ def test_fake_domain_values_reach_receipt_bearing_host_recording() -> None:
     runtime = FakeListDomainRuntime()
     prepared = _prepared_mixed_execution(scenario, runtime)
     journal = MemoryExecutionJournal()
-    record_committer = MemoryMeasurementRecordCommitter()
+    record_committer = MemoryMeasurementDatasetRepository()
     run_id = "fake-host-recording-run"
 
     context = scenario.preparation.context
@@ -1863,6 +1863,7 @@ def test_fake_domain_values_reach_receipt_bearing_host_recording() -> None:
             run_id=run_id,
             journal=journal,
         ),
+        points=context.run_points,
     )
     projection = select_measurement_projection(
         context.measurement_catalog,
@@ -1872,11 +1873,23 @@ def test_fake_domain_values_reach_receipt_bearing_host_recording() -> None:
         projection,
         assembled,
         run_id=run_id,
+        points=context.run_points,
     )
-    committed = commit_measurement_records(
+    committed = append_measurement_dataset(
         projected,
         record_committer,
         journal,
+    )
+    assert committed is not None
+    assert projected.schema is not None
+    seal_measurement_dataset(
+        run_id=run_id,
+        dataset_id=projected.schema.dataset_id,
+        recording_contract_fingerprint=projected.recording_contract_fingerprint,
+        point_count=len(projected.records),
+        append_content_hashes=(committed.dataset_content_hash,),
+        writer=record_committer,
+        journal=journal,
     )
 
     record_ids = {
@@ -1893,25 +1906,26 @@ def test_fake_domain_values_reach_receipt_bearing_host_recording() -> None:
     assert set(projected.schema.primary_observables) == record_ids
     assert len(record_ids) > len(scenario.linked_points.linked_plan.product_uses)
 
-    chunks = record_committer.chunks
-    assert len(chunks) == len(scenario.linked_points.point_domain.points)
-    assert tuple(chunk.record for chunk in chunks) == projected.records
-    assert committed == projected.records
-    assert len(record_committer.receipts) == len(chunks)
-    for chunk, receipt in zip(chunks, record_committer.receipts, strict=True):
-        assert receipt.operation_id == chunk.operation_id
-        assert receipt.chunk_content_hash == chunk.content_hash
-        assert receipt.record_ref
+    appends = record_committer.appends
+    assert len(appends) == 1
+    assert appends[0].records == projected.records
+    assert committed.dataset_content_hash == appends[0].content_hash
+    append_receipt, seal_receipt = record_committer.receipts
+    assert append_receipt.operation_id == appends[0].operation_id
+    assert append_receipt.dataset_content_hash == appends[0].content_hash
+    assert append_receipt.dataset_ref
+    assert seal_receipt.dataset_ref
 
     record_transitions = tuple(
         transition
         for transition in journal.entries
-        if transition.stage == "record_measurement"
+        if transition.stage in {"append_measurement", "seal_measurement"}
     )
-    assert tuple(transition.state for transition in record_transitions) == tuple(
-        state
-        for _point in scenario.linked_points.point_domain.points
-        for state in ("started", "completed")
+    assert tuple(transition.state for transition in record_transitions) == (
+        "started",
+        "completed",
+        "started",
+        "completed",
     )
     assert tuple(
         transition.evidence["receipt"]
@@ -1920,9 +1934,11 @@ def test_fake_domain_values_reach_receipt_bearing_host_recording() -> None:
     ) == tuple(receipt.model_dump(mode="json") for receipt in record_committer.receipts)
     allowed_evidence_keys = {
         "dataset_id",
-        "recording_contract_fingerprint",
-        "logical_point_id",
-        "chunk_content_hash",
+        "start_index",
+        "record_count",
+        "append_content_hash",
+        "point_count",
+        "dataset_content_hash",
         "receipt",
         "receipt_content_hash",
     }

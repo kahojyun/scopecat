@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from scopecat.authoring import ExperimentInvocation
+from scopecat.execution.local.program import ApplyStateOperation
 from scopecat.execution.observation import RuntimePayloadObservation
 from scopecat.records.artifact import CommandPayload
 from scopecat.sdk.instruments import PayloadRef
@@ -15,7 +16,7 @@ from quantum_lab_demo.experiments.payloads import (
 from quantum_lab_demo.experiments.points import CLIFFORD_COUNT
 from quantum_lab_demo.lab import quantum_lab
 
-from .demo_lab_experiment_testkit import bound_plan
+from .demo_lab_experiment_testkit import materialized_effects, operations_of_type
 
 
 def test_sequence_compilation_stays_memory_payload_boundary(
@@ -25,7 +26,7 @@ def test_sequence_compilation_stays_memory_payload_boundary(
         CLIFFORD_COUNT,
         [4, 8],
     )
-    plan = bound_plan(invocation)
+    plan = materialized_effects(invocation)
     payloads = _run_observed_payloads(tmp_path, invocation)
 
     assert [point.coordinates["clifford_count"] for point in plan.points] == [
@@ -35,7 +36,7 @@ def test_sequence_compilation_stays_memory_payload_boundary(
     assert [
         (state.instrument_id, field.capability_id, field.field_path)
         for point in plan.points
-        for state in point.state_operations
+        for state in operations_of_type(point, ApplyStateOperation)
         for field in state.targets
         if isinstance(field.value.root, PayloadRef)
     ] == [

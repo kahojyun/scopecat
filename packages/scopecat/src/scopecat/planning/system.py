@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field, replace
 
 from scopecat.compiler.linking.linked import (
@@ -10,65 +11,75 @@ from scopecat.compiler.linking.linked import (
     MaterializedLinkedPoints,
 )
 from scopecat.compiler.typed.domain_results import (
-    DomainResultClosure,
     domain_result_closure,
 )
-from scopecat.compiler.typed.effect_dependencies import analyze_effect_barriers
 from scopecat.compiler.typed.program import (
+    CoreEffect,
+    TypedDomainExecution,
     TypedMeasurementTransform,
     core_actions,
     core_domain_executions,
     core_state,
 )
-from scopecat.execution.local.executor import (
-    preflight_instrument_provider,
-    validate_run_host_binding,
-)
-from scopecat.execution.local.program import (
-    CollectStage,
-    ComputeOperation,
-    ComputeStage,
-    PointProgram,
-)
+from scopecat.execution.local.program import ApplyStateOperation
+from scopecat.execution.points import RunPoint, RunPointCatalog
 from scopecat.execution.program import (
-    RunComputeStage,
+    RunCompute,
+    RunCoverageBlock,
+    RunCoverageCheckpoint,
+    RunCoverageEffect,
+    RunCoveredOperation,
     RunDomainJob,
     RunHostBinding,
-    RunOperation,
-    RunPointEnd,
-    RunPointLoop,
-    RunPointStage,
-    RunPointStart,
     RunProgram,
-    run_point_start,
 )
-from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.errors import CheckFailed, ProviderContractError
 from scopecat.kernel.problems import (
     Problem,
     ProblemCategory,
     ProblemPhase,
     blocking_problem,
+    has_blocking_problems,
     model_location,
 )
-from scopecat.kernel.product_identity import ProductUseId
 from scopecat.kernel.resource_identity import ResourceClaim
-from scopecat.measurements._bridge import project_measurement_catalog
+from scopecat.measurements._bridge import (
+    project_measurement_catalog_from_domain,
+    project_run_point_catalog_from_domain,
+)
 from scopecat.measurements.projection import select_measurement_projection
-from scopecat.planning.local_materialization import materialize_local_execution
+from scopecat.planning.local_effects import (
+    LocalTargetPlan,
+    MaterializedLocalEffects,
+    local_operation_resource_claims,
+)
+from scopecat.planning.local_materialization import (
+    materialize_local_execution,
+    prepare_local_target,
+)
+from scopecat.planning.provider_binding import (
+    InstrumentProviderPreflight,
+    preflight_instrument_provider,
+)
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     config_content_hash,
 )
 from scopecat.sdk.domain._bridge import (
     make_domain_batch_context,
-    make_domain_compile_request,
+    make_domain_compile_template,
 )
 from scopecat.sdk.domain.compiler import (
     DomainCompilation,
+    DomainCompiledJob,
     DomainCompiler,
     DomainCompileRequest,
+    DomainCompileTemplate,
+    DomainInputBinder,
     validate_domain_compilation,
 )
+from scopecat.sdk.domain.context import DomainBatchContext
+from scopecat.sdk.domain.execution import PreparedDomainExecution
 from scopecat.sdk.instruments.contracts import InstrumentProvider
 
 
@@ -78,14 +89,11 @@ class ExperimentSystem:
 
     provider: InstrumentProvider | None = field(default=None, repr=False)
     domain_compiler: DomainCompiler | None = field(default=None, repr=False)
-    max_materialized_points: int = 100_000
+    coverage_block_size: int = 100_000
 
     def __post_init__(self) -> None:
-        if (
-            type(self.max_materialized_points) is not int
-            or self.max_materialized_points <= 0
-        ):
-            raise ValueError("max_materialized_points must be a positive integer")
+        if type(self.coverage_block_size) is not int or self.coverage_block_size <= 0:
+            raise ValueError("coverage_block_size must be a positive integer")
         if self.provider is None and self.domain_compiler is None:
             msg = "experiment system requires a provider or domain compiler"
             raise ValueError(msg)
@@ -134,6 +142,34 @@ def _compile_system_program(
         execution.id: domain_result_closure(linked.program, execution.id)
         for execution in core_domain_executions(linked.program)
     }
+    domain_templates = {
+        execution_id: make_domain_compile_template(
+            linked,
+            execution_id,
+            result_closure,
+        )
+        for execution_id, result_closure in domain_result_closures.items()
+    }
+    domain_resource_claims: dict[str, tuple[ResourceClaim, ...]] = {}
+    if system.domain_compiler is not None:
+        for execution_id, template in domain_templates.items():
+            claims = system.domain_compiler.claim_resources(template.call)
+            if claims is None:
+                raise CheckFailed(
+                    [
+                        _planning_problem(
+                            "domain_compiler_missing",
+                            "the experiment system cannot compile domain call "
+                            f"{execution_id!r}",
+                            category=ProblemCategory.NOT_FOUND,
+                            details={"execution_id": execution_id},
+                        )
+                    ]
+                )
+            selected = tuple(claims)
+            if len(selected) != len(set(selected)):
+                raise ValueError("domain resource claims must be unique")
+            domain_resource_claims[execution_id] = selected
     domain_owned_product_use_ids = frozenset(
         use_id
         for result_closure in domain_result_closures.values()
@@ -172,110 +208,394 @@ def _compile_system_program(
         raise CheckFailed(implementation_problems)
     lazy_points = LinkedPointMaterializer(
         linked,
-        max_points=system.max_materialized_points,
+        block_size=system.coverage_block_size,
     )
-    barrier_ordinals = _plan_barrier_ordinals(
-        lazy_points.point_count(),
-        requires_single_point_regions=(
-            local_required
-            and analyze_effect_barriers(linked.program).requires_single_point_regions
-        ),
+    point_count = lazy_points.point_count()
+    point_domain = lazy_points.materialize_point_domain()
+    measurement_catalog = project_measurement_catalog_from_domain(
+        linked,
+        point_domain,
     )
-    compiled_domains = tuple(
-        compiled
-        for execution in core_domain_executions(linked.program)
-        if (
-            compiled := _compile_domain_execution(
-                system.domain_compiler,
-                linked,
-                barrier_ordinals,
-                lazy_points=lazy_points,
-                execution_id=execution.id,
-                result_closure=domain_result_closures[execution.id],
-            )
-        )
-        is not None
-    )
-    problems: list[Problem] = []
-    compiled_execution_ids = {compiled.request.call.id for compiled in compiled_domains}
-    problems.extend(
-        _planning_problem(
-            "domain_compiler_missing",
-            f"the experiment system cannot compile domain call {execution.id!r}",
-            category=ProblemCategory.NOT_FOUND,
-            details={"execution_id": execution.id},
-        )
-        for execution in core_domain_executions(linked.program)
-        if execution.id not in compiled_execution_ids
-    )
-    if problems:
-        raise CheckFailed(problems)
-
-    linked_points = lazy_points.materialize()
-    (
-        local_effects,
-        local_points,
-        local_run_compute_operations,
-        local_resource_claims,
-    ) = _prepare_local_effects(
-        system,
-        linked_points,
-        config=config,
-        product_use_ids=local_product_use_ids,
-        required=local_required,
-    )
-    barrier_regions = barrier_ordinals
-    domain_jobs = tuple(
-        job
-        for compiled in compiled_domains
-        for job in _prepare_domain_jobs(
-            compiled,
-            linked_points,
-        )
-    )
-    jobs_by_region: dict[int, list[RunDomainJob]] = {
-        region_ordinal: [] for region_ordinal, _region in enumerate(barrier_regions)
-    }
-    for job in domain_jobs:
-        region_ordinal = next(
-            ordinal
-            for ordinal, region in enumerate(barrier_regions)
-            if job.point_ordinals[0] in region
-        )
-        jobs_by_region[region_ordinal].append(job)
-    point_operations = _ordered_run_operations(
-        local_points,
-        barrier_regions=barrier_regions,
-        jobs_by_region=jobs_by_region,
-    )
-    operations: tuple[RunOperation, ...] = (
-        *(
-            (RunComputeStage(ComputeStage(local_run_compute_operations)),)
-            if local_run_compute_operations
-            else ()
-        ),
-        *point_operations,
-    )
-    measurement_catalog = project_measurement_catalog(linked_points)
+    point_catalog = project_run_point_catalog_from_domain(linked, point_domain)
     measurements = select_measurement_projection(
         measurement_catalog,
         linked.record_uses,
     )
-    resource_claims = tuple(
-        sorted(
-            {
-                *local_resource_claims,
-                *(claim for job in domain_jobs for claim in job.resource_claims),
-            },
-            key=lambda claim: (claim.kind, claim.id),
+    preflight = (
+        preflight_instrument_provider(
+            config=config,
+            instrument_provider=system.provider,
         )
+        if local_required and system.provider is not None
+        else None
     )
+    if preflight is not None and has_blocking_problems(preflight.problems):
+        raise ProviderContractError(preflight.problems)
+    host = _host_binding(preflight)
+    resource_claims = (
+        ()
+        if preflight is None
+        else tuple(ResourceClaim(item) for item in preflight.instrument_order)
+    )
+    local_target = (
+        prepare_local_target(
+            linked,
+            product_use_ids=frozenset(local_product_use_ids),
+            instrument_order=preflight.instrument_order
+            if preflight is not None
+            else (),
+        )
+        if local_required
+        else None
+    )
+    outer_regions = tuple(
+        tuple(range(start, min(start + system.coverage_block_size, point_count)))
+        for start in range(0, point_count, system.coverage_block_size)
+    )
+
+    def materialize_region(
+        region: tuple[int, ...],
+    ) -> tuple[RunCoverageBlock, ...]:
+        return _compile_coverage_region(
+            system=system,
+            linked=linked,
+            lazy_points=lazy_points,
+            point_catalog=point_catalog,
+            region=region,
+            point_count=point_count,
+            domain_templates=domain_templates,
+            domain_resource_claims=domain_resource_claims,
+            local_target=local_target,
+            run_resource_claims=frozenset(resource_claims),
+        )
+
+    def coverage() -> Iterator[RunCoverageBlock]:
+        for region in outer_regions:
+            yield from materialize_region(region)
+
     return RunProgram(
-        host=local_effects,
-        operations=operations,
+        host=host,
+        preamble=tuple(
+            RunCompute(operation)
+            for operation in (
+                () if local_target is None else local_target.run_operations
+            )
+        ),
+        coverage=coverage(),
+        points=point_catalog,
         measurements=measurements,
         resource_claims=resource_claims,
     )
+
+
+def _host_binding(
+    preflight: InstrumentProviderPreflight | None,
+) -> RunHostBinding | None:
+    if preflight is None:
+        return None
+    return RunHostBinding(
+        resource_order=preflight.instrument_order,
+        provider_id=preflight.provider_id,
+        instrument_order=preflight.instrument_order,
+        advertised_descriptions=preflight.advertised_descriptions,
+    )
+
+
+def _sorted_claims(claims: tuple[ResourceClaim, ...]) -> tuple[ResourceClaim, ...]:
+    return tuple(sorted(set(claims), key=lambda claim: (claim.kind, claim.id)))
+
+
+def _compile_coverage_region(
+    *,
+    system: ExperimentSystem,
+    linked: LinkedPlan,
+    lazy_points: LinkedPointMaterializer,
+    point_catalog: RunPointCatalog,
+    region: tuple[int, ...],
+    point_count: int,
+    domain_templates: dict[str, DomainCompileTemplate],
+    domain_resource_claims: dict[str, tuple[ResourceClaim, ...]],
+    local_target: LocalTargetPlan | None,
+    run_resource_claims: frozenset[ResourceClaim],
+) -> tuple[RunCoverageBlock, ...]:
+    catalog = point_catalog
+    linked_block = lazy_points.materialize_ordinals(
+        region,
+        max_points=system.coverage_block_size,
+    )
+    if local_target is not None:
+        local = materialize_local_execution(
+            linked_block,
+            target=local_target,
+            point_count=point_count,
+        )
+        local_effects = local
+    else:
+        local_effects = None
+    barriers = (
+        tuple((ordinal,) for ordinal in region)
+        if core_actions(linked.program)
+        else (region,)
+    )
+    input_cache: dict[
+        tuple[str, tuple[str, ...], tuple[int, ...]],
+        tuple[tuple[str, tuple[object, ...]], ...],
+    ] = {}
+
+    def bind_domain_inputs(
+        execution_id: str,
+        input_ids: Sequence[str],
+        ordinals: Sequence[int],
+        max_points: int,
+    ) -> tuple[tuple[str, tuple[object, ...]], ...]:
+        selected_ordinals = tuple(ordinals)
+        if len(selected_ordinals) > max_points:
+            raise ValueError("domain input binding exceeds the requested budget")
+        key = (execution_id, tuple(input_ids), selected_ordinals)
+        cached = input_cache.get(key)
+        if cached is not None:
+            return cached
+        bound = lazy_points.bind_domain_inputs(
+            execution_id,
+            input_ids,
+            selected_ordinals,
+            max_points=max_points,
+            coverage=linked_block,
+        )
+        input_cache[key] = bound
+        return bound
+
+    def input_binder(execution_id: str) -> DomainInputBinder:
+        return lambda input_ids, ordinals, max_points: bind_domain_inputs(
+            execution_id,
+            input_ids,
+            ordinals,
+            max_points,
+        )
+
+    compiled_domains: list[_CompiledDomainExecution] = []
+    for execution in core_domain_executions(linked.program):
+        for barrier in barriers:
+            refined_barriers = _domain_state_barriers(
+                barrier,
+                local_effects=local_effects,
+                resource_claims=domain_resource_claims[execution.id],
+            )
+            for refined in refined_barriers:
+                compiled = _compile_domain_execution(
+                    system.domain_compiler,
+                    domain_templates[execution.id],
+                    refined,
+                    coverage_ordinal=refined[0],
+                    bind_inputs=input_binder(execution.id),
+                    resource_claims=domain_resource_claims[execution.id],
+                )
+                if compiled is None:
+                    raise CheckFailed(
+                        [
+                            _planning_problem(
+                                "domain_compiler_missing",
+                                "the experiment system cannot compile domain call "
+                                f"{execution.id!r}",
+                                category=ProblemCategory.NOT_FOUND,
+                                details={"execution_id": execution.id},
+                            )
+                        ]
+                    )
+                compiled_domains.append(compiled)
+    jobs_by_execution: dict[str, list[RunDomainJob]] = {}
+    for compiled in compiled_domains:
+        jobs_by_execution.setdefault(compiled.request.call.id, []).extend(
+            _prepare_domain_jobs(compiled, linked_block)
+        )
+    return _coverage_blocks(
+        effects=linked.program.effects,
+        local_effects=local_effects,
+        run_points=catalog.points,
+        barriers=barriers,
+        jobs_by_execution=jobs_by_execution,
+        run_resource_claims=run_resource_claims,
+    )
+
+
+def _coverage_blocks(
+    *,
+    effects: tuple[CoreEffect, ...],
+    local_effects: MaterializedLocalEffects | None,
+    run_points: tuple[RunPoint, ...],
+    barriers: tuple[tuple[int, ...], ...],
+    jobs_by_execution: dict[str, list[RunDomainJob]],
+    run_resource_claims: frozenset[ResourceClaim],
+) -> tuple[RunCoverageBlock, ...]:
+    run_point_by_ordinal = {point.ordinal: point for point in run_points}
+    jobs = tuple(job for selected in jobs_by_execution.values() for job in selected)
+    blocks: list[RunCoverageBlock] = []
+    for barrier in barriers:
+        block_jobs = tuple(job for job in jobs if job.point_ordinals[0] in barrier)
+        selected_compute = _select_local_effects(
+            () if local_effects is None else local_effects.compute_operations,
+            barrier,
+        )
+        selected_effects = tuple(
+            _select_local_effects(group, barrier)
+            for group in (
+                () if local_effects is None else local_effects.effect_operations
+            )
+        )
+        selected_collects = _select_local_effects(
+            () if local_effects is None else local_effects.collect_operations,
+            barrier,
+        )
+        local_regions = _local_schedule_regions(
+            barrier,
+            (
+                *selected_compute,
+                *(item for group in selected_effects for item in group),
+            ),
+            block_jobs,
+        )
+        operations: list[RunCoveredOperation] = []
+        for region in local_regions:
+            operations.extend(
+                effect
+                for effect in selected_compute
+                if effect.point_indices[0] in region
+            )
+            for effect_index, effect in enumerate(effects):
+                if local_effects is not None:
+                    operations.extend(
+                        item
+                        for item in selected_effects[effect_index]
+                        if item.point_indices[0] in region
+                    )
+                if isinstance(effect, TypedDomainExecution):
+                    operations.extend(
+                        job
+                        for job in jobs_by_execution.get(effect.id, ())
+                        if job.point_ordinals[0] in region
+                    )
+            for ordinal in region:
+                operations.extend(
+                    effect
+                    for effect in selected_collects
+                    if effect.point_indices == (ordinal,)
+                )
+                operations.append(RunCoverageCheckpoint((ordinal,)))
+        local_claims = tuple(
+            claim
+            for operation in operations
+            if isinstance(operation, RunCoverageEffect)
+            for claim in local_operation_resource_claims(operation.operation)
+        )
+        blocks.append(
+            RunCoverageBlock(
+                tuple(run_point_by_ordinal[ordinal] for ordinal in barrier),
+                tuple(operations),
+                tuple(
+                    claim
+                    for claim in _sorted_claims(
+                        (
+                            *local_claims,
+                            *(
+                                claim
+                                for job in block_jobs
+                                for claim in job.resource_claims
+                            ),
+                        )
+                    )
+                    if claim not in run_resource_claims
+                ),
+            )
+        )
+    return tuple(blocks)
+
+
+def _local_schedule_regions(
+    region: tuple[int, ...],
+    effects: Sequence[RunCoverageEffect],
+    domain_jobs: Sequence[RunDomainJob],
+) -> tuple[tuple[int, ...], ...]:
+    boundaries = {
+        *(effect.point_indices[0] for effect in effects),
+        *(job.point_ordinals[0] for job in domain_jobs),
+    }
+    selected: list[tuple[int, ...]] = []
+    start = 0
+    for offset, ordinal in enumerate(region):
+        if offset and ordinal in boundaries:
+            selected.append(region[start:offset])
+            start = offset
+    selected.append(region[start:])
+    return tuple(selected)
+
+
+def _select_local_effects(
+    effects: Sequence[RunCoverageEffect],
+    region: tuple[int, ...],
+) -> tuple[RunCoverageEffect, ...]:
+    selected_ordinals = frozenset(region)
+    selected: list[RunCoverageEffect] = []
+    for effect in effects:
+        covered = tuple(
+            ordinal for ordinal in effect.point_indices if ordinal in selected_ordinals
+        )
+        if not covered:
+            continue
+        selected.append(
+            effect
+            if covered == effect.point_indices
+            else replace(effect, point_indices=covered)
+        )
+    return tuple(selected)
+
+
+def _domain_state_barriers(
+    region: tuple[int, ...],
+    *,
+    local_effects: MaterializedLocalEffects | None,
+    resource_claims: tuple[ResourceClaim, ...],
+) -> tuple[tuple[int, ...], ...]:
+    """Split before compilation where changing state conflicts with the target."""
+
+    boundaries: set[int] = set()
+    target_claims = frozenset(resource_claims)
+    if not target_claims or local_effects is None:
+        return (region,)
+    state_effects = (
+        effect for group in local_effects.effect_operations for effect in group
+    )
+    for effect in state_effects:
+        if not isinstance(effect.operation, ApplyStateOperation):
+            continue
+        start = effect.point_indices[0]
+        if start == region[0] or start not in region:
+            continue
+        state_claims = frozenset(_state_operation_claims(effect.operation))
+        if state_claims & target_claims:
+            boundaries.add(start)
+    if not boundaries:
+        return (region,)
+    selected: list[tuple[int, ...]] = []
+    start = 0
+    for offset, ordinal in enumerate(region):
+        if offset and ordinal in boundaries:
+            selected.append(region[start:offset])
+            start = offset
+    selected.append(region[start:])
+    return tuple(selected)
+
+
+def _state_operation_claims(
+    operation: ApplyStateOperation,
+) -> tuple[ResourceClaim, ...]:
+    claims = [ResourceClaim(operation.instrument_id)]
+    for target in operation.targets:
+        for binding in target.channel_bindings:
+            claims.append(ResourceClaim(binding.channel_id, "channel"))
+            claims.extend(
+                ResourceClaim(group_id, "group") for group_id in binding.group_ids
+            )
+    return tuple(dict.fromkeys(claims))
 
 
 @dataclass(frozen=True, slots=True)
@@ -283,30 +603,24 @@ class _CompiledDomainExecution:
     request: DomainCompileRequest = field(repr=False)
     compiler: DomainCompiler = field(repr=False, compare=False)
     compilation: DomainCompilation = field(repr=False)
+    coverage_ordinal: int
+    resource_claims: tuple[ResourceClaim, ...]
 
 
 def _compile_domain_execution(
     compiler: DomainCompiler | None,
-    linked: LinkedPlan,
-    barrier_regions: tuple[tuple[int, ...], ...],
+    template: DomainCompileTemplate,
+    barrier_region: tuple[int, ...],
     *,
-    lazy_points: LinkedPointMaterializer,
-    execution_id: str,
-    result_closure: DomainResultClosure,
+    coverage_ordinal: int,
+    bind_inputs: DomainInputBinder,
+    resource_claims: tuple[ResourceClaim, ...],
 ) -> _CompiledDomainExecution | None:
     if compiler is None:
         return None
-    request = make_domain_compile_request(
-        linked,
-        execution_id,
-        result_closure,
-        barrier_regions,
-        lambda input_ids, ordinals, max_points: lazy_points.bind_domain_inputs(
-            execution_id,
-            input_ids,
-            ordinals,
-            max_points=max_points,
-        ),
+    request = template.bind_coverage(
+        (barrier_region,),
+        bind_inputs,
     )
     compilation = compiler.compile(request)
     if compilation is None:
@@ -316,119 +630,8 @@ def _compile_domain_execution(
         request=request,
         compiler=compiler,
         compilation=compilation,
-    )
-
-
-def _prepare_local_effects(
-    system: ExperimentSystem,
-    linked_points: MaterializedLinkedPoints,
-    *,
-    config: ConfigProfileSnapshot,
-    product_use_ids: tuple[ProductUseId, ...],
-    required: bool,
-) -> tuple[
-    RunHostBinding | None,
-    tuple[PointProgram, ...],
-    tuple[ComputeOperation, ...],
-    tuple[ResourceClaim, ...],
-]:
-    if not required:
-        return None, (), (), ()
-    if system.provider is None:
-        raise AssertionError(
-            "local placement must require a provider before materialization"
-        )
-    preflight = preflight_instrument_provider(
-        config=config,
-        instrument_provider=system.provider,
-    )
-    local_execution = materialize_local_execution(
-        linked_points,
-        product_use_ids=frozenset(product_use_ids),
-        instrument_order=preflight.instrument_order,
-    )
-    host = RunHostBinding(
-        resource_order=local_execution.resource_order,
-        provider_id=preflight.provider_id,
-        instrument_order=preflight.instrument_order,
-        advertised_descriptions=preflight.advertised_descriptions,
-    )
-    return (
-        validate_run_host_binding(
-            program=host,
-            points=local_execution.points,
-            problems=preflight.problems,
-        ),
-        local_execution.points,
-        local_execution.run_compute_operations,
-        local_execution.resource_claims,
-    )
-
-
-def _plan_barrier_ordinals(
-    point_count: int,
-    *,
-    requires_single_point_regions: bool,
-) -> tuple[tuple[int, ...], ...]:
-    if not point_count:
-        return ()
-    if not requires_single_point_regions:
-        return (tuple(range(point_count)),)
-    return tuple((point_index,) for point_index in range(point_count))
-
-
-def _ordered_run_operations(
-    points: tuple[PointProgram, ...],
-    *,
-    barrier_regions: tuple[tuple[int, ...], ...],
-    jobs_by_region: dict[int, list[RunDomainJob]],
-) -> tuple[RunOperation, ...]:
-    """Write the complete host/domain order into the residual program."""
-
-    if not points:
-        return tuple(
-            job
-            for region_ordinal in range(len(barrier_regions))
-            for job in jobs_by_region[region_ordinal]
-        )
-    if not any(jobs_by_region.values()):
-        return (RunPointLoop(points),)
-
-    operations: list[RunOperation] = []
-    for region_ordinal, region in enumerate(barrier_regions):
-        for point_index in region:
-            point = points[point_index]
-            operations.extend(_point_prefix_operations(point))
-        operations.extend(jobs_by_region[region_ordinal])
-        for point_index in region:
-            point = points[point_index]
-            operations.extend(_point_suffix_operations(point))
-    return tuple(operations)
-
-
-def _point_start(point: PointProgram) -> RunPointStart:
-    return run_point_start(point)
-
-
-def _point_prefix_operations(point: PointProgram) -> tuple[RunOperation, ...]:
-    return (
-        _point_start(point),
-        *(
-            RunPointStage(point.point_index, stage)
-            for stage in point.stages
-            if not isinstance(stage, CollectStage)
-        ),
-    )
-
-
-def _point_suffix_operations(point: PointProgram) -> tuple[RunOperation, ...]:
-    return (
-        *(
-            RunPointStage(point.point_index, stage)
-            for stage in point.stages
-            if isinstance(stage, CollectStage)
-        ),
-        RunPointEnd(point.point_index),
+        coverage_ordinal=coverage_ordinal,
+        resource_claims=resource_claims,
     )
 
 
@@ -447,21 +650,21 @@ def _prepare_domain_jobs(
             absorbed_input_ids=domain.compilation.absorbed_input_ids,
             absorbed_transform_ids=domain.compilation.absorbed_transform_ids,
         )
-        prepared = domain.compiler.prepare(compiled, context)
-        resource_claims = tuple(
-            dict.fromkeys((*compiled.resource_claims, *prepared.resource_claims))
-        ) or (
-            ResourceClaim(
-                prepared.invocation.intent.target_id,
-                "target",
-            ),
-        )
-        prepared = replace(prepared, resource_claims=resource_claims)
+
+        def prepare(
+            *,
+            compiler: DomainCompiler = domain.compiler,
+            job: DomainCompiledJob = compiled,
+            batch_context: DomainBatchContext = context,
+        ) -> PreparedDomainExecution:
+            return compiler.prepare(job, batch_context)
+
         jobs.append(
             RunDomainJob(
-                id=f"{execution_id}:{compiled.id}",
+                id=(f"{execution_id}:coverage-{domain.coverage_ordinal}:{compiled.id}"),
                 point_ordinals=compiled.point_ordinals,
-                prepared=prepared,
+                resource_claims=domain.resource_claims,
+                _prepare=prepare,
             )
         )
     return tuple(jobs)

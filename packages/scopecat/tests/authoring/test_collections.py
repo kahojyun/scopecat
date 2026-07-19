@@ -54,7 +54,10 @@ from scopecat.compiler.typed.state import (
     SetStateSpec,
     evaluate_state_spec,
 )
-from scopecat.execution.local.program import ActionStage
+from scopecat.execution.local.program import (
+    CollectOperation,
+    InstrumentActionOperation,
+)
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
 from scopecat.kernel.symbols import SymbolId
@@ -63,9 +66,11 @@ from scopecat.planning.authoring import resolve_experiment
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import Quantity
 from tests.testkit.authoring import load_config
-from tests.testkit.bound_plan import bound_plan_contract
-from tests.testkit.local_effect_program import make_test_local_effect_program
-from tests.testkit.local_materialization import materialize_local_execution
+from tests.testkit.local_materialization import (
+    materialize_local_execution,
+    operations_of_type,
+)
+from tests.testkit.materialized_effects import materialized_effects_contract
 from tests.testkit.relation_plans import (
     each_state,
     materialize_scalar_value,
@@ -97,17 +102,10 @@ def test_action_lowers_as_a_distinct_point_effect() -> None:
     bound = materialize_local_execution(
         link_verified_program(resolved.verified_program, resolved.environment)
     )
-    assert len(bound.points[0].actions) == 1
-    execution = make_test_local_effect_program(
-        bound,
-        instrument_order=tuple(
-            action.instrument_id for action in bound.points[0].actions
-        ),
-    )
-    action_stage = next(
-        stage for stage in execution.points[0].stages if isinstance(stage, ActionStage)
-    )
-    assert action_stage.operations[0].capability_id == "set_frequency"
+    assert len(operations_of_type(bound.points[0], InstrumentActionOperation)) == 1
+    execution = bound
+    [action] = operations_of_type(execution.points[0], InstrumentActionOperation)
+    assert action.capability_id == "set_frequency"
 
 
 def _echo_rows_offsets(*, rows: object, offsets: object) -> dict[str, object]:
@@ -328,12 +326,12 @@ def test_collections_cross_module_route_axis_and_compute_with_provenance() -> No
         "entities": ({"id": "q0", "kind": "logical_device", "metadata": {}},),
     }
 
-    preview = bound_plan_contract(
+    preview = materialized_effects_contract(
         experiment,
         resolved.parameters,
         config=config,
     )
-    [operation] = preview.points[0].collect_operations
+    [operation] = operations_of_type(preview.points[0], CollectOperation)
     [request] = operation.command.requests
     assert request.entity_ids == ["q0"]
 

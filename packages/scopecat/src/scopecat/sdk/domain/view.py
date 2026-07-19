@@ -156,7 +156,6 @@ class DomainMeasurementTransform:
     semantic: MeasurementTransformSemanticContract
     inputs: tuple[DomainTransformInputPort, ...]
     outputs: tuple[DomainTransformOutputPort, ...]
-    rate: Literal["point"] = "point"
 
     def input(self, name: str) -> DomainTransformInputPort:
         for port in self.inputs:
