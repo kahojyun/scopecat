@@ -13,7 +13,7 @@ from scopecat.measurements.results import (
     MeasurementDatasetReadContract,
     MeasurementRecord,
 )
-from scopecat.records.artifact import RunDatasetEntry
+from scopecat.records.artifact import RunContentEntry
 from scopecat.runs.access import dataset_storage_ref
 from scopecat.runs.repository import RunRepository
 
@@ -56,7 +56,7 @@ def read_measurement_dataset(
     *,
     storage: RunRepository,
     run_id: str,
-    dataset: RunDatasetEntry,
+    dataset: RunContentEntry,
     contract: MeasurementDatasetReadContract,
 ) -> MeasurementDataset:
     ref = dataset_storage_ref(dataset)

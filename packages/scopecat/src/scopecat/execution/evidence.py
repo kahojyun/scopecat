@@ -8,8 +8,9 @@ from scopecat.execution.persistence import (
     build_run_manifest,
     ref_for_dataset,
 )
+from scopecat.kernel.content_identity import model_wire_content_hash
 from scopecat.measurements.results import MeasurementDatasetSchema, MeasurementRecord
-from scopecat.records.artifact import RunDatasetEntry, RunRecordEntry
+from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigContentHash
 from scopecat.records.execution import InstrumentStateEvidence
 from scopecat.records.run import RunConfigSource, RunManifest, RunOutcome
@@ -55,7 +56,7 @@ def build_execution_manifest(
     expected_schema: MeasurementDatasetSchema | None,
     config_content_hash: ConfigContentHash,
     config_source: RunConfigSource | None,
-    include_instrument_state: bool = True,
+    instrument_state: InstrumentStateEvidence | None,
 ) -> RunManifest:
     incomplete_run = outcome.result != "succeeded"
     expected_record_count = (
@@ -64,7 +65,7 @@ def build_execution_manifest(
     partial = incomplete_run and (
         expected_record_count is None or expected_record_count != len(measurements)
     )
-    datasets: list[RunDatasetEntry] = []
+    datasets: list[RunContentEntry] = []
     if measurements:
         datasets.append(
             build_raw_measurement_dataset(
@@ -93,8 +94,10 @@ def build_execution_manifest(
         outcome=outcome,
         config_content_hash=config_content_hash,
         config_source=config_source,
-        records=_records(include_instrument_state=include_instrument_state),
-        datasets=datasets,
+        contents=(
+            *_records(outcome=outcome, instrument_state=instrument_state),
+            *datasets,
+        ),
     )
 
 
@@ -115,20 +118,28 @@ def build_instrument_state_evidence(
     )
 
 
-def _records(*, include_instrument_state: bool) -> list[RunRecordEntry]:
+def _records(
+    *,
+    outcome: RunOutcome,
+    instrument_state: InstrumentStateEvidence | None,
+) -> list[RunContentEntry]:
     records = [
-        RunRecordEntry(
+        RunContentEntry(
+            role="record",
             id=RUN_OUTCOME_ID,
             kind=RUN_OUTCOME_KIND,
             media_type="application/json",
+            content_hash=model_wire_content_hash(outcome),
         )
     ]
-    if include_instrument_state:
+    if instrument_state is not None:
         records.append(
-            RunRecordEntry(
+            RunContentEntry(
+                role="record",
                 id=INSTRUMENT_STATE_EVIDENCE_ID,
                 kind=INSTRUMENT_STATE_EVIDENCE_KIND,
                 media_type="application/json",
+                content_hash=model_wire_content_hash(instrument_state),
             )
         )
     return records

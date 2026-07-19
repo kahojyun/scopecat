@@ -7,47 +7,47 @@ from dataclasses import dataclass
 
 from scopecat.kernel.json_types import JsonValue
 from scopecat.measurements.results import MeasurementDataset
-from scopecat.records.artifact import RunArtifactEntry, RunDatasetEntry, RunRecordEntry
+from scopecat.records.artifact import RunContentEntry
 from scopecat.records.data_artifact import DataArrayArtifact, DataTableArtifact
 
 
 @dataclass(frozen=True)
 class RunArtifactTextResult:
-    artifact: RunArtifactEntry
+    artifact: RunContentEntry
     content: str
 
 
 @dataclass(frozen=True)
 class RunArtifactJsonResult:
-    artifact: RunArtifactEntry
+    artifact: RunContentEntry
     content: Mapping[str, JsonValue]
 
 
 @dataclass(frozen=True)
 class RunRecordJsonResult:
-    record: RunRecordEntry
+    record: RunContentEntry
     content: Mapping[str, JsonValue]
 
 
 @dataclass(frozen=True)
 class RunArtifactBytesResult:
-    artifact: RunArtifactEntry
+    artifact: RunContentEntry
     content: bytes
 
 
 @dataclass(frozen=True)
 class RunMeasurementDatasetResult:
-    dataset_entry: RunDatasetEntry
+    dataset_entry: RunContentEntry
     dataset: MeasurementDataset
 
 
 @dataclass(frozen=True)
 class RunDataTableResult:
-    dataset_entry: RunDatasetEntry
+    dataset_entry: RunContentEntry
     table: DataTableArtifact
 
 
 @dataclass(frozen=True)
 class RunDataArrayResult:
-    dataset_entry: RunDatasetEntry
+    dataset_entry: RunContentEntry
     array: DataArrayArtifact

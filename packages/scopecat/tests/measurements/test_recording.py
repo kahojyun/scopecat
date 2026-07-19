@@ -17,10 +17,7 @@ from scopecat.measurements.projection import (
     project_measurement_records,
     select_measurement_projection,
 )
-from scopecat.measurements.recording import (
-    CommittedMeasurementRecords,
-    commit_measurement_records,
-)
+from scopecat.measurements.recording import commit_measurement_records
 from scopecat.measurements.values import (
     seal_measurement_values,
     select_measurement_values,
@@ -79,14 +76,11 @@ def test_recording_commits_canonical_points_with_strict_journal_evidence() -> No
         projected,
         committer,
         journal,
-        attempt=2,
         transition_observer=observed.append,
     )
 
-    assert isinstance(committed, CommittedMeasurementRecords)
-    assert committed.records == projected.records
-    assert committed.receipts == committer.receipts
-    assert len(committed.receipts) == len(projected.records) == 2
+    assert committed == projected.records
+    assert len(committer.receipts) == len(projected.records) == 2
     assert [chunk.point_index for chunk in committer.chunks] == [0, 1]
     assert [chunk.logical_point_id for chunk in committer.chunks] == [
         record.logical_point_id for record in projected.records
@@ -95,15 +89,15 @@ def test_recording_commits_canonical_points_with_strict_journal_evidence() -> No
         (entry.stage, entry.effect, entry.state, entry.attempt, entry.point_index)
         for entry in journal.entries
     ] == [
-        ("record_measurement", "persistence", "started", 2, 0),
-        ("record_measurement", "persistence", "completed", 2, 0),
-        ("record_measurement", "persistence", "started", 2, 1),
-        ("record_measurement", "persistence", "completed", 2, 1),
+        ("record_measurement", "persistence", "started", 1, 0),
+        ("record_measurement", "persistence", "completed", 1, 0),
+        ("record_measurement", "persistence", "started", 1, 1),
+        ("record_measurement", "persistence", "completed", 1, 1),
     ]
     assert observed == list(journal.entries)
     for chunk, receipt, started, completed in zip(
         committer.chunks,
-        committed.receipts,
+        committer.receipts,
         journal.entries[::2],
         journal.entries[1::2],
         strict=True,
@@ -203,7 +197,7 @@ def test_zero_or_empty_recording_has_no_write_or_transition(
 
     committed = commit_measurement_records(projected, committer, journal)
 
-    assert committed.receipts == ()
+    assert committed == projected.records == ()
     assert committer.chunks == ()
     assert journal.entries == ()
 
@@ -242,7 +236,6 @@ def test_invalid_journal_is_rejected_before_record_write(journal: object) -> Non
     assert error.committed_prefix == ()
     assert error.pending_receipt is None
     assert error.write_may_have_completed is False
-    assert error.retry == "safe"
     assert committer.chunks == ()
 
 
@@ -271,7 +264,6 @@ def test_commit_exception_exposes_committed_prefix_and_uncertain_write() -> None
     assert len(error.committed_prefix) == 1
     assert error.pending_receipt is None
     assert error.write_may_have_completed is True
-    assert error.retry == "safe"
     assert committer.calls == 2
     assert [(entry.point_index, entry.state) for entry in journal.entries] == [
         (0, "started"),
@@ -381,7 +373,7 @@ def test_post_write_journal_failure_exposes_prefix_and_pending_receipt() -> None
     ]
 
 
-def test_safe_replay_is_idempotent_and_uses_the_same_operation_ids() -> None:
+def test_repeated_commit_is_idempotent_and_uses_the_same_operation_ids() -> None:
     projected = _projected()
     committer = MemoryMeasurementRecordCommitter()
     journal = MemoryExecutionJournal()
@@ -391,12 +383,10 @@ def test_safe_replay_is_idempotent_and_uses_the_same_operation_ids() -> None:
         projected,
         committer,
         journal,
-        attempt=2,
     )
 
-    assert repeated.receipts == first.receipts
+    assert repeated == first
     assert len(committer.chunks) == 2
     assert [entry.operation_id for entry in journal.entries[:4]] == [
         entry.operation_id for entry in journal.entries[4:]
     ]
-    assert [entry.attempt for entry in journal.entries[4:]] == [2, 2, 2, 2]

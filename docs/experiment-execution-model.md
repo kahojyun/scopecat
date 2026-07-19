@@ -238,8 +238,8 @@ That planning value closes product-value selection and record projection over
 the same catalog in one operation, so the program no longer echoes point
 catalog, values, and projection as parallel fields. Runtime projection produces
 one `MeasurementRecordBatch`; successful persistence returns the committed
-records and receipts directly instead of nesting the batch in another proof
-wrapper.
+records directly, while receipts remain journal and repository evidence instead
+of becoming another successful-result wrapper.
 The former `local_semantics` module and `materialize_local_semantics*` API names
 have also been removed: final local execution is produced by
 `materialize_local_execution*`, while short-lived `PendingRoute` values live
@@ -513,8 +513,9 @@ partial recording recovery; it is no longer part of the normal terminal path.
 
 - [x] Contract the domain runtime to one synchronous submit/fetch path with
   explicit success, rejection, or unknown outcome.
-- [x] Bind local collection values once during planning rather than reconstructing
-  a local fragment at interpretation time.
+- [x] Emit local collection results directly into the same logical measurement
+  candidate stream as domain results; do not reconstruct or reload a second
+  value fragment after execution.
 - [x] Retain one closed domain result mapping after validation instead of a
   parallel native/proof object hierarchy.
 - [x] Give run-rate pure computation its own evaluation frame rather than
@@ -523,9 +524,44 @@ partial recording recovery; it is no longer part of the normal terminal path.
   wrappers into a planning projection and a canonical runtime batch.
 - [x] Remove the compiler pipeline envelope that merely repeated a linked plan,
   request, and configuration source without establishing a new invariant.
+- [x] Close domain results directly into one result mapping and one canonical
+  measurement-candidate stream, removing source-output and proof wrappers.
+- [x] Replace separate artifact, dataset, and record indexes with one
+  content-addressed manifest index, and publish terminal content through one
+  repository commit.
+- [x] Retain one local lowering entry that accepts already-materialized linked
+  points; point closure is owned by system planning and cannot recur inside local
+  lowering.
+- [x] Return provider setup, host effects, domain candidates, and domain failures
+  in one `RunEffectResult` instead of an execution wrapper plus side channels.
+- [x] Remove the speculative execution-recovery inspection API and require every
+  indexed run content entry to carry a real content digest.
+- [x] Bind run-rate compute exactly once and point-rate compute once per logical
+  point; evaluate state and action expressions in that same point pass rather
+  than building and regrouping whole-run temporary record lists.
+- [x] Express journaled state, action, and collection effects through one durable
+  intent/invocation/outcome lifecycle while keeping their domain-specific
+  commands and successful continuations explicit.
+- [x] Return committed measurement records directly, retaining only concrete
+  uncertain-write evidence on failure instead of exposing an unused
+  attempt/retry/reconciliation protocol.
+- [x] Implement artifact, dataset, and record lookup through one role-driven run
+  content access core without removing the public role-specific convenience
+  functions.
+- [x] Keep consumer-context relation proof verification, but make the consumer
+  table a diagnostic index over verified plans rather than another owner of
+  value-expression proof envelopes.
+- [x] Return only observed effect facts from the effect interpreter and derive
+  terminal result, certainty, and termination reason once at the run boundary.
+- [x] Keep concrete instrument providers outside `RunProgram`; inject them only
+  at interpretation, and remove duplicated experiment, point, product, and
+  configuration fields from the host binding.
+- [x] Reduce local materialization output to point operations, resource order,
+  claims, and run-rate compute instead of carrying compiler identity and product
+  inventories into another planning envelope.
 
-Artifacts, datasets, and records should share one content-index model with an
-explicit role, content digest, media type, and schema where applicable.
+Artifacts, datasets, and records share one content-index model with an explicit
+role, content digest, media type, and schema where applicable.
 Replayable effect evidence must contain the data required by its recovery
 contract; otherwise a digest belongs directly in the effect intent rather than
 in a separate evidence protocol.

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from contextlib import AbstractContextManager
+from dataclasses import dataclass
 from typing import Protocol
 
 from pydantic import BaseModel
@@ -15,6 +16,27 @@ from pydantic import BaseModel
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
+
+
+@dataclass(frozen=True, slots=True)
+class RunModelWrite:
+    ref: str
+    value: BaseModel
+
+
+@dataclass(frozen=True, slots=True)
+class RunRecordSetWrite:
+    ref: str
+    records: tuple[BaseModel, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class TerminalRunCommit:
+    """All durable content published by one terminal run transition."""
+
+    manifest: RunManifest
+    models: tuple[RunModelWrite, ...] = ()
+    record_sets: tuple[RunRecordSetWrite, ...] = ()
 
 
 class RunRepository(Protocol):
@@ -37,6 +59,8 @@ class RunRepository(Protocol):
         request: RunRequest | None,
         config: ConfigProfileSnapshot,
     ) -> None: ...
+
+    def commit_terminal(self, commit: TerminalRunCommit) -> RunManifest: ...
 
     def read_config_profile_snapshot(self, run_id: str) -> ConfigProfileSnapshot: ...
 

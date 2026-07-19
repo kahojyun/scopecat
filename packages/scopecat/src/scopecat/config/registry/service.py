@@ -57,7 +57,7 @@ from scopecat.kernel.problems import (
     has_blocking_problems,
 )
 from scopecat.planning.validation import validate_config
-from scopecat.records.artifact import RunRecordEntry
+from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import (
     ConfigContentHash,
     ConfigProfileSnapshot,
@@ -461,7 +461,7 @@ def _candidate_approval_evidence(
 ) -> tuple[CandidateProposalRegistryEvidence, ...]:
     histories: dict[
         str,
-        list[tuple[RunRecordEntry, ParameterChangeDecisionRecord]],
+        list[tuple[RunContentEntry, ParameterChangeDecisionRecord]],
     ] = {proposal_id: [] for proposal_id in proposal_ids}
     for entry in source_manifest.records:
         if entry.kind != "parameter_change_decision_record":
@@ -1057,7 +1057,7 @@ def _validate_required_text(value: str, *, field: str) -> None:
 
 def _require_run_record(
     *, source_manifest: RunManifest, record_id: str, kind: str
-) -> RunRecordEntry:
+) -> RunContentEntry:
     record = next(
         (entry for entry in source_manifest.records if entry.id == record_id),
         None,

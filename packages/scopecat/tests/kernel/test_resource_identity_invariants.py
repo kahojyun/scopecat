@@ -40,9 +40,9 @@ from scopecat.kernel.resource_identity import (
 )
 from scopecat.kernel.value_types import Float, Scalar, String, Table, TableColumn
 from scopecat.planning.authoring import resolve_experiment
-from scopecat.planning.local_materialization import materialize_local_execution
 from scopecat.records.config import ConfigProfileSnapshot, RoutingGraph, RoutingResource
 from tests.testkit.authoring import load_config
+from tests.testkit.local_materialization import materialize_local_execution
 from tests.testkit.relation_plans import point_domain, scalar_value_expr
 from tests.testkit.typed_program import instrument_product_producer, link_program
 

@@ -65,7 +65,6 @@ def make_test_local_effect_program(
         msg = "test program must be materialized with the requested instrument order"
         raise ValueError(msg)
     points = local_execution.points
-    product_uses = local_execution.product_uses
     collected_product_use_ids = {
         binding.product_use_id
         for point in points
@@ -75,11 +74,11 @@ def make_test_local_effect_program(
         for binding in operation.result_bindings
     }
     return StubLocalEffectProgram(
-        experiment_id=local_execution.experiment_id,
+        experiment_id="test-local-effects",
         points=points,
-        product_uses=product_uses,
+        product_uses=(),
         collection_product_use_ids=tuple(
-            use.id for use in product_uses if use.id in collected_product_use_ids
+            sorted(collected_product_use_ids, key=lambda item: item.value)
         ),
         resource_order=local_execution.resource_order,
         resource_claims=local_execution.resource_claims,

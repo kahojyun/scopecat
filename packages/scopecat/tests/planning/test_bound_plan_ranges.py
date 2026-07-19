@@ -58,8 +58,7 @@ def test_bound_plan_experiment_builds_expected_plan() -> None:
 
     preview = _bound_plan_spec(spec, config)
 
-    assert preview.experiment_id == spec.id
-    assert preview.point_count == 3
+    assert len(preview.points) == 3
     _, state, field = bound_state_fields(preview)[0]
     assert state.instrument_id == "source-0"
     assert field.capability_id == "set_frequency"

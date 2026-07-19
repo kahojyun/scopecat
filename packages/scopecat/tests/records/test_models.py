@@ -18,7 +18,7 @@ from scopecat.kernel.value_types import (
     TableColumn,
 )
 from scopecat.kernel.value_types import Quantity as QuantityType
-from scopecat.records.artifact import RunArtifactEntry
+from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import TopologyLine
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import (
@@ -49,8 +49,8 @@ def _topology_line_with_metadata(value: object) -> TopologyLine:
     )
 
 
-def _artifact_with_metadata(value: object) -> RunArtifactEntry:
-    return RunArtifactEntry.model_validate(
+def _artifact_with_metadata(value: object) -> RunContentEntry:
+    return RunContentEntry.model_validate(
         {"id": "artifact", "kind": "attachment", "metadata": {"value": value}}
     )
 

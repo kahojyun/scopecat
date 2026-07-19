@@ -72,9 +72,9 @@ from scopecat.kernel.value_types import (
     Table,
     TableColumn,
 )
-from scopecat.planning.local_materialization import materialize_local_execution
 from scopecat.records.entity import EntityRef
 from tests.testkit.authoring import load_config
+from tests.testkit.local_materialization import materialize_local_execution
 from tests.testkit.relation_plans import scalar_value_expr, table_value_expr
 from tests.testkit.typed_program import instrument_product_producer, link_program
 from tests.testkit.workflow_fixtures import load_experiment
@@ -576,7 +576,7 @@ def test_local_materialization_builds_the_executable_bound_plan() -> None:
     actual = materialize_local_execution(link_program(program, environment))
 
     assert actual == expected
-    assert actual.point_count == 3
+    assert len(actual.points) == 3
     assert all(point.state_operations for point in actual.points)
     assert all(point.collect_operations for point in actual.points)
 

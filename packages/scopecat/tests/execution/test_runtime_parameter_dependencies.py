@@ -38,9 +38,9 @@ from scopecat.execution.effect_interpreter import (
 )
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Bool, Float, Scalar, Series, Table
-from scopecat.planning.local_materialization import materialize_local_execution
 from scopecat.records.entity import EntityRef
 from tests.testkit.authoring import load_config
+from tests.testkit.local_materialization import materialize_local_execution
 from tests.testkit.relation_plans import value_expr
 from tests.testkit.typed_program import link_program, typed_program
 

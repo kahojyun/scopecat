@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from scopecat.measurements.results import MeasurementDatasetSchema
-from scopecat.records.artifact import RunArtifactEntry, RunDatasetEntry
+from scopecat.records.artifact import RunContentEntry
 from scopecat.records.run import RunManifest
 from scopecat.runs.access import list_payload_entries, require_artifact, require_dataset
 from scopecat.runs.data import (
@@ -48,7 +48,7 @@ class Data:
         *,
         kind: str | None = None,
         metadata: Mapping[str, object] | None = None,
-    ) -> tuple[RunArtifactEntry | RunDatasetEntry, ...]:
+    ) -> tuple[RunContentEntry, ...]:
         return list_payload_entries(self._manifest(), kind=kind, metadata=metadata)
 
     def artifact(
@@ -56,7 +56,7 @@ class Data:
         selector: str,
         *,
         expected_kind: str | None = None,
-    ) -> RunArtifactEntry:
+    ) -> RunContentEntry:
         return require_artifact(
             manifest=self._manifest(),
             selector=selector,
@@ -68,7 +68,7 @@ class Data:
         selector: str,
         *,
         expected_kind: str | None = None,
-    ) -> RunDatasetEntry:
+    ) -> RunContentEntry:
         return require_dataset(
             manifest=self._manifest(),
             selector=selector,

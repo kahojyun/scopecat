@@ -13,7 +13,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from scopecat.kernel.problems import Problem, has_blocking_problems
-from scopecat.records.artifact import RunArtifactEntry, RunDatasetEntry, RunRecordEntry
+from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigContentHash
 
 RunLifecycle = Literal[
@@ -125,16 +125,26 @@ class RunManifest(BaseModel):
         revalidate_instances="always",
     )
 
-    schema_version: Literal["scopecat.run_manifest.v9"] = "scopecat.run_manifest.v9"
+    schema_version: Literal["scopecat.run_manifest.v10"] = "scopecat.run_manifest.v10"
     run_id: str
     created_at: datetime = Field(default_factory=utc_now)
     lifecycle: RunLifecycle
     outcome: RunOutcome | None = None
     config_content_hash: ConfigContentHash
     config_source: RunConfigSource | None = None
-    records: tuple[RunRecordEntry, ...] = ()
-    datasets: tuple[RunDatasetEntry, ...] = ()
-    artifacts: tuple[RunArtifactEntry, ...] = ()
+    contents: tuple[RunContentEntry, ...] = ()
+
+    @property
+    def records(self) -> tuple[RunContentEntry, ...]:
+        return tuple(entry for entry in self.contents if entry.role == "record")
+
+    @property
+    def datasets(self) -> tuple[RunContentEntry, ...]:
+        return tuple(entry for entry in self.contents if entry.role == "dataset")
+
+    @property
+    def artifacts(self) -> tuple[RunContentEntry, ...]:
+        return tuple(entry for entry in self.contents if entry.role == "artifact")
 
     @model_validator(mode="after")
     def validate_lifecycle(self) -> RunManifest:

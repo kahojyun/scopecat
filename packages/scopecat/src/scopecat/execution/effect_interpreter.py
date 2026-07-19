@@ -65,7 +65,6 @@ from scopecat.measurements.contracts import (
     MeasurementValueContractIssueCode,
     measurement_value_contract_issues,
 )
-from scopecat.measurements.results import MeasurementValue
 from scopecat.measurements.values import MeasurementValueCandidate
 from scopecat.records.artifact import CommandPayload
 from scopecat.records.execution_journal import (
@@ -83,7 +82,6 @@ from scopecat.records.instrument import (
     InstrumentReadback,
     InstrumentStateSnapshot,
 )
-from scopecat.records.run import RunCertainty, RunResult, RunStatus
 from scopecat.sdk.instruments.contracts import (
     ActionReceipt,
     ApplyReceipt,
@@ -107,91 +105,28 @@ class _CapturedDomainEffectFailure(Exception):
 
 
 @dataclass(frozen=True, slots=True)
-class ExecutionPointStats:
-    point_index: int
-    changed_field_count: int = 0
-    skipped_field_count: int = 0
-    state_command_count: int = 0
-    state_payload_count: int = 0
-    action_command_count: int = 0
-    compute_evaluated_node_count: int = 0
-    compute_payload_count: int = 0
-
-
-@dataclass(frozen=True, slots=True)
-class PointExecutionResult:
-    point_index: int
-    point_uid: str
-    result: Literal["succeeded", "failed"]
-    stats: ExecutionPointStats
-
-
-@dataclass(frozen=True, slots=True)
 class RunEffectResult:
-    """Complete in-memory result; durable evidence is committed incrementally."""
+    """Facts observed while interpreting effects; not a terminal run outcome."""
 
     run_id: str
     experiment_id: str
-    result: RunResult
-    certainty: RunCertainty
-    termination_reason: str
     problems: tuple[Problem, ...]
     initial_state: tuple[InstrumentStateSnapshot, ...]
     final_state: tuple[InstrumentStateSnapshot, ...]
-    points: tuple[PointExecutionResult, ...]
+    measurement_values: tuple[MeasurementValueCandidate, ...] = ()
+    indeterminate: bool = False
+    compute_evaluated_node_count: int = 0
+    compute_payload_count: int = 0
+    domain_failure: tuple[RunDomainJob, BaseException] | None = field(
+        default=None,
+        compare=False,
+        repr=False,
+    )
     interruption: BaseException | None = field(
         default=None,
         compare=False,
         repr=False,
     )
-
-    @property
-    def success(self) -> bool:
-        return self.result == "succeeded"
-
-    @property
-    def status(self) -> RunStatus:
-        if self.result == "succeeded":
-            return "completed"
-        if self.result == "cancelled":
-            return "interrupted"
-        return "unknown" if self.certainty == "indeterminate" else "failed"
-
-    @property
-    def uncertain(self) -> bool:
-        return self.certainty == "indeterminate"
-
-    @property
-    def completed_point_count(self) -> int:
-        return sum(point.result == "succeeded" for point in self.points)
-
-    @property
-    def changed_field_count(self) -> int:
-        return sum(point.stats.changed_field_count for point in self.points)
-
-    @property
-    def skipped_field_count(self) -> int:
-        return sum(point.stats.skipped_field_count for point in self.points)
-
-    @property
-    def state_command_count(self) -> int:
-        return sum(point.stats.state_command_count for point in self.points)
-
-    @property
-    def state_payload_count(self) -> int:
-        return sum(point.stats.state_payload_count for point in self.points)
-
-    @property
-    def action_command_count(self) -> int:
-        return sum(point.stats.action_command_count for point in self.points)
-
-    @property
-    def compute_evaluated_node_count(self) -> int:
-        return sum(point.stats.compute_evaluated_node_count for point in self.points)
-
-    @property
-    def compute_payload_count(self) -> int:
-        return sum(point.stats.compute_payload_count for point in self.points)
 
 
 @dataclass(slots=True)
@@ -203,18 +138,6 @@ class _MutablePointStats:
     action_command_count: int = 0
     compute_evaluated_node_count: int = 0
     compute_payload_count: int = 0
-
-    def freeze(self, *, point_index: int) -> ExecutionPointStats:
-        return ExecutionPointStats(
-            point_index=point_index,
-            changed_field_count=self.changed_field_count,
-            skipped_field_count=self.skipped_field_count,
-            state_command_count=self.state_command_count,
-            state_payload_count=self.state_payload_count,
-            action_command_count=self.action_command_count,
-            compute_evaluated_node_count=self.compute_evaluated_node_count,
-            compute_payload_count=self.compute_payload_count,
-        )
 
 
 @dataclass(slots=True, kw_only=True)
@@ -230,7 +153,7 @@ class _PointFrame(_EvaluationFrame):
     point: PointProgram
     entry: ExecutionTransition | None = None
     problem_count_before: int = 0
-    product_values: dict[ProductUseId, MeasurementValue] = field(default_factory=dict)
+    product_use_ids: set[ProductUseId] = field(default_factory=set)
 
 
 class RunEffectContext(Protocol):
@@ -278,8 +201,9 @@ class RunEffectInterpreter:
         self.initial_state: list[InstrumentStateSnapshot] = []
         self.final_state: list[InstrumentStateSnapshot] = []
         self.current_states: dict[str, InstrumentStateSnapshot] = {}
-        self.point_results: list[PointExecutionResult] = []
-        self.domain_values: list[MeasurementValueCandidate] = []
+        self.compute_evaluated_node_count = 0
+        self.compute_payload_count = 0
+        self.measurement_values: list[MeasurementValueCandidate] = []
         self.domain_failure: tuple[RunDomainJob, BaseException] | None = None
         self.run_compute_results: dict[ValueId, object] = {}
         self.run_payloads: dict[str, CommandPayload] = {}
@@ -365,7 +289,7 @@ class RunEffectInterpreter:
         except BaseException as error:
             self.domain_failure = (job, error)
             raise _CapturedDomainEffectFailure(job.id) from error
-        self.domain_values.extend(values)
+        self.measurement_values.extend(values)
 
     def _execute_run_compute_stage(self, stage: ComputeStage) -> None:
         frame = _EvaluationFrame()
@@ -425,7 +349,6 @@ class RunEffectInterpreter:
                 self._execute_collect_stage(frame, stage)
 
     def _end_point(self, frame: _PointFrame) -> None:
-        point = frame.point
         point_entry = frame.entry
         if point_entry is None:
             raise AssertionError("point frame has no start transition")
@@ -433,14 +356,8 @@ class RunEffectInterpreter:
         point_failed = has_blocking_problems(
             self.problems[frame.problem_count_before :]
         )
-        self.point_results.append(
-            PointExecutionResult(
-                point_index=point.point_index,
-                point_uid=point.point_uid,
-                result="failed" if point_failed else "succeeded",
-                stats=frame.stats.freeze(point_index=point.point_index),
-            )
-        )
+        self.compute_evaluated_node_count += frame.stats.compute_evaluated_node_count
+        self.compute_payload_count += frame.stats.compute_payload_count
         self._observe_transition(
             point_entry.model_copy(
                 update={"state": "failed" if point_failed else "completed"}
@@ -667,80 +584,34 @@ class RunEffectInterpreter:
                     )
                 )
                 return False
-        # The durable intent must exist before the driver sees the command.
-        self._commit_transition(entry)
         driver = self.drivers[operation.instrument_id]
-        receipt_evidence: dict[str, JsonValue] = {}
-        try:
-            receipt = _normalize_apply_receipt(driver.apply_state(command))
-            receipt_evidence = _apply_receipt_evidence(receipt)
-            return self._complete_apply_receipt(
-                frame=frame,
-                operation=operation,
-                entry=entry,
-                current=current,
-                fields=fields,
-                command=command,
-                receipt=receipt,
-                receipt_evidence=receipt_evidence,
-            )
-        except Exception as error:
-            self._indeterminate = True
-            problem = self._problem_from_exception(
-                "instrument_apply_unknown",
-                f"instrument apply outcome is unknown for {operation.instrument_id}",
-                error,
-                operation_id=operation.operation_id,
-                point_index=frame.point.point_index,
-                instrument_id=operation.instrument_id,
-            )
-            self.problems.append(problem)
-            self._commit_transition_best_effort(
-                entry.model_copy(
-                    update={
-                        "state": "unknown",
-                        "problems": (problem,),
-                        "evidence": {
-                            **self._state_event_summary(
-                                frame,
-                                entry.evidence,
-                                changed_field_count=0,
-                                state_command_count=0,
-                                payload_count=0,
-                            ),
-                            **receipt_evidence,
-                        },
-                    }
-                )
-            )
+        receipt = self._invoke_journaled_effect(
+            entry,
+            lambda: _normalize_apply_receipt(driver.apply_state(command)),
+            unknown_code="instrument_apply_unknown",
+            unknown_message=(
+                f"instrument apply outcome is unknown for {operation.instrument_id}"
+            ),
+            unknown_evidence=self._state_event_summary(
+                frame,
+                entry.evidence,
+                changed_field_count=0,
+                state_command_count=0,
+                payload_count=0,
+            ),
+        )
+        if receipt is None:
             return False
-        except BaseException as error:
-            self._indeterminate = True
-            problem = self._record_interruption(
-                error,
-                operation_id=operation.operation_id,
-                point_index=frame.point.point_index,
-                instrument_id=operation.instrument_id,
-            )
-            self._commit_transition_best_effort(
-                entry.model_copy(
-                    update={
-                        "state": "unknown",
-                        "problems": (problem,),
-                        "evidence": {
-                            **self._state_event_summary(
-                                frame,
-                                entry.evidence,
-                                changed_field_count=0,
-                                state_command_count=0,
-                                payload_count=0,
-                            ),
-                            **receipt_evidence,
-                        },
-                    }
-                )
-            )
-            return False
+        return self._complete_apply_receipt(
+            frame=frame,
+            operation=operation,
+            entry=entry,
+            current=current,
+            fields=fields,
+            command=command,
+            receipt=receipt,
+            receipt_evidence=_apply_receipt_evidence(receipt),
+        )
 
     def _complete_apply_receipt(
         self,
@@ -754,38 +625,24 @@ class RunEffectInterpreter:
         receipt: ApplyReceipt,
         receipt_evidence: dict[str, JsonValue],
     ) -> bool:
-        receipt_problems = contextualize_problems(
-            receipt.problems,
-            run_id=self.run_id,
-            operation_id=operation.operation_id,
-            point_index=frame.point.point_index,
-            instrument_id=operation.instrument_id,
+        accepted, receipt_problems = self._accept_receipt(
+            entry,
+            status=receipt.status,
+            success_status="applied",
+            problems=receipt.problems,
+            evidence={
+                **self._state_event_summary(
+                    frame,
+                    entry.evidence,
+                    changed_field_count=0,
+                    state_command_count=0,
+                    payload_count=0,
+                ),
+                "receipt_status": receipt.status,
+                **receipt_evidence,
+            },
         )
-        self.problems.extend(receipt_problems)
-        if receipt.status != "applied":
-            if receipt.status == "unknown":
-                self._indeterminate = True
-            self._commit_after_effect(
-                entry.model_copy(
-                    update={
-                        "state": (
-                            "unknown" if receipt.status == "unknown" else "failed"
-                        ),
-                        "problems": receipt_problems,
-                        "evidence": {
-                            **self._state_event_summary(
-                                frame,
-                                entry.evidence,
-                                changed_field_count=0,
-                                state_command_count=0,
-                                payload_count=0,
-                            ),
-                            "receipt_status": receipt.status,
-                            **receipt_evidence,
-                        },
-                    }
-                )
-            )
+        if not accepted:
             # Never advance predicted state or continue to another resource.
             return False
         next_state = receipt.state or apply_state_command_to_snapshot(current, command)
@@ -846,12 +703,12 @@ class RunEffectInterpreter:
     @staticmethod
     def _state_event_summary(
         frame: _PointFrame,
-        base: Mapping[str, object],
+        base: Mapping[str, JsonValue],
         *,
         changed_field_count: int,
         state_command_count: int,
         payload_count: int,
-    ) -> dict[str, object]:
+    ) -> dict[str, JsonValue]:
         return {
             **base,
             "compute_evaluated_node_count": (frame.stats.compute_evaluated_node_count),
@@ -921,77 +778,32 @@ class RunEffectInterpreter:
                 )
                 return False
 
-        # One-shot intent must be durable before the driver can perform it.
-        self._commit_transition(entry)
-        frame.stats.action_command_count += 1
-        receipt_evidence: dict[str, JsonValue] = {}
-        try:
-            receipt = _normalize_action_receipt(
+        receipt = self._invoke_journaled_effect(
+            entry,
+            lambda: _normalize_action_receipt(
                 self.drivers[operation.instrument_id].action(command)
-            )
-            receipt_evidence = _action_receipt_evidence(receipt)
-        except Exception as error:
-            self._indeterminate = True
-            problem = self._problem_from_exception(
-                "instrument_action_unknown",
-                f"instrument action outcome is unknown for {operation.instrument_id}",
-                error,
-                operation_id=operation.operation_id,
-                point_index=frame.point.point_index,
-                instrument_id=operation.instrument_id,
-            )
-            self.problems.append(problem)
-            self._commit_transition_best_effort(
-                entry.model_copy(
-                    update={
-                        "state": "unknown",
-                        "problems": (problem,),
-                        "evidence": {**entry.evidence, **receipt_evidence},
-                    }
-                )
-            )
-            return False
-        except BaseException as error:
-            self._indeterminate = True
-            problem = self._record_interruption(
-                error,
-                operation_id=operation.operation_id,
-                point_index=frame.point.point_index,
-                instrument_id=operation.instrument_id,
-            )
-            self._commit_transition_best_effort(
-                entry.model_copy(
-                    update={
-                        "state": "unknown",
-                        "problems": (problem,),
-                        "evidence": {**entry.evidence, **receipt_evidence},
-                    }
-                )
-            )
-            return False
-
-        receipt_problems = contextualize_problems(
-            receipt.problems,
-            run_id=self.run_id,
-            operation_id=operation.operation_id,
-            point_index=frame.point.point_index,
-            instrument_id=operation.instrument_id,
+            ),
+            unknown_code="instrument_action_unknown",
+            unknown_message=(
+                f"instrument action outcome is unknown for {operation.instrument_id}"
+            ),
+            after_intent=lambda: setattr(
+                frame.stats,
+                "action_command_count",
+                frame.stats.action_command_count + 1,
+            ),
         )
-        self.problems.extend(receipt_problems)
-        if receipt.status != "performed":
-            if receipt.status == "unknown":
-                self._indeterminate = True
-            self._commit_after_effect(
-                entry.model_copy(
-                    update={
-                        "state": (
-                            "unknown" if receipt.status == "unknown" else "failed"
-                        ),
-                        "problems": receipt_problems,
-                        "evidence": {**entry.evidence, **receipt_evidence},
-                    }
-                )
-            )
+        if receipt is None:
+            return False
+        receipt_evidence = _action_receipt_evidence(receipt)
+        accepted, receipt_problems = self._accept_receipt(
+            entry,
+            status=receipt.status,
+            success_status="performed",
+            problems=receipt.problems,
+            evidence={**entry.evidence, **receipt_evidence},
+        )
+        if not accepted:
             return False
         self._commit_after_effect(
             entry.model_copy(
@@ -1035,62 +847,28 @@ class RunEffectInterpreter:
                 **command_evidence,
             },
         )
-        self._commit_transition(entry)
-        try:
-            receipt = _normalize_collect_receipt(
+        receipt = self._invoke_journaled_effect(
+            entry,
+            lambda: _normalize_collect_receipt(
                 self.drivers[operation.instrument_id].collect(command)
-            )
-        except Exception as error:
-            self._indeterminate = True
-            problem = self._problem_from_exception(
-                "instrument_collect_unknown",
+            ),
+            unknown_code="instrument_collect_unknown",
+            unknown_message=(
                 "instrument collection outcome is unknown for "
-                f"{operation.instrument_id}",
-                error,
-                operation_id=operation.operation_id,
-                point_index=frame.point.point_index,
-                instrument_id=operation.instrument_id,
-            )
-            self.problems.append(problem)
-            self._commit_transition_best_effort(
-                entry.model_copy(update={"state": "unknown", "problems": (problem,)})
-            )
-            return False
-        except BaseException as error:
-            self._indeterminate = True
-            problem = self._record_interruption(
-                error,
-                operation_id=operation.operation_id,
-                point_index=frame.point.point_index,
-                instrument_id=operation.instrument_id,
-            )
-            self._commit_transition_best_effort(
-                entry.model_copy(update={"state": "unknown", "problems": (problem,)})
-            )
-            return False
-        receipt_problems = contextualize_problems(
-            receipt.problems,
-            run_id=self.run_id,
-            operation_id=operation.operation_id,
-            point_index=frame.point.point_index,
-            instrument_id=operation.instrument_id,
+                f"{operation.instrument_id}"
+            ),
         )
-        self.problems.extend(receipt_problems)
+        if receipt is None:
+            return False
         receipt_evidence = _collect_receipt_evidence(receipt)
-        if receipt.status != "collected":
-            if receipt.status == "unknown":
-                self._indeterminate = True
-            self._commit_after_effect(
-                entry.model_copy(
-                    update={
-                        "state": (
-                            "unknown" if receipt.status == "unknown" else "failed"
-                        ),
-                        "problems": receipt_problems,
-                        "evidence": {**entry.evidence, **receipt_evidence},
-                    }
-                )
-            )
+        accepted, receipt_problems = self._accept_receipt(
+            entry,
+            status=receipt.status,
+            success_status="collected",
+            problems=receipt.problems,
+            evidence={**entry.evidence, **receipt_evidence},
+        )
+        if not accepted:
             return False
         assert receipt.readback is not None  # noqa: S101
         readback = receipt.readback
@@ -1194,7 +972,7 @@ class RunEffectInterpreter:
                     )
                 )
                 continue
-            if binding.product_use_id in frame.product_values:
+            if binding.product_use_id in frame.product_use_ids:
                 self.problems.append(
                     self._problem(
                         "instrument_duplicate_product_use",
@@ -1206,7 +984,14 @@ class RunEffectInterpreter:
                     )
                 )
                 continue
-            frame.product_values[binding.product_use_id] = value
+            frame.product_use_ids.add(binding.product_use_id)
+            self.measurement_values.append(
+                MeasurementValueCandidate(
+                    logical_point_id=frame.point.logical_id,
+                    product_use_id=binding.product_use_id,
+                    value=value,
+                )
+            )
 
     def _read_states(
         self, *, phase: Literal["initial", "terminal"]
@@ -1344,6 +1129,87 @@ class RunEffectInterpreter:
         committed = self.journal.append(entry)
         self._observe_transition(committed)
 
+    def _invoke_journaled_effect[ReceiptT](
+        self,
+        entry: ExecutionTransition,
+        invoke: Callable[[], ReceiptT],
+        *,
+        unknown_code: str,
+        unknown_message: str,
+        unknown_evidence: Mapping[str, JsonValue] | None = None,
+        after_intent: Callable[[], None] | None = None,
+    ) -> ReceiptT | None:
+        """Persist an effect intent, invoke it once, and close unknown outcomes."""
+
+        self._commit_transition(entry)
+        if after_intent is not None:
+            after_intent()
+        try:
+            return invoke()
+        except Exception as error:
+            self._indeterminate = True
+            problem = self._problem_from_exception(
+                unknown_code,
+                unknown_message,
+                error,
+                operation_id=entry.operation_id,
+                point_index=entry.point_index,
+                instrument_id=entry.instrument_id,
+            )
+            self.problems.append(problem)
+        except BaseException as error:
+            self._indeterminate = True
+            problem = self._record_interruption(
+                error,
+                operation_id=entry.operation_id,
+                point_index=entry.point_index,
+                instrument_id=entry.instrument_id,
+            )
+        self._commit_transition_best_effort(
+            entry.model_copy(
+                update={
+                    "state": "unknown",
+                    "problems": (problem,),
+                    "evidence": dict(unknown_evidence or entry.evidence),
+                }
+            )
+        )
+        return None
+
+    def _accept_receipt(
+        self,
+        entry: ExecutionTransition,
+        *,
+        status: str,
+        success_status: str,
+        problems: Sequence[Problem],
+        evidence: Mapping[str, JsonValue],
+    ) -> tuple[bool, tuple[Problem, ...]]:
+        """Contextualize a driver receipt and close non-success outcomes."""
+
+        receipt_problems = contextualize_problems(
+            problems,
+            run_id=self.run_id,
+            operation_id=entry.operation_id,
+            point_index=entry.point_index,
+            instrument_id=entry.instrument_id,
+        )
+        self.problems.extend(receipt_problems)
+        if status == success_status:
+            return True, receipt_problems
+        if status == "unknown":
+            self._indeterminate = True
+        self._commit_after_effect(
+            entry.model_copy(
+                update={
+                    "state": "unknown" if status == "unknown" else "failed",
+                    "problems": receipt_problems,
+                    "evidence": dict(evidence),
+                }
+            )
+        )
+        return False, receipt_problems
+
     def _commit_after_effect(self, entry: ExecutionTransition) -> None:
         try:
             self._commit_transition(entry)
@@ -1458,34 +1324,17 @@ class RunEffectInterpreter:
         )
 
     def _result(self) -> RunEffectResult:
-        if self._interruption is not None:
-            result: RunResult = "cancelled"
-            certainty: RunCertainty = (
-                "indeterminate" if self._indeterminate else "known"
-            )
-            termination_reason = "interrupted"
-        elif self._indeterminate:
-            result = "failed"
-            certainty = "indeterminate"
-            termination_reason = "effect_outcome_unknown"
-        elif has_blocking_problems(self.problems):
-            result = "failed"
-            certainty = "known"
-            termination_reason = "blocking_problem"
-        else:
-            result = "succeeded"
-            certainty = "known"
-            termination_reason = "completed"
         return RunEffectResult(
             run_id=self.run_id,
             experiment_id=self.experiment_id,
-            result=result,
-            certainty=certainty,
-            termination_reason=termination_reason,
             problems=tuple(self.problems),
             initial_state=tuple(self.initial_state),
             final_state=tuple(self.final_state),
-            points=tuple(self.point_results),
+            measurement_values=tuple(self.measurement_values),
+            indeterminate=self._indeterminate,
+            compute_evaluated_node_count=self.compute_evaluated_node_count,
+            compute_payload_count=self.compute_payload_count,
+            domain_failure=self.domain_failure,
             interruption=self._interruption,
         )
 
@@ -1792,8 +1641,6 @@ def _readback_problem(
 
 
 __all__ = [
-    "ExecutionPointStats",
-    "PointExecutionResult",
     "RunEffectInterpreter",
     "RunEffectResult",
 ]

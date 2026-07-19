@@ -26,10 +26,10 @@ from scopecat.kernel.product_identity import (
     product_id,
     product_use,
 )
-from scopecat.planning.local_materialization import materialize_local_execution
 from tests.testkit.authoring import load_config
 from tests.testkit.bound_plan import config_with_physical_resources
 from tests.testkit.local_effect_program import make_test_local_effect_program
+from tests.testkit.local_materialization import materialize_local_execution
 from tests.testkit.typed_program import instrument_product_producer, link_program
 
 

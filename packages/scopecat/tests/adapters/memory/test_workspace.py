@@ -11,11 +11,10 @@ from scopecat.adapters.memory import MemoryWorkspaceStore
 from scopecat.composition.memory import memory_workspace_services
 from scopecat.kernel.resource_identity import ResourceClaim
 from scopecat.planning.system import ExperimentSystem
-from scopecat.runs.execution import inspect_run_execution
 from scopecat.runs.service import start_run
 
 
-def test_recomposed_services_share_execution_recovery_state(tmp_path: Path) -> None:
+def test_recomposed_services_share_execution_state(tmp_path: Path) -> None:
     store = MemoryWorkspaceStore()
     initial = memory_workspace_services(store)
     manifest = start_run(
@@ -43,17 +42,7 @@ def test_recomposed_services_share_execution_recovery_state(tmp_path: Path) -> N
         manifest.run_id
     ) is initial_execution.payloads_for(manifest.run_id)
 
-    initial_inspection = inspect_run_execution(
-        run_id=manifest.run_id,
-        services=initial,
-    )
-    recomposed_inspection = inspect_run_execution(
-        run_id=manifest.run_id,
-        services=recomposed,
-    )
-
-    assert initial_inspection.transitions
-    assert recomposed_inspection == initial_inspection
+    assert recomposed_execution.journal_for(manifest.run_id).entries()
     assert recomposed_execution.measurements_for(manifest.run_id).measurements()
     assert recomposed_execution.collections_for(manifest.run_id).receipts()
 

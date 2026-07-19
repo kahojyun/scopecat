@@ -9,10 +9,16 @@ import pytest
 from pydantic import BaseModel
 
 from scopecat.kernel.errors import CheckFailed, DataIntegrityError, NotFound
+from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.run import RunConfigSource, RunManifest, RunOutcome
 from scopecat.runs.refs import CONFIG_PROFILE_SNAPSHOT_REF, MANIFEST_REF
-from scopecat.runs.repository import RunRepository
+from scopecat.runs.repository import (
+    RunModelWrite,
+    RunRecordSetWrite,
+    RunRepository,
+    TerminalRunCommit,
+)
 from tests.testkit.authoring import load_config
 
 
@@ -124,8 +130,76 @@ class RunRepositoryContract:
             request=None,
             config=config,
         )
-
         assert repository.read_config_profile_snapshot(manifest.run_id) == config
+
+    def test_terminal_commit_publishes_content_before_merged_manifest(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        repository = self.make_repository(tmp_path)
+        run_id = "run-terminal-commit"
+        repository.write_manifest(
+            RunManifest(
+                run_id=run_id,
+                lifecycle="running",
+                config_content_hash="sha256:" + "0" * 64,
+                contents=(
+                    RunContentEntry(
+                        role="artifact",
+                        id="operator-note",
+                        kind="attachment",
+                        content_hash="operator-note-content",
+                    ),
+                ),
+            )
+        )
+        outcome = RunOutcome(
+            run_id=run_id,
+            result="succeeded",
+            certainty="known",
+            termination_reason="completed",
+        )
+        terminal = RunManifest(
+            run_id=run_id,
+            lifecycle="terminal",
+            config_content_hash="sha256:" + "0" * 64,
+            outcome=outcome,
+            contents=(
+                RunContentEntry(
+                    role="record",
+                    id="outcome",
+                    kind="run_outcome",
+                    content_hash="outcome-content",
+                ),
+            ),
+        )
+
+        committed = repository.commit_terminal(
+            TerminalRunCommit(
+                manifest=terminal,
+                models=(RunModelWrite(ref="records/outcome.json", value=outcome),),
+                record_sets=(
+                    RunRecordSetWrite(
+                        ref="records/events.jsonl",
+                        records=(_ContractRecord(message="complete"),),
+                    ),
+                ),
+            )
+        )
+
+        assert {entry.id for entry in committed.contents} == {
+            "operator-note",
+            "outcome",
+        }
+        assert repository.read_manifest(run_id) == committed
+        assert (
+            repository.read_model(run_id, "records/outcome.json", RunOutcome) == outcome
+        )
+        assert repository.read_jsonl(
+            run_id,
+            "records/events.jsonl",
+            _ContractRecord,
+        ) == [_ContractRecord(message="complete")]
 
     def test_run_skeleton_requires_an_accepted_manifest(self, tmp_path: Path) -> None:
         repository = self.make_repository(tmp_path)

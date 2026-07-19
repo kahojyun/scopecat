@@ -277,6 +277,7 @@ def test_default_quantum_wiring_runtime_commands_include_channel_bindings(
         program=program,
         request=resolved.request,
         services=local_execution_services(tmp_path),
+        instrument_provider=provider,
         config_source=resolved.config_source,
     )
 

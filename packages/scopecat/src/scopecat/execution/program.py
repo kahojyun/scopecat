@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 
-from scopecat.execution.local.collection_contract import BoundLocalCollectionValues
 from scopecat.execution.local.program import (
     ActionStage,
     ApplyStateStage,
@@ -15,15 +14,12 @@ from scopecat.execution.local.program import (
     PointProgram,
 )
 from scopecat.kernel.point_identity import LogicalPointId
-from scopecat.kernel.product_identity import ProductUseId
 from scopecat.kernel.resource_identity import ResourceClaim
 from scopecat.measurements.projection import MeasurementProjection
 from scopecat.measurements.results import CoordinateValue
 from scopecat.sdk.domain.execution import PreparedDomainExecution
 from scopecat.sdk.instruments.contracts import (
     InstrumentDescription,
-    InstrumentProvider,
-    InstrumentProviderContext,
 )
 
 
@@ -31,15 +27,10 @@ from scopecat.sdk.instruments.contracts import (
 class RunHostBinding:
     """Provisioning contract for host effects referenced by a RunProgram."""
 
-    experiment_id: str
-    product_use_ids: tuple[ProductUseId, ...]
     resource_order: tuple[str, ...]
-    point_count: int
-    context: InstrumentProviderContext = field(repr=False)
     provider_id: str
     instrument_order: tuple[str, ...]
     advertised_descriptions: dict[str, InstrumentDescription] = field(repr=False)
-    provider: InstrumentProvider = field(repr=False, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,7 +158,6 @@ class RunProgram:
     host: RunHostBinding | None
     operations: tuple[RunOperation, ...]
     measurements: MeasurementProjection = field(repr=False)
-    local_values: BoundLocalCollectionValues | None = field(repr=False)
     resource_claims: tuple[ResourceClaim, ...]
 
     @property

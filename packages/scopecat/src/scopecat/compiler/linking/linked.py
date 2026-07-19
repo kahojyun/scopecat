@@ -683,7 +683,7 @@ def _relation_import_problems(
 ) -> tuple[Problem, ...]:
     problems: list[Problem] = []
     for consumer in verified_program.relation_consumers:
-        plan = consumer.value.plan
+        plan = consumer.plan
         for imported in plan.imports:
             if imported.namespace is PlanImportNamespace.INPUT:
                 problems.append(_unresolved_input_problem(consumer, imported.id))

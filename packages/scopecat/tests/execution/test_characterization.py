@@ -269,7 +269,7 @@ def test_compute_output_is_normalized_before_downstream_use() -> None:
         payloads=MemoryPayloadEvidenceCommitter(),
     ).run(complete_point_operations(program))
 
-    assert result.status == "completed"
+    assert not result.problems and not result.indeterminate
     assert consumed == [Quantity(value=5.0, unit="GHz")]
 
 
@@ -354,7 +354,7 @@ def test_run_compute_is_shared_by_every_point_frame() -> None:
         payloads=MemoryPayloadEvidenceCommitter(),
     ).run((run_stage, RunPointLoop(points)))
 
-    assert result.status == "completed"
+    assert not result.problems and not result.indeterminate
     assert producer_calls == 1
     assert consumed == [2.0, 2.0]
 
@@ -426,7 +426,7 @@ def test_distinct_compute_operations_are_each_evaluated() -> None:
         payloads=MemoryPayloadEvidenceCommitter(),
     ).run(complete_point_operations(program))
 
-    assert result.status == "completed"
+    assert not result.problems and not result.indeterminate
     assert calls == ["first", "second"]
 
 
@@ -585,8 +585,7 @@ def test_identical_actions_are_delivered_at_every_point() -> None:
         payloads=MemoryPayloadEvidenceCommitter(),
     ).run(complete_point_operations(program))
 
-    assert result.success
-    assert result.action_command_count == 2
+    assert not result.problems and not result.indeterminate
     assert len(driver.action_commands) == 2
 
 
@@ -619,8 +618,7 @@ def test_unknown_action_is_not_retried_and_makes_run_indeterminate() -> None:
         payloads=MemoryPayloadEvidenceCommitter(),
     ).run(complete_point_operations(program))
 
-    assert result.status == "unknown"
-    assert result.uncertain
+    assert result.indeterminate
     assert len(driver.action_commands) == 1
     assert [
         entry.state
@@ -677,8 +675,7 @@ def test_invalid_apply_receipt_truth_table_is_rejected_at_normalize_boundary() -
         payloads=MemoryPayloadEvidenceCommitter(),
     ).run(complete_point_operations(program))
 
-    assert result.status == "unknown"
-    assert result.uncertain
+    assert result.indeterminate
     problem_codes = {problem.code for problem in result.problems}
     assert "instrument_apply_unknown" in problem_codes
     assert "instrument_apply_receipt_conflict" not in problem_codes
@@ -720,8 +717,7 @@ def test_invalid_collect_receipt_is_rejected_at_normalize_boundary() -> None:
         payloads=MemoryPayloadEvidenceCommitter(),
     ).run(complete_point_operations(program))
 
-    assert result.status == "unknown"
-    assert result.uncertain
+    assert result.indeterminate
     problem_codes = {problem.code for problem in result.problems}
     assert "instrument_collect_unknown" in problem_codes
     assert "instrument_collection_not_completed" not in problem_codes
@@ -773,8 +769,7 @@ def test_mismatched_collection_receipt_is_indeterminate(
         payloads=MemoryPayloadEvidenceCommitter(),
     ).run(complete_point_operations(program))
 
-    assert result.status == "unknown"
-    assert result.uncertain
+    assert result.indeterminate
     assert len(readbacks.chunks) == 1
     assert len(readbacks.receipts) == 1
     assert "collection_readback_commit_failed" in {
@@ -822,7 +817,7 @@ def test_finalization_journal_failure_cannot_block_abort_or_terminal_read() -> N
         payloads=MemoryPayloadEvidenceCommitter(),
     ).run(complete_point_operations(program))
 
-    assert result.status == "unknown"
+    assert result.indeterminate
     assert first.abort_count == 1
     assert second.abort_count == 1
     assert first.read_count == 2
@@ -879,7 +874,7 @@ def test_apply_journal_persists_full_receipt_evidence() -> None:
         payloads=MemoryPayloadEvidenceCommitter(),
     ).run(complete_point_operations(program))
 
-    assert result.status == "completed"
+    assert not result.problems and not result.indeterminate
     completed = next(
         entry
         for entry in journal.entries
@@ -937,7 +932,7 @@ def test_state_apply_stops_on_blocking_result_without_committing_state() -> None
 
     result = engine.run(complete_point_operations(program))
 
-    assert result.status == "failed"
+    assert result.problems and not result.indeterminate
     assert [problem.code for problem in result.problems] == [
         "instrument_driver_blocked"
     ]
@@ -951,9 +946,6 @@ def test_state_apply_stops_on_blocking_result_without_committing_state() -> None
         == result.initial_state
     )
     assert result.final_state == result.initial_state
-    assert result.changed_field_count == 0
-    assert result.state_command_count == 0
-    assert result.points[0].result == "failed"
     assert [
         (entry.operation_id, entry.state)
         for entry in journal.entries
@@ -1029,7 +1021,7 @@ def test_unexpected_product_stops_later_collection_and_fails_journal_entry() -> 
         payloads=MemoryPayloadEvidenceCommitter(),
     ).run(complete_point_operations(program))
 
-    assert result.status == "failed"
+    assert result.problems and not result.indeterminate
     assert [problem.code for problem in result.problems] == [
         "instrument_unexpected_product"
     ]
@@ -1119,8 +1111,7 @@ def test_unknown_receipt_with_blocking_problem_does_not_advance_state() -> None:
 
     result = engine.run(complete_point_operations(program))
 
-    assert result.status == "unknown"
-    assert result.uncertain
+    assert result.indeterminate
     assert [problem.code for problem in result.problems] == [
         "instrument_driver_applied_with_error",
     ]
@@ -1129,8 +1120,6 @@ def test_unknown_receipt_with_blocking_problem_does_not_advance_state() -> None:
     assert engine.current_states["source-a"] == result.initial_state[0]
     assert result.final_state[0] != result.initial_state[0]
     assert result.final_state[0].fields[0].value == StateValue(1.0)
-    assert result.changed_field_count == 0
-    assert result.state_command_count == 0
     assert [
         (entry.operation_id, entry.state)
         for entry in journal.entries

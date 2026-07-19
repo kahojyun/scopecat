@@ -1,4 +1,4 @@
-"""Semantic roles for proof-owning fields in transient compiler programs."""
+"""Semantic roles for verified relation uses in transient compiler programs."""
 
 from __future__ import annotations
 

@@ -1896,8 +1896,9 @@ def test_fake_domain_values_reach_receipt_bearing_host_recording() -> None:
     chunks = record_committer.chunks
     assert len(chunks) == len(scenario.linked_points.point_domain.points)
     assert tuple(chunk.record for chunk in chunks) == projected.records
-    assert len(committed.receipts) == len(chunks)
-    for chunk, receipt in zip(chunks, committed.receipts, strict=True):
+    assert committed == projected.records
+    assert len(record_committer.receipts) == len(chunks)
+    for chunk, receipt in zip(chunks, record_committer.receipts, strict=True):
         assert receipt.operation_id == chunk.operation_id
         assert receipt.chunk_content_hash == chunk.content_hash
         assert receipt.record_ref
@@ -1916,7 +1917,7 @@ def test_fake_domain_values_reach_receipt_bearing_host_recording() -> None:
         transition.evidence["receipt"]
         for transition in record_transitions
         if transition.state == "completed"
-    ) == tuple(receipt.model_dump(mode="json") for receipt in committed.receipts)
+    ) == tuple(receipt.model_dump(mode="json") for receipt in record_committer.receipts)
     allowed_evidence_keys = {
         "dataset_id",
         "recording_contract_fingerprint",

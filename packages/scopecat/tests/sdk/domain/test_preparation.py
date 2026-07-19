@@ -10,6 +10,7 @@ from scopecat.compiler.linking.linked import (
     link_verified_program,
 )
 from scopecat.compiler.typed.domain_results import domain_result_closure
+from scopecat.kernel.errors import ProviderContractError
 from scopecat.planning.authoring import resolve_experiment
 from scopecat.records.parameter import Quantity
 from scopecat.sdk.domain import (
@@ -25,6 +26,7 @@ from scopecat.sdk.domain._bridge import (
     make_domain_compile_request,
 )
 from scopecat.sdk.domain.execution import PreparedDomainExecution
+from scopecat.sdk.domain.invocation import DomainOutputValue, seal_domain_output_values
 from scopecat.sdk.domain.job import (
     DomainInvocationSpec,
     DomainResourceClaim,
@@ -231,6 +233,39 @@ def test_map_measurements_closes_exact_direct_product_cover(
             entry_points=entry_points,
             results=invalid_results,
         )
+
+
+def test_result_values_project_directly_to_canonical_candidates(tmp_path: Path) -> None:
+    context = _preparation_context(tmp_path, namespace="values")
+    entries, entry_points, results = _valid_mapping_inputs(context)
+    mapping = context.new_preparation().map_measurements(
+        entries=entries,
+        entry_points=entry_points,
+        results=results,
+    )
+    values = tuple(
+        DomainOutputValue(
+            result.result_address,
+            Quantity(value=index, unit="count"),
+        )
+        for index, result in enumerate(mapping.results)
+    )
+
+    candidates = seal_domain_output_values(mapping, tuple(reversed(values)))
+
+    assert tuple(
+        (candidate.logical_point_id, candidate.product_use_id)
+        for candidate in candidates
+    ) == tuple(
+        (result.logical_point_id, use_id)
+        for result in mapping.results
+        for use_id in result.product_use_ids
+    )
+    with pytest.raises(ProviderContractError) as caught:
+        seal_domain_output_values(mapping, values[:-1])
+    assert {problem.code for problem in caught.value.problems} == {
+        "domain_output_missing_result"
+    }
 
 
 def test_map_measurements_rejects_foreign_point_and_product_use(

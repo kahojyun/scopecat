@@ -16,10 +16,11 @@ from scopecat.execution.evidence import (
     RAW_MEASUREMENTS_DATASET_ID,
     build_execution_manifest,
     build_instrument_state_evidence,
+    instrument_state_evidence_ref,
     raw_measurement_schema,
+    raw_measurements_ref,
+    run_outcome_ref,
 )
-from scopecat.execution.local.collection_contract import BoundLocalCollectionValues
-from scopecat.execution.local.collection_values import local_collection_value_candidates
 from scopecat.execution.local.executor import execute_run_operations
 from scopecat.execution.observation import RuntimeEventSink, RuntimePayloadObserver
 from scopecat.execution.persistence import (
@@ -33,7 +34,6 @@ from scopecat.execution.problems import (
 )
 from scopecat.execution.program import RunDomainJob, RunProgram
 from scopecat.execution.services import (
-    CollectionRecordRepository,
     ExecutionServices,
     MeasurementRecordRepository,
 )
@@ -57,14 +57,16 @@ from scopecat.kernel.problems import (
 from scopecat.measurements.projection import project_measurement_records
 from scopecat.measurements.recording import commit_measurement_records
 from scopecat.measurements.results import MeasurementRecord
-from scopecat.measurements.values import (
-    MeasurementValueCandidate,
-    seal_measurement_values,
-)
+from scopecat.measurements.values import seal_measurement_values
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.run import RunConfigSource, RunManifest, RunOutcome
 from scopecat.records.run_request import RunRequest
-from scopecat.runs.lifecycle import commit_terminal_evidence
+from scopecat.runs.repository import (
+    RunModelWrite,
+    RunRecordSetWrite,
+    TerminalRunCommit,
+)
+from scopecat.sdk.instruments.contracts import InstrumentProvider
 
 
 def interpret_run_program(
@@ -73,6 +75,7 @@ def interpret_run_program(
     program: RunProgram,
     request: RunRequest | None,
     services: ExecutionServices,
+    instrument_provider: InstrumentProvider | None = None,
     config_source: RunConfigSource | None = None,
     event_sink: RuntimeEventSink | None = None,
     payload_observer: RuntimePayloadObserver | None = None,
@@ -84,6 +87,7 @@ def interpret_run_program(
         program=program,
         request=request,
         services=services,
+        instrument_provider=instrument_provider,
         config_source=config_source,
         event_sink=event_sink,
         payload_observer=payload_observer,
@@ -96,12 +100,12 @@ def _interpret_run(
     program: RunProgram,
     request: RunRequest | None,
     services: ExecutionServices,
+    instrument_provider: InstrumentProvider | None,
     config_source: RunConfigSource | None,
     event_sink: RuntimeEventSink | None,
     payload_observer: RuntimePayloadObserver | None,
 ) -> RunManifest:
     host = program.host
-    local_binding = program.local_values
     projection = program.measurements
     point_count = len(projection.catalog.point_catalog.points)
     experiment_id = program.experiment_id
@@ -139,16 +143,12 @@ def _interpret_run(
     measurements = services.measurements_for(run_id)
     readbacks = services.collections_for(run_id)
     payloads = services.payloads_for(run_id)
-    domain_values: list[MeasurementValueCandidate] = []
-    domain_failure: tuple[RunDomainJob, BaseException] | None = None
-
-    local_result: RunEffectResult | None = None
-    setup_problems: list[Problem] = []
+    effect_result: RunEffectResult | None = None
     resource_failure: BaseException | None = None
     claims = program.resource_claims
     try:
         with services.resources.acquire(claims):
-            executed = execute_run_operations(
+            effect_result = execute_run_operations(
                 config=config,
                 program=program,
                 run_id=run_id,
@@ -157,25 +157,21 @@ def _interpret_run(
                 payloads=payloads,
                 payload_observer=payload_observer,
                 transition_observer=transition_observer,
+                instrument_provider=instrument_provider,
             )
-            local_result = executed.result
-            setup_problems.extend(executed.setup_problems)
-            domain_values.extend(executed.domain_values)
-            domain_failure = executed.domain_failure
     except BaseException as error:
         resource_failure = error
 
-    problems = _local_problems(
-        setup_problems=setup_problems,
-        result=local_result,
+    problems = _effect_problems(
+        result=effect_result,
         run_id=run_id,
     )
     certainty = (
         "indeterminate"
-        if local_result is not None and local_result.uncertain
+        if effect_result is not None and effect_result.indeterminate
         else "known"
     )
-    interruption = None if local_result is None else local_result.interruption
+    interruption = None if effect_result is None else effect_result.interruption
     if isinstance(resource_failure, Exception):
         problems.append(
             problem_from_exception(
@@ -201,8 +197,8 @@ def _interpret_run(
                 },
             )
         )
-    if domain_failure is not None:
-        unit, error = domain_failure
+    if effect_result is not None and effect_result.domain_failure is not None:
+        unit, error = effect_result.domain_failure
         domain_problems, domain_uncertain, domain_interruption = (
             _domain_failure_problems(unit, error, run_id=run_id)
         )
@@ -219,11 +215,8 @@ def _interpret_run(
     measurement_reload_required = False
     if not has_blocking_problems(problems):
         try:
-            candidates = _measurement_value_candidates(
-                local_binding=local_binding,
-                domain_values=domain_values,
-                run_id=run_id,
-                readbacks=readbacks,
+            candidates = (
+                () if effect_result is None else effect_result.measurement_values
             )
             values = seal_measurement_values(
                 program.measurements.product_values,
@@ -234,13 +227,14 @@ def _interpret_run(
                 values,
                 run_id=run_id,
             )
-            committed = commit_measurement_records(
-                projected,
-                measurements,
-                journal,
-                transition_observer=transition_observer.observe,
+            committed_measurements.extend(
+                commit_measurement_records(
+                    projected,
+                    measurements,
+                    journal,
+                    transition_observer=transition_observer.observe,
+                )
             )
-            committed_measurements.extend(committed.records)
         except MeasurementRecordingError as error:
             problems.extend(
                 contextualize_problems(
@@ -361,8 +355,8 @@ def _interpret_run(
     )
     instrument_state = (
         None
-        if host is None or local_result is None
-        else build_instrument_state_evidence(local_result)
+        if host is None or effect_result is None
+        else build_instrument_state_evidence(effect_result)
     )
     manifest = build_execution_manifest(
         run_id=run_id,
@@ -371,15 +365,32 @@ def _interpret_run(
         expected_schema=expected_schema,
         config_content_hash=accepted.config_content_hash,
         config_source=config_source,
-        include_instrument_state=instrument_state is not None,
-    ).model_copy(update={"created_at": accepted.created_at})
-    manifest = commit_terminal_evidence(
-        storage=storage,
-        run_id=run_id,
-        outcome=outcome,
         instrument_state=instrument_state,
-        measurements=committed_measurements,
-        manifest=manifest,
+    ).model_copy(update={"created_at": accepted.created_at})
+    models = [RunModelWrite(ref=run_outcome_ref(), value=outcome)]
+    if instrument_state is not None:
+        models.append(
+            RunModelWrite(
+                ref=instrument_state_evidence_ref(),
+                value=instrument_state,
+            )
+        )
+    record_sets = (
+        (
+            RunRecordSetWrite(
+                ref=raw_measurements_ref(),
+                records=tuple(committed_measurements),
+            ),
+        )
+        if committed_measurements
+        else ()
+    )
+    manifest = storage.commit_terminal(
+        TerminalRunCommit(
+            manifest=manifest,
+            models=tuple(models),
+            record_sets=record_sets,
+        )
     )
     emit_run_finished(
         event_sink=event_sink,
@@ -395,10 +406,10 @@ def _interpret_run(
         measurement_count=len(committed_measurements),
         problem_count=len(problems),
         compute_evaluated_node_count=(
-            0 if local_result is None else local_result.compute_evaluated_node_count
+            0 if effect_result is None else effect_result.compute_evaluated_node_count
         ),
         compute_payload_count=(
-            0 if local_result is None else local_result.compute_payload_count
+            0 if effect_result is None else effect_result.compute_payload_count
         ),
     )
     if interruption is not None:
@@ -411,38 +422,12 @@ def _interpret_run(
     return manifest
 
 
-def _measurement_value_candidates(
+def _effect_problems(
     *,
-    local_binding: BoundLocalCollectionValues | None,
-    domain_values: list[MeasurementValueCandidate],
-    run_id: str,
-    readbacks: CollectionRecordRepository,
-) -> tuple[MeasurementValueCandidate, ...]:
-    candidates: list[MeasurementValueCandidate] = []
-    if local_binding is not None:
-        candidates.extend(
-            local_collection_value_candidates(
-                local_binding,
-                run_id=run_id,
-                repository=readbacks,
-                receipts=readbacks.receipts(),
-            )
-        )
-    candidates.extend(domain_values)
-    return tuple(candidates)
-
-
-def _local_problems(
-    *,
-    setup_problems: list[Problem],
     result: RunEffectResult | None,
     run_id: str,
 ) -> list[Problem]:
-    selected = list(setup_problems)
-    if result is not None:
-        selected.extend(
-            problem for problem in result.problems if problem not in selected
-        )
+    selected = () if result is None else result.problems
     return list(
         contextualize_problems(
             selected,
@@ -550,11 +535,7 @@ def _reload_measurements(
                 operation_id="execution-plan.measurements.reload",
                 phase=ProblemPhase.PERSISTENCE,
                 category=ProblemCategory.STORAGE,
-                details={
-                    "storage_ref": "execution-measurements",
-                    "reconciliation": "inspect and validate durable measurement chunks",
-                    "automatic_resume": False,
-                },
+                details={"storage_ref": "execution-measurements"},
             )
         )
         return [], True

@@ -105,6 +105,7 @@ def execute_program_run(
         program=program,
         request=request,
         services=services,
+        instrument_provider=instrument_provider,
         config_source=config_source,
         event_sink=event_sink,
         payload_observer=payload_observer,

@@ -16,7 +16,7 @@ from scopecat.compiler.typed.program import CoreProgram
 from scopecat.composition.local import local_run_repository
 from scopecat.config.profiles import load_config_profile
 from scopecat.planning.authoring import resolve_experiment_with_config
-from scopecat.records.artifact import RunArtifactEntry, RunDatasetEntry
+from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.data_artifact import (
     DataArrayArtifact,
@@ -134,19 +134,23 @@ def attach_typed_data_artifacts(workspace: Path, run_id: str) -> None:
         ],
         primary_variables=["readout_probability"],
     )
-    metrics_entry = RunDatasetEntry(
+    metrics_entry = RunContentEntry(
+        role="dataset",
         id="metrics",
         kind="data_table",
+        content_hash="metrics-content",
         media_type="application/json",
-        role="analysis",
+        dataset_role="analysis",
         schema=metrics_schema.model_dump(mode="json"),
         metadata={"data_shape": "table"},
     )
-    matrix_entry = RunDatasetEntry(
+    matrix_entry = RunContentEntry(
+        role="dataset",
         id="readout-matrix",
         kind="data_array",
+        content_hash="matrix-content",
         media_type="application/json",
-        role="analysis",
+        dataset_role="analysis",
         schema=matrix_schema.model_dump(mode="json"),
         metadata={"data_shape": "array"},
     )
@@ -169,7 +173,7 @@ def attach_typed_data_artifacts(workspace: Path, run_id: str) -> None:
     storage.write_manifest(
         manifest.model_copy(
             update={
-                "datasets": (*manifest.datasets, metrics_entry, matrix_entry),
+                "contents": (*manifest.contents, metrics_entry, matrix_entry),
             }
         )
     )
@@ -178,9 +182,11 @@ def attach_typed_data_artifacts(workspace: Path, run_id: str) -> None:
 def attach_binary_artifact(workspace: Path, run_id: str) -> None:
     storage = local_run_repository(workspace)
     manifest = storage.read_manifest(run_id)
-    binary = RunArtifactEntry(
+    binary = RunContentEntry(
+        role="artifact",
         id="binary-artifact",
         kind="binary",
+        content_hash="binary-content",
         media_type="application/octet-stream",
     )
     binary_ref = artifact_storage_ref(binary)
@@ -188,5 +194,5 @@ def attach_binary_artifact(workspace: Path, run_id: str) -> None:
     binary_path.parent.mkdir(parents=True, exist_ok=True)
     binary_path.write_bytes(b"\x00\x01")
     storage.write_manifest(
-        manifest.model_copy(update={"artifacts": (*manifest.artifacts, binary)})
+        manifest.model_copy(update={"contents": (*manifest.contents, binary)})
     )

@@ -16,6 +16,11 @@ from scopecat.config.changes import (
     parameter_change_proposal_record_ref,
     write_parameter_change_proposal_contents_locked,
 )
+from scopecat.kernel.content_identity import (
+    content_fingerprint,
+    model_wire_content_hash,
+    stable_content_hash,
+)
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.ids import artifact_slug
 from scopecat.kernel.problems import (
@@ -31,12 +36,11 @@ from scopecat.records.analysis import (
     AnalysisRecordOutput,
     AnalysisRecordOutputKind,
 )
-from scopecat.records.artifact import RunArtifactEntry, RunRecordEntry
+from scopecat.records.artifact import RunContentEntry
 from scopecat.records.parameter_change import ParameterChangeProposal
 from scopecat.runs.access import (
     artifact_storage_ref,
-    upsert_artifacts,
-    upsert_records,
+    upsert_contents,
 )
 from scopecat.runs.refs import record_content_ref
 from scopecat.runs.repository import RunRepository
@@ -63,10 +67,10 @@ class AnalysisOutput:
 
 @dataclass(frozen=True)
 class SavedAnalysis:
-    record: RunRecordEntry
+    record: RunContentEntry
     analysis_key: str
     inputs: tuple[AnalysisInput, ...] = ()
-    output_artifacts: tuple[RunArtifactEntry, ...] = ()
+    output_artifacts: tuple[RunContentEntry, ...] = ()
 
 
 class _AnalysisArtifactSource(Protocol):
@@ -75,6 +79,8 @@ class _AnalysisArtifactSource(Protocol):
     def default_extension(self) -> str: ...
 
     def default_media_type(self) -> str: ...
+
+    def content_hash(self) -> str: ...
 
     def write(self, *, storage: RunRepository, run_id: str, ref: str) -> None: ...
 
@@ -91,6 +97,9 @@ class _AnalysisModelArtifactSource:
 
     def default_media_type(self) -> str:
         return "application/json"
+
+    def content_hash(self) -> str:
+        return model_wire_content_hash(self.model)
 
     def write(self, *, storage: RunRepository, run_id: str, ref: str) -> None:
         storage.write_text(
@@ -113,6 +122,9 @@ class _AnalysisJsonArtifactSource:
     def default_media_type(self) -> str:
         return "application/json"
 
+    def content_hash(self) -> str:
+        return stable_content_hash(content_fingerprint(_json_safe(self.content)))
+
     def write(self, *, storage: RunRepository, run_id: str, ref: str) -> None:
         storage.write_text(
             run_id,
@@ -134,6 +146,9 @@ class _AnalysisTextArtifactSource:
     def default_media_type(self) -> str:
         return "text/plain"
 
+    def content_hash(self) -> str:
+        return stable_content_hash(content_fingerprint(self.content))
+
     def write(self, *, storage: RunRepository, run_id: str, ref: str) -> None:
         storage.write_text(run_id, ref, self.content)
 
@@ -151,6 +166,9 @@ class _AnalysisBytesArtifactSource:
     def default_media_type(self) -> str:
         return "application/octet-stream"
 
+    def content_hash(self) -> str:
+        return stable_content_hash(content_fingerprint(self.content))
+
     def write(self, *, storage: RunRepository, run_id: str, ref: str) -> None:
         storage.write_bytes(run_id, ref, self.content)
 
@@ -167,6 +185,9 @@ class _AnalysisFileArtifactSource:
 
     def default_media_type(self) -> str:
         return "application/octet-stream"
+
+    def content_hash(self) -> str:
+        return stable_content_hash(content_fingerprint(self.path.read_bytes()))
 
     def write(self, *, storage: RunRepository, run_id: str, ref: str) -> None:
         storage.write_bytes(run_id, ref, self.path.read_bytes())
@@ -186,7 +207,7 @@ class AnalysisArtifactSpec:
 @dataclass(frozen=True)
 class _PreparedAnalysisArtifact:
     spec: AnalysisArtifactSpec
-    artifact: RunArtifactEntry
+    artifact: RunContentEntry
     artifact_id: str
 
 
@@ -326,10 +347,12 @@ def save_analysis(
             output_refs=iter(output_refs),
         ),
     )
-    record = RunRecordEntry(
+    record = RunContentEntry(
+        role="record",
         id=selected_record_id,
         kind="analysis",
         media_type="application/json",
+        content_hash=model_wire_content_hash(analysis_record),
     )
     with storage.run_lock(run_id):
         manifest = storage.read_manifest(run_id)
@@ -349,13 +372,9 @@ def save_analysis(
         # this write leaves retryable, uncommitted content.
         updated_manifest = manifest.model_copy(
             update={
-                "records": upsert_records(
-                    manifest.records,
-                    (*proposal_records, record),
-                ),
-                "artifacts": upsert_artifacts(
-                    manifest.artifacts,
-                    output_artifacts,
+                "contents": upsert_contents(
+                    manifest.contents,
+                    (*proposal_records, record, *output_artifacts),
                 ),
             }
         )
@@ -452,11 +471,13 @@ def _prepare_analysis_output_artifacts(
         selected_filename = _analysis_artifact_filename(spec, selected_artifact_id)
         media_type = _analysis_artifact_media_type(spec, selected_filename)
         metadata = _json_mapping(cast("Mapping[object, object]", spec.metadata))
-        artifact = RunArtifactEntry(
+        artifact = RunContentEntry(
+            role="artifact",
             id=selected_artifact_id,
             kind=spec.kind,
             title=spec.title,
             media_type=media_type,
+            content_hash=spec.source.content_hash(),
             produced_by=(
                 f"analysis_step:{step_id}"
                 if step_id is not None

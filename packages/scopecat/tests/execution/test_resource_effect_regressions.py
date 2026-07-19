@@ -50,7 +50,6 @@ from scopecat.kernel.state import StateValue
 from scopecat.kernel.value_types import Entity, Float, Scalar, String
 from scopecat.planning.local_materialization import (
     MaterializedLocalEffects,
-    materialize_local_execution,
 )
 from scopecat.records.config import (
     ConfigProfileSnapshot,
@@ -84,6 +83,7 @@ from tests.testkit.local_effect_program import (
     complete_point_operations,
     make_test_local_effect_program,
 )
+from tests.testkit.local_materialization import materialize_local_execution
 from tests.testkit.relation_plans import scalar_value_expr
 from tests.testkit.typed_program import (
     instrument_product_producer,
@@ -680,7 +680,7 @@ def test_scoped_same_field_targets_survive_snapshot_reconciliation() -> None:
         payloads=MemoryPayloadEvidenceCommitter(),
     ).run(complete_point_operations(program))
 
-    assert result.status == "completed"
+    assert not result.problems and not result.indeterminate
     assert len(driver.applied) == 1
     assert [field.entity_ids for field in driver.applied[0].fields] == [["q1"]]
     assert {

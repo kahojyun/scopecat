@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import PurePosixPath
+from typing import Literal
 
 from pydantic import (
     BaseModel,
@@ -15,56 +16,21 @@ from pydantic import (
 from scopecat.records._metadata import JsonMetadata
 
 
-class RunArtifactEntry(BaseModel):
-    """Run-local user payload or attachment.
+class RunContentEntry(BaseModel):
+    """One content-addressable run-local manifest entry."""
 
-    Framework workflow state belongs in ``RunRecordEntry``. Structured datasets
-    belong in ``RunDatasetEntry``. ``RunArtifactEntry`` is intentionally limited
-    to files a user would naturally browse, download, or attach to analysis.
-    """
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    model_config = ConfigDict(extra="forbid")
-
+    role: Literal["artifact", "dataset", "record"]
     id: str
     kind: str
     title: str | None = None
     media_type: str | None = None
-    produced_by: str | None = None
-    metadata: JsonMetadata = Field(default_factory=dict)
-
-    @field_validator("id", "kind")
-    @classmethod
-    def validate_storage_segment(cls, value: str) -> str:
-        return _validate_run_segment(value)
-
-
-class RunDatasetEntry(BaseModel):
-    """Run-local structured dataset entry."""
-
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
-
-    id: str
-    kind: str
-    media_type: str | None = None
-    role: str | None = None
+    dataset_role: str | None = None
     data_schema: dict[str, object] | None = Field(default=None, alias="schema")
+    content_hash: str = Field(min_length=1)
     produced_by: str | None = None
     metadata: JsonMetadata = Field(default_factory=dict)
-
-    @field_validator("id", "kind")
-    @classmethod
-    def validate_storage_segment(cls, value: str) -> str:
-        return _validate_run_segment(value)
-
-
-class RunRecordEntry(BaseModel):
-    """Run-local framework/workflow record entry."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    kind: str
-    media_type: str | None = "application/json"
 
     @field_validator("id", "kind")
     @classmethod

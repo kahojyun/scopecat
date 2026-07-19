@@ -3,9 +3,9 @@
 ``ProblemFailure`` turns one or more structured findings, including at least
 one blocking problem, into Python control flow at an operation boundary.
 Programming errors and violated internal invariants are not normalized into
-expected problems. External-effect uncertainty and persistence failure retain
-their recovery context in specialized exceptions rather than pretending to be
-ordinary validation failures or safely retryable work.
+expected problems. External-effect uncertainty retains its execution context
+rather than pretending to be an ordinary validation failure or safely retryable
+work.
 """
 
 from __future__ import annotations
@@ -103,7 +103,6 @@ class RunIndeterminate(RunFailure):
         super().__init__(run_id=run_id, outcome=outcome)
 
 
-RunPersistenceRetry = Literal["safe", "after_reconciliation", "not_retryable"]
 DomainRuntimeRetry = Literal["safe", "not_retryable"]
 
 
@@ -131,13 +130,11 @@ class MeasurementRecordingError(StorageError):
         dataset_id: str,
         recording_contract_fingerprint: str,
         operation_id: str,
-        attempt: int,
         logical_point_id: str,
         point_index: int,
         committed_prefix: Sequence[MeasurementRecordReceiptEvidence],
         pending_receipt: MeasurementRecordReceiptEvidence | None,
         write_may_have_completed: bool,
-        reconciliation: str,
     ) -> None:
         if (
             not run_id
@@ -148,14 +145,8 @@ class MeasurementRecordingError(StorageError):
         ):
             msg = "measurement recording identity fields must be non-empty"
             raise ValueError(msg)
-        if type(attempt) is not int or attempt < 1:
-            msg = "measurement recording attempt must be a positive integer"
-            raise ValueError(msg)
         if isinstance(point_index, bool) or point_index < 0:
             msg = "measurement recording point index must be a non-negative integer"
-            raise ValueError(msg)
-        if not reconciliation:
-            msg = "measurement recording error requires reconciliation guidance"
             raise ValueError(msg)
         selected_prefix = tuple(committed_prefix)
         operation_ids = tuple(receipt.operation_id for receipt in selected_prefix)
@@ -177,52 +168,11 @@ class MeasurementRecordingError(StorageError):
         self.dataset_id = dataset_id
         self.recording_contract_fingerprint = recording_contract_fingerprint
         self.operation_id = operation_id
-        self.attempt = attempt
         self.logical_point_id = logical_point_id
         self.point_index = point_index
         self.committed_prefix = selected_prefix
         self.pending_receipt = pending_receipt
         self.write_may_have_completed = write_may_have_completed
-        self.retry: Literal["safe"] = "safe"
-        self.reconciliation = reconciliation
-        super().__init__(problems)
-
-
-class RunPersistenceError(StorageError):
-    """Terminal run evidence could not be fully committed after execution."""
-
-    def __init__(
-        self,
-        problems: Sequence[Problem],
-        *,
-        run_id: str,
-        phase: str,
-        reconciliation: str,
-        retry: RunPersistenceRetry,
-        certainty: RunCertainty,
-        committed_refs: Sequence[str],
-        pending_ref: str,
-    ) -> None:
-        if not run_id or not phase or not reconciliation:
-            msg = "run persistence context fields must be non-empty"
-            raise ValueError(msg)
-        selected_refs = tuple(committed_refs)
-        if any(not ref for ref in selected_refs):
-            msg = "committed run evidence refs must be non-empty"
-            raise ValueError(msg)
-        if len(selected_refs) != len(set(selected_refs)):
-            msg = "committed run evidence refs must be unique"
-            raise ValueError(msg)
-        if not pending_ref:
-            msg = "pending run evidence ref must be non-empty"
-            raise ValueError(msg)
-        self.run_id = run_id
-        self.phase = phase
-        self.reconciliation = reconciliation
-        self.retry = retry
-        self.certainty = certainty
-        self.committed_refs = selected_refs
-        self.pending_ref = pending_ref
         super().__init__(problems)
 
 

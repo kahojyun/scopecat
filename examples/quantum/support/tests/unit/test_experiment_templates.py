@@ -272,7 +272,7 @@ def test_experiment_system_resolve_to_and_preview_invocation(
 def test_rabi_infers_default_scan_from_config(tmp_path: Path) -> None:
     preview = _bound_plan(tmp_path, RABI_TEMPLATE.bind(qubit="q0"))
 
-    assert preview.point_count == 5
+    assert len(preview.points) == 5
     assert preview.points[0].coordinates["drive_length"] == Quantity(
         value=10.0,
         unit="ns",
@@ -495,7 +495,7 @@ def test_cz_chevron_generates_drive_and_coupler_payloads(tmp_path: Path) -> None
         for payload in payloads
         if isinstance(payload.payload, CzChevronProgram)
     )
-    assert preview.point_count == 4
+    assert len(preview.points) == 4
     assert len(payloads) == 12
     assert (
         len(
@@ -637,7 +637,7 @@ def test_spectator_cz_adds_background_state(tmp_path: Path) -> None:
         config,
     )
 
-    assert preview.point_count == 1
+    assert len(preview.points) == 1
     assert (
         "coupler-stack",
         "set_flux_bias",

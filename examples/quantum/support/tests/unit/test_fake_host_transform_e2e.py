@@ -566,7 +566,8 @@ def test_fake_domain_iq_reaches_host_probabilities_and_durable_records() -> None
     )
     assert len(projected.records) == len(points)
     assert len(committer.chunks) == len(points)
-    assert len(committed.receipts) == len(points)
+    assert committed == projected.records
+    assert len(committer.receipts) == len(points)
     assert all(
         set(record.observables)
         == {"probability_0", "probability_1", "probability_1_alias"}

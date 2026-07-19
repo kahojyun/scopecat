@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Hashable
-
 from scopecat.execution.ports.journal import ExecutionJournal
 from scopecat.execution.problems import (
     runtime_problem,
@@ -23,7 +21,6 @@ from scopecat.measurements.values import (
     MeasurementValueCandidate,
 )
 from scopecat.sdk.domain.execution import PreparedDomainExecution
-from scopecat.sdk.domain.invocation import ClosedDomainOutputValues
 from scopecat.sdk.domain.runtime import (
     fetch_domain_invocation,
     plan_domain_submission,
@@ -59,8 +56,7 @@ def execute_domain_job_values(
         submission,
         journal=journal,
     )
-    outputs = prepared.realize(fetched)
-    source = _domain_output_candidates(prepared, outputs)
+    source = prepared.realize(fetched)
     transforms = prepared.transforms
     return (
         source
@@ -69,24 +65,6 @@ def execute_domain_job_values(
             transforms,
             source,
         ).values
-    )
-
-
-def _domain_output_candidates(
-    prepared: PreparedDomainExecution,
-    outputs: ClosedDomainOutputValues[Hashable, Hashable],
-) -> tuple[MeasurementValueCandidate, ...]:
-    selected = prepared.source_outputs
-    if outputs.mapping.contract_fingerprint != selected.mapping.contract_fingerprint:
-        raise AssertionError("closed domain outputs changed selected result mapping")
-    return tuple(
-        MeasurementValueCandidate(
-            output.logical_point_id,
-            product_use_id,
-            output.value,
-        )
-        for output in outputs.outputs
-        for product_use_id in output.product_use_ids
     )
 
 
@@ -126,29 +104,25 @@ def measurement_recording_terminal_problem(
     *,
     run_id: str,
 ) -> Problem:
-    """Retain idempotent record correlation after recording terminalizes."""
+    """Retain durable record correlation after recording terminalizes."""
 
     details: dict[str, object] = {
         "dataset_id": error.dataset_id,
         "recording_contract_fingerprint": error.recording_contract_fingerprint,
-        "attempt": error.attempt,
         "logical_point_id": error.logical_point_id,
         "point_index": error.point_index,
         "committed_record_refs": [
             receipt.record_ref for receipt in error.committed_prefix
         ],
         "write_may_have_completed": error.write_may_have_completed,
-        "retry_contract": error.retry,
-        "reconciliation": error.reconciliation,
-        "automatic_resume": False,
     }
     if error.pending_receipt is not None:
         details["pending_record_ref"] = error.pending_receipt.record_ref
     return runtime_problem(
         "measurement_recording_terminalized",
         (
-            "the unified run was terminalized with measurement "
-            "record correlation retained; automatic resume is not available"
+            "the unified run was terminalized with measurement record "
+            "correlation retained"
         ),
         run_id=run_id,
         operation_id=error.operation_id,

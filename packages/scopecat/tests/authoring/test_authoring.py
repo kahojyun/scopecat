@@ -1064,7 +1064,7 @@ def test_entity_series_routes_as_single_point_with_ordered_product_axis() -> Non
         config=config,
     )
 
-    assert preview.point_count == 1
+    assert len(preview.points) == 1
     [operation] = preview.points[0].collect_operations
     [request] = operation.command.requests
     assert operation.instrument_id == "readout-array"

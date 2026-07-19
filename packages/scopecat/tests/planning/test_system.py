@@ -6,7 +6,6 @@ from typing import Literal, Never
 
 import pytest
 
-import scopecat.planning.local_materialization as local_materialization
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.linked import (
     LinkedPlan,
@@ -791,7 +790,6 @@ def test_domain_compiler_batches_one_state_stable_region() -> None:
         {"frequency": Quantity(value=4.9, unit="GHz")},
         {"frequency": Quantity(value=5.1, unit="GHz")},
     ]
-    assert local_effects.product_use_ids == ()
     domain_jobs = tuple(
         operation
         for operation in iter_run_operations(plan.operations)
@@ -802,7 +800,6 @@ def test_domain_compiler_batches_one_state_stable_region() -> None:
     assert not hasattr(domain_job, "compiled")
     assert not hasattr(domain_job.prepared, "context")
     assert not hasattr(domain_job.prepared, "compiler_id")
-    assert local_effects.product_use_ids == ()
     assert provider.describe_calls == 1
     assert provider.provide_calls == 0
     assert compiler.compile_calls == 1
@@ -860,30 +857,6 @@ def test_system_compiler_can_route_domain_calls_to_distinct_targets() -> None:
         ResourceClaim("tests.multi-target.domain-0.target", "target"),
         ResourceClaim("tests.multi-target.domain-1.target", "target"),
     )
-
-
-def test_mixed_planning_reuses_materialized_linked_points(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    linked = _linked_program(state_mode="constant")
-    compiler = _DomainCompiler("tests.single-materialization")
-
-    def reject_rematerialization(_linked: LinkedPlan) -> MaterializedLinkedPoints:
-        raise AssertionError("system must reuse its materialized linked points")
-
-    monkeypatch.setattr(
-        local_materialization,
-        "materialize_linked_points",
-        reject_rematerialization,
-    )
-
-    prepared = ExperimentSystem(
-        provider=_TrackingProvider(),
-        domain_compiler=compiler,
-    ).compile(linked, config=load_config())
-
-    assert prepared.host is not None
-    assert any(isinstance(operation, RunDomainJob) for operation in prepared.operations)
 
 
 def test_symbolic_domain_compile_precedes_point_materialization(

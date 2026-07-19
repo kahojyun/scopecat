@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import cast
 
 from pydantic import JsonValue, TypeAdapter
@@ -33,7 +33,6 @@ from scopecat.execution.problems import (
     runtime_problem,
 )
 from scopecat.execution.program import (
-    RunDomainJob,
     RunHostBinding,
     RunOperation,
     RunPointStage,
@@ -53,7 +52,6 @@ from scopecat.kernel.problems import (
     has_blocking_problems,
     model_location,
 )
-from scopecat.measurements.values import MeasurementValueCandidate
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.instrument import InstrumentStateSnapshot
@@ -68,16 +66,6 @@ from scopecat.sdk.instruments.contracts import (
 
 _PROVIDER_METADATA_ADAPTER = TypeAdapter(dict[str, JsonValue])
 _PROVIDER_DESCRIPTION_ADAPTER = TypeAdapter(InstrumentProviderDescription)
-
-
-@dataclass(frozen=True, slots=True)
-class ExecutedRunEffects:
-    """One complete provisioning and ordered-effect interpretation outcome."""
-
-    result: RunEffectResult
-    setup_problems: tuple[Problem, ...]
-    domain_values: tuple[MeasurementValueCandidate, ...]
-    domain_failure: tuple[RunDomainJob, BaseException] | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,8 +181,9 @@ def execute_run_operations(
     readbacks: CollectionRepository,
     payloads: PayloadEvidenceCommitter,
     transition_observer: RuntimeTransitionProjector,
+    instrument_provider: InstrumentProvider | None = None,
     payload_observer: RuntimePayloadObserver | None = None,
-) -> ExecutedRunEffects:
+) -> RunEffectResult:
     """Provision optional host drivers and interpret one operation sequence."""
 
     host = program.host
@@ -208,17 +197,15 @@ def execute_run_operations(
             payloads=payloads,
             transition_observer=transition_observer,
         )
-        result = engine.run(program.operations)
-        return ExecutedRunEffects(
-            result=result,
-            setup_problems=(),
-            domain_values=tuple(engine.domain_values),
-            domain_failure=engine.domain_failure,
-        )
+        return engine.run(program.operations)
 
-    executed, setup_problems = _execute_run_host_operations(
+    return _execute_run_host_operations(
         config=config,
         host=host,
+        instrument_provider=instrument_provider,
+        effect_context=program,
+        experiment_id=program.experiment_id,
+        point_count=len(program.measurements.catalog.point_catalog.points),
         operations=program.operations,
         run_id=run_id,
         journal=journal,
@@ -227,18 +214,16 @@ def execute_run_operations(
         payload_observer=payload_observer,
         transition_observer=transition_observer,
     )
-    return ExecutedRunEffects(
-        result=executed.result,
-        setup_problems=tuple(setup_problems),
-        domain_values=executed.domain_values,
-        domain_failure=executed.domain_failure,
-    )
 
 
 def _execute_run_host_operations(
     *,
     config: ConfigProfileSnapshot,
     host: RunHostBinding,
+    instrument_provider: InstrumentProvider | None,
+    effect_context: RunProgram,
+    experiment_id: str,
+    point_count: int,
     operations: tuple[RunOperation, ...],
     run_id: str,
     journal: ExecutionJournal,
@@ -247,28 +232,39 @@ def _execute_run_host_operations(
     event_sink: RuntimeEventSink | None = None,
     payload_observer: RuntimePayloadObserver | None = None,
     transition_observer: RuntimeTransitionProjector | None = None,
-) -> tuple[ExecutedRunEffects, list[Problem]]:
+) -> RunEffectResult:
     """Provision host resources and interpret the complete operation sequence."""
 
     program = host
+    if instrument_provider is None:
+        raise ProviderContractError(
+            (
+                blocking_problem(
+                    "instrument_provider_missing",
+                    "host execution requires its experiment-system provider",
+                    category=ProblemCategory.NOT_FOUND,
+                    phase=ProblemPhase.EXECUTION,
+                    location=model_location("execution", "provider"),
+                ),
+            )
+        )
     setup_problems: list[Problem] = []
     if transition_observer is None:
         transition_observer = RuntimeTransitionProjector(
             event_sink=event_sink,
-            experiment_id=program.experiment_id,
-            point_count=program.point_count,
+            experiment_id=experiment_id,
+            point_count=point_count,
         )
-    domain_values: list[MeasurementValueCandidate] = []
-    domain_failure: list[tuple[RunDomainJob, BaseException] | None] = [None]
     result = _provision_and_execute(
         run_id=run_id,
-        experiment_id=program.experiment_id,
+        experiment_id=experiment_id,
         config=config,
-        context=host.context,
-        provider=host.provider,
+        context=InstrumentProviderContext(config=config),
+        provider=instrument_provider,
         provider_id=host.provider_id,
         advertised_descriptions=host.advertised_descriptions,
         program=program,
+        effect_context=effect_context,
         setup_problems=setup_problems,
         journal=journal,
         transition_observer=transition_observer,
@@ -276,15 +272,16 @@ def _execute_run_host_operations(
         payloads=payloads,
         payload_observer=payload_observer,
         operations=operations,
-        domain_values=domain_values,
-        domain_failure=domain_failure,
     )
-    return ExecutedRunEffects(
+    if not setup_problems:
+        return result
+    return replace(
         result,
-        tuple(setup_problems),
-        tuple(domain_values),
-        domain_failure[0],
-    ), setup_problems
+        problems=(
+            *setup_problems,
+            *(problem for problem in result.problems if problem not in setup_problems),
+        ),
+    )
 
 
 def _provision_and_execute(
@@ -297,6 +294,7 @@ def _provision_and_execute(
     provider_id: str,
     advertised_descriptions: dict[str, InstrumentDescription],
     program: RunHostBinding,
+    effect_context: RunProgram,
     setup_problems: list[Problem],
     journal: ExecutionJournal,
     transition_observer: RuntimeTransitionProjector,
@@ -304,8 +302,6 @@ def _provision_and_execute(
     payloads: PayloadEvidenceCommitter,
     payload_observer: RuntimePayloadObserver | None,
     operations: tuple[RunOperation, ...],
-    domain_values: list[MeasurementValueCandidate],
-    domain_failure: list[tuple[RunDomainJob, BaseException] | None],
 ) -> RunEffectResult:
     """Provision, verify, execute, and finalize while the caller holds leases."""
 
@@ -392,6 +388,7 @@ def _provision_and_execute(
         provider_entry=provider_entry,
         advertised_descriptions=advertised_descriptions,
         program=program,
+        effect_context=effect_context,
         setup_problems=setup_problems,
         journal=journal,
         transition_observer=transition_observer,
@@ -399,8 +396,6 @@ def _provision_and_execute(
         payloads=payloads,
         payload_observer=payload_observer,
         operations=operations,
-        domain_values=domain_values,
-        domain_failure=domain_failure,
     )
 
 
@@ -414,6 +409,7 @@ def _execute_provider_result(
     provider_entry: ExecutionTransition,
     advertised_descriptions: dict[str, InstrumentDescription],
     program: RunHostBinding,
+    effect_context: RunProgram,
     setup_problems: list[Problem],
     journal: ExecutionJournal,
     transition_observer: RuntimeTransitionProjector,
@@ -421,8 +417,6 @@ def _execute_provider_result(
     payloads: PayloadEvidenceCommitter,
     payload_observer: RuntimePayloadObserver | None,
     operations: tuple[RunOperation, ...],
-    domain_values: list[MeasurementValueCandidate],
-    domain_failure: list[tuple[RunDomainJob, BaseException] | None],
 ) -> RunEffectResult:
     """Own every returned driver until a fully constructed engine takes over."""
 
@@ -508,7 +502,7 @@ def _execute_provider_result(
             if not has_blocking_problems(setup_problems):
                 engine = RunEffectInterpreter(
                     run_id=run_id,
-                    program=program,
+                    program=effect_context,
                     drivers={
                         instrument.instrument_id: instrument
                         for instrument in instruments
@@ -567,10 +561,7 @@ def _execute_provider_result(
     if engine is not None:
         # Engine construction is the ownership hand-off.  Its run boundary is
         # responsible for abort/cleanup and terminal state capture after effects.
-        result = engine.run(operations)
-        domain_values.extend(engine.domain_values)
-        domain_failure[0] = engine.domain_failure
-        return result
+        return engine.run(operations)
     return _finalize_owned_setup(
         run_id=run_id,
         experiment_id=experiment_id,
@@ -625,19 +616,10 @@ def _setup_result(
     return RunEffectResult(
         run_id=run_id,
         experiment_id=experiment_id,
-        result="cancelled" if interruption is not None else "failed",
-        certainty="indeterminate" if indeterminate else "known",
-        termination_reason=(
-            "interrupted"
-            if interruption is not None
-            else "provider_outcome_unknown"
-            if indeterminate
-            else "provider_setup_failed"
-        ),
         problems=tuple(problems),
         initial_state=(),
         final_state=tuple(final_state),
-        points=(),
+        indeterminate=indeterminate,
         interruption=interruption,
     )
 

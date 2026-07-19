@@ -147,7 +147,7 @@ def test_bound_plan_contract_summarizes_points_and_state() -> None:
         ),
     )
 
-    assert preview.point_count == 2
+    assert len(preview.points) == 2
     assert bound_coordinate_ids(preview) == ("readout_frequency",)
     assert [point.coordinates["readout_frequency"] for point in preview.points] == [
         Quantity(value=5.9, unit="GHz"),

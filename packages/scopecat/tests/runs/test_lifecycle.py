@@ -11,10 +11,11 @@ from scopecat.execution.evidence import (
     instrument_state_evidence_ref,
     run_outcome_ref,
 )
-from scopecat.records.artifact import RunArtifactEntry, RunRecordEntry
+from scopecat.records.artifact import RunContentEntry
+from scopecat.records.execution import InstrumentStateEvidence
 from scopecat.records.run import RunManifest, RunOutcome
-from scopecat.runs.lifecycle import commit_terminal_evidence
 from scopecat.runs.manifest import write_manifest_artifacts, write_manifest_records
+from scopecat.runs.repository import RunModelWrite, TerminalRunCommit
 
 _CONFIG_HASH = "sha256:" + "0" * 64
 
@@ -52,7 +53,7 @@ def test_terminal_evidence_can_omit_instrument_state(tmp_path: Path) -> None:
         expected_schema=None,
         config_content_hash=_CONFIG_HASH,
         config_source=None,
-        include_instrument_state=False,
+        instrument_state=None,
     )
     storage = FilesystemRunRepository(tmp_path)
     storage.write_manifest(
@@ -64,13 +65,11 @@ def test_terminal_evidence_can_omit_instrument_state(tmp_path: Path) -> None:
         )
     )
 
-    committed = commit_terminal_evidence(
-        storage=storage,
-        run_id=run_id,
-        outcome=outcome,
-        instrument_state=None,
-        measurements=(),
-        manifest=manifest,
+    committed = storage.commit_terminal(
+        TerminalRunCommit(
+            manifest=manifest,
+            models=(RunModelWrite(ref=run_outcome_ref(), value=outcome),),
+        )
     )
 
     assert {record.id for record in manifest.records} == {"run-outcome"}
@@ -93,7 +92,7 @@ def test_terminal_manifest_preserves_a_concurrent_attachment(
         expected_schema=None,
         config_content_hash=_CONFIG_HASH,
         config_source=None,
-        include_instrument_state=False,
+        instrument_state=None,
     )
     storage = FilesystemRunRepository(tmp_path)
     storage.write_manifest(
@@ -104,14 +103,18 @@ def test_terminal_manifest_preserves_a_concurrent_attachment(
             config_content_hash=_CONFIG_HASH,
         )
     )
-    attachment = RunArtifactEntry(
+    attachment = RunContentEntry(
+        role="artifact",
         id="operator-note",
         kind="attachment",
+        content_hash="operator-note-content",
         media_type="text/plain",
     )
-    workflow_record = RunRecordEntry(
+    workflow_record = RunContentEntry(
+        role="record",
         id="approval",
         kind="workflow_decision",
+        content_hash="approval-content",
     )
     terminal_content_ready = Event()
     attachment_committed = Event()
@@ -150,13 +153,11 @@ def test_terminal_manifest_preserves_a_concurrent_attachment(
     with ThreadPoolExecutor(max_workers=2) as executor:
         attachment_future = executor.submit(attach)
         terminal_future = executor.submit(
-            commit_terminal_evidence,
-            storage=storage,
-            run_id=run_id,
-            outcome=outcome,
-            instrument_state=None,
-            measurements=(),
-            manifest=terminal,
+            storage.commit_terminal,
+            TerminalRunCommit(
+                manifest=terminal,
+                models=(RunModelWrite(ref=run_outcome_ref(), value=outcome),),
+            ),
         )
         committed = terminal_future.result(timeout=10)
         attachment_future.result(timeout=10)
@@ -166,8 +167,9 @@ def test_terminal_manifest_preserves_a_concurrent_attachment(
     assert storage.read_manifest(run_id) == committed
 
 
-def test_execution_manifest_includes_instrument_state_by_default() -> None:
+def test_execution_manifest_indexes_supplied_instrument_state() -> None:
     outcome = _successful_outcome("run-instrument")
+    instrument_state = InstrumentStateEvidence(run_id=outcome.run_id)
 
     manifest = build_execution_manifest(
         run_id=outcome.run_id,
@@ -176,6 +178,7 @@ def test_execution_manifest_includes_instrument_state_by_default() -> None:
         expected_schema=None,
         config_content_hash=_CONFIG_HASH,
         config_source=None,
+        instrument_state=instrument_state,
     )
 
     assert "instrument-state-evidence" in {record.id for record in manifest.records}

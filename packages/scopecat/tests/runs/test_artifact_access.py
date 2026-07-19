@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from scopecat.records.artifact import RunArtifactEntry, RunDatasetEntry, RunRecordEntry
+from scopecat.records.artifact import RunContentEntry
 from scopecat.records.run import RunManifest, RunOutcome
 from scopecat.runs.access import (
     get_artifact_by_id,
@@ -11,34 +11,40 @@ from scopecat.runs.access import (
     list_datasets,
     list_payload_entries,
     list_records,
-    upsert_artifacts,
-    upsert_datasets,
-    upsert_records,
+    upsert_contents,
 )
+
+
+def _entry(**fields: object) -> RunContentEntry:
+    return RunContentEntry.model_validate({"content_hash": "test-content", **fields})
 
 
 def test_manifest_entry_helpers_query_by_id_kind_and_metadata() -> None:
     manifest = _manifest(
         artifacts=[
-            RunArtifactEntry(
+            _entry(
+                role="artifact",
                 id="summary",
                 kind="summary",
                 metadata={"source_step": "manual"},
             ),
         ],
         datasets=[
-            RunDatasetEntry(
+            _entry(
+                role="dataset",
                 id="raw-measurements",
                 kind="measurement_dataset",
-                role="raw",
+                dataset_role="raw",
             )
         ],
         records=[
-            RunRecordEntry(
+            _entry(
+                role="record",
                 id="analysis-review",
                 kind="analysis",
             ),
-            RunRecordEntry(
+            _entry(
+                role="record",
                 id="analysis-promoted",
                 kind="analysis",
             ),
@@ -71,16 +77,16 @@ def test_manifest_entry_helpers_query_by_id_kind_and_metadata() -> None:
     ]
 
 
-def test_upsert_artifacts_replaces_by_artifact_id() -> None:
+def test_upsert_contents_replaces_by_artifact_id() -> None:
     existing = [
-        RunArtifactEntry(id="summary", kind="summary"),
-        RunArtifactEntry(id="plot", kind="figure"),
+        _entry(role="artifact", id="summary", kind="summary"),
+        _entry(role="artifact", id="plot", kind="figure"),
     ]
-    updated = upsert_artifacts(
+    updated = upsert_contents(
         existing,
         [
-            RunArtifactEntry(id="summary", kind="updated_summary"),
-            RunArtifactEntry(id="notes", kind="notes"),
+            _entry(role="artifact", id="summary", kind="updated_summary"),
+            _entry(role="artifact", id="notes", kind="notes"),
         ],
     )
 
@@ -91,14 +97,14 @@ def test_upsert_artifacts_replaces_by_artifact_id() -> None:
     ]
 
 
-def test_upsert_datasets_and_records_replace_by_id() -> None:
-    datasets = upsert_datasets(
-        [RunDatasetEntry(id="raw", kind="measurement_dataset")],
-        [RunDatasetEntry(id="raw", kind="data_table")],
+def test_upsert_contents_and_records_replace_by_id() -> None:
+    datasets = upsert_contents(
+        [_entry(role="dataset", id="raw", kind="measurement_dataset")],
+        [_entry(role="dataset", id="raw", kind="data_table")],
     )
-    records = upsert_records(
-        [RunRecordEntry(id="analysis", kind="analysis")],
-        [RunRecordEntry(id="analysis", kind="parameter_change_proposal")],
+    records = upsert_contents(
+        [_entry(role="record", id="analysis", kind="analysis")],
+        [_entry(role="record", id="analysis", kind="parameter_change_proposal")],
     )
 
     assert [(dataset.id, dataset.kind) for dataset in datasets] == [
@@ -111,9 +117,9 @@ def test_upsert_datasets_and_records_replace_by_id() -> None:
 
 def _manifest(
     *,
-    artifacts: list[RunArtifactEntry],
-    datasets: list[RunDatasetEntry],
-    records: list[RunRecordEntry],
+    artifacts: list[RunContentEntry],
+    datasets: list[RunContentEntry],
+    records: list[RunContentEntry],
 ) -> RunManifest:
     return RunManifest(
         run_id="run_test",
@@ -125,7 +131,5 @@ def _manifest(
             certainty="known",
             termination_reason="completed",
         ),
-        records=tuple(records),
-        datasets=tuple(datasets),
-        artifacts=tuple(artifacts),
+        contents=(*records, *datasets, *artifacts),
     )

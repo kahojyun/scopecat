@@ -20,7 +20,6 @@ from scopecat.compiler.typed.program import (
     core_domain_executions,
     core_state,
 )
-from scopecat.execution.local.collection_values import bind_local_collection_values
 from scopecat.execution.local.executor import (
     preflight_instrument_provider,
     validate_run_host_binding,
@@ -55,9 +54,7 @@ from scopecat.kernel.product_identity import ProductUseId
 from scopecat.kernel.resource_identity import ResourceClaim
 from scopecat.measurements._bridge import project_measurement_catalog
 from scopecat.measurements.projection import select_measurement_projection
-from scopecat.planning.local_materialization import (
-    materialize_local_execution_from_points,
-)
+from scopecat.planning.local_materialization import materialize_local_execution
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     config_content_hash,
@@ -277,16 +274,6 @@ def _compile_system_program(
         host=local_effects,
         operations=operations,
         measurements=measurements,
-        local_values=(
-            None
-            if local_effects is None or not local_effects.product_use_ids
-            else bind_local_collection_values(
-                measurements.product_values,
-                local_effects.product_use_ids,
-                experiment_id=measurements.catalog.point_catalog.experiment_id,
-                operations=operations,
-            )
-        ),
         resource_claims=resource_claims,
     )
 
@@ -355,21 +342,16 @@ def _prepare_local_effects(
         config=config,
         instrument_provider=system.provider,
     )
-    local_execution = materialize_local_execution_from_points(
+    local_execution = materialize_local_execution(
         linked_points,
         product_use_ids=frozenset(product_use_ids),
         instrument_order=preflight.instrument_order,
     )
     host = RunHostBinding(
-        experiment_id=local_execution.experiment_id,
-        product_use_ids=tuple(use.id for use in local_execution.product_uses),
         resource_order=local_execution.resource_order,
-        point_count=local_execution.point_count,
-        context=preflight.context,
         provider_id=preflight.provider_id,
         instrument_order=preflight.instrument_order,
         advertised_descriptions=preflight.advertised_descriptions,
-        provider=preflight.provider,
     )
     return (
         validate_run_host_binding(

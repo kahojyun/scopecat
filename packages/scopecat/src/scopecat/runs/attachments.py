@@ -10,6 +10,7 @@ from typing import NoReturn
 from pydantic import JsonValue
 
 from scopecat.application.services import WorkspaceServices
+from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
     LocationPathItem,
@@ -18,7 +19,7 @@ from scopecat.kernel.problems import (
     blocking_problem,
     model_location,
 )
-from scopecat.records.artifact import RunArtifactEntry
+from scopecat.records.artifact import RunContentEntry
 from scopecat.runs.manifest import write_manifest_artifacts
 from scopecat.runs.refs import artifact_content_ref
 
@@ -35,7 +36,7 @@ def attach_run_artifact(
     filename: str | None = None,
     media_type: str | None = None,
     metadata: Mapping[str, JsonValue] | None = None,
-) -> RunArtifactEntry:
+) -> RunContentEntry:
     """Validate and ingest one user-owned attachment into a run."""
 
     selected_sources = [path is not None, text is not None, content is not None]
@@ -84,15 +85,22 @@ def attach_run_artifact(
     ref = artifact_content_ref(artifact_id=key, kind=kind)
     storage = services.runs
     if source_path is not None:
-        storage.write_bytes(run_id, ref, source_path.read_bytes())
+        selected_content: str | bytes = source_path.read_bytes()
+        storage.write_bytes(run_id, ref, selected_content)
     elif text is not None:
+        selected_content = text
         storage.write_text(run_id, ref, text)
     elif content is not None:
+        selected_content = content
         storage.write_bytes(run_id, ref, content)
-    artifact = RunArtifactEntry(
+    else:
+        raise AssertionError("validated attachment source is missing")
+    artifact = RunContentEntry(
+        role="artifact",
         id=key,
         kind=kind,
         media_type=selected_media_type,
+        content_hash=stable_content_hash(content_fingerprint(selected_content)),
         produced_by="run.attach",
         metadata=dict(metadata or {}),
     )

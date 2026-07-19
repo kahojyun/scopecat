@@ -78,7 +78,8 @@ from scopecat.kernel.value_types import Payload, Scalar, String
 def verify_core_program(program: CoreProgram) -> CoreProgram:
     """Return a topologically ordered program after pure IR verification."""
 
-    return _verify_core_program(program).program
+    verified, _, _ = _verify_core_program(program)
+    return verified
 
 
 def _verified_route_capabilities(
@@ -107,7 +108,13 @@ def _verified_route_capabilities(
     return route_capabilities, tuple(route_problems)
 
 
-def _verify_core_program(program: CoreProgram) -> _CoreProgramVerification:
+def _verify_core_program(
+    program: CoreProgram,
+) -> tuple[
+    CoreProgram,
+    VerifiedPointDomain,
+    tuple[ProgramRelationConsumer, ...],
+]:
     """Normalize once and retain every proof derived during verification."""
 
     problems: list[Problem] = []
@@ -387,11 +394,7 @@ def _verify_core_program(program: CoreProgram) -> _CoreProgramVerification:
         raise CheckFailed(problems)
     if verified_point_domain is None or consumers is None:
         raise AssertionError("successful typed verification lost its program proof")
-    return _CoreProgramVerification(
-        program=program,
-        point_domain=verified_point_domain,
-        relation_consumers=consumers,
-    )
+    return program, verified_point_domain, consumers
 
 
 def _core_domain_problems(program: CoreProgram) -> tuple[Problem, ...]:
@@ -564,21 +567,12 @@ def _core_domain_problems(program: CoreProgram) -> tuple[Problem, ...]:
 
 @dataclass(frozen=True, slots=True)
 class ProgramRelationConsumer:
-    """One executable value envelope and the consumer that owns its proof."""
+    """Diagnostic index entry for one verified relation-plan use."""
 
     id: RelationUseId
     kind: ProgramRelationConsumerKind
-    value: ValueExpr
+    plan: VerifiedRelationPlan[PlanNode]
     location: ModelLocation
-
-
-@dataclass(frozen=True, slots=True)
-class _CoreProgramVerification:
-    """One normalized program and the proofs established in the same pass."""
-
-    program: CoreProgram
-    point_domain: VerifiedPointDomain
-    relation_consumers: tuple[ProgramRelationConsumer, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -593,18 +587,16 @@ class VerifiedCoreProgram:
     )
 
     def __post_init__(self) -> None:
-        verified = _verify_core_program(self.program)
-        object.__setattr__(self, "program", verified.program)
-        object.__setattr__(self, "point_domain", verified.point_domain)
+        program, point_domain, consumers = _verify_core_program(self.program)
+        object.__setattr__(self, "program", program)
+        object.__setattr__(self, "point_domain", point_domain)
         object.__setattr__(
             self,
             "relation_consumers",
-            verified.relation_consumers,
+            consumers,
         )
-        relation_plan_by_use = {
-            consumer.id: consumer.value.plan for consumer in verified.relation_consumers
-        }
-        if len(relation_plan_by_use) != len(verified.relation_consumers):
+        relation_plan_by_use = {consumer.id: consumer.plan for consumer in consumers}
+        if len(relation_plan_by_use) != len(consumers):
             raise AssertionError("verified relation-use ids must be unique")
         object.__setattr__(
             self,
@@ -678,7 +670,7 @@ def typed_program_proof_role_problems(
             # VerifiedPointDomain owns each leaf's exact structural row role.
             continue
         _verify_plan_role(
-            consumer.value.plan,
+            consumer.plan,
             role=role,
             location=consumer.location,
             phase=phase,
@@ -704,7 +696,7 @@ def _consumer(
     return ProgramRelationConsumer(
         id=id,
         kind=kind,
-        value=value,
+        plan=value.plan,
         location=location,
     )
 
@@ -714,7 +706,7 @@ def _program_relation_consumers_with_roles(
     *,
     point_domain: VerifiedPointDomain,
 ) -> Iterator[tuple[ProgramRelationConsumer, _PlanConsumerRole]]:
-    """Enumerate the complete proof-owning executable surface exactly once."""
+    """Enumerate the complete executable relation surface exactly once."""
 
     point_row = point_domain.row_type
     root_role = _PlanConsumerRole()

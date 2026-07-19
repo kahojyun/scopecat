@@ -30,10 +30,10 @@ from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar, String
 from scopecat.kernel.value_types import Table as TableType
-from scopecat.planning.local_materialization import materialize_local_execution
 from scopecat.records.parameter import Quantity
 from tests.testkit.authoring import load_config
 from tests.testkit.bound_plan import bound_state_fields, config_with_physical_resources
+from tests.testkit.local_materialization import materialize_local_execution
 from tests.testkit.parameter_fixtures import PARAMETER_TYPES, parameters
 from tests.testkit.relation_plans import (
     each_state,

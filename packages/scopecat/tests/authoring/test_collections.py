@@ -60,12 +60,12 @@ from scopecat.kernel.problems import model_location
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_validation import ValueValidationError
 from scopecat.planning.authoring import resolve_experiment
-from scopecat.planning.local_materialization import materialize_local_execution
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import Quantity
 from tests.testkit.authoring import load_config
 from tests.testkit.bound_plan import bound_plan_contract
 from tests.testkit.local_effect_program import make_test_local_effect_program
+from tests.testkit.local_materialization import materialize_local_execution
 from tests.testkit.relation_plans import (
     each_state,
     materialize_scalar_value,

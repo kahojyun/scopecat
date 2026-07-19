@@ -24,7 +24,7 @@ from scopecat.measurements.results import (
     MeasurementDatasetSchema,
     MeasurementRecord,
 )
-from scopecat.records.artifact import RunDatasetEntry, RunRecordEntry
+from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigContentHash
 from scopecat.records.run import RunConfigSource, RunLifecycle, RunManifest, RunOutcome
 from scopecat.runs.refs import dataset_content_ref
@@ -103,7 +103,7 @@ def build_raw_measurement_dataset(
     records: Sequence[MeasurementRecord],
     expected_schema: MeasurementDatasetSchema | None,
     metadata: Mapping[str, JsonValue] | None = None,
-) -> RunDatasetEntry:
+) -> RunContentEntry:
     return measurement_dataset_entry(
         dataset_id=dataset_id,
         dataset_role="raw",
@@ -120,8 +120,7 @@ def build_run_manifest(
     outcome: RunOutcome | None = None,
     config_content_hash: ConfigContentHash,
     config_source: RunConfigSource | None = None,
-    records: Sequence[RunRecordEntry] = (),
-    datasets: Sequence[RunDatasetEntry] = (),
+    contents: Sequence[RunContentEntry] = (),
 ) -> RunManifest:
     return RunManifest(
         run_id=run_id,
@@ -129,8 +128,7 @@ def build_run_manifest(
         outcome=outcome,
         config_content_hash=config_content_hash,
         config_source=config_source,
-        records=tuple(records),
-        datasets=tuple(datasets),
+        contents=tuple(contents),
     )
 
 

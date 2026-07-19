@@ -17,6 +17,7 @@ from scopecat.config.parameter_updates import (
     ParameterUpdate,
     materialize_parameter_updates,
 )
+from scopecat.kernel.content_identity import model_wire_content_hash
 from scopecat.kernel.errors import CheckFailed, Conflict, DataIntegrityError, NotFound
 from scopecat.kernel.ids import artifact_slug
 from scopecat.kernel.problems import (
@@ -28,7 +29,7 @@ from scopecat.kernel.problems import (
     blocking_problem,
     model_location,
 )
-from scopecat.records.artifact import RunRecordEntry
+from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.parameter_change import ParameterChangeProposal
 from scopecat.records.run import RunManifest, utc_now
@@ -219,10 +220,6 @@ def _record_parameter_change_decision(
         for ref in related_refs or ():
             _validate_selector_path(ref)
         event_id = uuid4().hex
-        decision_entry = _parameter_change_decision_record_entry(
-            proposal_id=proposal.id,
-            event_id=event_id,
-        )
         record = ParameterChangeDecisionRecord(
             event_id=event_id,
             run_id=run_id,
@@ -232,6 +229,7 @@ def _record_parameter_change_decision(
             note=note,
             related_refs=tuple(related_refs or ()),
         )
+        decision_entry = _parameter_change_decision_record_entry(record)
         decision_ref = record_content_ref(
             record_id=decision_entry.id,
             kind=decision_entry.kind,
@@ -337,21 +335,25 @@ def parameter_change_proposal_record_ref(proposal_id: str) -> str:
 
 def _parameter_change_proposal_record(
     *, proposal: ParameterChangeProposal
-) -> RunRecordEntry:
-    return RunRecordEntry(
+) -> RunContentEntry:
+    return RunContentEntry(
+        role="record",
         id=proposal.id,
         kind="parameter_change_proposal",
         media_type="application/json",
+        content_hash=model_wire_content_hash(proposal),
     )
 
 
 def _parameter_change_decision_record_entry(
-    *, proposal_id: str, event_id: str
-) -> RunRecordEntry:
-    return RunRecordEntry(
-        id=f"{proposal_id}-decision-{event_id}",
+    record: ParameterChangeDecisionRecord,
+) -> RunContentEntry:
+    return RunContentEntry(
+        role="record",
+        id=f"{record.proposal_id}-decision-{record.event_id}",
         kind="parameter_change_decision_record",
         media_type="application/json",
+        content_hash=model_wire_content_hash(record),
     )
 
 
@@ -360,7 +362,7 @@ def write_parameter_change_proposal_contents_locked(
     storage: RunRepository,
     run_id: str,
     proposals: Sequence[ParameterChangeProposal],
-) -> tuple[RunRecordEntry, ...]:
+) -> tuple[RunContentEntry, ...]:
     """Publish immutable proposal content while the caller holds the run lock."""
 
     entries = tuple(
@@ -433,7 +435,7 @@ def _same_parameter_change_proposal(
 
 def _resolve_proposal_ref(
     *, storage: RunRepository, run_id: str, selector: str
-) -> tuple[ParameterChangeProposal, RunRecordEntry]:
+) -> tuple[ParameterChangeProposal, RunContentEntry]:
     manifest = storage.read_manifest(run_id)
     _validate_selector_path(selector)
     for proposal_record in _proposal_records(manifest):
@@ -467,7 +469,7 @@ def _resolve_proposal_ref(
 
 
 def _load_proposal_record(
-    *, storage: RunRepository, run_id: str, proposal_record: RunRecordEntry
+    *, storage: RunRepository, run_id: str, proposal_record: RunContentEntry
 ) -> ParameterChangeProposal:
     proposal_ref = record_content_ref(
         record_id=proposal_record.id,
@@ -525,7 +527,7 @@ def _load_proposal_record(
     return proposal
 
 
-def _proposal_records(manifest: RunManifest) -> tuple[RunRecordEntry, ...]:
+def _proposal_records(manifest: RunManifest) -> tuple[RunContentEntry, ...]:
     return list_records(manifest, kind="parameter_change_proposal")
 
 

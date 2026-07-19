@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 
 from pydantic import JsonValue, ValidationError
 
+from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.errors import DataIntegrityError, NotFound
 from scopecat.kernel.problems import (
     Problem,
@@ -23,7 +24,7 @@ from scopecat.measurements.results import (
     infer_measurement_dataset_schema,
     validate_measurement_records_against_schema,
 )
-from scopecat.records.artifact import RunDatasetEntry
+from scopecat.records.artifact import RunContentEntry
 
 MEASUREMENT_DATASET_KIND = "measurement_dataset"
 MEASUREMENT_DATASET_MEDIA_TYPE = "application/x-ndjson"
@@ -76,7 +77,7 @@ def measurement_dataset_entry(
     expected_schema: MeasurementDatasetSchema | None = None,
     media_type: str | None = MEASUREMENT_DATASET_MEDIA_TYPE,
     metadata: Mapping[str, JsonValue] | None = None,
-) -> RunDatasetEntry:
+) -> RunContentEntry:
     schema = measurement_dataset_schema(
         dataset_id=dataset_id,
         dataset_role=dataset_role,
@@ -84,12 +85,14 @@ def measurement_dataset_entry(
         expected_schema=expected_schema,
         metadata=metadata,
     )
-    return RunDatasetEntry(
+    return RunContentEntry(
+        role="dataset",
         id=dataset_id,
         kind=MEASUREMENT_DATASET_KIND,
         media_type=media_type,
-        role=dataset_role,
+        dataset_role=dataset_role,
         schema=schema.model_dump(mode="json"),
+        content_hash=stable_content_hash(content_fingerprint(tuple(records))),
         metadata=dict(metadata or {}),
     )
 

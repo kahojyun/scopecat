@@ -38,7 +38,7 @@ from scopecat.measurements.results import MeasurementDatasetReadContract
 from scopecat.planning.check_results import ExperimentCheckResult
 from scopecat.planning.preview import build_run_program_preview
 from scopecat.planning.system import ExperimentSystem
-from scopecat.records.artifact import RunArtifactEntry, RunDatasetEntry
+from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run import RunConfigSource, RunManifest
 from scopecat.records.run_request import RunRequest
@@ -132,7 +132,7 @@ def _require_run_ref(
 
 def list_run_artifacts(
     *, run_id: str, services: WorkspaceServices, kind: str | None = None
-) -> tuple[RunArtifactEntry, ...]:
+) -> tuple[RunContentEntry, ...]:
     storage = services.runs
     manifest = storage.read_manifest(run_id)
     return list_artifacts(manifest, kind=kind)
@@ -140,7 +140,7 @@ def list_run_artifacts(
 
 def list_run_payload_entries(
     *, run_id: str, services: WorkspaceServices, kind: str | None = None
-) -> tuple[RunArtifactEntry | RunDatasetEntry, ...]:
+) -> tuple[RunContentEntry, ...]:
     storage = services.runs
     manifest = storage.read_manifest(run_id)
     return list_payload_entries(manifest, kind=kind)
@@ -370,6 +370,7 @@ def _start_compiled_run(
         program=program,
         request=resolved.request,
         services=services.execution,
+        instrument_provider=None if system is None else system.provider,
         config_source=config_source,
         event_sink=event_sink,
         payload_observer=payload_observer,
@@ -545,7 +546,7 @@ def _problems_match_phase(
     return all(problem.phase is phase for problem in problems)
 
 
-def _artifact_supports_text(artifact: RunArtifactEntry) -> bool:
+def _artifact_supports_text(artifact: RunContentEntry) -> bool:
     media_type = artifact.media_type
     return media_type is not None and (
         media_type.startswith("text/")
@@ -553,7 +554,7 @@ def _artifact_supports_text(artifact: RunArtifactEntry) -> bool:
     )
 
 
-def _artifact_media_label(artifact: RunArtifactEntry) -> str:
+def _artifact_media_label(artifact: RunContentEntry) -> str:
     if artifact.media_type is None:
         return "unknown"
     return artifact.media_type

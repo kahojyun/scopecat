@@ -120,9 +120,7 @@ def test_execution_program_has_explicit_ordered_effect_stages() -> None:
         ),
     )
     plan = MaterializedLocalEffects(
-        experiment_id="explicit-stages",
         points=(point,),
-        product_uses=(source_a_signal, source_b_signal),
         resource_order=("source-b", "source-a"),
         resource_claims=(
             ResourceClaim("source-b"),
@@ -158,10 +156,10 @@ def test_execution_program_has_explicit_ordered_effect_stages() -> None:
         "source-b",
         "source-a",
     ]
-    assert program.collection_product_use_ids == (
+    assert set(program.collection_product_use_ids) == {
         source_a_signal.id,
         source_b_signal.id,
-    )
+    }
     assert all(
         operation.command.operation_id == operation.operation_id
         for operation in collect.operations

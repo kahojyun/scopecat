@@ -25,12 +25,14 @@ from scopecat.kernel.problems import (
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
+from scopecat.runs.access import upsert_contents
 from scopecat.runs.provenance import validate_run_config_provenance
 from scopecat.runs.refs import (
     CONFIG_PROFILE_SNAPSHOT_REF,
     MANIFEST_REF,
     RUN_REQUEST_REF,
 )
+from scopecat.runs.repository import TerminalRunCommit
 
 _SAFE_RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 
@@ -103,6 +105,25 @@ class MemoryRunRepository:
             self.write_model(manifest.run_id, RUN_REQUEST_REF, request)
         self.write_model(manifest.run_id, CONFIG_PROFILE_SNAPSHOT_REF, config)
         self.write_manifest(manifest)
+
+    def commit_terminal(self, commit: TerminalRunCommit) -> RunManifest:
+        run_id = commit.manifest.run_id
+        for write in commit.models:
+            self.write_model(run_id, write.ref, write.value)
+        for write in commit.record_sets:
+            self.write_jsonl(run_id, write.ref, write.records)
+        with self.run_lock(run_id):
+            current = self.read_manifest(run_id)
+            manifest = commit.manifest.model_copy(
+                update={
+                    "contents": upsert_contents(
+                        current.contents,
+                        commit.manifest.contents,
+                    )
+                }
+            )
+            self.write_manifest(manifest)
+        return manifest
 
     def read_config_profile_snapshot(self, run_id: str) -> ConfigProfileSnapshot:
         manifest = self.read_manifest(run_id)

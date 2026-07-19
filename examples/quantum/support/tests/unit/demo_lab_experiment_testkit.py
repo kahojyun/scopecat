@@ -26,7 +26,7 @@ from scopecat.measurements.projection import (
 from scopecat.planning.authoring import resolve_experiment
 from scopecat.planning.local_materialization import (
     MaterializedLocalEffects,
-    materialize_local_execution_from_points,
+    materialize_local_execution,
 )
 from scopecat.records.config import ConfigProfileSnapshot
 
@@ -57,7 +57,7 @@ def bound_plan(
     """Compile an invocation for direct test-only inspection."""
 
     linked_points = _materialized_linked_points(invocation, config=config)
-    plan = materialize_local_execution_from_points(linked_points)
+    plan = materialize_local_execution(linked_points)
     return plan
 
 

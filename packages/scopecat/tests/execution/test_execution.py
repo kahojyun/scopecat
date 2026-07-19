@@ -49,7 +49,6 @@ from scopecat.compiler.typed.program import (
 )
 from scopecat.composition.local import (
     local_run_repository,
-    local_workspace_services,
 )
 from scopecat.execution.evidence import (
     instrument_state_evidence_ref,
@@ -68,7 +67,7 @@ from scopecat.execution.observation import (
 )
 from scopecat.execution.program import RunHostBinding
 from scopecat.kernel.content_identity import stable_content_hash
-from scopecat.kernel.errors import ProviderContractError, RunFailed, RunPersistenceError
+from scopecat.kernel.errors import ProviderContractError, RunFailed
 from scopecat.kernel.problems import (
     Problem,
     ProblemCategory,
@@ -84,7 +83,6 @@ from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Table as TableType
 from scopecat.planning.local_materialization import (
     MaterializedLocalEffects,
-    materialize_local_execution,
 )
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.execution import InstrumentStateEvidence
@@ -97,7 +95,6 @@ from scopecat.records.instrument import (
 from scopecat.records.parameter import Quantity
 from scopecat.records.run import RunManifest
 from scopecat.runs.access import dataset_storage_ref
-from scopecat.runs.execution import inspect_run_execution
 from scopecat.sdk.instruments.contracts import (
     CapabilityDescription,
     CapabilityField,
@@ -117,6 +114,7 @@ from scopecat.sdk.instruments.contracts import (
 from tests.testkit.bound_plan import config_with_physical_resources
 from tests.testkit.execution import execute_bound_run, execute_program_run
 from tests.testkit.instrument_drivers import SignalInstrumentDriver
+from tests.testkit.local_materialization import materialize_local_execution
 from tests.testkit.records import (
     assert_model_round_trip,
     read_measurement_records,
@@ -280,7 +278,7 @@ def test_run_persists_measurements_and_run_files(
     ]
 
 
-def test_terminal_persistence_error_reports_committed_and_pending_evidence(
+def test_terminal_commit_does_not_publish_manifest_after_content_write_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -303,7 +301,7 @@ def test_terminal_persistence_error_reports_committed_and_pending_evidence(
         fail_instrument_state_write,
     )
 
-    with pytest.raises(RunPersistenceError) as captured:
+    with pytest.raises(OSError, match="injected instrument-state"):
         execute_bound_run(
             config=load_config(),
             experiment=load_experiment(),
@@ -311,19 +309,11 @@ def test_terminal_persistence_error_reports_committed_and_pending_evidence(
             workspace=tmp_path,
         )
 
-    error = captured.value
-    assert error.run_id
-    assert error.phase == "instrument_state_evidence"
-    assert error.retry == "after_reconciliation"
-    assert error.certainty == "known"
-    assert "inspect_run_execution" in error.reconciliation
-    assert error.committed_refs == (run_outcome_ref(),)
-    assert error.pending_ref == pending_ref
     storage = local_run_repository(tmp_path)
-    manifest = storage.read_manifest(error.run_id)
+    manifest = storage.list_runs()[0]
     assert manifest.lifecycle == "running"
-    assert storage.exists(error.run_id, run_outcome_ref())
-    assert not storage.exists(error.run_id, pending_ref)
+    assert storage.exists(manifest.run_id, run_outcome_ref())
+    assert not storage.exists(manifest.run_id, pending_ref)
 
 
 class _NonFiniteSignalInstrument(TestSignalInstrument):
@@ -880,15 +870,10 @@ def _lower_test_host_binding(
         instrument_provider=provider,
     )
     program = RunHostBinding(
-        experiment_id=plan.experiment_id,
-        product_use_ids=tuple(use.id for use in plan.product_uses),
         resource_order=plan.resource_order,
-        point_count=plan.point_count,
-        context=preflight.context,
         provider_id=preflight.provider_id,
         instrument_order=preflight.instrument_order,
         advertised_descriptions=preflight.advertised_descriptions,
-        provider=preflight.provider,
     )
     return validate_run_host_binding(
         program=program,
@@ -1186,12 +1171,6 @@ def test_run_emits_transient_runtime_events(tmp_path: Path) -> None:
         "setup_terminal_readback",
     } & {transition.stage for transition in durable_transitions}
     assert all(event.sequence is not None for event in committed_records)
-    inspection = inspect_run_execution(
-        run_id=manifest.run_id,
-        services=local_workspace_services(tmp_path),
-    )
-    assert inspection.transitions == durable_transitions
-    assert not inspection.reconciliation_required
     assert [event.metrics["compute_step_count"] for event in point_started] == [
         0,
         0,

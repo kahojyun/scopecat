@@ -5,14 +5,14 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol
 
 from pydantic import JsonValue
 
 from scopecat.api.analysis import Analysis, AnalysisContext, AnalysisStep
 from scopecat.api.data import Data
 from scopecat.application.services import WorkspaceServices
-from scopecat.records.artifact import RunArtifactEntry
+from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
@@ -34,9 +34,6 @@ from scopecat.runs.service import (
     read_run_measurement_dataset,
     read_run_record_json,
 )
-
-if TYPE_CHECKING:
-    from scopecat.runs.execution import RunExecutionInspection
 
 
 class RunSession(Protocol):
@@ -153,7 +150,7 @@ class RunHandle:
         filename: str | None = None,
         media_type: str | None = None,
         metadata: Mapping[str, JsonValue] | None = None,
-    ) -> RunArtifactEntry:
+    ) -> RunContentEntry:
         return attach_run_artifact(
             services=self.session.services,
             run_id=self.id,
@@ -204,16 +201,6 @@ class RunHandle:
             services=self.session.services,
             selector=selector,
             expected_kind=expected_kind,
-        )
-
-    def inspect_execution(self) -> RunExecutionInspection:
-        """Read durable execution evidence without mutating or recovering the run."""
-
-        from scopecat.runs.execution import inspect_run_execution
-
-        return inspect_run_execution(
-            run_id=self.id,
-            services=self.session.services,
         )
 
 

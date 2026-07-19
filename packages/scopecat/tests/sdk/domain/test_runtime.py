@@ -2,18 +2,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, cast
 
 import pytest
 from pydantic import ValidationError
 
 from scopecat.adapters.memory import MemoryExecutionJournal
-from scopecat.compiler.frontend.environment import validate_config_environment
-from scopecat.compiler.linking.linked import materialize_linked_points
-from scopecat.compiler.relations.model import literal_rows
-from scopecat.compiler.relations.point_domain import point_rows
-from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.program import CoreProgram, product_output, record_product
 from scopecat.kernel.errors import (
     DomainFetchFailed,
     DomainRuntimePersistenceError,
@@ -26,16 +20,11 @@ from scopecat.kernel.problems import (
     ProblemPhase,
     blocking_problem,
 )
-from scopecat.kernel.value_types import Float, Scalar, Table, TableColumn
-from scopecat.measurements._bridge import project_measurement_catalog
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.sdk.domain.invocation import (
-    AdapterEntryResults,
     ClosedDomainInvocation,
-    EntryPointBinding,
-    ResultUseBinding,
+    DomainResultMappingContract,
     close_domain_invocation,
-    seal_domain_result_mapping,
 )
 from scopecat.sdk.domain.runtime import (
     CorrelatedDomainFetch,
@@ -52,11 +41,13 @@ from scopecat.sdk.domain.runtime import (
     plan_domain_submission,
     submit_domain_invocation,
 )
-from tests.testkit.authoring import load_config
-from tests.testkit.relation_plans import table_value_expr
-from tests.testkit.typed_program import link_program
 
 type _Invocation = ClosedDomainInvocation[str, str, dict[str, str]]
+
+
+@dataclass(frozen=True, slots=True)
+class _RuntimeResultContract:
+    contract_fingerprint: str = "runtime-result-contract"
 
 
 def _problem(code: str = "domain_test_failure") -> Problem:
@@ -82,35 +73,9 @@ def _identity() -> DomainReceiptIdentity:
 
 
 def _closed_invocation(*, target_intent: object | None = None) -> _Invocation:
-    point_type = Table(
-        columns=(TableColumn("x", Scalar(Float())),),
-        min_rows=1,
-        max_rows=1,
-    )
-    product = product_output("signal", kind="observable", unit="ratio", dtype="float64")
-    product_use, record = record_product(product, record_id="signal-record")
-    program = CoreProgram(
-        id="domain-runtime-contract",
-        kind="compiler_test",
-        point_domain=PointDomain(
-            root=point_rows(
-                table_value_expr(literal_rows([{"x": 0.0}]), expected_type=point_type)
-            )
-        ),
-        product_defs=(product,),
-        product_uses=(product_use,),
-        record_uses=(record,),
-    )
-    linked = materialize_linked_points(
-        link_program(program, validate_config_environment(load_config()))
-    )
-    point = linked.point_domain.points[0]
-    mapping = seal_domain_result_mapping(
-        project_measurement_catalog(linked),
-        (product_use.id,),
-        (AdapterEntryResults("entry", ("result",)),),
-        (EntryPointBinding("entry", point.logical_id),),
-        (ResultUseBinding("entry", "result", product_use.id),),
+    mapping = cast(
+        "DomainResultMappingContract[str, str]",
+        cast("object", _RuntimeResultContract()),
     )
     return close_domain_invocation(
         mapping,

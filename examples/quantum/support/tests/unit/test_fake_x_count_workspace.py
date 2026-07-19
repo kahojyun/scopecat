@@ -164,7 +164,7 @@ def test_fake_x_count_authoring_paths_share_one_standard_domain_semantics(
 
     monkeypatch.setattr(
         systems,
-        "materialize_local_execution_from_points",
+        "materialize_local_execution",
         reject_local_lowering,
     )
     semantics: dict[str, object] = {}
@@ -458,7 +458,7 @@ def test_unknown_fetch_terminalizes_as_indeterminate_with_known_job_context(
     )
 
 
-def test_uncertain_measurement_write_retains_reconciliation_context(
+def test_uncertain_measurement_write_retains_durable_correlation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -486,9 +486,9 @@ def test_uncertain_measurement_write_retains_reconciliation_context(
         if problem.code == "measurement_recording_terminalized"
     )
     assert recovery.details["write_may_have_completed"] is True
-    assert recovery.details["retry_contract"] == "safe"
-    assert recovery.details["automatic_resume"] is False
     assert recovery.details["point_index"] == 0
+    assert "retry_contract" not in recovery.details
+    assert "reconciliation" not in recovery.details
     assert adapter.runtime.physical_execution_count == 1
     [persisted] = lab.runs()
     assert persisted.manifest.status == "unknown"

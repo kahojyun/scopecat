@@ -44,9 +44,9 @@ from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import ProblemPhase
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Payload, Scalar, Table, ValueType
-from scopecat.planning.local_materialization import materialize_local_execution
 from tests.testkit.authoring import load_config
 from tests.testkit.local_effect_program import make_test_local_effect_program
+from tests.testkit.local_materialization import materialize_local_execution
 from tests.testkit.relation_plans import point_domain
 from tests.testkit.typed_program import link_program, typed_program
 

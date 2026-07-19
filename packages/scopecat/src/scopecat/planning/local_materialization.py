@@ -17,9 +17,7 @@ from scopecat.compiler.linking.implementations import (
     select_local_implementations,
 )
 from scopecat.compiler.linking.linked import (
-    LinkedPlan,
     MaterializedLinkedPoints,
-    materialize_linked_points,
 )
 from scopecat.compiler.linking.product_realizations import (
     SelectedLocalProductRealizations,
@@ -108,7 +106,7 @@ from scopecat.kernel.problems import (
     has_blocking_problems,
     model_location,
 )
-from scopecat.kernel.product_identity import ProductUse, ProductUseId
+from scopecat.kernel.product_identity import ProductUseId
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
     PhysicalResourceId,
@@ -188,59 +186,21 @@ class _InstrumentOperation(Protocol):
 class MaterializedLocalEffects:
     """Transient planning result used to close final run operations."""
 
-    experiment_id: str
     points: tuple[PointProgram, ...]
-    product_uses: tuple[ProductUse, ...]
     resource_order: tuple[str, ...]
     resource_claims: tuple[ResourceClaim, ...]
     run_compute_operations: tuple[ComputeOperation, ...] = ()
 
-    @property
-    def point_count(self) -> int:
-        return len(self.points)
-
 
 def materialize_local_execution(
-    linked: LinkedPlan,
-    *,
-    product_use_ids: AbstractSet[ProductUseId] | None = None,
-    instrument_order: Sequence[str] = (),
-) -> MaterializedLocalEffects:
-    """Materialize final point-local operations and selected products."""
-
-    return _materialize_local_execution(
-        linked,
-        linked_points=None,
-        product_use_ids=product_use_ids,
-        instrument_order=instrument_order,
-    )
-
-
-def materialize_local_execution_from_points(
     linked_points: MaterializedLinkedPoints,
     *,
     product_use_ids: AbstractSet[ProductUseId] | None = None,
     instrument_order: Sequence[str] = (),
 ) -> MaterializedLocalEffects:
-    """Plan local execution from an already-materialized logical point domain."""
+    """Lower already-materialized logical points into final local effects."""
 
-    return _materialize_local_execution(
-        linked_points.linked_plan,
-        linked_points=linked_points,
-        product_use_ids=product_use_ids,
-        instrument_order=instrument_order,
-    )
-
-
-def _materialize_local_execution(
-    linked: LinkedPlan,
-    *,
-    linked_points: MaterializedLinkedPoints | None,
-    product_use_ids: AbstractSet[ProductUseId] | None,
-    instrument_order: Sequence[str],
-) -> MaterializedLocalEffects:
-    """Bind one selected semantic task into final local execution."""
-
+    linked = linked_points.linked_plan
     program = linked.program
     if product_use_ids is not None:
         requested = frozenset(product_use_ids)
@@ -294,12 +254,6 @@ def _materialize_local_execution(
         or environment.routing is None
     ):
         raise CheckFailed(problems)
-    if linked_points is None:
-        try:
-            linked_points = materialize_linked_points(linked)
-        except CheckFailed as error:
-            problems.extend(error.problems)
-            raise CheckFailed(problems) from error
     verified_program = linked_points.verified_program
     materialized_domain = linked_points.point_domain
     planner_points = materialized_domain.points
@@ -314,8 +268,6 @@ def _materialize_local_execution(
                 model_location("points"),
             )
         )
-    state_records: list[StateRecord] = []
-    action_records: list[ActionRecord] = []
     point_parameters = {
         point.logical_ordinal: parameters
         for point, parameters in zip(
@@ -326,15 +278,56 @@ def _materialize_local_execution(
     }
     compute_dependencies = analyze_compute_dependencies(program.compute_nodes)
 
-    for point, params in zip(
+    routes_by_point = _bind_routes(
+        program,
+        environment,
         planner_points,
-        linked_points.point_parameters,
-        strict=True,
-    ):
+        point_parameters,
+        problems,
+        verified_program=verified_program,
+    )
+    selected_instrument_order = _explicit_instrument_order(
+        instrument_order,
+        routes_by_point=routes_by_point,
+    )
+    point_programs: list[PointProgram] = []
+    run_compute_operations: tuple[ComputeOperation, ...] = ()
+    run_compute_signatures: dict[ValueId, str] = {}
+    if planner_points:
+        first_point = planner_points[0]
+        first_params = point_parameters[first_point.logical_ordinal]
+        first_routes = tuple(routes_by_point.get(first_point.logical_ordinal, ()))
+        bound_run_operations, _, run_compute_signatures = _bind_compute_operations(
+            program.compute_nodes,
+            rate=ValueRate.RUN,
+            point=first_point,
+            params=first_params,
+            routes=first_routes,
+            dependencies=compute_dependencies,
+            implementations=implementations,
+            demanded_payload_results=set(),
+            problems=problems,
+            verified_program=verified_program,
+        )
+        run_compute_operations = tuple(
+            replace(
+                operation,
+                operation_id=f"run.compute.{operation.semantic_operation_id}",
+            )
+            for operation in bound_run_operations
+        )
+
+    for point in planner_points:
+        params = point_parameters.get(point.logical_ordinal)
+        if params is None:
+            continue
+        routes = tuple(routes_by_point.get(point.logical_ordinal, ()))
         ctx = EvalContext(params=params, point_row=point.row)
+        point_state_records: list[StateRecord] = []
+        point_action_records: list[ActionRecord] = []
         for state_index, state in enumerate(core_state(program)):
             try:
-                state_records.extend(
+                point_state_records.extend(
                     evaluate_state_spec(
                         state,
                         point_index=point.logical_ordinal,
@@ -354,7 +347,7 @@ def _materialize_local_execution(
                 )
         for action_index, action in enumerate(core_actions(program)):
             try:
-                action_records.append(
+                point_action_records.append(
                     evaluate_action_spec(
                         action,
                         point_index=point.logical_ordinal,
@@ -371,38 +364,6 @@ def _materialize_local_execution(
                         model_location("actions", action_index),
                     )
                 )
-    routes_by_point = _bind_routes(
-        program,
-        environment,
-        planner_points,
-        point_parameters,
-        problems,
-        verified_program=verified_program,
-    )
-    selected_instrument_order = _explicit_instrument_order(
-        instrument_order,
-        routes_by_point=routes_by_point,
-    )
-    state_by_point: dict[int, list[StateRecord]] = {}
-    for record in state_records:
-        state_by_point.setdefault(record.point_index, []).append(record)
-    actions_by_point: dict[int, list[ActionRecord]] = {}
-    for record in action_records:
-        actions_by_point.setdefault(record.point_index, []).append(record)
-
-    point_programs: list[PointProgram] = []
-    run_compute_operations: tuple[ComputeOperation, ...] = ()
-    compute_rate_by_result = {
-        node.result.id: node.result.availability.rate for node in program.compute_nodes
-    }
-
-    for point in planner_points:
-        params = point_parameters.get(point.logical_ordinal)
-        if params is None:
-            continue
-        routes = tuple(routes_by_point.get(point.logical_ordinal, ()))
-        point_state_records = tuple(state_by_point.get(point.logical_ordinal, ()))
-        point_action_records = tuple(actions_by_point.get(point.logical_ordinal, ()))
         demanded_payload_results = {
             value.value_id
             for state in point_state_records
@@ -413,8 +374,9 @@ def _materialize_local_execution(
             for field in action.fields
             if isinstance(field.value, ComputeResultRef)
         }
-        bound_compute_operations, payload_ids = _bind_compute_operations(
+        compute_operations, payload_ids, _ = _bind_compute_operations(
             program.compute_nodes,
+            rate=ValueRate.POINT,
             point=point,
             params=params,
             routes=routes,
@@ -423,33 +385,7 @@ def _materialize_local_execution(
             demanded_payload_results=demanded_payload_results,
             problems=problems,
             verified_program=verified_program,
-        )
-        if not run_compute_operations:
-            run_compute_operations = tuple(
-                replace(
-                    operation,
-                    operation_id=f"run.compute.{operation.semantic_operation_id}",
-                )
-                for operation in bound_compute_operations
-                if compute_rate_by_result[operation.result.id] is ValueRate.RUN
-            )
-            for operation in run_compute_operations:
-                if operation.payload_slot is not None:
-                    problems.append(
-                        _problem(
-                            "run_compute_payload_unsupported",
-                            "run-rate compute cannot produce a point-scoped payload",
-                            model_location(
-                                "compute",
-                                operation.semantic_operation_id,
-                                "result",
-                            ),
-                        )
-                    )
-        compute_operations = tuple(
-            operation
-            for operation in bound_compute_operations
-            if compute_rate_by_result[operation.result.id] is ValueRate.POINT
+            initial_signatures=run_compute_signatures,
         )
         desired = _bind_desired_state(
             point_state_records,
@@ -541,9 +477,7 @@ def _materialize_local_execution(
     if has_blocking_problems(problems):
         raise CheckFailed(problems)
     return MaterializedLocalEffects(
-        experiment_id=program.id,
         points=tuple(point_programs),
-        product_uses=program.product_uses,
         resource_order=resource_order,
         resource_claims=(
             *(ResourceClaim(instrument_id) for instrument_id in resource_order),
@@ -753,6 +687,7 @@ def _bind_routes(
 def _bind_compute_operations(
     nodes: Sequence[TypedComputeNode],
     *,
+    rate: ValueRate,
     point: MaterializedPoint,
     params: ParameterRelationData,
     routes: Sequence[PendingRoute],
@@ -761,16 +696,23 @@ def _bind_compute_operations(
     demanded_payload_results: set[ValueId],
     problems: list[Problem],
     verified_program: VerifiedCoreProgram,
-) -> tuple[tuple[ComputeOperation, ...], dict[ValueId, str]]:
+    initial_signatures: Mapping[ValueId, str] | None = None,
+) -> tuple[
+    tuple[ComputeOperation, ...],
+    dict[ValueId, str],
+    dict[ValueId, str],
+]:
     operations: list[ComputeOperation] = []
     output_owners = {node.result.id: node.id for node in nodes}
     if len(output_owners) != len(nodes):
         msg = "typed compute graph contains duplicate result identities"
         raise ValueError(msg)
-    signatures: dict[ValueId, str] = {}
+    signatures = dict(initial_signatures or {})
     payload_ids: dict[ValueId, str] = {}
     ctx = EvalContext(params=params, point_row=point.row)
     for node in nodes:
+        if node.result.availability.rate is not rate:
+            continue
         inputs: dict[str, BoundInput | OutputInput] = {}
         signature_inputs: dict[str, object] = {}
         failed = False
@@ -901,7 +843,7 @@ def _bind_compute_operations(
                 ),
             )
         )
-    return tuple(operations), payload_ids
+    return tuple(operations), payload_ids, signatures
 
 
 def _payload_schema(value_type: object) -> str | None:

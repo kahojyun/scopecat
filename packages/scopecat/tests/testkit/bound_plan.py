@@ -18,10 +18,10 @@ from scopecat.measurements.projection import (
 )
 from scopecat.planning.local_materialization import (
     MaterializedLocalEffects,
-    materialize_local_execution,
 )
 from scopecat.records.config import ConfigProfileSnapshot, RoutingResource
 from tests.testkit.authoring import load_config
+from tests.testkit.local_materialization import materialize_local_execution
 from tests.testkit.typed_program import link_program
 
 

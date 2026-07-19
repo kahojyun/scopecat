@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from pathlib import PurePosixPath
+from typing import Literal
 
 from pydantic import TypeAdapter, ValidationError
 
@@ -18,7 +19,7 @@ from scopecat.kernel.problems import (
     StorageLocation,
     model_location,
 )
-from scopecat.records.artifact import RunArtifactEntry, RunDatasetEntry, RunRecordEntry
+from scopecat.records.artifact import RunContentEntry
 from scopecat.records.data_artifact import DataArrayArtifact, DataTableArtifact
 from scopecat.records.run import RunManifest
 from scopecat.runs.refs import (
@@ -28,36 +29,20 @@ from scopecat.runs.refs import (
 )
 from scopecat.runs.repository import RunRepository
 
-type RunPayloadEntry = RunArtifactEntry | RunDatasetEntry
-type RunManifestEntry = RunArtifactEntry | RunDatasetEntry | RunRecordEntry
+type RunPayloadEntry = RunContentEntry
+type _ContentRole = Literal["artifact", "dataset", "record"]
 
 _JSON_OBJECT_ADAPTER = TypeAdapter(dict[str, JsonValue])
 
 
-def _upsert_entries[TRef: RunManifestEntry](
-    existing: Sequence[TRef], additions: Sequence[TRef]
-) -> tuple[TRef, ...]:
-    additions_by_id = {entry.id: entry for entry in additions}
-    kept = [entry for entry in existing if entry.id not in additions_by_id]
+def upsert_contents(
+    existing: Sequence[RunContentEntry], additions: Sequence[RunContentEntry]
+) -> tuple[RunContentEntry, ...]:
+    additions_by_id = {(entry.role, entry.id): entry for entry in additions}
+    kept = [
+        entry for entry in existing if (entry.role, entry.id) not in additions_by_id
+    ]
     return (*kept, *additions)
-
-
-def upsert_artifacts(
-    existing: Sequence[RunArtifactEntry], additions: Sequence[RunArtifactEntry]
-) -> tuple[RunArtifactEntry, ...]:
-    return _upsert_entries(existing, additions)
-
-
-def upsert_datasets(
-    existing: Sequence[RunDatasetEntry], additions: Sequence[RunDatasetEntry]
-) -> tuple[RunDatasetEntry, ...]:
-    return _upsert_entries(existing, additions)
-
-
-def upsert_records(
-    existing: Sequence[RunRecordEntry], additions: Sequence[RunRecordEntry]
-) -> tuple[RunRecordEntry, ...]:
-    return _upsert_entries(existing, additions)
 
 
 def list_payload_entries(
@@ -67,14 +52,11 @@ def list_payload_entries(
     metadata: Mapping[str, object] | None = None,
 ) -> tuple[RunPayloadEntry, ...]:
     """Return user-facing datasets and artifacts matching simple filters."""
-    entries: list[RunPayloadEntry] = [*manifest.datasets, *manifest.artifacts]
-    if kind is not None:
-        entries = [entry for entry in entries if entry.kind == kind]
-    if metadata:
-        entries = [
-            entry for entry in entries if _entry_metadata_matches(entry, metadata)
-        ]
-    return tuple(entries)
+    return _filter_entries(
+        (*manifest.datasets, *manifest.artifacts),
+        kind=kind,
+        metadata=metadata,
+    )
 
 
 def list_artifacts(
@@ -82,22 +64,13 @@ def list_artifacts(
     *,
     kind: str | None = None,
     metadata: Mapping[str, object] | None = None,
-) -> tuple[RunArtifactEntry, ...]:
+) -> tuple[RunContentEntry, ...]:
     """Return run artifact payloads matching simple typed index filters."""
-    artifacts = list(manifest.artifacts)
-    if kind is not None:
-        artifacts = list_artifacts_by_kind(manifest, kind)
-    if metadata:
-        artifacts = [
-            artifact
-            for artifact in artifacts
-            if _entry_metadata_matches(artifact, metadata)
-        ]
-    return tuple(artifacts)
+    return _list_entries(manifest, "artifact", kind=kind, metadata=metadata)
 
 
-def list_artifacts_by_kind(manifest: RunManifest, kind: str) -> list[RunArtifactEntry]:
-    return [artifact for artifact in manifest.artifacts if artifact.kind == kind]
+def list_artifacts_by_kind(manifest: RunManifest, kind: str) -> list[RunContentEntry]:
+    return list(_list_entries(manifest, "artifact", kind=kind))
 
 
 def list_datasets(
@@ -105,83 +78,58 @@ def list_datasets(
     *,
     kind: str | None = None,
     metadata: Mapping[str, object] | None = None,
-) -> tuple[RunDatasetEntry, ...]:
-    datasets = list(manifest.datasets)
-    if kind is not None:
-        datasets = list_datasets_by_kind(manifest, kind)
-    if metadata:
-        datasets = [
-            dataset
-            for dataset in datasets
-            if _entry_metadata_matches(dataset, metadata)
-        ]
-    return tuple(datasets)
+) -> tuple[RunContentEntry, ...]:
+    return _list_entries(manifest, "dataset", kind=kind, metadata=metadata)
 
 
-def list_datasets_by_kind(manifest: RunManifest, kind: str) -> list[RunDatasetEntry]:
-    return [dataset for dataset in manifest.datasets if dataset.kind == kind]
+def list_datasets_by_kind(manifest: RunManifest, kind: str) -> list[RunContentEntry]:
+    return list(_list_entries(manifest, "dataset", kind=kind))
 
 
 def list_records(
     manifest: RunManifest,
     *,
     kind: str | None = None,
-) -> tuple[RunRecordEntry, ...]:
-    records = manifest.records
-    if kind is not None:
-        records = list_records_by_kind(manifest, kind)
-    return tuple(records)
+) -> tuple[RunContentEntry, ...]:
+    return _list_entries(manifest, "record", kind=kind)
 
 
-def list_records_by_kind(manifest: RunManifest, kind: str) -> list[RunRecordEntry]:
-    return [record for record in manifest.records if record.kind == kind]
+def list_records_by_kind(manifest: RunManifest, kind: str) -> list[RunContentEntry]:
+    return list(_list_entries(manifest, "record", kind=kind))
 
 
 def list_artifacts_by_metadata(
     manifest: RunManifest, metadata: Mapping[str, object]
-) -> list[RunArtifactEntry]:
-    return [
-        artifact
-        for artifact in manifest.artifacts
-        if _entry_metadata_matches(artifact, metadata)
-    ]
+) -> list[RunContentEntry]:
+    return list(_list_entries(manifest, "artifact", metadata=metadata))
 
 
 def get_artifact_by_id(
     manifest: RunManifest, artifact_id: str
-) -> RunArtifactEntry | None:
-    for artifact in manifest.artifacts:
-        if artifact.id == artifact_id:
-            return artifact
-    return None
+) -> RunContentEntry | None:
+    return _get_entry(manifest, "artifact", artifact_id)
 
 
-def get_dataset_by_id(manifest: RunManifest, dataset_id: str) -> RunDatasetEntry | None:
-    for dataset in manifest.datasets:
-        if dataset.id == dataset_id:
-            return dataset
-    return None
+def get_dataset_by_id(manifest: RunManifest, dataset_id: str) -> RunContentEntry | None:
+    return _get_entry(manifest, "dataset", dataset_id)
 
 
-def get_record_by_id(manifest: RunManifest, record_id: str) -> RunRecordEntry | None:
-    for record in manifest.records:
-        if record.id == record_id:
-            return record
-    return None
+def get_record_by_id(manifest: RunManifest, record_id: str) -> RunContentEntry | None:
+    return _get_entry(manifest, "record", record_id)
 
 
-def artifact_storage_ref(artifact: RunArtifactEntry) -> str:
+def artifact_storage_ref(artifact: RunContentEntry) -> str:
     return artifact_content_ref(artifact_id=artifact.id, kind=artifact.kind)
 
 
-def dataset_storage_ref(dataset: RunDatasetEntry) -> str:
+def dataset_storage_ref(dataset: RunContentEntry) -> str:
     return dataset_content_ref(
         dataset_id=dataset.id,
         kind=dataset.kind,
     )
 
 
-def record_storage_ref(record: RunRecordEntry) -> str:
+def record_storage_ref(record: RunContentEntry) -> str:
     return record_content_ref(record_id=record.id, kind=record.kind)
 
 
@@ -219,35 +167,19 @@ def resolve_artifact(
     invalid_kind_message: str,
     path_escape_message: str,
     location: ModelLocation,
-) -> RunArtifactEntry:
-    validate_run_entry_selector(
-        selector,
-        code=path_escape_code,
-        message_prefix=path_escape_message,
+) -> RunContentEntry:
+    return _resolve_entry(
+        manifest=manifest,
+        role="artifact",
+        selector=selector,
+        expected_kind=expected_kind,
+        not_found_code=not_found_code,
+        invalid_kind_code=invalid_kind_code,
+        path_escape_code=path_escape_code,
+        not_found_message=not_found_message,
+        invalid_kind_message=invalid_kind_message,
+        path_escape_message=path_escape_message,
         location=location,
-    )
-    for artifact in manifest.artifacts:
-        if artifact.id == selector:
-            return ensure_artifact_kind(
-                artifact,
-                expected_kind=expected_kind,
-                code=invalid_kind_code,
-                message=invalid_kind_message,
-                location=location,
-            )
-    raise NotFound(
-        [
-            _access_problem(
-                code=not_found_code,
-                category=ProblemCategory.NOT_FOUND,
-                message=not_found_message,
-                location=ModelLocation(
-                    root="run_manifest",
-                    path=("artifacts", selector),
-                ),
-                details={"selector": selector, "expected_kind": expected_kind},
-            )
-        ]
     )
 
 
@@ -263,75 +195,32 @@ def resolve_dataset(
     invalid_kind_message: str,
     path_escape_message: str,
     location: ModelLocation,
-) -> RunDatasetEntry:
-    validate_run_entry_selector(
-        selector,
-        code=path_escape_code,
-        message_prefix=path_escape_message,
+) -> RunContentEntry:
+    return _resolve_entry(
+        manifest=manifest,
+        role="dataset",
+        selector=selector,
+        expected_kind=expected_kind,
+        not_found_code=not_found_code,
+        invalid_kind_code=invalid_kind_code,
+        path_escape_code=path_escape_code,
+        not_found_message=not_found_message,
+        invalid_kind_message=invalid_kind_message,
+        path_escape_message=path_escape_message,
         location=location,
     )
-    for dataset in manifest.datasets:
-        if dataset.id == selector:
-            return ensure_dataset_kind(
-                dataset,
-                expected_kind=expected_kind,
-                code=invalid_kind_code,
-                message=invalid_kind_message,
-                location=location,
-            )
-    raise NotFound(
-        [
-            _access_problem(
-                code=not_found_code,
-                category=ProblemCategory.NOT_FOUND,
-                message=not_found_message,
-                location=ModelLocation(
-                    root="run_manifest",
-                    path=("datasets", selector),
-                ),
-                details={"selector": selector, "expected_kind": expected_kind},
-            )
-        ]
-    )
 
 
-def find_artifact(manifest: RunManifest, selector: str) -> RunArtifactEntry | None:
-    validate_run_entry_selector(
-        selector,
-        code="run.artifact_selector_path_escape",
-        message_prefix="artifact selector must stay within the run namespace",
-        location=model_location("run_access", "artifact"),
-    )
-    artifact = get_artifact_by_id(manifest, selector)
-    if artifact is not None:
-        return artifact
-    return None
+def find_artifact(manifest: RunManifest, selector: str) -> RunContentEntry | None:
+    return _find_entry(manifest, "artifact", selector)
 
 
-def find_dataset(manifest: RunManifest, selector: str) -> RunDatasetEntry | None:
-    validate_run_entry_selector(
-        selector,
-        code="run.dataset_selector_path_escape",
-        message_prefix="dataset selector must stay within the run namespace",
-        location=model_location("run_access", "dataset"),
-    )
-    dataset = get_dataset_by_id(manifest, selector)
-    if dataset is not None:
-        return dataset
-    return None
+def find_dataset(manifest: RunManifest, selector: str) -> RunContentEntry | None:
+    return _find_entry(manifest, "dataset", selector)
 
 
-def find_record(manifest: RunManifest, selector: str) -> RunRecordEntry | None:
-    validate_run_entry_selector(
-        selector,
-        code="run.record_selector_path_escape",
-        message_prefix="record selector must stay within the run namespace",
-        location=model_location("run_access", "record"),
-    )
-    record = get_record_by_id(manifest, selector)
-    if record is not None:
-        return record
-    return None
+def find_record(manifest: RunManifest, selector: str) -> RunContentEntry | None:
+    return _find_entry(manifest, "record", selector)
 
 
 def require_artifact(
@@ -339,43 +228,8 @@ def require_artifact(
     manifest: RunManifest,
     selector: str,
     expected_kind: str | None = None,
-) -> RunArtifactEntry:
-    artifact = find_artifact(manifest, selector)
-    if artifact is None:
-        raise NotFound(
-            [
-                _access_problem(
-                    code="run.artifact_not_found",
-                    category=ProblemCategory.NOT_FOUND,
-                    message="run artifact was not found",
-                    location=ModelLocation(
-                        root="run_manifest",
-                        path=("artifacts", selector),
-                    ),
-                    details={"selector": selector},
-                )
-            ]
-        )
-    if expected_kind is not None and artifact.kind != expected_kind:
-        raise CheckFailed(
-            [
-                _access_problem(
-                    code="run.artifact_kind_mismatch",
-                    category=ProblemCategory.INVALID_INPUT,
-                    message="run artifact does not have the requested kind",
-                    location=ModelLocation(
-                        root="run_manifest",
-                        path=("artifacts", selector, "kind"),
-                    ),
-                    details={
-                        "selector": selector,
-                        "actual_kind": artifact.kind,
-                        "expected_kind": expected_kind,
-                    },
-                )
-            ]
-        )
-    return artifact
+) -> RunContentEntry:
+    return _require_entry(manifest, "artifact", selector, expected_kind=expected_kind)
 
 
 def require_dataset(
@@ -383,43 +237,8 @@ def require_dataset(
     manifest: RunManifest,
     selector: str,
     expected_kind: str | None = None,
-) -> RunDatasetEntry:
-    dataset = find_dataset(manifest, selector)
-    if dataset is None:
-        raise NotFound(
-            [
-                _access_problem(
-                    code="run.dataset_not_found",
-                    category=ProblemCategory.NOT_FOUND,
-                    message="run dataset was not found",
-                    location=ModelLocation(
-                        root="run_manifest",
-                        path=("datasets", selector),
-                    ),
-                    details={"selector": selector},
-                )
-            ]
-        )
-    if expected_kind is not None and dataset.kind != expected_kind:
-        raise CheckFailed(
-            [
-                _access_problem(
-                    code="run.dataset_kind_mismatch",
-                    category=ProblemCategory.INVALID_INPUT,
-                    message="run dataset does not have the requested kind",
-                    location=ModelLocation(
-                        root="run_manifest",
-                        path=("datasets", selector, "kind"),
-                    ),
-                    details={
-                        "selector": selector,
-                        "actual_kind": dataset.kind,
-                        "expected_kind": expected_kind,
-                    },
-                )
-            ]
-        )
-    return dataset
+) -> RunContentEntry:
+    return _require_entry(manifest, "dataset", selector, expected_kind=expected_kind)
 
 
 def require_record(
@@ -427,50 +246,15 @@ def require_record(
     manifest: RunManifest,
     selector: str,
     expected_kind: str | None = None,
-) -> RunRecordEntry:
-    record = find_record(manifest, selector)
-    if record is None:
-        raise NotFound(
-            [
-                _access_problem(
-                    code="run.record_not_found",
-                    category=ProblemCategory.NOT_FOUND,
-                    message="run record was not found",
-                    location=ModelLocation(
-                        root="run_manifest",
-                        path=("records", selector),
-                    ),
-                    details={"selector": selector},
-                )
-            ]
-        )
-    if expected_kind is not None and record.kind != expected_kind:
-        raise CheckFailed(
-            [
-                _access_problem(
-                    code="run.record_kind_mismatch",
-                    category=ProblemCategory.INVALID_INPUT,
-                    message="run record does not have the requested kind",
-                    location=ModelLocation(
-                        root="run_manifest",
-                        path=("records", selector, "kind"),
-                    ),
-                    details={
-                        "selector": selector,
-                        "actual_kind": record.kind,
-                        "expected_kind": expected_kind,
-                    },
-                )
-            ]
-        )
-    return record
+) -> RunContentEntry:
+    return _require_entry(manifest, "record", selector, expected_kind=expected_kind)
 
 
 def read_artifact_bytes(
     *,
     storage: RunRepository,
     run_id: str,
-    artifact: RunArtifactEntry,
+    artifact: RunContentEntry,
 ) -> bytes:
     return storage.read_bytes(run_id, artifact_storage_ref(artifact))
 
@@ -479,7 +263,7 @@ def read_artifact_text(
     *,
     storage: RunRepository,
     run_id: str,
-    artifact: RunArtifactEntry,
+    artifact: RunContentEntry,
 ) -> str:
     return storage.read_text(run_id, artifact_storage_ref(artifact))
 
@@ -488,7 +272,7 @@ def read_artifact_json(
     *,
     storage: RunRepository,
     run_id: str,
-    artifact: RunArtifactEntry,
+    artifact: RunContentEntry,
 ) -> Mapping[str, JsonValue]:
     selector = artifact.id
     try:
@@ -520,7 +304,7 @@ def read_record_json(
     *,
     storage: RunRepository,
     run_id: str,
-    record: RunRecordEntry,
+    record: RunContentEntry,
 ) -> Mapping[str, JsonValue]:
     selector = record.id
     try:
@@ -548,7 +332,7 @@ def read_data_table_artifact(
     *,
     storage: RunRepository,
     run_id: str,
-    dataset: RunDatasetEntry,
+    dataset: RunContentEntry,
 ) -> DataTableArtifact:
     selector = dataset.id
     ref = dataset_storage_ref(dataset)
@@ -572,7 +356,7 @@ def read_data_array_artifact(
     *,
     storage: RunRepository,
     run_id: str,
-    dataset: RunDatasetEntry,
+    dataset: RunContentEntry,
 ) -> DataArrayArtifact:
     selector = dataset.id
     ref = dataset_storage_ref(dataset)
@@ -593,65 +377,224 @@ def read_data_array_artifact(
 
 
 def ensure_artifact_kind(
-    artifact: RunArtifactEntry,
+    artifact: RunContentEntry,
     *,
     expected_kind: str,
     code: str,
     message: str,
     location: ModelLocation,
-) -> RunArtifactEntry:
-    if artifact.kind != expected_kind:
-        raise CheckFailed(
-            [
-                _access_problem(
-                    code=code,
-                    category=ProblemCategory.INVALID_INPUT,
-                    message=message,
-                    location=model_location(
-                        location.root,
-                        *location.path,
-                        "kind",
-                    ),
-                    details={
-                        "artifact_id": artifact.id,
-                        "actual_kind": artifact.kind,
-                        "expected_kind": expected_kind,
-                    },
-                )
-            ]
-        )
-    return artifact
+) -> RunContentEntry:
+    return _ensure_entry_kind(
+        artifact,
+        role="artifact",
+        expected_kind=expected_kind,
+        code=code,
+        message=message,
+        location=location,
+    )
 
 
 def ensure_dataset_kind(
-    dataset: RunDatasetEntry,
+    dataset: RunContentEntry,
     *,
     expected_kind: str,
     code: str,
     message: str,
     location: ModelLocation,
-) -> RunDatasetEntry:
-    if dataset.kind != expected_kind:
+) -> RunContentEntry:
+    return _ensure_entry_kind(
+        dataset,
+        role="dataset",
+        expected_kind=expected_kind,
+        code=code,
+        message=message,
+        location=location,
+    )
+
+
+def _role_plural(role: _ContentRole) -> str:
+    return f"{role}s"
+
+
+def _role_entries(
+    manifest: RunManifest,
+    role: _ContentRole,
+) -> tuple[RunContentEntry, ...]:
+    return tuple(entry for entry in manifest.contents if entry.role == role)
+
+
+def _filter_entries(
+    entries: Sequence[RunContentEntry],
+    *,
+    kind: str | None = None,
+    metadata: Mapping[str, object] | None = None,
+) -> tuple[RunContentEntry, ...]:
+    return tuple(
+        entry
+        for entry in entries
+        if (kind is None or entry.kind == kind)
+        and (not metadata or _entry_metadata_matches(entry, metadata))
+    )
+
+
+def _list_entries(
+    manifest: RunManifest,
+    role: _ContentRole,
+    *,
+    kind: str | None = None,
+    metadata: Mapping[str, object] | None = None,
+) -> tuple[RunContentEntry, ...]:
+    return _filter_entries(
+        _role_entries(manifest, role),
+        kind=kind,
+        metadata=metadata,
+    )
+
+
+def _get_entry(
+    manifest: RunManifest,
+    role: _ContentRole,
+    entry_id: str,
+) -> RunContentEntry | None:
+    return next(
+        (
+            entry
+            for entry in manifest.contents
+            if entry.role == role and entry.id == entry_id
+        ),
+        None,
+    )
+
+
+def _find_entry(
+    manifest: RunManifest,
+    role: _ContentRole,
+    selector: str,
+) -> RunContentEntry | None:
+    validate_run_entry_selector(
+        selector,
+        code=f"run.{role}_selector_path_escape",
+        message_prefix=f"{role} selector must stay within the run namespace",
+        location=model_location("run_access", role),
+    )
+    return _get_entry(manifest, role, selector)
+
+
+def _require_entry(
+    manifest: RunManifest,
+    role: _ContentRole,
+    selector: str,
+    *,
+    expected_kind: str | None,
+) -> RunContentEntry:
+    entry = _find_entry(manifest, role, selector)
+    path = (_role_plural(role), selector)
+    if entry is None:
+        raise NotFound(
+            [
+                _access_problem(
+                    code=f"run.{role}_not_found",
+                    category=ProblemCategory.NOT_FOUND,
+                    message=f"run {role} was not found",
+                    location=ModelLocation(root="run_manifest", path=path),
+                    details={"selector": selector},
+                )
+            ]
+        )
+    if expected_kind is not None and entry.kind != expected_kind:
+        raise CheckFailed(
+            [
+                _access_problem(
+                    code=f"run.{role}_kind_mismatch",
+                    category=ProblemCategory.INVALID_INPUT,
+                    message=f"run {role} does not have the requested kind",
+                    location=ModelLocation(
+                        root="run_manifest",
+                        path=(*path, "kind"),
+                    ),
+                    details={
+                        "selector": selector,
+                        "actual_kind": entry.kind,
+                        "expected_kind": expected_kind,
+                    },
+                )
+            ]
+        )
+    return entry
+
+
+def _resolve_entry(
+    *,
+    manifest: RunManifest,
+    role: _ContentRole,
+    selector: str,
+    expected_kind: str,
+    not_found_code: str,
+    invalid_kind_code: str,
+    path_escape_code: str,
+    not_found_message: str,
+    invalid_kind_message: str,
+    path_escape_message: str,
+    location: ModelLocation,
+) -> RunContentEntry:
+    validate_run_entry_selector(
+        selector,
+        code=path_escape_code,
+        message_prefix=path_escape_message,
+        location=location,
+    )
+    entry = _get_entry(manifest, role, selector)
+    if entry is not None:
+        return _ensure_entry_kind(
+            entry,
+            role=role,
+            expected_kind=expected_kind,
+            code=invalid_kind_code,
+            message=invalid_kind_message,
+            location=location,
+        )
+    raise NotFound(
+        [
+            _access_problem(
+                code=not_found_code,
+                category=ProblemCategory.NOT_FOUND,
+                message=not_found_message,
+                location=ModelLocation(
+                    root="run_manifest",
+                    path=(_role_plural(role), selector),
+                ),
+                details={"selector": selector, "expected_kind": expected_kind},
+            )
+        ]
+    )
+
+
+def _ensure_entry_kind(
+    entry: RunContentEntry,
+    *,
+    role: _ContentRole,
+    expected_kind: str,
+    code: str,
+    message: str,
+    location: ModelLocation,
+) -> RunContentEntry:
+    if entry.kind != expected_kind:
         raise CheckFailed(
             [
                 _access_problem(
                     code=code,
                     category=ProblemCategory.INVALID_INPUT,
                     message=message,
-                    location=model_location(
-                        location.root,
-                        *location.path,
-                        "kind",
-                    ),
+                    location=model_location(location.root, *location.path, "kind"),
                     details={
-                        "dataset_id": dataset.id,
-                        "actual_kind": dataset.kind,
+                        f"{role}_id": entry.id,
+                        "actual_kind": entry.kind,
                         "expected_kind": expected_kind,
                     },
                 )
             ]
         )
-    return dataset
+    return entry
 
 
 def _entry_metadata_matches(

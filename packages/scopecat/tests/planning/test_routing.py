@@ -42,7 +42,6 @@ from scopecat.kernel.value_types import (
 from scopecat.planning.local_materialization import (
     MaterializedLocalEffects,
     channel_signature,
-    materialize_local_execution,
 )
 from scopecat.planning.routing import RoutingError, RoutingView
 from scopecat.planning.validation import validate_config
@@ -60,6 +59,7 @@ from scopecat.records.config import (
 from scopecat.records.entity import EntityRef
 from tests.testkit.authoring import load_config, parameters
 from tests.testkit.local_effect_program import make_test_local_effect_program
+from tests.testkit.local_materialization import materialize_local_execution
 from tests.testkit.relation_plans import (
     scalar_value_expr,
     series_value_expr,
@@ -600,7 +600,7 @@ def test_bound_plan_allows_configured_shared_group_resource_fanout() -> None:
 
     plan = _bind(_two_route_experiment(), config=config)
 
-    assert plan.point_count == 1
+    assert len(plan.points) == 1
 
 
 def test_bound_plan_reports_channel_shared_by_multiple_ports() -> None:
@@ -681,7 +681,7 @@ def test_bound_plan_allows_configured_channel_route_port_fanout() -> None:
 
     plan = _bind(_two_route_experiment(), config=config)
 
-    assert plan.point_count == 1
+    assert len(plan.points) == 1
 
 
 def test_bound_plan_rejects_product_duplicates_after_route_resolution() -> None:
