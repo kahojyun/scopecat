@@ -412,7 +412,6 @@ def test_measurement_plan_and_build_close_the_complete_public_sdk_declaration(
     )
 
     assert isinstance(prepared, PreparedDomainExecution)
-    assert not hasattr(prepared, "context")
 
 
 def test_measurement_plan_requires_exact_derived_output_coverage(

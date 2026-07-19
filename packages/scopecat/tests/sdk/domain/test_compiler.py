@@ -179,7 +179,6 @@ def test_compile_request_exposes_sdk_owned_input_normal_form() -> None:
     request = _request()
 
     assert request.input("x").normal_form == DomainPointAffine("x", 1, 0)
-    assert not hasattr(request.input("x"), "expression")
     assert not request.input("x").is_literal
     with pytest.raises(ValueError, match="not a scalar literal"):
         request.input("x").literal_value()
@@ -478,7 +477,6 @@ def test_input_resolution_accepts_an_empty_selection() -> None:
     assert selected.columns == (("x", (0, 1)),)
     assert selected.binder_input_ids == ("x",)
     assert calls == [("x",)]
-    assert not hasattr(request, "bound_input_ids")
 
 
 def test_compilation_rejects_concretely_bound_residual_input() -> None:

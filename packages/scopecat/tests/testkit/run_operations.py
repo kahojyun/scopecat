@@ -1,26 +1,25 @@
-"""Focused helpers for interpreting materialized local effects in tests."""
+"""Focused helpers for interpreting exact local effect coverage in tests."""
 
 from __future__ import annotations
 
-from scopecat.execution.points import RunPoint
 from scopecat.execution.program import (
     RunCoverageBlock,
-    RunCoverageEffect,
     RunOperation,
 )
-from tests.testkit.local_materialization import MaterializedLocalEffects
+from tests.testkit.local_materialization import LocalEffectInspection
 
 
-def complete_point_operations(
-    execution: MaterializedLocalEffects,
+def complete_coverage_operations(
+    execution: LocalEffectInspection,
 ) -> tuple[RunOperation, ...]:
-    return tuple(
-        RunCoverageBlock(
-            points=(RunPoint(point.logical_id, point.coordinates),),
-            operations=tuple(
-                RunCoverageEffect.at_point(point.point_index, operation)
-                for operation in point.operations
+    return (
+        (
+            RunCoverageBlock(
+                points=execution.points,
+                operations=execution.effects,
+                resource_claims=execution.resource_claims,
             ),
         )
-        for point in execution.points
+        if execution.points
+        else ()
     )

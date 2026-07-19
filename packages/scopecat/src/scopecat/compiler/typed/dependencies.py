@@ -1,8 +1,9 @@
-"""Dependency provenance attached to final point-local compute operations.
+"""Verified dependency and point-variation facts for residual lowering.
 
-This is a compiler analysis, not an execution-time graph walk.  The result is
-carried by ``ComputeOperation`` so preview and observability code never need to
-reconstruct dependencies from authoring expressions.
+``ComputePlan`` closes demand, ownership, transitive provenance, and evaluation
+scope once so every lowering consumer uses the same graph facts.
+``VariationAnalysis`` identifies the point axes that may change each semantic
+object, enabling safe structural reuse across a scan.
 """
 
 from __future__ import annotations
@@ -53,7 +54,11 @@ class PointVariationSupport:
 
 @dataclass(frozen=True, slots=True)
 class VariationAnalysis:
-    """One verified projection of point variation across semantic owners."""
+    """One verified projection of structural variation across semantic owners.
+
+    The supports describe which point axes can change a value, allowing the
+    iteration layout to derive exact contiguous reuse coverage.
+    """
 
     parameters: PointVariationSupport
     routes: Mapping[str, PointVariationSupport]
@@ -109,7 +114,11 @@ class ComputeDependencies:
 
 @dataclass(frozen=True, slots=True)
 class ComputePlan:
-    """Verified residual compute facts consumed by every target materializer."""
+    """Verified residual compute facts consumed by every target materializer.
+
+    Scope follows transitive point and route dependence. Finer reuse remains
+    separate because it depends on structural variation within point scope.
+    """
 
     nodes: tuple[TypedComputeNode, ...]
     scopes: Mapping[OperationId, ComputeScope]

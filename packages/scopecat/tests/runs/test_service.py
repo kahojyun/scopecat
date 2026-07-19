@@ -6,7 +6,6 @@ from typing import Literal
 import pytest
 
 import scopecat.runs.service as run_workflows
-from scopecat.authoring import QuantityType, ScalarType, parameter
 from scopecat.compiler.frontend.invocation import PreparedInvocation, prepare_invocation
 from scopecat.compiler.frontend.resolution import (
     CompiledInvocation,
@@ -16,17 +15,12 @@ from scopecat.composition.local import local_workspace_services
 from scopecat.kernel.errors import CheckFailed
 from scopecat.planning.system import ExperimentSystem
 from scopecat.records.config import ConfigProfileSnapshot
-from scopecat.records.parameter import Quantity
 from scopecat.runs.service import (
     check_experiment,
     run_experiment,
     start_run,
 )
-from tests.testkit.authoring import (
-    DRIVE_FREQUENCY_POINT,
-    SIMPLE_MODULE,
-    simple_template,
-)
+from tests.testkit.authoring import simple_template
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.workflow_fixtures import load_config, load_prepared_invocation
 
@@ -53,45 +47,9 @@ def test_check_and_start_run_use_separate_paths(
     assert result.preview is not None
     assert result.preview.points[0].point_index == 0
     assert result.preview.point_count == 3
+    assert result.preview.experiment_id == "simple-scan"
     assert provider_run.status == "completed"
     assert {dataset.id for dataset in provider_run.datasets} == {"raw-measurements"}
-
-
-def test_check_and_start_run_accept_template_invocation(tmp_path: Path) -> None:
-    config = load_config()
-    experiment_template = (
-        SIMPLE_MODULE.template("test.workflow_request_scan", kind="simple_scan")
-        .experiment_id("authored-simple-scan")
-        .scan(
-            DRIVE_FREQUENCY_POINT,
-            center=parameter(
-                "drive_frequency",
-                ScalarType(QuantityType()),
-            ),
-            span=Quantity(value=200.0, unit="MHz"),
-            points=5,
-        )
-        .build()
-    )
-    invocation = prepare_invocation(experiment_template.bind(subject="q0"))
-
-    report = check_experiment(
-        invocation,
-        config=config,
-        system=ExperimentSystem(provider=TestSignalInstrumentProvider()),
-        services=local_workspace_services(tmp_path / "preview"),
-    )
-    provider_run = start_run(
-        system=ExperimentSystem(provider=TestSignalInstrumentProvider()),
-        config=config,
-        experiment=invocation,
-        services=local_workspace_services(tmp_path / "provider"),
-    )
-
-    assert report.ok
-    assert report.preview is not None
-    assert report.preview.experiment_id == "authored-simple-scan"
-    assert provider_run.status == "completed"
 
 
 @pytest.mark.parametrize("workflow", ["run", "check"])

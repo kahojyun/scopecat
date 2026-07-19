@@ -10,6 +10,7 @@ import pytest
 import scopecat as sc
 from scopecat.adapters.filesystem.execution import FilesystemExecutionJournal
 from scopecat.compiler.linking.linked import LinkedPointMaterializer
+from scopecat.kernel.content_identity import content_fingerprint
 from scopecat.kernel.errors import RunIndeterminate
 from scopecat.kernel.problems import ProblemCategory, ProblemPhase, blocking_problem
 from scopecat.records.parameter import Quantity
@@ -101,6 +102,48 @@ def test_resource_independent_domain_spans_bias_state_coverage(
     second_state = effect_stages.index("apply_state", 1)
     assert "domain_fetch" in effect_stages[1:second_state]
     assert "domain_submit" not in effect_stages[second_state + 1 :]
+
+
+def test_different_target_partitions_preserve_the_logical_dataset(
+    tmp_path: Path,
+) -> None:
+    logical_datasets: list[object] = []
+    execution_counts: list[int] = []
+    for max_list_entries in (256, 2):
+        compiler = FakeXCountDomainCompiler(
+            target=replace(
+                default_fake_list_target(),
+                max_list_entries=max_list_entries,
+            )
+        )
+        lab = sc.open(
+            tmp_path / f"capacity-{max_list_entries}",
+            config_profile=fake_x_count_bias_config(),
+            system=sc.ExperimentSystem(
+                provider=FakeBiasVoltageProvider(),
+                domain_compiler=compiler,
+            ),
+        )
+
+        run = lab.prepare(FAKE_X_COUNT_BIAS_TEMPLATE).run()
+        records = run.data().measurements().dataset.records
+        logical_datasets.append(
+            content_fingerprint(
+                tuple(
+                    {
+                        "logical_point_id": record.logical_point_id,
+                        "point_index": record.point_index,
+                        "coordinates": record.coordinates,
+                        "observables": record.observables,
+                    }
+                    for record in records
+                )
+            )
+        )
+        execution_counts.append(compiler.runtime.physical_execution_count)
+
+    assert execution_counts[0] < execution_counts[1]
+    assert logical_datasets[0] == logical_datasets[1]
 
 
 def test_later_batch_failure_has_one_domain_problem_and_partial_dataset(

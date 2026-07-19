@@ -102,9 +102,9 @@ def test_action_lowers_as_a_distinct_point_effect() -> None:
     bound = materialize_local_execution(
         link_verified_program(resolved.verified_program, resolved.environment)
     )
-    assert len(operations_of_type(bound.points[0], InstrumentActionOperation)) == 1
+    assert len(operations_of_type(bound, InstrumentActionOperation, point_index=0)) == 1
     execution = bound
-    [action] = operations_of_type(execution.points[0], InstrumentActionOperation)
+    [action] = operations_of_type(execution, InstrumentActionOperation, point_index=0)
     assert action.capability_id == "set_frequency"
 
 
@@ -331,7 +331,7 @@ def test_collections_cross_module_route_axis_and_compute_with_provenance() -> No
         resolved.parameters,
         config=config,
     )
-    [operation] = operations_of_type(preview.points[0], CollectOperation)
+    [operation] = operations_of_type(preview, CollectOperation, point_index=0)
     [request] = operation.command.requests
     assert request.entity_ids == ["q0"]
 

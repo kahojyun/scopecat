@@ -591,7 +591,7 @@ def test_entity_scan_routes_resources_per_point() -> None:
         config=config,
     )
 
-    assert [point.point_index for point in preview.points] == [0, 1]
+    assert [point.ordinal for point in preview.points] == [0, 1]
     assert [
         state.instrument_id for _, state, _ in materialized_state_fields(preview)
     ] == [
@@ -1079,7 +1079,7 @@ def test_entity_series_routes_as_single_point_with_ordered_product_axis() -> Non
     )
 
     assert len(preview.points) == 1
-    [operation] = operations_of_type(preview.points[0], CollectOperation)
+    [operation] = operations_of_type(preview, CollectOperation, point_index=0)
     [request] = operation.command.requests
     assert operation.instrument_id == "readout-array"
     assert request.entity_ids == ["q0", "q1"]

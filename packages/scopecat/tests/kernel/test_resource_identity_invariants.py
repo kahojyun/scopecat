@@ -255,7 +255,7 @@ def test_public_dsl_direct_physical_state_is_not_captured_by_same_named_port(
     )
 
     assert (
-        operations_of_type(plan.points[0], ApplyStateOperation)[0].instrument_id
+        operations_of_type(plan, ApplyStateOperation, point_index=0)[0].instrument_id
         == "source-0"
     )
 
@@ -290,7 +290,7 @@ def test_direct_physical_record_is_not_captured_by_same_named_logical_port() -> 
     producer_target = program.instrument_product_producers[0].resource_target
     assert producer_target == PhysicalResourceId("source-0")
     assert (
-        operations_of_type(plan.points[0], CollectOperation)[0].instrument_id
+        operations_of_type(plan, CollectOperation, point_index=0)[0].instrument_id
         == "source-0"
     )
 
@@ -422,7 +422,7 @@ def test_unused_logical_product_producer_does_not_constrain_route_placement() ->
         link_verified_program(linked.verified_program, linked.environment)
     )
 
-    assert operations_of_type(plan.points[0], CollectOperation) == ()
+    assert operations_of_type(plan, CollectOperation, point_index=0) == ()
 
 
 def test_demanded_logical_product_producer_requires_instrument_during_binding() -> None:

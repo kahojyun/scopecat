@@ -35,8 +35,7 @@ def test_sequence_compilation_stays_memory_payload_boundary(
     ]
     assert [
         (state.instrument_id, field.capability_id, field.field_path)
-        for point in plan.points
-        for state in operations_of_type(point, ApplyStateOperation)
+        for state in operations_of_type(plan, ApplyStateOperation)
         for field in state.targets
         if isinstance(field.value.root, PayloadRef)
     ] == [

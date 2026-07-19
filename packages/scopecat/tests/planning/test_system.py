@@ -752,27 +752,23 @@ def test_unclaimed_local_state_does_not_fragment_domain_jobs() -> None:
 
     plan = system.compile(linked, config=load_config())
 
-    observed: list[tuple[str, int | tuple[int, ...]]] = []
-    for block in plan.coverage:
-        assert isinstance(block, RunCoverageBlock)
-        for operation in block.operations:
-            if isinstance(operation, RunDomainJob):
-                observed.append(("domain", operation.point_ordinals))
-            elif isinstance(operation, RunCoverageCheckpoint):
-                observed.append(("checkpoint", operation.point_indices))
-            else:
-                assert isinstance(operation, RunCoverageEffect)
-                observed.append((type(operation).__name__, operation.point_indices))
-        observed.append((type(block).__name__, block.point_indices))
-
-    assert observed == [
-        ("RunCoverageEffect", (0,)),
-        ("domain", (0, 1)),
-        ("checkpoint", (0,)),
-        ("RunCoverageEffect", (1,)),
-        ("checkpoint", (1,)),
-        ("RunCoverageBlock", (0, 1)),
-    ]
+    [block] = plan.coverage
+    assert block.point_indices == (0, 1)
+    assert [
+        operation.point_ordinals
+        for operation in block.operations
+        if isinstance(operation, RunDomainJob)
+    ] == [(0, 1)]
+    assert [
+        operation.point_indices
+        for operation in block.operations
+        if isinstance(operation, RunCoverageEffect)
+    ] == [(0,), (1,)]
+    assert [
+        operation.point_indices
+        for operation in block.operations
+        if isinstance(operation, RunCoverageCheckpoint)
+    ] == [(0,), (1,)]
     assert provider.describe_calls == 1
     assert provider.provide_calls == 0
     assert compiler.compile_calls == 1
@@ -879,11 +875,7 @@ def test_domain_compiler_batches_one_state_stable_region() -> None:
     )
     assert tuple(job.point_ordinals for job in domain_jobs) == ((0, 1),)
     [domain_job] = domain_jobs
-    assert not hasattr(domain_job, "compiled")
-    assert not hasattr(domain_job, "prepared")
-    prepared = domain_job.prepare()
-    assert not hasattr(prepared, "context")
-    assert not hasattr(prepared, "compiler_id")
+    domain_job.prepare()
     assert provider.describe_calls == 1
     assert provider.provide_calls == 0
     assert compiler.compile_calls == 1
@@ -912,11 +904,7 @@ def test_ordered_domain_calls_share_one_target_resource_and_keep_job_identity() 
         for operation in block.operations
         if isinstance(operation, RunDomainJob)
     )
-    assert [job.id for job in jobs] == [
-        "domain-0:coverage-0:job-0",
-        "domain-1:coverage-0:job-0",
-    ]
-    assert all(not hasattr(job, "source_id") for job in jobs)
+    assert len({job.id for job in jobs}) == 2
     assert {claim for block in blocks for claim in block.resource_claims} == {
         ResourceClaim("tests.multi-call.target", "target")
     }

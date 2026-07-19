@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict
 
 import scopecat as sc
 from scopecat.kernel.errors import CheckFailed, Conflict, NotFound
+from scopecat.kernel.problems import ProblemPhase
 from scopecat.records.parameter import Quantity
 from scopecat.records.run_request import (
     AroundScanRecord,
@@ -308,6 +309,7 @@ def test_prepared_experiment_check_returns_authoring_problems(
     assert [problem.code for problem in validation.problems] == [
         "experiment_template_missing_input"
     ]
+    assert validation.problems[0].phase is ProblemPhase.AUTHORING
 
 
 def test_prepared_experiment_check_returns_config_selection_problems(

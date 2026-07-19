@@ -1,8 +1,9 @@
-"""Typed transient program produced by the authoring compiler.
+"""Target-independent typed meaning produced by the authoring compiler.
 
-Nothing in this module is a durable wire format. ``CoreProgram`` retains the
-point domain and explicit dataflow edges needed by later compiler passes,
-and deliberately has no schema version or round-trip compatibility promise.
+``CoreProgram`` keeps point composition, value dataflow, effect order, and
+product ownership symbolic so one experiment definition can be specialized for
+different physical systems. It is transient compiler data because accepted run
+semantics, not intermediate compiler shape, form the durable boundary.
 """
 
 from __future__ import annotations
@@ -260,7 +261,12 @@ class ResourceRouteIntent:
 
 @dataclass(frozen=True, slots=True)
 class CoreProgram:
-    """Canonical typed meaning of one authored experiment."""
+    """Canonical typed and symbolic meaning of one authored experiment.
+
+    The ordered ``effects`` sequence is authoritative so specialization can
+    choose host or domain placement while retaining logical point identity,
+    lexical parameter semantics, product ownership, and effect order.
+    """
 
     id: str
     kind: str

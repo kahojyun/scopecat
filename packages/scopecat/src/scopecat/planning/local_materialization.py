@@ -1,4 +1,10 @@
-"""Specialize one linked program into final point-local execution."""
+"""Specialize linked host semantics into final local operations.
+
+Preparation selects implementations and run-invariant compute once. Bounded
+materialization binds routes, state, actions, compute, and collection together
+so resource constraints are checked against the same values written into the
+ordered execution effects.
+"""
 
 from __future__ import annotations
 
@@ -167,7 +173,11 @@ def materialize_local_execution(
     target: LocalTargetPlan,
     point_count: int,
 ) -> MaterializedLocalEffects:
-    """Lower local work without discarding the ordered Core effect sequence."""
+    """Lower one bounded point coverage into final ordered local effects.
+
+    Structural variation selects representative points for safe reuse while
+    exact coverage preserves logical ownership of every resulting operation.
+    """
 
     linked = linked_points.linked_plan
     program = target.program

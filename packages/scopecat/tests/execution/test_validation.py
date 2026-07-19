@@ -5,6 +5,7 @@ from scopecat.execution.local.program import (
     CollectOperation,
 )
 from scopecat.execution.local.validation import validate_local_effect_block_instruments
+from scopecat.execution.points import RunPoint
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
 from scopecat.kernel.problems import (
     ProblemCategory,
@@ -24,21 +25,19 @@ from scopecat.sdk.instruments.contracts import (
     product,
 )
 from tests.testkit.local_materialization import (
-    MaterializedLocalEffects,
-    MaterializedPointEffects,
+    LocalEffectInspection,
+    effects_at_point,
 )
 
 
 def _validate(
-    program: MaterializedLocalEffects,
+    program: LocalEffectInspection,
     *,
     descriptions: dict[str, InstrumentDescription],
 ):
     return validate_local_effect_block_instruments(
         resource_order=program.resource_order,
-        operations=tuple(
-            operation for point in program.points for operation in point.operations
-        ),
+        operations=tuple(effect.operation for effect in program.effects),
         descriptions=descriptions,
         available_payloads={},
     )
@@ -122,38 +121,40 @@ def _collect_program(
     *,
     capability_id: str | None,
     dtype: MeasurementDType,
-) -> MaterializedLocalEffects:
+) -> LocalEffectInspection:
     operation_id = "point-0.collect.source-0"
     signal_use = product_use(product_id("signal"))
-    return MaterializedLocalEffects(
+    return LocalEffectInspection(
         points=(
-            MaterializedPointEffects(
-                point_index=0,
+            RunPoint(
                 logical_id=LogicalPointId(PointDomainId("product-lookup", "root"), 0),
                 coordinates={},
-                operations=(
-                    CollectOperation(
+            ),
+        ),
+        effects=effects_at_point(
+            0,
+            (
+                CollectOperation(
+                    operation_id=operation_id,
+                    instrument_id="source-0",
+                    command=CollectCommand(
                         operation_id=operation_id,
                         instrument_id="source-0",
-                        command=CollectCommand(
-                            operation_id=operation_id,
-                            instrument_id="source-0",
-                            point_index=0,
-                            point_count=1,
-                            requests=[
-                                CollectProductRequest(
-                                    id="signal",
-                                    capability_id=capability_id,
-                                    dtype=dtype,
-                                )
-                            ],
-                        ),
-                        result_bindings=(
-                            CollectionResultBinding(
-                                provider_key="signal",
-                                product_use_id=signal_use.id,
-                                product_id=signal_use.product_id,
-                            ),
+                        point_index=0,
+                        point_count=1,
+                        requests=[
+                            CollectProductRequest(
+                                id="signal",
+                                capability_id=capability_id,
+                                dtype=dtype,
+                            )
+                        ],
+                    ),
+                    result_bindings=(
+                        CollectionResultBinding(
+                            provider_key="signal",
+                            product_use_id=signal_use.id,
+                            product_id=signal_use.product_id,
                         ),
                     ),
                 ),

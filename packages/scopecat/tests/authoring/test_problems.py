@@ -78,6 +78,9 @@ def test_template_definition_reports_config_free_errors_together() -> None:
         "module_input_type_mismatch",
         "module_product_unknown",
     ]
+    assert {problem.phase for problem in error.value.problems} == {
+        ProblemPhase.DEFINITION
+    }
 
 
 def test_template_bind_rejects_known_input_errors_without_requiring_missing() -> None:

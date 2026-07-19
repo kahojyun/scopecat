@@ -22,6 +22,7 @@ from scopecat.execution.effect_interpreter import RunEffectInterpreter
 from scopecat.execution.local.program import (
     ActionField,
     ApplyStateOperation,
+    BoundInput,
     CollectionResultBinding,
     CollectOperation,
     ComputeOperation,
@@ -68,11 +69,11 @@ from scopecat.sdk.instruments import (
 )
 from tests.testkit.instrument_drivers import SignalInstrumentDriver
 from tests.testkit.local_materialization import (
-    MaterializedLocalEffects,
-    MaterializedPointEffects,
+    LocalEffectInspection,
+    effects_at_point,
 )
 from tests.testkit.materialized_effects import config_with_physical_resources
-from tests.testkit.run_operations import complete_point_operations
+from tests.testkit.run_operations import complete_coverage_operations
 
 
 def _logical_point_id(name: str, ordinal: int = 0) -> LogicalPointId:
@@ -239,40 +240,34 @@ def test_compute_output_is_normalized_before_downstream_use() -> None:
         consumed.append(value)
         return value.value
 
-    program = MaterializedLocalEffects(
-        points=(
-            MaterializedPointEffects(
-                point_index=0,
-                logical_id=_logical_point_id("normalized-output-point"),
-                coordinates={},
-                operations=(
-                    ComputeOperation(
-                        operation_id=producer_id,
-                        semantic_operation_id="producer",
-                        implementation_id="python.producer.v1",
-                        contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-                        kernel=lambda: Quantity(
-                            value=5000.0,
-                            unit="MHz",
-                        ),
-                        inputs={},
-                        result=ComputeResultSlot(
-                            id=producer_result_id,
-                            value_type=Scalar(QuantityType(unit="GHz")),
-                        ),
-                    ),
-                    ComputeOperation(
-                        operation_id=("normalized-output-point.compute.consumer"),
-                        semantic_operation_id="consumer",
-                        implementation_id="python.consumer.v1",
-                        contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-                        kernel=consume,
-                        inputs={"value": OutputInput(producer_result_id)},
-                        result=ComputeResultSlot(
-                            id=consumer_result_id,
-                            value_type=Scalar(Float()),
-                        ),
-                    ),
+    program = LocalEffectInspection.at_point(
+        RunPoint(_logical_point_id("normalized-output-point"), {}),
+        (
+            ComputeOperation(
+                operation_id=producer_id,
+                semantic_operation_id="producer",
+                implementation_id="python.producer.v1",
+                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
+                kernel=lambda: Quantity(
+                    value=5000.0,
+                    unit="MHz",
+                ),
+                inputs={},
+                result=ComputeResultSlot(
+                    id=producer_result_id,
+                    value_type=Scalar(QuantityType(unit="GHz")),
+                ),
+            ),
+            ComputeOperation(
+                operation_id=("normalized-output-point.compute.consumer"),
+                semantic_operation_id="consumer",
+                implementation_id="python.consumer.v1",
+                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
+                kernel=consume,
+                inputs={"value": OutputInput(producer_result_id)},
+                result=ComputeResultSlot(
+                    id=consumer_result_id,
+                    value_type=Scalar(Float()),
                 ),
             ),
         ),
@@ -290,7 +285,7 @@ def test_compute_output_is_normalized_before_downstream_use() -> None:
         journal=MemoryExecutionJournal(),
         readbacks=MemoryCollectionRepository(),
         payloads=MemoryPayloadEvidenceCommitter(),
-    ).run(complete_point_operations(program))
+    ).run(complete_coverage_operations(program))
 
     assert not result.problems and not result.indeterminate
     assert consumed == [Quantity(value=5.0, unit="GHz")]
@@ -328,13 +323,18 @@ def test_run_compute_is_shared_by_every_point_frame() -> None:
         )
     )
     points = tuple(
-        MaterializedPointEffects(
-            point_index=index,
-            logical_id=LogicalPointId(
-                PointDomainId("run-compute-sharing", "root"), index
-            ),
-            coordinates={},
-            operations=(
+        RunPoint(
+            LogicalPointId(PointDomainId("run-compute-sharing", "root"), index),
+            {},
+        )
+        for index in range(2)
+    )
+    effects = tuple(
+        effect
+        for index in range(2)
+        for effect in effects_at_point(
+            index,
+            (
                 ComputeOperation(
                     operation_id=f"point-{index}.compute.consumer",
                     semantic_operation_id=consumer_id.qualified_name,
@@ -349,10 +349,10 @@ def test_run_compute_is_shared_by_every_point_frame() -> None:
                 ),
             ),
         )
-        for index in range(2)
     )
-    program = MaterializedLocalEffects(
+    program = LocalEffectInspection(
         points=points,
+        effects=effects,
         resource_order=(),
         resource_claims=(),
     )
@@ -370,22 +370,98 @@ def test_run_compute_is_shared_by_every_point_frame() -> None:
     ).run(
         (
             run_compute,
-            *(
-                RunCoverageBlock(
-                    points=(RunPoint(point.logical_id, point.coordinates),),
-                    operations=tuple(
-                        RunCoverageEffect.at_point(point.point_index, operation)
-                        for operation in point.operations
-                    ),
-                )
-                for point in points
-            ),
+            RunCoverageBlock(points=points, operations=effects),
         )
     )
 
     assert not result.problems and not result.indeterminate
     assert producer_calls == 1
     assert consumed == [2.0, 2.0]
+
+
+def test_multi_point_compute_coverage_evaluates_once_and_seeds_every_point() -> None:
+    shared_id = OperationId(SymbolId(local_id="shared-point-compute"))
+    shared_result_id = operation_result_id(shared_id)
+    consumer_id = OperationId(SymbolId(local_id="point-consumer"))
+    consumer_result_id = operation_result_id(consumer_id)
+    shared_calls = 0
+    consumed: list[tuple[int, float]] = []
+
+    def produce() -> float:
+        nonlocal shared_calls
+        shared_calls += 1
+        return 3.0
+
+    def consume(*, point_index: int, value: float) -> float:
+        consumed.append((point_index, value))
+        return value
+
+    points = tuple(
+        RunPoint(
+            LogicalPointId(PointDomainId("shared-point-compute", "root"), index),
+            {},
+        )
+        for index in range(2)
+    )
+    shared = RunCoverageEffect(
+        point_indices=(0, 1),
+        operation=ComputeOperation(
+            operation_id="coverage.compute.shared",
+            semantic_operation_id=shared_id.qualified_name,
+            implementation_id="python.shared.v1",
+            contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
+            kernel=produce,
+            inputs={},
+            result=ComputeResultSlot(
+                id=shared_result_id,
+                value_type=Scalar(Float()),
+            ),
+        ),
+    )
+    consumers = tuple(
+        RunCoverageEffect.at_point(
+            index,
+            ComputeOperation(
+                operation_id=f"point-{index}.compute.consumer",
+                semantic_operation_id=consumer_id.qualified_name,
+                implementation_id="python.consumer.v1",
+                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
+                kernel=consume,
+                inputs={
+                    "point_index": BoundInput(index),
+                    "value": OutputInput(shared_result_id),
+                },
+                result=ComputeResultSlot(
+                    id=consumer_result_id,
+                    value_type=Scalar(Float()),
+                ),
+            ),
+        )
+        for index in range(2)
+    )
+
+    result = RunEffectInterpreter(
+        run_id="shared-point-compute-run",
+        experiment_id="shared-point-compute",
+        experiment_kind="test-local-effects",
+        coordinate_ids=(),
+        resource_order=(),
+        drivers={},
+        journal=MemoryExecutionJournal(),
+        readbacks=MemoryCollectionRepository(),
+        payloads=MemoryPayloadEvidenceCommitter(),
+    ).run(
+        (
+            RunCoverageBlock(
+                points=points,
+                operations=(shared, *consumers),
+            ),
+        )
+    )
+
+    assert not result.problems and not result.indeterminate
+    assert shared_calls == 1
+    assert consumed == [(0, 3.0), (1, 3.0)]
 
 
 def test_distinct_compute_operations_are_each_evaluated() -> None:
@@ -401,37 +477,31 @@ def test_distinct_compute_operations_are_each_evaluated() -> None:
         calls.append("second")
         return 2.0
 
-    program = MaterializedLocalEffects(
-        points=(
-            MaterializedPointEffects(
-                point_index=0,
-                logical_id=_logical_point_id("implementation-cache-point"),
-                coordinates={},
-                operations=(
-                    ComputeOperation(
-                        operation_id="implementation-cache-point.compute.first",
-                        semantic_operation_id="first",
-                        implementation_id="python.first.v1",
-                        contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-                        kernel=first,
-                        inputs={},
-                        result=ComputeResultSlot(
-                            id=first_result_id,
-                            value_type=Scalar(Float()),
-                        ),
-                    ),
-                    ComputeOperation(
-                        operation_id="implementation-cache-point.compute.second",
-                        semantic_operation_id="second",
-                        implementation_id="python.second.v1",
-                        contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-                        kernel=second,
-                        inputs={},
-                        result=ComputeResultSlot(
-                            id=second_result_id,
-                            value_type=Scalar(Float()),
-                        ),
-                    ),
+    program = LocalEffectInspection.at_point(
+        RunPoint(_logical_point_id("implementation-cache-point"), {}),
+        (
+            ComputeOperation(
+                operation_id="implementation-cache-point.compute.first",
+                semantic_operation_id="first",
+                implementation_id="python.first.v1",
+                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
+                kernel=first,
+                inputs={},
+                result=ComputeResultSlot(
+                    id=first_result_id,
+                    value_type=Scalar(Float()),
+                ),
+            ),
+            ComputeOperation(
+                operation_id="implementation-cache-point.compute.second",
+                semantic_operation_id="second",
+                implementation_id="python.second.v1",
+                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
+                kernel=second,
+                inputs={},
+                result=ComputeResultSlot(
+                    id=second_result_id,
+                    value_type=Scalar(Float()),
                 ),
             ),
         ),
@@ -449,7 +519,7 @@ def test_distinct_compute_operations_are_each_evaluated() -> None:
         journal=MemoryExecutionJournal(),
         readbacks=MemoryCollectionRepository(),
         payloads=MemoryPayloadEvidenceCommitter(),
-    ).run(complete_point_operations(program))
+    ).run(complete_coverage_operations(program))
 
     assert not result.problems and not result.indeterminate
     assert calls == ["first", "second"]
@@ -576,21 +646,25 @@ def _action_operation(point_uid: str, instrument_id: str) -> InstrumentActionOpe
 def test_identical_actions_are_delivered_at_every_point() -> None:
     driver = SignalInstrumentDriver()
     points = tuple(
-        MaterializedPointEffects(
-            point_index=index,
-            logical_id=_logical_point_id(f"action-point-{index}", index),
-            coordinates={},
-            operations=(
+        RunPoint(_logical_point_id(f"action-point-{index}", index), {})
+        for index in range(2)
+    )
+    effects = tuple(
+        effect
+        for index in range(2)
+        for effect in effects_at_point(
+            index,
+            (
                 _action_operation(
                     f"action-point-{index}",
                     driver.instrument_id,
                 ),
             ),
         )
-        for index in range(2)
     )
-    program = MaterializedLocalEffects(
+    program = LocalEffectInspection(
         points=points,
+        effects=effects,
         resource_order=(driver.instrument_id,),
         resource_claims=_claims(driver.instrument_id),
     )
@@ -604,7 +678,7 @@ def test_identical_actions_are_delivered_at_every_point() -> None:
         journal=MemoryExecutionJournal(),
         readbacks=MemoryCollectionRepository(),
         payloads=MemoryPayloadEvidenceCommitter(),
-    ).run(complete_point_operations(program))
+    ).run(complete_coverage_operations(program))
 
     assert not result.problems and not result.indeterminate
     assert len(driver.action_commands) == 2
@@ -615,15 +689,9 @@ def test_unknown_action_is_not_retried_and_makes_run_indeterminate() -> None:
     point_uid = "unknown-action-point"
     operation = _action_operation(point_uid, driver.instrument_id)
     journal = MemoryExecutionJournal()
-    program = MaterializedLocalEffects(
-        points=(
-            MaterializedPointEffects(
-                point_index=0,
-                logical_id=_logical_point_id(point_uid),
-                coordinates={},
-                operations=(operation,),
-            ),
-        ),
+    program = LocalEffectInspection.at_point(
+        RunPoint(_logical_point_id(point_uid), {}),
+        (operation,),
         resource_order=(driver.instrument_id,),
         resource_claims=_claims(driver.instrument_id),
     )
@@ -637,7 +705,7 @@ def test_unknown_action_is_not_retried_and_makes_run_indeterminate() -> None:
         journal=journal,
         readbacks=MemoryCollectionRepository(),
         payloads=MemoryPayloadEvidenceCommitter(),
-    ).run(complete_point_operations(program))
+    ).run(complete_coverage_operations(program))
 
     assert result.indeterminate
     assert len(driver.action_commands) == 1
@@ -670,15 +738,9 @@ class _BrokenFinalizationJournal(MemoryExecutionJournal):
 def test_invalid_apply_receipt_truth_table_is_rejected_at_normalize_boundary() -> None:
     driver = _MalformedApplyDriver()
     operation = _gain_operation(driver.instrument_id, 1.0)
-    program = MaterializedLocalEffects(
-        points=(
-            MaterializedPointEffects(
-                point_index=0,
-                logical_id=_logical_point_id("malformed-apply-point"),
-                coordinates={},
-                operations=(operation,),
-            ),
-        ),
+    program = LocalEffectInspection.at_point(
+        RunPoint(_logical_point_id("malformed-apply-point"), {}),
+        (operation,),
         resource_order=(driver.instrument_id,),
         resource_claims=_claims(driver.instrument_id),
     )
@@ -694,7 +756,7 @@ def test_invalid_apply_receipt_truth_table_is_rejected_at_normalize_boundary() -
         journal=journal,
         readbacks=MemoryCollectionRepository(),
         payloads=MemoryPayloadEvidenceCommitter(),
-    ).run(complete_point_operations(program))
+    ).run(complete_coverage_operations(program))
 
     assert result.indeterminate
     problem_codes = {problem.code for problem in result.problems}
@@ -711,15 +773,9 @@ def test_invalid_collect_receipt_is_rejected_at_normalize_boundary() -> None:
     driver = _MalformedCollectDriver()
     point_uid = "malformed-collect-point"
     operation = _collect_operation(point_uid, driver.instrument_id, "signal")
-    program = MaterializedLocalEffects(
-        points=(
-            MaterializedPointEffects(
-                point_index=0,
-                logical_id=_logical_point_id(point_uid),
-                coordinates={},
-                operations=(operation,),
-            ),
-        ),
+    program = LocalEffectInspection.at_point(
+        RunPoint(_logical_point_id(point_uid), {}),
+        (operation,),
         resource_order=(driver.instrument_id,),
         resource_claims=_claims(driver.instrument_id),
     )
@@ -736,7 +792,7 @@ def test_invalid_collect_receipt_is_rejected_at_normalize_boundary() -> None:
         journal=journal,
         readbacks=readbacks,
         payloads=MemoryPayloadEvidenceCommitter(),
-    ).run(complete_point_operations(program))
+    ).run(complete_coverage_operations(program))
 
     assert result.indeterminate
     problem_codes = {problem.code for problem in result.problems}
@@ -763,15 +819,9 @@ def test_mismatched_collection_receipt_is_indeterminate(
     driver = SignalInstrumentDriver()
     point_uid = "mismatched-collection-receipt-point"
     operation = _collect_operation(point_uid, driver.instrument_id, "signal")
-    program = MaterializedLocalEffects(
-        points=(
-            MaterializedPointEffects(
-                point_index=0,
-                logical_id=_logical_point_id(point_uid),
-                coordinates={},
-                operations=(operation,),
-            ),
-        ),
+    program = LocalEffectInspection.at_point(
+        RunPoint(_logical_point_id(point_uid), {}),
+        (operation,),
         resource_order=(driver.instrument_id,),
         resource_claims=_claims(driver.instrument_id),
     )
@@ -788,7 +838,7 @@ def test_mismatched_collection_receipt_is_indeterminate(
         journal=journal,
         readbacks=readbacks,
         payloads=MemoryPayloadEvidenceCommitter(),
-    ).run(complete_point_operations(program))
+    ).run(complete_coverage_operations(program))
 
     assert result.indeterminate
     assert len(readbacks.chunks) == 1
@@ -806,17 +856,11 @@ def test_mismatched_collection_receipt_is_indeterminate(
 def test_finalization_journal_failure_cannot_block_abort_or_terminal_read() -> None:
     first = _MalformedApplyDriver(instrument_id="source-a")
     second = _FinalizationTrackingDriver(instrument_id="source-b")
-    program = MaterializedLocalEffects(
-        points=(
-            MaterializedPointEffects(
-                point_index=0,
-                logical_id=_logical_point_id("finalization-journal-point"),
-                coordinates={},
-                operations=(
-                    _gain_operation("source-a", 1.0),
-                    _gain_operation("source-b", 2.0),
-                ),
-            ),
+    program = LocalEffectInspection.at_point(
+        RunPoint(_logical_point_id("finalization-journal-point"), {}),
+        (
+            _gain_operation("source-a", 1.0),
+            _gain_operation("source-b", 2.0),
         ),
         resource_order=("source-a", "source-b"),
         resource_claims=_claims("source-a", "source-b"),
@@ -832,7 +876,7 @@ def test_finalization_journal_failure_cannot_block_abort_or_terminal_read() -> N
         journal=_BrokenFinalizationJournal(),
         readbacks=MemoryCollectionRepository(),
         payloads=MemoryPayloadEvidenceCommitter(),
-    ).run(complete_point_operations(program))
+    ).run(complete_coverage_operations(program))
 
     assert result.indeterminate
     assert first.abort_count == 1
@@ -863,15 +907,9 @@ class _ReceiptEvidenceStateDriver(SignalInstrumentDriver):
 
 def test_apply_journal_persists_full_receipt_evidence() -> None:
     driver = _ReceiptEvidenceStateDriver()
-    program = MaterializedLocalEffects(
-        points=(
-            MaterializedPointEffects(
-                point_index=0,
-                logical_id=_logical_point_id("apply-receipt-evidence-point"),
-                coordinates={},
-                operations=(_gain_operation("source-0", 2.0),),
-            ),
-        ),
+    program = LocalEffectInspection.at_point(
+        RunPoint(_logical_point_id("apply-receipt-evidence-point"), {}),
+        (_gain_operation("source-0", 2.0),),
         resource_order=("source-0",),
         resource_claims=_claims("source-0"),
     )
@@ -887,7 +925,7 @@ def test_apply_journal_persists_full_receipt_evidence() -> None:
         journal=journal,
         readbacks=MemoryCollectionRepository(),
         payloads=MemoryPayloadEvidenceCommitter(),
-    ).run(complete_point_operations(program))
+    ).run(complete_coverage_operations(program))
 
     assert not result.problems and not result.indeterminate
     completed = next(
@@ -910,17 +948,11 @@ def test_apply_journal_persists_full_receipt_evidence() -> None:
 def test_state_apply_stops_on_blocking_result_without_committing_state() -> None:
     first = _BlockingStateDriver(instrument_id="source-a")
     second = SignalInstrumentDriver(instrument_id="source-b")
-    program = MaterializedLocalEffects(
-        points=(
-            MaterializedPointEffects(
-                point_index=0,
-                logical_id=_logical_point_id("blocking-state-point"),
-                coordinates={},
-                operations=(
-                    _gain_operation("source-a", 1.0),
-                    _gain_operation("source-b", 2.0),
-                ),
-            ),
+    program = LocalEffectInspection.at_point(
+        RunPoint(_logical_point_id("blocking-state-point"), {}),
+        (
+            _gain_operation("source-a", 1.0),
+            _gain_operation("source-b", 2.0),
         ),
         resource_order=("source-a", "source-b"),
         resource_claims=_claims("source-a", "source-b"),
@@ -941,7 +973,7 @@ def test_state_apply_stops_on_blocking_result_without_committing_state() -> None
         payloads=MemoryPayloadEvidenceCommitter(),
     )
 
-    result = engine.run(complete_point_operations(program))
+    result = engine.run(complete_coverage_operations(program))
 
     assert result.problems and not result.indeterminate
     assert [problem.code for problem in result.problems] == [
@@ -997,15 +1029,9 @@ def test_unexpected_product_stops_later_collection_and_fails_journal_entry() -> 
     point_uid = "blocking-collect-point"
     first_operation = _collect_operation(point_uid, "source-a", "first")
     second_operation = _collect_operation(point_uid, "source-b", "second")
-    program = MaterializedLocalEffects(
-        points=(
-            MaterializedPointEffects(
-                point_index=0,
-                logical_id=_logical_point_id(point_uid),
-                coordinates={},
-                operations=(first_operation, second_operation),
-            ),
-        ),
+    program = LocalEffectInspection.at_point(
+        RunPoint(_logical_point_id(point_uid), {}),
+        (first_operation, second_operation),
         resource_order=("source-a", "source-b"),
         resource_claims=_claims("source-a", "source-b"),
     )
@@ -1024,7 +1050,7 @@ def test_unexpected_product_stops_later_collection_and_fails_journal_entry() -> 
         journal=journal,
         readbacks=readbacks,
         payloads=MemoryPayloadEvidenceCommitter(),
-    ).run(complete_point_operations(program))
+    ).run(complete_coverage_operations(program))
 
     assert result.problems and not result.indeterminate
     assert [problem.code for problem in result.problems] == [
@@ -1055,34 +1081,28 @@ def test_unexpected_product_stops_later_collection_and_fails_journal_entry() -> 
 def test_unknown_receipt_with_blocking_problem_does_not_advance_state() -> None:
     first = _UnknownAppliedStateDriver(instrument_id="source-a")
     second = SignalInstrumentDriver(instrument_id="source-b")
-    program = MaterializedLocalEffects(
-        points=(
-            MaterializedPointEffects(
-                point_index=0,
-                logical_id=_logical_point_id("conflicting-applied-state-point"),
-                coordinates={},
-                operations=(
-                    ApplyStateOperation(
-                        operation_id=("conflicting-applied-state-point.state.source-a"),
-                        instrument_id="source-a",
-                        targets=(
-                            StateTarget(
-                                capability_id="set_gain",
-                                field_path="gain",
-                                value=StateValue(1.0),
-                            ),
-                        ),
+    program = LocalEffectInspection.at_point(
+        RunPoint(_logical_point_id("conflicting-applied-state-point"), {}),
+        (
+            ApplyStateOperation(
+                operation_id=("conflicting-applied-state-point.state.source-a"),
+                instrument_id="source-a",
+                targets=(
+                    StateTarget(
+                        capability_id="set_gain",
+                        field_path="gain",
+                        value=StateValue(1.0),
                     ),
-                    ApplyStateOperation(
-                        operation_id=("conflicting-applied-state-point.state.source-b"),
-                        instrument_id="source-b",
-                        targets=(
-                            StateTarget(
-                                capability_id="set_gain",
-                                field_path="gain",
-                                value=StateValue(2.0),
-                            ),
-                        ),
+                ),
+            ),
+            ApplyStateOperation(
+                operation_id=("conflicting-applied-state-point.state.source-b"),
+                instrument_id="source-b",
+                targets=(
+                    StateTarget(
+                        capability_id="set_gain",
+                        field_path="gain",
+                        value=StateValue(2.0),
                     ),
                 ),
             ),
@@ -1106,7 +1126,7 @@ def test_unknown_receipt_with_blocking_problem_does_not_advance_state() -> None:
         payloads=MemoryPayloadEvidenceCommitter(),
     )
 
-    result = engine.run(complete_point_operations(program))
+    result = engine.run(complete_coverage_operations(program))
 
     assert result.indeterminate
     assert [problem.code for problem in result.problems] == [

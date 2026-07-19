@@ -106,7 +106,7 @@ from scopecat.sdk.instruments.contracts import (
 from tests.testkit.execution import execute_bound_run, execute_program_run
 from tests.testkit.instrument_drivers import SignalInstrumentDriver
 from tests.testkit.local_materialization import (
-    MaterializedLocalEffects,
+    LocalEffectInspection,
     materialize_local_execution,
     operations_of_type,
 )
@@ -860,7 +860,7 @@ def test_returned_driver_is_finalized_when_provider_metadata_is_not_json(
 
 
 def _lower_test_host_binding(
-    plan: MaterializedLocalEffects,
+    plan: LocalEffectInspection,
     config: ConfigProfileSnapshot,
     provider: InstrumentProvider,
     *,
@@ -878,8 +878,8 @@ def _lower_test_host_binding(
     )
     return validate_run_host_binding(
         host=program,
-        preamble_operations=plan.run_compute_operations,
-        effect_blocks=tuple(point.operations for point in plan.points),
+        preamble_operations=plan.preamble_operations,
+        effect_blocks=(tuple(effect.operation for effect in plan.effects),),
         problems=(*planning_problems, *preflight.problems),
     )
 
@@ -1024,7 +1024,7 @@ def test_provider_product_unit_mismatch_is_rejected_before_run(
     assert problem.location == model_location(
         "execution_program",
         "operations",
-        operations_of_type(plan.points[0], CollectOperation)[0].operation_id,
+        operations_of_type(plan, CollectOperation, point_index=0)[0].operation_id,
         "requests",
         "signal",
         "unit",
@@ -1048,9 +1048,8 @@ def test_provider_product_axis_unit_mismatch_is_rejected_before_run(
     assert environment.routing is not None
     experiment = load_experiment()
     plan = materialize_local_execution(link_program(experiment, environment))
-    point = plan.points[0]
-    point_operations = point.operations
-    collect = operations_of_type(point_operations, CollectOperation)[0]
+    plan = _first_point_plan(plan)
+    collect = operations_of_type(plan, CollectOperation, point_index=0)[0]
     request = collect.command.requests[0].model_copy(
         update={
             "dimensions": [
@@ -1062,11 +1061,13 @@ def test_provider_product_axis_unit_mismatch_is_rejected_before_run(
         collect,
         command=collect.command.model_copy(update={"requests": [request]}),
     )
-    point_operations = tuple(
-        updated_collect if isinstance(operation, CollectOperation) else operation
-        for operation in point_operations
+    effects = tuple(
+        replace(effect, operation=updated_collect)
+        if effect.operation is collect
+        else effect
+        for effect in plan.effects
     )
-    plan = replace(plan, points=(replace(point, operations=point_operations),))
+    plan = replace(plan, effects=effects)
 
     with pytest.raises(ProviderContractError) as captured:
         _lower_test_host_binding(plan, config, provider)
@@ -1089,11 +1090,16 @@ def test_provider_product_axis_unit_mismatch_is_rejected_before_run(
 
 
 def _first_point_plan(
-    plan: MaterializedLocalEffects,
-) -> MaterializedLocalEffects:
+    plan: LocalEffectInspection,
+) -> LocalEffectInspection:
     return replace(
         plan,
         points=plan.points[:1],
+        effects=tuple(
+            replace(effect, point_indices=(0,))
+            for effect in plan.effects
+            if 0 in effect.point_indices
+        ),
     )
 
 

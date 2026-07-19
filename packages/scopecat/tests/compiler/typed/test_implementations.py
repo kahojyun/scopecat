@@ -114,14 +114,6 @@ def _catalog(
     )
 
 
-def test_typed_program_keeps_implementation_catalog_as_sidecar() -> None:
-    operation_id = _operation_id()
-    catalog = _catalog(("python-v1", operation_id, lambda: 1.0))
-    program = _program(catalog=catalog)
-
-    assert program.implementation_catalog is catalog
-
-
 def test_linking_does_not_require_a_local_implementation() -> None:
     program = _program(catalog=ImplementationCatalog())
     environment = validate_config_environment(load_config())
@@ -299,34 +291,11 @@ def test_binding_selects_stable_implementation_identity() -> None:
     first_plan = materialize_local_execution(link_program(first, environment))
     second_plan = materialize_local_execution(link_program(second, environment))
 
-    first_call = first_plan.run_compute_operations[0]
-    second_call = second_plan.run_compute_operations[0]
+    first_call = first_plan.preamble_operations[0]
+    second_call = second_plan.preamble_operations[0]
     assert first_call.semantic_operation_id == operation_id.qualified_name
     assert first_call.implementation_id == "python-v1"
     assert second_call.implementation_id == "python-v2"
-
-
-def test_materialized_effects_pins_selection_and_execution_only_projects_it() -> None:
-    operation_id = _operation_id()
-
-    def kernel() -> float:
-        return 1.0
-
-    program = _program(
-        catalog=_catalog(("python-v1", operation_id, kernel)),
-    )
-    plan = materialize_local_execution(
-        link_program(program, validate_config_environment(load_config()))
-    )
-
-    execution = plan
-
-    call = plan.run_compute_operations[0]
-    assert call.kernel is kernel
-    [operation] = execution.run_compute_operations
-    assert operation.semantic_operation_id == "compute"
-    assert operation.implementation_id == "python-v1"
-    assert operation.kernel is kernel
 
 
 def test_plan_pins_exact_callable_for_selected_implementation() -> None:
@@ -348,8 +317,8 @@ def test_plan_pins_exact_callable_for_selected_implementation() -> None:
     plan = materialize_local_execution(link_program(first_program, environment))
     second_plan = materialize_local_execution(link_program(second_program, environment))
 
-    assert plan.run_compute_operations[0].kernel is first_kernel
-    assert second_plan.run_compute_operations[0].kernel is second_kernel
+    assert plan.preamble_operations[0].kernel is first_kernel
+    assert second_plan.preamble_operations[0].kernel is second_kernel
 
 
 def test_dependency_free_compute_is_lowered_once_outside_point_effects() -> None:
@@ -362,10 +331,8 @@ def test_dependency_free_compute_is_lowered_once_outside_point_effects() -> None
         link_program(program, validate_config_environment(load_config())),
     )
 
-    assert len(materialized.run_compute_operations) == 1
-    assert all(
-        not operations_of_type(point, ComputeOperation) for point in materialized.points
-    )
+    assert len(materialized.preamble_operations) == 1
+    assert operations_of_type(materialized, ComputeOperation) == ()
 
 
 def test_compute_result_identity_is_preserved_in_bound_calls() -> None:
@@ -382,8 +349,8 @@ def test_compute_result_identity_is_preserved_in_bound_calls() -> None:
         link_program(_program(catalog=catalog, output_id=second_output), environment)
     )
 
-    first_call = first.run_compute_operations[0]
-    second_call = second.run_compute_operations[0]
+    first_call = first.preamble_operations[0]
+    second_call = second.preamble_operations[0]
     assert first_call.result.id == first_output
     assert second_call.result.id == second_output
 

@@ -219,10 +219,10 @@ def test_materialized_effects_contract_summarizes_compute_payload_boundary() -> 
         config=config_with_physical_resources({"drive-a": ("play_waveforms",)}),
     )
 
-    [step] = preview.run_compute_operations
+    [step] = preview.preamble_operations
     assert step.payload_slot is not None
     assert (
-        preview.points[0].point_index,
+        preview.points[0].ordinal,
         step.semantic_operation_id,
         step.payload_slot.schema_id,
         dict(step.dependencies),
@@ -234,7 +234,7 @@ def test_materialized_effects_contract_summarizes_compute_payload_boundary() -> 
             field.capability_id,
             field.field_path,
         )
-        for state in operations_of_type(preview.points[0], ApplyStateOperation)
+        for state in operations_of_type(preview, ApplyStateOperation, point_index=0)
         for field in state.targets
         if isinstance(field.value.root, PayloadRef)
     ] == [("drive-a", "play_waveforms", "program")]
@@ -293,13 +293,13 @@ def test_materialized_effects_groups_shared_typed_compute_result() -> None:
         config=config_with_physical_resources({"drive-a": ("play_waveforms",)}),
     )
 
-    [step] = preview.run_compute_operations
+    [step] = preview.preamble_operations
     assert step.payload_slot is not None
     assert step.payload_slot.id.startswith(f"{result_id.qualified_name}.payload.")
     assert step.payload_slot.schema_id == "waveform_bundle"
     assert [
         (field.capability_id, field.field_path)
-        for state in operations_of_type(preview.points[0], ApplyStateOperation)
+        for state in operations_of_type(preview, ApplyStateOperation, point_index=0)
         for field in state.targets
         if isinstance(field.value.root, PayloadRef)
     ] == [
@@ -357,7 +357,7 @@ def test_materialized_effects_selects_local_product_realization() -> None:
     )
     config = config_with_physical_resources({"readout-a": ()})
     preview = materialized_effects_contract(spec, _parameters(), config=config)
-    [operation] = operations_of_type(preview.points[0], CollectOperation)
+    [operation] = operations_of_type(preview, CollectOperation, point_index=0)
     [binding] = operation.result_bindings
     assert operation.instrument_id == "readout-a"
     assert binding.product_use_id == product_use.id

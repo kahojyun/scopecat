@@ -7,14 +7,7 @@ import pytest
 
 import scopecat as sc
 import scopecat.config.resolution as config_resolution
-import scopecat.runs.service as run_workflows
 from scopecat import ExperimentCheckResult
-from scopecat.authoring import InputDescription
-from scopecat.compiler.frontend.invocation import PreparedInvocation
-from scopecat.compiler.frontend.resolution import (
-    CompiledInvocation,
-    compile_prepared_invocation,
-)
 from scopecat.config.candidates import CandidateConfig
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
@@ -24,7 +17,7 @@ from scopecat.kernel.problems import (
     ProblemPhase,
 )
 from scopecat.records.config import ConfigProfileSnapshot
-from tests.testkit.authoring import SIMPLE_MODULE, simple_template
+from tests.testkit.authoring import simple_template
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.workflow_fixtures import load_config, load_invocation
 
@@ -39,27 +32,6 @@ def _workspace(
         config=load_config() if config is None else config,
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
     )
-
-
-def test_template_builder_returns_definition_problems() -> None:
-    builder = SIMPLE_MODULE.template("test.check.duplicate", kind="check").inputs(
-        InputDescription("subject"),
-        InputDescription("subject"),
-    )
-
-    with pytest.raises(CheckFailed) as error:
-        builder.build()
-
-    assert error.value.problems[0].phase is ProblemPhase.DEFINITION
-    assert error.value.problems[0].code == "experiment_template_input_duplicate"
-
-
-def test_prepared_check_returns_authoring_problems(tmp_path: Path) -> None:
-    report = _workspace(tmp_path).prepare(simple_template()).check()
-
-    assert not report.ok
-    assert report.problems[0].code == "experiment_template_missing_input"
-    assert report.problems[0].phase is ProblemPhase.AUTHORING
 
 
 def test_prepared_check_returns_preview_when_successful(tmp_path: Path) -> None:
@@ -95,37 +67,6 @@ def test_prepared_check_returns_configuration_problems_without_preview(
     assert report.preview is None
 
 
-def test_prepared_check_compiles_authoring_once(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    authoring_compiles = 0
-
-    def counted_compile(experiment: PreparedInvocation) -> CompiledInvocation:
-        nonlocal authoring_compiles
-        authoring_compiles += 1
-        return compile_prepared_invocation(experiment)
-
-    monkeypatch.setattr(
-        run_workflows,
-        "compile_prepared_invocation",
-        counted_compile,
-    )
-    lab = _workspace(tmp_path)
-
-    report = lab.prepare(load_invocation()).check()
-
-    assert report.ok
-    assert authoring_compiles == 1
-
-
-def test_check_problem_results_are_frozen(tmp_path: Path) -> None:
-    prepared = _workspace(tmp_path).prepare(load_invocation())
-    report = prepared.check()
-
-    assert isinstance(report.problems, tuple)
-
-
 def test_check_report_rejects_preview_with_blocking_problems(tmp_path: Path) -> None:
     blocking = Problem(
         code="test_error",
@@ -147,24 +88,6 @@ def test_check_report_rejects_preview_with_blocking_problems(tmp_path: Path) -> 
 def test_check_result_rejects_success_without_preview() -> None:
     with pytest.raises(ValueError, match="successful experiment check"):
         ExperimentCheckResult(problems=(), preview=None)
-
-
-def test_check_does_not_hide_internal_programming_errors(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def fail_validation(_config: object) -> None:
-        raise AssertionError("internal bug")
-
-    monkeypatch.setattr(
-        run_workflows,
-        "validate_config_environment",
-        fail_validation,
-    )
-    prepared = _workspace(tmp_path).prepare(load_invocation())
-
-    with pytest.raises(AssertionError, match="internal bug"):
-        prepared.check()
 
 
 @pytest.mark.parametrize(

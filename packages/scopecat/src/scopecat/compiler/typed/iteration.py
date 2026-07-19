@@ -1,4 +1,11 @@
-"""Compiler-owned symbolic iteration layout for verified point domains."""
+"""Compiler-owned symbolic iteration layout for verified point domains.
+
+The layout is the single structural account of point variation used by local
+lowering, parameter overlays, resource routes, and the domain SDK projection.
+Sharing that account keeps reuse and target lowering consistent. Proven axes
+and nesting enable structural specialization; opaque regions preserve safety
+when the compiler lacks enough information.
+"""
 
 from __future__ import annotations
 

@@ -19,9 +19,8 @@ from scopecat.measurements.projection import (
 from scopecat.records.config import ConfigProfileSnapshot, RoutingResource
 from tests.testkit.authoring import load_config
 from tests.testkit.local_materialization import (
-    MaterializedLocalEffects,
+    LocalEffectInspection,
     materialize_local_execution,
-    operations_of_type,
 )
 from tests.testkit.typed_program import link_program
 
@@ -85,7 +84,7 @@ def materialized_effects_contract(
     parameters: ParameterRelationData,
     *,
     config: ConfigProfileSnapshot | None = None,
-) -> MaterializedLocalEffects:
+) -> LocalEffectInspection:
     environment = replace(
         validate_config_environment(config or load_config()),
         parameters=parameters,
@@ -111,13 +110,14 @@ def measurement_projection_contract(
 
 
 def materialized_state_fields(
-    plan: MaterializedLocalEffects,
+    plan: LocalEffectInspection,
 ) -> tuple[tuple[int, ApplyStateOperation, StateTarget], ...]:
-    """Flatten bound state for focused assertions without another projection."""
+    """Flatten exact state coverage for focused assertions."""
 
     return tuple(
-        (point.point_index, operation, target)
-        for point in plan.points
-        for operation in operations_of_type(point, ApplyStateOperation)
+        (point_index, operation, target)
+        for effect in plan.effects
+        if isinstance(operation := effect.operation, ApplyStateOperation)
+        for point_index in effect.point_indices
         for target in operation.targets
     )

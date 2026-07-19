@@ -180,14 +180,14 @@ def test_record_aliases_share_one_product_realization() -> None:
         link_program(program, validate_config_environment(load_config()))
     )
 
-    operation = operations_of_type(plan.points[0], CollectOperation)[0]
+    operation = operations_of_type(plan, CollectOperation, point_index=0)[0]
     requests = operation.command.requests
     assert len(requests) == 1
     assert operation.result_bindings[0].product_use_id == use.id
     assert requests[0].metadata == {"producer": "signal"}
 
     execution = plan
-    [collect] = operations_of_type(execution.points[0], CollectOperation)
+    [collect] = operations_of_type(execution, CollectOperation, point_index=0)
     assert len(collect.command.requests) == 1
 
 
@@ -219,8 +219,8 @@ def test_record_policy_does_not_change_collection_request() -> None:
     second_plan = materialize_local_execution(link_program(second, environment))
 
     assert operations_of_type(
-        first_plan.points[0], CollectOperation
-    ) == operations_of_type(second_plan.points[0], CollectOperation)
+        first_plan, CollectOperation, point_index=0
+    ) == operations_of_type(second_plan, CollectOperation, point_index=0)
 
 
 def test_unused_product_producer_is_linked_without_placement() -> None:
@@ -243,7 +243,7 @@ def test_unused_product_producer_is_linked_without_placement() -> None:
         link_verified_program(linked.verified_program, linked.environment)
     )
 
-    assert operations_of_type(plan.points[0], CollectOperation) == ()
+    assert operations_of_type(plan, CollectOperation, point_index=0) == ()
 
 
 def test_unrecorded_product_use_is_still_realized_once() -> None:
@@ -260,7 +260,7 @@ def test_unrecorded_product_use_is_still_realized_once() -> None:
 
     assert [
         binding.product_use_id
-        for operation in operations_of_type(plan.points[0], CollectOperation)
+        for operation in operations_of_type(plan, CollectOperation, point_index=0)
         for binding in operation.result_bindings
     ] == [use.id]
 

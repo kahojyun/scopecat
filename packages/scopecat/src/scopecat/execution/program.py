@@ -1,4 +1,9 @@
-"""Closed residual operations consumed by the run interpreter."""
+"""Closed residual operations consumed by the run interpreter.
+
+``RunProgram`` separates point-invariant compute from a single-use source of
+bounded coverage. This keeps peak planning state and resource lifetimes bounded
+while exact point coverage and checkpoints preserve logical result identity.
+"""
 
 from __future__ import annotations
 
@@ -90,7 +95,12 @@ type RunCoveredOperation = RunCoverageCheckpoint | RunCoverageEffect | RunDomain
 
 @dataclass(frozen=True, slots=True)
 class RunCoverageBlock:
-    """Execute bounded host/domain effects over one exact point coverage."""
+    """Execute bounded host/domain effects over one exact point coverage.
+
+    Points are admitted and block-local resources acquired only when this block
+    is consumed. Checkpoints may commit completed prefixes before the complete
+    block finishes without changing its logical inventory.
+    """
 
     points: tuple[RunPoint, ...]
     operations: tuple[RunCoveredOperation, ...]
@@ -106,7 +116,12 @@ type RunOperation = RunCompute | RunCoverageBlock
 
 @dataclass(frozen=True, slots=True)
 class RunProgram:
-    """Closed residual effect program consumed by the run interpreter."""
+    """Closed, single-use residual effect program for one accepted run.
+
+    Logical point identity and measurement correlation are independent of how
+    ``coverage`` partitions physical work. Concrete providers remain outside
+    the program and are provisioned by the run boundary.
+    """
 
     host: RunHostBinding | None
     preamble: tuple[RunCompute, ...]

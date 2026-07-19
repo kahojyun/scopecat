@@ -200,11 +200,15 @@ def test_bound_state_preserves_primitive_field_types(
     plan = materialize_local_execution(link_program(program, environment))
 
     assert (
-        operations_of_type(plan.points[0], ApplyStateOperation)[0].targets[0].value.root
+        operations_of_type(plan, ApplyStateOperation, point_index=0)[0]
+        .targets[0]
+        .value.root
         == value
     )
     assert type(
-        operations_of_type(plan.points[0], ApplyStateOperation)[0].targets[0].value.root
+        operations_of_type(plan, ApplyStateOperation, point_index=0)[0]
+        .targets[0]
+        .value.root
     ) is type(value)
 
 
@@ -292,21 +296,25 @@ def test_effects_use_logical_point_and_content_addressed_payload_identity() -> N
     payload_ids: list[str] = []
     [unused] = [
         call
-        for call in plan.run_compute_operations
+        for call in plan.preamble_operations
         if call.semantic_operation_id == unused_id.qualified_name
     ]
     assert unused.payload_slot is None
     for point in plan.points:
         node_ids = [
             call.semantic_operation_id
-            for call in operations_of_type(point, ComputeOperation)
+            for call in operations_of_type(
+                plan, ComputeOperation, point_index=point.ordinal
+            )
         ]
         assert node_ids.index(producer_id.qualified_name) < node_ids.index(
             consumer_id.qualified_name
         )
         consumer = next(
             call
-            for call in operations_of_type(point, ComputeOperation)
+            for call in operations_of_type(
+                plan, ComputeOperation, point_index=point.ordinal
+            )
             if call.semantic_operation_id == consumer_id.qualified_name
         )
         assert consumer.inputs["value"] == OutputInput(producer_output_id)
@@ -314,7 +322,9 @@ def test_effects_use_logical_point_and_content_addressed_payload_identity() -> N
         payload_ids.append(consumer.payload_slot.id)
 
         state_value = (
-            operations_of_type(point, ApplyStateOperation)[0].targets[0].value.root
+            operations_of_type(plan, ApplyStateOperation, point_index=point.ordinal)[0]
+            .targets[0]
+            .value.root
         )
         assert isinstance(state_value, PayloadRef)
         assert state_value.payload_id == consumer.payload_slot.id
@@ -441,7 +451,10 @@ def test_compute_inputs_are_normalized_before_binding() -> None:
         link_program(program, validate_config_environment(load_config()))
     )
 
-    calls = [operations_of_type(point, ComputeOperation)[0] for point in plan.points]
+    calls = [
+        operations_of_type(plan, ComputeOperation, point_index=point.ordinal)[0]
+        for point in plan.points
+    ]
     assert [call.inputs["frequency"] for call in calls] == [
         BoundInput(Quantity(value=5.0, unit="GHz")),
         BoundInput(Quantity(value=5.0, unit="GHz")),
@@ -516,8 +529,8 @@ def test_compute_mapping_inputs_preserve_key_types_and_values() -> None:
     )
 
     assert (
-        operations_of_type(plan.points[0], ComputeOperation)[0].inputs
-        != operations_of_type(plan.points[1], ComputeOperation)[0].inputs
+        operations_of_type(plan, ComputeOperation, point_index=0)[0].inputs
+        != operations_of_type(plan, ComputeOperation, point_index=1)[0].inputs
     )
 
 

@@ -216,14 +216,14 @@ def test_default_quantum_wiring_closes_resolved_effect_channels(
 
     drive_channels = {
         (binding.line_id, binding.channel_id)
-        for state in operations_of_type(plan.points[0], ApplyStateOperation)
+        for state in operations_of_type(plan, ApplyStateOperation, point_index=0)
         for field in state.targets
         for binding in field.channel_bindings
         if binding.line_id in {"q0.xy", "q1.xy"}
     }
     readout_channels = [
         (binding.line_id, binding.channel_id)
-        for operation in operations_of_type(plan.points[0], CollectOperation)
+        for operation in operations_of_type(plan, CollectOperation, point_index=0)
         for request in operation.command.requests
         for binding in request.channel_bindings
     ]

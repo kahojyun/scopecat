@@ -117,13 +117,12 @@ def test_contract_survives_every_local_compiler_boundary() -> None:
         node.id: node.contract for node in linked.program.compute_nodes
     } == semantic_contracts
     assert {
-        call.semantic_operation_id: call.contract
-        for call in bound.run_compute_operations
+        call.semantic_operation_id: call.contract for call in bound.preamble_operations
     } == {
         operation_id.qualified_name: contract
         for operation_id, contract in semantic_contracts.items()
     }
-    compute_operations = execution.run_compute_operations
+    compute_operations = execution.preamble_operations
     assert {
         operation.semantic_operation_id: operation.contract
         for operation in compute_operations
@@ -153,8 +152,8 @@ def test_bound_compute_retains_semantic_contract() -> None:
     add = materialize_local_execution(link_program(add_program, environment))
     multiply = materialize_local_execution(link_program(multiply_program, environment))
 
-    add_call = add.run_compute_operations[-1]
-    multiply_call = multiply.run_compute_operations[-1]
+    add_call = add.preamble_operations[-1]
+    multiply_call = multiply.preamble_operations[-1]
     assert add_call.semantic_operation_id == multiply_call.semantic_operation_id
     assert add_call.implementation_id == multiply_call.implementation_id
     assert add_call.inputs == multiply_call.inputs

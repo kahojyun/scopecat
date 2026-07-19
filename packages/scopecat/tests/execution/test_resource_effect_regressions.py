@@ -31,6 +31,7 @@ from scopecat.execution.local.program import (
     CollectOperation,
     StateTarget,
 )
+from scopecat.execution.points import RunPoint
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
 from scopecat.kernel.problems import (
@@ -73,14 +74,13 @@ from scopecat.sdk.instruments import (
 )
 from tests.testkit.authoring import load_config, parameters
 from tests.testkit.local_materialization import (
-    MaterializedLocalEffects,
-    MaterializedPointEffects,
+    LocalEffectInspection,
     materialize_local_execution,
     operations_of_type,
 )
 from tests.testkit.materialized_effects import config_with_physical_resources
 from tests.testkit.relation_plans import scalar_value_expr
-from tests.testkit.run_operations import complete_point_operations
+from tests.testkit.run_operations import complete_coverage_operations
 from tests.testkit.typed_program import (
     instrument_product_producer,
     link_program,
@@ -131,7 +131,7 @@ def _bind(
     program: CoreProgram,
     *,
     config: ConfigProfileSnapshot,
-) -> MaterializedLocalEffects:
+) -> LocalEffectInspection:
     environment = replace(
         validate_config_environment(config),
         parameters=parameters(),
@@ -184,7 +184,7 @@ def test_record_products_keep_their_exact_logical_route_bindings() -> None:
     plan = _bind(program, config=config)
     execution = plan
 
-    [collect_operation] = operations_of_type(execution.points[0], CollectOperation)
+    [collect_operation] = operations_of_type(execution, CollectOperation, point_index=0)
     requests = {request.id: request for request in collect_operation.command.requests}
     assert {
         key: (
@@ -239,8 +239,12 @@ def test_instrument_product_producers_bind_distinct_collection_requests() -> Non
     source_0_plan = _bind(source_0_program, config=config)
     source_1_plan = _bind(source_1_program, config=config)
 
-    source_0_collect = operations_of_type(source_0_plan.points[0], CollectOperation)[0]
-    source_1_collect = operations_of_type(source_1_plan.points[0], CollectOperation)[0]
+    source_0_collect = operations_of_type(
+        source_0_plan, CollectOperation, point_index=0
+    )[0]
+    source_1_collect = operations_of_type(
+        source_1_plan, CollectOperation, point_index=0
+    )[0]
     source_0_request = source_0_collect.command.requests[0]
     source_1_request = source_1_collect.command.requests[0]
     assert source_0_request != source_1_request
@@ -296,7 +300,7 @@ def test_multi_capability_route_unions_capability_specific_edges() -> None:
 
     requests_by_key = {
         request.id: request
-        for operation in operations_of_type(plan.points[0], CollectOperation)
+        for operation in operations_of_type(plan, CollectOperation, point_index=0)
         for request in operation.command.requests
     }
     assert {
@@ -375,9 +379,9 @@ def test_capability_unspecified_collection_stays_within_its_logical_port() -> No
 
     plan = _bind(program, config=config)
 
-    request = operations_of_type(plan.points[0], CollectOperation)[0].command.requests[
+    request = operations_of_type(plan, CollectOperation, point_index=0)[
         0
-    ]
+    ].command.requests[0]
     assert [
         (binding.capability, binding.channel_id) for binding in request.channel_bindings
     ] == [(None, "drive-q0")]
@@ -437,12 +441,12 @@ def test_mixed_explicit_and_fallback_route_topology_closes_durably() -> None:
     plan = _bind(program, config=config)
     assert [
         (binding.capability, binding.channel_id)
-        for binding in operations_of_type(plan.points[0], ApplyStateOperation)[0]
+        for binding in operations_of_type(plan, ApplyStateOperation, point_index=0)[0]
         .targets[0]
         .channel_bindings
     ] == [("A", "drive-q0")]
     assert (
-        operations_of_type(plan.points[0], ApplyStateOperation)[0].instrument_id
+        operations_of_type(plan, ApplyStateOperation, point_index=0)[0].instrument_id
         == "source-0"
     )
 
@@ -470,7 +474,9 @@ def test_direct_physical_state_bindings_reach_claims_and_shared_constraints() ->
     )
     execution = single_plan
 
-    field = operations_of_type(single_plan.points[0], ApplyStateOperation)[0].targets[0]
+    field = operations_of_type(single_plan, ApplyStateOperation, point_index=0)[
+        0
+    ].targets[0]
     assert field.entity_ids == ("q0",)
     assert tuple(binding.channel_id for binding in field.channel_bindings) == (
         "drive-q0",
@@ -536,15 +542,19 @@ def test_entity_only_targets_survive_bound_and_execution_boundaries() -> None:
     plan = _bind(program, config=config)
     execution = plan
 
-    state_field = operations_of_type(plan.points[0], ApplyStateOperation)[0].targets[0]
-    request = operations_of_type(plan.points[0], CollectOperation)[0].command.requests[
+    state_field = operations_of_type(plan, ApplyStateOperation, point_index=0)[
         0
-    ]
+    ].targets[0]
+    request = operations_of_type(plan, CollectOperation, point_index=0)[
+        0
+    ].command.requests[0]
     assert (state_field.entity_ids, state_field.channel_bindings) == (("q0",), ())
     assert (request.entity_ids, request.channel_bindings) == (["q0"], [])
 
-    target = operations_of_type(execution.points[0], ApplyStateOperation)[0].targets[0]
-    request = operations_of_type(execution.points[0], CollectOperation)[
+    target = operations_of_type(execution, ApplyStateOperation, point_index=0)[
+        0
+    ].targets[0]
+    request = operations_of_type(execution, CollectOperation, point_index=0)[
         0
     ].command.requests[0]
     assert (target.entity_ids, target.channel_bindings) == (("q0",), ())
@@ -619,34 +629,29 @@ def test_scoped_same_field_targets_survive_snapshot_reconciliation() -> None:
             ],
         )
     )
-    program = MaterializedLocalEffects(
-        points=(
-            MaterializedPointEffects(
-                point_index=0,
-                logical_id=LogicalPointId(
-                    PointDomainId("scoped-same-field", "root"), 0
-                ),
-                coordinates={},
-                operations=(
-                    ApplyStateOperation(
-                        operation_id="scoped-same-field-point.state.source-0",
-                        instrument_id="source-0",
-                        targets=(
-                            StateTarget(
-                                capability_id="set_gain",
-                                field_path="gain",
-                                value=StateValue(1.0),
-                                entity_ids=("q0",),
-                                channel_bindings=(q0_binding,),
-                            ),
-                            StateTarget(
-                                capability_id="set_gain",
-                                field_path="gain",
-                                value=StateValue(2.0),
-                                entity_ids=("q1",),
-                                channel_bindings=(q1_binding,),
-                            ),
-                        ),
+    program = LocalEffectInspection.at_point(
+        RunPoint(
+            LogicalPointId(PointDomainId("scoped-same-field", "root"), 0),
+            {},
+        ),
+        (
+            ApplyStateOperation(
+                operation_id="scoped-same-field-point.state.source-0",
+                instrument_id="source-0",
+                targets=(
+                    StateTarget(
+                        capability_id="set_gain",
+                        field_path="gain",
+                        value=StateValue(1.0),
+                        entity_ids=("q0",),
+                        channel_bindings=(q0_binding,),
+                    ),
+                    StateTarget(
+                        capability_id="set_gain",
+                        field_path="gain",
+                        value=StateValue(2.0),
+                        entity_ids=("q1",),
+                        channel_bindings=(q1_binding,),
                     ),
                 ),
             ),
@@ -666,7 +671,7 @@ def test_scoped_same_field_targets_survive_snapshot_reconciliation() -> None:
         journal=MemoryExecutionJournal(),
         readbacks=MemoryCollectionRepository(),
         payloads=MemoryPayloadEvidenceCommitter(),
-    ).run(complete_point_operations(program))
+    ).run(complete_coverage_operations(program))
 
     assert not result.problems and not result.indeterminate
     assert len(driver.applied) == 1

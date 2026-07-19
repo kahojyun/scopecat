@@ -1,4 +1,11 @@
-"""Pure domain compilation over typed residual experiment semantics."""
+"""Pure, bounded domain lowering over typed residual experiment semantics.
+
+The SDK receives owned normal forms and a read-only exact/opaque iteration
+projection. ``claim_resources`` establishes safe barriers before compilation,
+``compile`` chooses jobs and absorption claims without external effects, and
+``prepare`` closes one selected job over its runtime context. Separating these
+phases allows symbolic target specialization without acquiring live resources.
+"""
 
 from __future__ import annotations
 
@@ -160,7 +167,11 @@ type DomainIterationNode = (
 
 @dataclass(frozen=True, slots=True)
 class DomainIterationLayout:
-    """SDK-owned exact/opaque projection of logical scan nesting and axes."""
+    """SDK-owned exact/opaque projection of logical scan nesting and axes.
+
+    Exact structure supports target-native fast/slow-axis lowering. Opaque
+    boundaries preserve soundness by requiring bounded concrete binding.
+    """
 
     root: DomainIterationNode
     axes: tuple[DomainPointAxis, ...] = ()
@@ -361,7 +372,13 @@ class DomainCompileTemplate:
 
 @dataclass(frozen=True, slots=True)
 class DomainCompileRequest:
-    """One symbolic point space and its bounded domain-call region."""
+    """One symbolic point space and its bounded domain-call coverage.
+
+    Barrier regions contain exact canonical ordinals and are authoritative:
+    target partitions may refine but never cross them. Inputs include every
+    typed domain port in order; the binder is a bounded fallback for values the
+    compiler elects to absorb but cannot close from normal forms.
+    """
 
     call: DomainCallView
     inputs: tuple[DomainInput, ...]
@@ -534,7 +551,11 @@ class DomainCompiledJob:
 
 @dataclass(frozen=True, slots=True)
 class DomainCompilation:
-    """Pure target lowering with absorption and opaque-binder evidence."""
+    """Pure target lowering with absorption and opaque-binder evidence.
+
+    Exact ordinal coverage preserves logical result identity. Absorption claims
+    make target ownership explicit and determine the residual host work.
+    """
 
     jobs: tuple[DomainCompiledJob, ...]
     absorbed_input_ids: tuple[str, ...] = ()
@@ -558,7 +579,12 @@ class DomainCompilation:
 
 
 class DomainCompiler(Protocol):
-    """Pure system compiler plus runtime binding for domain calls."""
+    """One experiment system's pure compiler and runtime preparation boundary.
+
+    ``claim_resources`` and ``compile`` must not inspect live state or perform
+    effects. ``prepare`` may close target artifacts and runtime bindings for a
+    selected single-use job, but submission remains an interpreter effect.
+    """
 
     def claim_resources(
         self,

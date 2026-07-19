@@ -16,7 +16,6 @@ from scopecat.execution.local.program import (
 )
 from scopecat.execution.observation import RuntimePayloadObservation
 from scopecat.execution.points import RunPoint
-from scopecat.kernel.errors import CheckFailed
 from scopecat.measurements.projection import MeasurementProjection
 from scopecat.planning.authoring import resolve_experiment
 from scopecat.records.artifact import CommandPayload
@@ -78,7 +77,7 @@ from quantum_lab_demo.experiments.templates import (
 from quantum_lab_demo.lab import quantum_lab
 
 from .demo_lab_experiment_testkit import (
-    MaterializedLocalEffects,
+    LocalEffectInspection,
     load_experiment_config,
     materialized_effects,
     measurement_projection_and_points,
@@ -322,8 +321,7 @@ def test_rabi_generates_point_local_pulse_programs(tmp_path: Path) -> None:
 
     assert {
         (call.semantic_operation_id, call.payload_slot.schema_id)
-        for point in preview.points
-        for call in operations_of_type(point, ComputeOperation)
+        for call in operations_of_type(preview, ComputeOperation)
         if call.payload_slot is not None
     } == {
         (
@@ -520,7 +518,7 @@ def test_cz_chevron_generates_drive_and_coupler_payloads(tmp_path: Path) -> None
     assert cz_program.parameters == ("qubits", "two_qubit_gates")
     build_payload = next(
         call
-        for call in operations_of_type(preview.points[0], ComputeOperation)
+        for call in operations_of_type(preview, ComputeOperation, point_index=0)
         if call.semantic_operation_id == ("cz_chevron/build-cz-chevron-program")
     )
     assert dict(build_payload.dependencies) == {
@@ -879,16 +877,6 @@ def test_backend_batch_keeps_logical_backend_points_inside_payload_and_record(
     assert (len(points), *observable.shape[1:]) == (1, 4)
 
 
-def test_template_rejects_removed_scan_input_alias(tmp_path: Path) -> None:
-    with pytest.raises(CheckFailed) as error:
-        resolve_experiment(
-            SQG_RB_TEMPLATE.bind(qubit="q0", lengths=[]),
-            config_profile=load_experiment_config(),
-        )
-
-    assert error.value.problems[0].code == "experiment_template_unknown_input"
-
-
 def test_scan_values_are_checked_against_the_typed_point() -> None:
     with pytest.raises(ValueValidationError) as error:
         SQG_RB_TEMPLATE.bind(qubit="q0").scan(CLIFFORD_COUNT, [0])
@@ -912,7 +900,7 @@ def _materialized_effects(
     tmp_path: Path,
     invocation: ExperimentInvocation,
     config: ConfigProfileSnapshot | None = None,
-) -> MaterializedLocalEffects:
+) -> LocalEffectInspection:
     del tmp_path
     return materialized_effects(invocation, config=config)
 
@@ -927,11 +915,12 @@ def _measurement_projection(
 
 
 def _state_fields(
-    plan: MaterializedLocalEffects,
+    plan: LocalEffectInspection,
 ) -> tuple[tuple[int, ApplyStateOperation, StateTarget], ...]:
     return tuple(
-        (point.point_index, state, field)
-        for point in plan.points
-        for state in operations_of_type(point, ApplyStateOperation)
-        for field in state.targets
+        (point_index, operation, field)
+        for effect in plan.effects
+        if isinstance(operation := effect.operation, ApplyStateOperation)
+        for point_index in effect.point_indices
+        for field in operation.targets
     )

@@ -116,7 +116,7 @@ def test_bound_compute_call_carries_dependency_provenance() -> None:
 
     plan = materialize_local_execution(link_program(program, environment))
 
-    assert plan.run_compute_operations[0].dependencies == {
+    assert plan.preamble_operations[0].dependencies == {
         "input_refs": (
             "calibrations_input",
             "gain_input",

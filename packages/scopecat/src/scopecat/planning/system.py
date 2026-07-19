@@ -1,4 +1,10 @@
-"""Compile linked experiment semantics into the sole executable RunProgram."""
+"""Compile linked experiment semantics for one physical experiment system.
+
+This boundary coordinates local target selection, domain lowering, ordered
+resource barriers, and bounded coverage so placement decisions share one view
+of effect order and resource ownership. Its output is the closed ``RunProgram``
+accepted by execution.
+"""
 
 from __future__ import annotations
 
@@ -85,7 +91,13 @@ from scopecat.sdk.instruments.contracts import InstrumentProvider
 
 @dataclass(frozen=True, slots=True)
 class ExperimentSystem:
-    """One explicit experiment system for point and domain execution."""
+    """The physical capabilities used to lower one experiment definition.
+
+    Pairing the host provider with an optional domain compiler lets the same
+    experiment definition be lowered against one coherent capability and
+    resource environment. ``compile`` remains free of provider effects and
+    uses the same configuration snapshot accepted during linking.
+    """
 
     provider: InstrumentProvider | None = field(default=None, repr=False)
     domain_compiler: DomainCompiler | None = field(default=None, repr=False)

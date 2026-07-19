@@ -1,4 +1,11 @@
-"""Synchronous interpreter for provisioned RunProgram host effects."""
+"""Synchronous, exact-order interpreter for a provisioned RunProgram.
+
+The interpreter consumes bounded coverage once, records intent before each
+consequential invocation, and retains observed effect facts. Keeping rejected
+and uncertain outcomes distinct prevents unsafe retries. Measurement candidates
+are closed at coverage checkpoints so completed prefixes can be committed and
+released promptly.
+"""
 
 from __future__ import annotations
 
@@ -192,7 +199,9 @@ class RunEffectInterpreter:
 
     The caller must create the durable run skeleton before invoking ``run``.
     The executor never infers parallelism from independent-looking hardware
-    operations; operation order is part of the program semantics.
+    operations; operation order is part of the program semantics. Terminal
+    certainty and run outcome are derived by the outer run boundary from the
+    facts returned here.
     """
 
     def __init__(

@@ -56,8 +56,9 @@ from scopecat.records.config import (
 from scopecat.records.entity import EntityRef
 from tests.testkit.authoring import load_config, parameters
 from tests.testkit.local_materialization import (
-    MaterializedLocalEffects,
+    LocalEffectInspection,
     materialize_local_execution,
+    operations_of_type,
 )
 from tests.testkit.relation_plans import (
     scalar_value_expr,
@@ -390,16 +391,8 @@ def test_multi_channel_entity_binding_reaches_state_and_collect_commands() -> No
     program = plan
 
     assert not validate_config(config)
-    state_operation = next(
-        operation
-        for operation in program.points[0].operations
-        if isinstance(operation, ApplyStateOperation)
-    )
-    collect_operation = next(
-        operation
-        for operation in program.points[0].operations
-        if isinstance(operation, CollectOperation)
-    )
+    [state_operation] = operations_of_type(program, ApplyStateOperation, point_index=0)
+    [collect_operation] = operations_of_type(program, CollectOperation, point_index=0)
     assert [
         binding.channel_id for binding in state_operation.targets[0].channel_bindings
     ] == ["drive-q0", "readout-q0"]
@@ -897,7 +890,7 @@ def _bind(
     experiment: CoreProgram,
     *,
     config: ConfigProfileSnapshot | None = None,
-) -> MaterializedLocalEffects:
+) -> LocalEffectInspection:
     environment = replace(
         validate_config_environment(config or load_config()),
         parameters=parameters(),

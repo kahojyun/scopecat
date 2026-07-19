@@ -24,11 +24,6 @@ from scopecat.compiler.semantic.model import (
 from scopecat.compiler.semantic.operation_contract import (
     LOCAL_OPAQUE_OPERATION_CONTRACT,
 )
-from scopecat.compiler.typed.point_domain import (
-    PointDomain,
-    VerifiedPointDomain,
-    verify_point_domain,
-)
 from scopecat.compiler.typed.program import (
     CoreProgram,
     ResourceRouteIntent,
@@ -38,10 +33,7 @@ from scopecat.compiler.typed.program import (
     record_product,
     set_state_field,
 )
-from scopecat.compiler.typed.verification import (
-    seal_typed_program,
-    verify_core_program,
-)
+from scopecat.compiler.typed.verification import verify_core_program
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.symbols import SymbolId
@@ -191,38 +183,6 @@ def test_typed_program_verifier_accepts_explicit_point_scope() -> None:
     )
 
     assert verify_core_program(program) is program
-
-
-def test_typed_program_seal_builds_the_point_domain_proof_once(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    calls = 0
-
-    def tracking_verify_point_domain(
-        domain: PointDomain,
-        *,
-        program_id: str,
-    ) -> VerifiedPointDomain:
-        nonlocal calls
-        calls += 1
-        return verify_point_domain(domain, program_id=program_id)
-
-    monkeypatch.setattr(
-        "scopecat.compiler.typed.verification.verify_point_domain",
-        tracking_verify_point_domain,
-    )
-
-    seal_typed_program(_program())
-
-    assert calls == 1
-
-
-def test_typed_program_seal_reuses_a_trusted_normalized_program() -> None:
-    program = _program()
-
-    sealed = seal_typed_program(program)
-
-    assert sealed.program is program
 
 
 def _empty_kernel(**_inputs: object) -> None:

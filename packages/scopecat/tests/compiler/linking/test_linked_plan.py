@@ -263,14 +263,12 @@ def test_unselected_product_definition_survives_link_without_collection() -> Non
     )
     assert {
         binding.product_id
-        for point in plan.points
-        for operation in operations_of_type(point, CollectOperation)
+        for operation in operations_of_type(plan, CollectOperation)
         for binding in operation.result_bindings
     } == {selected_id}
     assert unselected_id not in {
         binding.product_id
-        for point in plan.points
-        for operation in operations_of_type(point, CollectOperation)
+        for operation in operations_of_type(plan, CollectOperation)
         for binding in operation.result_bindings
     }
 
@@ -582,9 +580,13 @@ def test_local_materialization_builds_the_executable_materialized_effects() -> N
     assert actual == expected
     assert len(actual.points) == 3
     assert all(
-        operations_of_type(point, ApplyStateOperation) for point in actual.points
+        operations_of_type(actual, ApplyStateOperation, point_index=point.ordinal)
+        for point in actual.points
     )
-    assert all(operations_of_type(point, CollectOperation) for point in actual.points)
+    assert all(
+        operations_of_type(actual, CollectOperation, point_index=point.ordinal)
+        for point in actual.points
+    )
 
 
 def test_linked_points_retain_exact_proofs_and_only_materialize_the_domain() -> None:
