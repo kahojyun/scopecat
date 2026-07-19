@@ -7,7 +7,7 @@ from scopecat.execution.local.program import (
     PointProgram,
 )
 from scopecat.execution.local.validation import validate_local_effect_block_instruments
-from scopecat.execution.ports.resources import ResourceClaim
+from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
 from scopecat.kernel.problems import (
     ProblemCategory,
     ProblemImpact,
@@ -15,6 +15,7 @@ from scopecat.kernel.problems import (
     model_location,
 )
 from scopecat.kernel.product_identity import product_id, product_use
+from scopecat.kernel.resource_identity import ResourceClaim
 from scopecat.measurements.results import MeasurementDType
 from scopecat.sdk.instruments.contracts import (
     CapabilityDescription,
@@ -27,6 +28,18 @@ from scopecat.sdk.instruments.contracts import (
 from tests.testkit.local_effect_program import StubLocalEffectProgram
 
 
+def _validate(
+    program: StubLocalEffectProgram,
+    *,
+    descriptions: dict[str, InstrumentDescription],
+):
+    return validate_local_effect_block_instruments(
+        resource_order=program.resource_order,
+        stages=tuple(stage for point in program.points for stage in point.stages),
+        descriptions=descriptions,
+    )
+
+
 def test_unspecified_collect_capability_rejects_ambiguous_product_key() -> None:
     program = _collect_program(capability_id=None, dtype="float64")
     description = _description(
@@ -36,7 +49,7 @@ def test_unspecified_collect_capability_rejects_ambiguous_product_key() -> None:
         )
     )
 
-    problems = validate_local_effect_block_instruments(
+    problems = _validate(
         program,
         descriptions={"source-0": description},
     )
@@ -73,7 +86,7 @@ def test_explicit_collect_capability_selects_one_matching_product() -> None:
         )
     )
 
-    problems = validate_local_effect_block_instruments(
+    problems = _validate(
         program,
         descriptions={"source-0": description},
     )
@@ -92,7 +105,7 @@ def test_duplicate_product_key_within_selected_capability_is_ambiguous() -> None
         )
     )
 
-    problems = validate_local_effect_block_instruments(
+    problems = _validate(
         program,
         descriptions={"source-0": description},
     )
@@ -113,7 +126,7 @@ def _collect_program(
         points=(
             PointProgram(
                 point_index=0,
-                point_uid="point-0",
+                logical_id=LogicalPointId(PointDomainId("product-lookup", "root"), 0),
                 coordinates={},
                 stages=(
                     CollectStage(

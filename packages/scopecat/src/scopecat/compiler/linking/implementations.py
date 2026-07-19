@@ -110,7 +110,7 @@ def select_local_implementations(
     for node in nodes:
         if (
             node.result.availability.stage is not ValueStage.EXECUTE
-            or node.result.availability.rate is not ValueRate.POINT
+            or node.result.availability.rate not in (ValueRate.RUN, ValueRate.POINT)
         ):
             problems.append(_output_availability_problem(node, phase=phase))
             continue
@@ -208,7 +208,7 @@ def _output_availability_problem(
     availability = node.result.availability
     return compiler_problem(
         "semantic_operation_local_output_availability_unsupported",
-        "local point execution requires execute-stage, point-rate compute "
+        "local execution requires execute-stage, run- or point-rate compute "
         f"outputs; {node.result.id.qualified_name!r} is "
         f"{availability.stage.value}-stage, {availability.rate.value}-rate",
         model_location(

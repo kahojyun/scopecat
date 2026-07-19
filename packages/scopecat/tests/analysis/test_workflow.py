@@ -29,7 +29,7 @@ def test_workflow_analysis_review_activate_and_rerun_active_config(
 ) -> None:
     services = local_workspace_services(tmp_path)
     run = start_run(
-        execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
+        system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
         config=load_config(),
         experiment=load_prepared_invocation(),
         services=services,
@@ -52,7 +52,7 @@ def test_workflow_analysis_review_activate_and_rerun_active_config(
     )
     active_config = load_active_config(services=services)
     next_run = start_run(
-        execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
+        system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
         config=active_config.config,
         experiment=load_prepared_invocation(),
         services=services,
@@ -73,7 +73,7 @@ def test_analysis_save_recovers_orphans_after_manifest_failure(
 ) -> None:
     services = local_workspace_services(tmp_path)
     run = start_run(
-        execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
+        system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
         config=load_config(),
         experiment=load_prepared_invocation(),
         services=services,
@@ -136,7 +136,7 @@ def test_analysis_save_recovers_after_output_write_failure(
 ) -> None:
     services = local_workspace_services(tmp_path)
     run = start_run(
-        execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
+        system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
         config=load_config(),
         experiment=load_prepared_invocation(),
         services=services,

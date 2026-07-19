@@ -2,15 +2,17 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
-from typing import Literal
+from typing import Literal, Never
 
 import pytest
 
-import scopecat.compiler.linking.materialization as local_materialization
+import scopecat.planning.local_materialization as local_materialization
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.linked import (
     LinkedPlan,
+    LinkedPointMaterializer,
     MaterializedLinkedPoints,
+    specialize_linked_program,
 )
 from scopecat.compiler.relations.evaluation import ParameterRelationData
 from scopecat.compiler.relations.model import (
@@ -50,8 +52,14 @@ from scopecat.compiler.typed.program import (
     set_state_field,
 )
 from scopecat.execution.local.program import ApplyStateStage
-from scopecat.execution.ports.resources import ResourceClaim
-from scopecat.execution.program import run_local_effects, run_point_regions
+from scopecat.execution.program import (
+    RunComputeStage,
+    RunDomainJob,
+    RunPointEnd,
+    RunPointStage,
+    RunPointStart,
+    iter_run_operations,
+)
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import ProblemPhase
 from scopecat.kernel.product_identity import (
@@ -59,11 +67,12 @@ from scopecat.kernel.product_identity import (
     product_producer_id,
     product_use,
 )
+from scopecat.kernel.resource_identity import ResourceClaim
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar, String, Table, TableColumn
 from scopecat.measurements.semantics import MeasurementTransformSemanticContract
-from scopecat.planning.backend import ExecutionBackend
+from scopecat.planning.system import ExperimentSystem
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter import (
     Quantity,
@@ -95,8 +104,6 @@ from scopecat.sdk.domain.runtime import (
     CorrelatedDomainFetch,
     DomainFetchCandidate,
     DomainFetchRequest,
-    DomainReconcileReceipt,
-    DomainReconcileRequest,
     DomainSubmitReceipt,
     DomainSubmitRequest,
 )
@@ -125,7 +132,6 @@ class _EffectProbeRuntime:
     def __init__(self) -> None:
         self.submit_calls = 0
         self.fetch_calls = 0
-        self.reconcile_calls = 0
 
     def submit(
         self,
@@ -143,14 +149,6 @@ class _EffectProbeRuntime:
         self.fetch_calls += 1
         raise AssertionError("planning must not fetch a domain invocation")
 
-    def reconcile(
-        self,
-        request: DomainReconcileRequest,
-    ) -> DomainReconcileReceipt:
-        _ = request
-        self.reconcile_calls += 1
-        raise AssertionError("planning must not reconcile a domain invocation")
-
 
 @dataclass
 class _DomainCompiler:
@@ -159,22 +157,22 @@ class _DomainCompiler:
     max_points_per_job: int = 100
     runtime: _EffectProbeRuntime = field(default_factory=_EffectProbeRuntime)
     compile_calls: int = 0
+    compile_requests: list[DomainCompileRequest] = field(default_factory=list)
     prepare_calls: int = 0
     prepared_inputs: list[tuple[object, ...]] = field(default_factory=list)
-
-    @property
-    def target_id(self) -> str:
-        return f"{self.compiler_id}.target"
+    events: list[str] | None = None
+    route_target_by_execution: bool = False
 
     def compile(
         self,
         request: DomainCompileRequest,
     ) -> DomainCompilation:
         self.compile_calls += 1
+        self.compile_requests.append(request)
+        if self.events is not None:
+            self.events.append("compile")
         return compiled_jobs(
             request,
-            compiler_id=self.compiler_id,
-            target_id=self.target_id,
             max_points=self.max_points_per_job,
         )
 
@@ -220,12 +218,17 @@ class _DomainCompiler:
             ),
         )
         measurements = preparation.measurement_plan(mapping)
+        target_id = (
+            f"{self.compiler_id}.{context.execution.id}.target"
+            if self.route_target_by_execution
+            else f"{self.compiler_id}.target"
+        )
         invocation = DomainInvocationSpec(
             invocation_id=(
                 f"{self.compiler_id}.invocation.batch-{context.batch_ordinal}"
             ),
             target=DomainTargetArtifactIdentity(
-                target_id=self.target_id,
+                target_id=target_id,
                 compiler_id=self.compiler_id,
                 capability_fingerprint=f"{self.compiler_id}.capabilities",
                 artifact_id=(
@@ -249,6 +252,27 @@ class _DomainCompiler:
             realize=_reject_realization,
             resource_claims=self.resource_claims,
         )
+
+
+@dataclass
+class _BindingProbeCompiler:
+    bound_ordinals: tuple[int, ...] = ()
+    compile_request: DomainCompileRequest | None = field(default=None, init=False)
+
+    def compile(self, request: DomainCompileRequest) -> None:
+        self.compile_request = request
+        self.bound_ordinals = request.resolve_inputs(
+            ("drive_frequency",), (1,), max_points=1
+        ).ordinals
+        return None
+
+    def prepare(
+        self,
+        job: DomainCompiledJob,
+        context: DomainBatchContext,
+    ) -> PreparedDomainExecution:
+        del job, context
+        raise AssertionError("an unselected compiler cannot prepare jobs")
 
 
 @dataclass
@@ -292,6 +316,7 @@ def _linked_program(
     domain_call_count: int = 1,
     state_mode: Literal["none", "constant", "varying"] = "none",
     point_count: Literal[0, 2] = 2,
+    equal_point_values: bool = False,
     domain_input: ValueInput | None = None,
     parameter_overlays: Sequence[PointParameterOverlay] = (),
     parameter_data: ParameterRelationData | None = None,
@@ -313,7 +338,12 @@ def _linked_program(
                 literal_rows(
                     (
                         {"frequency": Quantity(value=4.9, unit="GHz")},
-                        {"frequency": Quantity(value=5.1, unit="GHz")},
+                        {
+                            "frequency": Quantity(
+                                value=4.9 if equal_point_values else 5.1,
+                                unit="GHz",
+                            )
+                        },
                     )
                     if point_count
                     else ()
@@ -453,7 +483,7 @@ def _linked_program(
         else ()
     )
     program = CoreProgram(
-        id="unified-backend-contract",
+        id="unified-system-contract",
         kind="compiler_test",
         point_domain=points,
         parameter_overlays=tuple(parameter_overlays),
@@ -469,7 +499,23 @@ def _linked_program(
     )
     if parameter_data is not None:
         environment = replace(environment, parameters=parameter_data)
-    return link_program(program, environment)
+    return specialize_linked_program(link_program(program, environment))
+
+
+def _point_frequency_domain_input() -> ValueInput:
+    frequency_type = Scalar(QuantityType(unit="GHz"))
+    point_type = Table(
+        columns=(TableColumn("frequency", frequency_type),),
+        min_rows=0,
+        max_rows=None,
+    )
+    return ValueInput(
+        value=scalar_value_expr(
+            point_col("frequency"),
+            bindings=RelationTypeBindings(point_row=RowType.from_table(point_type)),
+            expected_type=frequency_type,
+        )
+    )
 
 
 def _linked_instrument_fed_transform_program() -> LinkedPlan:
@@ -526,9 +572,11 @@ def _linked_instrument_fed_transform_program() -> LinkedPlan:
         product_uses=(source_use, derived_use),
         record_uses=(derived_record,),
     )
-    return link_program(
-        program,
-        validate_config_environment(load_config()),
+    return specialize_linked_program(
+        link_program(
+            program,
+            validate_config_environment(load_config()),
+        )
     )
 
 
@@ -539,7 +587,6 @@ def _problem_codes(error: CheckFailed) -> set[str]:
 def _assert_no_domain_effects(*compilers: _DomainCompiler) -> None:
     assert all(compiler.runtime.submit_calls == 0 for compiler in compilers)
     assert all(compiler.runtime.fetch_calls == 0 for compiler in compilers)
-    assert all(compiler.runtime.reconcile_calls == 0 for compiler in compilers)
 
 
 def test_unified_planning_rejects_missing_local_provider_before_effects() -> None:
@@ -547,7 +594,7 @@ def test_unified_planning_rejects_missing_local_provider_before_effects() -> Non
     compiler = _DomainCompiler("tests.missing-claim")
 
     with pytest.raises(CheckFailed) as captured:
-        ExecutionBackend(domain_compilers=(compiler,)).compile(
+        ExperimentSystem(domain_compiler=compiler).compile(
             linked,
             config=load_config(),
         )
@@ -568,7 +615,7 @@ def test_execution_config_must_match_linked_snapshot_before_adapter_effects() ->
     different_config = load_config().model_copy(update={"id": "different-config"})
 
     with pytest.raises(CheckFailed) as captured:
-        ExecutionBackend(domain_compilers=(compiler,)).compile(
+        ExperimentSystem(domain_compiler=compiler).compile(
             linked,
             config=different_config,
         )
@@ -585,12 +632,14 @@ def test_planning_reports_unplaced_transform_as_a_capability_boundary() -> None:
     [output_use_id] = transform.outputs[0].product_use_ids
 
     with pytest.raises(CheckFailed) as captured:
-        ExecutionBackend(provider=TestSignalInstrumentProvider()).compile(
+        ExperimentSystem(provider=TestSignalInstrumentProvider()).compile(
             linked,
             config=load_config(),
         )
 
-    assert _problem_codes(captured.value) == {"measurement_transform_placement_missing"}
+    assert _problem_codes(captured.value) == {
+        "measurement_transform_implementation_missing"
+    }
     assert captured.value.problems[0].details == {
         "transform_id": "normalize",
         "input_product_ids": ("source",),
@@ -599,32 +648,13 @@ def test_planning_reports_unplaced_transform_as_a_capability_boundary() -> None:
     assert captured.value.problems[0].phase is ProblemPhase.PLANNING
 
 
-def test_unified_planning_rejects_ambiguous_domain_compiler_before_effects() -> None:
-    linked = _linked_program()
-    first = _DomainCompiler("tests.overlap.first")
-    second = _DomainCompiler("tests.overlap.second")
-    backend = ExecutionBackend(
-        domain_compilers=(first, second),
-    )
-
-    with pytest.raises(CheckFailed) as captured:
-        backend.compile(linked, config=load_config())
-
-    assert _problem_codes(captured.value) == {"domain_compiler_selection_ambiguous"}
-    assert first.compile_calls == 1
-    assert second.compile_calls == 1
-    assert first.prepare_calls == 0
-    assert second.prepare_calls == 0
-    _assert_no_domain_effects(first, second)
-
-
 def test_run_compilation_enforces_explicit_point_materialization_budget() -> None:
     linked = _linked_program(point_count=2)
     compiler = _DomainCompiler("tests.materialization-budget")
 
     with pytest.raises(CheckFailed) as captured:
-        ExecutionBackend(
-            domain_compilers=(compiler,),
+        ExperimentSystem(
+            domain_compiler=compiler,
             max_materialized_points=1,
         ).compile(linked, config=load_config())
 
@@ -670,24 +700,17 @@ def test_parameter_scan_binding_is_shared_with_domain_inputs() -> None:
     )
     compiler = _DomainCompiler("tests.parameter-binding")
 
-    plan = ExecutionBackend(domain_compilers=(compiler,)).compile(
+    plan = ExperimentSystem(domain_compiler=compiler).compile(
         linked,
         config=load_config(),
     )
 
-    assert run_local_effects(plan) is None
+    assert plan.host is None
     assert compiler.prepared_inputs == [
         (
             Quantity(value=4.9, unit="GHz"),
             Quantity(value=5.1, unit="GHz"),
         )
-    ]
-    assert [
-        params.lookup_row("readout_devices", {"device_id": "r0"})["frequency"]
-        for params in plan.linked_points.point_parameters
-    ] == [
-        Quantity(value=4.9, unit="GHz"),
-        Quantity(value=5.1, unit="GHz"),
     ]
 
 
@@ -695,22 +718,33 @@ def test_varying_local_state_forms_domain_effect_barriers() -> None:
     linked = _linked_program(state_mode="varying")
     compiler = _DomainCompiler("tests.effect-regions")
     provider = _TrackingProvider()
-    backend = ExecutionBackend(
+    system = ExperimentSystem(
         provider=provider,
-        domain_compilers=(compiler,),
+        domain_compiler=compiler,
     )
 
-    plan = backend.compile(linked, config=load_config())
+    plan = system.compile(linked, config=load_config())
 
-    assert tuple(region.point_indices for region in run_point_regions(plan)) == (
-        (0,),
-        (1,),
-    )
-    assert tuple(
-        job.point_indices
-        for region in run_point_regions(plan)
-        for job in region.domain_jobs
-    ) == ((0,), (1,))
+    observed: list[tuple[str, int | tuple[int, ...]]] = []
+    for operation in iter_run_operations(plan.operations):
+        if isinstance(operation, RunDomainJob):
+            observed.append(("domain", operation.point_ordinals))
+        elif isinstance(operation, RunPointStart | RunPointStage | RunPointEnd):
+            observed.append((type(operation).__name__, operation.point_index))
+        else:
+            assert isinstance(operation, RunComputeStage)
+            raise AssertionError("test program unexpectedly contains run compute")
+
+    assert observed == [
+        ("RunPointStart", 0),
+        ("RunPointStage", 0),
+        ("domain", (0,)),
+        ("RunPointEnd", 0),
+        ("RunPointStart", 1),
+        ("RunPointStage", 1),
+        ("domain", (1,)),
+        ("RunPointEnd", 1),
+    ]
     assert provider.describe_calls == 1
     assert provider.provide_calls == 0
     assert compiler.compile_calls == 1
@@ -718,41 +752,66 @@ def test_varying_local_state_forms_domain_effect_barriers() -> None:
     _assert_no_domain_effects(compiler)
 
 
+def test_point_dependency_forms_barriers_even_when_values_happen_to_match() -> None:
+    linked = _linked_program(state_mode="varying", equal_point_values=True)
+    compiler = _DomainCompiler("tests.typed-effect-dependencies")
+
+    plan = ExperimentSystem(
+        provider=_TrackingProvider(),
+        domain_compiler=compiler,
+    ).compile(linked, config=load_config())
+
+    jobs = tuple(
+        operation
+        for operation in iter_run_operations(plan.operations)
+        if isinstance(operation, RunDomainJob)
+    )
+    assert tuple(job.point_ordinals for job in jobs) == ((0,), (1,))
+    assert compiler.prepare_calls == 2
+
+
 def test_domain_compiler_batches_one_state_stable_region() -> None:
     linked = _linked_program(state_mode="constant")
     compiler = _DomainCompiler("tests.constant-peripheral")
     provider = _TrackingProvider()
-    backend = ExecutionBackend(
+    system = ExperimentSystem(
         provider=provider,
-        domain_compilers=(compiler,),
+        domain_compiler=compiler,
     )
 
-    plan = backend.compile(linked, config=load_config())
-    local_effects = run_local_effects(plan)
+    plan = system.compile(linked, config=load_config())
+    local_effects = plan.host
     assert local_effects is not None
+    point_catalog = plan.measurements.catalog.point_catalog
+    assert point_catalog.experiment_id == linked.program.id
+    assert point_catalog.experiment_kind == linked.program.kind
+    assert point_catalog.coordinate_ids == ("frequency",)
+    assert tuple(point.ordinal for point in point_catalog.points) == (0, 1)
+    assert [point.coordinates for point in point_catalog.points] == [
+        {"frequency": Quantity(value=4.9, unit="GHz")},
+        {"frequency": Quantity(value=5.1, unit="GHz")},
+    ]
     assert local_effects.product_use_ids == ()
-    assert {
-        job.source_id
-        for region in run_point_regions(plan)
-        for job in region.domain_jobs
-    } == {"domain-domain-tests.constant-peripheral.target"}
-    assert tuple(region.point_indices for region in run_point_regions(plan)) == (
-        (0, 1),
-    )
     domain_jobs = tuple(
-        job for region in run_point_regions(plan) for job in region.domain_jobs
+        operation
+        for operation in iter_run_operations(plan.operations)
+        if isinstance(operation, RunDomainJob)
     )
-    assert tuple(job.point_indices for job in domain_jobs) == ((0, 1),)
+    assert tuple(job.point_ordinals for job in domain_jobs) == ((0, 1),)
+    [domain_job] = domain_jobs
+    assert not hasattr(domain_job, "compiled")
+    assert not hasattr(domain_job.prepared, "context")
+    assert not hasattr(domain_job.prepared, "compiler_id")
     assert local_effects.product_use_ids == ()
     assert provider.describe_calls == 1
     assert provider.provide_calls == 0
     assert compiler.compile_calls == 1
     assert compiler.prepare_calls == 1
-    assert [job.id for job in domain_jobs] == ["domain:tests.constant-peripheral.job-0"]
+    assert [job.id for job in domain_jobs] == ["domain:job-0"]
     _assert_no_domain_effects(compiler)
 
 
-def test_ordered_domain_calls_share_one_target_resource_and_keep_identity() -> None:
+def test_ordered_domain_calls_share_one_target_resource_and_keep_job_identity() -> None:
     linked = _linked_program(
         product_count=2,
         domain_product_count=2,
@@ -760,30 +819,47 @@ def test_ordered_domain_calls_share_one_target_resource_and_keep_identity() -> N
     )
     compiler = _DomainCompiler("tests.multi-call")
 
-    plan = ExecutionBackend(domain_compilers=(compiler,)).compile(
+    plan = ExperimentSystem(domain_compiler=compiler).compile(
         linked,
         config=load_config(),
     )
 
     jobs = tuple(
-        job for region in run_point_regions(plan) for job in region.domain_jobs
+        operation
+        for operation in iter_run_operations(plan.operations)
+        if isinstance(operation, RunDomainJob)
     )
-    assert [job.prepared.context.execution.id for job in jobs] == [
-        "domain-0",
-        "domain-1",
-    ]
     assert [job.id for job in jobs] == [
-        "domain-0:tests.multi-call.job-0",
-        "domain-1:tests.multi-call.job-0",
+        "domain-0:job-0",
+        "domain-1:job-0",
     ]
-    assert [job.source_id for job in jobs] == [
-        "domain-domain-0-tests.multi-call.target",
-        "domain-domain-1-tests.multi-call.target",
-    ]
+    assert all(not hasattr(job, "source_id") for job in jobs)
     assert plan.resource_claims == (ResourceClaim("tests.multi-call.target", "target"),)
     assert compiler.compile_calls == 2
     assert compiler.prepare_calls == 2
     _assert_no_domain_effects(compiler)
+
+
+def test_system_compiler_can_route_domain_calls_to_distinct_targets() -> None:
+    linked = _linked_program(
+        product_count=2,
+        domain_product_count=2,
+        domain_call_count=2,
+    )
+    compiler = _DomainCompiler(
+        "tests.multi-target",
+        route_target_by_execution=True,
+    )
+
+    plan = ExperimentSystem(domain_compiler=compiler).compile(
+        linked,
+        config=load_config(),
+    )
+
+    assert plan.resource_claims == (
+        ResourceClaim("tests.multi-target.domain-0.target", "target"),
+        ResourceClaim("tests.multi-target.domain-1.target", "target"),
+    )
 
 
 def test_mixed_planning_reuses_materialized_linked_points(
@@ -793,7 +869,7 @@ def test_mixed_planning_reuses_materialized_linked_points(
     compiler = _DomainCompiler("tests.single-materialization")
 
     def reject_rematerialization(_linked: LinkedPlan) -> MaterializedLinkedPoints:
-        raise AssertionError("backend must reuse its materialized linked points")
+        raise AssertionError("system must reuse its materialized linked points")
 
     monkeypatch.setattr(
         local_materialization,
@@ -801,32 +877,128 @@ def test_mixed_planning_reuses_materialized_linked_points(
         reject_rematerialization,
     )
 
-    prepared = ExecutionBackend(
+    prepared = ExperimentSystem(
         provider=_TrackingProvider(),
-        domain_compilers=(compiler,),
+        domain_compiler=compiler,
     ).compile(linked, config=load_config())
 
-    assert run_local_effects(prepared) is not None
-    assert any(region.domain_jobs for region in run_point_regions(prepared))
+    assert prepared.host is not None
+    assert any(isinstance(operation, RunDomainJob) for operation in prepared.operations)
+
+
+def test_symbolic_domain_compile_precedes_point_materialization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    linked = _linked_program(domain_input=_point_frequency_domain_input())
+    events: list[str] = []
+    compiler = _DomainCompiler("tests.symbolic-first", events=events)
+    original_materialize = LinkedPointMaterializer.materialize
+
+    def track_materialization(
+        materializer: LinkedPointMaterializer,
+    ) -> MaterializedLinkedPoints:
+        events.append("materialize")
+        return original_materialize(materializer)
+
+    monkeypatch.setattr(
+        LinkedPointMaterializer,
+        "materialize",
+        track_materialization,
+    )
+
+    ExperimentSystem(domain_compiler=compiler).compile(
+        linked,
+        config=load_config(),
+    )
+
+    assert events == ["compile", "materialize"]
+
+
+def test_domain_binder_resolves_selected_inputs_without_full_materialization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    linked = _linked_program(domain_input=_point_frequency_domain_input())
+    compiler = _BindingProbeCompiler()
+
+    def reject_full_materialization(
+        _materializer: LinkedPointMaterializer,
+    ) -> MaterializedLinkedPoints:
+        raise AssertionError("point binding must not close the full linked plan")
+
+    def reject_full_point_domain(*_args: object, **_kwargs: object) -> Never:
+        raise AssertionError("point binding must not expand the complete point domain")
+
+    def reject_full_relation(*_args: object, **_kwargs: object) -> Never:
+        raise AssertionError("point binding must not evaluate the complete relation")
+
+    monkeypatch.setattr(
+        LinkedPointMaterializer,
+        "materialize",
+        reject_full_materialization,
+    )
+    monkeypatch.setattr(
+        "scopecat.compiler.linking.linked.materialize_point_domain",
+        reject_full_point_domain,
+    )
+    monkeypatch.setattr(
+        "scopecat.compiler.relations.evaluator.evaluate_relation_expression",
+        reject_full_relation,
+    )
+
+    with pytest.raises(CheckFailed) as captured:
+        ExperimentSystem(domain_compiler=compiler).compile(
+            linked,
+            config=load_config(),
+        )
+
+    assert _problem_codes(captured.value) == {"domain_compiler_missing"}
+    assert compiler.bound_ordinals == (1,)
+
+
+def test_complete_point_materialization_does_not_evaluate_domain_inputs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    materializer = LinkedPointMaterializer(
+        _linked_program(domain_input=_point_frequency_domain_input())
+    )
+
+    materializer.bind_domain_inputs(
+        "domain",
+        ("drive_frequency",),
+        (1,),
+        max_points=1,
+    )
+
+    def reject_domain_inputs(*_args: object, **_kwargs: object) -> Never:
+        raise AssertionError("point materialization must not evaluate domain inputs")
+
+    monkeypatch.setattr(
+        LinkedPointMaterializer,
+        "_domain_inputs",
+        reject_domain_inputs,
+    )
+    linked_points = materializer.materialize()
+
+    assert len(linked_points.point_domain.points) == 2
 
 
 def test_mixed_plan_preview_combines_domain_records_with_local_runtime() -> None:
     linked = _linked_program(state_mode="constant")
     compiler = _DomainCompiler("tests.preview-domain")
     provider = _TrackingProvider()
-    plan = ExecutionBackend(
+    plan = ExperimentSystem(
         provider=provider,
-        domain_compilers=(compiler,),
+        domain_compiler=compiler,
     ).compile(linked, config=load_config())
 
-    assert [record.id for record in plan.projection.projection.records] == ["record-0"]
-    local_effects = run_local_effects(plan)
+    assert [record.id for record in plan.measurements.records] == ["record-0"]
+    local_effects = plan.host
     assert local_effects is not None
     assert any(
-        stage.operations
-        for point in local_effects.points
-        for stage in point.stages
-        if isinstance(stage, ApplyStateStage)
+        operation.stage.operations
+        for operation in iter_run_operations(plan.operations)
+        if isinstance(operation, RunPointStage)
+        and isinstance(operation.stage, ApplyStateStage)
     )
     _assert_no_domain_effects(compiler)
 
@@ -835,12 +1007,14 @@ def test_zero_point_domain_plan_retains_direct_product_ownership() -> None:
     linked = _linked_program(point_count=0)
     compiler = _DomainCompiler("tests.zero-point")
 
-    plan = ExecutionBackend(domain_compilers=(compiler,)).compile(
+    plan = ExperimentSystem(domain_compiler=compiler).compile(
         linked,
         config=load_config(),
     )
-    assert run_point_regions(plan) == ()
-    assert plan.values.product_use_ids == tuple(use.id for use in linked.product_uses)
+    assert plan.operations == ()
+    assert plan.measurements.product_values.product_use_ids == tuple(
+        use.id for use in linked.product_uses
+    )
     assert compiler.compile_calls == 1
     assert compiler.prepare_calls == 0
-    assert len(plan.linked_points.point_domain.points) == 0
+    assert plan.measurements.catalog.point_catalog.points == ()

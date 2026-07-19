@@ -2,16 +2,23 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 
-from scopecat.compiler.linking.linked import MaterializedLinkedPoints
-from scopecat.execution.local.program import PointProgram
-from scopecat.execution.ports.resources import ResourceClaim
-from scopecat.kernel.problems import Problem
-from scopecat.kernel.product_identity import ProductUse, ProductUseId
-from scopecat.measurements.projection import BoundMeasurementProjection
-from scopecat.measurements.values import SelectedMeasurementValues
-from scopecat.sdk.domain.compiler import DomainCompiledJob
+from scopecat.execution.local.collection_contract import BoundLocalCollectionValues
+from scopecat.execution.local.program import (
+    ActionStage,
+    ApplyStateStage,
+    CollectStage,
+    ComputeStage,
+    ExecutionStage,
+    PointProgram,
+)
+from scopecat.kernel.point_identity import LogicalPointId
+from scopecat.kernel.product_identity import ProductUseId
+from scopecat.kernel.resource_identity import ResourceClaim
+from scopecat.measurements.projection import MeasurementProjection
+from scopecat.measurements.results import CoordinateValue
 from scopecat.sdk.domain.execution import PreparedDomainExecution
 from scopecat.sdk.instruments.contracts import (
     InstrumentDescription,
@@ -21,91 +28,152 @@ from scopecat.sdk.instruments.contracts import (
 
 
 @dataclass(frozen=True, slots=True)
-class RunLocalEffects:
-    """Closed point-local host operations embedded in a RunProgram."""
+class RunHostBinding:
+    """Provisioning contract for host effects referenced by a RunProgram."""
 
-    id: str
     experiment_id: str
     product_use_ids: tuple[ProductUseId, ...]
-    points: tuple[PointProgram, ...]
-    product_uses: tuple[ProductUse, ...]
     resource_order: tuple[str, ...]
-    resource_claims: tuple[ResourceClaim, ...]
+    point_count: int
     context: InstrumentProviderContext = field(repr=False)
     provider_id: str
     instrument_order: tuple[str, ...]
     advertised_descriptions: dict[str, InstrumentDescription] = field(repr=False)
-    problems: tuple[Problem, ...]
     provider: InstrumentProvider = field(repr=False, compare=False)
-
-    @property
-    def point_count(self) -> int:
-        return len(self.points)
 
 
 @dataclass(frozen=True, slots=True)
 class RunDomainJob:
-    """One compiled domain operation over exact logical points."""
+    """One fully prepared domain operation over exact logical points."""
 
     id: str
-    source_id: str
-    compiled: DomainCompiledJob = field(repr=False)
+    point_ordinals: tuple[int, ...]
     prepared: PreparedDomainExecution = field(repr=False)
 
     @property
-    def point_indices(self) -> tuple[int, ...]:
-        return self.prepared.context.linked_points.point_indices
-
-    @property
     def resource_claims(self) -> tuple[ResourceClaim, ...]:
-        claims = (*self.compiled.resource_claims, *self.prepared.resource_claims)
-        if claims:
-            return tuple(dict.fromkeys(claims))
-        return (
-            ResourceClaim(
-                self.prepared.invocation.intent.target_id,
-                "target",
-            ),
-        )
+        return self.prepared.resource_claims
 
 
 @dataclass(frozen=True, slots=True)
-class RunPointRegion:
-    """One effect-stable logical-point region with ordered domain jobs."""
+class RunPointStart:
+    """Open the execution frame for one logical point."""
 
-    point_indices: tuple[int, ...]
-    domain_jobs: tuple[RunDomainJob, ...]
+    point_index: int
+    logical_id: LogicalPointId
+    coordinates: Mapping[str, CoordinateValue]
+    compute_step_count: int
+    compute_operation_ids: tuple[str, ...]
+    route_count: int
+    state_resource_count: int
+    action_count: int
+    stage_count: int
 
 
-type RunOperation = RunLocalEffects | RunPointRegion
+@dataclass(frozen=True, slots=True)
+class RunPointStage:
+    """Execute one already-ordered stage inside an open point frame."""
+
+    point_index: int
+    stage: ExecutionStage
+
+
+@dataclass(frozen=True, slots=True)
+class RunPointEnd:
+    """Close one logical point and emit its terminal point transition."""
+
+    point_index: int
+
+
+@dataclass(frozen=True, slots=True)
+class RunPointLoop:
+    """Budget-closed sequential loop over concrete logical point iterations."""
+
+    points: tuple[PointProgram, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class RunComputeStage:
+    """Execute point-invariant host computations once for the complete run."""
+
+    stage: ComputeStage
+
+
+type RunAtomicOperation = (
+    RunComputeStage | RunPointStart | RunPointStage | RunPointEnd | RunDomainJob
+)
+type RunOperation = RunAtomicOperation | RunPointLoop
+
+
+def run_point_start(point: PointProgram) -> RunPointStart:
+    """Project point identity and observation metadata into its start operation."""
+
+    return RunPointStart(
+        point_index=point.point_index,
+        logical_id=point.logical_id,
+        coordinates=point.coordinates,
+        compute_step_count=sum(
+            len(stage.operations)
+            for stage in point.stages
+            if isinstance(stage, ComputeStage)
+        ),
+        compute_operation_ids=tuple(
+            operation.semantic_operation_id
+            for stage in point.stages
+            if isinstance(stage, ComputeStage)
+            for operation in stage.operations
+        ),
+        route_count=sum(
+            len(operation.command.requests)
+            for stage in point.stages
+            if isinstance(stage, CollectStage)
+            for operation in stage.operations
+        ),
+        state_resource_count=sum(
+            len(stage.operations)
+            for stage in point.stages
+            if isinstance(stage, ApplyStateStage)
+        ),
+        action_count=sum(
+            len(stage.operations)
+            for stage in point.stages
+            if isinstance(stage, ActionStage)
+        ),
+        stage_count=len(point.stages),
+    )
+
+
+def iter_run_operations(
+    operations: Iterable[RunOperation],
+) -> Iterator[RunAtomicOperation]:
+    """Iterate the final atomic sequence without expanding stored point loops."""
+
+    for operation in operations:
+        if isinstance(operation, RunPointLoop):
+            for point in operation.points:
+                yield run_point_start(point)
+                yield from (
+                    RunPointStage(point.point_index, stage) for stage in point.stages
+                )
+                yield RunPointEnd(point.point_index)
+        else:
+            yield operation
 
 
 @dataclass(frozen=True, slots=True)
 class RunProgram:
     """Closed residual effect program consumed by the run interpreter."""
 
-    backend_id: str
-    linked_points: MaterializedLinkedPoints = field(repr=False)
+    host: RunHostBinding | None
     operations: tuple[RunOperation, ...]
-    values: SelectedMeasurementValues = field(repr=False)
-    projection: BoundMeasurementProjection = field(repr=False)
+    measurements: MeasurementProjection = field(repr=False)
+    local_values: BoundLocalCollectionValues | None = field(repr=False)
     resource_claims: tuple[ResourceClaim, ...]
 
+    @property
+    def experiment_id(self) -> str:
+        return self.measurements.catalog.point_catalog.experiment_id
 
-def run_local_effects(program: RunProgram) -> RunLocalEffects | None:
-    return next(
-        (
-            operation
-            for operation in program.operations
-            if isinstance(operation, RunLocalEffects)
-        ),
-        None,
-    )
-
-
-def run_point_regions(program: RunProgram) -> tuple[RunPointRegion, ...]:
-    return tuple(
-        operation
-        for operation in program.operations
-        if isinstance(operation, RunPointRegion)
-    )
+    @property
+    def resource_order(self) -> tuple[str, ...]:
+        return () if self.host is None else self.host.resource_order

@@ -59,6 +59,7 @@ from scopecat.compiler.relations.operators import (
     compare_ordered_values,
     runtime_values_equal,
 )
+from scopecat.compiler.relations.point_domain import decompose_product_ordinal
 from scopecat.compiler.relations.scalar_eval import (
     cell_matches,
     eval_binary,
@@ -384,6 +385,101 @@ def evaluate_relation_expression(
             return evaluate_relation_expression(relation.source, ctx)[
                 : relation.limit_count
             ]
+
+
+def evaluate_relation_expression_ordinals(
+    expression: RelationExpr,
+    ctx: EvalContext,
+    ordinals: tuple[int, ...],
+) -> list[Row]:
+    """Evaluate selected stable ordinals, falling back for order-changing nodes."""
+
+    relation = cast("RelationExpression", expression)
+    match relation:
+        case LiteralRowsRelationExpr():
+            return _select_relation_rows(relation.rows, ordinals)
+        case TableRelationExpr():
+            return _select_relation_rows(
+                ctx.params.table_rows(relation.table_id),
+                ordinals,
+            )
+        case InputRelationExpr():
+            return _select_relation_rows(
+                _input_table(ctx.inputs, relation.name),
+                ordinals,
+            )
+        case GridRelationExpr():
+            names = tuple(relation.columns)
+            choices = tuple(
+                _evaluate_grid_column(relation.columns[name], ctx) for name in names
+            )
+            counts = tuple(len(values) for values in choices)
+            total = math.prod(counts)
+            if any(ordinal >= total for ordinal in ordinals):
+                raise ValueError("relation ordinal is outside the evaluated grid")
+            return [
+                dict(
+                    zip(
+                        names,
+                        (
+                            choices[index][child_ordinal]
+                            for index, child_ordinal in enumerate(
+                                decompose_product_ordinal(ordinal, counts)
+                            )
+                        ),
+                        strict=True,
+                    )
+                )
+                for ordinal in ordinals
+            ]
+        case SelectRelationExpr():
+            return [
+                {
+                    column: read_path(source_row, column)
+                    for column in relation.select_columns
+                }
+                for source_row in evaluate_relation_expression_ordinals(
+                    relation.source,
+                    ctx,
+                    ordinals,
+                )
+            ]
+        case WithColumnsRelationExpr():
+            derived: list[Row] = []
+            for source_row in evaluate_relation_expression_ordinals(
+                relation.source,
+                ctx,
+                ordinals,
+            ):
+                next_row = dict(source_row)
+                child_ctx = _child_context(
+                    ctx,
+                    row=next_row,
+                    row_scope_id=relation.row_scope_id,
+                )
+                for name, scalar in relation.new_columns.items():
+                    next_row[name] = evaluate_scalar_expression(scalar, child_ctx)
+                derived.append(next_row)
+            return derived
+        case LimitRelationExpr():
+            if any(ordinal >= relation.limit_count for ordinal in ordinals):
+                raise ValueError("relation ordinal is outside the limit")
+            return evaluate_relation_expression_ordinals(
+                relation.source,
+                ctx,
+                ordinals,
+            )
+        case _:
+            return _select_relation_rows(
+                evaluate_relation_expression(relation, ctx),
+                ordinals,
+            )
+
+
+def _select_relation_rows(rows: Sequence[Row], ordinals: tuple[int, ...]) -> list[Row]:
+    if ordinals and ordinals[-1] >= len(rows):
+        raise ValueError("relation ordinal is outside the evaluated rows")
+    return [dict(rows[ordinal]) for ordinal in ordinals]
 
 
 def _child_context(

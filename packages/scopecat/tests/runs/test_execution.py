@@ -6,7 +6,7 @@ import pytest
 
 from scopecat.composition.local import local_workspace_services
 from scopecat.kernel.errors import CheckFailed
-from scopecat.planning.backend import ExecutionBackend
+from scopecat.planning.system import ExperimentSystem
 from scopecat.records.execution import InstrumentStateEvidence
 from scopecat.runs.service import read_run_record_json, start_run
 from scopecat.sdk.instruments import (
@@ -54,7 +54,7 @@ def test_start_run_uses_provider_selected_config_instrument(
         config=config_with_instrument_id("source-a"),
         experiment=load_prepared_invocation(),
         services=local_workspace_services(tmp_path),
-        execution_backend=ExecutionBackend(provider=TestSignalInstrumentProvider()),
+        system=ExperimentSystem(provider=TestSignalInstrumentProvider()),
     )
     snapshot = read_run_record_json(
         run_id=manifest.run_id,
@@ -75,7 +75,7 @@ def test_start_run_reuses_point_provider_preflight(tmp_path: Path) -> None:
         config=load_config(),
         experiment=load_prepared_invocation(),
         services=local_workspace_services(tmp_path),
-        execution_backend=ExecutionBackend(provider=provider),
+        system=ExperimentSystem(provider=provider),
     )
 
     assert manifest.status == "completed"
@@ -83,7 +83,7 @@ def test_start_run_reuses_point_provider_preflight(tmp_path: Path) -> None:
     assert provider.provide_calls == 1
 
 
-def test_start_run_requires_explicit_execution_backend(
+def test_start_run_requires_explicit_system(
     tmp_path: Path,
 ) -> None:
     with pytest.raises(CheckFailed) as error:
@@ -93,4 +93,4 @@ def test_start_run_requires_explicit_execution_backend(
             services=local_workspace_services(tmp_path),
         )
 
-    assert error.value.problems[0].code == "execution.execution_backend_missing"
+    assert error.value.problems[0].code == "execution.experiment_system_missing"

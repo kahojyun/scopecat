@@ -2,7 +2,7 @@
 
 Submission assigns and stores one job before calling the synchronous device
 primitive, making a repeated idempotency key incapable of replaying physical
-work. Fetch and reconciliation are read-only. A device exception that yields
+work. Fetch is read-only. A device exception that yields
 no captured run remains unknown evidence rather than being reported as pending
 or definitive absence. Core, not this adapter, owns submission states,
 journaling, retry authority, and receipt correlation.
@@ -26,8 +26,6 @@ from scopecat.sdk.domain import (
     DomainFetchReceipt,
     DomainFetchRequest,
     DomainInvocationSpec,
-    DomainReconcileReceipt,
-    DomainReconcileRequest,
     DomainSubmitReceipt,
     DomainSubmitRequest,
     DomainTargetArtifactIdentity,
@@ -113,8 +111,7 @@ class FakeListDomainRuntime:
     """Idempotent job facade over the synchronous fake device primitive.
 
     Physical AWG playback and digitizer capture occur exactly once at first
-    submit for a submission key.  Fetch and reconcile only read the retained
-    in-memory job.
+    submit for a submission key. Fetch only reads the retained in-memory job.
     """
 
     def __init__(self, device: FakeListRuntime | None = None) -> None:
@@ -123,7 +120,6 @@ class FakeListDomainRuntime:
         self._jobs: dict[str, _FakeListDomainJob] = {}
         self._submit_calls = 0
         self._fetch_calls = 0
-        self._reconcile_calls = 0
         self._physical_execution_count = 0
         self._lock = Lock()
 
@@ -136,11 +132,6 @@ class FakeListDomainRuntime:
     def fetch_calls(self) -> int:
         with self._lock:
             return self._fetch_calls
-
-    @property
-    def reconcile_calls(self) -> int:
-        with self._lock:
-            return self._reconcile_calls
 
     @property
     def physical_execution_count(self) -> int:
@@ -271,7 +262,14 @@ class FakeListDomainRuntime:
                     receipt=DomainFetchReceipt(
                         identity=identity,
                         job_id=job.job_id,
-                        status="pending",
+                        status="unknown",
+                        problems=(
+                            _fake_runtime_problem(
+                                "fake_domain_result_missing",
+                                "the synchronous fake job has no complete result",
+                                category=ProblemCategory.OPERATION,
+                            ),
+                        ),
                     )
                 )
             return DomainFetchCandidate(
@@ -283,46 +281,6 @@ class FakeListDomainRuntime:
                     result_count=len(job.target_run.frames),
                 ),
                 result=job.target_run,
-            )
-
-    def reconcile(
-        self,
-        request: DomainReconcileRequest,
-    ) -> DomainReconcileReceipt:
-        attempt = request.submission_id
-        identity = request.identity
-        with self._lock:
-            self._reconcile_calls += 1
-            job = self._jobs.get(attempt.submission_key)
-            if job is None:
-                return DomainReconcileReceipt(
-                    identity=identity,
-                    status="absent",
-                )
-            if job.intent_fingerprint != identity.intent_fingerprint:
-                return DomainReconcileReceipt(
-                    identity=identity,
-                    status="unknown",
-                    job_id=job.job_id,
-                    problems=(
-                        _fake_runtime_problem(
-                            "fake_domain_job_intent_mismatch",
-                            "fake list-mode job belongs to another invocation",
-                            category=ProblemCategory.PROVIDER_CONTRACT,
-                        ),
-                    ),
-                )
-            if job.result_problem is not None:
-                return DomainReconcileReceipt(
-                    identity=identity,
-                    status="unknown",
-                    job_id=job.job_id,
-                    problems=(job.result_problem,),
-                )
-            return DomainReconcileReceipt(
-                identity=identity,
-                status="completed" if job.target_run is not None else "submitted",
-                job_id=job.job_id,
             )
 
 

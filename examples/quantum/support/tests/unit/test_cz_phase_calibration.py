@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 import scopecat as sc
 from scopecat import Quantity
+from scopecat.compiler.linking.linked import LinkedPointMaterializer
 from scopecat.records.parameter import TableParameterValue
 from scopecat_quantum import (
     CircuitPulseEventProvenance,
@@ -131,12 +132,21 @@ def test_cz_phase_point_compiles_coupler_flux_on_the_target_channel() -> None:
 
 def test_cz_phase_workspace_run_fits_pi_and_authors_candidate_proposal(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    def reject_input_binding(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("finite CZ axes must not bind domain inputs")
+
+    monkeypatch.setattr(
+        LinkedPointMaterializer,
+        "bind_domain_inputs",
+        reject_input_binding,
+    )
     compiler = CzPhaseDomainCompiler()
     lab = quantum_lab(workspace=tmp_path)
     prepared = lab.prepare(
         CZ_PHASE_TEMPLATE,
-        execution_backend=sc.ExecutionBackend(domain_compilers=(compiler,)),
+        system=sc.ExperimentSystem(domain_compiler=compiler),
     )
 
     preview = prepared.preview()

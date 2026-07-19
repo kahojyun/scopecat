@@ -35,8 +35,9 @@ from scopecat.execution.local.program import (
     PointProgram,
     StateTarget,
 )
-from scopecat.execution.ports.resources import ResourceClaim
+from scopecat.execution.program import RunComputeStage, RunPointLoop
 from scopecat.kernel.content_identity import model_wire_content_hash
+from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
 from scopecat.kernel.problems import (
     ProblemCategory,
     ProblemPhase,
@@ -44,6 +45,7 @@ from scopecat.kernel.problems import (
     model_location,
 )
 from scopecat.kernel.product_identity import ProductUse, ProductUseId, product_id
+from scopecat.kernel.resource_identity import ResourceClaim
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Scalar
@@ -70,7 +72,14 @@ from scopecat.sdk.instruments import (
 )
 from tests.testkit.bound_plan import config_with_physical_resources
 from tests.testkit.instrument_drivers import SignalInstrumentDriver
-from tests.testkit.local_effect_program import StubLocalEffectProgram
+from tests.testkit.local_effect_program import (
+    StubLocalEffectProgram,
+    complete_point_operations,
+)
+
+
+def _logical_point_id(name: str) -> LogicalPointId:
+    return LogicalPointId(PointDomainId(name, "root"), 0)
 
 
 def _claims(*instrument_ids: str) -> tuple[ResourceClaim, ...]:
@@ -170,7 +179,7 @@ def test_workspace_run_schedules_parent_compute_before_child_consumer(
     lab = sc.open(
         tmp_path,
         config=config_with_physical_resources({"source-0": ("play_program",)}),
-        execution_backend=sc.ExecutionBackend(provider=_SingleDriverProvider(driver)),
+        system=sc.ExperimentSystem(provider=_SingleDriverProvider(driver)),
     )
 
     run = lab.prepare(template).run()
@@ -206,7 +215,7 @@ def test_compute_output_is_normalized_before_downstream_use() -> None:
         points=(
             PointProgram(
                 point_index=0,
-                point_uid="normalized-output-point",
+                logical_id=_logical_point_id("normalized-output-point"),
                 coordinates={},
                 stages=(
                     ComputeStage(
@@ -258,10 +267,96 @@ def test_compute_output_is_normalized_before_downstream_use() -> None:
         journal=MemoryExecutionJournal(),
         readbacks=MemoryCollectionRepository(),
         payloads=MemoryPayloadEvidenceCommitter(),
-    ).run()
+    ).run(complete_point_operations(program))
 
     assert result.status == "completed"
     assert consumed == [Quantity(value=5.0, unit="GHz")]
+
+
+def test_run_compute_is_shared_by_every_point_frame() -> None:
+    producer_id = OperationId(SymbolId(local_id="run-producer"))
+    producer_result_id = operation_result_id(producer_id)
+    consumer_id = OperationId(SymbolId(local_id="point-consumer"))
+    consumer_result_id = operation_result_id(consumer_id)
+    producer_calls = 0
+    consumed: list[float] = []
+
+    def produce() -> float:
+        nonlocal producer_calls
+        producer_calls += 1
+        return 2.0
+
+    def consume(*, value: float) -> float:
+        consumed.append(value)
+        return value + 1.0
+
+    run_stage = RunComputeStage(
+        ComputeStage(
+            (
+                ComputeOperation(
+                    operation_id="run.compute.producer",
+                    semantic_operation_id=producer_id.qualified_name,
+                    implementation_id="python.producer.v1",
+                    contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
+                    kernel=produce,
+                    inputs={},
+                    result=ComputeResultSlot(
+                        id=producer_result_id,
+                        value_type=Scalar(Float()),
+                    ),
+                ),
+            )
+        )
+    )
+    points = tuple(
+        PointProgram(
+            point_index=index,
+            logical_id=LogicalPointId(
+                PointDomainId("run-compute-sharing", "root"), index
+            ),
+            coordinates={},
+            stages=(
+                ComputeStage(
+                    (
+                        ComputeOperation(
+                            operation_id=f"point-{index}.compute.consumer",
+                            semantic_operation_id=consumer_id.qualified_name,
+                            implementation_id="python.consumer.v1",
+                            contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
+                            kernel=consume,
+                            inputs={"value": OutputInput(producer_result_id)},
+                            result=ComputeResultSlot(
+                                id=consumer_result_id,
+                                value_type=Scalar(Float()),
+                            ),
+                        ),
+                    )
+                ),
+            ),
+        )
+        for index in range(2)
+    )
+    program = StubLocalEffectProgram(
+        experiment_id="run-compute-sharing",
+        points=points,
+        product_uses=(),
+        collection_product_use_ids=(),
+        resource_order=(),
+        resource_claims=(),
+    )
+
+    result = RunEffectInterpreter(
+        run_id="run-compute-sharing-run",
+        program=program,
+        drivers={},
+        journal=MemoryExecutionJournal(),
+        readbacks=MemoryCollectionRepository(),
+        payloads=MemoryPayloadEvidenceCommitter(),
+    ).run((run_stage, RunPointLoop(points)))
+
+    assert result.status == "completed"
+    assert producer_calls == 1
+    assert consumed == [2.0, 2.0]
 
 
 def test_distinct_compute_operations_are_each_evaluated() -> None:
@@ -282,7 +377,7 @@ def test_distinct_compute_operations_are_each_evaluated() -> None:
         points=(
             PointProgram(
                 point_index=0,
-                point_uid="implementation-cache-point",
+                logical_id=_logical_point_id("implementation-cache-point"),
                 coordinates={},
                 stages=(
                     ComputeStage(
@@ -329,7 +424,7 @@ def test_distinct_compute_operations_are_each_evaluated() -> None:
         journal=MemoryExecutionJournal(),
         readbacks=MemoryCollectionRepository(),
         payloads=MemoryPayloadEvidenceCommitter(),
-    ).run()
+    ).run(complete_point_operations(program))
 
     assert result.status == "completed"
     assert calls == ["first", "second"]
@@ -458,7 +553,7 @@ def test_identical_actions_are_delivered_at_every_point() -> None:
     points = tuple(
         PointProgram(
             point_index=index,
-            point_uid=f"action-point-{index}",
+            logical_id=_logical_point_id(f"action-point-{index}"),
             coordinates={},
             stages=(
                 ActionStage(
@@ -473,21 +568,22 @@ def test_identical_actions_are_delivered_at_every_point() -> None:
         )
         for index in range(2)
     )
+    program = StubLocalEffectProgram(
+        experiment_id="action",
+        points=points,
+        product_uses=(),
+        collection_product_use_ids=(),
+        resource_order=(driver.instrument_id,),
+        resource_claims=_claims(driver.instrument_id),
+    )
     result = RunEffectInterpreter(
         run_id="action-run",
-        program=StubLocalEffectProgram(
-            experiment_id="action",
-            points=points,
-            product_uses=(),
-            collection_product_use_ids=(),
-            resource_order=(driver.instrument_id,),
-            resource_claims=_claims(driver.instrument_id),
-        ),
+        program=program,
         drivers={driver.instrument_id: driver},
         journal=MemoryExecutionJournal(),
         readbacks=MemoryCollectionRepository(),
         payloads=MemoryPayloadEvidenceCommitter(),
-    ).run()
+    ).run(complete_point_operations(program))
 
     assert result.success
     assert result.action_command_count == 2
@@ -499,28 +595,29 @@ def test_unknown_action_is_not_retried_and_makes_run_indeterminate() -> None:
     point_uid = "unknown-action-point"
     operation = _action_operation(point_uid, driver.instrument_id)
     journal = MemoryExecutionJournal()
+    program = StubLocalEffectProgram(
+        experiment_id="unknown-action",
+        points=(
+            PointProgram(
+                point_index=0,
+                logical_id=_logical_point_id(point_uid),
+                coordinates={},
+                stages=(ActionStage(operations=(operation,)),),
+            ),
+        ),
+        product_uses=(),
+        collection_product_use_ids=(),
+        resource_order=(driver.instrument_id,),
+        resource_claims=_claims(driver.instrument_id),
+    )
     result = RunEffectInterpreter(
         run_id="unknown-action-run",
-        program=StubLocalEffectProgram(
-            experiment_id="unknown-action",
-            points=(
-                PointProgram(
-                    point_index=0,
-                    point_uid=point_uid,
-                    coordinates={},
-                    stages=(ActionStage(operations=(operation,)),),
-                ),
-            ),
-            product_uses=(),
-            collection_product_use_ids=(),
-            resource_order=(driver.instrument_id,),
-            resource_claims=_claims(driver.instrument_id),
-        ),
+        program=program,
         drivers={driver.instrument_id: driver},
         journal=journal,
         readbacks=MemoryCollectionRepository(),
         payloads=MemoryPayloadEvidenceCommitter(),
-    ).run()
+    ).run(complete_point_operations(program))
 
     assert result.status == "unknown"
     assert result.uncertain
@@ -559,7 +656,7 @@ def test_invalid_apply_receipt_truth_table_is_rejected_at_normalize_boundary() -
         points=(
             PointProgram(
                 point_index=0,
-                point_uid="malformed-apply-point",
+                logical_id=_logical_point_id("malformed-apply-point"),
                 coordinates={},
                 stages=(ApplyStateStage(operations=(operation,)),),
             ),
@@ -578,7 +675,7 @@ def test_invalid_apply_receipt_truth_table_is_rejected_at_normalize_boundary() -
         journal=journal,
         readbacks=MemoryCollectionRepository(),
         payloads=MemoryPayloadEvidenceCommitter(),
-    ).run()
+    ).run(complete_point_operations(program))
 
     assert result.status == "unknown"
     assert result.uncertain
@@ -601,7 +698,7 @@ def test_invalid_collect_receipt_is_rejected_at_normalize_boundary() -> None:
         points=(
             PointProgram(
                 point_index=0,
-                point_uid=point_uid,
+                logical_id=_logical_point_id(point_uid),
                 coordinates={},
                 stages=(CollectStage(operations=(operation,)),),
             ),
@@ -621,7 +718,7 @@ def test_invalid_collect_receipt_is_rejected_at_normalize_boundary() -> None:
         journal=journal,
         readbacks=readbacks,
         payloads=MemoryPayloadEvidenceCommitter(),
-    ).run()
+    ).run(complete_point_operations(program))
 
     assert result.status == "unknown"
     assert result.uncertain
@@ -654,7 +751,7 @@ def test_mismatched_collection_receipt_is_indeterminate(
         points=(
             PointProgram(
                 point_index=0,
-                point_uid=point_uid,
+                logical_id=_logical_point_id(point_uid),
                 coordinates={},
                 stages=(CollectStage(operations=(operation,)),),
             ),
@@ -674,7 +771,7 @@ def test_mismatched_collection_receipt_is_indeterminate(
         journal=journal,
         readbacks=readbacks,
         payloads=MemoryPayloadEvidenceCommitter(),
-    ).run()
+    ).run(complete_point_operations(program))
 
     assert result.status == "unknown"
     assert result.uncertain
@@ -698,7 +795,7 @@ def test_finalization_journal_failure_cannot_block_abort_or_terminal_read() -> N
         points=(
             PointProgram(
                 point_index=0,
-                point_uid="finalization-journal-point",
+                logical_id=_logical_point_id("finalization-journal-point"),
                 coordinates={},
                 stages=(
                     ApplyStateStage(
@@ -723,7 +820,7 @@ def test_finalization_journal_failure_cannot_block_abort_or_terminal_read() -> N
         journal=_BrokenFinalizationJournal(),
         readbacks=MemoryCollectionRepository(),
         payloads=MemoryPayloadEvidenceCommitter(),
-    ).run()
+    ).run(complete_point_operations(program))
 
     assert result.status == "unknown"
     assert first.abort_count == 1
@@ -759,7 +856,7 @@ def test_apply_journal_persists_full_receipt_evidence() -> None:
         points=(
             PointProgram(
                 point_index=0,
-                point_uid="apply-receipt-evidence-point",
+                logical_id=_logical_point_id("apply-receipt-evidence-point"),
                 coordinates={},
                 stages=(
                     ApplyStateStage(operations=(_gain_operation("source-0", 2.0),)),
@@ -780,7 +877,7 @@ def test_apply_journal_persists_full_receipt_evidence() -> None:
         journal=journal,
         readbacks=MemoryCollectionRepository(),
         payloads=MemoryPayloadEvidenceCommitter(),
-    ).run()
+    ).run(complete_point_operations(program))
 
     assert result.status == "completed"
     completed = next(
@@ -808,7 +905,7 @@ def test_state_apply_stops_on_blocking_result_without_committing_state() -> None
         points=(
             PointProgram(
                 point_index=0,
-                point_uid="blocking-state-point",
+                logical_id=_logical_point_id("blocking-state-point"),
                 coordinates={},
                 stages=(
                     ApplyStateStage(
@@ -838,7 +935,7 @@ def test_state_apply_stops_on_blocking_result_without_committing_state() -> None
         payloads=MemoryPayloadEvidenceCommitter(),
     )
 
-    result = engine.run()
+    result = engine.run(complete_point_operations(program))
 
     assert result.status == "failed"
     assert [problem.code for problem in result.problems] == [
@@ -902,7 +999,7 @@ def test_unexpected_product_stops_later_collection_and_fails_journal_entry() -> 
         points=(
             PointProgram(
                 point_index=0,
-                point_uid=point_uid,
+                logical_id=_logical_point_id(point_uid),
                 coordinates={},
                 stages=(CollectStage(operations=(first_operation, second_operation)),),
             ),
@@ -930,7 +1027,7 @@ def test_unexpected_product_stops_later_collection_and_fails_journal_entry() -> 
         journal=journal,
         readbacks=readbacks,
         payloads=MemoryPayloadEvidenceCommitter(),
-    ).run()
+    ).run(complete_point_operations(program))
 
     assert result.status == "failed"
     assert [problem.code for problem in result.problems] == [
@@ -966,7 +1063,7 @@ def test_unknown_receipt_with_blocking_problem_does_not_advance_state() -> None:
         points=(
             PointProgram(
                 point_index=0,
-                point_uid="conflicting-applied-state-point",
+                logical_id=_logical_point_id("conflicting-applied-state-point"),
                 coordinates={},
                 stages=(
                     ApplyStateStage(
@@ -1020,7 +1117,7 @@ def test_unknown_receipt_with_blocking_problem_does_not_advance_state() -> None:
         payloads=MemoryPayloadEvidenceCommitter(),
     )
 
-    result = engine.run()
+    result = engine.run(complete_point_operations(program))
 
     assert result.status == "unknown"
     assert result.uncertain

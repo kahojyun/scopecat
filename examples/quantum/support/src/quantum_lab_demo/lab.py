@@ -31,9 +31,9 @@ def quantum_lab(
     return sc.open(
         workspace,
         config_profile=config_profile or quantum_wiring_config_profile(),
-        execution_backend=sc.ExecutionBackend(
+        system=sc.ExperimentSystem(
             provider=provider,
-            domain_compilers=(FakeXCountDomainCompiler(),),
+            domain_compiler=FakeXCountDomainCompiler(),
         ),
     )
 

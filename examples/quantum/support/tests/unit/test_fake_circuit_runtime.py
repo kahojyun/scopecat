@@ -13,7 +13,9 @@ from scopecat.adapters.memory import MemoryExecutionJournal
 from scopecat.adapters.memory.execution import MemoryMeasurementRecordCommitter
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.linked import (
-    MaterializedLinkedPointBatch,
+    LinkedPointMaterializer,
+    MaterializedLinkedPoints,
+    materialize_linked_points,
 )
 from scopecat.compiler.relations.model import literal_rows
 from scopecat.compiler.relations.point_domain import point_rows
@@ -23,6 +25,7 @@ from scopecat.compiler.semantic.model import (
     DomainResultPortDef,
 )
 from scopecat.compiler.semantic.value_expressions import verify_table_value_expr
+from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.products import (
     DomainProductProducer,
@@ -34,6 +37,7 @@ from scopecat.compiler.typed.program import (
     TypedDomainExecution,
     TypedDomainProgram,
     TypedDomainResultBinding,
+    core_domain_executions,
     product_axis,
     product_output,
     record_product,
@@ -41,20 +45,15 @@ from scopecat.compiler.typed.program import (
 )
 from scopecat.config.profiles import load_config_profile
 from scopecat.execution.effects.domain import execute_domain_job_values
-from scopecat.kernel.errors import (
-    CheckFailed,
-    DomainReconciliationFailed,
-    DomainSubmissionIndeterminate,
-)
+from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.product_identity import product_producer_id
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Scalar, Table, TableColumn
 from scopecat.measurements.projection import (
-    bind_measurement_projection,
     project_measurement_records,
     select_measurement_projection,
 )
-from scopecat.measurements.recording import commit_projected_measurement_records
+from scopecat.measurements.recording import commit_measurement_records
 from scopecat.measurements.results import (
     ComplexQuantity,
     MeasurementArray,
@@ -67,29 +66,19 @@ from scopecat.measurements.values import (
 from scopecat.sdk.domain import DomainPreparationBuilder
 from scopecat.sdk.domain._bridge import (
     make_domain_batch_context,
+    make_domain_compile_request,
     product_use_id,
-    project_domain_plan,
 )
 from scopecat.sdk.domain.execution import PreparedDomainExecution
 from scopecat.sdk.domain.invocation import (
     ClosedDomainInvocation,
-    MaterializedLinkedPoints,
-    materialize_linked_points,
 )
 from scopecat.sdk.domain.runtime import (
     CorrelatedDomainFetch,
-    DomainFetchCandidate,
-    DomainFetchRequest,
-    DomainReconcileReceipt,
-    DomainReconcileRequest,
     DomainRuntime,
-    DomainSubmitReceipt,
-    DomainSubmitRequest,
     KnownDomainSubmission,
-    domain_receipt_identity,
     fetch_domain_invocation,
     plan_domain_submission,
-    reconcile_domain_invocation,
     submit_domain_invocation,
 )
 from scopecat_quantum import (
@@ -104,7 +93,6 @@ from scopecat_quantum import (
     CircuitOperationId,
     CircuitPulseAcquisitionProvenance,
     CompiledQuantumTarget,
-    CompiledTargetArtifact,
     Constant,
     Delay,
     DriveSignal,
@@ -263,50 +251,6 @@ class _CountingFakeListAwg(FakeListAwg):
         return super().play(artifact)
 
 
-class _UnavailableResultFakeListRuntime(FakeListRuntime):
-    """Fail after physical execution without returning the captured run."""
-
-    @override
-    def execute(
-        self,
-        compiled: CompiledTargetArtifact[FakeListArtifact],
-    ) -> FakeListRun:
-        _ = super().execute(compiled)
-        raise RuntimeError("fake device result was lost")
-
-
-class _LoseFirstSubmitResponseDomainRuntime:
-    """Lose one host response after the delegate has retained a completed job."""
-
-    __slots__ = ("_delegate", "_lose_next_response")
-
-    def __init__(self, delegate: FakeListDomainRuntime) -> None:
-        self._delegate = delegate
-        self._lose_next_response = True
-
-    def submit(
-        self,
-        request: DomainSubmitRequest[SelectedFakeMeasurementRealization],
-    ) -> DomainSubmitReceipt:
-        receipt = self._delegate.submit(request)
-        if self._lose_next_response:
-            self._lose_next_response = False
-            raise RuntimeError("fake list submit response was lost")
-        return receipt
-
-    def fetch(
-        self,
-        request: DomainFetchRequest,
-    ) -> DomainFetchCandidate[FakeListRun]:
-        return self._delegate.fetch(request)
-
-    def reconcile(
-        self,
-        request: DomainReconcileRequest,
-    ) -> DomainReconcileReceipt:
-        return self._delegate.reconcile(request)
-
-
 def _integrated_iq_bindings(
     scenario: _Scenario,
 ) -> tuple[FakeMeasurementRealizationBinding, ...]:
@@ -328,14 +272,27 @@ def _raw_trace_bindings(
 def _preparation_for_all_points(
     linked_points: MaterializedLinkedPoints,
 ) -> DomainPreparationBuilder:
-    projection = project_domain_plan(
-        linked_points, linked_points.domain_executions[0].execution.id
+    typed_execution = core_domain_executions(linked_points.linked_plan.program)[0]
+    execution_id = typed_execution.id
+    closure = domain_result_closure(linked_points.linked_plan.program, execution_id)
+    point_ordinals = tuple(range(len(linked_points.point_domain.points)))
+    materializer = LinkedPointMaterializer(linked_points.linked_plan)
+    request = make_domain_compile_request(
+        linked_points.linked_plan,
+        execution_id,
+        closure,
+        (point_ordinals,),
+        lambda input_ids, ordinals, max_points: materializer.bind_domain_inputs(
+            execution_id,
+            input_ids,
+            ordinals,
+            max_points=max_points,
+        ),
     )
-    point_indices = tuple(range(len(linked_points.point_domain.points)))
     context = make_domain_batch_context(
-        projection,
-        MaterializedLinkedPointBatch(linked_points, point_indices),
-        compiler_id="test.quantum.fake-list-runtime",
+        request,
+        linked_points,
+        point_ordinals,
         batch_ordinal=0,
     )
     return context.new_preparation()
@@ -1891,10 +1848,11 @@ def test_fake_domain_values_reach_receipt_bearing_host_recording() -> None:
     record_committer = MemoryMeasurementRecordCommitter()
     run_id = "fake-host-recording-run"
 
+    context = scenario.preparation.context
     selection = select_measurement_values(
-        scenario.linked_points,
+        context.measurement_catalog,
         required_product_use_ids=tuple(
-            product_use_id(product_use) for product_use in prepared.context.product_uses
+            product_use_id(product_use) for product_use in context.product_uses
         ),
     )
     assembled = seal_measurement_values(
@@ -1906,16 +1864,16 @@ def test_fake_domain_values_reach_receipt_bearing_host_recording() -> None:
             journal=journal,
         ),
     )
-    projection = bind_measurement_projection(
-        select_measurement_projection(scenario.linked_points),
-        assembled.selection,
+    projection = select_measurement_projection(
+        context.measurement_catalog,
+        scenario.linked_points.linked_plan.record_uses,
     )
     projected = project_measurement_records(
         projection,
         assembled,
         run_id=run_id,
     )
-    committed = commit_projected_measurement_records(
+    committed = commit_measurement_records(
         projected,
         record_committer,
         journal,
@@ -2003,14 +1961,12 @@ def test_fake_domain_submit_is_idempotent_for_one_submission_id() -> None:
         invocation,
         submission_id,
         journal=journal,
-        submit_attempt=1,
     )
     repeated = submit_domain_invocation(
         runtime,
         invocation,
         submission_id,
         journal=journal,
-        submit_attempt=2,
     )
 
     assert isinstance(first, KnownDomainSubmission)
@@ -2019,136 +1975,12 @@ def test_fake_domain_submit_is_idempotent_for_one_submission_id() -> None:
     assert runtime.submit_calls == 2
     assert runtime.physical_execution_count == 1
     assert awg.play_calls == 1
-    assert [(entry.state, entry.attempt) for entry in journal.entries] == [
-        ("started", 1),
-        ("completed", 1),
-        ("started", 2),
-        ("completed", 2),
+    assert [entry.state for entry in journal.entries] == [
+        "started",
+        "completed",
+        "started",
+        "completed",
     ]
-
-
-def test_fake_domain_lost_submit_response_reconciles_without_replay() -> None:
-    scenario = _mixed_scenario(repetitions=2, sample_count=4)
-    awg = _CountingFakeListAwg()
-    delegate = FakeListDomainRuntime(FakeListRuntime(awg=awg))
-    runtime = _LoseFirstSubmitResponseDomainRuntime(delegate)
-    invocation = _closed_mixed_invocation(scenario, runtime)
-    submission_id = plan_domain_submission(
-        invocation,
-        run_id="fake-lost-response-run",
-        semantic_operation_id="mixed-readout",
-    )
-    journal = MemoryExecutionJournal()
-
-    with pytest.raises(DomainSubmissionIndeterminate) as captured:
-        submit_domain_invocation(
-            runtime,
-            invocation,
-            submission_id,
-            journal=journal,
-        )
-
-    uncertainty = captured.value.uncertainty
-    assert uncertainty.reason == "runtime_exception"
-    assert uncertainty.submission_id == submission_id
-    assert delegate.submit_calls == 1
-    assert delegate.physical_execution_count == 1
-    assert awg.play_calls == 1
-
-    reconciled = reconcile_domain_invocation(
-        runtime,
-        invocation.intent,
-        uncertainty,
-        journal=journal,
-    )
-    assert isinstance(reconciled, KnownDomainSubmission)
-    assert reconciled.status == "completed"
-    assert reconciled.origin == "reconcile"
-    assert delegate.reconcile_calls == 1
-
-    repeated = runtime.submit(
-        DomainSubmitRequest(
-            submission_id=submission_id,
-            identity=domain_receipt_identity(submission_id, invocation.intent),
-            payload=invocation.payload,
-        )
-    )
-    assert repeated.status == "submitted"
-    assert repeated.job_id == reconciled.job_id
-    assert delegate.submit_calls == 2
-    assert delegate.physical_execution_count == 1
-    assert awg.play_calls == 1
-
-    fetched = fetch_domain_invocation(
-        runtime,
-        invocation.intent,
-        reconciled,
-        journal=journal,
-    )
-
-    assert isinstance(fetched, CorrelatedDomainFetch)
-    assert fetched.receipt.status == "fetched"
-    realized = realize_fetched_fake_measurements(invocation.payload, fetched)
-    assert tuple(value.result_address for value in realized.result_values) == tuple(
-        result.result_address for result in scenario.mapping.domain_mapping.results
-    )
-    assert delegate.fetch_calls == 1
-    assert delegate.physical_execution_count == 1
-    assert awg.play_calls == 1
-    assert [(entry.stage, entry.state) for entry in journal.entries] == [
-        ("domain_submit", "started"),
-        ("domain_submit", "unknown"),
-        ("domain_reconcile", "started"),
-        ("domain_submit", "completed"),
-        ("domain_reconcile", "completed"),
-        ("domain_fetch", "started"),
-        ("domain_fetch", "completed"),
-    ]
-
-
-def test_fake_device_failure_is_terminal_unknown_not_permanent_pending() -> None:
-    scenario = _mixed_scenario(repetitions=2, sample_count=4)
-    awg = _CountingFakeListAwg()
-    runtime = FakeListDomainRuntime(_UnavailableResultFakeListRuntime(awg=awg))
-    invocation = _closed_mixed_invocation(scenario, runtime)
-    submission_id = plan_domain_submission(
-        invocation,
-        run_id="fake-unavailable-result-run",
-        semantic_operation_id="mixed-readout",
-    )
-    journal = MemoryExecutionJournal()
-
-    with pytest.raises(DomainSubmissionIndeterminate) as submit_error:
-        submit_domain_invocation(
-            runtime,
-            invocation,
-            submission_id,
-            journal=journal,
-        )
-
-    with pytest.raises(DomainReconciliationFailed) as reconcile_error:
-        reconcile_domain_invocation(
-            runtime,
-            invocation.intent,
-            submit_error.value.uncertainty,
-            journal=journal,
-        )
-
-    assert reconcile_error.value.job_id == (
-        f"fake-list-job:{submission_id.submission_key}"
-    )
-    assert reconcile_error.value.problems[0].code == ("fake_domain_result_unavailable")
-    repeated = runtime.submit(
-        DomainSubmitRequest(
-            submission_id=submission_id,
-            identity=domain_receipt_identity(submission_id, invocation.intent),
-            payload=invocation.payload,
-        )
-    )
-    assert repeated.status == "unknown"
-    assert repeated.problems[0].code == "fake_domain_result_unavailable"
-    assert runtime.physical_execution_count == 1
-    assert awg.play_calls == 1
 
 
 @given(order=st.permutations(tuple(range(6))))

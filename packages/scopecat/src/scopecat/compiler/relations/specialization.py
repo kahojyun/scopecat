@@ -1,4 +1,4 @@
-"""Conservative partial evaluation for pure scalar relation expressions."""
+"""Partial evaluation for pure scalar, series, and relation expressions."""
 
 from __future__ import annotations
 
@@ -12,8 +12,13 @@ from scopecat.compiler.relations.analysis import (
     PlanReferenceKind,
     PlanReferences,
     plan_references,
+    rewrite_plan,
 )
 from scopecat.compiler.relations.evaluation import EvalContext
+from scopecat.compiler.relations.evaluator import (
+    evaluate_relation_expression,
+    evaluate_series_expression,
+)
 from scopecat.compiler.relations.model import (
     BinaryScalarExpr,
     CaseBranch,
@@ -21,13 +26,19 @@ from scopecat.compiler.relations.model import (
     CellValue,
     ColumnScalarExpr,
     InputScalarExpr,
+    LiteralRowsRelationExpr,
     LiteralScalarExpr,
     OuterColumnScalarExpr,
     ParameterLookupScalarExpr,
     ParameterScalarExpr,
     PointColumnScalarExpr,
+    RelationExpr,
+    RelationExpression,
     ScalarExpr,
     ScalarExpression,
+    SeriesExpr,
+    SeriesExpression,
+    ValuesSeriesExpr,
     lit,
 )
 from scopecat.compiler.relations.operators import runtime_values_equal
@@ -142,6 +153,85 @@ def specialize_scalar(
                 known=known,
                 parameter_cells=parameter_cells,
             )
+
+
+def specialize_series(
+    expression: SeriesExpr,
+    *,
+    known: EvalContext,
+    parameter_cells: Sequence[ParameterCellBinding] = (),
+) -> SeriesExpression:
+    """Partially evaluate one pure series and collapse closed subgraphs."""
+    return cast(
+        "SeriesExpression",
+        rewrite_plan(
+            expression,
+            lambda node: _specialize_plan_node(
+                node,
+                known=known,
+                parameter_cells=parameter_cells,
+            ),
+        ),
+    )
+
+
+def specialize_relation(
+    expression: RelationExpr,
+    *,
+    known: EvalContext,
+    parameter_cells: Sequence[ParameterCellBinding] = (),
+) -> RelationExpression:
+    """Partially evaluate a relation and replace every closed subtree by rows."""
+    return cast(
+        "RelationExpression",
+        rewrite_plan(
+            expression,
+            lambda node: _specialize_plan_node(
+                node,
+                known=known,
+                parameter_cells=parameter_cells,
+            ),
+        ),
+    )
+
+
+def _specialize_plan_node(
+    node: ScalarExpr | SeriesExpr | RelationExpr,
+    *,
+    known: EvalContext,
+    parameter_cells: Sequence[ParameterCellBinding],
+) -> ScalarExpr | SeriesExpr | RelationExpr:
+    if isinstance(node, ScalarExpr):
+        return _expression(
+            specialize_scalar(
+                node,
+                known=known,
+                parameter_cells=parameter_cells,
+            )
+        )
+    if _uses_overlaid_table(node, parameter_cells):
+        return node
+    try:
+        if isinstance(node, SeriesExpr):
+            return ValuesSeriesExpr(
+                items=deepcopy(evaluate_series_expression(node, known))
+            )
+        return LiteralRowsRelationExpr(
+            rows=deepcopy(evaluate_relation_expression(node, known))
+        )
+    except _KNOWN_EVALUATION_ERRORS:
+        return node
+
+
+def _uses_overlaid_table(
+    expression: SeriesExpr | RelationExpr,
+    parameter_cells: Sequence[ParameterCellBinding],
+) -> bool:
+    overlaid = {binding.table_id for binding in parameter_cells}
+    return bool(
+        overlaid
+        & set(plan_references(expression).ids(PlanReferenceKind.PARAMETER_TABLE))
+    )
 
 
 def _known_leaf(
@@ -361,5 +451,7 @@ __all__ = [
     "ScalarSpecialization",
     "known_scalars_equal",
     "residual_scalar_expression",
+    "specialize_relation",
     "specialize_scalar",
+    "specialize_series",
 ]

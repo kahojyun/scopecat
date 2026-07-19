@@ -60,7 +60,7 @@ lab = quantum_lab(workspace=workspace)
 compiler = CzPhaseDomainCompiler()
 prepared = lab.prepare(
     CZ_PHASE_TEMPLATE,
-    execution_backend=sc.ExecutionBackend(domain_compilers=(compiler,)),
+    system=sc.ExperimentSystem(domain_compiler=compiler),
 )
 preview = prepared.preview()
 run = prepared.run(

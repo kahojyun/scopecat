@@ -24,7 +24,7 @@ def _selection(*, point_values: tuple[float, ...] = (0.0, 1.0), use_count: int =
         use_count=use_count,
     )
     selected = select_measurement_values(
-        scenario.linked_points,
+        scenario.catalog,
         required_product_use_ids=tuple(use.id for use in scenario.uses),
     )
     return scenario, selected
@@ -38,7 +38,7 @@ def test_selection_is_canonical_and_declaration_order_independent() -> None:
     scenario = measurement_assembly_scenario(use_count=3)
 
     selected = select_measurement_values(
-        scenario.linked_points,
+        scenario.catalog,
         required_product_use_ids=tuple(use.id for use in reversed(scenario.uses)),
     )
 
@@ -50,12 +50,12 @@ def test_selection_rejects_duplicate_and_unknown_uses() -> None:
 
     with pytest.raises(CheckFailed) as duplicate:
         select_measurement_values(
-            scenario.linked_points,
+            scenario.catalog,
             required_product_use_ids=(scenario.uses[0].id, scenario.uses[0].id),
         )
     with pytest.raises(CheckFailed) as unknown:
         select_measurement_values(
-            scenario.linked_points,
+            scenario.catalog,
             required_product_use_ids=(ProductUseId("foreign"),),
         )
 

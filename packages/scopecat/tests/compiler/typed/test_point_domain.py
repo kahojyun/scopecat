@@ -34,20 +34,28 @@ from scopecat.compiler.semantic.value_expressions import (
     verify_table_value_expr,
 )
 from scopecat.compiler.typed.point_domain import (
-    LogicalPointId,
     MaterializedPoint,
     MaterializedPointDomain,
     PointCardinality,
     PointDomain,
     PointDomainEvaluationError,
-    PointDomainId,
     PointDomainValueError,
     PointDomainVerificationError,
     materialize_point_domain,
+    materialize_point_domain_ordinals,
     verify_point_domain,
 )
 from scopecat.kernel.payloads import PayloadValue
-from scopecat.kernel.value_types import Entity, Int, Payload, Scalar, Table, TableColumn
+from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
+from scopecat.kernel.value_types import (
+    Entity,
+    Float,
+    Int,
+    Payload,
+    Scalar,
+    Table,
+    TableColumn,
+)
 from scopecat.records.entity import EntityRef
 
 _INT = Scalar(Int())
@@ -217,6 +225,70 @@ def test_product_materialization_is_left_major() -> None:
     ]
 
 
+def test_product_ordinal_selection_matches_complete_left_major_order() -> None:
+    domain = PointDomain(
+        root=point_product(
+            point_rows(_integer_rows("left", [1, 2])),
+            point_rows(_integer_rows("right", [3, 4])),
+        )
+    )
+    verified = verify_point_domain(domain, program_id="program")
+    complete = materialize_point_domain(verified, ParameterRelationData())
+
+    selected = materialize_point_domain_ordinals(
+        verified,
+        ParameterRelationData(),
+        (3, 0, 3),
+        max_points=3,
+    )
+
+    assert selected == (
+        complete.points[3],
+        complete.points[0],
+        complete.points[3],
+    )
+
+    with pytest.raises(ValueError, match="exceeds"):
+        materialize_point_domain_ordinals(
+            verified,
+            ParameterRelationData(),
+            (0, 1),
+            max_points=1,
+        )
+
+
+def test_ordinal_selection_requires_exact_symbolic_cardinality() -> None:
+    verified = verify_point_domain(_domain([1, 2]), program_id="program")
+
+    with pytest.raises(ValueError, match="exact cardinality"):
+        materialize_point_domain_ordinals(
+            verified,
+            ParameterRelationData(),
+            (0,),
+            max_points=1,
+        )
+
+
+def test_zip_ordinal_selection_matches_complete_positional_order() -> None:
+    domain = PointDomain(
+        root=point_zip(
+            point_rows(_integer_rows("left", [1, 2])),
+            point_rows(_integer_rows("right", [3, 4])),
+        )
+    )
+    verified = verify_point_domain(domain, program_id="program")
+    complete = materialize_point_domain(verified, ParameterRelationData())
+
+    selected = materialize_point_domain_ordinals(
+        verified,
+        ParameterRelationData(),
+        (1,),
+        max_points=1,
+    )
+
+    assert selected == (complete.points[1],)
+
+
 def test_relation_use_identity_is_independent_of_structural_path() -> None:
     leaf = point_rows(_integer_rows("value", [1]))
     standalone = verify_point_domain(PointDomain(root=leaf), program_id="program")
@@ -258,6 +330,35 @@ def test_dependent_product_right_reads_the_accumulated_left_row() -> None:
         {"left": 1, "right": 11},
         {"left": 2, "right": 12},
     ]
+
+
+def test_dependent_ordinal_selection_skips_unselected_ambient_branches() -> None:
+    left = _integer_rows("left", [1, 2])
+    right_type = Table(
+        (TableColumn("right", Scalar(Float())),),
+        min_rows=1,
+        max_rows=1,
+    )
+    right = verify_table_value_expr(
+        grid(right=point_col("left") / (2 - point_col("left"))),
+        bindings=RelationTypeBindings(point_row=RowType((TableColumn("left", _INT),))),
+        expected_type=right_type,
+    )
+    verified = verify_point_domain(
+        PointDomain(root=point_dependent_product(point_rows(left), point_rows(right))),
+        program_id="program",
+    )
+
+    selected = materialize_point_domain_ordinals(
+        verified,
+        ParameterRelationData(),
+        (0,),
+        max_points=1,
+    )
+
+    assert selected[0].row == {"left": 1, "right": 1.0}
+    with pytest.raises(PointDomainEvaluationError):
+        materialize_point_domain(verified, ParameterRelationData())
 
 
 def test_nested_dependent_product_right_reads_all_accumulated_columns() -> None:

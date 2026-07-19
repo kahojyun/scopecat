@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 import scopecat as sc
 from scopecat import Quantity
+from scopecat.compiler.linking.linked import LinkedPointMaterializer
 from scopecat.config.registry import CandidateConfigRegistrySource
 from scopecat.kernel.errors import Conflict
 from scopecat.records.parameter import TableParameterValue
@@ -80,15 +81,11 @@ def test_drag_beta_template_and_scratch_share_the_2d_point_model(
     lab = quantum_lab(workspace=tmp_path)
     template_preview = lab.prepare(
         DRAG_BETA_TEMPLATE,
-        execution_backend=sc.ExecutionBackend(
-            domain_compilers=(DragBetaDomainCompiler(),)
-        ),
+        system=sc.ExperimentSystem(domain_compiler=DragBetaDomainCompiler()),
     ).preview()
     scratch_preview = lab.prepare(
         drag_beta_scratch_experiment(lab),
-        execution_backend=sc.ExecutionBackend(
-            domain_compilers=(DragBetaDomainCompiler(),)
-        ),
+        system=sc.ExperimentSystem(domain_compiler=DragBetaDomainCompiler()),
     ).preview()
 
     assert template_preview.point_count == scratch_preview.point_count == 15
@@ -111,12 +108,21 @@ def test_drag_beta_template_and_scratch_share_the_2d_point_model(
 
 def test_drag_beta_workspace_analysis_authors_typed_native_proposal(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    def reject_input_binding(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("finite DRAG axes must not bind domain inputs")
+
+    monkeypatch.setattr(
+        LinkedPointMaterializer,
+        "bind_domain_inputs",
+        reject_input_binding,
+    )
     compiler = DragBetaDomainCompiler()
     lab = quantum_lab(workspace=tmp_path)
     experiment = lab.prepare(
         DRAG_BETA_TEMPLATE,
-        execution_backend=sc.ExecutionBackend(domain_compilers=(compiler,)),
+        system=sc.ExperimentSystem(domain_compiler=compiler),
     )
 
     run = experiment.run()
@@ -187,7 +193,7 @@ def test_drag_beta_low_quality_fit_saves_evidence_without_a_proposal(
     lab = quantum_lab(workspace=tmp_path)
     run = lab.prepare(
         DRAG_BETA_TEMPLATE,
-        execution_backend=sc.ExecutionBackend(domain_compilers=(compiler,)),
+        system=sc.ExperimentSystem(domain_compiler=compiler),
     ).run()
     original_fit = fit_drag_beta
 
@@ -259,7 +265,7 @@ def test_drag_beta_review_activate_active_replay_and_rollback(
     source_compiler = DragBetaDomainCompiler()
     source_run = lab.prepare(
         DRAG_BETA_TEMPLATE,
-        execution_backend=sc.ExecutionBackend(domain_compilers=(source_compiler,)),
+        system=sc.ExperimentSystem(domain_compiler=source_compiler),
     ).run()
     result = analyze_drag_beta_run(source_run)
     result.analysis.save()
@@ -307,7 +313,7 @@ def test_drag_beta_review_activate_active_replay_and_rollback(
     active_experiment = lab.prepare(
         DRAG_BETA_TEMPLATE,
         config="active",
-        execution_backend=sc.ExecutionBackend(domain_compilers=(active_compiler,)),
+        system=sc.ExperimentSystem(domain_compiler=active_compiler),
     )
     active_preview = active_experiment.preview()
     active_run = active_experiment.run()
@@ -343,9 +349,7 @@ def test_drag_beta_review_activate_active_replay_and_rollback(
     restored_preview = lab.prepare(
         DRAG_BETA_TEMPLATE,
         config="active",
-        execution_backend=sc.ExecutionBackend(
-            domain_compilers=(DragBetaDomainCompiler(),)
-        ),
+        system=sc.ExperimentSystem(domain_compiler=DragBetaDomainCompiler()),
     ).preview()
     restored_betas = sorted(
         {
@@ -369,7 +373,7 @@ def test_drag_beta_response_and_evidence_remain_batch_local(tmp_path: Path) -> N
 
     run = lab.prepare(
         DRAG_BETA_TEMPLATE,
-        execution_backend=sc.ExecutionBackend(domain_compilers=(compiler,)),
+        system=sc.ExperimentSystem(domain_compiler=compiler),
     ).run()
     analysis = analyze_drag_beta_run(run)
 

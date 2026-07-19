@@ -2,50 +2,56 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import cast
+from dataclasses import replace
+from math import prod
+from typing import TypeGuard, cast
 
 from scopecat.compiler.linking.linked import (
-    MaterializedLinkedPointBatch,
+    LinkedPlan,
     MaterializedLinkedPoints,
-    MaterializedLinkedPointSet,
 )
-from scopecat.compiler.relations.analysis import (
-    PlanNode,
-    PlanReferenceKind,
-    plan_references,
+from scopecat.compiler.relations.model import (
+    BinaryScalarExpr,
+    LiteralRowsRelationExpr,
+    LiteralScalarExpr,
+    PointColumnScalarExpr,
+    RelationExpr,
+    ScalarExpr,
+    ScalarExpression,
+    SeriesExpr,
 )
-from scopecat.compiler.relations.evaluation import EvalContext
-from scopecat.compiler.relations.model import lit
-from scopecat.compiler.relations.specialization import (
-    BindingTime,
-    KnownScalar,
-    residual_scalar_expression,
-    specialize_scalar,
+from scopecat.compiler.relations.point_domain import (
+    PointDependentProduct,
+    PointDomainPath,
+    PointRelationRows,
+    PointUnit,
+    PointZip,
 )
-from scopecat.compiler.semantic.value_expressions import (
-    ScalarValueExpr,
-    verify_scalar_value_expr,
+from scopecat.compiler.relations.scalar_eval import read_path
+from scopecat.compiler.semantic.model import MeasurementTransformId
+from scopecat.compiler.typed.domain_results import (
+    DomainResultClosure,
 )
-from scopecat.compiler.typed.parameter_overlays import (
-    resolve_parameter_cell_bindings,
-)
-from scopecat.compiler.typed.point_domain import LogicalPointId
+from scopecat.compiler.typed.point_domain import CompilerPointDomainExpr
 from scopecat.compiler.typed.products import ProductDef
-from scopecat.compiler.typed.program import core_domain_executions
-from scopecat.kernel.product_identity import ProductId, ProductUseId
-from scopecat.planning.domain_placement import (
-    DomainExecutionSlice,
-    domain_execution_slice,
+from scopecat.compiler.typed.program import (
+    TypedDomainExecution,
+    TypedDomainProgram,
+    core_domain_executions,
 )
+from scopecat.kernel.point_identity import LogicalPointId
+from scopecat.kernel.product_identity import ProductId, ProductUseId
+from scopecat.measurements._bridge import project_measurement_catalog
 from scopecat.sdk.domain.compiler import (
-    DomainBoundPoint,
     DomainCompileRequest,
-    DomainResidualInput,
+    DomainInput,
+    DomainInputBinder,
+    DomainLiteral,
+    DomainPointAffine,
+    DomainPointAxis,
 )
 from scopecat.sdk.domain.context import DomainBatchContext
 from scopecat.sdk.domain.view import (
-    DomainBatchView,
     DomainCallView,
     DomainExecutionPointView,
     DomainExecutionView,
@@ -63,133 +69,389 @@ from scopecat.sdk.domain.view import (
 )
 
 
-@dataclass(frozen=True, slots=True)
-class DomainPlanProjection:
-    linked_points: MaterializedLinkedPoints = field(repr=False)
-    execution_id: str
-    point_refs: tuple[DomainPointRef, ...]
-    product_use_refs: tuple[DomainProductUseRef, ...]
-    _point_refs_by_id: dict[LogicalPointId, DomainPointRef] = field(
-        repr=False,
-        compare=False,
-    )
-    _product_use_refs_by_id: dict[ProductUseId, DomainProductUseRef] = field(
-        repr=False,
-        compare=False,
-    )
-    _product_contracts: dict[ProductId, DomainProductContractView] = field(
-        repr=False,
-        compare=False,
-    )
-    _measurement_transforms: tuple[DomainMeasurementTransform, ...] = field(
-        repr=False,
-        compare=False,
-    )
-    _execution_slice: DomainExecutionSlice = field(
-        repr=False,
-        compare=False,
-    )
-
-    def view(self, selected: MaterializedLinkedPointSet) -> DomainBatchView:
-        self._require_owned_points(selected)
-        points = tuple(
-            self._point_refs_by_id[point.logical_id]
-            for point in selected.point_domain.points
-        )
-        materialized = (
-            next(
-                execution
-                for execution in selected.domain_executions
-                if execution.execution.id == self.execution_id
-            )
-            if isinstance(selected, MaterializedLinkedPoints)
-            else selected.domain_execution(self.execution_id)
-        )
-        return DomainBatchView(
-            execution=DomainExecutionView(
-                id=materialized.execution.id,
-                program=DomainProgramView(
-                    id=materialized.execution.program.id.qualified_name,
-                    dialect_id=materialized.execution.program.dialect_id,
-                    dialect_version=materialized.execution.program.dialect_version,
-                    body=materialized.execution.program.body,
-                    inputs=tuple(
-                        DomainInputPortView(port.id, port.value_type)
-                        for port in materialized.execution.program.input_ports
-                    ),
-                    results=tuple(
-                        DomainResultPortView(port.id, port.contract)
-                        for port in materialized.execution.program.result_ports
-                    ),
-                ),
-                points=tuple(
-                    DomainExecutionPointView(
-                        ref=self._point_refs_by_id[point.logical_id],
-                        inputs=point.inputs,
-                    )
-                    for point in materialized.points
-                ),
-                results=tuple(
-                    DomainResultBindingView(
-                        id=result.id,
-                        product=self._product_contracts[result.product_id],
-                        product_uses=tuple(
-                            self._product_use_refs_by_id[use_id]
-                            for use_id in result.product_use_ids
-                        ),
-                        contract=next(
-                            port.contract
-                            for port in materialized.execution.program.result_ports
-                            if port.id == result.id
-                        ),
-                    )
-                    for result in materialized.execution.results
-                ),
-                measurement_transforms=self._measurement_transforms,
-            ),
-            points=points,
-            product_uses=self.product_use_refs,
-        )
-
-    def _require_owned_points(self, selected: MaterializedLinkedPointSet) -> None:
-        if selected is self.linked_points:
-            return
-        if (
-            isinstance(selected, MaterializedLinkedPointBatch)
-            and selected.parent is self.linked_points
-        ):
-            return
-        msg = "domain view projection requires points from its materialized plan"
-        raise ValueError(msg)
-
-    def execution_slice(self) -> DomainExecutionSlice:
-        return self._execution_slice
-
-
-def project_domain_plan(
-    linked_points: MaterializedLinkedPoints,
+def make_domain_compile_request(
+    linked: LinkedPlan,
     execution_id: str,
-) -> DomainPlanProjection:
-    product_contracts = {
-        product.id: _product_contract_view(product)
-        for product in linked_points.linked_plan.product_defs
-    }
+    result_closure: DomainResultClosure,
+    barrier_regions: tuple[tuple[int, ...], ...],
+    bind_inputs: DomainInputBinder,
+) -> DomainCompileRequest:
+    """Project one typed symbolic domain call for pure target compilation."""
+
+    typed_execution = next(
+        item
+        for item in core_domain_executions(linked.program)
+        if item.id == execution_id
+    )
+    (
+        product_contracts,
+        product_use_refs,
+        product_use_refs_by_id,
+        transform_refs,
+    ) = _project_domain_assets(linked)
+    inputs: list[DomainInput] = []
+    for port in typed_execution.program.input_ports:
+        residual = typed_execution.inputs[port.id].value
+        inputs.append(
+            DomainInput(
+                id=port.id,
+                normal_form=_domain_input_normal_form(residual.plan.root),
+            )
+        )
+    owned_use_ids = set(result_closure.product_use_ids)
+    return DomainCompileRequest(
+        call=DomainCallView(
+            id=typed_execution.id,
+            program=_domain_program_view(typed_execution.program),
+            results=_domain_result_views(
+                typed_execution,
+                product_contracts,
+                product_use_refs_by_id,
+            ),
+            measurement_transforms=tuple(
+                transform_refs[transform.id] for transform in result_closure.transforms
+            ),
+            product_uses=tuple(
+                product_use
+                for product_use in product_use_refs
+                if product_use_id(product_use) in owned_use_ids
+            ),
+        ),
+        inputs=tuple(inputs),
+        barrier_regions=barrier_regions,
+        input_binder=bind_inputs,
+        point_axes=_finite_point_axes(linked),
+    )
+
+
+type _CoreInputExpression = ScalarExpr | SeriesExpr | RelationExpr
+type _AffineTerms = tuple[str | None, int | float, int | float]
+
+
+def _domain_input_normal_form(
+    expression: _CoreInputExpression,
+) -> DomainLiteral | DomainPointAffine | None:
+    if isinstance(expression, LiteralScalarExpr):
+        return DomainLiteral(expression.value)
+    if not isinstance(expression, ScalarExpr):
+        return None
+    terms = _affine_terms(cast("ScalarExpression", expression))
+    if terms is None:
+        return None
+    column_id, scale, offset = terms
+    if column_id is None:
+        return None
+    return DomainPointAffine(column_id, scale, offset)
+
+
+def _affine_terms(expression: ScalarExpression) -> _AffineTerms | None:
+    if isinstance(expression, PointColumnScalarExpr):
+        return (expression.name, 1, 0)
+    if isinstance(expression, LiteralScalarExpr):
+        if _is_affine_number(expression.value):
+            return (None, 0, expression.value)
+        return None
+    if not isinstance(expression, BinaryScalarExpr):
+        return None
+    left = _affine_terms(expression.left)
+    right = _affine_terms(expression.right)
+    if left is None or right is None:
+        return None
+    left_column, left_scale, left_offset = left
+    right_column, right_scale, right_offset = right
+    if expression.op in {"+", "-"}:
+        if (
+            left_column is not None
+            and right_column is not None
+            and left_column != right_column
+        ):
+            return None
+        direction = 1 if expression.op == "+" else -1
+        return (
+            left_column or right_column,
+            left_scale + direction * right_scale,
+            left_offset + direction * right_offset,
+        )
+    if expression.op == "*":
+        if left_column is None:
+            return (
+                right_column,
+                left_offset * right_scale,
+                left_offset * right_offset,
+            )
+        if right_column is None:
+            return (
+                left_column,
+                right_offset * left_scale,
+                right_offset * left_offset,
+            )
+        return None
+    if expression.op == "/" and right_column is None and right_offset != 0:
+        return (
+            left_column,
+            left_scale / right_offset,
+            left_offset / right_offset,
+        )
+    return None
+
+
+def _is_affine_number(value: object) -> TypeGuard[int | float]:
+    return type(value) in {int, float}
+
+
+def _finite_point_axes(linked: LinkedPlan) -> tuple[DomainPointAxis, ...]:
+    point_space = linked.verified_program.point_domain
+    coordinate_ids = {column.id for column in point_space.coordinate_columns}
+
+    def exact_count(path: PointDomainPath) -> int | None:
+        cardinality = point_space.analysis.facts[path].cardinality
+        return (
+            cardinality.minimum if cardinality.maximum == cardinality.minimum else None
+        )
+
+    def project(
+        node: CompilerPointDomainExpr,
+        path: PointDomainPath,
+        *,
+        repeat_each: int,
+    ) -> tuple[DomainPointAxis, ...]:
+        if isinstance(node, PointUnit | PointDependentProduct):
+            return ()
+        if isinstance(node, PointRelationRows):
+            relation = node.rows.plan.root
+            if not isinstance(relation, LiteralRowsRelationExpr):
+                return ()
+            return tuple(
+                DomainPointAxis(
+                    column.id,
+                    tuple(read_path(row, column.id) for row in relation.rows),
+                    repeat_each=repeat_each,
+                )
+                for column in node.rows.value_type.columns
+                if column.id in coordinate_ids
+            )
+        if isinstance(node, PointZip):
+            return tuple(
+                axis
+                for index, source in enumerate(node.sources)
+                for axis in project(
+                    source,
+                    (*path, "sources", index),
+                    repeat_each=repeat_each,
+                )
+            )
+        axes: list[DomainPointAxis] = []
+        for index, factor in enumerate(node.factors):
+            suffix_counts = tuple(
+                exact_count((*path, "factors", suffix_index))
+                for suffix_index in range(index + 1, len(node.factors))
+            )
+            if any(count is None for count in suffix_counts):
+                continue
+            axes.extend(
+                project(
+                    factor,
+                    (*path, "factors", index),
+                    repeat_each=repeat_each
+                    * prod(cast("tuple[int, ...]", suffix_counts)),
+                )
+            )
+        return tuple(axes)
+
+    return project(point_space.root, (), repeat_each=1)
+
+
+def make_domain_batch_context(
+    request: DomainCompileRequest,
+    linked_points: MaterializedLinkedPoints,
+    point_ordinals: tuple[int, ...],
+    *,
+    batch_ordinal: int,
+    absorbed_input_ids: tuple[str, ...] = (),
+    absorbed_transform_ids: tuple[str, ...] = (),
+) -> DomainBatchContext:
+    call = request.call
+    absorbed_input_set = set(absorbed_input_ids)
+    residual_inputs = request.resolve_inputs(
+        tuple(
+            input_value.id
+            for input_value in request.inputs
+            if input_value.id not in absorbed_input_set
+        ),
+        point_ordinals,
+        max_points=len(point_ordinals),
+    )
+    residual_input_ids = tuple(name for name, _values in residual_inputs.columns)
+    residual_input_set = set(residual_input_ids)
+    selected_points = tuple(
+        linked_points.point_domain.points[ordinal] for ordinal in point_ordinals
+    )
     point_refs = tuple(
         DomainPointRef(
             id=point.logical_id.value,
             ordinal=point.logical_ordinal,
             native=point.logical_id,
         )
-        for point in linked_points.point_domain.points
+        for point in selected_points
     )
-    point_refs_by_id = {cast("LogicalPointId", ref.native): ref for ref in point_refs}
+    absorbed_ids = set(absorbed_transform_ids)
+    absorbed_transforms = tuple(
+        transform
+        for transform in call.measurement_transforms
+        if transform.id in absorbed_ids
+    )
+    residual_transforms = tuple(
+        transform
+        for transform in call.measurement_transforms
+        if transform.id not in absorbed_ids
+    )
+    execution = DomainExecutionView(
+        id=call.id,
+        program=replace(
+            call.program,
+            inputs=tuple(
+                port for port in call.program.inputs if port.id in residual_input_set
+            ),
+        ),
+        points=tuple(
+            DomainExecutionPointView(
+                ref=point,
+                inputs=tuple(
+                    (name, values[index]) for name, values in residual_inputs.columns
+                ),
+            )
+            for index, point in enumerate(point_refs)
+        ),
+        results=call.results,
+        measurement_transforms=residual_transforms,
+    )
+    absorbed_output_ids = {
+        product_use_id(product_use)
+        for transform in absorbed_transforms
+        for output in transform.outputs
+        for product_use in output.product_uses
+    }
+    residual_output_ids = {
+        product_use_id(product_use)
+        for transform in residual_transforms
+        for output in transform.outputs
+        for product_use in output.product_uses
+    }
+    direct_ids = {
+        product_use_id(product_use)
+        for result in call.results
+        for product_use in result.product_uses
+    } | absorbed_output_ids
+    derived_ids = residual_output_ids
+    owned = call.product_uses
+    direct = tuple(
+        product_use
+        for product_use in owned
+        if product_use_id(product_use) in direct_ids
+    )
+    derived = tuple(
+        product_use
+        for product_use in owned
+        if product_use_id(product_use) in derived_ids
+    )
+    return DomainBatchContext(
+        batch_ordinal=batch_ordinal,
+        execution=execution,
+        product_uses=owned,
+        direct_product_uses=direct,
+        derived_product_uses=derived,
+        measurement_catalog=project_measurement_catalog(
+            linked_points,
+            point_ordinals,
+        ),
+    )
+
+
+def point_id(ref: DomainPointRef) -> LogicalPointId:
+    return cast("LogicalPointId", ref.native)
+
+
+def product_use_id(ref: DomainProductUseRef) -> ProductUseId:
+    return cast("ProductUseId", ref.native)
+
+
+def _product_contract_view(product: ProductDef) -> DomainProductContractView:
+    return DomainProductContractView(
+        id=product.id.qualified_name,
+        kind=product.kind,
+        unit=product.unit,
+        dtype=product.dtype,
+        axes=tuple(
+            DomainProductAxisView(
+                id=axis.id,
+                kind=axis.kind,
+                size=axis.size,
+                unit=axis.unit,
+                metadata=axis.metadata,
+            )
+            for axis in product.axes
+        ),
+        metadata=product.metadata,
+    )
+
+
+def _domain_program_view(program: TypedDomainProgram) -> DomainProgramView:
+    return DomainProgramView(
+        id=program.id.qualified_name,
+        dialect_id=program.dialect_id,
+        dialect_version=program.dialect_version,
+        body=program.body,
+        inputs=tuple(
+            DomainInputPortView(port.id, port.value_type)
+            for port in program.input_ports
+        ),
+        results=tuple(
+            DomainResultPortView(port.id, port.contract)
+            for port in program.result_ports
+        ),
+    )
+
+
+def _domain_result_views(
+    execution: TypedDomainExecution,
+    product_contracts: dict[ProductId, DomainProductContractView],
+    product_use_refs: dict[ProductUseId, DomainProductUseRef],
+) -> tuple[DomainResultBindingView, ...]:
+    return tuple(
+        DomainResultBindingView(
+            id=result.id,
+            product=product_contracts[result.product_id],
+            product_uses=tuple(
+                product_use_refs[use_id] for use_id in result.product_use_ids
+            ),
+            contract=next(
+                port.contract
+                for port in execution.program.result_ports
+                if port.id == result.id
+            ),
+        )
+        for result in execution.results
+    )
+
+
+def _project_domain_assets(
+    linked: LinkedPlan,
+) -> tuple[
+    dict[ProductId, DomainProductContractView],
+    tuple[DomainProductUseRef, ...],
+    dict[ProductUseId, DomainProductUseRef],
+    dict[MeasurementTransformId, DomainMeasurementTransform],
+]:
+    product_contracts = {
+        product.id: _product_contract_view(product) for product in linked.product_defs
+    }
     product_use_refs = tuple(
         DomainProductUseRef(
             id=use.id.value,
             product=product_contracts[use.product_id],
             native=use.id,
         )
-        for use in linked_points.linked_plan.product_uses
+        for use in linked.product_uses
     )
     product_use_refs_by_id = {
         cast("ProductUseId", ref.native): ref for ref in product_use_refs
@@ -218,209 +480,11 @@ def project_domain_plan(
                 for port in transform.outputs
             ),
         )
-        for transform in linked_points.linked_plan.program.measurement_transforms
+        for transform in linked.program.measurement_transforms
     }
-    execution_slice = domain_execution_slice(
-        linked_points.linked_plan.program,
-        execution_id,
-    )
-    measurement_transforms = tuple(
-        transform_refs[transform.id] for transform in execution_slice.transforms
-    )
-    return DomainPlanProjection(
-        linked_points=linked_points,
-        execution_id=execution_id,
-        point_refs=point_refs,
-        product_use_refs=product_use_refs,
-        _point_refs_by_id=point_refs_by_id,
-        _product_use_refs_by_id=product_use_refs_by_id,
-        _product_contracts=product_contracts,
-        _measurement_transforms=measurement_transforms,
-        _execution_slice=execution_slice,
-    )
-
-
-def make_domain_compile_request(
-    projection: DomainPlanProjection,
-    barrier_regions: tuple[MaterializedLinkedPointBatch, ...],
-) -> DomainCompileRequest:
-    """Project one typed symbolic domain call for pure target compilation."""
-
-    linked_points = projection.linked_points
-    view = projection.view(linked_points)
-    execution = view.execution
-    typed_execution = next(
-        item
-        for item in core_domain_executions(linked_points.linked_plan.program)
-        if item.id == projection.execution_id
-    )
-    if execution is None:
-        raise ValueError("domain compilation requires one typed domain execution")
-    known = EvalContext(params=linked_points.linked_plan.environment.parameters)
-    parameter_cells = resolve_parameter_cell_bindings(
-        linked_points.linked_plan.program.parameter_overlays,
-        known=known,
-    )
-    inputs: list[DomainResidualInput] = []
-    for port in typed_execution.program.input_ports:
-        input_value = typed_execution.inputs[port.id]
-        expression = input_value.value
-        if isinstance(expression, ScalarValueExpr):
-            result = specialize_scalar(
-                expression.plan.root,
-                known=known,
-                parameter_cells=parameter_cells,
-            )
-            residual = verify_scalar_value_expr(
-                (
-                    lit(result.value)
-                    if isinstance(result, KnownScalar)
-                    else residual_scalar_expression(result)
-                ),
-                bindings=expression.plan.bindings,
-                expected_type=expression.value_type,
-            )
-            binding_time = (
-                BindingTime.CONFIGURATION_STATIC
-                if isinstance(result, KnownScalar)
-                else result.binding_time
-            )
-        else:
-            residual = expression
-            binding_time = _value_binding_time(expression.plan.root)
-        inputs.append(
-            DomainResidualInput(
-                id=port.id,
-                value_type=port.value_type,
-                expression=residual,
-                binding_time=binding_time,
-            )
-        )
-    return DomainCompileRequest(
-        call=DomainCallView(
-            id=typed_execution.id,
-            program=execution.program,
-            results=execution.results,
-            measurement_transforms=execution.measurement_transforms,
-        ),
-        point_space=linked_points.verified_program.point_domain,
-        inputs=tuple(inputs),
-        barrier_regions=tuple(region.point_indices for region in barrier_regions),
-        _bound_points=tuple(
-            DomainBoundPoint(point.logical_ordinal, point.inputs)
-            for point in execution.points
-        ),
-    )
-
-
-def make_domain_batch_context(
-    projection: DomainPlanProjection,
-    batch: MaterializedLinkedPointBatch,
-    *,
-    compiler_id: str,
-    batch_ordinal: int,
-    pushed_transform_ids: tuple[str, ...] = (),
-) -> DomainBatchContext:
-    view = projection.view(batch)
-    execution = view.execution
-    if execution is None:
-        raise AssertionError("selected domain execution is missing")
-    execution_slice = projection.execution_slice()
-    pushed_ids = set(pushed_transform_ids)
-    pushed_transforms = tuple(
-        transform
-        for transform in execution.measurement_transforms
-        if transform.id in pushed_ids
-    )
-    residual_transforms = tuple(
-        transform
-        for transform in execution.measurement_transforms
-        if transform.id not in pushed_ids
-    )
-    pushed_output_ids = {
-        product_use_id(product_use)
-        for transform in pushed_transforms
-        for output in transform.outputs
-        for product_use in output.product_uses
-    }
-    residual_output_ids = {
-        product_use_id(product_use)
-        for transform in residual_transforms
-        for output in transform.outputs
-        for product_use in output.product_uses
-    }
-    owned_ids = set(execution_slice.product_use_ids)
-    direct_ids = set(execution_slice.direct_product_use_ids) | pushed_output_ids
-    derived_ids = residual_output_ids
-    owned = tuple(
-        product_use
-        for product_use in view.product_uses
-        if product_use_id(product_use) in owned_ids
-    )
-    direct = tuple(
-        product_use
-        for product_use in view.product_uses
-        if product_use_id(product_use) in direct_ids
-    )
-    derived = tuple(
-        product_use
-        for product_use in view.product_uses
-        if product_use_id(product_use) in derived_ids
-    )
-    return DomainBatchContext(
-        batch_ordinal=batch_ordinal,
-        execution=execution,
-        points=view.points,
-        product_uses=owned,
-        direct_product_uses=direct,
-        derived_product_uses=derived,
-        measurement_transforms=residual_transforms,
-        linked_points=batch,
-        compiler_id=compiler_id,
-    )
-
-
-def _value_binding_time(expression: PlanNode) -> BindingTime:
-    references = plan_references(expression)
-    kinds = {reference.kind for reference in references}
-    if kinds & {
-        PlanReferenceKind.CURRENT_COLUMN,
-        PlanReferenceKind.OUTER_COLUMN,
-        PlanReferenceKind.POINT_COLUMN,
-    }:
-        return BindingTime.POINT
-    if kinds & {
-        PlanReferenceKind.PARAMETER_SCALAR,
-        PlanReferenceKind.PARAMETER_SERIES,
-        PlanReferenceKind.PARAMETER_TABLE,
-    }:
-        return BindingTime.CONFIGURATION_STATIC
-    return BindingTime.REQUEST_STATIC
-
-
-def point_id(ref: DomainPointRef) -> LogicalPointId:
-    return cast("LogicalPointId", ref.native)
-
-
-def product_use_id(ref: DomainProductUseRef) -> ProductUseId:
-    return cast("ProductUseId", ref.native)
-
-
-def _product_contract_view(product: ProductDef) -> DomainProductContractView:
-    return DomainProductContractView(
-        id=product.id.qualified_name,
-        kind=product.kind,
-        unit=product.unit,
-        dtype=product.dtype,
-        axes=tuple(
-            DomainProductAxisView(
-                id=axis.id,
-                kind=axis.kind,
-                size=axis.size,
-                unit=axis.unit,
-                metadata=axis.metadata,
-            )
-            for axis in product.axes
-        ),
-        metadata=product.metadata,
+    return (
+        product_contracts,
+        product_use_refs,
+        product_use_refs_by_id,
+        transform_refs,
     )

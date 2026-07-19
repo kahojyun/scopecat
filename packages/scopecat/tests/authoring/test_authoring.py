@@ -105,7 +105,6 @@ from tests.testkit.authoring import (
 from tests.testkit.bound_plan import (
     bound_coordinate_ids,
     bound_plan_contract,
-    bound_plan_result,
     bound_state_fields,
     config_with_physical_resources,
     measurement_projection_contract,
@@ -261,8 +260,8 @@ def test_module_invocation_resolves_roles_scans_bindings_and_metadata() -> None:
     )
     assert [record.id for record in experiment.record_uses] == ["signal"]
     _, state, field = bound_state_fields(preview)[0]
-    assert state.resource_id.value == "source-0"
-    assert state.capability_id == "set_frequency"
+    assert state.instrument_id == "source-0"
+    assert field.capability_id == "set_frequency"
     assert field.field_path == "frequency"
     assert field.value.root == Quantity(value=4.9, unit="GHz")
 
@@ -581,11 +580,7 @@ def test_entity_scan_routes_resources_per_point() -> None:
     )
 
     assert [point.point_index for point in preview.points] == [0, 1]
-    assert [point.routes[0].resource_id.value for point in preview.points] == [
-        "source-0",
-        "source-1",
-    ]
-    assert [state.resource_id.value for _, state, _ in bound_state_fields(preview)] == [
+    assert [state.instrument_id for _, state, _ in bound_state_fields(preview)] == [
         "source-0",
         "source-1",
     ]
@@ -744,12 +739,8 @@ def test_runtime_entity_scan_feeds_routing_and_parameter_lookup() -> None:
         EntityRef(id="q0", kind="logical_device"),
         EntityRef(id="q1", kind="logical_device"),
     ]
-    assert [point.routes[0].resource_id.value for point in preview.points] == [
-        "source-0",
-        "source-1",
-    ]
     assert [
-        (point_index, state.resource_id.value, field.value.root)
+        (point_index, state.instrument_id, field.value.root)
         for point_index, state, field in bound_state_fields(preview)
     ] == [
         (0, "source-0", Quantity(value=5.0, unit="GHz")),
@@ -1074,14 +1065,10 @@ def test_entity_series_routes_as_single_point_with_ordered_product_axis() -> Non
     )
 
     assert preview.point_count == 1
-    binding = preview.points[0].routes[0]
-    assert binding.resource_id.value == "readout-array"
-    assert binding.entity_ids == ("q0", "q1")
-    assert binding.product_axis_order == ("q0", "q1")
-    assert preview.local_product_realizations is not None
-    [realization] = preview.local_product_realizations.entries
-    assert realization.producer.resource_target == logical_resource_port_id("readout")
-    assert realization.implicit_resource_id is None
+    [operation] = preview.points[0].collect_operations
+    [request] = operation.command.requests
+    assert operation.instrument_id == "readout-array"
+    assert request.entity_ids == ["q0", "q1"]
 
 
 def test_module_elaborates_without_config() -> None:
@@ -1175,7 +1162,7 @@ def test_link_assembly_resolves_config_dependent_fragments() -> None:
     assert resolved.experiment.id == "authored-simple-scan"
     assert resolved.config.id == load_config().id
     preview = bound_plan_contract(resolved.experiment, resolved.parameters)
-    assert bound_state_fields(preview)[0][1].resource_id.value == "source-0"
+    assert bound_state_fields(preview)[0][1].instrument_id == "source-0"
 
 
 def test_link_assembly_validates_parameter_contracts_owned_by_point_source() -> None:
@@ -1699,7 +1686,7 @@ def test_template_invocation_runs_composed_modules_directly() -> None:
         ),
         config_profile=load_config(),
     )
-    preview, _ = bound_plan_result(
+    preview = bound_plan_contract(
         resolved.experiment,
         resolved.parameters,
     )
@@ -1879,8 +1866,7 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
     resource_target = state.resource_target
     assert isinstance(resource_target, LogicalStateResourceTarget)
     assert resource_target.port_id.qualified_name == "drive"
-    assert preview.points[0].routes[0].resource_id.value == "source-1"
-    assert bound_state_fields(preview)[0][1].resource_id.value == "source-1"
+    assert bound_state_fields(preview)[0][1].instrument_id == "source-1"
 
 
 def test_module_can_materialize_background_state_from_parameter_table() -> None:
@@ -1980,8 +1966,8 @@ def test_module_can_materialize_background_state_from_parameter_table() -> None:
 
     assert [
         (
-            state.resource_id.value,
-            f"{state.capability_id}.{field.field_path}",
+            state.instrument_id,
+            f"{field.capability_id}.{field.field_path}",
             field.value.root,
         )
         for _, state, field in bound_state_fields(preview)
@@ -2025,13 +2011,14 @@ def test_module_assembler_reports_ambiguous_resource_port() -> None:
         simple_template().bind(subject="q0"),
         config_profile=config,
     )
-    _preview, problems = bound_plan_result(
-        resolved.experiment,
-        resolved.parameters,
-        config=config,
-    )
+    with pytest.raises(CheckFailed) as failure:
+        bound_plan_contract(
+            resolved.experiment,
+            resolved.parameters,
+            config=config,
+        )
 
-    assert problems[0].code == "module_resource_port_ambiguous"
+    assert failure.value.problems[0].code == "module_resource_port_ambiguous"
 
 
 def test_resolve_experiment_uses_active_config_and_input_defaults(

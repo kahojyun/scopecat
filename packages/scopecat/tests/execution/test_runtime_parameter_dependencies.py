@@ -3,7 +3,6 @@ from dataclasses import replace
 import pytest
 
 from scopecat.compiler.frontend.environment import validate_config_environment
-from scopecat.compiler.linking.materialization import materialize_local_semantics
 from scopecat.compiler.relations.evaluation import ParameterRelationData
 from scopecat.compiler.relations.model import (
     lit,
@@ -39,6 +38,7 @@ from scopecat.execution.effect_interpreter import (
 )
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Bool, Float, Scalar, Series, Table
+from scopecat.planning.local_materialization import materialize_local_execution
 from scopecat.records.entity import EntityRef
 from tests.testkit.authoring import load_config
 from tests.testkit.relation_plans import value_expr
@@ -122,9 +122,9 @@ def test_bound_compute_call_carries_dependency_provenance() -> None:
         parameters=parameters,
     )
 
-    plan = materialize_local_semantics(link_program(program, environment))
+    plan = materialize_local_execution(link_program(program, environment))
 
-    assert plan.points[0].compute[0].dependencies == {
+    assert plan.points[0].compute_operations[0].dependencies == {
         "input_refs": (
             "calibrations_input",
             "gain_input",

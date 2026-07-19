@@ -14,6 +14,7 @@ from typing import cast
 from scopecat.compiler.relations.model import (
     RowScopeId,
 )
+from scopecat.compiler.relations.specialization import BindingTime
 from scopecat.compiler.relations.uses import (
     RelationUse,
     RelationUseId,
@@ -92,6 +93,7 @@ class ValueInput:
     value: ValueExpr
     relation_use_id: RelationUseId = field(default_factory=RelationUseId.fresh)
     origin_input_ids: tuple[str, ...] = ()
+    binding_time: BindingTime | None = None
 
     @property
     def value_type(self) -> ValueType:

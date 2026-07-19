@@ -9,15 +9,15 @@ from scopecat.authoring import (
     ExperimentInvocation,
     ValueValidationError,
 )
-from scopecat.compiler.linking.bound import (
-    BoundResourceState,
-    BoundStateField,
-    MaterializedLocalSemantics,
+from scopecat.execution.local.program import (
+    ApplyStateOperation,
+    StateTarget,
 )
 from scopecat.execution.observation import RuntimePayloadObservation
 from scopecat.kernel.errors import CheckFailed
-from scopecat.measurements.projection import SelectedMeasurementProjection
+from scopecat.measurements.projection import MeasurementProjection
 from scopecat.planning.authoring import resolve_experiment
+from scopecat.planning.local_materialization import MaterializedLocalEffects
 from scopecat.records.artifact import CommandPayload
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter import Quantity
@@ -317,10 +317,10 @@ def test_rabi_generates_point_local_pulse_programs(tmp_path: Path) -> None:
     payloads = _run_observed_payloads(tmp_path, invocation)
 
     assert {
-        (call.operation_id.qualified_name, call.payload_schema_id)
+        (call.semantic_operation_id, call.payload_slot.schema_id)
         for point in preview.points
-        for call in point.compute
-        if call.payload_schema_id is not None
+        for call in point.compute_operations
+        if call.payload_slot is not None
     } == {
         (
             "rabi/render-rabi-waveforms",
@@ -382,8 +382,8 @@ def test_flux_background_rabi_adds_background_state(tmp_path: Path) -> None:
         Quantity(value=0.05, unit="arb"),
     ) in [
         (
-            state.resource_id.value,
-            state.capability_id,
+            state.instrument_id,
+            field.capability_id,
             field.field_path,
             field.value.root,
         )
@@ -403,8 +403,8 @@ def test_system_background_rabi_materializes_coupler_parking_table(
         field
         for point_index, state, field in _state_fields(preview)
         if point_index == 0
-        and state.resource_id.value == "coupler-stack"
-        and state.capability_id == "set_flux_bias"
+        and state.instrument_id == "coupler-stack"
+        and field.capability_id == "set_flux_bias"
         if field.field_path == "offset"
     ]
 
@@ -440,7 +440,7 @@ def test_multiplexed_readout_is_single_point_entity_axis_record(
     observable = next(
         record for record in projection.records if record.id == "multiplexed_iq"
     )
-    assert len(projection.linked_points.point_domain.points) == 1
+    assert len(projection.catalog.point_catalog.points) == 1
     assert observable.dtype == "complex128"
     assert observable.dims == ("point", "qubit")
     assert observable.shape == (1, 2)
@@ -457,7 +457,7 @@ def test_multiplexed_readout_calibration_scans_shared_readout_pulse(
     observable = next(
         record for record in projection.records if record.id == "multiplexed_iq"
     )
-    assert len(projection.linked_points.point_domain.points) == 5
+    assert len(projection.catalog.point_catalog.points) == 5
     assert observable.dims == ("point", "qubit")
     assert observable.shape == (5, 2)
 
@@ -516,8 +516,8 @@ def test_cz_chevron_generates_drive_and_coupler_payloads(tmp_path: Path) -> None
     assert cz_program.parameters == ("qubits", "two_qubit_gates")
     build_payload = next(
         call
-        for call in preview.points[0].compute
-        if call.operation_id.qualified_name == ("cz_chevron/build-cz-chevron-program")
+        for call in preview.points[0].compute_operations
+        if call.semantic_operation_id == ("cz_chevron/build-cz-chevron-program")
     )
     assert dict(build_payload.dependencies) == {
         "input_refs": ("control_qubit", "coupler", "partner_qubit"),
@@ -645,8 +645,8 @@ def test_spectator_cz_adds_background_state(tmp_path: Path) -> None:
         Quantity(value=0.025, unit="arb"),
     ) in [
         (
-            state.resource_id.value,
-            state.capability_id,
+            state.instrument_id,
+            field.capability_id,
             field.field_path,
             field.value.root,
         )
@@ -842,7 +842,7 @@ def test_qnd_repeated_measurement_keeps_dense_round_shot_array(
 
     observable = next(record for record in projection.records if record.id == "qnd_iq")
 
-    assert len(projection.linked_points.point_domain.points) == 1
+    assert len(projection.catalog.point_catalog.points) == 1
     assert observable.dims == ("point", "round", "shot")
     assert observable.shape == (1, 3, 5)
 
@@ -908,7 +908,7 @@ def _bound_plan(
     tmp_path: Path,
     invocation: ExperimentInvocation,
     config: ConfigProfileSnapshot | None = None,
-) -> MaterializedLocalSemantics:
+) -> MaterializedLocalEffects:
     del tmp_path
     return bound_plan(invocation, config=config)
 
@@ -917,17 +917,17 @@ def _measurement_projection(
     tmp_path: Path,
     invocation: ExperimentInvocation,
     config: ConfigProfileSnapshot | None = None,
-) -> SelectedMeasurementProjection:
+) -> MeasurementProjection:
     del tmp_path
     return measurement_projection(invocation, config=config)
 
 
 def _state_fields(
-    plan: MaterializedLocalSemantics,
-) -> tuple[tuple[int, BoundResourceState, BoundStateField], ...]:
+    plan: MaterializedLocalEffects,
+) -> tuple[tuple[int, ApplyStateOperation, StateTarget], ...]:
     return tuple(
         (point.point_index, state, field)
         for point in plan.points
-        for state in point.desired_state
-        for field in state.fields
+        for state in point.state_operations
+        for field in state.targets
     )

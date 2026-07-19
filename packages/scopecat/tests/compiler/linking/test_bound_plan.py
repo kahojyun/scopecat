@@ -6,8 +6,6 @@ from enum import IntEnum, StrEnum
 import pytest
 
 from scopecat.compiler.frontend.environment import validate_config_environment
-from scopecat.compiler.linking.bound import BoundComputeOutput, BoundValue
-from scopecat.compiler.linking.materialization import materialize_local_semantics
 from scopecat.compiler.relations.model import (
     RelationExpr,
     lit,
@@ -45,7 +43,9 @@ from scopecat.compiler.typed.program import (
     ValueInput,
     set_state_field,
 )
+from scopecat.execution.local.program import BoundInput, OutputInput
 from scopecat.kernel.content_identity import content_fingerprint
+from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.state import PayloadRef
 from scopecat.kernel.symbols import SymbolId
@@ -61,6 +61,7 @@ from scopecat.kernel.value_types import (
     TableColumn,
 )
 from scopecat.kernel.value_types import Quantity as QuantityType
+from scopecat.planning.local_materialization import materialize_local_execution
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import Quantity
 from tests.testkit.authoring import load_config
@@ -197,11 +198,10 @@ def test_bound_state_preserves_primitive_field_types(
         config_with_physical_resources({"source-0": ("configure",)})
     )
 
-    plan = materialize_local_semantics(link_program(program, environment))
+    plan = materialize_local_execution(link_program(program, environment))
 
-    assert plan.valid
-    assert plan.points[0].desired_state[0].fields[0].value.root == value
-    assert type(plan.points[0].desired_state[0].fields[0].value.root) is type(value)
+    assert plan.points[0].state_operations[0].targets[0].value.root == value
+    assert type(plan.points[0].state_operations[0].targets[0].value.root) is type(value)
 
 
 def test_bound_plan_uses_logical_point_and_content_addressed_payload_identity() -> None:
@@ -272,10 +272,9 @@ def test_bound_plan_uses_logical_point_and_content_addressed_payload_identity() 
         config_with_physical_resources({"source-0": ("play_program",)})
     )
 
-    plan = materialize_local_semantics(link_program(program, environment))
-    repeated = materialize_local_semantics(link_program(program, environment))
+    plan = materialize_local_execution(link_program(program, environment))
+    repeated = materialize_local_execution(link_program(program, environment))
 
-    assert plan.valid
     assert [point.logical_id.logical_ordinal for point in plan.points] == [0, 1, 2]
     assert {
         (point.logical_id.domain_id.program_id, point.logical_id.domain_id.domain_id)
@@ -288,21 +287,31 @@ def test_bound_plan_uses_logical_point_and_content_addressed_payload_identity() 
 
     payload_ids: list[str] = []
     for point in plan.points:
-        node_ids = [call.operation_id for call in point.compute]
-        assert node_ids.index(unused_id) < node_ids.index(consumer_id)
-        assert node_ids.index(producer_id) < node_ids.index(consumer_id)
-        consumer = next(
-            call for call in point.compute if call.operation_id == consumer_id
+        node_ids = [call.semantic_operation_id for call in point.compute_operations]
+        assert node_ids.index(unused_id.qualified_name) < node_ids.index(
+            consumer_id.qualified_name
         )
-        unused = next(call for call in point.compute if call.operation_id == unused_id)
-        assert consumer.inputs["value"] == BoundComputeOutput(producer_output_id)
-        assert consumer.payload_id is not None
-        assert unused.payload_id is None
-        payload_ids.append(consumer.payload_id)
+        assert node_ids.index(producer_id.qualified_name) < node_ids.index(
+            consumer_id.qualified_name
+        )
+        consumer = next(
+            call
+            for call in point.compute_operations
+            if call.semantic_operation_id == consumer_id.qualified_name
+        )
+        unused = next(
+            call
+            for call in point.compute_operations
+            if call.semantic_operation_id == unused_id.qualified_name
+        )
+        assert consumer.inputs["value"] == OutputInput(producer_output_id)
+        assert consumer.payload_slot is not None
+        assert unused.payload_slot is None
+        payload_ids.append(consumer.payload_slot.id)
 
-        state_value = point.desired_state[0].fields[0].value.root
+        state_value = point.state_operations[0].targets[0].value.root
         assert isinstance(state_value, PayloadRef)
-        assert state_value.payload_id == consumer.payload_id
+        assert state_value.payload_id == consumer.payload_slot.id
 
     assert payload_ids[0] == payload_ids[1]
     assert payload_ids[2] != payload_ids[0]
@@ -367,15 +376,13 @@ def test_point_domain_rechecks_primary_key_after_config_entity_normalization() -
         ),
     )
 
-    plan = materialize_local_semantics(
-        link_program(program, validate_config_environment(load_config()))
-    )
-
-    assert not plan.valid
-    assert plan.points == ()
+    with pytest.raises(CheckFailed) as failure:
+        materialize_local_execution(
+            link_program(program, validate_config_environment(load_config()))
+        )
     problem = next(
         problem
-        for problem in plan.problems
+        for problem in failure.value.problems
         if problem.code == "module_point_value_type_mismatch"
     )
     assert "duplicates row 0" in problem.message
@@ -424,15 +431,14 @@ def test_compute_inputs_are_normalized_before_binding() -> None:
         ),
     )
 
-    plan = materialize_local_semantics(
+    plan = materialize_local_execution(
         link_program(program, validate_config_environment(load_config()))
     )
 
-    assert plan.valid
-    calls = [point.compute[0] for point in plan.points]
+    calls = [point.compute_operations[0] for point in plan.points]
     assert [call.inputs["frequency"] for call in calls] == [
-        BoundValue(Quantity(value=5.0, unit="GHz")),
-        BoundValue(Quantity(value=5.0, unit="GHz")),
+        BoundInput(Quantity(value=5.0, unit="GHz")),
+        BoundInput(Quantity(value=5.0, unit="GHz")),
     ]
 
 
@@ -499,12 +505,14 @@ def test_compute_mapping_inputs_preserve_key_types_and_values() -> None:
         ),
     )
 
-    plan = materialize_local_semantics(
+    plan = materialize_local_execution(
         link_program(program, validate_config_environment(load_config()))
     )
 
-    assert plan.valid
-    assert plan.points[0].compute[0].inputs != plan.points[1].compute[0].inputs
+    assert (
+        plan.points[0].compute_operations[0].inputs
+        != plan.points[1].compute_operations[0].inputs
+    )
 
 
 def test_opaque_point_value_does_not_participate_in_logical_identity() -> None:
@@ -528,10 +536,9 @@ def test_opaque_point_value_does_not_participate_in_logical_identity() -> None:
         ),
     )
 
-    plan = materialize_local_semantics(
+    plan = materialize_local_execution(
         link_program(program, validate_config_environment(load_config()))
     )
 
-    assert plan.valid
     assert len(plan.points) == 1
     assert plan.points[0].logical_id.logical_ordinal == 0

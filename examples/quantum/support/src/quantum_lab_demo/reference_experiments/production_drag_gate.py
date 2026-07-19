@@ -397,22 +397,15 @@ class ProductionDragGateCompiler:
     def compile(self, request: DomainCompileRequest) -> DomainCompilation | None:
         if not _accepts_execution(request.call):
             return None
-        partitions = request.partition(max_points=1)
+        drag_beta = request.input("drag_beta")
+        if not drag_beta.is_literal:
+            return None
+        artifact = _ProductionDragArtifact(_decode_beta(drag_beta.literal_value()))
         return compiled_jobs(
             request,
-            compiler_id=self.compiler_id,
-            target_id=self.target_id,
             max_points=1,
-            artifacts=tuple(
-                _ProductionDragArtifact(
-                    _decode_beta(
-                        request.bind_points(ordinals, max_points=1)[0].input(
-                            "drag_beta"
-                        )
-                    )
-                )
-                for ordinals in partitions
-            ),
+            absorbed_input_ids=("drag_beta",),
+            compile_artifact=lambda _inputs: artifact,
         )
 
     def prepare(
@@ -422,9 +415,6 @@ class ProductionDragGateCompiler:
     ) -> PreparedDomainExecution:
         execution = context.execution
         artifact = cast("_ProductionDragArtifact", job.artifact)
-        if tuple(point.ref for point in execution.points) != context.points:
-            msg = "production DRAG execution points do not match the context"
-            raise ValueError(msg)
         if len(execution.points) != 1:
             msg = "production DRAG execution requires exactly one logical point"
             raise ValueError(msg)

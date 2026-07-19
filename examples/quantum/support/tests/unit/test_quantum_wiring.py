@@ -6,7 +6,10 @@ from pathlib import Path
 import pytest
 import scopecat as sc
 from scopecat.compiler.frontend.elaboration import elaborate_module
-from scopecat.compiler.linking.linked import link_verified_program
+from scopecat.compiler.linking.linked import (
+    link_verified_program,
+    specialize_linked_program,
+)
 from scopecat.composition.local import local_execution_services
 from scopecat.config.profiles import load_config_profile
 from scopecat.execution.interpreter import interpret_run_program
@@ -201,7 +204,7 @@ def test_modules_leave_resource_selection_to_routing() -> None:
         assert assembly.resource_ports
 
 
-def test_default_quantum_wiring_debug_view_includes_resolved_channel_routes(
+def test_default_quantum_wiring_closes_resolved_effect_channels(
     tmp_path: Path,
 ) -> None:
     del tmp_path
@@ -210,26 +213,25 @@ def test_default_quantum_wiring_debug_view_includes_resolved_channel_routes(
         config=quantum_wiring_config_profile(),
     )
 
-    drive = next(
-        route
-        for route in plan.points[0].routes
-        if route.port_id.qualified_name == "simultaneous/drive"
-    )
-    readout = next(
-        route
-        for route in plan.points[0].routes
-        if route.port_id.qualified_name == "multiplexed_readout/readout"
-    )
+    drive_channels = {
+        (binding.line_id, binding.channel_id)
+        for state in plan.points[0].state_operations
+        for field in state.targets
+        for binding in field.channel_bindings
+        if binding.line_id in {"q0.xy", "q1.xy"}
+    }
+    readout_channels = [
+        (binding.line_id, binding.channel_id)
+        for operation in plan.points[0].collect_operations
+        for request in operation.command.requests
+        for binding in request.channel_bindings
+    ]
 
-    assert [
-        (binding.line_id, binding.channel_id) for binding in drive.channel_bindings
-    ] == [
+    assert drive_channels == {
         ("q0.xy", "drive.awg0.ch1"),
         ("q1.xy", "drive.awg0.ch2"),
-    ]
-    assert [
-        (binding.line_id, binding.channel_id) for binding in readout.channel_bindings
-    ] == [
+    }
+    assert readout_channels == [
         ("ro.mux0", "readout.mux0"),
         ("ro.mux0", "readout.mux0"),
     ]
@@ -265,8 +267,10 @@ def test_default_quantum_wiring_runtime_commands_include_channel_bindings(
     provider = _RecordingProvider(
         QuantumLabVirtualProvider(profile=EXPERIMENT_VIRTUAL_LAB_PROFILE)
     )
-    linked = link_verified_program(resolved.verified_program, resolved.environment)
-    program = sc.ExecutionBackend(provider=provider).compile(linked, config=config)
+    linked = specialize_linked_program(
+        link_verified_program(resolved.verified_program, resolved.environment)
+    )
+    program = sc.ExperimentSystem(provider=provider).compile(linked, config=config)
 
     manifest = interpret_run_program(
         config=config,

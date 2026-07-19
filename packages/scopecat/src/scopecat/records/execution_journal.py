@@ -50,7 +50,6 @@ type ExecutionStage = Literal[
     "terminal_readback",
     "domain_submit",
     "domain_fetch",
-    "domain_reconcile",
 ]
 
 

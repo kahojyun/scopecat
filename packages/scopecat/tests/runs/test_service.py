@@ -14,7 +14,7 @@ from scopecat.compiler.frontend.resolution import (
 )
 from scopecat.composition.local import local_workspace_services
 from scopecat.kernel.errors import CheckFailed
-from scopecat.planning.backend import ExecutionBackend
+from scopecat.planning.system import ExperimentSystem
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter import Quantity
 from scopecat.runs.service import (
@@ -39,12 +39,12 @@ def test_check_and_start_run_use_separate_paths(
 
     result = check_experiment(
         config=config,
-        execution_backend=ExecutionBackend(provider=TestSignalInstrumentProvider()),
+        system=ExperimentSystem(provider=TestSignalInstrumentProvider()),
         experiment=experiment,
         services=local_workspace_services(tmp_path / "preview"),
     )
     provider_run = start_run(
-        execution_backend=ExecutionBackend(provider=TestSignalInstrumentProvider()),
+        system=ExperimentSystem(provider=TestSignalInstrumentProvider()),
         config=config,
         experiment=experiment,
         services=local_workspace_services(tmp_path / "provider"),
@@ -78,11 +78,11 @@ def test_check_and_start_run_accept_template_invocation(tmp_path: Path) -> None:
     report = check_experiment(
         invocation,
         config=config,
-        execution_backend=ExecutionBackend(provider=TestSignalInstrumentProvider()),
+        system=ExperimentSystem(provider=TestSignalInstrumentProvider()),
         services=local_workspace_services(tmp_path / "preview"),
     )
     provider_run = start_run(
-        execution_backend=ExecutionBackend(provider=TestSignalInstrumentProvider()),
+        system=ExperimentSystem(provider=TestSignalInstrumentProvider()),
         config=config,
         experiment=invocation,
         services=local_workspace_services(tmp_path / "provider"),
@@ -121,9 +121,7 @@ def test_workflow_compiles_authoring_before_config_source_io(
         with pytest.raises(CheckFailed) as error:
             run_experiment(
                 invalid,
-                execution_backend=ExecutionBackend(
-                    provider=TestSignalInstrumentProvider()
-                ),
+                system=ExperimentSystem(provider=TestSignalInstrumentProvider()),
                 services=local_workspace_services(tmp_path),
             )
         problem = error.value.problems[0]

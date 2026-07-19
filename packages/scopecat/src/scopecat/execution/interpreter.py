@@ -2,13 +2,9 @@
 
 from __future__ import annotations
 
-from scopecat.execution.effect_interpreter import (
-    RunEffectResult,
-)
+from scopecat.execution.effect_interpreter import RunEffectResult
 from scopecat.execution.effects.domain import (
-    DomainSynchronousCompletionPending,
     domain_runtime_terminal_problem,
-    execute_domain_job_values,
     measurement_recording_terminal_problem,
 )
 from scopecat.execution.events import (
@@ -22,12 +18,9 @@ from scopecat.execution.evidence import (
     build_instrument_state_evidence,
     raw_measurement_schema,
 )
-from scopecat.execution.local.collection_values import (
-    BoundLocalCollectionValues,
-    bind_local_collection_values,
-    local_collection_value_candidates,
-)
-from scopecat.execution.local.executor import execute_run_local_effects
+from scopecat.execution.local.collection_contract import BoundLocalCollectionValues
+from scopecat.execution.local.collection_values import local_collection_value_candidates
+from scopecat.execution.local.executor import execute_run_operations
 from scopecat.execution.observation import RuntimeEventSink, RuntimePayloadObserver
 from scopecat.execution.persistence import (
     validate_measurement_index_shape,
@@ -38,13 +31,7 @@ from scopecat.execution.problems import (
     problem_from_exception,
     runtime_problem,
 )
-from scopecat.execution.program import (
-    RunDomainJob,
-    RunPointRegion,
-    RunProgram,
-    run_local_effects,
-    run_point_regions,
-)
+from scopecat.execution.program import RunDomainJob, RunProgram
 from scopecat.execution.services import (
     CollectionRecordRepository,
     ExecutionServices,
@@ -68,7 +55,7 @@ from scopecat.kernel.problems import (
     has_blocking_problems,
 )
 from scopecat.measurements.projection import project_measurement_records
-from scopecat.measurements.recording import commit_projected_measurement_records
+from scopecat.measurements.recording import commit_measurement_records
 from scopecat.measurements.results import MeasurementRecord
 from scopecat.measurements.values import (
     MeasurementValueCandidate,
@@ -113,13 +100,11 @@ def _interpret_run(
     event_sink: RuntimeEventSink | None,
     payload_observer: RuntimePayloadObserver | None,
 ) -> RunManifest:
-    point = run_local_effects(program)
-    point_regions = run_point_regions(program)
-    local_binding = _bind_local_fragment(program)
-    core_program = program.linked_points.linked_plan.program
-    projection = program.projection.projection
-    point_count = len(program.linked_points.point_domain.points)
-    experiment_id = core_program.id
+    host = program.host
+    local_binding = program.local_values
+    projection = program.measurements
+    point_count = len(projection.catalog.point_catalog.points)
+    experiment_id = program.experiment_id
     run_id = new_run_id()
     storage = services.runs
     accepted = RunManifest(
@@ -135,7 +120,7 @@ def _interpret_run(
     )
     storage.write_manifest(accepted.model_copy(update={"lifecycle": "running"}))
 
-    instrument_ids = [] if point is None else list(point.instrument_order)
+    instrument_ids = [] if host is None else list(host.instrument_order)
     emit_run_started(
         event_sink=event_sink,
         run_id=run_id,
@@ -154,57 +139,29 @@ def _interpret_run(
     measurements = services.measurements_for(run_id)
     readbacks = services.collections_for(run_id)
     payloads = services.payloads_for(run_id)
-    domain_jobs = tuple(job for region in point_regions for job in region.domain_jobs)
-    domain_values: dict[str, list[tuple[MeasurementValueCandidate, ...]]] = {}
+    domain_values: list[MeasurementValueCandidate] = []
     domain_failure: tuple[RunDomainJob, BaseException] | None = None
-
-    def execute_domain_region(region: RunPointRegion) -> bool:
-        nonlocal domain_failure
-        for job in region.domain_jobs:
-            try:
-                domain_values.setdefault(job.source_id, []).append(
-                    execute_domain_job_values(
-                        job.prepared,
-                        semantic_operation_id=job.id,
-                        run_id=run_id,
-                        journal=journal,
-                    )
-                )
-            except BaseException as error:
-                domain_failure = (job, error)
-                return False
-        return True
 
     local_result: RunEffectResult | None = None
     setup_problems: list[Problem] = []
-    direct_interruption: BaseException | None = None
     resource_failure: BaseException | None = None
     claims = program.resource_claims
     try:
         with services.resources.acquire(claims):
-            if point is not None:
-                executed, setup_problems = execute_run_local_effects(
-                    config=config,
-                    effects=point,
-                    run_id=run_id,
-                    journal=journal,
-                    readbacks=readbacks,
-                    payloads=payloads,
-                    event_sink=event_sink,
-                    payload_observer=payload_observer,
-                    transition_observer=transition_observer,
-                    point_regions=(point_regions if domain_jobs else ()),
-                )
-                local_result = executed.result
-                domain_values.update(executed.domain_values)
-                domain_failure = executed.domain_failure
-            else:
-                try:
-                    for region in point_regions:
-                        if not execute_domain_region(region):
-                            break
-                except BaseException as error:
-                    direct_interruption = error
+            executed = execute_run_operations(
+                config=config,
+                program=program,
+                run_id=run_id,
+                journal=journal,
+                readbacks=readbacks,
+                payloads=payloads,
+                payload_observer=payload_observer,
+                transition_observer=transition_observer,
+            )
+            local_result = executed.result
+            setup_problems.extend(executed.setup_problems)
+            domain_values.extend(executed.domain_values)
+            domain_failure = executed.domain_failure
     except BaseException as error:
         resource_failure = error
 
@@ -218,13 +175,7 @@ def _interpret_run(
         if local_result is not None and local_result.uncertain
         else "known"
     )
-    interruption = (
-        direct_interruption
-        if direct_interruption is not None
-        else None
-        if local_result is None
-        else local_result.interruption
-    )
+    interruption = None if local_result is None else local_result.interruption
     if isinstance(resource_failure, Exception):
         problems.append(
             problem_from_exception(
@@ -264,6 +215,8 @@ def _interpret_run(
     # Aggregate product ownership is an exact whole-run contract. If any batch
     # fails, successful effects remain correlated in the journal, but Scopecat
     # does not publish a logically incomplete measurement dataset.
+    committed_measurements: list[MeasurementRecord] = []
+    measurement_reload_required = False
     if not has_blocking_problems(problems):
         try:
             candidates = _measurement_value_candidates(
@@ -273,20 +226,21 @@ def _interpret_run(
                 readbacks=readbacks,
             )
             values = seal_measurement_values(
-                program.values,
+                program.measurements.product_values,
                 candidates,
             )
             projected = project_measurement_records(
-                program.projection,
+                program.measurements,
                 values,
                 run_id=run_id,
             )
-            commit_projected_measurement_records(
+            committed = commit_measurement_records(
                 projected,
                 measurements,
                 journal,
                 transition_observer=transition_observer.observe,
             )
+            committed_measurements.extend(committed.records)
         except MeasurementRecordingError as error:
             problems.extend(
                 contextualize_problems(
@@ -300,6 +254,11 @@ def _interpret_run(
             )
             if error.write_may_have_completed:
                 certainty = "indeterminate"
+            measurement_reload_required = bool(
+                error.committed_prefix
+                or error.pending_receipt is not None
+                or error.write_may_have_completed
+            )
         except ProblemFailure as error:
             problems.extend(
                 contextualize_problems(
@@ -319,6 +278,7 @@ def _interpret_run(
                 )
             )
         except BaseException as error:
+            measurement_reload_required = True
             interruption = error
             certainty = "indeterminate"
             problems.append(
@@ -332,13 +292,14 @@ def _interpret_run(
                 )
             )
 
-    committed_measurements, reload_uncertain = _reload_measurements(
-        measurements,
-        run_id=run_id,
-        problems=problems,
-    )
-    if reload_uncertain:
-        certainty = "indeterminate"
+    if measurement_reload_required:
+        committed_measurements, reload_uncertain = _reload_measurements(
+            measurements,
+            run_id=run_id,
+            problems=problems,
+        )
+        if reload_uncertain:
+            certainty = "indeterminate"
     expected_schema = raw_measurement_schema(projection.schema)
     if committed_measurements or not has_blocking_problems(problems):
         problems.extend(
@@ -399,7 +360,9 @@ def _interpret_run(
         problems=tuple(problems),
     )
     instrument_state = (
-        None if local_result is None else build_instrument_state_evidence(local_result)
+        None
+        if host is None or local_result is None
+        else build_instrument_state_evidence(local_result)
     )
     manifest = build_execution_manifest(
         run_id=run_id,
@@ -448,23 +411,10 @@ def _interpret_run(
     return manifest
 
 
-def _bind_local_fragment(
-    program: RunProgram,
-) -> BoundLocalCollectionValues | None:
-    point = run_local_effects(program)
-    if point is None or not point.product_use_ids:
-        return None
-    return bind_local_collection_values(
-        program.values,
-        point.product_use_ids,
-        point,
-    )
-
-
 def _measurement_value_candidates(
     *,
     local_binding: BoundLocalCollectionValues | None,
-    domain_values: dict[str, list[tuple[MeasurementValueCandidate, ...]]],
+    domain_values: list[MeasurementValueCandidate],
     run_id: str,
     readbacks: CollectionRecordRepository,
 ) -> tuple[MeasurementValueCandidate, ...]:
@@ -478,8 +428,7 @@ def _measurement_value_candidates(
                 receipts=readbacks.receipts(),
             )
         )
-    for value_batches in domain_values.values():
-        candidates.extend(value for values in value_batches for value in values)
+    candidates.extend(domain_values)
     return tuple(candidates)
 
 
@@ -509,32 +458,6 @@ def _domain_failure_problems(
     *,
     run_id: str,
 ) -> tuple[list[Problem], bool, BaseException | None]:
-    prepared = unit.prepared
-    if isinstance(error, DomainSynchronousCompletionPending):
-        return (
-            [
-                runtime_problem(
-                    "domain_synchronous_completion_contract_violated",
-                    (
-                        "the domain runtime returned pending after its compiler "
-                        "declared synchronous completion"
-                    ),
-                    run_id=run_id,
-                    operation_id=error.operation_id,
-                    category=ProblemCategory.PROVIDER_CONTRACT,
-                    details={
-                        "unit_id": unit.id,
-                        "completion_contract": prepared.completion_contract,
-                        "job_id": error.job_id,
-                        "submission_key": error.submission_key,
-                        "automatic_resume": False,
-                        "operator_action": "inspect_target_job",
-                    },
-                )
-            ],
-            True,
-            None,
-        )
     if isinstance(error, DomainRuntimeFailure | DomainRuntimePersistenceError):
         problems = list(
             contextualize_problems(

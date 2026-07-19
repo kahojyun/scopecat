@@ -5,11 +5,6 @@ from dataclasses import replace
 import pytest
 
 from scopecat.compiler.frontend.environment import validate_config_environment
-from scopecat.compiler.linking.bound import MaterializedLocalSemantics
-from scopecat.compiler.linking.materialization import (
-    channel_signature,
-    materialize_local_semantics,
-)
 from scopecat.compiler.relations.model import (
     input_series,
     lit,
@@ -26,7 +21,10 @@ from scopecat.compiler.typed.program import (
     record_product,
     set_state_field,
 )
-from scopecat.execution.local.program import ApplyStateStage, CollectStage
+from scopecat.execution.local.program import (
+    ApplyStateStage,
+    CollectStage,
+)
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
@@ -40,6 +38,11 @@ from scopecat.kernel.value_types import (
     Scalar,
     Series,
     String,
+)
+from scopecat.planning.local_materialization import (
+    MaterializedLocalEffects,
+    channel_signature,
+    materialize_local_execution,
 )
 from scopecat.planning.routing import RoutingError, RoutingView
 from scopecat.planning.validation import validate_config
@@ -56,7 +59,7 @@ from scopecat.records.config import (
 )
 from scopecat.records.entity import EntityRef
 from tests.testkit.authoring import load_config, parameters
-from tests.testkit.local_effect_program import lower_test_local_effect_program
+from tests.testkit.local_effect_program import make_test_local_effect_program
 from tests.testkit.relation_plans import (
     scalar_value_expr,
     series_value_expr,
@@ -385,13 +388,9 @@ def test_multi_channel_entity_binding_reaches_state_and_collect_commands() -> No
     )
 
     plan = _bind(experiment, config=config)
-    program = lower_test_local_effect_program(plan, instrument_order=("source-0",))
+    program = make_test_local_effect_program(plan, instrument_order=("source-0",))
 
     assert not validate_config(config)
-    assert plan.valid
-    assert [
-        binding.channel_id for binding in plan.points[0].routes[0].channel_bindings
-    ] == ["drive-q0", "readout-q0"]
     state_stage = next(
         stage
         for stage in program.points[0].stages
@@ -548,7 +547,7 @@ def test_bound_plan_reports_shared_group_resource_conflict() -> None:
         ],
     )
 
-    problems = _bind(_two_route_experiment(), config=config).problems
+    problems = _bind_problems(_two_route_experiment(), config=config)
 
     assert {problem.code for problem in problems} >= {
         "routing_shared_group_resource_conflict"
@@ -599,11 +598,9 @@ def test_bound_plan_allows_configured_shared_group_resource_fanout() -> None:
         ],
     )
 
-    problems = _bind(_two_route_experiment(), config=config).problems
+    plan = _bind(_two_route_experiment(), config=config)
 
-    assert "routing_shared_group_resource_conflict" not in {
-        problem.code for problem in problems
-    }
+    assert plan.point_count == 1
 
 
 def test_bound_plan_reports_channel_shared_by_multiple_ports() -> None:
@@ -637,7 +634,7 @@ def test_bound_plan_reports_channel_shared_by_multiple_ports() -> None:
         ],
     )
 
-    problems = _bind(_two_route_experiment(), config=config).problems
+    problems = _bind_problems(_two_route_experiment(), config=config)
 
     assert {problem.code for problem in problems} >= {"routing_channel_shared_by_ports"}
 
@@ -682,11 +679,9 @@ def test_bound_plan_allows_configured_channel_route_port_fanout() -> None:
         ],
     )
 
-    problems = _bind(_two_route_experiment(), config=config).problems
+    plan = _bind(_two_route_experiment(), config=config)
 
-    assert "routing_channel_shared_by_ports" not in {
-        problem.code for problem in problems
-    }
+    assert plan.point_count == 1
 
 
 def test_bound_plan_rejects_product_duplicates_after_route_resolution() -> None:
@@ -736,10 +731,9 @@ def test_bound_plan_rejects_product_duplicates_after_route_resolution() -> None:
         record_uses=[item[1] for item in uses_and_records],
     )
 
-    plan = _bind(experiment, config=selected_config)
+    problems = _bind_problems(experiment, config=selected_config)
 
-    assert not plan.valid
-    assert [problem.code for problem in plan.problems] == [
+    assert [problem.code for problem in problems] == [
         "collection_provider_key_duplicate"
     ]
 
@@ -768,10 +762,9 @@ def test_bound_plan_rejects_broadcast_and_explicit_product_duplicates() -> None:
         record_uses=[item[1] for item in uses_and_records],
     )
 
-    plan = _bind(experiment)
+    problems = _bind_problems(experiment)
 
-    assert not plan.valid
-    assert [problem.code for problem in plan.problems] == [
+    assert [problem.code for problem in problems] == [
         "collection_provider_key_duplicate"
     ]
 
@@ -797,7 +790,7 @@ def test_bound_plan_reports_conflicting_state_field_values() -> None:
         ],
     )
 
-    problems = _bind(experiment).problems
+    problems = _bind_problems(experiment)
 
     assert {problem.code for problem in problems} >= {
         "experiment_conflicting_desired_state"
@@ -834,7 +827,7 @@ def test_bound_plan_reports_invalid_route_entity_member() -> None:
         ],
     )
 
-    problems = _bind(experiment).problems
+    problems = _bind_problems(experiment)
 
     assert [problem.code for problem in problems].count(
         "module_resource_entity_invalid"
@@ -900,12 +893,22 @@ def _bind(
     experiment: CoreProgram,
     *,
     config: ConfigProfileSnapshot | None = None,
-) -> MaterializedLocalSemantics:
+) -> MaterializedLocalEffects:
     environment = replace(
         validate_config_environment(config or load_config()),
         parameters=parameters(),
     )
-    return materialize_local_semantics(link_program(experiment, environment))
+    return materialize_local_execution(link_program(experiment, environment))
+
+
+def _bind_problems(
+    experiment: CoreProgram,
+    *,
+    config: ConfigProfileSnapshot | None = None,
+):
+    with pytest.raises(CheckFailed) as failure:
+        _bind(experiment, config=config)
+    return failure.value.problems
 
 
 def _routing_constraint_config(

@@ -7,7 +7,7 @@ from scopecat.execution.ports.journal import (
     PayloadEvidenceCommitter,
 )
 from scopecat.execution.ports.measurement import MeasurementRecordCommitter
-from scopecat.execution.ports.resources import ResourceClaim, ResourceLeaseManager
+from scopecat.execution.ports.resources import ResourceLeaseManager
 
 __all__ = [
     "CollectionRepository",
@@ -15,6 +15,5 @@ __all__ = [
     "ExecutionJournalError",
     "MeasurementRecordCommitter",
     "PayloadEvidenceCommitter",
-    "ResourceClaim",
     "ResourceLeaseManager",
 ]

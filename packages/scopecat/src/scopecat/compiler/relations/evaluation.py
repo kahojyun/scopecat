@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import cast
 
 from scopecat.compiler.relations.analysis import PlanNode
@@ -284,6 +284,47 @@ def evaluate_relation_in_context(
     return cast(
         "list[Row]",
         _normalize_materialized_result(verified_plan.certified_type, result),
+    )
+
+
+def evaluate_relation_ordinals(
+    verified_plan: VerifiedRelationPlan[RelationExpr],
+    ctx: EvalContext,
+    ordinals: Sequence[int],
+    *,
+    max_points: int,
+) -> list[Row]:
+    """Evaluate a canonical finite ordinal selection under an explicit budget."""
+
+    selected = tuple(ordinals)
+    if type(max_points) is not int or max_points <= 0:
+        raise ValueError("relation ordinal budget must be a positive integer")
+    if len(selected) > max_points:
+        raise ValueError("relation ordinal selection exceeds the requested budget")
+    if selected != tuple(sorted(set(selected))) or any(
+        ordinal < 0 for ordinal in selected
+    ):
+        msg = "relation ordinals must be unique, non-negative, and canonical"
+        raise ValueError(msg)
+    from scopecat.compiler.relations.evaluator import (
+        evaluate_relation_expression_ordinals,
+    )
+
+    normalized = _prepare_context(verified_plan, ctx)
+    result = evaluate_relation_expression_ordinals(
+        verified_plan.root,
+        normalized,
+        selected,
+    )
+    certified = cast("Table", verified_plan.certified_type)
+    selected_type = replace(
+        certified,
+        min_rows=len(selected),
+        max_rows=len(selected),
+    )
+    return cast(
+        "list[Row]",
+        _normalize_materialized_result(selected_type, result),
     )
 
 

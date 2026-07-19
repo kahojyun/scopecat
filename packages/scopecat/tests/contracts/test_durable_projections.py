@@ -9,8 +9,10 @@ import pytest
 from pydantic import ValidationError
 
 from scopecat.compiler.frontend.environment import validate_config_environment
-from scopecat.compiler.frontend.resolution import compile_prepared_invocation
-from scopecat.compiler.pipeline import link_experiment
+from scopecat.compiler.frontend.resolution import (
+    compile_prepared_invocation,
+    resolve_compiled_invocation,
+)
 from scopecat.records.run_request import RunRequest
 from tests.testkit.workflow_fixtures import load_config, load_prepared_invocation
 
@@ -30,12 +32,12 @@ def _canonical_request(workspace: Path) -> RunRequest:
     compiled_invocation = compile_prepared_invocation(load_prepared_invocation())
     environment = validate_config_environment(load_config())
     assert environment.valid, environment.problems
-    linked_experiment = link_experiment(
+    resolved = resolve_compiled_invocation(
         compiled_invocation,
         environment=environment,
     )
-    assert not linked_experiment.problems, linked_experiment.problems
-    return linked_experiment.request
+    assert not resolved.problems, resolved.problems
+    return resolved.request
 
 
 def test_run_request_v4_projector_matches_golden_and_round_trips(

@@ -20,7 +20,7 @@ from scopecat.kernel.value_types import Table as TableType
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter import Quantity
 from tests.testkit.bound_plan import (
-    bound_plan_result,
+    bound_plan_contract,
     bound_state_fields,
 )
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
@@ -39,7 +39,7 @@ from tests.testkit.workflow_fixtures import load_experiment
 
 
 def _bound_plan_spec(spec: CoreProgram, config: ConfigProfileSnapshot):
-    return bound_plan_result(
+    return bound_plan_contract(
         spec, validate_config_environment(config).parameters, config=config
     )
 
@@ -56,16 +56,15 @@ def test_bound_plan_experiment_builds_expected_plan() -> None:
     config = load_config_profile(EXAMPLE_DIR / "config-profile.json")
     spec = load_experiment()
 
-    preview, problems = _bound_plan_spec(spec, config)
+    preview = _bound_plan_spec(spec, config)
 
     assert preview.experiment_id == spec.id
     assert preview.point_count == 3
     _, state, field = bound_state_fields(preview)[0]
-    assert state.resource_id.value == "source-0"
-    assert state.capability_id == "set_frequency"
+    assert state.instrument_id == "source-0"
+    assert field.capability_id == "set_frequency"
     assert field.field_path == "frequency"
     assert field.value.root == Quantity(value=4.9, unit="GHz")
-    assert problems == ()
 
 
 def test_bound_plan_experiment_includes_float_step_stop_point() -> None:
@@ -110,11 +109,10 @@ def test_bound_plan_experiment_includes_float_step_stop_point() -> None:
         record_uses=[record_use],
     )
 
-    preview, problems = _bound_plan_spec(spec, config)
+    preview = _bound_plan_spec(spec, config)
 
     values = [record.coordinates["drive_frequency"] for record in preview.points]
 
-    assert problems == ()
     assert all(isinstance(value, Quantity) for value in values)
     assert [value.value for value in values if isinstance(value, Quantity)] == [
         5.9,
@@ -134,9 +132,8 @@ def test_duplicate_coordinate_rows_have_distinct_point_uids() -> None:
         point_domain=_point_domain(grid(drive_frequency=[value, value])),
     )
 
-    preview, problems = _bound_plan_spec(spec, config)
+    preview = _bound_plan_spec(spec, config)
 
-    assert problems == ()
     assert len({point.logical_id.value for point in preview.points}) == 2
 
 

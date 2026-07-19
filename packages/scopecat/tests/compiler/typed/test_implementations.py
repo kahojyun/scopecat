@@ -11,7 +11,6 @@ from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.implementations import (
     select_local_implementations,
 )
-from scopecat.compiler.linking.materialization import materialize_local_semantics
 from scopecat.compiler.relations.model import (
     literal_rows,
 )
@@ -41,11 +40,13 @@ from scopecat.compiler.typed.program import (
 )
 from scopecat.compiler.typed.verification import verify_core_program
 from scopecat.execution.local.program import ComputeStage
+from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import ProblemPhase
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Payload, Scalar, Table, ValueType
+from scopecat.planning.local_materialization import materialize_local_execution
 from tests.testkit.authoring import load_config
-from tests.testkit.local_effect_program import lower_test_local_effect_program
+from tests.testkit.local_effect_program import make_test_local_effect_program
 from tests.testkit.relation_plans import point_domain
 from tests.testkit.typed_program import link_program, typed_program
 
@@ -149,12 +150,11 @@ def test_linking_does_not_require_a_local_implementation() -> None:
 
     assert verify_core_program(program) is program
     linked = link_program(program, environment)
-    plan = materialize_local_semantics(linked)
+    with pytest.raises(CheckFailed) as failure:
+        materialize_local_execution(linked)
 
     assert linked.program.compute_nodes[0].contract == program.compute_nodes[0].contract
-    assert not plan.valid
-    assert plan.points == ()
-    assert [problem.code for problem in plan.problems] == [
+    assert [problem.code for problem in failure.value.problems] == [
         "semantic_operation_implementation_missing"
     ]
 
@@ -170,11 +170,10 @@ def test_local_materialization_rejects_ambiguous_implementation() -> None:
 
     environment = validate_config_environment(load_config())
     linked = link_program(program, environment)
-    plan = materialize_local_semantics(linked)
+    with pytest.raises(CheckFailed) as failure:
+        materialize_local_execution(linked)
 
-    assert not plan.valid
-    assert plan.points == ()
-    assert [problem.code for problem in plan.problems] == [
+    assert [problem.code for problem in failure.value.problems] == [
         "semantic_operation_implementation_ambiguous"
     ]
 
@@ -319,14 +318,14 @@ def test_binding_selects_stable_implementation_identity() -> None:
     )
     environment = validate_config_environment(load_config())
 
-    first_plan = materialize_local_semantics(link_program(first, environment))
-    second_plan = materialize_local_semantics(link_program(second, environment))
+    first_plan = materialize_local_execution(link_program(first, environment))
+    second_plan = materialize_local_execution(link_program(second, environment))
 
-    first_call = first_plan.points[0].compute[0]
-    second_call = second_plan.points[0].compute[0]
-    assert first_call.operation_id == operation_id
-    assert first_call.implementation_id == ImplementationId("python-v1")
-    assert second_call.implementation_id == ImplementationId("python-v2")
+    first_call = first_plan.points[0].compute_operations[0]
+    second_call = second_plan.points[0].compute_operations[0]
+    assert first_call.semantic_operation_id == operation_id.qualified_name
+    assert first_call.implementation_id == "python-v1"
+    assert second_call.implementation_id == "python-v2"
 
 
 def test_bound_plan_pins_selection_and_execution_only_projects_it() -> None:
@@ -338,14 +337,14 @@ def test_bound_plan_pins_selection_and_execution_only_projects_it() -> None:
     program = _program(
         catalog=_catalog(("python-v1", operation_id, kernel)),
     )
-    plan = materialize_local_semantics(
+    plan = materialize_local_execution(
         link_program(program, validate_config_environment(load_config()))
     )
 
-    execution = lower_test_local_effect_program(plan, instrument_order=())
+    execution = make_test_local_effect_program(plan, instrument_order=())
 
-    call = plan.points[0].compute[0]
-    assert call.implementation.kernel is kernel
+    call = plan.points[0].compute_operations[0]
+    assert call.kernel is kernel
     stage = execution.points[0].stages[0]
     assert isinstance(stage, ComputeStage)
     assert stage.operations[0].semantic_operation_id == "compute"
@@ -369,29 +368,27 @@ def test_plan_pins_exact_callable_for_selected_implementation() -> None:
         catalog=_catalog(("python-v1", operation_id, second_kernel))
     )
     environment = validate_config_environment(load_config())
-    plan = materialize_local_semantics(link_program(first_program, environment))
-    second_plan = materialize_local_semantics(link_program(second_program, environment))
+    plan = materialize_local_execution(link_program(first_program, environment))
+    second_plan = materialize_local_execution(link_program(second_program, environment))
 
-    assert plan.points[0].compute[0].implementation.kernel is first_kernel
-    assert second_plan.points[0].compute[0].implementation.kernel is second_kernel
+    assert plan.points[0].compute_operations[0].kernel is first_kernel
+    assert second_plan.points[0].compute_operations[0].kernel is second_kernel
 
 
-def test_unsupported_local_result_availability_fails_before_point_evaluation() -> None:
+def test_run_rate_compute_is_lowered_once_outside_point_programs() -> None:
     operation_id = _operation_id()
     availability = ValueAvailability(ValueStage.EXECUTE, ValueRate.RUN)
     program = _program(
         catalog=_catalog(("python-v1", operation_id, lambda: 1.0)),
         output_availability=availability,
+        point_count=2,
     )
-    plan = materialize_local_semantics(
+    materialized = materialize_local_execution(
         link_program(program, validate_config_environment(load_config())),
     )
 
-    assert not plan.valid
-    assert plan.points == ()
-    assert [problem.code for problem in plan.problems] == [
-        "semantic_operation_local_output_availability_unsupported"
-    ]
+    assert len(materialized.run_compute_operations) == 1
+    assert all(not point.compute_operations for point in materialized.points)
 
 
 def test_compute_result_identity_is_preserved_in_bound_calls() -> None:
@@ -401,15 +398,15 @@ def test_compute_result_identity_is_preserved_in_bound_calls() -> None:
     first_output = ValueId(SymbolId(local_id="first-output"))
     second_output = ValueId(SymbolId(local_id="second-output"))
 
-    first = materialize_local_semantics(
+    first = materialize_local_execution(
         link_program(_program(catalog=catalog, output_id=first_output), environment)
     )
-    second = materialize_local_semantics(
+    second = materialize_local_execution(
         link_program(_program(catalog=catalog, output_id=second_output), environment)
     )
 
-    first_call = first.points[0].compute[0]
-    second_call = second.points[0].compute[0]
+    first_call = first.points[0].compute_operations[0]
+    second_call = second.points[0].compute_operations[0]
     assert first_call.result.id == first_output
     assert second_call.result.id == second_output
 
@@ -421,8 +418,6 @@ def test_compute_interface_accepts_payload_python_type() -> None:
         output_type=Scalar(Payload("program", python_type=dict)),
     )
 
-    plan = materialize_local_semantics(
+    materialize_local_execution(
         link_program(program, validate_config_environment(load_config()))
     )
-
-    assert plan.valid

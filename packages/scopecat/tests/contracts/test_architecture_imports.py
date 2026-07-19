@@ -229,7 +229,7 @@ def test_filesystem_adapter_does_not_depend_on_workflows_or_facades() -> None:
             "scopecat.authoring",
             "scopecat.composition",
             "scopecat.config.resolution",
-            "scopecat.planning.backend",
+            "scopecat.planning.system",
             "scopecat.api.workspace",
             "scopecat.api.analysis",
             "scopecat.api.data",

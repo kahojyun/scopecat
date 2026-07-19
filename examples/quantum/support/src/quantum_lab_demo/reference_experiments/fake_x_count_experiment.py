@@ -15,6 +15,7 @@ from scopecat.sdk.domain import (
     DomainCompiledJob,
     DomainCompileRequest,
     DomainExecutionView,
+    DomainResolvedInputs,
     PreparedDomainExecution,
     compiled_jobs,
 )
@@ -103,6 +104,7 @@ _TEMPLATE_CAPTURE = FAKE_X_COUNT_CAPTURE_MODULE.instantiate("capture")
 def fake_x_count_domain_execution(
     iq_shots: sc.ProductRef,
     *,
+    x_count: sc.ValueRef = X_COUNT,
     id: str | None = None,  # noqa: A002
 ) -> sc.DomainExecution:
     """Bind the reference quantum program to one composed capture product."""
@@ -110,7 +112,7 @@ def fake_x_count_domain_execution(
     return quantum.domain_execution(
         _X_COUNT_DOMAIN_PROGRAM,
         id=id,
-        inputs={_X_COUNT_INPUT: X_COUNT},
+        inputs={_X_COUNT_INPUT: x_count},
         results={_READOUT.result: iq_shots},
     )
 
@@ -167,24 +169,20 @@ class FakeXCountDomainCompiler:
     def compile(self, request: DomainCompileRequest) -> DomainCompilation | None:
         if not _accepts_execution(request.call):
             return None
-        partitions = request.partition(max_points=self.target.max_list_entries)
+        affine = request.input("x_count").point_affine
+        if affine is None:
+            return None
+
+        def compile_artifact(inputs: DomainResolvedInputs) -> _FakeXCountArtifact:
+            return _FakeXCountArtifact(
+                tuple(_decode_x_count(value) for value in inputs.input("x_count"))
+            )
+
         return compiled_jobs(
             request,
-            compiler_id=self.compiler_id,
-            target_id=self.target_id,
             max_points=self.target.max_list_entries,
-            artifacts=tuple(
-                _FakeXCountArtifact(
-                    tuple(
-                        _decode_x_count(point.input("x_count"))
-                        for point in request.bind_points(
-                            ordinals,
-                            max_points=self.target.max_list_entries,
-                        )
-                    )
-                )
-                for ordinals in partitions
-            ),
+            artifact_input_ids=("x_count",),
+            compile_artifact=compile_artifact,
         )
 
     def prepare(

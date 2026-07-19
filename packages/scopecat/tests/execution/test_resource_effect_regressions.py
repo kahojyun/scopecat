@@ -2,19 +2,21 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import pytest
+
 from scopecat.adapters.memory import (
     MemoryCollectionRepository,
     MemoryExecutionJournal,
     MemoryPayloadEvidenceCommitter,
 )
 from scopecat.compiler.frontend.environment import validate_config_environment
-from scopecat.compiler.linking.bound import MaterializedLocalSemantics
-from scopecat.compiler.linking.materialization import materialize_local_semantics
 from scopecat.compiler.relations.model import lit
 from scopecat.compiler.relations.point_domain import POINT_UNIT
 from scopecat.compiler.relations.uses import relation_use
 from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
-from scopecat.compiler.typed.point_domain import PointDomain
+from scopecat.compiler.typed.point_domain import (
+    PointDomain,
+)
 from scopecat.compiler.typed.products import InstrumentProductProducer, ProductDef
 from scopecat.compiler.typed.program import (
     CoreProgram,
@@ -31,7 +33,8 @@ from scopecat.execution.local.program import (
     PointProgram,
     StateTarget,
 )
-from scopecat.execution.ports.resources import ResourceClaim
+from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
 from scopecat.kernel.problems import (
     ProblemCategory,
     ProblemPhase,
@@ -40,10 +43,15 @@ from scopecat.kernel.problems import (
 )
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
+    ResourceClaim,
     logical_resource_port_id,
 )
 from scopecat.kernel.state import StateValue
 from scopecat.kernel.value_types import Entity, Float, Scalar, String
+from scopecat.planning.local_materialization import (
+    MaterializedLocalEffects,
+    materialize_local_execution,
+)
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     RoutingChannelBinding,
@@ -73,7 +81,8 @@ from tests.testkit.authoring import load_config, parameters
 from tests.testkit.bound_plan import config_with_physical_resources
 from tests.testkit.local_effect_program import (
     StubLocalEffectProgram,
-    lower_test_local_effect_program,
+    complete_point_operations,
+    make_test_local_effect_program,
 )
 from tests.testkit.relation_plans import scalar_value_expr
 from tests.testkit.typed_program import (
@@ -126,12 +135,12 @@ def _bind(
     program: CoreProgram,
     *,
     config: ConfigProfileSnapshot,
-) -> MaterializedLocalSemantics:
+) -> MaterializedLocalEffects:
     environment = replace(
         validate_config_environment(config),
         parameters=parameters(),
     )
-    return materialize_local_semantics(link_program(program, environment))
+    return materialize_local_execution(link_program(program, environment))
 
 
 def test_record_products_keep_their_exact_logical_route_bindings() -> None:
@@ -177,26 +186,7 @@ def test_record_products_keep_their_exact_logical_route_bindings() -> None:
     )
 
     plan = _bind(program, config=config)
-    execution = lower_test_local_effect_program(plan, instrument_order=("source-0",))
-
-    assert plan.valid, plan.problems
-    requests_by_key = {
-        request.provider_key: request
-        for collect in plan.points[0].collect
-        for request in collect.requests
-    }
-    assert {
-        key: (
-            request.resource_port_id,
-            request.entity_ids,
-            tuple(binding.channel_id for binding in request.channel_bindings),
-        )
-        for key, request in requests_by_key.items()
-    } == {
-        "left": (left, ("q0",), ("drive-q0",)),
-        "right": (right, ("q1",), ("readout-q0",)),
-        "direct": (None, (), ()),
-    }
+    execution = make_test_local_effect_program(plan, instrument_order=("source-0",))
 
     collect_stage = next(
         stage for stage in execution.points[0].stages if isinstance(stage, CollectStage)
@@ -257,35 +247,21 @@ def test_instrument_product_producers_bind_distinct_collection_requests() -> Non
     source_0_plan = _bind(source_0_program, config=config)
     source_1_plan = _bind(source_1_program, config=config)
 
-    assert source_0_plan.valid, source_0_plan.problems
-    assert source_1_plan.valid, source_1_plan.problems
-
-    source_0_collect = source_0_plan.points[0].collect[0]
-    source_1_collect = source_1_plan.points[0].collect[0]
-    source_0_request = source_0_collect.requests[0]
-    source_1_request = source_1_collect.requests[0]
+    source_0_collect = source_0_plan.points[0].collect_operations[0]
+    source_1_collect = source_1_plan.points[0].collect_operations[0]
+    source_0_request = source_0_collect.command.requests[0]
+    source_1_request = source_1_collect.command.requests[0]
     assert source_0_request != source_1_request
     assert (
-        source_0_collect.resource_id.value,
-        source_0_request.provider_key,
-        source_0_request.capability,
+        source_0_collect.instrument_id,
+        source_0_request.id,
+        source_0_request.capability_id,
     ) == ("source-0", "raw-signal", "measure.signal")
     assert (
-        source_1_collect.resource_id.value,
-        source_1_request.provider_key,
-        source_1_request.capability,
+        source_1_collect.instrument_id,
+        source_1_request.id,
+        source_1_request.capability_id,
     ) == ("source-1", "demodulated-signal", "measure.signal")
-
-    assert source_0_plan.local_product_realizations is not None
-    assert source_1_plan.local_product_realizations is not None
-    assert (
-        source_0_plan.local_product_realizations.selected_for(product_use.id).producer
-        == source_0_producer
-    )
-    assert (
-        source_1_plan.local_product_realizations.selected_for(product_use.id).producer
-        == source_1_producer
-    )
 
 
 def test_multi_capability_route_unions_capability_specific_edges() -> None:
@@ -326,20 +302,10 @@ def test_multi_capability_route_unions_capability_specific_edges() -> None:
 
     plan = _bind(program, config=config)
 
-    assert plan.valid, plan.problems
-    route = plan.points[0].routes[0]
-    assert route.served_entity_ids == ("q0", "q1")
-    assert {
-        (binding.capability, binding.entity_id, binding.channel_id)
-        for binding in route.channel_bindings
-    } == {
-        ("measure.left", "q0", "drive-q0"),
-        ("measure.right", "q1", "readout-q0"),
-    }
     requests_by_key = {
-        request.provider_key: request
-        for collect in plan.points[0].collect
-        for request in collect.requests
+        request.id: request
+        for operation in plan.points[0].collect_operations
+        for request in operation.command.requests
     }
     assert {
         key: tuple(binding.channel_id for binding in request.channel_bindings)
@@ -417,8 +383,7 @@ def test_capability_unspecified_collection_stays_within_its_logical_port() -> No
 
     plan = _bind(program, config=config)
 
-    assert plan.valid, plan.problems
-    request = plan.points[0].collect[0].requests[0]
+    request = plan.points[0].collect_operations[0].command.requests[0]
     assert [
         (binding.capability, binding.channel_id) for binding in request.channel_bindings
     ] == [(None, "drive-q0")]
@@ -476,18 +441,11 @@ def test_mixed_explicit_and_fallback_route_topology_closes_durably() -> None:
     )
 
     plan = _bind(program, config=config)
-    assert plan.valid, plan.problems
     assert [
         (binding.capability, binding.channel_id)
-        for binding in plan.points[0].routes[0].channel_bindings
-    ] == [("B", "drive-q0"), ("A", "drive-q0")]
-    assert [
-        (binding.capability, binding.channel_id)
-        for binding in plan.points[0].desired_state[0].fields[0].channel_bindings
+        for binding in plan.points[0].state_operations[0].targets[0].channel_bindings
     ] == [("A", "drive-q0")]
-    field = plan.points[0].desired_state[0].fields[0]
-    assert field.resource_port_id is not None
-    assert field.resource_port_id.qualified_name == "source"
+    assert plan.points[0].state_operations[0].instrument_id == "source-0"
 
 
 def test_direct_physical_state_bindings_reach_claims_and_shared_constraints() -> None:
@@ -511,34 +469,38 @@ def test_direct_physical_state_bindings_reach_claims_and_shared_constraints() ->
         _unit_program(experiment_id="direct-state-claims", state=(first_state,)),
         config=config,
     )
-    execution = lower_test_local_effect_program(
+    execution = make_test_local_effect_program(
         single_plan,
         instrument_order=("source-0",),
     )
 
-    assert single_plan.valid, single_plan.problems
-    field = single_plan.points[0].desired_state[0].fields[0]
+    field = single_plan.points[0].state_operations[0].targets[0]
     assert field.entity_ids == ("q0",)
     assert tuple(binding.channel_id for binding in field.channel_bindings) == (
         "drive-q0",
     )
+    assert [(claim.kind, claim.id) for claim in single_plan.resource_claims] == [
+        ("instrument", "source-0"),
+        ("channel", "drive-q0"),
+        ("group", "shared.lo"),
+    ]
     assert [(claim.kind, claim.id) for claim in execution.resource_claims] == [
         ("instrument", "source-0"),
         ("channel", "drive-q0"),
         ("group", "shared.lo"),
     ]
 
-    conflicting_plan = _bind(
-        _unit_program(
-            experiment_id="direct-state-shared-group-conflict",
-            state=(first_state, second_state),
-        ),
-        config=config,
-    )
+    with pytest.raises(CheckFailed) as failure:
+        _bind(
+            _unit_program(
+                experiment_id="direct-state-shared-group-conflict",
+                state=(first_state, second_state),
+            ),
+            config=config,
+        )
 
-    assert not conflicting_plan.valid
     assert "routing_shared_group_resource_conflict" in {
-        problem.code for problem in conflicting_plan.problems
+        problem.code for problem in failure.value.problems
     }
 
 
@@ -576,13 +538,12 @@ def test_entity_only_targets_survive_bound_and_execution_boundaries() -> None:
     )
 
     plan = _bind(program, config=config)
-    execution = lower_test_local_effect_program(plan, instrument_order=("source-0",))
+    execution = make_test_local_effect_program(plan, instrument_order=("source-0",))
 
-    assert plan.valid, plan.problems
-    state_field = plan.points[0].desired_state[0].fields[0]
-    request = plan.points[0].collect[0].requests[0]
+    state_field = plan.points[0].state_operations[0].targets[0]
+    request = plan.points[0].collect_operations[0].command.requests[0]
     assert (state_field.entity_ids, state_field.channel_bindings) == (("q0",), ())
-    assert (request.entity_ids, request.channel_bindings) == (("q0",), ())
+    assert (request.entity_ids, request.channel_bindings) == (["q0"], [])
 
     state_stage = next(
         stage
@@ -634,11 +595,11 @@ def test_distinct_logical_ports_cannot_own_one_physical_state_slot() -> None:
         ),
     )
 
-    plan = _bind(program, config=config)
+    with pytest.raises(CheckFailed) as failure:
+        _bind(program, config=config)
 
-    assert not plan.valid
     assert "experiment_aliased_desired_state_target" in {
-        problem.code for problem in plan.problems
+        problem.code for problem in failure.value.problems
     }
 
 
@@ -671,7 +632,9 @@ def test_scoped_same_field_targets_survive_snapshot_reconciliation() -> None:
         points=(
             PointProgram(
                 point_index=0,
-                point_uid="scoped-same-field-point",
+                logical_id=LogicalPointId(
+                    PointDomainId("scoped-same-field", "root"), 0
+                ),
                 coordinates={},
                 stages=(
                     ApplyStateStage(
@@ -715,7 +678,7 @@ def test_scoped_same_field_targets_survive_snapshot_reconciliation() -> None:
         journal=MemoryExecutionJournal(),
         readbacks=MemoryCollectionRepository(),
         payloads=MemoryPayloadEvidenceCommitter(),
-    ).run()
+    ).run(complete_point_operations(program))
 
     assert result.status == "completed"
     assert len(driver.applied) == 1

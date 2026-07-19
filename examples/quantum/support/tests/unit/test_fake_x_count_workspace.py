@@ -10,14 +10,15 @@ from scopecat.adapters.filesystem.execution import (
     FilesystemExecutionJournal,
     FilesystemMeasurementRecordCommitter,
 )
+from scopecat.compiler.linking.linked import LinkedPointMaterializer
 from scopecat.kernel.errors import CheckFailed, RunIndeterminate
 from scopecat.kernel.problems import (
     ProblemCategory,
     ProblemPhase,
     blocking_problem,
 )
-from scopecat.planning import backend as execution_backends
-from scopecat.sdk.domain.compiler import DomainCompiledJob
+from scopecat.planning import system as systems
+from scopecat.sdk.domain.compiler import DomainCompiledJob, DomainCompiler
 from scopecat.sdk.domain.context import DomainBatchContext
 from scopecat.sdk.domain.execution import (
     PreparedDomainExecution,
@@ -48,31 +49,6 @@ from quantum_lab_demo.targets.fake_list_mode import (
 )
 
 
-class _PendingFakeListDomainRuntime(FakeListDomainRuntime):
-    @override
-    def fetch(
-        self,
-        request: DomainFetchRequest,
-    ) -> DomainFetchCandidate[FakeListRun]:
-        return DomainFetchCandidate(
-            receipt=DomainFetchReceipt(
-                identity=request.identity,
-                job_id=request.job_id,
-                status="pending",
-            )
-        )
-
-
-class _RaisingFetchFakeListDomainRuntime(FakeListDomainRuntime):
-    @override
-    def fetch(
-        self,
-        request: DomainFetchRequest,
-    ) -> DomainFetchCandidate[FakeListRun]:
-        _ = request
-        raise RuntimeError("target result read failed")
-
-
 class _UnknownFetchFakeListDomainRuntime(FakeListDomainRuntime):
     @override
     def fetch(
@@ -94,12 +70,6 @@ class _UnknownFetchFakeListDomainRuntime(FakeListDomainRuntime):
                 ),
             )
         )
-
-
-class _PendingFakeXCountCompiler(FakeXCountDomainCompiler):
-    def __init__(self) -> None:
-        super().__init__()
-        self.runtime = _PendingFakeListDomainRuntime()
 
 
 class _IndeterminateFakeListDomainRuntime(FakeListDomainRuntime):
@@ -193,8 +163,8 @@ def test_fake_x_count_authoring_paths_share_one_standard_domain_semantics(
         )
 
     monkeypatch.setattr(
-        execution_backends,
-        "materialize_local_semantics_from_points",
+        systems,
+        "materialize_local_execution_from_points",
         reject_local_lowering,
     )
     semantics: dict[str, object] = {}
@@ -204,7 +174,7 @@ def test_fake_x_count_authoring_paths_share_one_standard_domain_semantics(
         experiment = (
             lab.prepare(
                 FAKE_X_COUNT_TEMPLATE,
-                execution_backend=_domain_only(adapter),
+                system=_domain_only(adapter),
             )
             if authoring == "template"
             else lab.prepare(
@@ -212,7 +182,7 @@ def test_fake_x_count_authoring_paths_share_one_standard_domain_semantics(
                     lab,
                     x_counts=(0, 1, 2, 4),
                 ),
-                execution_backend=_domain_only(adapter),
+                system=_domain_only(adapter),
             )
         )
 
@@ -248,6 +218,85 @@ def test_fake_x_count_authoring_paths_share_one_standard_domain_semantics(
     assert semantics["template"] == semantics["scratch"]
 
 
+def test_fake_x_count_compiler_absorbs_affine_point_input_without_binding(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def reject_input_binding(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("finite affine point axes must not bind domain inputs")
+
+    monkeypatch.setattr(
+        LinkedPointMaterializer,
+        "bind_domain_inputs",
+        reject_input_binding,
+    )
+    capture = FAKE_X_COUNT_CAPTURE_MODULE.instantiate("capture")
+    template = (
+        sc.module("test.fake-x-count.affine")
+        .use(capture)
+        .template("test.fake-x-count.affine", kind="fake_x_count")
+        .domain(
+            fake_x_count_domain_execution(
+                capture.products.integrated_iq_shots,
+                x_count=2 * X_COUNT + 1,
+            )
+        )
+        .scan(X_COUNT, (0, 1, 2))
+        .record_product(capture.products.probability_1, record_id="probability_1")
+        .build()
+    )
+    compiler = FakeXCountDomainCompiler()
+    lab = quantum_lab(workspace=tmp_path)
+
+    run = lab.prepare(template, system=_domain_only(compiler)).run()
+    records = run.data().measurements().dataset.records
+
+    assert run.manifest.status == "completed"
+    assert compiler.runtime.physical_execution_count == 1
+    assert [record.coordinates["x_count"] for record in records] == [0, 1, 2]
+
+
+def test_fake_x_count_compiler_projects_zipped_axis_without_binding(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def reject_input_binding(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("finite zipped axes must not bind domain inputs")
+
+    monkeypatch.setattr(
+        LinkedPointMaterializer,
+        "bind_domain_inputs",
+        reject_input_binding,
+    )
+    auxiliary = sc.point("auxiliary", sc.ScalarType(sc.IntType()))
+    capture = FAKE_X_COUNT_CAPTURE_MODULE.instantiate("capture")
+    template = (
+        sc.module("test.fake-x-count.zip")
+        .use(capture)
+        .template("test.fake-x-count.zip", kind="fake_x_count")
+        .domain(fake_x_count_domain_execution(capture.products.integrated_iq_shots))
+        .scan(
+            sc.zip(
+                sc.axis(X_COUNT, (0, 1, 2)),
+                sc.axis(auxiliary, (10, 11, 12)),
+            )
+        )
+        .record_product(capture.products.probability_1, record_id="probability_1")
+        .build()
+    )
+    compiler = FakeXCountDomainCompiler()
+    lab = quantum_lab(workspace=tmp_path)
+
+    run = lab.prepare(template, system=_domain_only(compiler)).run()
+
+    assert run.manifest.status == "completed"
+    assert compiler.runtime.physical_execution_count == 1
+    assert [
+        (record.coordinates["x_count"], record.coordinates["auxiliary"])
+        for record in run.data().measurements().dataset.records
+    ] == [(0, 10), (1, 11), (2, 12)]
+
+
 def test_two_ordered_domain_calls_share_target_and_produce_canonical_results(
     tmp_path: Path,
 ) -> None:
@@ -279,7 +328,7 @@ def test_two_ordered_domain_calls_share_target_and_produce_canonical_results(
 
     run = lab.prepare(
         template,
-        execution_backend=_domain_only(compiler),
+        system=_domain_only(compiler),
     ).run()
     records = run.data().measurements().dataset.records
     journal = FilesystemExecutionJournal(lab.workspace, run_id=run.id)
@@ -299,13 +348,13 @@ def test_two_ordered_domain_calls_share_target_and_produce_canonical_results(
     assert len(set(submission_operations)) == 2
 
 
-def test_domain_only_backend_reports_missing_local_provider(
+def test_domain_only_system_reports_missing_local_provider(
     tmp_path: Path,
 ) -> None:
     lab = quantum_lab(workspace=tmp_path)
     experiment = lab.prepare(
         READOUT_TEMPLATE,
-        execution_backend=_domain_only(FakeXCountDomainCompiler()),
+        system=_domain_only(FakeXCountDomainCompiler()),
     )
     experiment = experiment.input("qubit", "q0")
 
@@ -326,58 +375,28 @@ def test_adapter_boundary_normalizes_ordinary_contract_defects_before_run(
     lab = quantum_lab(workspace=tmp_path)
     experiment = lab.prepare(
         FAKE_X_COUNT_TEMPLATE,
-        execution_backend=_domain_only(
-            cast("sc.DomainCompiler", compiler),
+        system=_domain_only(
+            cast("DomainCompiler", compiler),
         ),
     )
 
     report = experiment.check()
 
     assert not report.ok
-    assert report.problems[0].code == "execution_backend_prepare_failed"
+    assert report.problems[0].code == "experiment_system_prepare_failed"
     with pytest.raises(CheckFailed):
         experiment.run()
     assert lab.runs() == ()
 
 
-def test_synchronous_adapter_pending_result_terminalizes_as_indeterminate(
-    tmp_path: Path,
-) -> None:
-    adapter = _PendingFakeXCountCompiler()
-    lab = quantum_lab(workspace=tmp_path)
-    experiment = lab.prepare(
-        FAKE_X_COUNT_TEMPLATE,
-        execution_backend=_domain_only(adapter),
-    )
-
-    with pytest.raises(RunIndeterminate) as caught:
-        experiment.run()
-
-    outcome = caught.value.outcome
-    contract_problem = next(
-        problem
-        for problem in outcome.problems
-        if problem.code == "domain_synchronous_completion_contract_violated"
-    )
-    assert outcome.certainty == "indeterminate"
-    assert outcome.termination_reason == "effect_outcome_unknown"
-    assert contract_problem.category.value == "provider_contract"
-    assert contract_problem.details["automatic_resume"] is False
-    assert "retry" not in contract_problem.details
-    assert adapter.runtime.physical_execution_count == 1
-    [persisted] = lab.runs()
-    assert persisted.id == caught.value.run_id
-    assert persisted.manifest.status == "unknown"
-
-
-def test_indeterminate_submit_retains_durable_target_reconciliation_context(
+def test_indeterminate_submit_retains_durable_target_correlation_context(
     tmp_path: Path,
 ) -> None:
     adapter = _IndeterminateFakeXCountCompiler()
     lab = quantum_lab(workspace=tmp_path)
     experiment = lab.prepare(
         FAKE_X_COUNT_TEMPLATE,
-        execution_backend=_domain_only(adapter),
+        system=_domain_only(adapter),
     )
 
     with pytest.raises(RunIndeterminate) as caught:
@@ -389,7 +408,7 @@ def test_indeterminate_submit_retains_durable_target_reconciliation_context(
         if problem.code == "domain_runtime_terminalized"
     )
     assert recovery.details["phase"] == "submit"
-    assert recovery.details["retry_contract"] == "after_reconciliation"
+    assert recovery.details["retry_contract"] == "not_retryable"
     assert recovery.details["automatic_resume"] is False
     assert recovery.details["submission_key"]
     journal = FilesystemExecutionJournal(lab.workspace, run_id=caught.value.run_id)
@@ -408,20 +427,15 @@ def test_indeterminate_submit_retains_durable_target_reconciliation_context(
     )
 
 
-@pytest.mark.parametrize(
-    "runtime_type",
-    [_RaisingFetchFakeListDomainRuntime, _UnknownFetchFakeListDomainRuntime],
-)
 def test_unknown_fetch_terminalizes_as_indeterminate_with_known_job_context(
-    runtime_type: type[FakeListDomainRuntime],
     tmp_path: Path,
 ) -> None:
     adapter = FakeXCountDomainCompiler()
-    adapter.runtime = runtime_type()
+    adapter.runtime = _UnknownFetchFakeListDomainRuntime()
     lab = quantum_lab(workspace=tmp_path)
     experiment = lab.prepare(
         FAKE_X_COUNT_TEMPLATE,
-        execution_backend=_domain_only(adapter),
+        system=_domain_only(adapter),
     )
 
     with pytest.raises(RunIndeterminate) as caught:
@@ -460,7 +474,7 @@ def test_uncertain_measurement_write_retains_reconciliation_context(
     lab = quantum_lab(workspace=tmp_path)
     experiment = lab.prepare(
         FAKE_X_COUNT_TEMPLATE,
-        execution_backend=_domain_only(adapter),
+        system=_domain_only(adapter),
     )
 
     with pytest.raises(RunIndeterminate) as caught:
@@ -480,7 +494,7 @@ def test_uncertain_measurement_write_retains_reconciliation_context(
     assert persisted.manifest.status == "unknown"
 
 
-def test_measurement_reload_failure_still_publishes_indeterminate_terminal_run(
+def test_successful_recording_does_not_reload_committed_measurements(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -496,23 +510,15 @@ def test_measurement_reload_failure_still_publishes_indeterminate_terminal_run(
     lab = quantum_lab(workspace=tmp_path)
     experiment = lab.prepare(
         FAKE_X_COUNT_TEMPLATE,
-        execution_backend=_domain_only(adapter),
+        system=_domain_only(adapter),
     )
 
-    with pytest.raises(RunIndeterminate) as caught:
-        experiment.run()
+    run = experiment.run()
 
-    recovery = next(
-        problem
-        for problem in caught.value.outcome.problems
-        if problem.code == "execution_plan_measurement_reload_terminalized"
-    )
-    assert recovery.details["storage_ref"] == "execution-measurements"
-    assert recovery.details["automatic_resume"] is False
     assert adapter.runtime.physical_execution_count == 1
     [persisted] = lab.runs()
-    assert persisted.id == caught.value.run_id
-    assert persisted.manifest.status == "unknown"
+    assert persisted.id == run.id
+    assert persisted.manifest.status == "completed"
 
 
 def _standard_domain_semantics(
@@ -537,5 +543,5 @@ def _standard_domain_semantics(
     )
 
 
-def _domain_only(compiler: sc.DomainCompiler) -> sc.ExecutionBackend:
-    return sc.ExecutionBackend(domain_compilers=(compiler,))
+def _domain_only(compiler: DomainCompiler) -> sc.ExperimentSystem:
+    return sc.ExperimentSystem(domain_compiler=compiler)

@@ -11,7 +11,6 @@ from scopecat.execution.local.program import (
     CollectStage,
     ComputeStage,
     ExecutionStage,
-    LocalEffectProgram,
 )
 from scopecat.kernel.problems import (
     LocationPathItem,
@@ -38,12 +37,13 @@ from scopecat.sdk.instruments.contracts import (
 
 
 def validate_local_effect_block_instruments(
-    program: LocalEffectProgram,
     *,
+    resource_order: Sequence[str],
+    stages: Sequence[ExecutionStage],
     descriptions: Mapping[str, InstrumentDescription],
 ) -> list[Problem]:
     problems: list[Problem] = []
-    for instrument_id in program.resource_order:
+    for instrument_id in resource_order:
         if instrument_id not in descriptions:
             problems.append(
                 _problem(
@@ -54,103 +54,102 @@ def validate_local_effect_block_instruments(
                     "description",
                 )
             )
-    for point in program.points:
-        payloads = _payload_stubs(point.stages)
-        for stage in point.stages:
-            if isinstance(stage, ApplyStateStage):
-                for operation in stage.operations:
-                    description = descriptions.get(operation.instrument_id)
-                    if description is None:
+    payloads = _payload_stubs(tuple(stages))
+    for stage in stages:
+        if isinstance(stage, ApplyStateStage):
+            for operation in stage.operations:
+                description = descriptions.get(operation.instrument_id)
+                if description is None:
+                    continue
+                fields = [
+                    target.command_field(resource_id=operation.instrument_id)
+                    for target in operation.targets
+                ]
+                problems.extend(
+                    validate_state_command(
+                        command=InstrumentStateCommand(
+                            operation_id=operation.operation_id,
+                            instrument_id=operation.instrument_id,
+                            fields=fields,
+                            payloads=_referenced_payloads(fields, payloads),
+                        ),
+                        description=description,
+                        payloads=payloads,
+                    )
+                )
+        elif isinstance(stage, ActionStage):
+            for operation in stage.operations:
+                description = descriptions.get(operation.instrument_id)
+                if description is None:
+                    continue
+                fields = [field.command_field() for field in operation.fields]
+                problems.extend(
+                    validate_action_command(
+                        command=InstrumentActionCommand(
+                            operation_id=operation.operation_id,
+                            instrument_id=operation.instrument_id,
+                            capability_id=operation.capability_id,
+                            fields=fields,
+                            payloads=_referenced_payloads(fields, payloads),
+                        ),
+                        description=description,
+                        payloads=payloads,
+                    )
+                )
+        elif isinstance(stage, CollectStage):
+            for operation in stage.operations:
+                description = descriptions.get(operation.instrument_id)
+                if description is None:
+                    continue
+                for request in operation.command.requests:
+                    lookup = _find_product(
+                        description,
+                        capability_id=request.capability_id,
+                        product_key=request.id,
+                    )
+                    if lookup.ambiguous:
+                        capability_ids = ", ".join(
+                            repr(capability_id)
+                            for capability_id in lookup.capability_ids
+                        )
+                        problems.append(
+                            _problem(
+                                "instrument_product_ambiguous",
+                                f"instrument {operation.instrument_id} product "
+                                f"{request.id} matches multiple provider "
+                                f"declarations under capabilities "
+                                f"{capability_ids}; the request must resolve "
+                                "to exactly one product",
+                                "operations",
+                                operation.operation_id,
+                                "requests",
+                                request.id,
+                                "capability_id",
+                            )
+                        )
                         continue
-                    fields = [
-                        target.command_field(resource_id=operation.instrument_id)
-                        for target in operation.targets
-                    ]
+                    product = lookup.product
+                    if product is None:
+                        problems.append(
+                            _problem(
+                                "instrument_product_unsupported",
+                                f"instrument {operation.instrument_id} does not "
+                                f"support product {request.id}",
+                                "operations",
+                                operation.operation_id,
+                                "requests",
+                                request.id,
+                            )
+                        )
+                        continue
                     problems.extend(
-                        validate_state_command(
-                            command=InstrumentStateCommand(
-                                operation_id=operation.operation_id,
-                                instrument_id=operation.instrument_id,
-                                fields=fields,
-                                payloads=_referenced_payloads(fields, payloads),
-                            ),
-                            description=description,
-                            payloads=payloads,
+                        _validate_product(
+                            operation_id=operation.operation_id,
+                            instrument_id=operation.instrument_id,
+                            request=request,
+                            product=product,
                         )
                     )
-            elif isinstance(stage, ActionStage):
-                for operation in stage.operations:
-                    description = descriptions.get(operation.instrument_id)
-                    if description is None:
-                        continue
-                    fields = [field.command_field() for field in operation.fields]
-                    problems.extend(
-                        validate_action_command(
-                            command=InstrumentActionCommand(
-                                operation_id=operation.operation_id,
-                                instrument_id=operation.instrument_id,
-                                capability_id=operation.capability_id,
-                                fields=fields,
-                                payloads=_referenced_payloads(fields, payloads),
-                            ),
-                            description=description,
-                            payloads=payloads,
-                        )
-                    )
-            elif isinstance(stage, CollectStage):
-                for operation in stage.operations:
-                    description = descriptions.get(operation.instrument_id)
-                    if description is None:
-                        continue
-                    for request in operation.command.requests:
-                        lookup = _find_product(
-                            description,
-                            capability_id=request.capability_id,
-                            product_key=request.id,
-                        )
-                        if lookup.ambiguous:
-                            capability_ids = ", ".join(
-                                repr(capability_id)
-                                for capability_id in lookup.capability_ids
-                            )
-                            problems.append(
-                                _problem(
-                                    "instrument_product_ambiguous",
-                                    f"instrument {operation.instrument_id} product "
-                                    f"{request.id} matches multiple provider "
-                                    f"declarations under capabilities "
-                                    f"{capability_ids}; the request must resolve "
-                                    "to exactly one product",
-                                    "operations",
-                                    operation.operation_id,
-                                    "requests",
-                                    request.id,
-                                    "capability_id",
-                                )
-                            )
-                            continue
-                        product = lookup.product
-                        if product is None:
-                            problems.append(
-                                _problem(
-                                    "instrument_product_unsupported",
-                                    f"instrument {operation.instrument_id} does not "
-                                    f"support product {request.id}",
-                                    "operations",
-                                    operation.operation_id,
-                                    "requests",
-                                    request.id,
-                                )
-                            )
-                            continue
-                        problems.extend(
-                            _validate_product(
-                                operation_id=operation.operation_id,
-                                instrument_id=operation.instrument_id,
-                                request=request,
-                                product=product,
-                            )
-                        )
     return problems
 
 

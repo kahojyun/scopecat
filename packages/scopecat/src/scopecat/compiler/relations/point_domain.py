@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
+from math import prod
 from types import MappingProxyType
 
 from scopecat.compiler.relations.uses import RelationUseId
@@ -106,6 +107,18 @@ type PointDomainExpr[LeafT] = (
 )
 
 POINT_UNIT = PointUnit()
+
+
+def decompose_product_ordinal(
+    ordinal: int,
+    factor_counts: tuple[int, ...],
+) -> tuple[int, ...]:
+    """Map one left-major product ordinal to each factor's local ordinal."""
+
+    return tuple(
+        (ordinal // prod(factor_counts[index + 1 :])) % count
+        for index, count in enumerate(factor_counts)
+    )
 
 
 def point_rows[LeafT](rows: LeafT) -> PointRelationRows[LeafT]:

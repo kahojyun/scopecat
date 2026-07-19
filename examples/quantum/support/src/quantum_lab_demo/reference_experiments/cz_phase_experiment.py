@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import cast
 
@@ -12,12 +11,12 @@ from scopecat import Quantity
 from scopecat.sdk.domain import (
     CorrelatedDomainFetch,
     DomainBatchContext,
-    DomainBoundPoint,
     DomainCallView,
     DomainCompilation,
     DomainCompiledJob,
     DomainCompileRequest,
     DomainExecutionView,
+    DomainResolvedInputs,
     PreparedDomainExecution,
     compiled_jobs,
 )
@@ -195,21 +194,15 @@ class CzPhaseDomainCompiler:
     def compile(self, request: DomainCompileRequest) -> DomainCompilation | None:
         if not _accepts_execution(request.call):
             return None
-        partitions = request.partition(max_points=self.target.max_list_entries)
         return compiled_jobs(
             request,
-            compiler_id=self.compiler_id,
-            target_id=self.target_id,
             max_points=self.target.max_list_entries,
-            artifacts=tuple(
-                _cz_phase_artifact(
-                    request.bind_points(
-                        ordinals,
-                        max_points=self.target.max_list_entries,
-                    )
-                )
-                for ordinals in partitions
+            artifact_input_ids=(
+                "coupler_amplitude",
+                "control_state",
+                "analyzer_phase",
             ),
+            compile_artifact=_cz_phase_artifact,
         )
 
     def prepare(
@@ -219,10 +212,6 @@ class CzPhaseDomainCompiler:
     ) -> PreparedDomainExecution:
         execution = context.execution
         artifact = cast("_CzPhaseArtifact", job.artifact)
-        execution_points = tuple(execution.points)
-        if tuple(point.ref for point in execution_points) != context.points:
-            msg = "CZ phase execution points do not match the batch context"
-            raise ValueError(msg)
         control_result, target_result = _validated_result_contracts(execution)
         preparation = context.new_preparation()
         reference = prepare_cz_phase_reference(
@@ -259,16 +248,16 @@ def _accepts_execution(execution: DomainCallView) -> bool:
     return True
 
 
-def _cz_phase_artifact(points: Sequence[DomainBoundPoint]) -> _CzPhaseArtifact:
+def _cz_phase_artifact(inputs: DomainResolvedInputs) -> _CzPhaseArtifact:
     return _CzPhaseArtifact(
         amplitudes=tuple(
-            _decode_amplitude(point.input("coupler_amplitude")) for point in points
+            _decode_amplitude(value) for value in inputs.input("coupler_amplitude")
         ),
         control_states=tuple(
-            _decode_control_state(point.input("control_state")) for point in points
+            _decode_control_state(value) for value in inputs.input("control_state")
         ),
         analyzer_phases=tuple(
-            _decode_phase(point.input("analyzer_phase")) for point in points
+            _decode_phase(value) for value in inputs.input("analyzer_phase")
         ),
     )
 

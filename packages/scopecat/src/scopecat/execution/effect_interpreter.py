@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Literal, cast
+from typing import Literal, Protocol, cast
 
 from pydantic import BaseModel, JsonValue
 
@@ -21,7 +21,6 @@ from scopecat.execution.local.program import (
     CollectStage,
     ComputeStage,
     InstrumentActionOperation,
-    LocalEffectProgram,
     PointProgram,
 )
 from scopecat.execution.ports.journal import (
@@ -30,14 +29,20 @@ from scopecat.execution.ports.journal import (
     ExecutionJournalError,
     PayloadEvidenceCommitter,
 )
-from scopecat.execution.ports.resources import ResourceLeaseManager
 from scopecat.execution.problems import (
     contextualize_problems,
     problem_from_exception,
     runtime_problem,
 )
-from scopecat.execution.program import RunDomainJob, RunPointRegion
-from scopecat.execution.resources import NoopResourceLeaseManager
+from scopecat.execution.program import (
+    RunComputeStage,
+    RunDomainJob,
+    RunOperation,
+    RunPointEnd,
+    RunPointStage,
+    RunPointStart,
+    iter_run_operations,
+)
 from scopecat.kernel.content_identity import (
     content_fingerprint,
     model_wire_content_hash,
@@ -212,13 +217,30 @@ class _MutablePointStats:
         )
 
 
-@dataclass(slots=True)
-class _PointFrame:
-    point: PointProgram
+@dataclass(slots=True, kw_only=True)
+class _EvaluationFrame:
+    event_point_index: int | None = None
     stats: _MutablePointStats = field(default_factory=_MutablePointStats)
     compute_results: dict[ValueId, object] = field(default_factory=dict)
     payloads: dict[str, CommandPayload] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class _PointFrame(_EvaluationFrame):
+    point: PointProgram
+    entry: ExecutionTransition | None = None
+    problem_count_before: int = 0
     product_values: dict[ProductUseId, MeasurementValue] = field(default_factory=dict)
+
+
+class RunEffectContext(Protocol):
+    """Runtime metadata needed by the ordered effect interpreter."""
+
+    @property
+    def experiment_id(self) -> str: ...
+
+    @property
+    def resource_order(self) -> tuple[str, ...]: ...
 
 
 class RunEffectInterpreter:
@@ -233,24 +255,23 @@ class RunEffectInterpreter:
         self,
         *,
         run_id: str,
-        program: LocalEffectProgram,
+        program: RunEffectContext,
         drivers: Mapping[str, InstrumentDriver],
         journal: ExecutionJournal,
         readbacks: CollectionRepository,
         payloads: PayloadEvidenceCommitter,
         descriptions: Mapping[str, InstrumentDescription] | None = None,
-        resources: ResourceLeaseManager | None = None,
         transition_observer: RuntimeTransitionProjector | None = None,
         payload_observer: Callable[[CommandPayload], None] | None = None,
     ) -> None:
         self.run_id = run_id
-        self.program = program
+        self.experiment_id = program.experiment_id
+        self.resource_order = tuple(program.resource_order)
         self.drivers = dict(drivers)
         self.journal = journal
         self.collection_repository = readbacks
         self.payload_evidence_committer = payloads
         self.descriptions = dict(descriptions or {})
-        self.resources = resources or NoopResourceLeaseManager()
         self.transition_observer = transition_observer
         self.payload_observer = payload_observer
         self.problems: list[Problem] = []
@@ -258,221 +279,107 @@ class RunEffectInterpreter:
         self.final_state: list[InstrumentStateSnapshot] = []
         self.current_states: dict[str, InstrumentStateSnapshot] = {}
         self.point_results: list[PointExecutionResult] = []
-        self.domain_values: dict[str, list[tuple[MeasurementValueCandidate, ...]]] = {}
+        self.domain_values: list[MeasurementValueCandidate] = []
         self.domain_failure: tuple[RunDomainJob, BaseException] | None = None
+        self.run_compute_results: dict[ValueId, object] = {}
+        self.run_payloads: dict[str, CommandPayload] = {}
         self._indeterminate = False
         self._interruption: BaseException | None = None
 
-    def run(self) -> RunEffectResult:
-        finalized = False
-        terminal_read_attempted = False
+    def run(self, operations: Sequence[RunOperation]) -> RunEffectResult:
+        """Interpret the residual effect sequence exactly in program order."""
+
+        point_frames: dict[int, _PointFrame] = {}
         try:
-            lease = self.resources.acquire(self.program.resource_claims)
-            with lease:
-                try:
-                    self.initial_state = self._read_states(phase="initial")
-                    self.current_states = {
-                        state.instrument_id: state for state in self.initial_state
-                    }
-                    if not has_blocking_problems(self.problems):
-                        for point in self.program.points:
-                            self._execute_point(point)
-                            if has_blocking_problems(self.problems):
-                                break
-                except ExecutionJournalError as error:
-                    self.problems.append(
-                        self._problem(
-                            "execution_journal_commit_failed",
-                            str(error),
-                            category=ProblemCategory.STORAGE,
-                            phase=ProblemPhase.PERSISTENCE,
+            self.initial_state = self._read_states(phase="initial")
+            self.current_states = {
+                state.instrument_id: state for state in self.initial_state
+            }
+            for operation in iter_run_operations(operations):
+                if has_blocking_problems(self.problems):
+                    break
+                match operation:
+                    case RunComputeStage():
+                        self._execute_run_compute_stage(operation.stage)
+                    case RunDomainJob():
+                        self._execute_domain_job(operation)
+                    case RunPointStart():
+                        if operation.point_index in point_frames:
+                            raise AssertionError("point frame is already open")
+                        point_frames[operation.point_index] = self._start_point(
+                            operation
                         )
-                    )
-                except Exception as error:  # Defensive engine boundary.
-                    self.problems.append(
-                        self._problem_from_exception(
-                            "run_effect_interpretation_failed",
-                            "run effect interpretation failed",
-                            error,
-                        )
-                    )
-                except BaseException as error:
-                    self._record_interruption(error)
-                finally:
-                    self._finalize_drivers()
-                    finalized = True
-                    # Terminal state is deliberately captured after abort/cleanup.
-                    terminal_read_attempted = True
-                    self._capture_terminal_states()
-        except Exception as error:
+                    case RunPointStage():
+                        frame = point_frames.get(operation.point_index)
+                        if frame is None:
+                            raise AssertionError("point stage has no open frame")
+                        self._execute_point_stage(frame, operation.stage)
+                    case RunPointEnd():
+                        try:
+                            frame = point_frames.pop(operation.point_index)
+                        except KeyError as error:
+                            raise AssertionError(
+                                "point end has no open frame"
+                            ) from error
+                        self._end_point(frame)
+            if point_frames and not has_blocking_problems(self.problems):
+                raise AssertionError("run ended with open point frames")
+        except ExecutionJournalError as error:
+            self.problems.append(
+                self._problem(
+                    "execution_journal_commit_failed",
+                    str(error),
+                    category=ProblemCategory.STORAGE,
+                    phase=ProblemPhase.PERSISTENCE,
+                )
+            )
+        except _CapturedDomainEffectFailure:
+            pass
+        except Exception as error:  # Defensive interpreter boundary.
             self.problems.append(
                 self._problem_from_exception(
-                    "resource_lease_failed",
-                    "failed to acquire or release execution resources",
+                    "run_effect_interpretation_failed",
+                    "run effect interpretation failed",
                     error,
                 )
             )
-            if not finalized:
-                self._finalize_drivers()
-            if not terminal_read_attempted:
-                self._capture_terminal_states()
         except BaseException as error:
             self._record_interruption(error)
-            if not finalized:
-                self._finalize_drivers()
-            if not terminal_read_attempted:
-                self._capture_terminal_states()
+        finally:
+            if point_frames and has_blocking_problems(self.problems):
+                for frame in point_frames.values():
+                    self._end_point(frame)
+            self._finalize_drivers()
+            # Terminal state is deliberately captured after abort/cleanup.
+            self._capture_terminal_states()
         return self._result()
 
-    def run_regions(
-        self,
-        regions: Sequence[RunPointRegion],
-    ) -> RunEffectResult:
-        """Execute explicit domain job operations between local effects.
-
-        Each region is already constrained by surrounding effect barriers.
-        Drivers stay provisioned for the complete run; the executor reconciles
-        the region state, executes its domain jobs, then collects local values.
-        """
-
-        selected_regions = tuple(regions)
-        finalized = False
-        terminal_read_attempted = False
+    def _execute_domain_job(self, job: RunDomainJob) -> None:
         try:
-            lease = self.resources.acquire(self.program.resource_claims)
-            with lease:
-                try:
-                    self.initial_state = self._read_states(phase="initial")
-                    self.current_states = {
-                        state.instrument_id: state for state in self.initial_state
-                    }
-                    for region in selected_regions:
-                        if has_blocking_problems(self.problems):
-                            break
-                        region_points = tuple(
-                            self.program.points[index] for index in region.point_indices
-                        )
-                        point_stats: list[_MutablePointStats] = []
-                        for point in region_points:
-                            point_stats.append(self._execute_point_before_domain(point))
-                            if has_blocking_problems(self.problems):
-                                break
-                        if has_blocking_problems(self.problems):
-                            break
-                        self._execute_domain_jobs(region.domain_jobs)
-                        if has_blocking_problems(self.problems):
-                            break
-                        for point, initial_stats in zip(
-                            region_points,
-                            point_stats,
-                            strict=True,
-                        ):
-                            collection_point = PointProgram(
-                                point_index=point.point_index,
-                                point_uid=point.point_uid,
-                                coordinates=point.coordinates,
-                                stages=tuple(
-                                    stage
-                                    for stage in point.stages
-                                    if isinstance(stage, CollectStage)
-                                ),
-                            )
-                            self._execute_point(
-                                collection_point,
-                                initial_stats=initial_stats,
-                            )
-                            if has_blocking_problems(self.problems):
-                                break
-                except ExecutionJournalError as error:
-                    self.problems.append(
-                        self._problem(
-                            "execution_journal_commit_failed",
-                            str(error),
-                            category=ProblemCategory.STORAGE,
-                            phase=ProblemPhase.PERSISTENCE,
-                        )
-                    )
-                except _CapturedDomainEffectFailure:
-                    pass
-                except Exception as error:
-                    self.problems.append(
-                        self._problem_from_exception(
-                            "execution_middle_effect_failed",
-                            "execution point-set effect failed",
-                            error,
-                        )
-                    )
-                except BaseException as error:
-                    self._record_interruption(error)
-                finally:
-                    self._finalize_drivers()
-                    finalized = True
-                    terminal_read_attempted = True
-                    self._capture_terminal_states()
-        except Exception as error:
-            self.problems.append(
-                self._problem_from_exception(
-                    "resource_lease_failed",
-                    "failed to acquire or release execution resources",
-                    error,
-                )
+            values = execute_domain_job_values(
+                job.prepared,
+                semantic_operation_id=job.id,
+                run_id=self.run_id,
+                journal=self.journal,
             )
-            if not finalized:
-                self._finalize_drivers()
-            if not terminal_read_attempted:
-                self._capture_terminal_states()
         except BaseException as error:
-            self._record_interruption(error)
-            if not finalized:
-                self._finalize_drivers()
-            if not terminal_read_attempted:
-                self._capture_terminal_states()
-        return self._result()
+            self.domain_failure = (job, error)
+            raise _CapturedDomainEffectFailure(job.id) from error
+        self.domain_values.extend(values)
 
-    def _execute_domain_jobs(self, jobs: Sequence[RunDomainJob]) -> None:
-        for job in jobs:
-            try:
-                values = execute_domain_job_values(
-                    job.prepared,
-                    semantic_operation_id=job.id,
-                    run_id=self.run_id,
-                    journal=self.journal,
-                )
-            except BaseException as error:
-                self.domain_failure = (job, error)
-                raise _CapturedDomainEffectFailure(job.id) from error
-            self.domain_values.setdefault(job.source_id, []).append(values)
+    def _execute_run_compute_stage(self, stage: ComputeStage) -> None:
+        frame = _EvaluationFrame()
+        self._execute_compute_stage(frame, stage)
+        self.run_compute_results.update(frame.compute_results)
+        self.run_payloads.update(frame.payloads)
 
-    def _execute_point_before_domain(
-        self,
-        point: PointProgram,
-    ) -> _MutablePointStats:
-        frame = _PointFrame(point=point)
-        for stage in point.stages:
-            match stage:
-                case ComputeStage():
-                    self._execute_compute_stage(frame, stage)
-                case ApplyStateStage():
-                    self._execute_apply_stage(frame, stage)
-                case ActionStage():
-                    self._execute_action_stage(frame, stage)
-                case CollectStage():
-                    pass
-            if has_blocking_problems(self.problems):
-                return frame.stats
-        return frame.stats
-
-    def _execute_point(
-        self,
-        point: PointProgram,
-        *,
-        initial_stats: _MutablePointStats | None = None,
-    ) -> None:
-        frame = _PointFrame(
-            point=point,
-            stats=_MutablePointStats() if initial_stats is None else initial_stats,
+    def _start_point(self, operation: RunPointStart) -> _PointFrame:
+        point = PointProgram(
+            point_index=operation.point_index,
+            logical_id=operation.logical_id,
+            coordinates=operation.coordinates,
+            stages=(),
         )
-        problem_count_before = len(self.problems)
         point_entry = self._entry(
             operation_id=f"{point.point_uid}.point",
             stage="point",
@@ -483,52 +390,49 @@ class RunEffectInterpreter:
                 "dict[str, JsonValue]",
                 {
                     "coordinate_ids": sorted(point.coordinates),
-                    "compute_step_count": sum(
-                        len(stage.operations)
-                        for stage in point.stages
-                        if isinstance(stage, ComputeStage)
-                    ),
-                    "compute_operation_ids": [
-                        operation.semantic_operation_id
-                        for stage in point.stages
-                        if isinstance(stage, ComputeStage)
-                        for operation in stage.operations
-                    ],
-                    "route_count": sum(
-                        len(operation.command.requests)
-                        for stage in point.stages
-                        if isinstance(stage, CollectStage)
-                        for operation in stage.operations
-                    ),
-                    "state_resource_count": sum(
-                        len(stage.operations)
-                        for stage in point.stages
-                        if isinstance(stage, ApplyStateStage)
-                    ),
-                    "action_count": sum(
-                        len(stage.operations)
-                        for stage in point.stages
-                        if isinstance(stage, ActionStage)
-                    ),
-                    "stage_count": len(point.stages),
+                    "compute_step_count": operation.compute_step_count,
+                    "compute_operation_ids": list(operation.compute_operation_ids),
+                    "route_count": operation.route_count,
+                    "state_resource_count": operation.state_resource_count,
+                    "action_count": operation.action_count,
+                    "stage_count": operation.stage_count,
                 },
             ),
         )
         self._observe_transition(point_entry)
-        for stage in point.stages:
-            match stage:
-                case ComputeStage():
-                    self._execute_compute_stage(frame, stage)
-                case ApplyStateStage():
-                    self._execute_apply_stage(frame, stage)
-                case ActionStage():
-                    self._execute_action_stage(frame, stage)
-                case CollectStage():
-                    self._execute_collect_stage(frame, stage)
-            if has_blocking_problems(self.problems[problem_count_before:]):
-                break
+        return _PointFrame(
+            point=point,
+            entry=point_entry,
+            problem_count_before=len(self.problems),
+            event_point_index=point.point_index,
+            compute_results=dict(self.run_compute_results),
+            payloads=dict(self.run_payloads),
+        )
 
-        point_failed = has_blocking_problems(self.problems[problem_count_before:])
+    def _execute_point_stage(
+        self,
+        frame: _PointFrame,
+        stage: ComputeStage | ApplyStateStage | ActionStage | CollectStage,
+    ) -> None:
+        match stage:
+            case ComputeStage():
+                self._execute_compute_stage(frame, stage)
+            case ApplyStateStage():
+                self._execute_apply_stage(frame, stage)
+            case ActionStage():
+                self._execute_action_stage(frame, stage)
+            case CollectStage():
+                self._execute_collect_stage(frame, stage)
+
+    def _end_point(self, frame: _PointFrame) -> None:
+        point = frame.point
+        point_entry = frame.entry
+        if point_entry is None:
+            raise AssertionError("point frame has no start transition")
+
+        point_failed = has_blocking_problems(
+            self.problems[frame.problem_count_before :]
+        )
         self.point_results.append(
             PointExecutionResult(
                 point_index=point.point_index,
@@ -545,7 +449,7 @@ class RunEffectInterpreter:
 
     def _execute_compute_stage(
         self,
-        frame: _PointFrame,
+        frame: _EvaluationFrame,
         stage: ComputeStage,
     ) -> None:
         for operation in stage.operations:
@@ -554,7 +458,7 @@ class RunEffectInterpreter:
                 stage="compute",
                 effect="pure",
                 state="started",
-                point_index=frame.point.point_index,
+                point_index=frame.event_point_index,
                 evidence={
                     "semantic_operation_id": operation.semantic_operation_id,
                     "implementation_id": operation.implementation_id,
@@ -581,13 +485,17 @@ class RunEffectInterpreter:
                 )
                 committed_payload: CommittedPayloadEvidence | None = None
                 if operation.payload_slot is not None:
+                    if frame.event_point_index is None:
+                        raise AssertionError(
+                            "run-rate payload compute is not supported"
+                        )
                     fingerprint = content_fingerprint(result)
                     content_hash = stable_content_hash(fingerprint)
                     committed_payload = self.payload_evidence_committer.commit(
                         PayloadEvidence(
                             run_id=self.run_id,
                             operation_id=operation.operation_id,
-                            point_index=frame.point.point_index,
+                            point_index=frame.event_point_index,
                             payload_id=operation.payload_slot.id,
                             schema_id=operation.payload_slot.schema_id,
                             content_hash=content_hash,
@@ -602,7 +510,7 @@ class RunEffectInterpreter:
                     f"compute operation {operation.operation_id} failed",
                     error,
                     operation_id=operation.operation_id,
-                    point_index=frame.point.point_index,
+                    point_index=frame.event_point_index,
                 )
                 self.problems.append(problem)
                 self._observe_transition(
@@ -623,7 +531,7 @@ class RunEffectInterpreter:
                     operation_id=operation.operation_id,
                     semantic_operation_id=operation.semantic_operation_id,
                     implementation_id=operation.implementation_id,
-                    point_index=frame.point.point_index,
+                    point_index=frame.event_point_index,
                     payload=result,
                 )
                 frame.stats.compute_payload_count += 1
@@ -1304,7 +1212,7 @@ class RunEffectInterpreter:
         self, *, phase: Literal["initial", "terminal"]
     ) -> list[InstrumentStateSnapshot]:
         states: list[InstrumentStateSnapshot] = []
-        for instrument_id in self.program.resource_order:
+        for instrument_id in self.resource_order:
             operation_id = f"lifecycle.{phase}-read-state.{instrument_id}"
             transition_stage: ExecutionStage = (
                 "terminal_readback" if phase == "terminal" else "initial_readback"
@@ -1352,13 +1260,13 @@ class RunEffectInterpreter:
 
     def _finalize_drivers(self) -> None:
         action = "abort" if has_blocking_problems(self.problems) else "cleanup"
-        used = set(self.program.resource_order)
+        used = set(self.resource_order)
         extras = tuple(sorted(set(self.drivers) - used))
         managed_order = (
             *extras,
             *(
                 instrument_id
-                for instrument_id in self.program.resource_order
+                for instrument_id in self.resource_order
                 if instrument_id in self.drivers
             ),
         )
@@ -1570,7 +1478,7 @@ class RunEffectInterpreter:
             termination_reason = "completed"
         return RunEffectResult(
             run_id=self.run_id,
-            experiment_id=self.program.experiment_id,
+            experiment_id=self.experiment_id,
             result=result,
             certainty=certainty,
             termination_reason=termination_reason,
@@ -1885,9 +1793,7 @@ def _readback_problem(
 
 __all__ = [
     "ExecutionPointStats",
-    "NoopResourceLeaseManager",
     "PointExecutionResult",
-    "ResourceLeaseManager",
     "RunEffectInterpreter",
     "RunEffectResult",
 ]

@@ -10,12 +10,11 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Protocol
 
 from scopecat.compiler.semantic.model import ValueId
 from scopecat.compiler.semantic.operation_contract import OperationContract
-from scopecat.execution.ports.resources import ResourceClaim
-from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
+from scopecat.kernel.point_identity import LogicalPointId
+from scopecat.kernel.product_identity import ProductId, ProductUseId
 from scopecat.kernel.state import StateValue
 from scopecat.kernel.value_types import ValueType
 from scopecat.measurements.results import CoordinateValue
@@ -196,31 +195,49 @@ class PointProgram:
     """Concrete stages for one logical experiment point."""
 
     point_index: int
-    point_uid: str
+    logical_id: LogicalPointId
     coordinates: Mapping[str, CoordinateValue]
     stages: tuple[ExecutionStage, ...]
 
-
-class LocalEffectProgram(Protocol):
-    """Structural point-effect program accepted by validation and execution."""
+    @property
+    def point_uid(self) -> str:
+        return self.logical_id.value
 
     @property
-    def experiment_id(self) -> str: ...
+    def compute_operations(self) -> tuple[ComputeOperation, ...]:
+        return tuple(
+            operation
+            for stage in self.stages
+            if isinstance(stage, ComputeStage)
+            for operation in stage.operations
+        )
 
     @property
-    def points(self) -> tuple[PointProgram, ...]: ...
+    def state_operations(self) -> tuple[ApplyStateOperation, ...]:
+        return tuple(
+            operation
+            for stage in self.stages
+            if isinstance(stage, ApplyStateStage)
+            for operation in stage.operations
+        )
 
     @property
-    def product_uses(self) -> tuple[ProductUse, ...]: ...
+    def actions(self) -> tuple[InstrumentActionOperation, ...]:
+        return tuple(
+            operation
+            for stage in self.stages
+            if isinstance(stage, ActionStage)
+            for operation in stage.operations
+        )
 
     @property
-    def resource_order(self) -> tuple[str, ...]: ...
-
-    @property
-    def resource_claims(self) -> tuple[ResourceClaim, ...]: ...
-
-    @property
-    def point_count(self) -> int: ...
+    def collect_operations(self) -> tuple[CollectOperation, ...]:
+        return tuple(
+            operation
+            for stage in self.stages
+            if isinstance(stage, CollectStage)
+            for operation in stage.operations
+        )
 
 
 __all__ = [
@@ -239,10 +256,8 @@ __all__ = [
     "ComputeStage",
     "ExecutionStage",
     "InstrumentActionOperation",
-    "LocalEffectProgram",
     "OutputInput",
     "PayloadSlot",
     "PointProgram",
-    "ResourceClaim",
     "StateTarget",
 ]

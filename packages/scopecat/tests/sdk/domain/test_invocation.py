@@ -8,6 +8,10 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from scopecat.compiler.frontend.environment import validate_config_environment
+from scopecat.compiler.linking.linked import (
+    MaterializedLinkedPoints,
+    materialize_linked_points,
+)
 from scopecat.compiler.relations.model import literal_rows
 from scopecat.compiler.relations.point_domain import point_rows
 from scopecat.compiler.typed.point_domain import PointDomain
@@ -21,6 +25,7 @@ from scopecat.compiler.typed.program import (
 from scopecat.compiler.typed.records import RecordUse
 from scopecat.kernel.errors import CheckFailed, ProviderContractError
 from scopecat.kernel.value_types import Float, Scalar, Table, TableColumn
+from scopecat.measurements._bridge import project_measurement_catalog
 from scopecat.records.measurement import (
     ComplexQuantity,
     MeasurementArray,
@@ -32,15 +37,14 @@ from scopecat.sdk.domain.invocation import (
     ClosedDomainResultMapping,
     DomainOutputValue,
     EntryPointBinding,
-    MaterializedLinkedPointBatch,
-    MaterializedLinkedPoints,
     ProductUseId,
     ResultUseBinding,
     SelectedDomainMeasurementOutputs,
     close_domain_invocation,
-    materialize_linked_points,
     seal_domain_output_values,
-    seal_domain_result_mapping,
+)
+from scopecat.sdk.domain.invocation import (
+    seal_domain_result_mapping as _seal_domain_result_mapping,
 )
 from tests.testkit.authoring import load_config
 from tests.testkit.relation_plans import table_value_expr
@@ -169,6 +173,22 @@ def _all_product_use_ids(
     return tuple(use.id for use in linked_points.linked_plan.product_uses)
 
 
+def seal_domain_result_mapping(
+    linked_points: MaterializedLinkedPoints,
+    selected_product_use_ids: Sequence[ProductUseId],
+    adapter_entries: Sequence[AdapterEntryResults[str, str]],
+    entry_bindings: Sequence[EntryPointBinding[str]],
+    result_bindings: Sequence[ResultUseBinding[str, str]],
+) -> ClosedDomainResultMapping[str, str]:
+    return _seal_domain_result_mapping(
+        project_measurement_catalog(linked_points),
+        selected_product_use_ids,
+        adapter_entries,
+        entry_bindings,
+        result_bindings,
+    )
+
+
 def test_result_mapping_closes_reordered_adapter_work_to_logical_outputs() -> None:
     linked_points = _linked_points()
     adapter_entries, entry_bindings, result_bindings = _valid_mapping_inputs(
@@ -220,7 +240,7 @@ def test_result_mapping_closes_reordered_adapter_work_to_logical_outputs() -> No
 
     with pytest.raises(ValueError, match="exactly cover adapter entries"):
         ClosedDomainResultMapping(
-            mapping.linked_points,
+            mapping.catalog,
             mapping.selected_product_use_ids,
             (),
             mapping.entries,
@@ -230,12 +250,12 @@ def test_result_mapping_closes_reordered_adapter_work_to_logical_outputs() -> No
 
 def test_result_mapping_closes_only_the_selected_linked_point_batch() -> None:
     linked_points = _linked_points(point_count=4, product_count=1)
-    batch = MaterializedLinkedPointBatch(linked_points, (1, 2))
+    catalog = project_measurement_catalog(linked_points, (1, 2))
     use = linked_points.linked_plan.product_uses[0]
-    first, second = batch.point_domain.points
+    first, second = catalog.point_catalog.points
 
-    mapping = seal_domain_result_mapping(
-        batch,
+    mapping = _seal_domain_result_mapping(
+        catalog,
         (use.id,),
         (
             AdapterEntryResults("entry-2", ("result-2",)),
@@ -251,7 +271,7 @@ def test_result_mapping_closes_only_the_selected_linked_point_batch() -> None:
         ),
     )
 
-    assert mapping.linked_points is batch
+    assert mapping.catalog is catalog
     assert tuple(entry.point for entry in mapping.entries) == (first, second)
     assert tuple(result.logical_point_id for result in mapping.results) == (
         linked_points.point_domain.points[1].logical_id,

@@ -3,8 +3,8 @@
 This public module is the narrow target-integration seam between Scopecat's
 transient compiler and a domain package. It closes logical identity mappings
 and target-owned realization policy before effects, then accepts exact
-correlated measurement values afterward.  Runtime submission, fetch, and
-reconciliation are defined separately in :mod:`scopecat.sdk.domain.runtime`.
+correlated measurement values afterward. Runtime submission and fetch are
+defined separately in :mod:`scopecat.sdk.domain.runtime`.
 """
 
 from __future__ import annotations
@@ -12,25 +12,15 @@ from __future__ import annotations
 from collections.abc import Hashable, Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Literal, cast
+from typing import Literal, Protocol, cast
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
-from scopecat.compiler.linking.linked import (
-    LinkedPlan,
-    MaterializedLinkedPointBatch,
-    MaterializedLinkedPoints,
-    MaterializedLinkedPointSet,
-    materialize_linked_points,
-)
-from scopecat.compiler.typed.point_domain import (
-    LogicalPointId,
-    MaterializedPoint,
-    MaterializedPointDomain,
-)
 from scopecat.compiler.typed.products import ProductDef
+from scopecat.execution.points import RunPoint
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.errors import CheckFailed, ProviderContractError
+from scopecat.kernel.point_identity import LogicalPointId
 from scopecat.kernel.problems import (
     Problem,
     ProblemCategory,
@@ -47,7 +37,56 @@ from scopecat.measurements.contracts import (
     measurement_value_contract_issues,
     validated_measurement_value_copy,
 )
+from scopecat.measurements.values import MeasurementValueCatalog
 from scopecat.records.measurement import MeasurementValue
+
+
+class DomainResultContract[EntryAddressT: Hashable, ResultAddressT: Hashable](Protocol):
+    @property
+    def entry_address(self) -> EntryAddressT: ...
+
+    @property
+    def result_address(self) -> ResultAddressT: ...
+
+    @property
+    def logical_point_id(self) -> LogicalPointId: ...
+
+    @property
+    def product_use_ids(self) -> tuple[ProductUseId, ...]: ...
+
+    @property
+    def product_id(self) -> ProductId: ...
+
+    @property
+    def product(self) -> ProductDef: ...
+
+
+class DomainResultMappingContract[
+    EntryAddressT: Hashable,
+    ResultAddressT: Hashable,
+](Protocol):
+    @property
+    def catalog(self) -> MeasurementValueCatalog: ...
+
+    @property
+    def selected_product_use_ids(self) -> tuple[ProductUseId, ...]: ...
+
+    @property
+    def selected_product_uses(self) -> tuple[ProductUse, ...]: ...
+
+    @property
+    def results(
+        self,
+    ) -> tuple[DomainResultContract[EntryAddressT, ResultAddressT], ...]: ...
+
+    @property
+    def contract_fingerprint(self) -> str: ...
+
+    def product_for_use(self, product_use_id: ProductUseId) -> ProductDef: ...
+
+    def result_for_address(
+        self, result_address: ResultAddressT
+    ) -> DomainResultContract[EntryAddressT, ResultAddressT]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,7 +138,7 @@ class ClosedDomainResult[EntryAddressT: Hashable, ResultAddressT: Hashable]:
 
     entry_address: EntryAddressT
     result_address: ResultAddressT
-    point: MaterializedPoint = field(repr=False)
+    point: RunPoint = field(repr=False)
     product_uses: tuple[ProductUse, ...] = field(repr=False)
     _product: ProductDef = field(repr=False)
 
@@ -107,7 +146,7 @@ class ClosedDomainResult[EntryAddressT: Hashable, ResultAddressT: Hashable]:
         self,
         entry_address: EntryAddressT,
         result_address: ResultAddressT,
-        point: MaterializedPoint,
+        point: RunPoint,
         product_uses: tuple[ProductUse, ...],
         product: ProductDef,
     ) -> None:
@@ -152,12 +191,12 @@ class ClosedDomainResult[EntryAddressT: Hashable, ResultAddressT: Hashable]:
 class ClosedDomainOutputValue[EntryAddressT: Hashable, ResultAddressT: Hashable]:
     """One accepted measurement value retaining its exact mapped result."""
 
-    result: ClosedDomainResult[EntryAddressT, ResultAddressT] = field(repr=False)
+    result: DomainResultContract[EntryAddressT, ResultAddressT] = field(repr=False)
     _value: MeasurementValue = field(repr=False)
 
     def __init__(
         self,
-        result: ClosedDomainResult[EntryAddressT, ResultAddressT],
+        result: DomainResultContract[EntryAddressT, ResultAddressT],
         value: MeasurementValue,
     ) -> None:
         object.__setattr__(self, "result", result)
@@ -199,13 +238,13 @@ class ClosedDomainEntry[EntryAddressT: Hashable, ResultAddressT: Hashable]:
     """One checked adapter entry in canonical logical-point order."""
 
     entry_address: EntryAddressT
-    point: MaterializedPoint = field(repr=False)
+    point: RunPoint = field(repr=False)
     results: tuple[ClosedDomainResult[EntryAddressT, ResultAddressT], ...]
 
     def __init__(
         self,
         entry_address: EntryAddressT,
-        point: MaterializedPoint,
+        point: RunPoint,
         results: tuple[ClosedDomainResult[EntryAddressT, ResultAddressT], ...],
     ) -> None:
         if any(
@@ -235,7 +274,7 @@ class ClosedDomainResultMapping[EntryAddressT: Hashable, ResultAddressT: Hashabl
     point/use pair still has exactly one owner.
     """
 
-    linked_points: MaterializedLinkedPointSet
+    catalog: MeasurementValueCatalog
     selected_product_use_ids: tuple[ProductUseId, ...]
     selected_product_uses: tuple[ProductUse, ...] = field(repr=False)
     adapter_entries: tuple[AdapterEntryResults[EntryAddressT, ResultAddressT], ...]
@@ -267,13 +306,13 @@ class ClosedDomainResultMapping[EntryAddressT: Hashable, ResultAddressT: Hashabl
 
     def __init__(
         self,
-        linked_points: MaterializedLinkedPointSet,
+        catalog: MeasurementValueCatalog,
         selected_product_use_ids: tuple[ProductUseId, ...],
         adapter_entries: tuple[AdapterEntryResults[EntryAddressT, ResultAddressT], ...],
         entries: tuple[ClosedDomainEntry[EntryAddressT, ResultAddressT], ...],
         results: tuple[ClosedDomainResult[EntryAddressT, ResultAddressT], ...],
     ) -> None:
-        all_uses, products_by_id = _closed_product_inventory(linked_points)
+        all_uses, products_by_id = _closed_product_inventory(catalog)
         selected_uses = _canonical_selected_product_uses(
             all_uses,
             selected_product_use_ids,
@@ -283,7 +322,7 @@ class ClosedDomainResultMapping[EntryAddressT: Hashable, ResultAddressT: Hashabl
             msg = "closed domain result mappings require canonical product-use order"
             raise ValueError(msg)
         expected_points = tuple(
-            point.logical_id for point in linked_points.point_domain.points
+            point.logical_id for point in catalog.point_catalog.points
         )
         if tuple(entry.logical_point_id for entry in entries) != expected_points:
             msg = "closed domain result mappings require canonical point order"
@@ -292,7 +331,7 @@ class ClosedDomainResultMapping[EntryAddressT: Hashable, ResultAddressT: Hashabl
             entry.point != point
             for entry, point in zip(
                 entries,
-                linked_points.point_domain.points,
+                catalog.point_catalog.points,
                 strict=True,
             )
         ):
@@ -388,7 +427,7 @@ class ClosedDomainResultMapping[EntryAddressT: Hashable, ResultAddressT: Hashabl
         ):
             msg = "closed domain results must exactly cover adapter result addresses"
             raise ValueError(msg)
-        object.__setattr__(self, "linked_points", linked_points)
+        object.__setattr__(self, "catalog", catalog)
         object.__setattr__(
             self,
             "selected_product_use_ids",
@@ -494,7 +533,7 @@ class SelectedDomainMeasurementOutputs[
 ]:
     """Pre-effect proof that every mapped product has a measurement carrier."""
 
-    mapping: ClosedDomainResultMapping[EntryAddressT, ResultAddressT] = field(
+    mapping: DomainResultMappingContract[EntryAddressT, ResultAddressT] = field(
         repr=False
     )
 
@@ -576,7 +615,7 @@ class ClosedDomainInvocation[
     """
 
     intent: DomainInvocationIntent
-    result_mapping: ClosedDomainResultMapping[
+    result_mapping: DomainResultMappingContract[
         EntryAddressT,
         ResultAddressT,
     ] = field(repr=False)
@@ -639,7 +678,7 @@ class ClosedDomainOutputValues[EntryAddressT: Hashable, ResultAddressT: Hashable
     @property
     def mapping(
         self,
-    ) -> ClosedDomainResultMapping[EntryAddressT, ResultAddressT]:
+    ) -> DomainResultMappingContract[EntryAddressT, ResultAddressT]:
         return self.selection.mapping
 
     def output_for_address(
@@ -672,7 +711,7 @@ def close_domain_invocation[
     ResultAddressT: Hashable,
     PayloadT,
 ](
-    result_mapping: ClosedDomainResultMapping[
+    result_mapping: DomainResultMappingContract[
         EntryAddressT,
         ResultAddressT,
     ],
@@ -729,7 +768,7 @@ def seal_domain_result_mapping[
     EntryAddressT: Hashable,
     ResultAddressT: Hashable,
 ](
-    linked_points: MaterializedLinkedPointSet,
+    catalog: MeasurementValueCatalog,
     selected_product_use_ids: Sequence[ProductUseId],
     adapter_entries: Sequence[AdapterEntryResults[EntryAddressT, ResultAddressT]],
     entry_bindings: Sequence[EntryPointBinding[EntryAddressT]],
@@ -737,7 +776,7 @@ def seal_domain_result_mapping[
 ) -> ClosedDomainResultMapping[EntryAddressT, ResultAddressT]:
     """Close exact adapter coverage for selected uses of one linked point plan."""
 
-    all_uses, products_by_id = _closed_product_inventory(linked_points)
+    all_uses, products_by_id = _closed_product_inventory(catalog)
     selected_uses = _canonical_selected_product_uses(
         all_uses,
         tuple(selected_product_use_ids),
@@ -749,7 +788,7 @@ def seal_domain_result_mapping[
 
     adapter_entries_by_address = _index_adapter_entries(selected_adapter_entries)
     point_bindings_by_entry = _close_entry_bindings(
-        linked_points,
+        catalog,
         adapter_entries_by_address,
         selected_entry_bindings,
     )
@@ -759,9 +798,7 @@ def seal_domain_result_mapping[
     )
     all_use_by_id = {use.id: use for use in all_uses}
     selected_use_ids = set(canonical_product_use_ids)
-    point_by_id = {
-        point.logical_id: point for point in linked_points.point_domain.points
-    }
+    point_by_id = {point.logical_id: point for point in catalog.point_catalog.points}
     entry_by_point = {
         binding.logical_point_id: binding.entry_address
         for binding in point_bindings_by_entry.values()
@@ -769,7 +806,7 @@ def seal_domain_result_mapping[
 
     expected_outputs = {
         (point.logical_id, use.id)
-        for point in linked_points.point_domain.points
+        for point in catalog.point_catalog.points
         for use in selected_uses
     }
     bindings_by_output: dict[
@@ -828,7 +865,7 @@ def seal_domain_result_mapping[
     closed_results: list[ClosedDomainResult[EntryAddressT, ResultAddressT]] = []
     closed_entries: list[ClosedDomainEntry[EntryAddressT, ResultAddressT]] = []
     use_order = {use.id: index for index, use in enumerate(selected_uses)}
-    for point in linked_points.point_domain.points:
+    for point in catalog.point_catalog.points:
         entry_address = entry_by_point[point.logical_id]
         entry_results: list[ClosedDomainResult[EntryAddressT, ResultAddressT]] = []
         adapter_entry = adapter_entries_by_address[entry_address]
@@ -859,7 +896,7 @@ def seal_domain_result_mapping[
             )
         )
     return ClosedDomainResultMapping(
-        linked_points,
+        catalog,
         canonical_product_use_ids,
         selected_adapter_entries,
         tuple(closed_entries),
@@ -871,7 +908,7 @@ def _domain_measurement_output_selection_problems[
     EntryAddressT: Hashable,
     ResultAddressT: Hashable,
 ](
-    mapping: ClosedDomainResultMapping[EntryAddressT, ResultAddressT],
+    mapping: DomainResultMappingContract[EntryAddressT, ResultAddressT],
 ) -> tuple[Problem, ...]:
     problems: list[Problem] = []
     for use_index, product_use in enumerate(mapping.selected_product_uses):
@@ -1064,7 +1101,7 @@ def _close_entry_bindings[
     EntryAddressT: Hashable,
     ResultAddressT: Hashable,
 ](
-    linked_points: MaterializedLinkedPointSet,
+    catalog: MeasurementValueCatalog,
     adapter_entries: Mapping[
         EntryAddressT, AdapterEntryResults[EntryAddressT, ResultAddressT]
     ],
@@ -1081,7 +1118,7 @@ def _close_entry_bindings[
     if len(by_point) != len(bindings):
         msg = "entry-point bindings require unique logical points"
         raise ValueError(msg)
-    expected_points = {point.logical_id for point in linked_points.point_domain.points}
+    expected_points = {point.logical_id for point in catalog.point_catalog.points}
     if set(by_point) != expected_points:
         msg = "entry-point bindings must exactly cover materialized logical points"
         raise ValueError(msg)
@@ -1133,11 +1170,10 @@ def _close_result_inventory[
 
 
 def _closed_product_inventory(
-    linked_points: MaterializedLinkedPointSet,
+    catalog: MeasurementValueCatalog,
 ) -> tuple[tuple[ProductUse, ...], dict[ProductId, ProductDef]]:
-    program = linked_points.linked_plan.program
-    return program.product_uses, {
-        product.id: product for product in program.product_defs
+    return catalog.product_uses, {
+        product.id: product for product in catalog.product_defs
     }
 
 
@@ -1239,7 +1275,7 @@ def _domain_output_identity_details[
     EntryAddressT: Hashable,
     ResultAddressT: Hashable,
 ](
-    result: ClosedDomainResult[EntryAddressT, ResultAddressT],
+    result: DomainResultContract[EntryAddressT, ResultAddressT],
 ) -> dict[str, object]:
     return {
         "logical_point_id": result.logical_point_id.value,
@@ -1307,13 +1343,6 @@ __all__ = [
     "DomainInvocationIntent",
     "DomainOutputValue",
     "EntryPointBinding",
-    "LinkedPlan",
-    "LogicalPointId",
-    "MaterializedLinkedPointBatch",
-    "MaterializedLinkedPointSet",
-    "MaterializedLinkedPoints",
-    "MaterializedPoint",
-    "MaterializedPointDomain",
     "ProductDef",
     "ProductId",
     "ProductUse",
@@ -1321,7 +1350,6 @@ __all__ = [
     "ResultUseBinding",
     "SelectedDomainMeasurementOutputs",
     "close_domain_invocation",
-    "materialize_linked_points",
     "seal_domain_output_values",
     "seal_domain_result_mapping",
 ]

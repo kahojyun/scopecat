@@ -7,8 +7,8 @@ from typing import cast
 import pytest
 
 from scopecat.adapters.memory import MemoryCollectionRepository
+from scopecat.execution.local.collection_contract import BoundLocalCollectionValues
 from scopecat.execution.local.collection_values import (
-    BoundLocalCollectionValues,
     bind_local_collection_values,
     local_collection_value_candidates,
 )
@@ -23,13 +23,15 @@ from scopecat.execution.local.program import (
     PointProgram,
     StateTarget,
 )
-from scopecat.execution.ports.resources import ResourceClaim
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.errors import CheckFailed, ProviderContractError
-from scopecat.kernel.product_identity import ProductUse
+from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
+from scopecat.kernel.product_identity import ProductUse, ProductUseId
+from scopecat.kernel.resource_identity import ResourceClaim
 from scopecat.kernel.state import StateValue
 from scopecat.measurements.results import CoordinateValue
 from scopecat.measurements.values import (
+    MeasurementValueSelection,
     SelectedMeasurementValues,
     seal_measurement_values,
     select_measurement_values,
@@ -44,7 +46,10 @@ from scopecat.sdk.instruments.contracts import (
     CollectCommand,
     CollectProductRequest,
 )
-from tests.testkit.local_effect_program import StubLocalEffectProgram
+from tests.testkit.local_effect_program import (
+    StubLocalEffectProgram,
+    complete_point_operations,
+)
 from tests.testkit.measurement_assembly import (
     MeasurementAssemblyScenario,
     measurement_assembly_scenario,
@@ -52,6 +57,21 @@ from tests.testkit.measurement_assembly import (
 
 _RUN_ID = "local-collection-run"
 _INSTRUMENT_ID = "local-source-0"
+
+
+def _bind_values(
+    selection: MeasurementValueSelection,
+    product_use_ids: tuple[ProductUseId, ...],
+    program: StubLocalEffectProgram,
+) -> BoundLocalCollectionValues:
+    return bind_local_collection_values(
+        selection,
+        product_use_ids,
+        experiment_id=program.experiment_id,
+        operations=complete_point_operations(program),
+    )
+
+
 _PROVIDER_KEY = "raw"
 
 
@@ -59,7 +79,7 @@ def _selection(
     scenario: MeasurementAssemblyScenario,
 ) -> SelectedMeasurementValues:
     return select_measurement_values(
-        scenario.linked_points,
+        scenario.catalog,
         required_product_use_ids=tuple(use.id for use in scenario.uses),
     )
 
@@ -68,7 +88,7 @@ def _local_selection(
     scenario: MeasurementAssemblyScenario,
 ) -> SelectedMeasurementValues:
     return select_measurement_values(
-        scenario.linked_points,
+        scenario.catalog,
         required_product_use_ids=(scenario.uses[0].id,),
     )
 
@@ -83,7 +103,7 @@ def _program(
         points=tuple(
             PointProgram(
                 point_index=point.logical_ordinal,
-                point_uid=point.logical_id.value,
+                logical_id=point.logical_id,
                 coordinates=cast(
                     "dict[str, CoordinateValue]",
                     {name: point.row[name] for name in coordinate_ids},
@@ -158,7 +178,7 @@ def _bound(
     return (
         scenario,
         program,
-        bind_local_collection_values(
+        _bind_values(
             _selection(scenario),
             (scenario.uses[0].id,),
             program,
@@ -236,7 +256,7 @@ def test_binding_rejects_foreign_experiment_before_effects() -> None:
     )
 
     with pytest.raises(CheckFailed) as captured:
-        bind_local_collection_values(
+        _bind_values(
             _selection(scenario),
             (scenario.uses[0].id,),
             program,
@@ -253,7 +273,7 @@ def test_binding_rejects_wrong_point_coordinates_before_effects() -> None:
     bad_program = replace(program, points=(bad_point, *program.points[1:]))
 
     with pytest.raises(CheckFailed) as captured:
-        bind_local_collection_values(
+        _bind_values(
             _selection(scenario),
             (scenario.uses[0].id,),
             bad_program,
@@ -301,7 +321,7 @@ def test_binding_ignores_non_collection_state_and_action_stages() -> None:
         points=(point_with_effects, *program.points[1:]),
     )
 
-    binding = bind_local_collection_values(
+    binding = _bind_values(
         _selection(scenario),
         (scenario.uses[0].id,),
         program_with_effects,
@@ -321,11 +341,14 @@ def test_binding_ignores_non_collection_state_and_action_stages() -> None:
 def test_binding_rejects_wrong_point_identity_before_effects() -> None:
     scenario = measurement_assembly_scenario(use_count=2)
     program = _program(scenario, collected_use=scenario.uses[0])
-    bad_point = replace(program.points[0], point_uid="foreign-point")
+    bad_point = replace(
+        program.points[0],
+        logical_id=LogicalPointId(PointDomainId("foreign", "root"), 0),
+    )
     bad_program = replace(program, points=(bad_point, *program.points[1:]))
 
     with pytest.raises(CheckFailed) as captured:
-        bind_local_collection_values(
+        _bind_values(
             _selection(scenario),
             (scenario.uses[0].id,),
             bad_program,
@@ -346,7 +369,7 @@ def test_binding_rejects_wrong_request_contract_before_effects() -> None:
     )
 
     with pytest.raises(CheckFailed) as captured:
-        bind_local_collection_values(
+        _bind_values(
             _selection(scenario),
             (scenario.uses[0].id,),
             bad_program,
@@ -364,7 +387,7 @@ def test_binding_rechecks_mutated_runtime_owned_attempt_before_effects() -> None
     operation.command.attempt = 2
 
     with pytest.raises(CheckFailed) as captured:
-        bind_local_collection_values(
+        _bind_values(
             _selection(scenario),
             (scenario.uses[0].id,),
             program,
@@ -380,7 +403,7 @@ def test_binding_requires_requested_values_to_equal_collection_inventory() -> No
     program = _program(scenario, collected_use=scenario.uses[1])
 
     with pytest.raises(CheckFailed) as captured:
-        bind_local_collection_values(
+        _bind_values(
             _selection(scenario),
             (scenario.uses[0].id,),
             program,

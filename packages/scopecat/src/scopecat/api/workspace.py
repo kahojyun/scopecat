@@ -91,9 +91,9 @@ from scopecat.execution.observation import RuntimeEventSink, RuntimePayloadObser
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.frozen import freeze_json_mapping
 from scopecat.measurements.results import MeasurementDType
-from scopecat.planning.backend import ExecutionBackend
 from scopecat.planning.check_results import ExperimentCheckResult
 from scopecat.planning.preview_models import ExperimentPreview
+from scopecat.planning.system import ExperimentSystem
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import Quantity
@@ -143,7 +143,7 @@ class PreparedExperiment:
     _prepared_invocation: PreparedInvocation
     _config: str | ConfigProfileSnapshot | CandidateConfig | None = None
     _config_profile: ConfigProfileInput | None = None
-    _execution_backend: ExecutionBackend | None = field(
+    _system: ExperimentSystem | None = field(
         default=None,
         repr=False,
         compare=False,
@@ -239,7 +239,7 @@ class PreparedExperiment:
             config=self._config,
             config_profile=self._config_profile,
             run_options=run_options,
-            execution_backend=self._execution_backend,
+            system=self._system,
         )
 
     def check(
@@ -267,7 +267,7 @@ class PreparedExperiment:
             config=self._config,
             config_profile=self._config_profile,
             run_options=run_options,
-            execution_backend=self._execution_backend,
+            system=self._system,
         )
 
     def run(
@@ -294,7 +294,7 @@ class PreparedExperiment:
             self._prepared_invocation,
             config=self._config,
             config_profile=self._config_profile,
-            execution_backend=self._execution_backend,
+            system=self._system,
             run_options=run_options,
             event_sink=event_sink,
             payload_observer=payload_observer,
@@ -564,7 +564,7 @@ class Workspace:
     services: WorkspaceServices
     _config: str | ConfigProfileSnapshot
     _config_profile: ConfigProfileInput | None
-    _execution_backend: ExecutionBackend | None
+    _system: ExperimentSystem | None
     _reviewer: str
     _operator: str
 
@@ -587,8 +587,8 @@ class Workspace:
         return self._config_profile
 
     @property
-    def execution_backend(self) -> ExecutionBackend | None:
-        return self._execution_backend
+    def system(self) -> ExperimentSystem | None:
+        return self._system
 
     @property
     def reviewer(self) -> str:
@@ -645,7 +645,7 @@ class Workspace:
         *,
         config: str | ConfigProfileSnapshot | CandidateConfig | None = None,
         config_profile: ConfigProfileInput | None = None,
-        execution_backend: ExecutionBackend | None = None,
+        system: ExperimentSystem | None = None,
     ) -> PreparedExperiment:
         match experiment:
             case TemplateBuilder():
@@ -671,7 +671,7 @@ class Workspace:
             _prepared_invocation=prepared_invocation,
             _config=config,
             _config_profile=config_profile,
-            _execution_backend=execution_backend,
+            _system=system,
         )
 
     def runs(self) -> tuple[RunHandle, ...]:
@@ -811,7 +811,7 @@ def _preview_prepared(
     config: str | ConfigProfileSnapshot | CandidateConfig | None,
     config_profile: ConfigProfileInput | None,
     run_options: _RunOptions,
-    execution_backend: ExecutionBackend | None,
+    system: ExperimentSystem | None,
 ) -> ExperimentPreview:
     result = _check_prepared(
         session,
@@ -819,7 +819,7 @@ def _preview_prepared(
         config=config,
         config_profile=config_profile,
         run_options=run_options,
-        execution_backend=execution_backend,
+        system=system,
     )
     if result.preview is None:
         raise CheckFailed(result.problems)
@@ -833,7 +833,7 @@ def _check_prepared(
     config: str | ConfigProfileSnapshot | CandidateConfig | None,
     config_profile: ConfigProfileInput | None,
     run_options: _RunOptions,
-    execution_backend: ExecutionBackend | None,
+    system: ExperimentSystem | None,
 ) -> ExperimentCheckResult:
     selected_config, selected_config_profile = _prepared_config_selection(
         session,
@@ -848,11 +848,7 @@ def _check_prepared(
         services=session.services,
         config=selected_config,
         config_profile=selected_config_profile,
-        execution_backend=(
-            session.execution_backend
-            if execution_backend is None
-            else execution_backend
-        ),
+        system=(session.system if system is None else system),
     )
 
 
@@ -862,7 +858,7 @@ def _run_prepared(
     *,
     config: str | ConfigProfileSnapshot | CandidateConfig | None,
     config_profile: ConfigProfileInput | None,
-    execution_backend: ExecutionBackend | None,
+    system: ExperimentSystem | None,
     run_options: _RunOptions,
     event_sink: RuntimeEventSink | None,
     payload_observer: RuntimePayloadObserver | None,
@@ -872,9 +868,7 @@ def _run_prepared(
         config=config,
         config_profile=config_profile,
     )
-    selected_execution_backend = (
-        session.execution_backend if execution_backend is None else execution_backend
-    )
+    selected_system = session.system if system is None else system
     return RunHandle(
         session=session,
         id=run_experiment(
@@ -885,7 +879,7 @@ def _run_prepared(
             services=session.services,
             config=selected_config,
             config_profile=selected_config_profile,
-            execution_backend=selected_execution_backend,
+            system=selected_system,
             event_sink=event_sink,
             payload_observer=payload_observer,
         ).run_id,

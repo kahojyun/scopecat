@@ -9,8 +9,8 @@ from tests.testkit.workflow_fixtures import load_config, load_prepared_invocatio
 
 from scopecat.adapters.memory import MemoryWorkspaceStore
 from scopecat.composition.memory import memory_workspace_services
-from scopecat.execution.ports.resources import ResourceClaim
-from scopecat.planning.backend import ExecutionBackend
+from scopecat.kernel.resource_identity import ResourceClaim
+from scopecat.planning.system import ExperimentSystem
 from scopecat.runs.execution import inspect_run_execution
 from scopecat.runs.service import start_run
 
@@ -22,7 +22,7 @@ def test_recomposed_services_share_execution_recovery_state(tmp_path: Path) -> N
         config=load_config(),
         experiment=load_prepared_invocation(),
         services=initial,
-        execution_backend=ExecutionBackend(provider=TestSignalInstrumentProvider()),
+        system=ExperimentSystem(provider=TestSignalInstrumentProvider()),
     )
 
     recomposed = memory_workspace_services(store)

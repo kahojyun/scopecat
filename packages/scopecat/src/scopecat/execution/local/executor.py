@@ -8,7 +8,6 @@ from typing import cast
 
 from pydantic import JsonValue, TypeAdapter
 
-from scopecat.compiler.linking.bound import MaterializedLocalSemantics
 from scopecat.execution.effect_interpreter import RunEffectInterpreter, RunEffectResult
 from scopecat.execution.events import (
     RuntimeTransitionProjector,
@@ -20,8 +19,7 @@ from scopecat.execution.local.drivers import (
     preflight_problem_from_exception,
     validate_instruments,
 )
-from scopecat.execution.local.lowering import lower_local_effect_fields
-from scopecat.execution.local.program import LocalEffectProgram
+from scopecat.execution.local.program import PointProgram
 from scopecat.execution.local.validation import validate_local_effect_block_instruments
 from scopecat.execution.observation import RuntimeEventSink, RuntimePayloadObserver
 from scopecat.execution.ports.journal import (
@@ -34,10 +32,16 @@ from scopecat.execution.problems import (
     problem_from_exception,
     runtime_problem,
 )
-from scopecat.execution.program import RunDomainJob, RunLocalEffects, RunPointRegion
+from scopecat.execution.program import (
+    RunDomainJob,
+    RunHostBinding,
+    RunOperation,
+    RunPointStage,
+    RunProgram,
+    iter_run_operations,
+)
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.errors import (
-    CheckFailed,
     ProviderContractError,
 )
 from scopecat.kernel.problems import (
@@ -49,7 +53,6 @@ from scopecat.kernel.problems import (
     has_blocking_problems,
     model_location,
 )
-from scopecat.kernel.product_identity import ProductUseId
 from scopecat.measurements.values import MeasurementValueCandidate
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.execution_journal import ExecutionTransition
@@ -68,35 +71,35 @@ _PROVIDER_DESCRIPTION_ADAPTER = TypeAdapter(InstrumentProviderDescription)
 
 
 @dataclass(frozen=True, slots=True)
-class ExecutedLocalEffects:
-    """Local result plus domain values produced by explicit region operations."""
+class ExecutedRunEffects:
+    """One complete provisioning and ordered-effect interpretation outcome."""
 
     result: RunEffectResult
-    domain_values: dict[str, list[tuple[MeasurementValueCandidate, ...]]]
+    setup_problems: tuple[Problem, ...]
+    domain_values: tuple[MeasurementValueCandidate, ...]
     domain_failure: tuple[RunDomainJob, BaseException] | None
 
 
-def lower_run_local_effects(
+@dataclass(frozen=True, slots=True)
+class InstrumentProviderPreflight:
+    """Pure provider ABI snapshot captured before host point lowering."""
+
+    context: InstrumentProviderContext
+    provider_id: str
+    instrument_order: tuple[str, ...]
+    advertised_descriptions: dict[str, InstrumentDescription]
+    problems: tuple[Problem, ...]
+    provider: InstrumentProvider
+
+
+def preflight_instrument_provider(
     *,
-    operation_id: str,
-    product_use_ids: tuple[ProductUseId, ...],
     config: ConfigProfileSnapshot,
-    semantics: MaterializedLocalSemantics,
     instrument_provider: InstrumentProvider,
-) -> RunLocalEffects:
-    """Validate the pure provider contract and lower RunProgram host effects.
+) -> InstrumentProviderPreflight:
+    """Describe and normalize the provider before point-local lowering."""
 
-    ``InstrumentProvider.describe`` is the provider's config-specific, effect-free
-    ABI declaration.  Running it here keeps unsupported fields, products, units,
-    axes, and missing instruments on the validation side of durable run
-    acceptance.  ``provide`` remains inside the resource lease in
-    :func:`execute_run` because it may acquire live hardware.
-    """
-
-    problems = list(semantics.problems)
-    if has_blocking_problems(problems):
-        raise CheckFailed(problems)
-
+    problems: list[Problem] = []
     context = InstrumentProviderContext(config=config)
     try:
         provider_id = instrument_provider.provider_id
@@ -139,66 +142,104 @@ def lower_run_local_effects(
                 "provider_id",
             )
         )
-    instrument_order = tuple(
-        item.instrument_id for item in provider_description.instruments
-    )
-    advertised_descriptions = {
-        item.instrument_id: item for item in provider_description.instruments
-    }
-    lowering_instrument_order = (
-        *instrument_order,
-        *(
-            instrument_id
-            for instrument_id in _planned_instrument_ids(semantics)
-            if instrument_id not in advertised_descriptions
-        ),
-    )
     problems.extend(
         _validate_described_instruments(
             config=config,
             descriptions=provider_description.instruments,
         )
     )
-    (
-        points,
-        product_uses,
-        resource_order,
-        resource_claims,
-    ) = lower_local_effect_fields(
-        semantics,
-        instrument_order=lowering_instrument_order,
-    )
-    program = RunLocalEffects(
-        id=operation_id,
-        experiment_id=semantics.experiment_id,
-        product_use_ids=product_use_ids,
-        points=points,
-        product_uses=product_uses,
-        resource_order=resource_order,
-        resource_claims=resource_claims,
+    return InstrumentProviderPreflight(
         context=context,
         provider_id=provider_id,
-        instrument_order=instrument_order,
-        advertised_descriptions=advertised_descriptions,
-        problems=(),
+        instrument_order=tuple(
+            item.instrument_id for item in provider_description.instruments
+        ),
+        advertised_descriptions={
+            item.instrument_id: item for item in provider_description.instruments
+        },
+        problems=tuple(problems),
         provider=instrument_provider,
     )
-    problems.extend(
+
+
+def validate_run_host_binding(
+    *,
+    program: RunHostBinding,
+    points: Sequence[PointProgram],
+    problems: Sequence[Problem],
+) -> RunHostBinding:
+    """Validate one already-closed host binding against its provider ABI."""
+
+    selected = list(problems)
+    selected.extend(
         validate_local_effect_block_instruments(
-            program,
-            descriptions=advertised_descriptions,
+            resource_order=program.resource_order,
+            stages=tuple(stage for point in points for stage in point.stages),
+            descriptions=program.advertised_descriptions,
         )
     )
 
-    if has_blocking_problems(problems):
-        raise ProviderContractError(problems)
+    if has_blocking_problems(selected):
+        raise ProviderContractError(selected)
     return program
 
 
-def execute_run_local_effects(
+def execute_run_operations(
     *,
     config: ConfigProfileSnapshot,
-    effects: RunLocalEffects,
+    program: RunProgram,
+    run_id: str,
+    journal: ExecutionJournal,
+    readbacks: CollectionRepository,
+    payloads: PayloadEvidenceCommitter,
+    transition_observer: RuntimeTransitionProjector,
+    payload_observer: RuntimePayloadObserver | None = None,
+) -> ExecutedRunEffects:
+    """Provision optional host drivers and interpret one operation sequence."""
+
+    host = program.host
+    if host is None:
+        engine = RunEffectInterpreter(
+            run_id=run_id,
+            program=program,
+            drivers={},
+            journal=journal,
+            readbacks=readbacks,
+            payloads=payloads,
+            transition_observer=transition_observer,
+        )
+        result = engine.run(program.operations)
+        return ExecutedRunEffects(
+            result=result,
+            setup_problems=(),
+            domain_values=tuple(engine.domain_values),
+            domain_failure=engine.domain_failure,
+        )
+
+    executed, setup_problems = _execute_run_host_operations(
+        config=config,
+        host=host,
+        operations=program.operations,
+        run_id=run_id,
+        journal=journal,
+        readbacks=readbacks,
+        payloads=payloads,
+        payload_observer=payload_observer,
+        transition_observer=transition_observer,
+    )
+    return ExecutedRunEffects(
+        result=executed.result,
+        setup_problems=tuple(setup_problems),
+        domain_values=executed.domain_values,
+        domain_failure=executed.domain_failure,
+    )
+
+
+def _execute_run_host_operations(
+    *,
+    config: ConfigProfileSnapshot,
+    host: RunHostBinding,
+    operations: tuple[RunOperation, ...],
     run_id: str,
     journal: ExecutionJournal,
     readbacks: CollectionRepository,
@@ -206,34 +247,27 @@ def execute_run_local_effects(
     event_sink: RuntimeEventSink | None = None,
     payload_observer: RuntimePayloadObserver | None = None,
     transition_observer: RuntimeTransitionProjector | None = None,
-    point_regions: tuple[RunPointRegion, ...] = (),
-) -> tuple[ExecutedLocalEffects, list[Problem]]:
-    """Provision and execute a prepared local unit inside caller-owned leases."""
+) -> tuple[ExecutedRunEffects, list[Problem]]:
+    """Provision host resources and interpret the complete operation sequence."""
 
-    program = effects
-    setup_problems = list(
-        contextualize_problems(
-            effects.problems,
-            run_id=run_id,
-            operation_id="provider.preflight",
-        )
-    )
+    program = host
+    setup_problems: list[Problem] = []
     if transition_observer is None:
         transition_observer = RuntimeTransitionProjector(
             event_sink=event_sink,
             experiment_id=program.experiment_id,
             point_count=program.point_count,
         )
-    domain_values: dict[str, list[tuple[MeasurementValueCandidate, ...]]] = {}
+    domain_values: list[MeasurementValueCandidate] = []
     domain_failure: list[tuple[RunDomainJob, BaseException] | None] = [None]
     result = _provision_and_execute(
         run_id=run_id,
         experiment_id=program.experiment_id,
         config=config,
-        context=effects.context,
-        provider=effects.provider,
-        provider_id=effects.provider_id,
-        advertised_descriptions=effects.advertised_descriptions,
+        context=host.context,
+        provider=host.provider,
+        provider_id=host.provider_id,
+        advertised_descriptions=host.advertised_descriptions,
         program=program,
         setup_problems=setup_problems,
         journal=journal,
@@ -241,13 +275,14 @@ def execute_run_local_effects(
         readbacks=readbacks,
         payloads=payloads,
         payload_observer=payload_observer,
-        point_regions=point_regions,
+        operations=operations,
         domain_values=domain_values,
         domain_failure=domain_failure,
     )
-    return ExecutedLocalEffects(
+    return ExecutedRunEffects(
         result,
-        domain_values,
+        tuple(setup_problems),
+        tuple(domain_values),
         domain_failure[0],
     ), setup_problems
 
@@ -261,15 +296,15 @@ def _provision_and_execute(
     provider: InstrumentProvider,
     provider_id: str,
     advertised_descriptions: dict[str, InstrumentDescription],
-    program: LocalEffectProgram,
+    program: RunHostBinding,
     setup_problems: list[Problem],
     journal: ExecutionJournal,
     transition_observer: RuntimeTransitionProjector,
     readbacks: CollectionRepository,
     payloads: PayloadEvidenceCommitter,
     payload_observer: RuntimePayloadObserver | None,
-    point_regions: tuple[RunPointRegion, ...],
-    domain_values: dict[str, list[tuple[MeasurementValueCandidate, ...]]],
+    operations: tuple[RunOperation, ...],
+    domain_values: list[MeasurementValueCandidate],
     domain_failure: list[tuple[RunDomainJob, BaseException] | None],
 ) -> RunEffectResult:
     """Provision, verify, execute, and finalize while the caller holds leases."""
@@ -363,7 +398,7 @@ def _provision_and_execute(
         readbacks=readbacks,
         payloads=payloads,
         payload_observer=payload_observer,
-        point_regions=point_regions,
+        operations=operations,
         domain_values=domain_values,
         domain_failure=domain_failure,
     )
@@ -378,15 +413,15 @@ def _execute_provider_result(
     provider_result: InstrumentProviderResult,
     provider_entry: ExecutionTransition,
     advertised_descriptions: dict[str, InstrumentDescription],
-    program: LocalEffectProgram,
+    program: RunHostBinding,
     setup_problems: list[Problem],
     journal: ExecutionJournal,
     transition_observer: RuntimeTransitionProjector,
     readbacks: CollectionRepository,
     payloads: PayloadEvidenceCommitter,
     payload_observer: RuntimePayloadObserver | None,
-    point_regions: tuple[RunPointRegion, ...],
-    domain_values: dict[str, list[tuple[MeasurementValueCandidate, ...]]],
+    operations: tuple[RunOperation, ...],
+    domain_values: list[MeasurementValueCandidate],
     domain_failure: list[tuple[RunDomainJob, BaseException] | None],
 ) -> RunEffectResult:
     """Own every returned driver until a fully constructed engine takes over."""
@@ -452,7 +487,12 @@ def _execute_provider_result(
                 if not has_blocking_problems(setup_problems):
                     setup_problems.extend(
                         validate_local_effect_block_instruments(
-                            program,
+                            resource_order=program.resource_order,
+                            stages=tuple(
+                                operation.stage
+                                for operation in iter_run_operations(operations)
+                                if isinstance(operation, RunPointStage)
+                            ),
                             descriptions={
                                 item.instrument_id: item for item in actual_descriptions
                             },
@@ -527,8 +567,8 @@ def _execute_provider_result(
     if engine is not None:
         # Engine construction is the ownership hand-off.  Its run boundary is
         # responsible for abort/cleanup and terminal state capture after effects.
-        result = engine.run_regions(point_regions) if point_regions else engine.run()
-        domain_values.update(engine.domain_values)
+        result = engine.run(operations)
+        domain_values.extend(engine.domain_values)
         domain_failure[0] = engine.domain_failure
         return result
     return _finalize_owned_setup(
@@ -729,21 +769,6 @@ def _preflight_problem(
         category=ProblemCategory.PROVIDER_CONTRACT,
         phase=ProblemPhase.PROVIDER_PREFLIGHT,
         location=model_location("instrument_provider", *path),
-    )
-
-
-def _planned_instrument_ids(semantics: MaterializedLocalSemantics) -> list[str]:
-    return sorted(
-        {
-            state.resource_id.value
-            for point in semantics.points
-            for state in point.desired_state
-        }
-        | {
-            collect.resource_id.value
-            for point in semantics.points
-            for collect in point.collect
-        }
     )
 
 

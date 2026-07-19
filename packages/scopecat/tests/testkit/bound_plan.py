@@ -4,19 +4,21 @@ from collections.abc import Mapping, Sequence
 from dataclasses import replace
 
 from scopecat.compiler.frontend.environment import validate_config_environment
-from scopecat.compiler.linking.bound import (
-    BoundResourceState,
-    BoundStateField,
-    MaterializedLocalSemantics,
-)
 from scopecat.compiler.linking.linked import materialize_linked_points
-from scopecat.compiler.linking.materialization import materialize_local_semantics
 from scopecat.compiler.relations.evaluation import ParameterRelationData
 from scopecat.compiler.typed.program import CoreProgram
-from scopecat.kernel.problems import Problem
+from scopecat.execution.local.program import (
+    ApplyStateOperation,
+    StateTarget,
+)
+from scopecat.measurements._bridge import project_measurement_catalog
 from scopecat.measurements.projection import (
-    SelectedMeasurementProjection,
+    MeasurementProjection,
     select_measurement_projection,
+)
+from scopecat.planning.local_materialization import (
+    MaterializedLocalEffects,
+    materialize_local_execution,
 )
 from scopecat.records.config import ConfigProfileSnapshot, RoutingResource
 from tests.testkit.authoring import load_config
@@ -82,28 +84,12 @@ def bound_plan_contract(
     parameters: ParameterRelationData,
     *,
     config: ConfigProfileSnapshot | None = None,
-) -> MaterializedLocalSemantics:
-    plan, problems = bound_plan_result(
-        experiment,
-        parameters,
-        config=config,
-    )
-    assert problems == ()
-    return plan
-
-
-def bound_plan_result(
-    experiment: CoreProgram,
-    parameters: ParameterRelationData,
-    *,
-    config: ConfigProfileSnapshot | None = None,
-) -> tuple[MaterializedLocalSemantics, tuple[Problem, ...]]:
+) -> MaterializedLocalEffects:
     environment = replace(
         validate_config_environment(config or load_config()),
         parameters=parameters,
     )
-    plan = materialize_local_semantics(link_program(experiment, environment))
-    return plan, plan.problems
+    return materialize_local_execution(link_program(experiment, environment))
 
 
 def measurement_projection_contract(
@@ -111,27 +97,30 @@ def measurement_projection_contract(
     parameters: ParameterRelationData,
     *,
     config: ConfigProfileSnapshot | None = None,
-) -> SelectedMeasurementProjection:
+) -> MeasurementProjection:
     environment = replace(
         validate_config_environment(config or load_config()),
         parameters=parameters,
     )
     linked_points = materialize_linked_points(link_program(experiment, environment))
-    return select_measurement_projection(linked_points)
-
-
-def bound_state_fields(
-    plan: MaterializedLocalSemantics,
-) -> tuple[tuple[int, BoundResourceState, BoundStateField], ...]:
-    """Flatten bound state for focused assertions without another projection."""
-
-    return tuple(
-        (point.point_index, state, field)
-        for point in plan.points
-        for state in point.desired_state
-        for field in state.fields
+    return select_measurement_projection(
+        project_measurement_catalog(linked_points),
+        linked_points.linked_plan.record_uses,
     )
 
 
-def bound_coordinate_ids(plan: MaterializedLocalSemantics) -> tuple[str, ...]:
+def bound_state_fields(
+    plan: MaterializedLocalEffects,
+) -> tuple[tuple[int, ApplyStateOperation, StateTarget], ...]:
+    """Flatten bound state for focused assertions without another projection."""
+
+    return tuple(
+        (point.point_index, operation, target)
+        for point in plan.points
+        for operation in point.state_operations
+        for target in operation.targets
+    )
+
+
+def bound_coordinate_ids(plan: MaterializedLocalEffects) -> tuple[str, ...]:
     return tuple(plan.points[0].coordinates) if plan.points else ()

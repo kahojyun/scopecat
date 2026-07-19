@@ -13,8 +13,9 @@ from scopecat.execution.ports.measurement import MeasurementRecordCommitter
 from scopecat.execution.problems import problem_from_exception, runtime_problem
 from scopecat.kernel.errors import MeasurementRecordingError
 from scopecat.kernel.problems import Problem, ProblemCategory, ProblemPhase
-from scopecat.measurements.projection import ProjectedMeasurementRecords
+from scopecat.measurements.projection import MeasurementRecordBatch
 from scopecat.records.execution_journal import ExecutionTransition
+from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.measurement_recording import (
     MeasurementRecordChunk,
     MeasurementRecordReceipt,
@@ -22,21 +23,21 @@ from scopecat.records.measurement_recording import (
 
 
 @dataclass(frozen=True, slots=True)
-class CommittedProjectedMeasurementRecords:
+class CommittedMeasurementRecords:
     """Trusted internal result for a completely committed projected batch."""
 
-    projected: ProjectedMeasurementRecords = field(repr=False)
+    records: tuple[MeasurementRecord, ...] = field(repr=False)
     receipts: tuple[MeasurementRecordReceipt, ...]
 
 
-def commit_projected_measurement_records(
-    projected: ProjectedMeasurementRecords,
+def commit_measurement_records(
+    batch: MeasurementRecordBatch,
     committer: MeasurementRecordCommitter,
     journal: ExecutionJournal,
     *,
     attempt: int = 1,
     transition_observer: Callable[[ExecutionTransition], None] | None = None,
-) -> CommittedProjectedMeasurementRecords:
+) -> CommittedMeasurementRecords:
     """Commit a canonical projected batch with journaled point-level evidence."""
 
     if attempt < 1:
@@ -45,7 +46,7 @@ def commit_projected_measurement_records(
 
     # Construct every durable chunk before the first journal or committer
     # effect. No later point can reveal a structural batch error.
-    chunks = _chunks_for_projected(projected)
+    chunks = _chunks_for_batch(batch)
     operation_ids = tuple(chunk.operation_id for chunk in chunks)
     if len(operation_ids) != len(set(operation_ids)):
         msg = "projected measurement records require unique operation identities"
@@ -211,18 +212,18 @@ def commit_projected_measurement_records(
             ) from error
         committed.append(receipt)
 
-    return CommittedProjectedMeasurementRecords(
-        projected,
+    return CommittedMeasurementRecords(
+        batch.records,
         tuple(committed),
     )
 
 
-def _chunks_for_projected(
-    projected: ProjectedMeasurementRecords,
+def _chunks_for_batch(
+    batch: MeasurementRecordBatch,
 ) -> tuple[MeasurementRecordChunk, ...]:
     # Keep the dependency one-way at import time: errors can describe receipt
     # evidence without importing this runtime module.
-    selected = projected
+    selected = batch
     records = selected.records
     if not records:
         return ()
@@ -230,7 +231,7 @@ def _chunks_for_projected(
     if schema is None:
         msg = "projected measurement records require a dataset schema before writing"
         raise ValueError(msg)
-    points = selected.selection.projection.linked_points.point_domain.points
+    points = selected.projection.catalog.point_catalog.points
     return tuple(
         MeasurementRecordChunk(
             run_id=selected.run_id,
@@ -418,9 +419,9 @@ def _normalize_receipt(value: object) -> MeasurementRecordReceipt:
 
 
 __all__ = [
-    "CommittedProjectedMeasurementRecords",
+    "CommittedMeasurementRecords",
     "MeasurementRecordChunk",
     "MeasurementRecordCommitter",
     "MeasurementRecordReceipt",
-    "commit_projected_measurement_records",
+    "commit_measurement_records",
 ]

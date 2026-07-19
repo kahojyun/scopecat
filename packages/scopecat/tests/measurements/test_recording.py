@@ -13,14 +13,13 @@ from scopecat.adapters.memory import (
 from scopecat.execution.ports.journal import ExecutionJournalError
 from scopecat.kernel.errors import MeasurementRecordingError
 from scopecat.measurements.projection import (
-    ProjectedMeasurementRecords,
-    bind_measurement_projection,
+    MeasurementRecordBatch,
     project_measurement_records,
     select_measurement_projection,
 )
 from scopecat.measurements.recording import (
-    CommittedProjectedMeasurementRecords,
-    commit_projected_measurement_records,
+    CommittedMeasurementRecords,
+    commit_measurement_records,
 )
 from scopecat.measurements.values import (
     seal_measurement_values,
@@ -39,44 +38,35 @@ from tests.testkit.measurement_assembly import (
 )
 
 
-def _projected(*, run_id: str = "recording-run") -> ProjectedMeasurementRecords:
-    scenario, selected, assembled = assembled_measurement_values_for_all_uses()
-    bound = bind_measurement_projection(
-        select_measurement_projection(scenario.linked_points),
-        selected,
-    )
-    return project_measurement_records(bound, assembled, run_id=run_id)
+def _projected(*, run_id: str = "recording-run") -> MeasurementRecordBatch:
+    scenario, _, assembled = assembled_measurement_values_for_all_uses()
+    projection = select_measurement_projection(scenario.catalog, scenario.records)
+    return project_measurement_records(projection, assembled, run_id=run_id)
 
 
-def _zero_projected() -> ProjectedMeasurementRecords:
+def _zero_projected() -> MeasurementRecordBatch:
     scenario = measurement_assembly_scenario(point_values=(), use_count=1)
     selected = select_measurement_values(
-        scenario.linked_points,
+        scenario.catalog,
         required_product_use_ids=(scenario.uses[0].id,),
     )
     values = seal_measurement_values(
         selected,
         measurement_value_candidates(scenario, scenario.uses),
     )
-    bound = bind_measurement_projection(
-        select_measurement_projection(scenario.linked_points),
-        selected,
-    )
-    return project_measurement_records(bound, values, run_id="zero-recording-run")
+    projection = select_measurement_projection(scenario.catalog, scenario.records)
+    return project_measurement_records(projection, values, run_id="zero-recording-run")
 
 
-def _empty_projection() -> ProjectedMeasurementRecords:
+def _empty_projection() -> MeasurementRecordBatch:
     scenario = measurement_assembly_scenario(point_values=(0.0, 1.0), use_count=0)
     selected = select_measurement_values(
-        scenario.linked_points,
+        scenario.catalog,
         required_product_use_ids=(),
     )
     values = seal_measurement_values(selected, ())
-    bound = bind_measurement_projection(
-        select_measurement_projection(scenario.linked_points),
-        selected,
-    )
-    return project_measurement_records(bound, values, run_id="empty-recording-run")
+    projection = select_measurement_projection(scenario.catalog, scenario.records)
+    return project_measurement_records(projection, values, run_id="empty-recording-run")
 
 
 def test_recording_commits_canonical_points_with_strict_journal_evidence() -> None:
@@ -85,7 +75,7 @@ def test_recording_commits_canonical_points_with_strict_journal_evidence() -> No
     journal = MemoryExecutionJournal()
     observed: list[ExecutionTransition] = []
 
-    committed = commit_projected_measurement_records(
+    committed = commit_measurement_records(
         projected,
         committer,
         journal,
@@ -93,8 +83,8 @@ def test_recording_commits_canonical_points_with_strict_journal_evidence() -> No
         transition_observer=observed.append,
     )
 
-    assert isinstance(committed, CommittedProjectedMeasurementRecords)
-    assert committed.projected is projected
+    assert isinstance(committed, CommittedMeasurementRecords)
+    assert committed.records == projected.records
     assert committed.receipts == committer.receipts
     assert len(committed.receipts) == len(projected.records) == 2
     assert [chunk.point_index for chunk in committer.chunks] == [0, 1]
@@ -206,12 +196,12 @@ def test_receipt_accepts_supported_durable_record_refs(record_ref: str) -> None:
 
 @pytest.mark.parametrize("projected", [_zero_projected(), _empty_projection()])
 def test_zero_or_empty_recording_has_no_write_or_transition(
-    projected: ProjectedMeasurementRecords,
+    projected: MeasurementRecordBatch,
 ) -> None:
     committer = MemoryMeasurementRecordCommitter()
     journal = MemoryExecutionJournal()
 
-    committed = commit_projected_measurement_records(projected, committer, journal)
+    committed = commit_measurement_records(projected, committer, journal)
 
     assert committed.receipts == ()
     assert committer.chunks == ()
@@ -242,7 +232,7 @@ def test_invalid_journal_is_rejected_before_record_write(journal: object) -> Non
     committer = MemoryMeasurementRecordCommitter()
 
     with pytest.raises(MeasurementRecordingError) as captured:
-        commit_projected_measurement_records(
+        commit_measurement_records(
             _projected(),
             committer,
             cast("MemoryExecutionJournal", journal),
@@ -275,7 +265,7 @@ def test_commit_exception_exposes_committed_prefix_and_uncertain_write() -> None
     journal = MemoryExecutionJournal()
 
     with pytest.raises(MeasurementRecordingError) as captured:
-        commit_projected_measurement_records(_projected(), committer, journal)
+        commit_measurement_records(_projected(), committer, journal)
 
     error = captured.value
     assert len(error.committed_prefix) == 1
@@ -307,7 +297,7 @@ def test_invalid_receipt_remains_pending_and_never_enters_committed_prefix() -> 
     journal = MemoryExecutionJournal()
 
     with pytest.raises(MeasurementRecordingError) as captured:
-        commit_projected_measurement_records(_projected(), committer, journal)
+        commit_measurement_records(_projected(), committer, journal)
 
     error = captured.value
     assert error.committed_prefix == ()
@@ -338,7 +328,7 @@ def test_batch_rejects_reused_record_ref_as_an_invalid_receipt() -> None:
     journal = MemoryExecutionJournal()
 
     with pytest.raises(MeasurementRecordingError) as captured:
-        commit_projected_measurement_records(_projected(), committer, journal)
+        commit_measurement_records(_projected(), committer, journal)
 
     error = captured.value
     assert len(error.committed_prefix) == 1
@@ -375,7 +365,7 @@ def test_post_write_journal_failure_exposes_prefix_and_pending_receipt() -> None
     journal = _FailOnAppendJournal(fail_call=4)
 
     with pytest.raises(MeasurementRecordingError) as captured:
-        commit_projected_measurement_records(_projected(), committer, journal)
+        commit_measurement_records(_projected(), committer, journal)
 
     error = captured.value
     assert len(error.committed_prefix) == 1
@@ -396,8 +386,8 @@ def test_safe_replay_is_idempotent_and_uses_the_same_operation_ids() -> None:
     committer = MemoryMeasurementRecordCommitter()
     journal = MemoryExecutionJournal()
 
-    first = commit_projected_measurement_records(projected, committer, journal)
-    repeated = commit_projected_measurement_records(
+    first = commit_measurement_records(projected, committer, journal)
+    repeated = commit_measurement_records(
         projected,
         committer,
         journal,

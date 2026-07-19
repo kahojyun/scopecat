@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.linked import (
     MaterializedLinkedPoints,
+    materialize_linked_points,
 )
 from scopecat.compiler.relations.model import literal_rows
 from scopecat.compiler.relations.point_domain import point_rows
@@ -14,15 +15,16 @@ from scopecat.compiler.typed.records import RecordUse
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.product_identity import ProductUse, product_use
 from scopecat.kernel.value_types import Float, Payload, Scalar, Table, TableColumn
+from scopecat.measurements._bridge import project_measurement_catalog
 from scopecat.measurements.values import (
     ClosedMeasurementProductValues,
     MeasurementValueCandidate,
+    MeasurementValueCatalog,
     SelectedMeasurementValues,
     seal_measurement_values,
     select_measurement_values,
 )
 from scopecat.records.parameter import Quantity
-from scopecat.sdk.domain.invocation import materialize_linked_points
 from tests.testkit.authoring import load_config
 from tests.testkit.relation_plans import table_value_expr
 from tests.testkit.typed_program import link_program
@@ -31,7 +33,9 @@ from tests.testkit.typed_program import link_program
 @dataclass(frozen=True, slots=True)
 class MeasurementAssemblyScenario:
     linked_points: MaterializedLinkedPoints
+    catalog: MeasurementValueCatalog
     uses: tuple[ProductUse, ...]
+    records: tuple[RecordUse, ...]
 
 
 def measurement_assembly_scenario(
@@ -123,7 +127,12 @@ def measurement_assembly_scenario(
     linked_points = materialize_linked_points(
         link_program(program, validate_config_environment(load_config()))
     )
-    return MeasurementAssemblyScenario(linked_points=linked_points, uses=uses)
+    return MeasurementAssemblyScenario(
+        linked_points=linked_points,
+        catalog=project_measurement_catalog(linked_points),
+        uses=uses,
+        records=tuple(records),
+    )
 
 
 def measurement_value_candidates(
@@ -154,7 +163,7 @@ def assembled_measurement_values_for_all_uses(
 ]:
     scenario = measurement_assembly_scenario(point_values=point_values, use_count=3)
     selected = select_measurement_values(
-        scenario.linked_points,
+        scenario.catalog,
         required_product_use_ids=tuple(use.id for use in scenario.uses),
     )
     values = seal_measurement_values(

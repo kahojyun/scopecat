@@ -1,4 +1,4 @@
-"""Derive the typed result-transform closure of a domain call."""
+"""Derive the typed result closure rooted at one domain execution."""
 
 from __future__ import annotations
 
@@ -13,20 +13,21 @@ from scopecat.kernel.product_identity import ProductUseId
 
 
 @dataclass(frozen=True, slots=True)
-class DomainExecutionSlice:
-    """The exact transform and product dataflow rooted at a domain call."""
+class DomainResultClosure:
+    """Stable result ownership before compiler-specific transform absorption."""
 
+    execution_id: str
     transforms: tuple[TypedMeasurementTransform, ...]
     direct_product_use_ids: tuple[ProductUseId, ...]
     derived_product_use_ids: tuple[ProductUseId, ...]
     product_use_ids: tuple[ProductUseId, ...]
 
 
-def domain_execution_slice(
+def domain_result_closure(
     program: CoreProgram,
     execution_id: str,
-) -> DomainExecutionSlice:
-    """Derive one domain effect's exact result-transform closure."""
+) -> DomainResultClosure:
+    """Follow exact product-use edges from one domain execution's results."""
 
     execution = next(
         item for item in core_domain_executions(program) if item.id == execution_id
@@ -46,18 +47,18 @@ def domain_execution_slice(
         for use_id in output.product_use_ids
     }
     owned_ids = direct_ids | derived_ids
-    direct_product_use_ids = tuple(
-        use_id for use_id in ordered_use_ids if use_id in direct_ids
-    )
-    derived_product_use_ids = tuple(
-        use_id for use_id in ordered_use_ids if use_id in derived_ids
-    )
-    product_use_ids = tuple(use_id for use_id in ordered_use_ids if use_id in owned_ids)
-    return DomainExecutionSlice(
+    return DomainResultClosure(
+        execution_id=execution_id,
         transforms=transforms,
-        direct_product_use_ids=direct_product_use_ids,
-        derived_product_use_ids=derived_product_use_ids,
-        product_use_ids=product_use_ids,
+        direct_product_use_ids=tuple(
+            use_id for use_id in ordered_use_ids if use_id in direct_ids
+        ),
+        derived_product_use_ids=tuple(
+            use_id for use_id in ordered_use_ids if use_id in derived_ids
+        ),
+        product_use_ids=tuple(
+            use_id for use_id in ordered_use_ids if use_id in owned_ids
+        ),
     )
 
 
@@ -65,8 +66,6 @@ def _typed_transform_closure(
     transforms: tuple[TypedMeasurementTransform, ...],
     source_product_use_ids: frozenset[ProductUseId],
 ) -> tuple[TypedMeasurementTransform, ...]:
-    """Return the canonical closure fed by exact product-use occurrences."""
-
     available = set(source_product_use_ids)
     selected: list[TypedMeasurementTransform] = []
     remaining = list(transforms)

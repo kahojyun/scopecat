@@ -6,7 +6,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Event
 
-from scopecat.execution.ports.resources import ResourceClaim, ResourceLeaseManager
+from scopecat.execution.ports.resources import ResourceLeaseManager
+from scopecat.kernel.resource_identity import ResourceClaim
 
 
 class ResourceLeaseManagerContract:

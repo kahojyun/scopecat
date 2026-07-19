@@ -11,11 +11,9 @@ from scopecat.compiler.frontend.environment import (
     validate_config_environment,
 )
 from scopecat.compiler.linking.linked import (
-    MaterializedLinkedPointBatch,
     link_verified_program,
     materialize_linked_points,
 )
-from scopecat.compiler.linking.materialization import materialize_local_semantics
 from scopecat.compiler.relations.evaluation import (
     ParameterRelationData,
 )
@@ -74,6 +72,7 @@ from scopecat.kernel.value_types import (
     Table,
     TableColumn,
 )
+from scopecat.planning.local_materialization import materialize_local_execution
 from scopecat.records.entity import EntityRef
 from tests.testkit.authoring import load_config
 from tests.testkit.relation_plans import scalar_value_expr, table_value_expr
@@ -250,7 +249,7 @@ def test_unselected_product_definition_survives_link_without_collection() -> Non
     program = _symbolic_program()
 
     linked = link_program(program, _environment())
-    plan = materialize_local_semantics(linked)
+    plan = materialize_local_execution(linked)
 
     selected_id, unselected_id = (product.id for product in linked.product_defs)
     assert linked.product_defs == program.product_defs
@@ -258,18 +257,17 @@ def test_unselected_product_definition_survives_link_without_collection() -> Non
     assert tuple(record.product_use_id for record in linked.record_uses) == (
         linked.product_uses[0].id,
     )
-    assert plan.valid, plan.problems
     assert {
-        request.product_id
+        binding.product_id
         for point in plan.points
-        for collect in point.collect
-        for request in collect.requests
+        for operation in point.collect_operations
+        for binding in operation.result_bindings
     } == {selected_id}
     assert unselected_id not in {
-        request.product_id
+        binding.product_id
         for point in plan.points
-        for collect in point.collect
-        for request in collect.requests
+        for operation in point.collect_operations
+        for binding in operation.result_bindings
     }
 
 
@@ -574,15 +572,13 @@ def test_local_materialization_builds_the_executable_bound_plan() -> None:
     program = load_experiment()
     environment = _environment()
 
-    expected = materialize_local_semantics(link_program(program, environment))
-    actual = materialize_local_semantics(link_program(program, environment))
+    expected = materialize_local_execution(link_program(program, environment))
+    actual = materialize_local_execution(link_program(program, environment))
 
     assert actual == expected
-    assert actual.valid, actual.problems
     assert actual.point_count == 3
-    assert all(point.routes for point in actual.points)
-    assert all(point.desired_state for point in actual.points)
-    assert all(point.collect for point in actual.points)
+    assert all(point.state_operations for point in actual.points)
+    assert all(point.collect_operations for point in actual.points)
 
 
 def test_linked_points_retain_exact_proofs_and_only_materialize_the_domain() -> None:
@@ -598,61 +594,6 @@ def test_linked_points_retain_exact_proofs_and_only_materialize_the_domain() -> 
         2,
         3,
     ]
-
-
-def test_linked_point_batch_retains_parent_identity_and_original_ordinals() -> None:
-    linked = link_program(_symbolic_program(), _environment())
-    materialized = materialize_linked_points(linked)
-
-    batch = MaterializedLinkedPointBatch(materialized, (1, 2))
-
-    assert batch.parent is materialized
-    assert batch.linked_plan is materialized.linked_plan
-    assert batch.verified_program is materialized.verified_program
-    assert batch.point_indices == (1, 2)
-    assert batch.point_domain.id == materialized.point_domain.id
-    assert batch.point_domain.source is materialized.point_domain
-    assert batch.point_domain.points == materialized.point_domain.points[1:3]
-    assert all(
-        selected is original
-        for selected, original in zip(
-            batch.point_domain.points,
-            materialized.point_domain.points[1:3],
-            strict=True,
-        )
-    )
-    assert [point.logical_ordinal for point in batch.point_domain.points] == [1, 2]
-    assert [point.logical_id for point in batch.point_domain.points] == [
-        point.logical_id for point in materialized.point_domain.points[1:3]
-    ]
-    assert batch.point_domain.cardinality.minimum == 2
-    assert batch.point_domain.cardinality.maximum == 2
-
-
-@pytest.mark.parametrize(
-    ("indices", "error_type"),
-    [
-        ((), ValueError),
-        ((0, 2), ValueError),
-        ((2, 1), ValueError),
-        ((-1,), ValueError),
-        ((4,), ValueError),
-        ((True,), TypeError),
-    ],
-)
-def test_linked_point_batch_rejects_noncanonical_selections(
-    indices: tuple[object, ...],
-    error_type: type[Exception],
-) -> None:
-    materialized = materialize_linked_points(
-        link_program(_symbolic_program(), _environment())
-    )
-
-    with pytest.raises(error_type):
-        MaterializedLinkedPointBatch(
-            materialized,
-            cast("Sequence[int]", indices),
-        )
 
 
 def test_linked_points_normalize_entities_before_point_identity_is_sealed() -> None:

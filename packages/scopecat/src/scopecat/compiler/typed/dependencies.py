@@ -1,7 +1,7 @@
-"""Dependency provenance attached to config-bound compute calls.
+"""Dependency provenance attached to final point-local compute operations.
 
 This is a compiler analysis, not an execution-time graph walk.  The result is
-carried by ``BoundComputeCall`` so preview and observability code never need to
+carried by ``ComputeOperation`` so preview and observability code never need to
 reconstruct dependencies from authoring expressions.
 """
 

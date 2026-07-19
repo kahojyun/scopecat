@@ -7,8 +7,9 @@ import pytest
 from scopecat import Quantity
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.linked import (
-    MaterializedLinkedPointBatch,
+    LinkedPointMaterializer,
     link_verified_program,
+    materialize_linked_points,
 )
 from scopecat.compiler.relations.model import literal_rows
 from scopecat.compiler.relations.point_domain import point_rows
@@ -18,6 +19,7 @@ from scopecat.compiler.semantic.model import (
     DomainResultPortDef,
 )
 from scopecat.compiler.semantic.value_expressions import verify_table_value_expr
+from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.products import DomainProductProducer
 from scopecat.compiler.typed.program import (
@@ -40,9 +42,8 @@ from scopecat.sdk.domain import (
 )
 from scopecat.sdk.domain._bridge import (
     make_domain_batch_context,
-    project_domain_plan,
+    make_domain_compile_request,
 )
-from scopecat.sdk.domain.invocation import materialize_linked_points
 
 from scopecat_quantum._ids import (
     AcquisitionSlotId,
@@ -171,11 +172,25 @@ def _preparation(
             environment,
         )
     )
-    projection = project_domain_plan(linked_points, "domain")
+    closure = domain_result_closure(linked_points.linked_plan.program, "domain")
+    point_ordinals = (0, 1)
+    materializer = LinkedPointMaterializer(linked_points.linked_plan)
+    request = make_domain_compile_request(
+        linked_points.linked_plan,
+        "domain",
+        closure,
+        (point_ordinals,),
+        lambda input_ids, ordinals, max_points: materializer.bind_domain_inputs(
+            "domain",
+            input_ids,
+            ordinals,
+            max_points=max_points,
+        ),
+    )
     context = make_domain_batch_context(
-        projection,
-        MaterializedLinkedPointBatch(linked_points, (0, 1)),
-        compiler_id="test.quantum.mixed-result-mapping",
+        request,
+        linked_points,
+        point_ordinals,
         batch_ordinal=0,
     )
     return context.new_preparation()
@@ -314,7 +329,7 @@ def test_mapping_preserves_exact_inventory_order_and_mixed_source_origins() -> N
         (entry.entry_address, entry.result_addresses)
         for entry in mapping.domain_mapping.target_entries
     ) == tuple((entry.id, entry.acquisition_addresses) for entry in batch.entries)
-    assert tuple(entry.entry_address for entry in mapping.domain_mapping.entries) == (
+    assert tuple(result.entry_address for result in mapping.domain_mapping.results) == (
         batch.entries[1].id,
         batch.entries[0].id,
     )

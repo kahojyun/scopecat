@@ -104,39 +104,7 @@ class RunIndeterminate(RunFailure):
 
 
 RunPersistenceRetry = Literal["safe", "after_reconciliation", "not_retryable"]
-DomainRuntimeRetry = Literal["safe", "after_reconciliation", "not_retryable"]
-
-
-class DomainSubmissionUncertainty(Protocol):
-    """Runtime-resolvable boundary for a sealed submission uncertainty."""
-
-    @property
-    def submission_id(self) -> object: ...
-
-    @property
-    def reason(self) -> str: ...
-
-    @property
-    def submit_call_attempt(self) -> int: ...
-
-    @property
-    def job_id_hint(self) -> str | None: ...
-
-    @property
-    def problems(self) -> tuple[Problem, ...]: ...
-
-
-class DomainSubmissionAbsence(Protocol):
-    """Runtime-resolvable boundary for sealed definitive absence evidence."""
-
-    @property
-    def submission_id(self) -> object: ...
-
-    @property
-    def origin(self) -> str: ...
-
-    @property
-    def receipt(self) -> object: ...
+DomainRuntimeRetry = Literal["safe", "not_retryable"]
 
 
 class MeasurementRecordReceiptEvidence(Protocol):
@@ -267,34 +235,30 @@ class DomainRuntimeFailure(OperationFailure):
         *,
         run_id: str,
         operation_id: str,
-        attempt: int,
         invocation_id: str,
         submission_key: str,
-        phase: Literal["submit", "fetch", "reconcile"],
+        phase: Literal["submit", "fetch"],
         retry: DomainRuntimeRetry,
-        reconciliation: str,
+        operator_action: str,
         job_id: str | None = None,
     ) -> None:
         if not run_id or not operation_id or not invocation_id or not submission_key:
             msg = "domain runtime failure identity fields must be non-empty"
             raise ValueError(msg)
-        if isinstance(attempt, bool) or attempt < 1:
-            msg = "domain runtime failure attempt must be a positive integer"
-            raise ValueError(msg)
-        if not reconciliation:
-            msg = "domain runtime failure requires reconciliation guidance"
+        if not operator_action:
+            msg = "domain runtime failure requires operator guidance"
             raise ValueError(msg)
         if job_id is not None and not job_id:
             msg = "domain runtime failure job_id must be non-empty when present"
             raise ValueError(msg)
         self.run_id = run_id
         self.operation_id = operation_id
-        self.attempt = attempt
+        self.attempt = 1
         self.invocation_id = invocation_id
         self.submission_key = submission_key
         self.phase = phase
         self.retry = retry
-        self.reconciliation = reconciliation
+        self.reconciliation = operator_action
         self.job_id = job_id
         super().__init__(problems)
 
@@ -308,27 +272,21 @@ class DomainSubmissionIndeterminate(DomainRuntimeFailure):
         *,
         run_id: str,
         operation_id: str,
-        attempt: int,
         invocation_id: str,
         submission_key: str,
         job_id: str | None = None,
-        uncertainty: DomainSubmissionUncertainty,
     ) -> None:
         super().__init__(
             problems,
             run_id=run_id,
             operation_id=operation_id,
-            attempt=attempt,
             invocation_id=invocation_id,
             submission_key=submission_key,
             phase="submit",
-            retry="after_reconciliation",
-            reconciliation=(
-                "reconcile before creating another submission-key generation"
-            ),
+            retry="not_retryable",
+            operator_action="inspect the target using the retained submission key",
             job_id=job_id,
         )
-        self.uncertainty = uncertainty
 
 
 class DomainSubmissionFailed(DomainRuntimeFailure):
@@ -340,25 +298,19 @@ class DomainSubmissionFailed(DomainRuntimeFailure):
         *,
         run_id: str,
         operation_id: str,
-        attempt: int,
         invocation_id: str,
         submission_key: str,
-        absence: DomainSubmissionAbsence,
     ) -> None:
         super().__init__(
             problems,
             run_id=run_id,
             operation_id=operation_id,
-            attempt=attempt,
             invocation_id=invocation_id,
             submission_key=submission_key,
             phase="submit",
             retry="safe",
-            reconciliation=(
-                "retry the same key or use the absence to create a new generation"
-            ),
+            operator_action="correct the rejected request before starting another run",
         )
-        self.absence = absence
 
 
 class DomainFetchFailed(DomainRuntimeFailure):
@@ -370,7 +322,6 @@ class DomainFetchFailed(DomainRuntimeFailure):
         *,
         run_id: str,
         operation_id: str,
-        attempt: int,
         invocation_id: str,
         submission_key: str,
         job_id: str,
@@ -381,44 +332,13 @@ class DomainFetchFailed(DomainRuntimeFailure):
             problems,
             run_id=run_id,
             operation_id=operation_id,
-            attempt=attempt,
             invocation_id=invocation_id,
             submission_key=submission_key,
             phase="fetch",
             retry="safe",
-            reconciliation="retry fetch using the known submitted job",
+            operator_action="inspect the retained target job",
             job_id=job_id,
         )
-
-
-class DomainReconciliationFailed(DomainRuntimeFailure):
-    """Reading the target's submission state failed and may be retried."""
-
-    def __init__(
-        self,
-        problems: Sequence[Problem],
-        *,
-        run_id: str,
-        operation_id: str,
-        attempt: int,
-        invocation_id: str,
-        submission_key: str,
-        job_id: str | None = None,
-        uncertainty: DomainSubmissionUncertainty,
-    ) -> None:
-        super().__init__(
-            problems,
-            run_id=run_id,
-            operation_id=operation_id,
-            attempt=attempt,
-            invocation_id=invocation_id,
-            submission_key=submission_key,
-            phase="reconcile",
-            retry="safe",
-            reconciliation="retry reconciliation using the same submission key",
-            job_id=job_id,
-        )
-        self.uncertainty = uncertainty
 
 
 class DomainRuntimePersistenceError(StorageError):
@@ -430,15 +350,11 @@ class DomainRuntimePersistenceError(StorageError):
         *,
         run_id: str,
         operation_id: str,
-        attempt: int,
         invocation_id: str,
         submission_key: str,
         phase: str,
-        retry: DomainRuntimeRetry,
         certainty: RunCertainty,
-        reconciliation: str,
         job_id: str | None = None,
-        uncertainty: DomainSubmissionUncertainty | None = None,
     ) -> None:
         if (
             not run_id
@@ -449,24 +365,17 @@ class DomainRuntimePersistenceError(StorageError):
         ):
             msg = "domain persistence context fields must be non-empty"
             raise ValueError(msg)
-        if isinstance(attempt, bool) or attempt < 1:
-            msg = "domain persistence attempt must be a positive integer"
-            raise ValueError(msg)
-        if not reconciliation:
-            msg = "domain persistence error requires reconciliation guidance"
-            raise ValueError(msg)
         if job_id is not None and not job_id:
             msg = "domain persistence job_id must be non-empty when present"
             raise ValueError(msg)
         self.run_id = run_id
         self.operation_id = operation_id
-        self.attempt = attempt
+        self.attempt = 1
         self.invocation_id = invocation_id
         self.submission_key = submission_key
         self.phase = phase
-        self.retry = retry
+        self.retry: DomainRuntimeRetry = "not_retryable"
         self.certainty = certainty
-        self.reconciliation = reconciliation
+        self.reconciliation = "inspect durable journal and target state"
         self.job_id = job_id
-        self.uncertainty = uncertainty
         super().__init__(problems)

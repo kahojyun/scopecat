@@ -19,9 +19,9 @@ compiler = FakeXCountDomainCompiler()
 lab = sc.open(
     workspace,
     config_profile=fake_x_count_bias_config(),
-    execution_backend=sc.ExecutionBackend(
+    system=sc.ExperimentSystem(
         provider=voltage_source,
-        domain_compilers=(compiler,),
+        domain_compiler=compiler,
     ),
 )
 

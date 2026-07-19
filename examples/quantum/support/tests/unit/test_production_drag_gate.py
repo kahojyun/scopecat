@@ -69,8 +69,8 @@ def test_active_drag_beta_changes_only_production_compiled_segment(
     baseline_run = lab.prepare(
         PRODUCTION_DRAG_GATE_TEMPLATE,
         config="active",
-        execution_backend=sc.ExecutionBackend(
-            domain_compilers=(baseline_compiler,),
+        system=sc.ExperimentSystem(
+            domain_compiler=baseline_compiler,
         ),
     ).run()
 
@@ -83,8 +83,8 @@ def test_active_drag_beta_changes_only_production_compiled_segment(
     active_run = lab.prepare(
         PRODUCTION_DRAG_GATE_TEMPLATE,
         config="active",
-        execution_backend=sc.ExecutionBackend(
-            domain_compilers=(active_compiler,),
+        system=sc.ExperimentSystem(
+            domain_compiler=active_compiler,
         ),
     ).run()
     rollback = lab.rollback(
@@ -95,8 +95,8 @@ def test_active_drag_beta_changes_only_production_compiled_segment(
     restored_run = lab.prepare(
         PRODUCTION_DRAG_GATE_TEMPLATE,
         config="active",
-        execution_backend=sc.ExecutionBackend(
-            domain_compilers=(restored_compiler,),
+        system=sc.ExperimentSystem(
+            domain_compiler=restored_compiler,
         ),
     ).run()
 

@@ -1,9 +1,9 @@
-"""Nominal logical and physical resource identities in transient compiler IR."""
+"""Shared logical, physical, and leasing resource identities."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import override
+from typing import Literal, override
 
 from scopecat.kernel.symbols import SymbolId
 
@@ -48,6 +48,19 @@ class PhysicalResourceId:
     @override
     def __str__(self) -> str:
         return self.value
+
+
+@dataclass(frozen=True, slots=True)
+class ResourceClaim:
+    """Run-level exclusive claim closed while specializing resources."""
+
+    id: str
+    kind: Literal["target", "instrument", "channel", "group"] = "instrument"
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            msg = "resource claim id must be non-empty"
+            raise ValueError(msg)
 
 
 type ResourceTarget = LogicalResourcePortId | PhysicalResourceId

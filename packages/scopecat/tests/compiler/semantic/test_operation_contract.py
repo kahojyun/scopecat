@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from functools import partial
 
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
 from scopecat.compiler.frontend.assembly_lowering import lower_semantic_compute_graph
 from scopecat.compiler.frontend.environment import validate_config_environment
-from scopecat.compiler.linking.materialization import materialize_local_semantics
 from scopecat.compiler.relations.model import (
     literal_rows,
 )
@@ -56,10 +56,12 @@ from scopecat.compiler.semantic.verification import (
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import CoreProgram
 from scopecat.execution.local.program import ComputeStage
+from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Scalar, Table
+from scopecat.planning.local_materialization import materialize_local_execution
 from tests.testkit.authoring import load_config
-from tests.testkit.local_effect_program import lower_test_local_effect_program
+from tests.testkit.local_effect_program import make_test_local_effect_program
 from tests.testkit.relation_plans import table_value_expr
 from tests.testkit.typed_program import link_program
 
@@ -111,10 +113,9 @@ def test_contract_survives_every_local_compiler_boundary() -> None:
     environment = validate_config_environment(load_config())
 
     linked = link_program(program, environment)
-    bound = materialize_local_semantics(linked)
-    execution = lower_test_local_effect_program(bound, instrument_order=())
+    bound = materialize_local_execution(linked)
+    execution = make_test_local_effect_program(bound, instrument_order=())
 
-    assert bound.valid, bound.problems
     semantic_contracts = {
         operation.id: operation.contract for operation in graph.operations
     }
@@ -125,8 +126,12 @@ def test_contract_survives_every_local_compiler_boundary() -> None:
         node.id: node.contract for node in linked.program.compute_nodes
     } == semantic_contracts
     assert {
-        call.operation_id: call.contract for call in bound.points[0].compute
-    } == semantic_contracts
+        call.semantic_operation_id: call.contract
+        for call in bound.points[0].compute_operations
+    } == {
+        operation_id.qualified_name: contract
+        for operation_id, contract in semantic_contracts.items()
+    }
     stage = execution.points[0].stages[0]
     assert isinstance(stage, ComputeStage)
     assert {
@@ -142,11 +147,10 @@ def test_local_target_selection_reports_missing_implementation() -> None:
     _graph, program = _compute_program("+", include_scalar_implementation=False)
     environment = validate_config_environment(load_config())
     linked = link_program(program, environment)
-    plan = materialize_local_semantics(linked)
+    with pytest.raises(CheckFailed) as failure:
+        materialize_local_execution(linked)
 
-    assert not plan.valid
-    assert plan.points == ()
-    assert {problem.code for problem in plan.problems} == {
+    assert {problem.code for problem in failure.value.problems} == {
         "semantic_operation_implementation_missing",
     }
 
@@ -156,12 +160,12 @@ def test_bound_compute_retains_semantic_contract() -> None:
     _multiply_graph, multiply_program = _compute_program("*")
     environment = validate_config_environment(load_config())
 
-    add = materialize_local_semantics(link_program(add_program, environment))
-    multiply = materialize_local_semantics(link_program(multiply_program, environment))
+    add = materialize_local_execution(link_program(add_program, environment))
+    multiply = materialize_local_execution(link_program(multiply_program, environment))
 
-    add_call = add.points[0].compute[-1]
-    multiply_call = multiply.points[0].compute[-1]
-    assert add_call.operation_id == multiply_call.operation_id
+    add_call = add.points[0].compute_operations[-1]
+    multiply_call = multiply.points[0].compute_operations[-1]
+    assert add_call.semantic_operation_id == multiply_call.semantic_operation_id
     assert add_call.implementation_id == multiply_call.implementation_id
     assert add_call.inputs == multiply_call.inputs
     assert add_call.contract != multiply_call.contract

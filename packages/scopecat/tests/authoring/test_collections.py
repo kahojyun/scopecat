@@ -12,7 +12,6 @@ from scopecat.compiler.frontend.elaboration import elaborate_module
 from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
 from scopecat.compiler.frontend.resolution import ResolvedExperiment
 from scopecat.compiler.linking.linked import link_verified_program
-from scopecat.compiler.linking.materialization import materialize_local_semantics
 from scopecat.compiler.relations.analysis import PlanNode
 from scopecat.compiler.relations.evaluation import (
     EvalContext,
@@ -61,11 +60,12 @@ from scopecat.kernel.problems import model_location
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_validation import ValueValidationError
 from scopecat.planning.authoring import resolve_experiment
+from scopecat.planning.local_materialization import materialize_local_execution
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import Quantity
 from tests.testkit.authoring import load_config
 from tests.testkit.bound_plan import bound_plan_contract
-from tests.testkit.local_effect_program import lower_test_local_effect_program
+from tests.testkit.local_effect_program import make_test_local_effect_program
 from tests.testkit.relation_plans import (
     each_state,
     materialize_scalar_value,
@@ -94,15 +94,14 @@ def test_action_lowers_as_a_distinct_point_effect() -> None:
     )
 
     assert len(core_actions(resolved.experiment)) == 1
-    bound = materialize_local_semantics(
+    bound = materialize_local_execution(
         link_verified_program(resolved.verified_program, resolved.environment)
     )
-    assert not bound.problems
     assert len(bound.points[0].actions) == 1
-    execution = lower_test_local_effect_program(
+    execution = make_test_local_effect_program(
         bound,
         instrument_order=tuple(
-            action.resource_id.value for action in bound.points[0].actions
+            action.instrument_id for action in bound.points[0].actions
         ),
     )
     action_stage = next(
@@ -334,7 +333,9 @@ def test_collections_cross_module_route_axis_and_compute_with_provenance() -> No
         resolved.parameters,
         config=config,
     )
-    assert preview.points[0].routes[0].entity_ids == ("q0",)
+    [operation] = preview.points[0].collect_operations
+    [request] = operation.command.requests
+    assert request.entity_ids == ["q0"]
 
 
 def test_resource_entity_series_rejects_non_entity_members_during_authoring() -> None:
@@ -578,10 +579,10 @@ def test_scan_points_are_coerced_by_same_named_scalar_input_type() -> None:
         template.bind(),
         config_profile=load_config(),
     )
-    plan = materialize_local_semantics(
+    plan = materialize_local_execution(
         link_verified_program(resolved.verified_program, resolved.environment)
     )
-    value = plan.points[0].row["value"]
+    value = plan.points[0].coordinates["value"]
 
     assert value == 1.0
     assert isinstance(value, float)

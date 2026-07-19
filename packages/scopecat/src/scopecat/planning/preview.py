@@ -15,23 +15,19 @@ def build_run_program_preview(
 ) -> ExperimentPreview:
     """Project stable user-visible facts from a closed RunProgram."""
 
-    selected = program.projection.projection
-    core_program = program.linked_points.linked_plan.program
-    points = program.linked_points.point_domain.points
+    selected = program.measurements
+    catalog = selected.catalog.point_catalog
     return ExperimentPreview(
-        experiment_id=core_program.id,
-        experiment_kind=core_program.kind,
+        experiment_id=catalog.experiment_id,
+        experiment_kind=catalog.experiment_kind,
         schema=selected.schema,
         coordinate_ids=tuple(selected.coordinate_ids),
         points=tuple(
             ExperimentPreviewPoint(
-                point_index=resolved.logical_ordinal,
-                coordinates={
-                    coordinate_id: resolved.row[coordinate_id]
-                    for coordinate_id in selected.coordinate_ids
-                },
+                point_index=resolved.ordinal,
+                coordinates=dict(resolved.coordinates),
             )
-            for resolved in points
+            for resolved in catalog.points
         ),
         records=tuple(
             ExperimentPreviewRecord(

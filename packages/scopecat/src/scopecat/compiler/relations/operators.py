@@ -401,10 +401,10 @@ def _arithmetic_result_type(
     right: AtomType,
     operator: ArithmeticOperator,
 ) -> Scalar:
+    if isinstance(left, Int) and isinstance(right, Int) and operator != "/":
+        return Scalar(_integer_arithmetic_result(left, right, operator))
     if isinstance(left, Int | Float) and isinstance(right, Int | Float):
-        if operator == "/" or isinstance(left, Float) or isinstance(right, Float):
-            return Scalar(Float())
-        return Scalar(Int())
+        return Scalar(Float())
     quantity = left if isinstance(left, Quantity) else right
     if isinstance(quantity, Quantity):
         return Scalar(
@@ -416,6 +416,65 @@ def _arithmetic_result_type(
         )
     msg = f"unsupported arithmetic result for {left!r} and {right!r}"
     raise TypeError(msg)
+
+
+def _integer_arithmetic_result(
+    left: Int,
+    right: Int,
+    operator: Literal["+", "-", "*"],
+) -> Int:
+    if operator == "+":
+        return Int(
+            minimum=_combine_bound(left.minimum, right.minimum, add=True),
+            maximum=_combine_bound(left.maximum, right.maximum, add=True),
+        )
+    if operator == "-":
+        return Int(
+            minimum=_combine_bound(left.minimum, right.maximum, add=False),
+            maximum=_combine_bound(left.maximum, right.minimum, add=False),
+        )
+    left_constant = _integer_constant(left)
+    if left_constant is not None:
+        return _scaled_integer(right, left_constant)
+    right_constant = _integer_constant(right)
+    if right_constant is not None:
+        return _scaled_integer(left, right_constant)
+    if (
+        left.minimum is not None
+        and left.maximum is not None
+        and right.minimum is not None
+        and right.maximum is not None
+    ):
+        products = (
+            left.minimum * right.minimum,
+            left.minimum * right.maximum,
+            left.maximum * right.minimum,
+            left.maximum * right.maximum,
+        )
+        return Int(minimum=min(products), maximum=max(products))
+    return Int()
+
+
+def _combine_bound(left: int | None, right: int | None, *, add: bool) -> int | None:
+    if left is None or right is None:
+        return None
+    return left + right if add else left - right
+
+
+def _integer_constant(value: Int) -> int | None:
+    if value.minimum is not None and value.minimum == value.maximum:
+        return value.minimum
+    return None
+
+
+def _scaled_integer(value: Int, scale: int) -> Int:
+    if scale >= 0:
+        minimum = None if value.minimum is None else value.minimum * scale
+        maximum = None if value.maximum is None else value.maximum * scale
+    else:
+        minimum = None if value.maximum is None else value.maximum * scale
+        maximum = None if value.minimum is None else value.minimum * scale
+    return Int(minimum=minimum, maximum=maximum)
 
 
 def _quantity_types_are_compatible(left: Quantity, right: Quantity) -> bool:

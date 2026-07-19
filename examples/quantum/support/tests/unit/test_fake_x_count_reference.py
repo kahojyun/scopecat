@@ -6,7 +6,8 @@ from pathlib import Path
 
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.linked import (
-    MaterializedLinkedPointBatch,
+    LinkedPointMaterializer,
+    materialize_linked_points,
 )
 from scopecat.compiler.relations.model import literal_rows
 from scopecat.compiler.relations.point_domain import point_rows
@@ -17,6 +18,7 @@ from scopecat.compiler.semantic.model import (
     MeasurementTransformId,
 )
 from scopecat.compiler.semantic.value_expressions import verify_table_value_expr
+from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.products import (
     DomainProductProducer,
@@ -30,6 +32,7 @@ from scopecat.compiler.typed.program import (
     TypedMeasurementTransform,
     TypedMeasurementTransformInput,
     TypedMeasurementTransformOutput,
+    core_domain_executions,
     product_output,
     record_product,
     shot_axis,
@@ -40,9 +43,8 @@ from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Int, Scalar, Table, TableColumn
 from scopecat.sdk.domain._bridge import (
     make_domain_batch_context,
-    project_domain_plan,
+    make_domain_compile_request,
 )
-from scopecat.sdk.domain.invocation import materialize_linked_points
 from scopecat_quantum import (
     BinaryIqDiscriminator,
     GateParameterKind,
@@ -206,17 +208,30 @@ def _linked_points():
         )
     )
     linked_points = materialize_linked_points(link_program(program, environment))
-    projection = project_domain_plan(
-        linked_points, linked_points.domain_executions[0].execution.id
+    typed_execution = core_domain_executions(linked_points.linked_plan.program)[0]
+    execution_id = typed_execution.id
+    closure = domain_result_closure(linked_points.linked_plan.program, execution_id)
+    point_ordinals = (0, 1, 2)
+    materializer = LinkedPointMaterializer(linked_points.linked_plan)
+    request = make_domain_compile_request(
+        linked_points.linked_plan,
+        execution_id,
+        closure,
+        (point_ordinals,),
+        lambda input_ids, ordinals, max_points: materializer.bind_domain_inputs(
+            execution_id,
+            input_ids,
+            ordinals,
+            max_points=max_points,
+        ),
     )
-    view = projection.view(linked_points)
-    execution = view.require_execution(dialect_id="test.quantum")
     context = make_domain_batch_context(
-        projection,
-        MaterializedLinkedPointBatch(linked_points, (0, 1, 2)),
-        compiler_id="test.fake-x-count",
+        request,
+        linked_points,
+        point_ordinals,
         batch_ordinal=0,
     )
+    execution = context.execution
     [transform] = execution.measurement_transforms
     return context.new_preparation(), FakeXCountProductBinding(
         iq_shots=execution.result("iq_shots").product_uses,

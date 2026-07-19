@@ -10,7 +10,7 @@ from scopecat.application.services import WorkspaceServices
 from scopecat.config.registry.ports import WorkspaceUnitOfWorkFactory
 from scopecat.config.resolution import ConfigProfileInput
 from scopecat.execution.services import ExecutionServices
-from scopecat.planning.backend import ExecutionBackend
+from scopecat.planning.system import ExperimentSystem
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.runs.repository import RunRepository
 
@@ -83,7 +83,7 @@ def open_local_workspace(
     *,
     config: str | ConfigProfileSnapshot = "active",
     config_profile: ConfigProfileInput | None = None,
-    execution_backend: ExecutionBackend | None = None,
+    system: ExperimentSystem | None = None,
     reviewer: str = "operator",
     operator: str = "operator",
 ) -> Workspace:
@@ -94,7 +94,7 @@ def open_local_workspace(
         services=local_workspace_services(workspace),
         _config=config,
         _config_profile=config_profile,
-        _execution_backend=execution_backend,
+        _system=system,
         _reviewer=reviewer,
         _operator=operator,
     )

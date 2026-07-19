@@ -5,6 +5,7 @@ from scopecat.compiler.semantic.model import (
     DomainProgramId,
     MeasurementTransformId,
 )
+from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     CoreProgram,
@@ -23,10 +24,9 @@ from scopecat.kernel.product_identity import (
 )
 from scopecat.kernel.symbols import SymbolId
 from scopecat.measurements.semantics import MeasurementTransformSemanticContract
-from scopecat.planning.domain_placement import domain_execution_slice
 
 
-def test_domain_slice_follows_exact_product_use_edges() -> None:
+def test_domain_result_closure_follows_exact_product_use_edges() -> None:
     shared_product = product_id("shared")
     output_product = product_id("output")
     direct_use = ProductUse(shared_product, ProductUseId("shared/direct"))
@@ -70,7 +70,7 @@ def test_domain_slice_follows_exact_product_use_edges() -> None:
         ),
     )
     program = CoreProgram(
-        id="test.domain-placement",
+        id="test.domain-results",
         kind="test",
         point_domain=PointDomain(POINT_UNIT),
         effects=(execution,),
@@ -78,9 +78,9 @@ def test_domain_slice_follows_exact_product_use_edges() -> None:
         product_uses=(direct_use, foreign_use, output_use),
     )
 
-    execution_slice = domain_execution_slice(program, "domain")
+    result_closure = domain_result_closure(program, "domain")
 
-    assert execution_slice.transforms == ()
-    assert execution_slice.direct_product_use_ids == (direct_use.id,)
-    assert execution_slice.derived_product_use_ids == ()
-    assert execution_slice.product_use_ids == (direct_use.id,)
+    assert result_closure.transforms == ()
+    assert result_closure.direct_product_use_ids == (direct_use.id,)
+    assert result_closure.derived_product_use_ids == ()
+    assert result_closure.product_use_ids == (direct_use.id,)

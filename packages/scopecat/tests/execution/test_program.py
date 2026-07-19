@@ -2,67 +2,40 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from scopecat.compiler.linking.bound import (
-    BoundCollect,
-    BoundComputeCall,
-    BoundComputeOutput,
-    BoundComputeResult,
-    BoundPoint,
-    BoundResourceState,
-    BoundStateField,
-    CollectionRequest,
-    MaterializedLocalSemantics,
-)
-from scopecat.compiler.linking.implementations import select_local_implementations
-from scopecat.compiler.linking.product_realizations import (
-    select_local_product_realizations,
-)
-from scopecat.compiler.semantic.availability import (
-    ValueAvailability,
-    ValueRate,
-    ValueStage,
-)
 from scopecat.compiler.semantic.model import (
-    ImplementationCatalog,
-    ImplementationId,
-    LocalPythonImplementation,
     OperationId,
     operation_result_id,
 )
 from scopecat.compiler.semantic.operation_contract import (
     LOCAL_OPAQUE_OPERATION_CONTRACT,
 )
-from scopecat.compiler.typed.point_domain import LogicalPointId, PointDomainId
 from scopecat.compiler.typed.products import ProductDef
-from scopecat.compiler.typed.program import (
-    ComputeEdge,
-    TypedComputeNode,
-    TypedComputeOutput,
-)
 from scopecat.execution.local.program import (
+    ApplyStateOperation,
     ApplyStateStage,
     CollectionResultBinding,
     CollectOperation,
     CollectStage,
+    ComputeOperation,
+    ComputeResultSlot,
     ComputeStage,
     OutputInput,
     PointProgram,
-    ResourceClaim,
+    StateTarget,
 )
-from scopecat.kernel.problems import ProblemPhase
-from scopecat.kernel.product_identity import product_id, product_use
-from scopecat.kernel.resource_identity import PhysicalResourceId
+from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
+from scopecat.kernel.product_identity import ProductUse, product_id, product_use
+from scopecat.kernel.resource_identity import ResourceClaim
 from scopecat.kernel.state import StateValue
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Scalar
-from scopecat.planning.routing import RoutingView
-from scopecat.records.config import RoutingResource
+from scopecat.measurements.results import MeasurementDType
+from scopecat.planning.local_materialization import MaterializedLocalEffects
 from scopecat.sdk.instruments.contracts import CollectCommand, CollectProductRequest
 from tests.testkit.local_effect_program import (
     StubLocalEffectProgram,
-    lower_test_local_effect_program,
+    make_test_local_effect_program,
 )
-from tests.testkit.typed_program import instrument_product_producer
 
 
 def test_execution_program_has_explicit_ordered_effect_stages() -> None:
@@ -70,7 +43,6 @@ def test_execution_program_has_explicit_ordered_effect_stages() -> None:
     consumer_id = OperationId(SymbolId(local_id="consume"))
     producer_result_id = operation_result_id(producer_id)
     consumer_result_id = operation_result_id(consumer_id)
-    availability = ValueAvailability(ValueStage.EXECUTE, ValueRate.POINT)
 
     def produce() -> float:
         return 1.0
@@ -78,54 +50,6 @@ def test_execution_program_has_explicit_ordered_effect_stages() -> None:
     def consume(*, value: float) -> float:
         return value + 1.0
 
-    catalog = ImplementationCatalog(
-        local_python=(
-            LocalPythonImplementation(
-                id=ImplementationId("python.produce.v1"),
-                operation_id=producer_id,
-                operation_contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-                kernel=produce,
-            ),
-            LocalPythonImplementation(
-                id=ImplementationId("python.consume.v1"),
-                operation_id=consumer_id,
-                operation_contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-                kernel=consume,
-            ),
-        )
-    )
-    local_implementations, problems = select_local_implementations(
-        (
-            TypedComputeNode(
-                id=producer_id,
-                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-                result=TypedComputeOutput(
-                    id=producer_result_id,
-                    value_type=Scalar(Float()),
-                    availability=availability,
-                ),
-            ),
-            TypedComputeNode(
-                id=consumer_id,
-                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-                inputs={
-                    "value": ComputeEdge(
-                        value_id=producer_result_id,
-                        expected_type=Scalar(Float()),
-                    )
-                },
-                result=TypedComputeOutput(
-                    id=consumer_result_id,
-                    value_type=Scalar(Float()),
-                    availability=availability,
-                ),
-            ),
-        ),
-        catalog,
-        phase=ProblemPhase.PLANNING,
-    )
-    assert not problems
-    assert local_implementations is not None
     source_a_product = ProductDef(
         id=product_id("source-a-signal"),
         unit="ratio",
@@ -135,105 +59,78 @@ def test_execution_program_has_explicit_ordered_effect_stages() -> None:
         source_a_product,
         id=product_id("source-b-signal"),
     )
-    source_a_producer = instrument_product_producer(
-        source_a_product,
-        physical_resource_id="source-a",
-        capability="scalar_signal",
-        provider_key="signal",
-    )
-    source_b_producer = instrument_product_producer(
-        source_b_product,
-        physical_resource_id="source-b",
-        capability="scalar_signal",
-        provider_key="signal",
-    )
     source_a_signal = product_use(source_a_product.id)
     source_b_signal = product_use(source_b_product.id)
-    point = BoundPoint(
-        point_index=0,
-        logical_id=LogicalPointId(PointDomainId("test-program", "root"), 0),
-        row={},
-        coordinates={},
-        compute=(
-            BoundComputeCall(
-                operation_id=producer_id,
-                implementation=local_implementations.selected_for(producer_id),
-                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-                inputs={},
-                result=BoundComputeResult(
-                    id=producer_result_id,
-                    value_type=Scalar(Float()),
-                ),
-            ),
-            BoundComputeCall(
-                operation_id=consumer_id,
-                implementation=local_implementations.selected_for(consumer_id),
-                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-                inputs={"value": BoundComputeOutput(producer_result_id)},
-                result=BoundComputeResult(
-                    id=consumer_result_id,
-                    value_type=Scalar(Float()),
-                ),
+    compute_operations = (
+        ComputeOperation(
+            operation_id="test-program:root:0.compute.produce",
+            semantic_operation_id=producer_id.qualified_name,
+            implementation_id="python.produce.v1",
+            contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
+            kernel=produce,
+            inputs={},
+            result=ComputeResultSlot(
+                id=producer_result_id,
+                value_type=Scalar(Float()),
             ),
         ),
-        routes=(),
-        desired_state=(
-            _gain_state("source-a", 1.0),
-            _gain_state("source-b", 2.0),
-        ),
-        collect=(
-            BoundCollect(
-                resource_id=PhysicalResourceId("source-a"),
-                requests=(
-                    CollectionRequest(
-                        product_use_id=source_a_signal.id,
-                        product_id=source_a_product.id,
-                        provider_key="signal",
-                        capability="scalar_signal",
-                        unit="ratio",
-                        dtype="float64",
-                    ),
-                ),
-            ),
-            BoundCollect(
-                resource_id=PhysicalResourceId("source-b"),
-                requests=(
-                    CollectionRequest(
-                        product_use_id=source_b_signal.id,
-                        product_id=source_b_product.id,
-                        provider_key="signal",
-                        capability="scalar_signal",
-                        unit="ratio",
-                        dtype="float64",
-                    ),
-                ),
+        ComputeOperation(
+            operation_id="test-program:root:0.compute.consume",
+            semantic_operation_id=consumer_id.qualified_name,
+            implementation_id="python.consume.v1",
+            contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
+            kernel=consume,
+            inputs={"value": OutputInput(producer_result_id)},
+            result=ComputeResultSlot(
+                id=consumer_result_id,
+                value_type=Scalar(Float()),
             ),
         ),
     )
-    plan = MaterializedLocalSemantics(
+    state_operations = (
+        _gain_state("source-b", 2.0),
+        _gain_state("source-a", 1.0),
+    )
+    collect_operations = (
+        _collect_operation(
+            "source-b",
+            product_use=source_b_signal,
+            provider_key="signal",
+            capability="scalar_signal",
+            unit="ratio",
+            dtype="float64",
+        ),
+        _collect_operation(
+            "source-a",
+            product_use=source_a_signal,
+            provider_key="signal",
+            capability="scalar_signal",
+            unit="ratio",
+            dtype="float64",
+        ),
+    )
+    point = PointProgram(
+        point_index=0,
+        logical_id=LogicalPointId(PointDomainId("test-program", "root"), 0),
+        coordinates={},
+        stages=(
+            ComputeStage(compute_operations),
+            ApplyStateStage(state_operations),
+            CollectStage(collect_operations),
+        ),
+    )
+    plan = MaterializedLocalEffects(
         experiment_id="explicit-stages",
         points=(point,),
         product_uses=(source_a_signal, source_b_signal),
-        local_product_realizations=select_local_product_realizations(
-            (source_a_product, source_b_product),
-            (source_a_producer, source_b_producer),
-            (source_a_signal, source_b_signal),
-            routing=RoutingView(
-                resources=(
-                    RoutingResource(
-                        id="source-a",
-                        capabilities=["scalar_signal"],
-                    ),
-                    RoutingResource(
-                        id="source-b",
-                        capabilities=["scalar_signal"],
-                    ),
-                )
-            ),
-        )[0],
+        resource_order=("source-b", "source-a"),
+        resource_claims=(
+            ResourceClaim("source-b"),
+            ResourceClaim("source-a"),
+        ),
     )
 
-    program = lower_test_local_effect_program(
+    program = make_test_local_effect_program(
         plan,
         instrument_order=("source-b", "source-c", "source-a"),
     )
@@ -326,7 +223,7 @@ def _source_and_derived_execution_program() -> StubLocalEffectProgram:
         points=(
             PointProgram(
                 point_index=0,
-                point_uid="point-0",
+                logical_id=LogicalPointId(PointDomainId("source-derived", "root"), 0),
                 coordinates={},
                 stages=(CollectStage(operations=(collect,)),),
             ),
@@ -338,9 +235,52 @@ def _source_and_derived_execution_program() -> StubLocalEffectProgram:
     )
 
 
-def _gain_state(instrument_id: str, value: float) -> BoundResourceState:
-    return BoundResourceState(
-        resource_id=PhysicalResourceId(instrument_id),
-        capability_id="set_gain",
-        fields=(BoundStateField(field_path="gain", value=StateValue(value)),),
+def _gain_state(instrument_id: str, value: float) -> ApplyStateOperation:
+    return ApplyStateOperation(
+        operation_id=f"point.state.{instrument_id}",
+        instrument_id=instrument_id,
+        targets=(
+            StateTarget(
+                capability_id="set_gain",
+                field_path="gain",
+                value=StateValue(value),
+            ),
+        ),
+    )
+
+
+def _collect_operation(
+    instrument_id: str,
+    *,
+    product_use: ProductUse,
+    provider_key: str,
+    capability: str,
+    unit: str,
+    dtype: MeasurementDType,
+) -> CollectOperation:
+    operation_id = f"point.collect.{instrument_id}"
+    return CollectOperation(
+        operation_id=operation_id,
+        instrument_id=instrument_id,
+        command=CollectCommand(
+            operation_id=operation_id,
+            instrument_id=instrument_id,
+            point_index=0,
+            point_count=1,
+            requests=[
+                CollectProductRequest(
+                    id=provider_key,
+                    capability_id=capability,
+                    unit=unit,
+                    dtype=dtype,
+                )
+            ],
+        ),
+        result_bindings=(
+            CollectionResultBinding(
+                provider_key=provider_key,
+                product_use_id=product_use.id,
+                product_id=product_use.product_id,
+            ),
+        ),
     )

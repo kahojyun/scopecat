@@ -7,17 +7,19 @@ grow independent, silently incomplete tree walkers.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Iterator
+from collections.abc import Callable, Collection, Iterator
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import cast
 
 from scopecat.compiler.relations.model import (
     BinaryScalarExpr,
+    CaseBranch,
     CaseScalarExpr,
     ColumnScalarExpr,
     CrossRelationExpr,
     FilterRelationExpr,
+    GridColumn,
     GridRelationExpr,
     InputRelationExpr,
     InputScalarExpr,
@@ -300,6 +302,148 @@ def walk_plan(root: PlanNode) -> Iterator[PlanNode]:
         node = pending.pop()
         yield node
         pending.extend(reversed(tuple(iter_plan_children(node))))
+
+
+def rewrite_plan[NodeT: PlanNode](
+    root: NodeT,
+    transform: Callable[[PlanNode], PlanNode],
+) -> NodeT:
+    """Rewrite a plan bottom-up while preserving each node's value shape.
+
+    This is the shared structural boundary for compiler transformations. The
+    callback may replace operations, but scalar, series, and relation nodes
+    must retain their respective shapes.
+    """
+
+    def visit(node: PlanNode) -> PlanNode:
+        if isinstance(node, ScalarExpr):
+            scalar = cast("ScalarExpression", node)
+            if isinstance(scalar, ParameterLookupScalarExpr):
+                rewritten: PlanNode = replace(
+                    scalar,
+                    key={
+                        name: cast("ScalarExpression", visit(value))
+                        for name, value in scalar.key.items()
+                    },
+                )
+            elif isinstance(scalar, BinaryScalarExpr):
+                rewritten = replace(
+                    scalar,
+                    left=cast("ScalarExpression", visit(scalar.left)),
+                    right=cast("ScalarExpression", visit(scalar.right)),
+                )
+            elif isinstance(scalar, CaseScalarExpr):
+                rewritten = replace(
+                    scalar,
+                    cases=[
+                        CaseBranch(
+                            condition=cast("ScalarExpression", visit(branch.condition)),
+                            value=cast("ScalarExpression", visit(branch.value)),
+                        )
+                        for branch in scalar.cases
+                    ],
+                    fallback=cast("ScalarExpression", visit(scalar.fallback)),
+                )
+            else:
+                rewritten = scalar
+            return transform(rewritten)
+
+        if isinstance(node, SeriesExpr):
+            series = cast("SeriesExpression", node)
+            if isinstance(series, LinspaceSeriesExpr):
+                rewritten = replace(
+                    series,
+                    start=cast("ScalarExpression", visit(series.start)),
+                    stop=cast("ScalarExpression", visit(series.stop)),
+                )
+            elif isinstance(series, RangeSeriesExpr):
+                rewritten = replace(
+                    series,
+                    start=cast("ScalarExpression", visit(series.start)),
+                    stop=cast("ScalarExpression", visit(series.stop)),
+                    step=cast("ScalarExpression", visit(series.step)),
+                )
+            elif isinstance(
+                series, RelationColumnSeriesExpr | RelationEntitiesSeriesExpr
+            ):
+                rewritten = replace(
+                    series,
+                    source=cast("RelationExpression", visit(series.source)),
+                )
+            else:
+                rewritten = series
+            return transform(rewritten)
+
+        relation = cast("RelationExpression", node)
+        if isinstance(relation, GridRelationExpr):
+            columns: dict[str, GridColumn] = {}
+            for name, column in relation.columns.items():
+                match column:
+                    case ScalarGridColumn():
+                        columns[name] = replace(
+                            column,
+                            scalar=cast("ScalarExpression", visit(column.scalar)),
+                        )
+                    case SeriesGridColumn():
+                        columns[name] = replace(
+                            column,
+                            series=cast("SeriesExpression", visit(column.series)),
+                        )
+                    case RelationGridColumn():
+                        columns[name] = replace(
+                            column,
+                            relation=cast("RelationExpression", visit(column.relation)),
+                        )
+                    case ValuesGridColumn():
+                        columns[name] = column
+            rewritten = replace(relation, columns=columns)
+        elif isinstance(
+            relation, SelectRelationExpr | SortRelationExpr | LimitRelationExpr
+        ):
+            rewritten = replace(
+                relation,
+                source=cast("RelationExpression", visit(relation.source)),
+            )
+        elif isinstance(relation, FilterRelationExpr):
+            rewritten = replace(
+                relation,
+                source=cast("RelationExpression", visit(relation.source)),
+                condition=cast("ScalarExpression", visit(relation.condition)),
+            )
+        elif isinstance(
+            relation,
+            JoinRelationExpr
+            | CrossRelationExpr
+            | LateralCrossRelationExpr
+            | PointCrossRelationExpr,
+        ):
+            rewritten = replace(
+                relation,
+                left=cast("RelationExpression", visit(relation.left)),
+                right=cast("RelationExpression", visit(relation.right)),
+            )
+        elif isinstance(relation, ZipRelationExpr):
+            rewritten = replace(
+                relation,
+                sources=[
+                    cast("RelationExpression", visit(source))
+                    for source in relation.sources
+                ],
+            )
+        elif isinstance(relation, WithColumnsRelationExpr):
+            rewritten = replace(
+                relation,
+                source=cast("RelationExpression", visit(relation.source)),
+                new_columns={
+                    name: cast("ScalarExpression", visit(value))
+                    for name, value in relation.new_columns.items()
+                },
+            )
+        else:
+            rewritten = relation
+        return transform(rewritten)
+
+    return cast("NodeT", visit(root))
 
 
 def plan_references(root: PlanNode) -> PlanReferences:

@@ -7,7 +7,10 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import cast
 
-from scopecat.execution.ports.resources import ResourceClaim
+from scopecat.compiler.typed.products import ProductDef
+from scopecat.kernel.point_identity import LogicalPointId
+from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
+from scopecat.kernel.resource_identity import ResourceClaim
 from scopecat.measurements.host_transforms import (
     BoundHostMeasurementTransforms,
     HostMeasurementTransformCall,
@@ -20,6 +23,7 @@ from scopecat.measurements.transform_model import MeasurementTransformDef
 from scopecat.measurements.transform_verification import (
     verify_measurement_transform_graph,
 )
+from scopecat.measurements.values import MeasurementValueCatalog
 from scopecat.records.measurement import MeasurementValue
 from scopecat.sdk.domain._bridge import point_id, product_use_id
 from scopecat.sdk.domain._measurement_bridge import lower_domain_host_transform_binding
@@ -91,15 +95,10 @@ class DomainMappedResult[EntryAddressT: Hashable, ResultAddressT: Hashable]:
     result_address: ResultAddressT
     point: DomainPointRef
     product_uses: tuple[DomainProductUseRef, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class DomainMappedEntry[EntryAddressT: Hashable, ResultAddressT: Hashable]:
-    """One target entry in canonical logical-point order."""
-
-    entry_address: EntryAddressT
-    point: DomainPointRef
-    results: tuple[DomainMappedResult[EntryAddressT, ResultAddressT], ...]
+    logical_point_id: LogicalPointId = field(repr=False)
+    product_use_ids: tuple[ProductUseId, ...] = field(repr=False)
+    product_id: ProductId = field(repr=False)
+    product: ProductDef = field(repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,9 +115,11 @@ class DomainResultMapping[
     """
 
     context: DomainBatchContext
+    catalog: MeasurementValueCatalog = field(repr=False)
     product_uses: tuple[DomainProductUseRef, ...]
+    selected_product_use_ids: tuple[ProductUseId, ...] = field(repr=False)
+    selected_product_uses: tuple[ProductUse, ...] = field(repr=False)
     target_entries: tuple[DomainTargetEntry[EntryAddressT, ResultAddressT], ...]
-    entries: tuple[DomainMappedEntry[EntryAddressT, ResultAddressT], ...]
     results: tuple[DomainMappedResult[EntryAddressT, ResultAddressT], ...]
     result_by_address: Mapping[
         ResultAddressT,
@@ -128,10 +129,20 @@ class DomainResultMapping[
         tuple[int, int],
         DomainMappedResult[EntryAddressT, ResultAddressT],
     ] = field(repr=False, compare=False)
-    native: ClosedDomainResultMapping[EntryAddressT, ResultAddressT] = field(
-        repr=False,
-        compare=False,
+    product_by_use_id: Mapping[ProductUseId, ProductDef] = field(
+        repr=False, compare=False
     )
+    _contract_fingerprint: str = field(repr=False, compare=False)
+
+    @property
+    def contract_fingerprint(self) -> str:
+        return self._contract_fingerprint
+
+    def product_for_use(self, product_use_id: ProductUseId) -> ProductDef:
+        try:
+            return self.product_by_use_id[product_use_id]
+        except KeyError as error:
+            raise KeyError(product_use_id.value) from error
 
     def result_for_address(
         self,
@@ -233,7 +244,7 @@ class DomainPreparationBuilder:
             raise ValueError(msg)
 
         native = seal_domain_result_mapping(
-            context.linked_points,
+            context.measurement_catalog,
             tuple(
                 product_use_id(product_use)
                 for product_use in context.direct_product_uses
@@ -316,12 +327,11 @@ class DomainPreparationBuilder:
             for binding in selected_bindings
         )
         native_transforms = tuple(transform for transform, _ in native_pairs)
-        linked_points = context.linked_points
-        source_outputs = SelectedDomainMeasurementOutputs(mapping.native)
+        source_outputs = SelectedDomainMeasurementOutputs(mapping)
         transforms: BoundHostMeasurementTransforms | None = None
         if native_transforms:
             graph = verify_measurement_transform_graph(
-                linked_points,
+                context.measurement_catalog,
                 native_transforms,
             )
             implementations = _native_host_implementations(native_pairs)
@@ -383,9 +393,8 @@ class DomainPreparationBuilder:
             raise ValueError(msg)
 
         target = invocation.target
-        native_mapping = measurements.mapping.native
         native_invocation = close_domain_invocation(
-            native_mapping,
+            measurements.mapping,
             invocation_id=invocation.invocation_id,
             target_id=target.target_id,
             compiler_id=target.compiler_id,
@@ -410,8 +419,6 @@ class DomainPreparationBuilder:
             )
 
         return PreparedDomainExecution(
-            compiler_id=self._context.compiler_id,
-            context=self._context,
             invocation=cast("ErasedDomainInvocation", native_invocation),
             runtime=cast("ErasedDomainRuntime", runtime),
             realize=cast("ErasedDomainRealizer", close_realized_values),
@@ -437,10 +444,6 @@ def _result_mapping_from_native[
         product_use_id(product_use): product_use for product_use in product_uses
     }
     mapped_results: list[DomainMappedResult[EntryAddressT, ResultAddressT]] = []
-    mapped_results_by_native_identity: dict[
-        int,
-        DomainMappedResult[EntryAddressT, ResultAddressT],
-    ] = {}
     for native_result in native.results:
         mapped_result = DomainMappedResult(
             entry_address=native_result.entry_address,
@@ -450,28 +453,21 @@ def _result_mapping_from_native[
                 product_use_refs_by_id[product_use_id]
                 for product_use_id in native_result.product_use_ids
             ),
+            logical_point_id=native_result.logical_point_id,
+            product_use_ids=native_result.product_use_ids,
+            product_id=native_result.product_id,
+            product=native_result.product,
         )
         mapped_results.append(mapped_result)
-        mapped_results_by_native_identity[id(native_result)] = mapped_result
-
-    mapped_entries: list[DomainMappedEntry[EntryAddressT, ResultAddressT]] = []
-    for native_entry in native.entries:
-        mapped_entry = DomainMappedEntry(
-            entry_address=native_entry.entry_address,
-            point=point_refs_by_id[native_entry.logical_point_id],
-            results=tuple(
-                mapped_results_by_native_identity[id(native_result)]
-                for native_result in native_entry.results
-            ),
-        )
-        mapped_entries.append(mapped_entry)
 
     selected_results = tuple(mapped_results)
     return DomainResultMapping(
         context=context,
+        catalog=native.catalog,
         product_uses=product_uses,
+        selected_product_use_ids=native.selected_product_use_ids,
+        selected_product_uses=native.selected_product_uses,
         target_entries=target_entries,
-        entries=tuple(mapped_entries),
         results=selected_results,
         result_by_address=MappingProxyType(
             {result.result_address: result for result in selected_results}
@@ -483,7 +479,13 @@ def _result_mapping_from_native[
                 for product_use in result.product_uses
             }
         ),
-        native=native,
+        product_by_use_id=MappingProxyType(
+            {
+                use_id: native.product_for_use(use_id)
+                for use_id in native.selected_product_use_ids
+            }
+        ),
+        _contract_fingerprint=native.contract_fingerprint,
     )
 
 

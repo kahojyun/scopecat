@@ -52,7 +52,6 @@ from scopecat.records.parameter import Quantity
 from tests.testkit.bound_plan import (
     bound_coordinate_ids,
     bound_plan_contract,
-    bound_plan_result,
     bound_state_fields,
     config_with_physical_resources,
 )
@@ -218,27 +217,25 @@ def test_bound_plan_contract_summarizes_compute_payload_boundary() -> None:
         config=config_with_physical_resources({"drive-a": ("play_waveforms",)}),
     )
 
-    [step] = preview.points[0].compute
+    [step] = preview.points[0].compute_operations
+    assert step.payload_slot is not None
     assert (
         preview.points[0].point_index,
-        step.operation_id.qualified_name,
-        step.payload_schema_id,
+        step.semantic_operation_id,
+        step.payload_slot.schema_id,
         dict(step.dependencies),
     ) == (0, "build-waveform", "waveform_bundle", {})
-    assert step.payload_id is not None
-    assert step.payload_id.startswith(f"{result_id.qualified_name}.payload.")
+    assert step.payload_slot.id.startswith(f"{result_id.qualified_name}.payload.")
     assert [
         (
-            field.resource_port_id.qualified_name
-            if field.resource_port_id is not None
-            else None,
-            state.capability_id,
+            state.instrument_id,
+            field.capability_id,
             field.field_path,
         )
-        for state in preview.points[0].desired_state
-        for field in state.fields
+        for state in preview.points[0].state_operations
+        for field in state.targets
         if isinstance(field.value.root, PayloadRef)
-    ] == [("drive", "play_waveforms", "program")]
+    ] == [("drive-a", "play_waveforms", "program")]
 
 
 def test_bound_plan_groups_shared_typed_compute_result() -> None:
@@ -292,21 +289,20 @@ def test_bound_plan_groups_shared_typed_compute_result() -> None:
         ),
     )
 
-    preview, problems = bound_plan_result(
+    preview = bound_plan_contract(
         spec,
         _parameters(),
         config=config_with_physical_resources({"drive-a": ("play_waveforms",)}),
     )
 
-    assert problems == ()
-    [step] = preview.points[0].compute
-    assert step.payload_id is not None
-    assert step.payload_id.startswith(f"{result_id.qualified_name}.payload.")
-    assert step.payload_schema_id == "waveform_bundle"
+    [step] = preview.points[0].compute_operations
+    assert step.payload_slot is not None
+    assert step.payload_slot.id.startswith(f"{result_id.qualified_name}.payload.")
+    assert step.payload_slot.schema_id == "waveform_bundle"
     assert [
-        (state.capability_id, field.field_path)
-        for state in preview.points[0].desired_state
-        for field in state.fields
+        (field.capability_id, field.field_path)
+        for state in preview.points[0].state_operations
+        for field in state.targets
         if isinstance(field.value.root, PayloadRef)
     ] == [
         ("play_waveforms", "program"),
@@ -330,7 +326,7 @@ def test_bound_plan_contract_rejects_unknown_compute_payload_nodes() -> None:
     )
 
     with pytest.raises(CheckFailed) as failure:
-        bound_plan_result(
+        bound_plan_contract(
             spec,
             _parameters(),
             config=config_with_physical_resources({"drive-a": ("play_waveforms",)}),
@@ -363,7 +359,7 @@ def test_bound_plan_selects_local_product_realization() -> None:
     )
     config = config_with_physical_resources({"readout-a": ()})
     preview = bound_plan_contract(spec, _parameters(), config=config)
-    assert preview.local_product_realizations is not None
-    [realization] = preview.local_product_realizations.entries
-    assert realization.producer.resource_target == PhysicalResourceId("readout-a")
-    assert realization.implicit_resource_id is None
+    [operation] = preview.points[0].collect_operations
+    [binding] = operation.result_bindings
+    assert operation.instrument_id == "readout-a"
+    assert binding.product_use_id == product_use.id

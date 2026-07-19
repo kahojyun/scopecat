@@ -10,10 +10,12 @@ from scopecat.compiler.relations.analysis import (
     plan_input_refs,
     plan_references,
     relation_operation,
+    rewrite_plan,
     verify_plan_scopes,
     walk_plan,
 )
 from scopecat.compiler.relations.model import (
+    InputScalarExpr,
     RowScopeId,
     col,
     grid,
@@ -158,6 +160,16 @@ def test_plan_walk_and_references_cover_every_nested_shape() -> None:
         }
     )
     assert plan_input_refs(plan) == ("enabled", "offsets", "rows", "start")
+
+    rewritten = rewrite_plan(
+        plan,
+        lambda node: lit(True) if isinstance(node, InputScalarExpr) else node,
+    )
+    assert plan_references(rewritten).ids(PlanReferenceKind.INPUT_SCALAR) == ()
+    assert plan_references(rewritten).ids(
+        PlanReferenceKind.INPUT_SERIES,
+        PlanReferenceKind.INPUT_TABLE,
+    ) == ("offsets", "rows")
 
 
 def test_compute_dependencies_project_shared_plan_references() -> None:

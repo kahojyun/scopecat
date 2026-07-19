@@ -9,14 +9,12 @@ from dataclasses import dataclass, field
 from typing import cast
 
 from scopecat.compiler.diagnostics import compiler_problem
-from scopecat.compiler.linking.linked import MaterializedLinkedPointSet
 from scopecat.compiler.typed.products import ProductDef
 from scopecat.compiler.typed.records import (
     RecordPlan,
     RecordUse,
     expected_dataset_schema,
     plan_records,
-    point_coordinate_ids,
     validate_record_plan,
 )
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
@@ -25,8 +23,10 @@ from scopecat.kernel.problems import Problem, ProblemCategory, model_location
 from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
 from scopecat.measurements.values import (
     ClosedMeasurementProductValues,
+    MeasurementValueCatalog,
     MeasurementValueSelection,
     measurement_value_contract_fingerprint,
+    select_measurement_values,
 )
 from scopecat.records.measurement import (
     CoordinateValue,
@@ -36,26 +36,28 @@ from scopecat.records.measurement import (
 
 
 @dataclass(frozen=True, slots=True, init=False)
-class SelectedMeasurementProjection:
-    """Pre-effect selection of template-owned observable record projections."""
+class MeasurementProjection:
+    """Closed pre-effect plan for observable measurement records."""
 
-    _linked_points: MaterializedLinkedPointSet = field(repr=False)
+    catalog: MeasurementValueCatalog = field(repr=False)
     _records: tuple[RecordPlan, ...] = field(repr=False)
     required_product_use_ids: tuple[ProductUseId, ...]
     coordinate_ids: tuple[str, ...]
     _schema: MeasurementDatasetSchema | None = field(repr=False)
-    linked_contract_fingerprint: str
+    product_values: MeasurementValueSelection = field(repr=False)
+    catalog_fingerprint: str
     contract_fingerprint: str
 
     def __init__(
         self,
-        linked_points: MaterializedLinkedPointSet,
+        catalog: MeasurementValueCatalog,
         records: tuple[RecordPlan, ...],
         required_product_use_ids: tuple[ProductUseId, ...],
         coordinate_ids: tuple[str, ...],
         schema: MeasurementDatasetSchema | None,
+        product_values: MeasurementValueSelection,
     ) -> None:
-        object.__setattr__(self, "_linked_points", linked_points)
+        object.__setattr__(self, "catalog", catalog)
         object.__setattr__(self, "_records", records)
         object.__setattr__(
             self,
@@ -68,23 +70,26 @@ class SelectedMeasurementProjection:
             "_schema",
             None if schema is None else schema.model_copy(deep=True),
         )
-        linked_fingerprint = measurement_value_contract_fingerprint(linked_points)
-        object.__setattr__(self, "linked_contract_fingerprint", linked_fingerprint)
+        object.__setattr__(self, "product_values", product_values)
+        catalog_fingerprint = measurement_value_contract_fingerprint(catalog)
+        object.__setattr__(self, "catalog_fingerprint", catalog_fingerprint)
         object.__setattr__(
             self,
             "contract_fingerprint",
-            _projection_contract_fingerprint(
-                linked_fingerprint,
-                records,
-                required_product_use_ids,
-                coordinate_ids,
-                schema,
+            stable_content_hash(
+                {
+                    "schema": "scopecat.measurement_projection.v1",
+                    "projection_contract_fingerprint": _projection_contract_fingerprint(
+                        catalog_fingerprint,
+                        records,
+                        required_product_use_ids,
+                        coordinate_ids,
+                        schema,
+                    ),
+                    "value_contract_fingerprint": product_values.contract_fingerprint,
+                }
             ),
         )
-
-    @property
-    def linked_points(self) -> MaterializedLinkedPointSet:
-        return self._linked_points
 
     @property
     def records(self) -> tuple[RecordPlan, ...]:
@@ -95,55 +100,29 @@ class SelectedMeasurementProjection:
         return None if self._schema is None else self._schema.model_copy(deep=True)
 
 
-@dataclass(frozen=True, slots=True)
-class BoundMeasurementProjection:
-    """Pre-effect proof that an assembly covers every projected record use."""
-
-    projection: SelectedMeasurementProjection = field(repr=False)
-    product_values: MeasurementValueSelection = field(repr=False)
-    contract_fingerprint: str = field(init=False)
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "contract_fingerprint",
-            stable_content_hash(
-                {
-                    "schema": "scopecat.bound_measurement_projection.v1",
-                    "projection_contract_fingerprint": (
-                        self.projection.contract_fingerprint
-                    ),
-                    "value_contract_fingerprint": (
-                        self.product_values.contract_fingerprint
-                    ),
-                }
-            ),
-        )
-
-
 @dataclass(frozen=True, slots=True, init=False)
-class ProjectedMeasurementRecords:
-    """Canonical complete MeasurementRecord values for one bound projection."""
+class MeasurementRecordBatch:
+    """Canonical complete MeasurementRecord values for one projection."""
 
-    selection: BoundMeasurementProjection = field(repr=False)
+    projection: MeasurementProjection = field(repr=False)
     run_id: str
     _records: tuple[MeasurementRecord, ...] = field(repr=False)
     _schema: MeasurementDatasetSchema | None = field(repr=False)
 
     def __init__(
         self,
-        selection: BoundMeasurementProjection,
+        projection: MeasurementProjection,
         run_id: str,
         records: tuple[MeasurementRecord, ...],
     ) -> None:
-        object.__setattr__(self, "selection", selection)
+        object.__setattr__(self, "projection", projection)
         object.__setattr__(self, "run_id", run_id)
         selected_records = _snapshot_measurement_records(records)
         object.__setattr__(self, "_records", selected_records)
         object.__setattr__(
             self,
             "_schema",
-            selection.projection.schema,
+            projection.schema,
         )
 
     @property
@@ -158,20 +137,24 @@ class ProjectedMeasurementRecords:
     def recording_contract_fingerprint(self) -> str:
         """Return the pre-value contract shared by every record chunk."""
 
-        return self.selection.contract_fingerprint
+        return self.projection.contract_fingerprint
 
 
 def select_measurement_projection(
-    linked_points: MaterializedLinkedPointSet,
+    catalog: MeasurementValueCatalog,
+    record_uses: Sequence[RecordUse],
     *,
     record_ids: Sequence[str] | None = None,
-) -> SelectedMeasurementProjection:
-    """Select observable RecordUse projections without choosing a producer."""
+) -> MeasurementProjection:
+    """Close observable record projections against selected product values."""
 
-    linked_plan = linked_points.linked_plan
-    all_record_uses = tuple(linked_plan.record_uses)
-    product_uses = tuple(linked_plan.product_uses)
-    product_defs = tuple(linked_plan.product_defs)
+    all_record_uses = tuple(record_uses)
+    product_uses = catalog.product_uses
+    product_values = select_measurement_values(
+        catalog,
+        required_product_use_ids=tuple(use.id for use in product_uses),
+    )
+    product_defs = catalog.product_defs
     use_by_id = {use.id: use for use in product_uses}
     product_by_id = {product.id: product for product in product_defs}
     record_by_id = {record.id: record for record in all_record_uses}
@@ -236,8 +219,8 @@ def select_measurement_projection(
     if problems:
         raise CheckFailed(problems)
 
-    points = linked_points.point_domain.points
-    coordinate_ids = tuple(point_coordinate_ids(points))
+    points = catalog.point_catalog.points
+    coordinate_ids = catalog.point_catalog.coordinate_ids
     record_plans = tuple(
         plan_records(
             product_defs,
@@ -253,7 +236,7 @@ def select_measurement_projection(
     if record_problems:
         raise CheckFailed(record_problems)
     schema = expected_dataset_schema(
-        experiment_id=linked_plan.program.id,
+        experiment_id=catalog.point_catalog.experiment_id,
         points=points,
         records=record_plans,
     )
@@ -261,75 +244,34 @@ def select_measurement_projection(
     required_use_ids = tuple(
         use.id for use in product_uses if use.id in selected_use_set
     )
-    return SelectedMeasurementProjection(
-        linked_points,
+    return MeasurementProjection(
+        catalog,
         record_plans,
         required_use_ids,
         coordinate_ids,
         schema,
-    )
-
-
-def bind_measurement_projection(
-    projection: SelectedMeasurementProjection,
-    product_values: MeasurementValueSelection,
-) -> BoundMeasurementProjection:
-    """Prove before effects that selected values cover all record inputs."""
-
-    selected_projection = projection
-    selected_values = product_values
-    problems: list[Problem] = []
-    if (
-        selected_projection.linked_contract_fingerprint
-        != selected_values.linked_contract_fingerprint
-    ):
-        problems.append(
-            _projection_problem(
-                "measurement_projection_value_contract_mismatch",
-                "measurement projection and value assembly belong to different plans",
-                path=("product_values",),
-                category=ProblemCategory.CONFLICT,
-            )
-        )
-    selected_use_ids = set(selected_values.product_use_ids)
-    for use_id in selected_projection.required_product_use_ids:
-        if use_id not in selected_use_ids:
-            problems.append(
-                _projection_problem(
-                    "measurement_projection_value_missing",
-                    f"recorded product use {use_id.value!r} has no selected value",
-                    path=("product_values", "product_use_ids"),
-                    category=ProblemCategory.NOT_FOUND,
-                )
-            )
-    if problems:
-        raise CheckFailed(problems)
-    return BoundMeasurementProjection(
-        selected_projection,
-        selected_values,
+        product_values,
     )
 
 
 def project_measurement_records(
-    selection: BoundMeasurementProjection,
+    projection: MeasurementProjection,
     product_values: ClosedMeasurementProductValues,
     *,
     run_id: str,
-) -> ProjectedMeasurementRecords:
+) -> MeasurementRecordBatch:
     """Project complete canonical point records without changing product values."""
 
-    bound = selection
     if not run_id:
         msg = "measurement projection run_id must be non-empty"
         raise ValueError(msg)
     values = product_values
     if (
         values.selection.contract_fingerprint
-        != bound.product_values.contract_fingerprint
+        != projection.product_values.contract_fingerprint
     ):
         msg = "assembled measurement values do not belong to this projection"
         raise ValueError(msg)
-    projection = bound.projection
     record_plans = projection.records
     if not record_plans:
         records: tuple[MeasurementRecord, ...] = ()
@@ -348,17 +290,17 @@ def project_measurement_records(
                     for record in record_plans
                 },
             )
-            for point in projection.linked_points.point_domain.points
+            for point in projection.catalog.point_catalog.points
         )
-    return ProjectedMeasurementRecords(
-        bound,
+    return MeasurementRecordBatch(
+        projection,
         run_id,
         records,
     )
 
 
 def _projection_contract_fingerprint(
-    linked_fingerprint: str,
+    catalog_fingerprint: str,
     records: Sequence[RecordPlan],
     required_product_use_ids: Sequence[ProductUseId],
     coordinate_ids: Sequence[str],
@@ -368,7 +310,7 @@ def _projection_contract_fingerprint(
         content_fingerprint(
             {
                 "schema": "scopecat.measurements.projection_contract.v1",
-                "linked_contract_fingerprint": linked_fingerprint,
+                "catalog_fingerprint": catalog_fingerprint,
                 "records": tuple(records),
                 "required_product_use_ids": tuple(
                     use_id.value for use_id in required_product_use_ids

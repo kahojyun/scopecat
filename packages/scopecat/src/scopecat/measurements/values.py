@@ -9,12 +9,12 @@ from types import MappingProxyType
 from typing import Protocol, cast
 
 from scopecat.compiler.diagnostics import compiler_problem
-from scopecat.compiler.linking.linked import MaterializedLinkedPointSet
-from scopecat.compiler.typed.point_domain import LogicalPointId, MaterializedPoint
 from scopecat.compiler.typed.products import ProductDef
+from scopecat.execution.points import RunPoint, RunPointCatalog
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.errors import CheckFailed, ProviderContractError
 from scopecat.kernel.json_types import JsonValue
+from scopecat.kernel.point_identity import LogicalPointId
 from scopecat.kernel.problems import (
     Problem,
     ProblemCategory,
@@ -34,13 +34,13 @@ class MeasurementValueSelection(Protocol):
     """Logical value contract consumed by projection and canonical sealing."""
 
     @property
-    def linked_points(self) -> MaterializedLinkedPointSet: ...
+    def catalog(self) -> MeasurementValueCatalog: ...
 
     @property
     def product_use_ids(self) -> tuple[ProductUseId, ...]: ...
 
     @property
-    def linked_contract_fingerprint(self) -> str: ...
+    def catalog_fingerprint(self) -> str: ...
 
     @property
     def contract_fingerprint(self) -> str: ...
@@ -49,16 +49,55 @@ class MeasurementValueSelection(Protocol):
 
     def product_for_use(self, product_use_id: ProductUseId) -> ProductDef: ...
 
-    def point(self, logical_point_id: LogicalPointId) -> MaterializedPoint: ...
+    def point(self, logical_point_id: LogicalPointId) -> RunPoint: ...
+
+
+@dataclass(frozen=True, slots=True)
+class MeasurementValueCatalog:
+    """Closed point, product-use, and product inventory for one run."""
+
+    point_catalog: RunPointCatalog
+    product_uses: tuple[ProductUse, ...]
+    product_defs: tuple[ProductDef, ...]
+    contract_fingerprint: str = field(init=False)
+
+    def __post_init__(self) -> None:
+        products_by_id = {product.id: product for product in self.product_defs}
+        object.__setattr__(
+            self,
+            "contract_fingerprint",
+            stable_content_hash(
+                content_fingerprint(
+                    {
+                        "schema": "scopecat.measurement_value_contract.v1",
+                        "points": [
+                            {
+                                "logical_point_id": point.logical_id.value,
+                                "coordinates": point.coordinates,
+                            }
+                            for point in self.point_catalog.points
+                        ],
+                        "product_uses": [
+                            {
+                                "product_use_id": use.id.value,
+                                "product_id": use.product_id.qualified_name,
+                                "product": products_by_id[use.product_id],
+                            }
+                            for use in self.product_uses
+                        ],
+                    }
+                )
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)
 class SelectedMeasurementValues:
     """Canonical logical value inventory required from one RunProgram."""
 
-    linked_points: MaterializedLinkedPointSet = field(repr=False)
+    catalog: MeasurementValueCatalog = field(repr=False)
     product_use_ids: tuple[ProductUseId, ...]
-    linked_contract_fingerprint: str = field(init=False)
+    catalog_fingerprint: str = field(init=False)
     contract_fingerprint: str = field(init=False)
     _use_by_id: Mapping[ProductUseId, ProductUse] = field(
         init=False,
@@ -72,7 +111,7 @@ class SelectedMeasurementValues:
         compare=False,
         hash=False,
     )
-    _point_by_id: Mapping[LogicalPointId, MaterializedPoint] = field(
+    _point_by_id: Mapping[LogicalPointId, RunPoint] = field(
         init=False,
         repr=False,
         compare=False,
@@ -80,17 +119,17 @@ class SelectedMeasurementValues:
     )
 
     def __post_init__(self) -> None:
-        all_uses, all_products = _measurement_product_inventory(self.linked_points)
+        all_uses, all_products = _measurement_product_inventory(self.catalog)
         use_by_id = {use.id: use for use in all_uses}
-        linked_fingerprint = measurement_value_contract_fingerprint(self.linked_points)
-        object.__setattr__(self, "linked_contract_fingerprint", linked_fingerprint)
+        catalog_fingerprint = self.catalog.contract_fingerprint
+        object.__setattr__(self, "catalog_fingerprint", catalog_fingerprint)
         object.__setattr__(
             self,
             "contract_fingerprint",
             stable_content_hash(
                 {
                     "schema": "scopecat.selected_measurement_values.v1",
-                    "linked_contract_fingerprint": linked_fingerprint,
+                    "catalog_fingerprint": catalog_fingerprint,
                     "product_use_ids": [item.value for item in self.product_use_ids],
                 }
             ),
@@ -113,10 +152,7 @@ class SelectedMeasurementValues:
             self,
             "_point_by_id",
             MappingProxyType(
-                {
-                    point.logical_id: point
-                    for point in self.linked_points.point_domain.points
-                }
+                {point.logical_id: point for point in self.catalog.point_catalog.points}
             ),
         )
 
@@ -134,7 +170,7 @@ class SelectedMeasurementValues:
             msg = f"product use {product_use_id.value!r} is not selected"
             raise KeyError(msg) from error
 
-    def point(self, logical_point_id: LogicalPointId) -> MaterializedPoint:
+    def point(self, logical_point_id: LogicalPointId) -> RunPoint:
         try:
             return self._point_by_id[logical_point_id]
         except KeyError as error:
@@ -155,14 +191,14 @@ class MeasurementValueCandidate:
 class ClosedMeasurementProductValue:
     """One checked host value with producer-neutral logical identity."""
 
-    point: MaterializedPoint = field(repr=False)
+    point: RunPoint = field(repr=False)
     product_use: ProductUse = field(repr=False)
     _product: ProductDef = field(repr=False)
     _value: MeasurementValue = field(repr=False)
 
     def __init__(
         self,
-        point: MaterializedPoint,
+        point: RunPoint,
         product_use: ProductUse,
         product: ProductDef,
         value: MeasurementValue,
@@ -231,14 +267,14 @@ class ClosedMeasurementProductValues:
 
 
 def select_measurement_values(
-    linked_points: MaterializedLinkedPointSet,
+    catalog: MeasurementValueCatalog,
     *,
     required_product_use_ids: Sequence[ProductUseId],
 ) -> SelectedMeasurementValues:
     """Select one canonical logical inventory of demanded product uses."""
 
     required = tuple(required_product_use_ids)
-    all_uses, product_by_use_id = _measurement_product_inventory(linked_points)
+    all_uses, product_by_use_id = _measurement_product_inventory(catalog)
     all_use_by_id = {use.id: use for use in all_uses}
     required_set = set(required)
     problems: list[Problem] = []
@@ -267,7 +303,7 @@ def select_measurement_values(
     if problems:
         raise CheckFailed(problems)
     return SelectedMeasurementValues(
-        linked_points,
+        catalog,
         tuple(use.id for use in all_uses if use.id in required_set),
     )
 
@@ -280,7 +316,7 @@ def seal_measurement_values(
 
     selected = selection
     supplied = tuple(candidates)
-    points = selected.linked_points.point_domain.points
+    points = selected.catalog.point_catalog.points
     expected_keys = {
         (point.logical_id, use_id)
         for point in points
@@ -371,43 +407,20 @@ def seal_measurement_values(
 
 
 def _measurement_product_inventory(
-    linked_points: MaterializedLinkedPointSet,
+    catalog: MeasurementValueCatalog,
 ) -> tuple[tuple[ProductUse, ...], dict[ProductUseId, ProductDef]]:
-    linked_plan = linked_points.linked_plan
-    uses = tuple(linked_plan.product_uses)
-    products_by_id = {product.id: product for product in linked_plan.product_defs}
+    uses = catalog.product_uses
+    products_by_id = {product.id: product for product in catalog.product_defs}
     products = {use.id: products_by_id[use.product_id] for use in uses}
     return uses, products
 
 
 def measurement_value_contract_fingerprint(
-    linked_points: MaterializedLinkedPointSet,
+    catalog: MeasurementValueCatalog,
 ) -> str:
     """Identify one transient point/use/product contract independent of objects."""
 
-    uses, products = _measurement_product_inventory(linked_points)
-    return stable_content_hash(
-        content_fingerprint(
-            {
-                "schema": "scopecat.measurement_value_contract.v1",
-                "points": [
-                    {
-                        "logical_point_id": point.logical_id.value,
-                        "row": point.row,
-                    }
-                    for point in linked_points.point_domain.points
-                ],
-                "product_uses": [
-                    {
-                        "product_use_id": use.id.value,
-                        "product_id": use.product_id.qualified_name,
-                        "product": products[use.id],
-                    }
-                    for use in uses
-                ],
-            }
-        )
-    )
+    return catalog.contract_fingerprint
 
 
 def _carrier_selection_problems(

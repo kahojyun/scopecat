@@ -11,7 +11,9 @@ from scopecat.compiler.relations.analysis import (
     verify_plan_scopes,
 )
 from scopecat.compiler.relations.evaluation import (
+    EvalContext,
     ParameterRelationData,
+    evaluate_relation_ordinals,
 )
 from scopecat.compiler.relations.model import (
     CellValue,
@@ -27,7 +29,11 @@ from scopecat.compiler.relations.model import (
     param,
     point_col,
 )
-from scopecat.compiler.relations.verification import RelationTypeBindings, RowType
+from scopecat.compiler.relations.verification import (
+    RelationTypeBindings,
+    RowType,
+    verify_relation_plan,
+)
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import (
     Bool,
@@ -91,6 +97,57 @@ def test_generated_grid_respects_axis_declaration_order(
 
     assert actual == expected
     assert all(tuple(row) == axis_order for row in actual)
+
+
+def test_grid_ordinal_evaluation_preserves_mixed_radix_order() -> None:
+    bindings = RelationTypeBindings(
+        inputs={
+            "left": Series(_INT, min_length=2, max_length=2),
+            "right": Series(_INT, min_length=3, max_length=3),
+        }
+    )
+    plan = verify_relation_plan(
+        grid(left=input_series("left"), right=input_series("right")),
+        bindings=bindings,
+        expected_type=Table(
+            (TableColumn("left", _INT), TableColumn("right", _INT)),
+            min_rows=6,
+            max_rows=6,
+        ),
+    )
+
+    rows = evaluate_relation_ordinals(
+        plan,
+        EvalContext(inputs={"left": [1, 2], "right": [10, 20, 30]}),
+        (1, 5),
+        max_points=2,
+    )
+
+    assert rows == [
+        {"left": 1, "right": 20},
+        {"left": 2, "right": 30},
+    ]
+
+
+def test_ordinal_evaluation_pushes_through_row_preserving_operations() -> None:
+    source = literal_rows([{"x": 1}, {"x": 2}, {"x": 3}])
+    plan = verify_relation_plan(
+        source.with_columns(y=col("x") + 10).select("y").limit(3),
+        expected_type=Table(
+            (TableColumn("y", _INT),),
+            min_rows=3,
+            max_rows=3,
+        ),
+    )
+
+    rows = evaluate_relation_ordinals(
+        plan,
+        EvalContext(),
+        (2,),
+        max_points=1,
+    )
+
+    assert rows == [{"y": 13}]
 
 
 @settings(max_examples=50)

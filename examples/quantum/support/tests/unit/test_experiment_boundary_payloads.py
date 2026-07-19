@@ -33,10 +33,10 @@ def test_sequence_compilation_stays_memory_payload_boundary(
         8,
     ]
     assert [
-        (state.resource_id.value, state.capability_id, field.field_path)
+        (state.instrument_id, field.capability_id, field.field_path)
         for point in plan.points
-        for state in point.desired_state
-        for field in state.fields
+        for state in point.state_operations
+        for field in state.targets
         if isinstance(field.value.root, PayloadRef)
     ] == [
         ("drive-stack", "play_gate_sequence", "sequence"),

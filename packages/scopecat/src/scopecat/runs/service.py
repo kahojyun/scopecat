@@ -10,9 +10,13 @@ from scopecat.compiler.frontend.invocation import PreparedInvocation
 from scopecat.compiler.frontend.resolution import (
     CompiledInvocation,
     compile_prepared_invocation,
+    resolve_compiled_invocation,
 )
-from scopecat.compiler.linking.linked import LinkedPlan
-from scopecat.compiler.pipeline import link_experiment
+from scopecat.compiler.linking.linked import (
+    LinkedPlan,
+    link_verified_program,
+    specialize_linked_program,
+)
 from scopecat.config.candidates import CandidateConfig
 from scopecat.config.resolution import (
     ConfigProfileInput,
@@ -28,13 +32,12 @@ from scopecat.kernel.problems import (
     ProblemPhase,
     StorageLocation,
     blocking_problem,
-    has_blocking_problems,
     model_location,
 )
 from scopecat.measurements.results import MeasurementDatasetReadContract
-from scopecat.planning.backend import ExecutionBackend
 from scopecat.planning.check_results import ExperimentCheckResult
 from scopecat.planning.preview import build_run_program_preview
+from scopecat.planning.system import ExperimentSystem
 from scopecat.records.artifact import RunArtifactEntry, RunDatasetEntry
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run import RunConfigSource, RunManifest
@@ -319,7 +322,7 @@ def start_run(
     config: ConfigProfileSnapshot,
     experiment: PreparedInvocation,
     services: WorkspaceServices,
-    execution_backend: ExecutionBackend | None = None,
+    system: ExperimentSystem | None = None,
     config_source: RunConfigSource | None = None,
     event_sink: RuntimeEventSink | None = None,
     payload_observer: RuntimePayloadObserver | None = None,
@@ -329,7 +332,7 @@ def start_run(
         config=config,
         experiment=compiled_invocation,
         services=services,
-        execution_backend=execution_backend,
+        system=system,
         config_source=config_source,
         event_sink=event_sink,
         payload_observer=payload_observer,
@@ -341,7 +344,7 @@ def _start_compiled_run(
     config: ConfigProfileSnapshot,
     experiment: CompiledInvocation,
     services: WorkspaceServices,
-    execution_backend: ExecutionBackend | None,
+    system: ExperimentSystem | None,
     config_source: RunConfigSource | None,
     event_sink: RuntimeEventSink | None,
     payload_observer: RuntimePayloadObserver | None,
@@ -349,22 +352,23 @@ def _start_compiled_run(
     environment = validate_config_environment(config)
     if not environment.valid:
         raise CheckFailed(environment.problems)
-    linked = link_experiment(
+    resolved = resolve_compiled_invocation(
         experiment,
         environment=environment,
         config_source=config_source,
     )
-    if has_blocking_problems(linked.problems):
-        raise CheckFailed(linked.problems)
+    linked = specialize_linked_program(
+        link_verified_program(resolved.verified_program, environment)
+    )
     program = _compile_run_program(
-        execution_backend,
+        system,
         config=config,
-        linked=linked.plan,
+        linked=linked,
     )
     manifest = interpret_run_program(
         config=config,
         program=program,
-        request=linked.request,
+        request=resolved.request,
         services=services.execution,
         config_source=config_source,
         event_sink=event_sink,
@@ -379,7 +383,7 @@ def run_experiment(
     services: WorkspaceServices,
     config: str | ConfigProfileSnapshot | CandidateConfig = "active",
     config_profile: ConfigProfileInput | None = None,
-    execution_backend: ExecutionBackend | None = None,
+    system: ExperimentSystem | None = None,
     event_sink: RuntimeEventSink | None = None,
     payload_observer: RuntimePayloadObserver | None = None,
 ) -> RunManifest:
@@ -393,7 +397,7 @@ def run_experiment(
         config=config_result.config,
         experiment=compiled_invocation,
         services=services,
-        execution_backend=execution_backend,
+        system=system,
         config_source=config_result.config_source,
         event_sink=event_sink,
         payload_observer=payload_observer,
@@ -406,7 +410,7 @@ def check_experiment(
     services: WorkspaceServices,
     config: str | ConfigProfileSnapshot | CandidateConfig = "active",
     config_profile: ConfigProfileInput | None = None,
-    execution_backend: ExecutionBackend | None = None,
+    system: ExperimentSystem | None = None,
 ) -> ExperimentCheckResult:
     """Check whether an invocation can produce a user preview.
 
@@ -423,7 +427,7 @@ def check_experiment(
         services=services,
         config=config,
         config_profile=config_profile,
-        execution_backend=execution_backend,
+        system=system,
     )
 
 
@@ -433,7 +437,7 @@ def _check_compiled_experiment(
     services: WorkspaceServices,
     config: str | ConfigProfileSnapshot | CandidateConfig,
     config_profile: ConfigProfileInput | None,
-    execution_backend: ExecutionBackend | None,
+    system: ExperimentSystem | None,
 ) -> ExperimentCheckResult:
     try:
         config_result = resolve_experiment_config(
@@ -453,15 +457,18 @@ def _check_compiled_experiment(
         )
 
     try:
-        linked = link_experiment(
+        resolved = resolve_compiled_invocation(
             experiment,
             environment=environment,
             config_source=config_result.config_source,
         )
+        linked = specialize_linked_program(
+            link_verified_program(resolved.verified_program, environment)
+        )
         program = _compile_run_program(
-            execution_backend,
+            system,
             config=config_result.config,
-            linked=linked.plan,
+            linked=linked,
         )
         preview = build_run_program_preview(program)
         planning_problems: tuple[Problem, ...] = ()
@@ -478,48 +485,35 @@ def _check_compiled_experiment(
 
 
 def _compile_run_program(
-    backend: ExecutionBackend | None,
+    system: ExperimentSystem | None,
     *,
     config: ConfigProfileSnapshot,
     linked: LinkedPlan,
 ) -> RunProgram:
     """Compile one linked experiment into the sole executable program."""
 
-    if backend is None:
+    if system is None:
         raise CheckFailed(
             (
                 blocking_problem(
-                    "execution.execution_backend_missing",
-                    "experiment planning requires an explicit execution backend",
+                    "execution.experiment_system_missing",
+                    "experiment planning requires an explicit experiment system",
                     category=ProblemCategory.INVALID_INPUT,
                     phase=ProblemPhase.PLANNING,
-                    location=model_location("run_options", "execution_backend"),
+                    location=model_location("run_options", "experiment_system"),
                 ),
             )
         )
 
     try:
-        backend_id = backend.backend_id
-        if type(backend_id) is not str or not backend_id:
-            msg = "execution backend identity must be a non-empty string"
-            raise TypeError(msg)
         program_candidate = cast(
             "object",
-            backend.compile(linked, config=config),
+            system.compile(linked, config=config),
         )
         if not isinstance(program_candidate, RunProgram):
-            msg = "execution backend must return RunProgram"
+            msg = "experiment system must return RunProgram"
             raise TypeError(msg)
-        program = program_candidate
-        if program.backend_id != backend_id:
-            msg = "RunProgram does not retain its backend identity"
-            raise ValueError(msg)
-        if program.linked_points.linked_plan.verified_program is not (
-            linked.verified_program
-        ):
-            msg = "RunProgram belongs to a different linked program"
-            raise ValueError(msg)
-        return program
+        return program_candidate
     except ProblemFailure as error:
         raise CheckFailed(
             tuple(
@@ -531,26 +525,17 @@ def _compile_run_program(
         raise CheckFailed(
             (
                 blocking_problem(
-                    "execution_backend_prepare_failed",
-                    "execution backend could not prepare the linked program",
+                    "experiment_system_prepare_failed",
+                    "experiment system could not prepare the linked program",
                     category=ProblemCategory.INVALID_INPUT,
                     phase=ProblemPhase.PLANNING,
-                    location=model_location("execution_backend"),
+                    location=model_location("experiment_system"),
                     details={
-                        "backend_id": _safe_execution_backend_id(backend),
                         "error_type": type(error).__qualname__,
                     },
                 ),
             )
         ) from error
-
-
-def _safe_execution_backend_id(backend: ExecutionBackend) -> str | None:
-    try:
-        backend_id = backend.backend_id
-    except Exception:
-        return None
-    return backend_id if type(backend_id) is str and backend_id else None
 
 
 def _problems_match_phase(

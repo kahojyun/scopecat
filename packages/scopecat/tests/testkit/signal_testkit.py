@@ -287,7 +287,7 @@ def execute_signal_run(
         config=config,
         experiment=prepare_invocation(experiment),
         services=local_workspace_services(workspace),
-        execution_backend=sc.ExecutionBackend(provider=TestSignalInstrumentProvider()),
+        system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
         config_source=config_source,
     )
 

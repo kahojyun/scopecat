@@ -27,7 +27,7 @@ lab = quantum_lab(workspace=workspace)
 compiler = DragBetaDomainCompiler()
 experiment = lab.prepare(
     DRAG_BETA_TEMPLATE,
-    execution_backend=sc.ExecutionBackend(domain_compilers=(compiler,)),
+    system=sc.ExperimentSystem(domain_compiler=compiler),
 )
 
 # %%
@@ -54,7 +54,7 @@ candidate = result.analysis.candidate_config()
 candidate_preview = lab.prepare(
     DRAG_BETA_TEMPLATE,
     config=candidate,
-    execution_backend=sc.ExecutionBackend(domain_compilers=(DragBetaDomainCompiler(),)),
+    system=sc.ExperimentSystem(domain_compiler=DragBetaDomainCompiler()),
 ).preview()
 
 # %%
@@ -72,9 +72,7 @@ baseline_production_compiler = ProductionDragGateCompiler()
 baseline_production_run = lab.prepare(
     PRODUCTION_DRAG_GATE_TEMPLATE,
     config="active",
-    execution_backend=sc.ExecutionBackend(
-        domain_compilers=(baseline_production_compiler,)
-    ),
+    system=sc.ExperimentSystem(domain_compiler=baseline_production_compiler),
 ).run(
     name="Production X90 with baseline DRAG beta",
     tags=("reference", "production-gate", "baseline"),
@@ -102,15 +100,13 @@ activation = lab.activate(
 active_preview = lab.prepare(
     DRAG_BETA_TEMPLATE,
     config="active",
-    execution_backend=sc.ExecutionBackend(domain_compilers=(DragBetaDomainCompiler(),)),
+    system=sc.ExperimentSystem(domain_compiler=DragBetaDomainCompiler()),
 ).preview()
 active_production_compiler = ProductionDragGateCompiler()
 active_production_run = lab.prepare(
     PRODUCTION_DRAG_GATE_TEMPLATE,
     config="active",
-    execution_backend=sc.ExecutionBackend(
-        domain_compilers=(active_production_compiler,)
-    ),
+    system=sc.ExperimentSystem(domain_compiler=active_production_compiler),
 ).run(
     name="Production X90 with accepted DRAG beta",
     tags=("reference", "production-gate", "active-config", "provenance"),
@@ -127,15 +123,13 @@ rollback = lab.rollback(
 restored_preview = lab.prepare(
     DRAG_BETA_TEMPLATE,
     config="active",
-    execution_backend=sc.ExecutionBackend(domain_compilers=(DragBetaDomainCompiler(),)),
+    system=sc.ExperimentSystem(domain_compiler=DragBetaDomainCompiler()),
 ).preview()
 restored_production_compiler = ProductionDragGateCompiler()
 restored_production_run = lab.prepare(
     PRODUCTION_DRAG_GATE_TEMPLATE,
     config="active",
-    execution_backend=sc.ExecutionBackend(
-        domain_compilers=(restored_production_compiler,)
-    ),
+    system=sc.ExperimentSystem(domain_compiler=restored_production_compiler),
 ).run(
     name="Production X90 after DRAG beta rollback",
     tags=("reference", "production-gate", "rollback"),

@@ -12,13 +12,10 @@ from quantum_lab_demo.reference_experiments import (
 # %%
 workspace = notebook_workspace("11-fake-awg-scratch")
 lab = quantum_lab(workspace=workspace)
-backend = lab.execution_backend
-assert backend is not None
-adapter = next(
-    item
-    for item in backend.domain_compilers
-    if isinstance(item, FakeXCountDomainCompiler)
-)
+system = lab.system
+assert system is not None
+adapter = system.domain_compiler
+assert isinstance(adapter, FakeXCountDomainCompiler)
 
 # %%
 experiment = lab.prepare(

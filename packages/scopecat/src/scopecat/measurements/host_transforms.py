@@ -16,13 +16,13 @@ from types import MappingProxyType
 from typing import cast
 
 from scopecat.compiler.diagnostics import compiler_problem
-from scopecat.compiler.typed.point_domain import LogicalPointId
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.errors import (
     CheckFailed,
     MeasurementTransformExecutionError,
 )
 from scopecat.kernel.json_types import JsonValue
+from scopecat.kernel.point_identity import LogicalPointId
 from scopecat.kernel.problems import (
     Problem,
     ProblemCategory,
@@ -397,7 +397,7 @@ def execute_host_measurement_transforms(
 
     bound = plan
     supplied = tuple(source_values)
-    points = bound.selection.graph.linked_points.point_domain.points
+    points = bound.selection.graph.catalog.point_catalog.points
     expected_keys = {
         (point.logical_id, use_id)
         for point in points

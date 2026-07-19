@@ -12,7 +12,6 @@ from pydantic import JsonValue as WireJsonValue
 from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.relations.model import (
     CellValue,
-    Row,
 )
 from scopecat.compiler.typed.products import (
     DomainProductProducer,
@@ -110,7 +109,7 @@ class RecordPlan:
 
 class PointRecordLike(Protocol):
     @property
-    def row(self) -> Row: ...
+    def row(self) -> Mapping[str, object]: ...
 
 
 def plan_records(
@@ -531,7 +530,10 @@ def _coordinate_variables(
     dimensions = ["point"]
     shape = [len(points)]
     for column in _point_columns(points):
-        values = [point.row[column] for point in points if column in point.row]
+        values = cast(
+            "list[CellValue]",
+            [point.row[column] for point in points if column in point.row],
+        )
         if len(values) != len(points):
             continue
         variable = _coordinate_variable(

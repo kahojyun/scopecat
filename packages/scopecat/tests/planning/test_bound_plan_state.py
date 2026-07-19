@@ -119,8 +119,8 @@ def test_bound_plan_binds_desired_state_for_each_point() -> None:
     unchanged_state = [
         (
             point_index,
-            state.resource_id.value,
-            f"{state.capability_id}.{field.field_path}",
+            state.instrument_id,
+            f"{field.capability_id}.{field.field_path}",
             _state_literal(field.value),
         )
         for point_index, state, field in bound_state_fields(unchanged_preview)
@@ -128,8 +128,8 @@ def test_bound_plan_binds_desired_state_for_each_point() -> None:
     swept_state = [
         (
             point_index,
-            state.resource_id.value,
-            f"{state.capability_id}.{field.field_path}",
+            state.instrument_id,
+            f"{field.capability_id}.{field.field_path}",
             _state_literal(field.value),
         )
         for point_index, state, field in bound_state_fields(swept_preview)
@@ -201,8 +201,8 @@ def test_bound_plan_repeated_state_uses_outer_point_row() -> None:
     assert [
         (
             point_index,
-            state.resource_id.value,
-            f"{state.capability_id}.{field.field_path}",
+            state.instrument_id,
+            f"{field.capability_id}.{field.field_path}",
             _state_literal(field.value),
         )
         for point_index, state, field in bound_state_fields(preview)
@@ -286,8 +286,8 @@ def test_bound_plan_selected_target_table_plans_simultaneous_resources() -> None
     assert [
         (
             point_index,
-            state.resource_id.value,
-            f"{state.capability_id}.{field.field_path}",
+            state.instrument_id,
+            f"{field.capability_id}.{field.field_path}",
             _state_literal(field.value),
         )
         for point_index, state, field in bound_state_fields(preview)

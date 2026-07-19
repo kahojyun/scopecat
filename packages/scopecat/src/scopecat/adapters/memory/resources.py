@@ -7,7 +7,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from threading import Lock, RLock
 
-from scopecat.execution.ports.resources import ResourceClaim
+from scopecat.kernel.resource_identity import ResourceClaim
 
 
 class MemoryResourceLeaseManager:

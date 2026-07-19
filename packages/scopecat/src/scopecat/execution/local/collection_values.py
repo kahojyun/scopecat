@@ -3,13 +3,22 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
 from typing import cast
 
 from scopecat.compiler.diagnostics import compiler_problem
-from scopecat.compiler.typed.point_domain import LogicalPointId
-from scopecat.execution.local.program import CollectStage, LocalEffectProgram
+from scopecat.execution.local.collection_contract import (
+    BoundLocalCollectionValues,
+    LocalCollectionOperationBinding,
+    LocalCollectionOutputBinding,
+)
+from scopecat.execution.local.program import CollectStage
 from scopecat.execution.ports.journal import CollectionRepository
+from scopecat.execution.program import (
+    RunOperation,
+    RunPointStage,
+    RunPointStart,
+    iter_run_operations,
+)
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.errors import CheckFailed, ProviderContractError
 from scopecat.kernel.frozen import thaw_json_value
@@ -21,7 +30,7 @@ from scopecat.kernel.problems import (
     blocking_problem,
     model_location,
 )
-from scopecat.kernel.product_identity import ProductId, ProductUseId
+from scopecat.kernel.product_identity import ProductUseId
 from scopecat.measurements.values import (
     MeasurementValueCandidate,
     MeasurementValueSelection,
@@ -32,58 +41,20 @@ from scopecat.records.execution_journal import (
 )
 
 
-@dataclass(frozen=True, slots=True)
-class _LocalCollectionOutputBinding:
-    """One provider-addressed edge retained outside the neutral value plane."""
-
-    provider_key: str
-    product_use_id: ProductUseId
-    product_id: ProductId
-
-
-@dataclass(frozen=True, slots=True)
-class _LocalCollectionOperationBinding:
-    """One expected committed chunk and its canonical logical outputs."""
-
-    logical_point_id: LogicalPointId
-    point_index: int
-    operation_id: str
-    attempt: int
-    instrument_id: str
-    command_content_hash: str
-    outputs: tuple[_LocalCollectionOutputBinding, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class BoundLocalCollectionValues:
-    """Trusted binding from local collection addresses to logical values."""
-
-    selection: MeasurementValueSelection = field(repr=False)
-    experiment_id: str
-    collection_product_use_ids: tuple[ProductUseId, ...]
-    _operations: tuple[_LocalCollectionOperationBinding, ...] = field(
-        repr=False,
-    )
-
-    @property
-    def operation_bindings(self) -> tuple[_LocalCollectionOperationBinding, ...]:
-        """Return the snapshotted control-plane collection inventory."""
-
-        return self._operations
-
-
 def bind_local_collection_values(
     selection: MeasurementValueSelection,
     product_use_ids: Sequence[ProductUseId],
-    program: LocalEffectProgram,
+    *,
+    experiment_id: str,
+    operations: Sequence[RunOperation],
 ) -> BoundLocalCollectionValues:
     """Bind local collection addresses directly to canonical logical values."""
 
     selected = selection
 
     problems: list[Problem] = []
-    linked_experiment_id = selected.linked_points.linked_plan.program.id
-    if program.experiment_id != linked_experiment_id:
+    linked_experiment_id = selected.catalog.point_catalog.experiment_id
+    if experiment_id != linked_experiment_id:
         problems.append(
             _binding_problem(
                 "local_collection_experiment_mismatch",
@@ -92,7 +63,7 @@ def bind_local_collection_values(
                 category=ProblemCategory.CONFLICT,
                 details={
                     "expected": linked_experiment_id,
-                    "actual": program.experiment_id,
+                    "actual": experiment_id,
                 },
             )
         )
@@ -108,36 +79,22 @@ def bind_local_collection_values(
             )
         )
 
-    linked_uses = {
-        use.id: use for use in selected.linked_points.linked_plan.product_uses
-    }
-    program_uses = {use.id: use for use in program.product_uses}
+    linked_use_ids = {use.id for use in selected.catalog.product_uses}
     for use_index, use_id in enumerate(collection_use_ids):
-        expected = linked_uses.get(use_id)
-        retained = program_uses.get(use_id)
-        if expected is None or retained is None:
+        if use_id not in linked_use_ids:
             problems.append(
                 _binding_problem(
                     "local_collection_product_use_missing",
                     f"collected product use {use_id.value!r} is not retained by "
-                    "both linked and local programs",
+                    "the canonical measurement catalog",
                     path=("collection_product_use_ids", use_index),
                     category=ProblemCategory.NOT_FOUND,
                 )
             )
-        elif retained != expected:
-            problems.append(
-                _binding_problem(
-                    "local_collection_product_use_mismatch",
-                    f"collected product use {use_id.value!r} changed its product",
-                    path=("collection_product_use_ids", use_index),
-                    category=ProblemCategory.CONFLICT,
-                )
-            )
 
-    operations, operation_problems = _collect_program_contract(
+    bindings, operation_problems = _collect_program_contract(
         selected,
-        program,
+        operations,
         collection_use_ids,
     )
     problems.extend(operation_problems)
@@ -145,9 +102,9 @@ def bind_local_collection_values(
         raise CheckFailed(problems)
     return BoundLocalCollectionValues(
         selected,
-        program.experiment_id,
+        experiment_id,
         collection_use_ids,
-        operations,
+        bindings,
     )
 
 
@@ -270,21 +227,35 @@ def local_collection_value_candidates(
 
 def _collect_program_contract(
     selection: MeasurementValueSelection,
-    program: LocalEffectProgram,
+    run_operations: Sequence[RunOperation],
     collection_use_ids: tuple[ProductUseId, ...],
-) -> tuple[tuple[_LocalCollectionOperationBinding, ...], tuple[Problem, ...]]:
-    points = selection.linked_points.point_domain.points
+) -> tuple[tuple[LocalCollectionOperationBinding, ...], tuple[Problem, ...]]:
+    points = selection.catalog.point_catalog.points
     problems: list[Problem] = []
-    operations: list[_LocalCollectionOperationBinding] = []
+    operations: list[LocalCollectionOperationBinding] = []
     operation_ids: set[str] = set()
-    if len(program.points) != len(points):
+    atomic_operations = tuple(iter_run_operations(run_operations))
+    point_starts = tuple(
+        operation
+        for operation in atomic_operations
+        if isinstance(operation, RunPointStart)
+    )
+    collect_stages_by_point: dict[int, list[CollectStage]] = {}
+    for operation in atomic_operations:
+        if isinstance(operation, RunPointStage) and isinstance(
+            operation.stage, CollectStage
+        ):
+            collect_stages_by_point.setdefault(operation.point_index, []).append(
+                operation.stage
+            )
+    if len(point_starts) != len(points):
         problems.append(
             _binding_problem(
                 "local_collection_point_inventory_mismatch",
                 "local execution point inventory does not match linked points",
                 path=("points",),
                 category=ProblemCategory.CONFLICT,
-                details={"expected": len(points), "actual": len(program.points)},
+                details={"expected": len(points), "actual": len(point_starts)},
             )
         )
 
@@ -295,16 +266,16 @@ def _collect_program_contract(
         for use_id in collection_use_ids
         if use_id in selected_use_ids
     }
-    for point_index, (point, point_program) in enumerate(
-        zip(points, program.points, strict=False)
+    for point_index, (point, point_start) in enumerate(
+        zip(points, point_starts, strict=False)
     ):
         expected_coordinates = {
             coordinate_id: point.row[coordinate_id]
-            for coordinate_id in point_program.coordinates
+            for coordinate_id in point_start.coordinates
         }
         if (
-            point_program.point_index != point.logical_ordinal
-            or point_program.point_uid != point.logical_id.value
+            point_start.point_index != point.logical_ordinal
+            or point_start.logical_id != point.logical_id
         ):
             problems.append(
                 _binding_problem(
@@ -314,7 +285,7 @@ def _collect_program_contract(
                     category=ProblemCategory.CONFLICT,
                 )
             )
-        if dict(point_program.coordinates) != expected_coordinates:
+        if dict(point_start.coordinates) != expected_coordinates:
             problems.append(
                 _binding_problem(
                     "local_collection_point_coordinates_mismatch",
@@ -324,12 +295,11 @@ def _collect_program_contract(
                 )
             )
 
-        point_outputs: dict[ProductUseId, _LocalCollectionOutputBinding] = {}
-        point_operations: list[_LocalCollectionOperationBinding] = []
+        point_outputs: dict[ProductUseId, LocalCollectionOutputBinding] = {}
+        point_operations: list[LocalCollectionOperationBinding] = []
         collect_operations = tuple(
             operation
-            for stage in point_program.stages
-            if isinstance(stage, CollectStage)
+            for stage in collect_stages_by_point.get(point_start.point_index, ())
             for operation in stage.operations
         )
         for operation_index, operation in enumerate(collect_operations):
@@ -378,7 +348,7 @@ def _collect_program_contract(
                     )
                 )
 
-            output_bindings: list[_LocalCollectionOutputBinding] = []
+            output_bindings: list[LocalCollectionOutputBinding] = []
             for result_index, (request, result) in enumerate(
                 zip(requests, result_bindings, strict=False)
             ):
@@ -428,7 +398,7 @@ def _collect_program_contract(
                             category=ProblemCategory.CONFLICT,
                         )
                     )
-                output = _LocalCollectionOutputBinding(
+                output = LocalCollectionOutputBinding(
                     result.provider_key,
                     result.product_use_id,
                     result.product_id,
@@ -436,7 +406,7 @@ def _collect_program_contract(
                 point_outputs[result.product_use_id] = output
                 output_bindings.append(output)
             point_operations.append(
-                _LocalCollectionOperationBinding(
+                LocalCollectionOperationBinding(
                     logical_point_id=point.logical_id,
                     point_index=point.logical_ordinal,
                     operation_id=operation.operation_id,
@@ -487,7 +457,7 @@ def _normalize_resolved_chunk(value: object) -> CollectionChunk:
 
 def _validate_chunk(
     chunk: CollectionChunk,
-    expected: _LocalCollectionOperationBinding,
+    expected: LocalCollectionOperationBinding,
     *,
     run_id: str,
     receipt_index: int,

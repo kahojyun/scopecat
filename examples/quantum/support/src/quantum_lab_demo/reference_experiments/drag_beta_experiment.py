@@ -18,12 +18,12 @@ from scopecat import Quantity
 from scopecat.sdk.domain import (
     CorrelatedDomainFetch,
     DomainBatchContext,
-    DomainBoundPoint,
     DomainCallView,
     DomainCompilation,
     DomainCompiledJob,
     DomainCompileRequest,
     DomainExecutionView,
+    DomainResolvedInputs,
     PreparedDomainExecution,
     compiled_jobs,
 )
@@ -220,21 +220,11 @@ class DragBetaDomainCompiler:
     def compile(self, request: DomainCompileRequest) -> DomainCompilation | None:
         if not _accepts_execution(request.call):
             return None
-        partitions = request.partition(max_points=self.target.max_list_entries)
         return compiled_jobs(
             request,
-            compiler_id=self.compiler_id,
-            target_id=self.target_id,
             max_points=self.target.max_list_entries,
-            artifacts=tuple(
-                _drag_beta_artifact(
-                    request.bind_points(
-                        ordinals,
-                        max_points=self.target.max_list_entries,
-                    )
-                )
-                for ordinals in partitions
-            ),
+            artifact_input_ids=("beta", "amplification"),
+            compile_artifact=_drag_beta_artifact,
         )
 
     def prepare(
@@ -244,10 +234,6 @@ class DragBetaDomainCompiler:
     ) -> PreparedDomainExecution:
         execution = context.execution
         artifact = cast("_DragBetaArtifact", job.artifact)
-        execution_points = tuple(execution.points)
-        if tuple(point.ref for point in execution_points) != context.points:
-            msg = "DRAG-beta execution points do not match the batch context"
-            raise ValueError(msg)
         preparation = context.new_preparation()
         iq_result = _validated_result_contracts(execution)
         reference = prepare_drag_beta_reference(
@@ -323,11 +309,11 @@ def _accepts_execution(execution: DomainCallView) -> bool:
     return True
 
 
-def _drag_beta_artifact(points: Sequence[DomainBoundPoint]) -> _DragBetaArtifact:
+def _drag_beta_artifact(inputs: DomainResolvedInputs) -> _DragBetaArtifact:
     return _DragBetaArtifact(
-        betas=tuple(_decode_beta(point.input("beta")) for point in points),
+        betas=tuple(_decode_beta(value) for value in inputs.input("beta")),
         amplifications=tuple(
-            _decode_amplification(point.input("amplification")) for point in points
+            _decode_amplification(value) for value in inputs.input("amplification")
         ),
     )
 

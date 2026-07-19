@@ -7,12 +7,13 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from scopecat.compiler.frontend.environment import validate_config_environment
+from scopecat.compiler.linking.linked import specialize_linked_program
 from scopecat.compiler.typed.program import CoreProgram
 from scopecat.composition.local import local_execution_services
 from scopecat.execution.interpreter import interpret_run_program
 from scopecat.execution.observation import RuntimeEventSink, RuntimePayloadObserver
 from scopecat.execution.ports.resources import ResourceLeaseManager
-from scopecat.planning.backend import ExecutionBackend
+from scopecat.planning.system import ExperimentSystem
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run import RunConfigSource, RunManifest
 from scopecat.records.run_request import RunRequest
@@ -91,8 +92,8 @@ def execute_program_run(
     """Execute a typed test program through the unified production boundary."""
 
     environment = validate_config_environment(config)
-    linked = link_program(experiment, environment)
-    program = ExecutionBackend(provider=instrument_provider).compile(
+    linked = specialize_linked_program(link_program(experiment, environment))
+    program = ExperimentSystem(provider=instrument_provider).compile(
         linked,
         config=config,
     )

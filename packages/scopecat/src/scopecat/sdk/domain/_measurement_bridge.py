@@ -151,16 +151,12 @@ def _native_product_contract(
     if not any(product_use is owned for owned in context.product_uses):
         msg = "domain transform port references a product use outside its context"
         raise ValueError(msg)
-    linked_points = context.linked_points
+    catalog = context.measurement_catalog
     use_id = product_use_id(product_use)
     try:
-        use = next(
-            use for use in linked_points.linked_plan.product_uses if use.id == use_id
-        )
+        use = next(use for use in catalog.product_uses if use.id == use_id)
         product = next(
-            product
-            for product in linked_points.linked_plan.product_defs
-            if product.id == use.product_id
+            product for product in catalog.product_defs if product.id == use.product_id
         )
     except StopIteration as error:
         msg = "domain batch context lost its linked product contract"
@@ -172,11 +168,11 @@ def _native_product_def(
     context: DomainBatchContext,
     contract: DomainProductContractView,
 ) -> ProductDef:
-    linked_points = context.linked_points
+    catalog = context.measurement_catalog
     try:
         return next(
             product
-            for product in linked_points.linked_plan.product_defs
+            for product in catalog.product_defs
             if product.id.qualified_name == contract.id
         )
     except StopIteration as error:

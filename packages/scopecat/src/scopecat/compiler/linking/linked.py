@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import cast
 
 from scopecat.compiler.diagnostics import CompilerProblemError, compiler_problem
@@ -38,14 +38,13 @@ from scopecat.compiler.semantic.value_expressions import (
 )
 from scopecat.compiler.typed.parameter_overlays import resolve_point_parameters
 from scopecat.compiler.typed.point_domain import (
-    LogicalPointId,
     MaterializedPoint,
     MaterializedPointDomain,
     PointDomainEvaluationError,
-    PointDomainId,
     PointDomainValueError,
     VerifiedPointDomain,
     materialize_point_domain,
+    materialize_point_domain_ordinals,
 )
 from scopecat.compiler.typed.products import (
     InstrumentProductProducer,
@@ -62,6 +61,7 @@ from scopecat.compiler.typed.program import (
     core_state,
 )
 from scopecat.compiler.typed.records import RecordUse
+from scopecat.compiler.typed.specialization import specialize_core_program
 from scopecat.compiler.typed.state import (
     LogicalStateResourceTarget,
     PhysicalStateResourceTarget,
@@ -71,6 +71,7 @@ from scopecat.compiler.typed.state import (
 from scopecat.compiler.typed.verification import (
     ProgramRelationConsumer,
     VerifiedCoreProgram,
+    seal_typed_program,
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
@@ -156,65 +157,16 @@ class LinkedPlan:
 
 
 @dataclass(frozen=True, slots=True)
-class MaterializedDomainExecutionPoint:
-    """One logical point's closed inputs for the domain execution."""
-
-    logical_id: LogicalPointId
-    logical_ordinal: int
-    inputs: tuple[tuple[str, object], ...]
-
-    def __post_init__(self) -> None:
-        names = tuple(name for name, _value in self.inputs)
-        if any(not name for name in names) or len(names) != len(set(names)):
-            msg = "materialized domain execution input ids must be non-empty and unique"
-            raise ValueError(msg)
-
-    def input(self, name: str) -> object:
-        """Return one named input value or raise a precise lookup error."""
-
-        for input_name, value in self.inputs:
-            if input_name == name:
-                return value
-        raise KeyError(name)
-
-
-@dataclass(frozen=True, slots=True)
-class MaterializedDomainExecution:
-    """The typed domain execution with concrete prepare-stage inputs."""
-
-    execution: TypedDomainExecution
-    points: tuple[MaterializedDomainExecutionPoint, ...]
-
-    def __post_init__(self) -> None:
-        ordinals = tuple(point.logical_ordinal for point in self.points)
-        if len(ordinals) != len(set(ordinals)):
-            msg = "materialized domain execution points need unique logical ordinals"
-            raise ValueError(msg)
-
-    def select(self, ordinals: frozenset[int]) -> MaterializedDomainExecution:
-        """Project this materialized execution onto a canonical batch."""
-
-        return MaterializedDomainExecution(
-            execution=self.execution,
-            points=tuple(
-                point for point in self.points if point.logical_ordinal in ordinals
-            ),
-        )
-
-
-@dataclass(frozen=True, slots=True)
 class MaterializedLinkedPoints:
-    """One linked plan with canonical points and materialized domain execution.
+    """One linked plan with canonical points and parameter bindings.
 
-    This artifact is deliberately narrower than materialized local semantics:
-    it keeps the exact linked program and logical point domain while owning no
-    local compute or product realization.
+    Domain inputs are deliberately absent. Selected compilers decide which
+    residual columns must be evaluated for each compiled job.
     """
 
     linked_plan: LinkedPlan
     point_domain: MaterializedPointDomain
     point_parameters: tuple[ParameterRelationData, ...]
-    domain_executions: tuple[MaterializedDomainExecution, ...] = ()
 
     def __post_init__(self) -> None:
         if len(self.point_parameters) != len(self.point_domain.points):
@@ -226,295 +178,401 @@ class MaterializedLinkedPoints:
         return self.linked_plan.verified_program
 
 
-@dataclass(frozen=True, slots=True)
-class MaterializedPointDomainView:
-    """A canonical contiguous view over an already materialized point domain.
-
-    A view never renumbers points or creates a second logical identity space.
-    Its points are the exact frozen point values retained by the complete
-    materialization, while its cardinality describes only the selected batch.
-    """
-
-    source: MaterializedPointDomain
-    points: tuple[MaterializedPoint, ...]
-
-    @property
-    def id(self) -> PointDomainId:
-        """Retain the parent domain namespace used by every logical point."""
-
-        return self.source.id
-
-    @property
-    def cardinality(self) -> PointCardinality:
-        return PointCardinality.exact(len(self.points))
-
-    @property
-    def declared_cardinality(self) -> PointCardinality:
-        return self.cardinality
-
-
-@dataclass(frozen=True, slots=True, init=False)
-class MaterializedLinkedPointBatch:
-    """One non-empty contiguous batch selected from complete linked points.
-
-    The complete parent proof is retained exactly. Selection changes only the
-    point-domain view presented to a target adapter; logical point identities,
-    ordinals, and the linked program are shared with the parent.
-    """
-
-    _parent: MaterializedLinkedPoints
-    _point_domain: MaterializedPointDomainView
-    point_indices: tuple[int, ...]
-
-    def __init__(
-        self,
-        parent: MaterializedLinkedPoints,
-        point_indices: Sequence[int],
-    ) -> None:
-        indices = tuple(point_indices)
-        if not indices:
-            msg = "linked point batches require at least one point index"
-            raise ValueError(msg)
-        if any(type(index) is not int for index in indices):
-            msg = "linked point batch indices must be integers"
-            raise TypeError(msg)
-        if indices != tuple(range(indices[0], indices[0] + len(indices))):
-            msg = "linked point batch indices must be canonical and contiguous"
-            raise ValueError(msg)
-        if indices[0] < 0 or indices[-1] >= len(parent.point_domain.points):
-            msg = "linked point batch indices are outside the materialized domain"
-            raise ValueError(msg)
-        points = tuple(parent.point_domain.points[index] for index in indices)
-        if tuple(point.logical_ordinal for point in points) != indices:
-            msg = "linked point batch indices must preserve logical ordinals"
-            raise ValueError(msg)
-        object.__setattr__(self, "_parent", parent)
-        object.__setattr__(
-            self,
-            "_point_domain",
-            MaterializedPointDomainView(parent.point_domain, points),
-        )
-        object.__setattr__(self, "point_indices", indices)
-
-    @property
-    def parent(self) -> MaterializedLinkedPoints:
-        return self._parent
-
-    @property
-    def linked_plan(self) -> LinkedPlan:
-        return self._parent.linked_plan
-
-    @property
-    def verified_program(self) -> VerifiedCoreProgram:
-        return self._parent.verified_program
-
-    @property
-    def point_domain(self) -> MaterializedPointDomainView:
-        return self._point_domain
-
-    def domain_execution(self, execution_id: str) -> MaterializedDomainExecution:
-        """Return one parent execution restricted to this canonical batch."""
-
-        execution = next(
-            item
-            for item in self._parent.domain_executions
-            if item.execution.id == execution_id
-        )
-        ordinals = frozenset(self.point_indices)
-        return execution.select(ordinals)
-
-
-type MaterializedLinkedPointSet = (
-    MaterializedLinkedPoints | MaterializedLinkedPointBatch
-)
-
-
 def materialize_linked_points(
     linked: LinkedPlan,
     *,
     max_points: int | None = None,
 ) -> MaterializedLinkedPoints:
-    """Materialize the logical point domain and plan-stage domain inputs.
+    """Materialize the logical point domain and parameter bindings.
 
     Expected point-evaluation, value, and entity errors cross this planning
     boundary as structured :class:`CheckFailed` problems.
     """
 
-    if max_points is not None:
-        if type(max_points) is not int or max_points <= 0:
+    return LinkedPointMaterializer(linked, max_points=max_points).materialize()
+
+
+@dataclass(slots=True)
+class LinkedPointMaterializer:
+    """Budgeted shared closure of one linked symbolic point space."""
+
+    linked: LinkedPlan
+    max_points: int | None = None
+    _point_domain: MaterializedPointDomain | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
+    _point_parameters: dict[int, ParameterRelationData] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+    )
+    _selected_points: dict[int, MaterializedPoint] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+    )
+    _domain_input_values: dict[tuple[str, int, str], object] = field(
+        default_factory=dict, init=False, repr=False
+    )
+
+    def __post_init__(self) -> None:
+        if self.max_points is not None and (
+            type(self.max_points) is not int or self.max_points <= 0
+        ):
             raise ValueError("point materialization budget must be a positive integer")
-        maximum = linked.cardinality.maximum
-        if maximum is not None and maximum > max_points:
+
+    def point_count(self) -> int:
+        """Return exact logical cardinality, evaluating the point root if needed."""
+
+        self._check_declared_budget()
+        maximum = self.linked.cardinality.maximum
+        if maximum == self.linked.cardinality.minimum:
+            return self.linked.cardinality.minimum
+        return len(self._materialize_point_domain().points)
+
+    def _check_declared_budget(self) -> None:
+        maximum = self.linked.cardinality.maximum
+        if (
+            self.max_points is not None
+            and maximum is not None
+            and maximum > self.max_points
+        ):
             raise CheckFailed(
                 (
-                    compiler_problem(
-                        "point_materialization_budget_exceeded",
-                        "symbolic point space exceeds the explicit "
-                        "materialization budget",
-                        model_location("point_domain"),
-                        phase=ProblemPhase.PLANNING,
-                        details={
-                            "maximum": maximum,
-                            "budget": max_points,
-                        },
+                    _point_materialization_budget_problem(
+                        maximum=maximum,
+                        budget=self.max_points,
                     ),
                 )
             )
 
-    program = linked.program
-    environment = linked.environment
-    problems: list[Problem] = []
-    try:
-        point_domain = materialize_point_domain(
-            linked.point_domain,
-            environment.parameters,
-            row_normalizer=lambda row: _normalize_point_domain_row(
-                row,
-                program=program,
-                environment=environment,
+    def bind_domain_inputs(
+        self,
+        execution_id: str,
+        input_ids: Sequence[str],
+        ordinals: Sequence[int],
+        *,
+        max_points: int,
+    ) -> tuple[tuple[str, tuple[object, ...]], ...]:
+        """Evaluate selected domain inputs for selected logical ordinals."""
+
+        selected_input_ids = tuple(input_ids)
+        selected = tuple(ordinals)
+        if type(max_points) is not int or max_points <= 0:
+            raise ValueError("domain input binding budget must be positive")
+        if len(selected) > max_points:
+            raise ValueError("domain input binding exceeds the requested budget")
+        point_count = self.point_count()
+        if any(ordinal < 0 or ordinal >= point_count for ordinal in selected):
+            raise ValueError("domain input binding selects an unknown ordinal")
+        execution = next(
+            item
+            for item in core_domain_executions(self.linked.program)
+            if item.id == execution_id
+        )
+        known_input_ids = tuple(execution.inputs)
+        selected_input_set = set(selected_input_ids)
+        if not selected_input_ids:
+            raise ValueError("domain input binding requires at least one input")
+        if selected_input_ids != tuple(
+            input_id for input_id in known_input_ids if input_id in selected_input_set
+        ):
+            raise ValueError(
+                "domain input binding must select known inputs in typed order"
+            )
+        selected_points = self._materialize_selected_points(
+            selected,
+            max_points=max_points,
+        )
+        problems: list[Problem] = []
+        columns: dict[str, list[object]] = {
+            input_id: [] for input_id in selected_input_ids
+        }
+        for point in selected_points:
+            input_values = self._domain_inputs(
+                execution,
+                point,
+                selected_input_ids,
                 problems=problems,
-            ),
-        )
-    except PointDomainEvaluationError as error:
-        problems.append(
-            compiler_problem(
-                "experiment_points_evaluation_failed",
-                f"experiment point domain failed: {error.error}",
-                model_location("point_domain", *error.path),
-                phase=ProblemPhase.PLANNING,
             )
+            if input_values is not None:
+                for input_id, value in input_values:
+                    columns[input_id].append(value)
+        if has_blocking_problems(problems):
+            raise CheckFailed(problems)
+        return tuple(
+            (input_id, tuple(columns[input_id])) for input_id in selected_input_ids
         )
-        raise CheckFailed(problems) from error
-    except PointDomainValueError as error:
-        problems.append(
-            compiler_problem(
-                "module_point_value_type_mismatch",
-                str(error),
-                model_location("points"),
-                phase=ProblemPhase.PLANNING,
-            )
+
+    def materialize(self) -> MaterializedLinkedPoints:
+        """Close canonical points without evaluating domain execution inputs."""
+
+        point_domain = self._materialize_point_domain()
+        problems: list[Problem] = []
+        point_parameters = tuple(
+            self._point_parameter(point, problems=problems)
+            for point in point_domain.points
         )
-        raise CheckFailed(problems) from error
-    if max_points is not None and len(point_domain.points) > max_points:
-        raise CheckFailed(
-            (
-                compiler_problem(
-                    "point_materialization_budget_exceeded",
-                    "materialized point space exceeds the explicit budget",
-                    model_location("point_domain"),
-                    phase=ProblemPhase.PLANNING,
-                    details={
-                        "point_count": len(point_domain.points),
-                        "budget": max_points,
-                    },
+        if has_blocking_problems(problems):
+            raise CheckFailed(problems)
+        return MaterializedLinkedPoints(
+            self.linked,
+            point_domain,
+            point_parameters,
+        )
+
+    def _materialize_point_domain(self) -> MaterializedPointDomain:
+        if self._point_domain is not None:
+            return self._point_domain
+        self._check_declared_budget()
+        problems: list[Problem] = []
+        try:
+            point_domain = materialize_point_domain(
+                self.linked.point_domain,
+                self.linked.environment.parameters,
+                row_normalizer=lambda row: _normalize_point_domain_row(
+                    row,
+                    program=self.linked.program,
+                    environment=self.linked.environment,
+                    problems=problems,
                 ),
             )
-        )
-    point_parameters: list[ParameterRelationData] = []
-    for point in point_domain.points:
-        try:
-            point_parameters.append(
-                resolve_point_parameters(
-                    environment.parameters,
-                    program.parameter_overlays,
-                    point_row=point.row,
-                    relation_plan=linked.verified_program.relation_plan,
+        except PointDomainEvaluationError as error:
+            problems.append(
+                compiler_problem(
+                    "experiment_points_evaluation_failed",
+                    f"experiment point domain failed: {error.error}",
+                    model_location("point_domain", *error.path),
+                    phase=ProblemPhase.PLANNING,
                 )
             )
-        except CompilerProblemError as error:
-            problems.append(error.problem)
-    if len(point_parameters) != len(point_domain.points):
-        raise CheckFailed(problems)
-    resolved_point_parameters = tuple(point_parameters)
-    domain_executions = tuple(
-        materialized
-        for execution in core_domain_executions(program)
-        if (
-            materialized := _materialize_domain_execution(
-                execution,
-                points=point_domain.points,
-                verified_program=linked.verified_program,
-                point_parameters=resolved_point_parameters,
-                problems=problems,
-            )
-        )
-        is not None
-    )
-    if has_blocking_problems(problems):
-        raise CheckFailed(problems)
-    return MaterializedLinkedPoints(
-        linked,
-        point_domain,
-        resolved_point_parameters,
-        domain_executions,
-    )
-
-
-def _materialize_domain_execution(
-    execution: TypedDomainExecution,
-    *,
-    points: Sequence[MaterializedPoint],
-    verified_program: VerifiedCoreProgram,
-    point_parameters: Sequence[ParameterRelationData],
-    problems: list[Problem],
-) -> MaterializedDomainExecution | None:
-    """Evaluate one verified domain execution's plan-stage inputs."""
-    execution_points: list[MaterializedDomainExecutionPoint] = []
-    failed = False
-    for point, parameters in zip(points, point_parameters, strict=True):
-        input_values: list[tuple[str, object]] = []
-        context = EvalContext(params=parameters, point_row=point.row)
-        for input_name, input_spec in execution.inputs.items():
-            try:
-                evaluated = _evaluate_domain_input(
-                    input_spec,
-                    verified_program=verified_program,
-                    context=context,
+            raise CheckFailed(problems) from error
+        except PointDomainValueError as error:
+            problems.append(
+                compiler_problem(
+                    "module_point_value_type_mismatch",
+                    str(error),
+                    model_location("points"),
+                    phase=ProblemPhase.PLANNING,
                 )
-                value = coerce_literal(
-                    input_spec.value_type,
-                    evaluated,
-                    path=(
-                        "domain_executions",
-                        execution.id,
-                        "points",
-                        point.logical_ordinal,
-                        "inputs",
-                        input_name,
+            )
+            raise CheckFailed(problems) from error
+        if has_blocking_problems(problems):
+            raise CheckFailed(problems)
+        if self.max_points is not None and len(point_domain.points) > self.max_points:
+            raise CheckFailed(
+                (
+                    _point_materialization_budget_problem(
+                        point_count=len(point_domain.points),
+                        budget=self.max_points,
                     ),
                 )
-                resolved_value = _unwrap_domain_input(value)
-                input_values.append((input_name, resolved_value))
-            except (ArithmeticError, KeyError, TypeError, ValueError) as error:
-                failed = True
+            )
+        if self._selected_points:
+            points = list(point_domain.points)
+            for ordinal, selected in self._selected_points.items():
+                if selected.row != points[ordinal].row:
+                    raise AssertionError(
+                        "selective and complete point materialization must agree"
+                    )
+                points[ordinal] = selected
+            point_domain = MaterializedPointDomain(
+                point_domain.id,
+                points,
+                point_domain.declared_cardinality,
+            )
+        self._point_domain = point_domain
+        return point_domain
+
+    def _materialize_selected_points(
+        self,
+        ordinals: tuple[int, ...],
+        *,
+        max_points: int,
+    ) -> tuple[MaterializedPoint, ...]:
+        if self._point_domain is not None:
+            return tuple(self._point_domain.points[ordinal] for ordinal in ordinals)
+        missing = tuple(
+            ordinal
+            for ordinal in dict.fromkeys(ordinals)
+            if ordinal not in self._selected_points
+        )
+        if missing:
+            problems: list[Problem] = []
+            try:
+                points = materialize_point_domain_ordinals(
+                    self.linked.point_domain,
+                    self.linked.environment.parameters,
+                    missing,
+                    max_points=max_points,
+                    row_normalizer=lambda row: _normalize_point_domain_row(
+                        row,
+                        program=self.linked.program,
+                        environment=self.linked.environment,
+                        problems=problems,
+                    ),
+                )
+            except PointDomainEvaluationError as error:
                 problems.append(
                     compiler_problem(
-                        "domain_execution_input_evaluation_failed",
-                        f"domain execution input {input_name!r} failed for point "
-                        f"{point.logical_ordinal}: {error}",
-                        model_location(
-                            "domain_executions",
-                            execution.id,
-                            "points",
-                            point.logical_ordinal,
-                            "inputs",
-                            input_name,
-                        ),
+                        "experiment_points_evaluation_failed",
+                        f"experiment point domain failed: {error.error}",
+                        model_location("point_domain", *error.path),
                         phase=ProblemPhase.PLANNING,
                     )
                 )
-        execution_points.append(
-            MaterializedDomainExecutionPoint(
-                logical_id=point.logical_id,
-                logical_ordinal=point.logical_ordinal,
-                inputs=tuple(input_values),
+                raise CheckFailed(problems) from error
+            except PointDomainValueError as error:
+                problems.append(
+                    compiler_problem(
+                        "module_point_value_type_mismatch",
+                        str(error),
+                        model_location("points"),
+                        phase=ProblemPhase.PLANNING,
+                    )
+                )
+                raise CheckFailed(problems) from error
+            if has_blocking_problems(problems):
+                raise CheckFailed(problems)
+            self._selected_points.update(
+                (point.logical_ordinal, point) for point in points
+            )
+        return tuple(self._selected_points[ordinal] for ordinal in ordinals)
+
+    def _point_parameter(
+        self,
+        point: MaterializedPoint,
+        *,
+        problems: list[Problem],
+    ) -> ParameterRelationData:
+        cached = self._point_parameters.get(point.logical_ordinal)
+        if cached is not None:
+            return cached
+        try:
+            parameters = resolve_point_parameters(
+                self.linked.environment.parameters,
+                self.linked.program.parameter_overlays,
+                point_row=point.row,
+                relation_plan=self.linked.verified_program.relation_plan,
+            )
+        except CompilerProblemError as error:
+            problems.append(error.problem)
+            return ParameterRelationData()
+        self._point_parameters[point.logical_ordinal] = parameters
+        return parameters
+
+    def _domain_inputs(
+        self,
+        execution: TypedDomainExecution,
+        point: MaterializedPoint,
+        input_ids: tuple[str, ...],
+        *,
+        problems: list[Problem],
+    ) -> tuple[tuple[str, object], ...] | None:
+        parameters = self._point_parameter(point, problems=problems)
+        if has_blocking_problems(problems):
+            return None
+        input_values: list[tuple[str, object]] = []
+        failed = False
+        for input_name in input_ids:
+            input_key = (execution.id, point.logical_ordinal, input_name)
+            if input_key in self._domain_input_values:
+                value = self._domain_input_values[input_key]
+            else:
+                success, value = _materialize_domain_execution_input(
+                    execution,
+                    input_name=input_name,
+                    point=point,
+                    verified_program=self.linked.verified_program,
+                    parameters=parameters,
+                    problems=problems,
+                )
+                if not success:
+                    failed = True
+                    continue
+                self._domain_input_values[input_key] = value
+            input_values.append((input_name, value))
+        if failed:
+            return None
+        return tuple(input_values)
+
+
+def _materialize_domain_execution_input(
+    execution: TypedDomainExecution,
+    *,
+    input_name: str,
+    point: MaterializedPoint,
+    verified_program: VerifiedCoreProgram,
+    parameters: ParameterRelationData,
+    problems: list[Problem],
+) -> tuple[bool, object]:
+    """Evaluate one selected domain input at one logical point."""
+
+    context = EvalContext(params=parameters, point_row=point.row)
+    input_spec = execution.inputs[input_name]
+    try:
+        evaluated = _evaluate_domain_input(
+            input_spec,
+            verified_program=verified_program,
+            context=context,
+        )
+        value = coerce_literal(
+            input_spec.value_type,
+            evaluated,
+            path=(
+                "domain_executions",
+                execution.id,
+                "points",
+                point.logical_ordinal,
+                "inputs",
+                input_name,
+            ),
+        )
+        return True, _unwrap_domain_input(value)
+    except (ArithmeticError, KeyError, TypeError, ValueError) as error:
+        problems.append(
+            compiler_problem(
+                "domain_execution_input_evaluation_failed",
+                f"domain execution input {input_name!r} failed for point "
+                f"{point.logical_ordinal}: {error}",
+                model_location(
+                    "domain_executions",
+                    execution.id,
+                    "points",
+                    point.logical_ordinal,
+                    "inputs",
+                    input_name,
+                ),
+                phase=ProblemPhase.PLANNING,
             )
         )
-    if failed:
-        return None
-    return MaterializedDomainExecution(
-        execution=execution,
-        points=tuple(execution_points),
+        return False, None
+
+
+def _point_materialization_budget_problem(
+    *,
+    budget: int,
+    maximum: int | None = None,
+    point_count: int | None = None,
+) -> Problem:
+    symbolic = maximum is not None
+    return compiler_problem(
+        "point_materialization_budget_exceeded",
+        (
+            "symbolic point space exceeds the explicit materialization budget"
+            if symbolic
+            else "materialized point space exceeds the explicit budget"
+        ),
+        model_location("point_domain"),
+        phase=ProblemPhase.PLANNING,
+        details={
+            "maximum" if symbolic else "point_count": (
+                maximum if symbolic else point_count
+            ),
+            "budget": budget,
+        },
     )
 
 
@@ -584,6 +642,21 @@ def link_verified_program(
     return LinkedPlan(
         verified_program,
         environment,
+    )
+
+
+def specialize_linked_program(linked: LinkedPlan) -> LinkedPlan:
+    """Partially evaluate one accepted config link before system lowering."""
+
+    return LinkedPlan(
+        seal_typed_program(
+            specialize_core_program(
+                linked.program,
+                parameters=linked.environment.parameters,
+            ),
+            phase=ProblemPhase.PLANNING,
+        ),
+        linked.environment,
     )
 
 

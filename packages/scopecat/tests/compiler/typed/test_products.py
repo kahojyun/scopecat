@@ -7,7 +7,6 @@ import pytest
 
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.linked import link_verified_program
-from scopecat.compiler.linking.materialization import materialize_local_semantics
 from scopecat.compiler.relations.point_domain import POINT_UNIT
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.products import (
@@ -27,9 +26,10 @@ from scopecat.kernel.product_identity import (
     product_id,
     product_use,
 )
+from scopecat.planning.local_materialization import materialize_local_execution
 from tests.testkit.authoring import load_config
 from tests.testkit.bound_plan import config_with_physical_resources
-from tests.testkit.local_effect_program import lower_test_local_effect_program
+from tests.testkit.local_effect_program import make_test_local_effect_program
 from tests.testkit.typed_program import instrument_product_producer, link_program
 
 
@@ -174,17 +174,17 @@ def test_record_aliases_share_one_product_realization() -> None:
         ),
     )
 
-    plan = materialize_local_semantics(
+    plan = materialize_local_execution(
         link_program(program, validate_config_environment(load_config()))
     )
 
-    assert plan.valid, plan.problems
-    requests = plan.points[0].collect[0].requests
+    operation = plan.points[0].collect_operations[0]
+    requests = operation.command.requests
     assert len(requests) == 1
-    assert requests[0].product_use_id == use.id
+    assert operation.result_bindings[0].product_use_id == use.id
     assert requests[0].metadata == {"producer": "signal"}
 
-    execution = lower_test_local_effect_program(plan, instrument_order=("source-0",))
+    execution = make_test_local_effect_program(plan, instrument_order=("source-0",))
     collect = execution.points[0].stages[-1]
     assert isinstance(collect, CollectStage)
     assert len(collect.operations[0].command.requests) == 1
@@ -214,12 +214,13 @@ def test_record_policy_does_not_change_collection_request() -> None:
     )
     environment = validate_config_environment(load_config())
 
-    first_plan = materialize_local_semantics(link_program(first, environment))
-    second_plan = materialize_local_semantics(link_program(second, environment))
+    first_plan = materialize_local_execution(link_program(first, environment))
+    second_plan = materialize_local_execution(link_program(second, environment))
 
-    assert first_plan.valid, first_plan.problems
-    assert second_plan.valid, second_plan.problems
-    assert first_plan.points[0].collect == second_plan.points[0].collect
+    assert (
+        first_plan.points[0].collect_operations
+        == second_plan.points[0].collect_operations
+    )
 
 
 def test_unused_product_producer_is_linked_without_placement() -> None:
@@ -238,12 +239,11 @@ def test_unused_product_producer_is_linked_without_placement() -> None:
     assert linked.product_uses == ()
     assert linked.record_uses == ()
 
-    plan = materialize_local_semantics(
+    plan = materialize_local_execution(
         link_verified_program(linked.verified_program, linked.environment)
     )
 
-    assert plan.valid, plan.problems
-    assert plan.points[0].collect == ()
+    assert plan.points[0].collect_operations == ()
 
 
 def test_unrecorded_product_use_is_still_realized_once() -> None:
@@ -251,18 +251,17 @@ def test_unrecorded_product_use_is_still_realized_once() -> None:
     producer = instrument_product_producer(product)
     use = product_use(product.id)
 
-    plan = materialize_local_semantics(
+    plan = materialize_local_execution(
         link_program(
             _program(products=(product,), producers=(producer,), uses=(use,)),
             validate_config_environment(load_config()),
         )
     )
 
-    assert plan.valid, plan.problems
     assert [
-        request.product_use_id
-        for collect in plan.points[0].collect
-        for request in collect.requests
+        binding.product_use_id
+        for operation in plan.points[0].collect_operations
+        for binding in operation.result_bindings
     ] == [use.id]
 
 
@@ -270,16 +269,15 @@ def test_demanded_product_without_a_producer_fails_before_materialization() -> N
     product = ProductDef(id=product_id("derived"))
     use = product_use(product.id)
 
-    plan = materialize_local_semantics(
-        link_program(
-            _program(products=(product,), uses=(use,)),
-            validate_config_environment(load_config()),
+    with pytest.raises(CheckFailed) as failure:
+        materialize_local_execution(
+            link_program(
+                _program(products=(product,), uses=(use,)),
+                validate_config_environment(load_config()),
+            )
         )
-    )
 
-    assert not plan.valid
-    assert plan.points == ()
-    assert [problem.code for problem in plan.problems] == [
+    assert [problem.code for problem in failure.value.problems] == [
         "product_local_producer_missing"
     ]
 
@@ -290,15 +288,15 @@ def test_implicit_product_target_requires_one_matching_instrument() -> None:
     use = product_use(product.id)
     config = config_with_physical_resources({"source-1": ()})
 
-    plan = materialize_local_semantics(
-        link_program(
-            _program(products=(product,), producers=(producer,), uses=(use,)),
-            validate_config_environment(config),
+    with pytest.raises(CheckFailed) as failure:
+        materialize_local_execution(
+            link_program(
+                _program(products=(product,), producers=(producer,), uses=(use,)),
+                validate_config_environment(config),
+            )
         )
-    )
 
-    assert not plan.valid
-    assert [problem.code for problem in plan.problems] == [
+    assert [problem.code for problem in failure.value.problems] == [
         "product_instrument_ambiguous"
     ]
 

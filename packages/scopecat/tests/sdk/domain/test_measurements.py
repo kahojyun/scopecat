@@ -6,19 +6,19 @@ import pytest
 
 import scopecat as sc
 from scopecat.compiler.linking.linked import (
-    MaterializedLinkedPointBatch,
+    LinkedPointMaterializer,
     link_verified_program,
-    materialize_linked_points,
 )
+from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.measurements.host_transforms import HostMeasurementTransformCall
 from scopecat.measurements.semantics import MeasurementTransformSemanticContract
 from scopecat.planning.authoring import resolve_experiment
 from scopecat.records.parameter import Quantity
 from scopecat.sdk.domain._bridge import (
     make_domain_batch_context,
+    make_domain_compile_request,
     point_id,
     product_use_id,
-    project_domain_plan,
 )
 from scopecat.sdk.domain._measurement_bridge import (
     lower_domain_host_transform_binding,
@@ -81,14 +81,26 @@ def _context(tmp_path: Path, *, namespace: str) -> DomainBatchContext:
         template.bind(),
         config_profile=load_config(),
     )
-    linked_points = materialize_linked_points(
-        link_verified_program(resolved.verified_program, resolved.environment)
+    linked = link_verified_program(resolved.verified_program, resolved.environment)
+    materializer = LinkedPointMaterializer(linked)
+    linked_points = materializer.materialize()
+    closure = domain_result_closure(linked.program, execution.id)
+    request = make_domain_compile_request(
+        linked,
+        execution.id,
+        closure,
+        ((0, 1),),
+        lambda input_ids, ordinals, max_points: materializer.bind_domain_inputs(
+            execution.id,
+            input_ids,
+            ordinals,
+            max_points=max_points,
+        ),
     )
-    projection = project_domain_plan(linked_points, execution.id)
     return make_domain_batch_context(
-        projection,
-        MaterializedLinkedPointBatch(linked_points, (0, 1)),
-        compiler_id=f"test.sdk.measurements.{namespace}",
+        request,
+        linked_points,
+        (0, 1),
         batch_ordinal=0,
     )
 

@@ -8,23 +8,34 @@ from scopecat.compiler.relations.evaluator import evaluate_scalar_expression
 from scopecat.compiler.relations.model import (
     CaseBranch,
     CaseScalarExpr,
+    CrossRelationExpr,
+    LiteralRowsRelationExpr,
+    TableRelationExpr,
+    ValuesSeriesExpr,
+    col,
+    grid,
     input_ref,
     lit,
     param,
+    parameter_series,
     point_col,
+    table,
 )
 from scopecat.compiler.relations.specialization import (
     BindingTime,
     KnownScalar,
     ParameterCellBinding,
     ResidualScalar,
+    specialize_relation,
     specialize_scalar,
+    specialize_series,
 )
 
 
 def _parameters() -> ParameterRelationData:
     return ParameterRelationData(
         scalars={"gain": 2},
+        series={"offsets": [1, 3, 5]},
         tables={
             "devices": [
                 {"id": "q0", "frequency": 5.0},
@@ -32,6 +43,55 @@ def _parameters() -> ParameterRelationData:
             ]
         },
     )
+
+
+def test_specialization_materializes_configuration_static_series() -> None:
+    result = specialize_series(
+        parameter_series("offsets"),
+        known=EvalContext(params=_parameters()),
+    )
+
+    assert result == ValuesSeriesExpr(items=[1, 3, 5])
+
+
+def test_specialization_materializes_closed_relation_pipeline() -> None:
+    expression = table("devices").filter(col("frequency").gt(param("gain")))
+
+    result = specialize_relation(expression, known=EvalContext(params=_parameters()))
+
+    assert result == LiteralRowsRelationExpr(
+        rows=[
+            {"id": "q0", "frequency": 5.0},
+            {"id": "q1", "frequency": 6.0},
+        ]
+    )
+
+
+def test_specialization_folds_static_relation_child_of_point_plan() -> None:
+    expression = table("devices").cross(grid(selected=point_col("selected")))
+
+    result = specialize_relation(expression, known=EvalContext(params=_parameters()))
+
+    assert isinstance(result, CrossRelationExpr)
+    assert isinstance(result.left, LiteralRowsRelationExpr)
+    assert not isinstance(result.right, LiteralRowsRelationExpr)
+
+
+def test_specialization_does_not_freeze_scanned_parameter_table() -> None:
+    binding = ParameterCellBinding(
+        table_id="devices",
+        key=(("id", "q0"),),
+        column_id="frequency",
+        replacement=point_col("frequency"),
+    )
+
+    result = specialize_relation(
+        table("devices"),
+        known=EvalContext(params=_parameters()),
+        parameter_cells=(binding,),
+    )
+
+    assert isinstance(result, TableRelationExpr)
 
 
 def test_specialization_folds_request_and_configuration_values() -> None:

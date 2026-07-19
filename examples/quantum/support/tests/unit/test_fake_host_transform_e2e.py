@@ -9,7 +9,7 @@ from scopecat.adapters.memory import MemoryExecutionJournal
 from scopecat.adapters.memory.execution import MemoryMeasurementRecordCommitter
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.linked import (
-    MaterializedLinkedPointBatch,
+    LinkedPointMaterializer,
     MaterializedLinkedPoints,
     materialize_linked_points,
 )
@@ -22,6 +22,7 @@ from scopecat.compiler.semantic.model import (
     MeasurementTransformId,
 )
 from scopecat.compiler.semantic.value_expressions import verify_table_value_expr
+from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.products import (
     DomainProductProducer,
@@ -35,6 +36,7 @@ from scopecat.compiler.typed.program import (
     TypedMeasurementTransform,
     TypedMeasurementTransformInput,
     TypedMeasurementTransformOutput,
+    core_domain_executions,
     product_output,
     record_product,
     shot_axis,
@@ -45,11 +47,10 @@ from scopecat.kernel.product_identity import product_producer_id, product_use
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Scalar, Table, TableColumn
 from scopecat.measurements.projection import (
-    bind_measurement_projection,
     project_measurement_records,
     select_measurement_projection,
 )
-from scopecat.measurements.recording import commit_projected_measurement_records
+from scopecat.measurements.recording import commit_measurement_records
 from scopecat.measurements.values import (
     seal_measurement_values,
     select_measurement_values,
@@ -67,8 +68,8 @@ from scopecat.sdk.domain import (
 )
 from scopecat.sdk.domain._bridge import (
     make_domain_batch_context,
+    make_domain_compile_request,
     product_use_id,
-    project_domain_plan,
 )
 from scopecat_quantum import (
     Acquire,
@@ -350,11 +351,30 @@ def _scenario(
     host_implementation: DomainHostTransformImplementation,
 ) -> _Scenario:
     linked_points = _linked_points()
-    projection = project_domain_plan(
-        linked_points, linked_points.domain_executions[0].execution.id
+    typed_execution = core_domain_executions(linked_points.linked_plan.program)[0]
+    execution_id = typed_execution.id
+    closure = domain_result_closure(linked_points.linked_plan.program, execution_id)
+    point_ordinals = (0, 1, 2)
+    materializer = LinkedPointMaterializer(linked_points.linked_plan)
+    request = make_domain_compile_request(
+        linked_points.linked_plan,
+        execution_id,
+        closure,
+        (point_ordinals,),
+        lambda input_ids, ordinals, max_points: materializer.bind_domain_inputs(
+            execution_id,
+            input_ids,
+            ordinals,
+            max_points=max_points,
+        ),
     )
-    view = projection.view(linked_points)
-    execution = view.require_execution(dialect_id="test.quantum.host-transform")
+    context = make_domain_batch_context(
+        request,
+        linked_points,
+        point_ordinals,
+        batch_ordinal=0,
+    )
+    execution = context.execution
     iq_use = execution.result("iq_shots").require_one_product_use()
     [transform] = execution.measurement_transforms
     [probability_0_use] = transform.output("probability_0").product_uses
@@ -362,12 +382,6 @@ def _scenario(
     assert all(
         isinstance(product_use, DomainProductUseRef)
         for product_use in (iq_use, probability_0_use, probability_1_use)
-    )
-    context = make_domain_batch_context(
-        projection,
-        MaterializedLinkedPointBatch(linked_points, (0, 1, 2)),
-        compiler_id="test.fake-host-transform",
-        batch_ordinal=0,
     )
     assert all(isinstance(point, DomainPointRef) for point in context.points)
     assert context.direct_product_uses == (iq_use,)
@@ -477,14 +491,14 @@ def test_fake_domain_iq_reaches_host_probabilities_and_durable_records() -> None
     counted_implementation = replace(reference, kernel=counted_kernel)
     scenario = _scenario(counted_implementation)
     value_selection = select_measurement_values(
-        scenario.linked_points,
+        scenario.context.measurement_catalog,
         required_product_use_ids=tuple(
             product_use_id(product_use) for product_use in scenario.context.product_uses
         ),
     )
-    projection = bind_measurement_projection(
-        select_measurement_projection(scenario.linked_points),
-        value_selection,
+    projection = select_measurement_projection(
+        scenario.context.measurement_catalog,
+        scenario.linked_points.linked_plan.record_uses,
     )
     journal = MemoryExecutionJournal()
     committer = MemoryMeasurementRecordCommitter()
@@ -503,7 +517,7 @@ def test_fake_domain_iq_reaches_host_probabilities_and_durable_records() -> None
         executed,
         run_id=run_id,
     )
-    committed = commit_projected_measurement_records(
+    committed = commit_measurement_records(
         projected,
         committer,
         journal,

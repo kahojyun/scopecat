@@ -45,6 +45,16 @@ def test_typed_arithmetic_and_runtime_use_the_same_operator_contract() -> None:
     )
 
 
+def test_integer_arithmetic_preserves_provable_bounds() -> None:
+    count = sc.point(
+        "count",
+        sc.ScalarType(sc.IntType(minimum=0, maximum=4)),
+    )
+
+    assert (2 * count + 1).value_type == sc.ScalarType(sc.IntType(minimum=1, maximum=9))
+    assert (3 - count).value_type == sc.ScalarType(sc.IntType(minimum=-1, maximum=3))
+
+
 def test_typed_arithmetic_rejects_non_finite_runtime_results() -> None:
     value = sc.input("value", sc.ScalarType(sc.FloatType()))
     overflow = internal_lower_scalar_value_ref(value * 1e308)

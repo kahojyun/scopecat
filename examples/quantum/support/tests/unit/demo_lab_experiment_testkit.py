@@ -8,25 +8,26 @@ from scopecat.compiler.frontend.environment import (
     ValidatedConfigEnvironment,
     validate_config_environment,
 )
-from scopecat.compiler.linking.bound import MaterializedLocalSemantics
 from scopecat.compiler.linking.linked import (
     LinkedPlan,
     MaterializedLinkedPoints,
     link_verified_program,
     materialize_linked_points,
 )
-from scopecat.compiler.linking.materialization import (
-    materialize_local_semantics_from_points,
-)
 from scopecat.compiler.typed.program import CoreProgram
 from scopecat.compiler.typed.verification import seal_typed_program
 from scopecat.config.profiles import load_config_profile
 from scopecat.kernel.problems import ProblemPhase
+from scopecat.measurements._bridge import project_measurement_catalog
 from scopecat.measurements.projection import (
-    SelectedMeasurementProjection,
+    MeasurementProjection,
     select_measurement_projection,
 )
 from scopecat.planning.authoring import resolve_experiment
+from scopecat.planning.local_materialization import (
+    MaterializedLocalEffects,
+    materialize_local_execution_from_points,
+)
 from scopecat.records.config import ConfigProfileSnapshot
 
 from .demo_lab_test_paths import EXPERIMENT_FIXTURE_DIR
@@ -52,12 +53,11 @@ def bound_plan(
     invocation: ExperimentInvocation,
     *,
     config: ConfigProfileSnapshot | None = None,
-) -> MaterializedLocalSemantics:
+) -> MaterializedLocalEffects:
     """Compile an invocation for direct test-only inspection."""
 
     linked_points = _materialized_linked_points(invocation, config=config)
-    plan = materialize_local_semantics_from_points(linked_points)
-    assert plan.problems == ()
+    plan = materialize_local_execution_from_points(linked_points)
     return plan
 
 
@@ -65,11 +65,13 @@ def measurement_projection(
     invocation: ExperimentInvocation,
     *,
     config: ConfigProfileSnapshot | None = None,
-) -> SelectedMeasurementProjection:
+) -> MeasurementProjection:
     """Build the production record projection for focused shape assertions."""
 
+    linked_points = _materialized_linked_points(invocation, config=config)
     return select_measurement_projection(
-        _materialized_linked_points(invocation, config=config)
+        project_measurement_catalog(linked_points),
+        linked_points.linked_plan.record_uses,
     )
 
 

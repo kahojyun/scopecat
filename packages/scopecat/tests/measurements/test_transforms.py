@@ -7,12 +7,12 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from scopecat.compiler.linking.linked import MaterializedLinkedPointBatch
 from scopecat.compiler.typed.products import ProductDef
 from scopecat.kernel.errors import CheckFailed, MeasurementTransformExecutionError
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.problems import ProblemCategory, ProblemPhase
 from scopecat.kernel.product_identity import ProductUse, ProductUseId
+from scopecat.measurements._bridge import project_measurement_catalog
 from scopecat.measurements.host_transforms import (
     HostMeasurementTransformCall,
     HostMeasurementTransformImplementation,
@@ -157,7 +157,7 @@ def _one_transform_plan(
         semantic_id="identity",
         rate=rate,
     )
-    graph = verify_measurement_transform_graph(scenario.linked_points, (transform,))
+    graph = verify_measurement_transform_graph(scenario.catalog, (transform,))
     implementation = _implementation("identity", kernel)
     selected = select_host_measurement_transforms(
         graph,
@@ -170,7 +170,7 @@ def _one_transform_plan(
         ),
     )
     selection = select_measurement_values(
-        scenario.linked_points,
+        scenario.catalog,
         required_product_use_ids=(source.id, output.id),
     )
     bound = bind_host_measurement_transforms(
@@ -190,11 +190,12 @@ def test_transform_graph_accepts_a_linked_point_batch() -> None:
         (("input", source),),
         (("output", output),),
     )
-    batch = MaterializedLinkedPointBatch(scenario.linked_points, (1, 2))
+    graph = verify_measurement_transform_graph(
+        project_measurement_catalog(scenario.linked_points, (1, 2)), (transform,)
+    )
 
-    graph = verify_measurement_transform_graph(batch, (transform,))
-
-    assert graph.linked_points is batch
+    ordinals = tuple(point.ordinal for point in graph.catalog.point_catalog.points)
+    assert ordinals == (1, 2)
 
 
 @given(order=st.permutations((0, 1, 2)))
@@ -224,11 +225,11 @@ def test_graph_order_and_fingerprint_are_declaration_order_independent(
         ),
     )
     canonical = verify_measurement_transform_graph(
-        scenario.linked_points,
+        scenario.catalog,
         declarations,
     )
     reordered = verify_measurement_transform_graph(
-        scenario.linked_points,
+        scenario.catalog,
         tuple(declarations[index] for index in order),
     )
 
@@ -260,7 +261,7 @@ def test_graph_rejects_one_exact_input_use_consumed_more_than_once() -> None:
     )
 
     with pytest.raises(CheckFailed) as caught:
-        verify_measurement_transform_graph(scenario.linked_points, declarations)
+        verify_measurement_transform_graph(scenario.catalog, declarations)
 
     assert "measurement_transform_input_owner_duplicate" in {
         problem.code for problem in caught.value.problems
@@ -315,7 +316,7 @@ def test_graph_rejects_cycles_duplicate_output_owners_and_foreign_uses() -> None
     for declarations in (cycle, duplicate_owner, (foreign,)):
         with pytest.raises(CheckFailed):
             verify_measurement_transform_graph(
-                scenario.linked_points,
+                scenario.catalog,
                 declarations,
             )
 
@@ -348,9 +349,9 @@ def test_graph_rejects_duplicate_ports_and_wrong_product_snapshot() -> None:
     )
 
     with pytest.raises(CheckFailed):
-        verify_measurement_transform_graph(scenario.linked_points, (duplicate,))
+        verify_measurement_transform_graph(scenario.catalog, (duplicate,))
     with pytest.raises(CheckFailed):
-        verify_measurement_transform_graph(scenario.linked_points, (wrong_product,))
+        verify_measurement_transform_graph(scenario.catalog, (wrong_product,))
 
 
 def test_input_and_output_port_names_are_independent_namespaces() -> None:
@@ -364,7 +365,7 @@ def test_input_and_output_port_names_are_independent_namespaces() -> None:
     )
 
     graph = verify_measurement_transform_graph(
-        scenario.linked_points,
+        scenario.catalog,
         (transform,),
     )
 
@@ -449,7 +450,7 @@ def test_host_selection_requires_explicit_binding() -> None:
         (("output", output),),
         semantic_id="identity",
     )
-    graph = verify_measurement_transform_graph(scenario.linked_points, (point,))
+    graph = verify_measurement_transform_graph(scenario.catalog, (point,))
     first = _implementation("identity", _identity_kernel, implementation_id="one")
     second = _implementation("identity", _identity_kernel, implementation_id="two")
 
@@ -492,7 +493,7 @@ def test_host_capability_validator_rejects_before_kernel() -> None:
         (("input", source),),
         (("output", output),),
     )
-    graph = verify_measurement_transform_graph(scenario.linked_points, (transform,))
+    graph = verify_measurement_transform_graph(scenario.catalog, (transform,))
     kernel_calls = 0
 
     def kernel(
@@ -552,7 +553,7 @@ def test_point_runner_executes_multi_output_dag_in_canonical_order() -> None:
         (("output", result),),
     )
     graph = verify_measurement_transform_graph(
-        scenario.linked_points,
+        scenario.catalog,
         (combine, split),
     )
     calls: list[tuple[str, int]] = []
@@ -600,7 +601,7 @@ def test_point_runner_executes_multi_output_dag_in_canonical_order() -> None:
         ),
     )
     selection = select_measurement_values(
-        scenario.linked_points,
+        scenario.catalog,
         required_product_use_ids=tuple(use.id for use in scenario.uses),
     )
     bound = bind_host_measurement_transforms(
@@ -812,7 +813,7 @@ def test_point_runner_fans_one_semantic_output_out_to_every_product_use() -> Non
             ),
         ),
     )
-    graph = verify_measurement_transform_graph(scenario.linked_points, (transform,))
+    graph = verify_measurement_transform_graph(scenario.catalog, (transform,))
     calls = 0
 
     def kernel(
@@ -834,7 +835,7 @@ def test_point_runner_fans_one_semantic_output_out_to_every_product_use() -> Non
         ),
     )
     selection = select_measurement_values(
-        scenario.linked_points,
+        scenario.catalog,
         required_product_use_ids=tuple(use.id for use in scenario.uses),
     )
     bound = bind_host_measurement_transforms(

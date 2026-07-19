@@ -6,11 +6,12 @@ import pytest
 
 import scopecat as sc
 from scopecat.compiler.linking.linked import (
-    MaterializedLinkedPointBatch,
+    LinkedPointMaterializer,
     MaterializedLinkedPoints,
     link_verified_program,
     materialize_linked_points,
 )
+from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.program import core_domain_executions
 from scopecat.measurements.semantics import MeasurementTransformPortability
 from scopecat.planning.authoring import resolve_experiment
@@ -21,9 +22,8 @@ from scopecat.sdk.domain import (
     DomainProductUseRef,
 )
 from scopecat.sdk.domain._bridge import (
-    DomainPlanProjection,
     make_domain_batch_context,
-    project_domain_plan,
+    make_domain_compile_request,
 )
 from tests.testkit.authoring import load_config
 
@@ -34,7 +34,7 @@ def _domain_scenario(
     namespace: str,
     record_raw: bool = True,
     portability: MeasurementTransformPortability = "host_only",
-) -> tuple[MaterializedLinkedPoints, DomainPlanProjection]:
+) -> MaterializedLinkedPoints:
     count_type = sc.ScalarType(sc.IntType(minimum=0))
     count = sc.point(f"{namespace}_count", count_type)
     program = sc.domain_program(
@@ -82,13 +82,46 @@ def _domain_scenario(
     )
     linked = link_verified_program(resolved.verified_program, resolved.environment)
     linked_points = materialize_linked_points(linked)
-    return linked_points, project_domain_plan(linked_points, execution.id)
+    return linked_points
+
+
+def _batch_context(
+    linked_points: MaterializedLinkedPoints,
+    point_ordinals: tuple[int, ...],
+    *,
+    batch_ordinal: int = 0,
+    absorbed_input_ids: tuple[str, ...] = (),
+    absorbed_transform_ids: tuple[str, ...] = (),
+) -> DomainBatchContext:
+    program = linked_points.linked_plan.program
+    execution = core_domain_executions(program)[0]
+    materializer = LinkedPointMaterializer(linked_points.linked_plan)
+    request = make_domain_compile_request(
+        linked_points.linked_plan,
+        execution.id,
+        domain_result_closure(program, execution.id),
+        (tuple(range(len(linked_points.point_domain.points))),),
+        lambda input_ids, ordinals, max_points: materializer.bind_domain_inputs(
+            execution.id,
+            input_ids,
+            ordinals,
+            max_points=max_points,
+        ),
+    )
+    return make_domain_batch_context(
+        request,
+        linked_points,
+        point_ordinals,
+        batch_ordinal=batch_ordinal,
+        absorbed_input_ids=absorbed_input_ids,
+        absorbed_transform_ids=absorbed_transform_ids,
+    )
 
 
 def test_transform_input_remains_demanded_when_direct_product_is_not_recorded(
     tmp_path: Path,
 ) -> None:
-    linked_points, projection = _domain_scenario(
+    linked_points = _domain_scenario(
         tmp_path,
         namespace="hidden-input",
         record_raw=False,
@@ -106,11 +139,9 @@ def test_transform_input_remains_demanded_when_direct_product_is_not_recorded(
     assert transform_input.product_use_id not in recorded_use_ids
     assert set(transform_output.product_use_ids) == recorded_use_ids
 
-    context = make_domain_batch_context(
-        projection,
-        MaterializedLinkedPointBatch(linked_points, (0, 1, 2)),
-        compiler_id="test.hidden-input",
-        batch_ordinal=0,
+    context = _batch_context(
+        linked_points,
+        (0, 1, 2),
     )
 
     [projected_transform] = context.measurement_transforms
@@ -121,35 +152,41 @@ def test_transform_input_remains_demanded_when_direct_product_is_not_recorded(
 def test_domain_batch_context_scopes_offer_points_and_product_uses(
     tmp_path: Path,
 ) -> None:
-    linked_points, projection = _domain_scenario(
+    linked_points = _domain_scenario(
         tmp_path,
         namespace="owned",
     )
-    full = projection.view(linked_points)
-    execution = full.require_execution(dialect_id="test.context")
+    program = linked_points.linked_plan.program
+    [transform] = program.measurement_transforms
+    full = _batch_context(
+        linked_points,
+        (0, 1, 2),
+    )
+    execution = full.execution
     raw_uses = execution.result("raw").product_uses
     [transform] = execution.measurement_transforms
     [summary_use] = transform.outputs[0].product_uses
-    batch = MaterializedLinkedPointBatch(linked_points, (1, 2))
-
-    context = make_domain_batch_context(
-        projection,
-        batch,
-        compiler_id="test.compiler",
+    context = _batch_context(
+        linked_points,
+        (1, 2),
         batch_ordinal=4,
     )
 
     assert isinstance(context, DomainBatchContext)
     assert context.batch_ordinal == 4
     assert context.execution.input_values("count") == (3, 5)
-    assert context.product_uses == full.product_uses
-    assert context.direct_product_uses == raw_uses
-    assert context.derived_product_uses == (summary_use,)
-    assert context.measurement_transforms == (transform,)
-    assert summary_use in context.product_uses
+    assert tuple(use.id for use in context.product_uses) == tuple(
+        use.id for use in full.product_uses
+    )
+    assert tuple(use.id for use in context.direct_product_uses) == tuple(
+        use.id for use in raw_uses
+    )
+    assert tuple(use.id for use in context.derived_product_uses) == (summary_use.id,)
+    assert tuple(item.id for item in context.measurement_transforms) == (transform.id,)
+    assert summary_use.id in {use.id for use in context.product_uses}
     assert all(isinstance(point, DomainPointRef) for point in context.points)
     assert all(
-        selected is full_point
+        (selected.id, selected.ordinal) == (full_point.id, full_point.ordinal)
         for selected, full_point in zip(
             context.points,
             full.points[1:],
@@ -170,70 +207,88 @@ def test_domain_batch_context_scopes_offer_points_and_product_uses(
     assert preparation.context is context
 
 
-def test_pushed_transform_outputs_become_direct_and_leave_no_host_residual(
+def test_absorbed_transform_outputs_become_direct_and_leave_no_host_residual(
     tmp_path: Path,
 ) -> None:
-    linked_points, projection = _domain_scenario(
+    linked_points = _domain_scenario(
         tmp_path,
-        namespace="pushed",
+        namespace="absorbed",
         portability="portable",
     )
-    execution = projection.view(linked_points).require_execution(
-        dialect_id="test.context"
+    full = _batch_context(
+        linked_points,
+        (0, 1, 2),
     )
+    execution = full.execution
     [transform] = execution.measurement_transforms
     raw_uses = execution.result("raw").product_uses
     summary_uses = transform.outputs[0].product_uses
 
-    context = make_domain_batch_context(
-        projection,
-        MaterializedLinkedPointBatch(linked_points, (0, 1, 2)),
-        compiler_id="test.pushdown",
-        batch_ordinal=0,
-        pushed_transform_ids=(transform.id,),
+    context = _batch_context(
+        linked_points,
+        (0, 1, 2),
+        absorbed_transform_ids=(transform.id,),
     )
 
-    assert set(context.direct_product_uses) == {*raw_uses, *summary_uses}
+    assert {use.id for use in context.direct_product_uses} == {
+        use.id for use in (*raw_uses, *summary_uses)
+    }
     assert context.derived_product_uses == ()
     assert context.measurement_transforms == ()
 
 
-def test_domain_plan_projection_rejects_foreign_points(
+def test_absorbed_inputs_are_not_reexposed_during_preparation(
     tmp_path: Path,
 ) -> None:
-    _linked_points, projection = _domain_scenario(
+    linked_points = _domain_scenario(
+        tmp_path,
+        namespace="absorbed-input",
+    )
+    context = _batch_context(
+        linked_points,
+        (0, 1, 2),
+        absorbed_input_ids=("count",),
+    )
+
+    assert context.execution.program.inputs == ()
+    assert all(point.inputs == () for point in context.execution.points)
+    with pytest.raises(KeyError):
+        context.execution.input_values("count")
+
+
+def test_domain_batch_context_owns_fresh_sdk_refs(
+    tmp_path: Path,
+) -> None:
+    linked_points = _domain_scenario(
         tmp_path,
         namespace="owned",
     )
-    foreign_points, foreign_projection = _domain_scenario(
+    foreign_points = _domain_scenario(
         tmp_path,
         namespace="foreign",
     )
-    with pytest.raises(ValueError, match="points from its materialized plan"):
-        projection.view(foreign_points)
-
-    foreign_batch = MaterializedLinkedPointBatch(foreign_points, (0, 1))
-    with pytest.raises(ValueError, match="points from its materialized plan"):
-        make_domain_batch_context(
-            projection,
-            foreign_batch,
-            compiler_id="test.compiler",
-            batch_ordinal=0,
-        )
+    context = _batch_context(
+        linked_points,
+        (0, 1),
+    )
+    foreign = _batch_context(
+        foreign_points,
+        (0, 1),
+    )
 
     assert all(
         owned is not foreign
         for owned, foreign in zip(
-            projection.point_refs,
-            foreign_projection.point_refs,
+            context.points,
+            foreign.points,
             strict=True,
         )
     )
     assert all(
         owned is not foreign
         for owned, foreign in zip(
-            projection.product_use_refs,
-            foreign_projection.product_use_refs,
+            context.product_uses,
+            foreign.product_uses,
             strict=True,
         )
     )

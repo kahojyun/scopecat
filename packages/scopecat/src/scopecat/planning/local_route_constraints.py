@@ -3,24 +3,78 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from scopecat.compiler.diagnostics import compiler_problem
-from scopecat.compiler.linking.bound import (
-    BoundCollect,
-    BoundResourceState,
-    BoundRoute,
-)
+from scopecat.compiler.typed.products import ProductAxisDef
 from scopecat.kernel.problems import (
     ModelLocation,
     Problem,
     ProblemCategory,
     model_location,
 )
+from scopecat.kernel.product_identity import ProductId, ProductUseId
 from scopecat.kernel.resource_identity import LogicalResourcePortId, PhysicalResourceId
+from scopecat.kernel.state import StateValue
+from scopecat.measurements.results import MeasurementDType
 from scopecat.records.config import ConfigProfileSnapshot, RoutingChannelBinding
 
 type _ChannelConsumerId = LogicalResourcePortId | PhysicalResourceId
+
+
+def _empty_metadata() -> dict[str, object]:
+    return {}
+
+
+@dataclass(frozen=True, slots=True)
+class PendingRoute:
+    """One short-lived physical route used while binding a point program."""
+
+    port_id: LogicalResourcePortId
+    resource_id: PhysicalResourceId
+    resource_kind: str
+    capabilities: tuple[str, ...] = ()
+    entity_ids: tuple[str, ...] = ()
+    served_entity_ids: tuple[str, ...] = ()
+    product_axis_order: tuple[str, ...] = ()
+    channel_bindings: tuple[RoutingChannelBinding, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class PendingStateField:
+    field_path: str
+    value: StateValue
+    resource_port_id: LogicalResourcePortId | None = None
+    entity_ids: tuple[str, ...] = ()
+    channel_bindings: tuple[RoutingChannelBinding, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class PendingResourceState:
+    resource_id: PhysicalResourceId
+    capability_id: str
+    fields: tuple[PendingStateField, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class PendingCollectionRequest:
+    product_use_id: ProductUseId
+    product_id: ProductId
+    provider_key: str
+    capability: str | None
+    unit: str | None
+    dtype: MeasurementDType
+    resource_port_id: LogicalResourcePortId | None = None
+    entity_ids: tuple[str, ...] = ()
+    channel_bindings: tuple[RoutingChannelBinding, ...] = ()
+    axes: tuple[ProductAxisDef, ...] = ()
+    metadata: Mapping[str, object] = field(default_factory=_empty_metadata)
+
+
+@dataclass(frozen=True, slots=True)
+class PendingCollect:
+    resource_id: PhysicalResourceId
+    requests: tuple[PendingCollectionRequest, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,9 +86,9 @@ class _ChannelUse:
 
 def validate_point_resource_constraints(
     point_index: int,
-    routes: Sequence[BoundRoute],
-    desired_state: Sequence[BoundResourceState],
-    collects: Sequence[BoundCollect],
+    routes: Sequence[PendingRoute],
+    desired_state: Sequence[PendingResourceState],
+    collects: Sequence[PendingCollect],
     *,
     config: ConfigProfileSnapshot,
 ) -> list[Problem]:
@@ -62,9 +116,9 @@ def validate_point_resource_constraints(
 
 
 def _channel_uses(
-    routes: Sequence[BoundRoute],
-    desired_state: Sequence[BoundResourceState],
-    collects: Sequence[BoundCollect],
+    routes: Sequence[PendingRoute],
+    desired_state: Sequence[PendingResourceState],
+    collects: Sequence[PendingCollect],
 ) -> tuple[_ChannelUse, ...]:
     uses = [
         _ChannelUse(
@@ -100,9 +154,9 @@ def _channel_uses(
 
 def _duplicate_ports(
     point_index: int,
-    routes: Sequence[BoundRoute],
+    routes: Sequence[PendingRoute],
 ) -> list[Problem]:
-    by_port: dict[LogicalResourcePortId, list[BoundRoute]] = {}
+    by_port: dict[LogicalResourcePortId, list[PendingRoute]] = {}
     for route in routes:
         by_port.setdefault(route.port_id, []).append(route)
     problems: list[Problem] = []

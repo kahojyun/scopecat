@@ -19,8 +19,8 @@ from scopecat.adapters.filesystem.io import (
 )
 from scopecat.adapters.filesystem.layout import FilesystemRunLayout
 from scopecat.execution.ports.journal import ExecutionJournalError
-from scopecat.execution.ports.resources import ResourceClaim
 from scopecat.kernel.content_identity import stable_content_hash
+from scopecat.kernel.resource_identity import ResourceClaim
 from scopecat.measurements.results import MeasurementRecord
 from scopecat.records.execution_journal import (
     CollectionChunk,

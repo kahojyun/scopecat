@@ -10,7 +10,6 @@ from scopecat.compiler.frontend.elaboration import elaborate_module
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
 from scopecat.compiler.linking.linked import link_verified_program
-from scopecat.compiler.linking.materialization import materialize_local_semantics
 from scopecat.compiler.relations.model import (
     lit,
     literal_rows,
@@ -41,6 +40,7 @@ from scopecat.kernel.resource_identity import (
 )
 from scopecat.kernel.value_types import Float, Scalar, String, Table, TableColumn
 from scopecat.planning.authoring import resolve_experiment
+from scopecat.planning.local_materialization import materialize_local_execution
 from scopecat.records.config import ConfigProfileSnapshot, RoutingGraph, RoutingResource
 from tests.testkit.authoring import load_config
 from tests.testkit.relation_plans import point_domain, scalar_value_expr
@@ -246,14 +246,11 @@ def test_public_dsl_direct_physical_state_is_not_captured_by_same_named_port(
         invocation,
         config_profile=config,
     )
-    plan = materialize_local_semantics(
+    plan = materialize_local_execution(
         link_verified_program(resolved.verified_program, resolved.environment)
     )
 
-    assert plan.valid, plan.problems
-    assert plan.points[0].routes[0].port_id == logical_resource_port_id("source-0")
-    assert plan.points[0].routes[0].resource_id == PhysicalResourceId("source-1")
-    assert plan.points[0].desired_state[0].resource_id == PhysicalResourceId("source-0")
+    assert plan.points[0].state_operations[0].instrument_id == "source-0"
 
 
 def test_direct_physical_record_is_not_captured_by_same_named_logical_port() -> None:
@@ -279,15 +276,13 @@ def test_direct_physical_record_is_not_captured_by_same_named_logical_port() -> 
         instrument_ids=("source-0", "source-1"),
     )
 
-    plan = materialize_local_semantics(
+    plan = materialize_local_execution(
         link_program(program, validate_config_environment(config))
     )
 
-    assert plan.valid, plan.problems
-    assert plan.points[0].routes[0].resource_id == PhysicalResourceId("source-1")
     producer_target = program.instrument_product_producers[0].resource_target
     assert producer_target == PhysicalResourceId("source-0")
-    assert plan.points[0].collect[0].resource_id == PhysicalResourceId("source-0")
+    assert plan.points[0].collect_operations[0].instrument_id == "source-0"
 
 
 @pytest.mark.parametrize(
@@ -367,14 +362,14 @@ def test_binding_rejects_invalid_selected_physical_product_producer(
         producers=(producer,),
     )
 
-    plan = materialize_local_semantics(
-        link_program(program, validate_config_environment(load_config()))
-    )
+    with pytest.raises(CheckFailed) as failure:
+        materialize_local_execution(
+            link_program(program, validate_config_environment(load_config()))
+        )
 
-    assert not plan.valid
-    assert [problem.code for problem in plan.problems] == [expected_code]
-    assert plan.problems[0].phase is ProblemPhase.PLANNING
-    assert plan.problems[0].location == model_location(
+    assert [problem.code for problem in failure.value.problems] == [expected_code]
+    assert failure.value.problems[0].phase is ProblemPhase.PLANNING
+    assert failure.value.problems[0].location == model_location(
         "instrument_product_producers",
         producer.id.qualified_name,
         "physical_resource_id",
@@ -413,13 +408,11 @@ def test_unused_logical_product_producer_does_not_constrain_route_placement() ->
     )
 
     linked = link_program(program, environment)
-    plan = materialize_local_semantics(
+    plan = materialize_local_execution(
         link_verified_program(linked.verified_program, linked.environment)
     )
 
-    assert plan.valid, plan.problems
-    assert plan.points[0].routes[0].resource_kind == "scheduler"
-    assert plan.points[0].collect == ()
+    assert plan.points[0].collect_operations == ()
 
 
 def test_demanded_logical_product_producer_requires_instrument_during_binding() -> None:
@@ -452,12 +445,12 @@ def test_demanded_logical_product_producer_requires_instrument_during_binding() 
     )
 
     linked = link_program(program, environment)
-    plan = materialize_local_semantics(
-        link_verified_program(linked.verified_program, linked.environment)
-    )
+    with pytest.raises(CheckFailed) as failure:
+        materialize_local_execution(
+            link_verified_program(linked.verified_program, linked.environment)
+        )
 
-    assert not plan.valid
-    assert [problem.code for problem in plan.problems] == [
+    assert [problem.code for problem in failure.value.problems] == [
         "physical_resource_kind_unsupported"
     ]
 
@@ -573,14 +566,14 @@ def test_binding_rejects_missing_dynamic_physical_resource() -> None:
         ),
     )
 
-    plan = materialize_local_semantics(
-        link_program(program, validate_config_environment(load_config()))
-    )
+    with pytest.raises(CheckFailed) as failure:
+        materialize_local_execution(
+            link_program(program, validate_config_environment(load_config()))
+        )
 
-    assert not plan.valid
-    assert [problem.code for problem in plan.problems] == [
+    assert [problem.code for problem in failure.value.problems] == [
         "physical_resource_not_found"
     ]
-    assert plan.problems[0].location == model_location(
+    assert failure.value.problems[0].location == model_location(
         "desired_state", "physical_resource_id"
     )

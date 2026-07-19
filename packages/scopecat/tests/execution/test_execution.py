@@ -14,11 +14,6 @@ from pydantic import BaseModel, JsonValue
 from scopecat.adapters.filesystem.execution import FilesystemExecutionJournal
 from scopecat.adapters.filesystem.run_repository import FilesystemRunRepository
 from scopecat.compiler.frontend.environment import validate_config_environment
-from scopecat.compiler.linking.bound import BoundAxis, MaterializedLocalSemantics
-from scopecat.compiler.linking.materialization import materialize_local_semantics
-from scopecat.compiler.linking.product_realizations import (
-    select_local_product_realizations,
-)
 from scopecat.compiler.relations.model import (
     lit,
     literal_rows,
@@ -45,7 +40,6 @@ from scopecat.compiler.semantic.operation_contract import (
     LOCAL_OPAQUE_OPERATION_CONTRACT,
 )
 from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.products import ProductAxisDef
 from scopecat.compiler.typed.program import (
     TypedComputeNode,
     TypedComputeOutput,
@@ -61,14 +55,18 @@ from scopecat.execution.evidence import (
     instrument_state_evidence_ref,
     run_outcome_ref,
 )
-from scopecat.execution.local.executor import lower_run_local_effects
-from scopecat.execution.local.program import ResourceClaim
+from scopecat.execution.local.executor import (
+    preflight_instrument_provider,
+    validate_run_host_binding,
+)
+from scopecat.execution.local.program import CollectStage
 from scopecat.execution.observation import (
     RunFinishedEvent,
     RuntimeEvent,
     RuntimePayloadObservation,
     RuntimeTransitionEvent,
 )
+from scopecat.execution.program import RunHostBinding
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.errors import ProviderContractError, RunFailed, RunPersistenceError
 from scopecat.kernel.problems import (
@@ -78,11 +76,16 @@ from scopecat.kernel.problems import (
     ProblemPhase,
     model_location,
 )
+from scopecat.kernel.resource_identity import ResourceClaim
 from scopecat.kernel.state import StateValue
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Payload, Scalar, String, TableColumn
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Table as TableType
+from scopecat.planning.local_materialization import (
+    MaterializedLocalEffects,
+    materialize_local_execution,
+)
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.execution import InstrumentStateEvidence
 from scopecat.records.instrument import (
@@ -98,10 +101,12 @@ from scopecat.runs.execution import inspect_run_execution
 from scopecat.sdk.instruments.contracts import (
     CapabilityDescription,
     CapabilityField,
+    CollectAxisRequest,
     CollectCommand,
     CollectReceipt,
     InstrumentDescription,
     InstrumentDriver,
+    InstrumentProvider,
     InstrumentProviderContext,
     InstrumentProviderDescription,
     InstrumentProviderResult,
@@ -863,23 +868,46 @@ def test_returned_driver_is_finalized_when_provider_metadata_is_not_json(
     assert manifest.status == "failed"
 
 
+def _lower_test_host_binding(
+    plan: MaterializedLocalEffects,
+    config: ConfigProfileSnapshot,
+    provider: InstrumentProvider,
+    *,
+    planning_problems: tuple[Problem, ...] = (),
+):
+    preflight = preflight_instrument_provider(
+        config=config,
+        instrument_provider=provider,
+    )
+    program = RunHostBinding(
+        experiment_id=plan.experiment_id,
+        product_use_ids=tuple(use.id for use in plan.product_uses),
+        resource_order=plan.resource_order,
+        point_count=plan.point_count,
+        context=preflight.context,
+        provider_id=preflight.provider_id,
+        instrument_order=preflight.instrument_order,
+        advertised_descriptions=preflight.advertised_descriptions,
+        provider=preflight.provider,
+    )
+    return validate_run_host_binding(
+        program=program,
+        points=plan.points,
+        problems=(*planning_problems, *preflight.problems),
+    )
+
+
 def test_malformed_provider_description_is_rejected_before_run_acceptance(
     tmp_path: Path,
 ) -> None:
     provider = _MalformedDescriptionProvider()
     config = load_config()
-    plan = materialize_local_semantics(
+    plan = materialize_local_execution(
         link_program(load_experiment(), validate_config_environment(config))
     )
 
     with pytest.raises(ProviderContractError) as captured:
-        lower_run_local_effects(
-            operation_id="test-local-effects",
-            product_use_ids=tuple(use.id for use in plan.product_uses),
-            config=config,
-            semantics=plan,
-            instrument_provider=provider,
-        )
+        _lower_test_host_binding(plan, config, provider)
 
     assert "instrument_provider_description_failed" in {
         problem.code for problem in captured.value.problems
@@ -893,30 +921,27 @@ def test_provider_abi_problems_are_aggregated_in_stable_order_before_run(
 ) -> None:
     provider = _OrderedAbiProblemProvider()
     config = load_config()
-    plan = materialize_local_semantics(
+    plan = materialize_local_execution(
         link_program(load_experiment(), validate_config_environment(config))
     )
-    plan = _first_point_plan(
-        plan,
-        problems=(
-            Problem(
-                code="plan_warning",
-                impact=ProblemImpact.ADVISORY,
-                category=ProblemCategory.INVALID_INPUT,
-                phase=ProblemPhase.PLANNING,
-                message="materialized local semantics warning",
-                location=model_location("bound_plan"),
-            ),
+    plan = _first_point_plan(plan)
+    planning_problems = (
+        Problem(
+            code="plan_warning",
+            impact=ProblemImpact.ADVISORY,
+            category=ProblemCategory.INVALID_INPUT,
+            phase=ProblemPhase.PLANNING,
+            message="materialized local semantics warning",
+            location=model_location("bound_plan"),
         ),
     )
 
     with pytest.raises(ProviderContractError) as captured:
-        lower_run_local_effects(
-            operation_id="test-local-effects",
-            product_use_ids=tuple(use.id for use in plan.product_uses),
-            config=config,
-            semantics=plan,
-            instrument_provider=provider,
+        _lower_test_host_binding(
+            plan,
+            config,
+            provider,
+            planning_problems=planning_problems,
         )
 
     assert [problem.code for problem in captured.value.problems] == [
@@ -935,18 +960,12 @@ def test_partial_provider_description_reports_missing_bound_instrument_before_ru
 ) -> None:
     provider = _PartialDescriptionProvider()
     config = load_config()
-    plan = materialize_local_semantics(
+    plan = materialize_local_execution(
         link_program(load_experiment(), validate_config_environment(config))
     )
 
     with pytest.raises(ProviderContractError) as captured:
-        lower_run_local_effects(
-            operation_id="test-local-effects",
-            product_use_ids=tuple(use.id for use in plan.product_uses),
-            config=config,
-            semantics=plan,
-            instrument_provider=provider,
-        )
+        _lower_test_host_binding(plan, config, provider)
 
     assert [problem.code for problem in captured.value.problems] == [
         "instrument_not_in_config",
@@ -956,41 +975,20 @@ def test_partial_provider_description_reports_missing_bound_instrument_before_ru
     assert local_run_repository(tmp_path).list_runs() == []
 
 
-def test_provider_description_exception_preserves_cause_and_preflight_order(
+def test_provider_description_exception_fails_at_preflight_boundary(
     tmp_path: Path,
 ) -> None:
     failure = RuntimeError("description unavailable")
     provider = _FailingDescriptionProvider(failure)
     config = load_config()
-    plan = materialize_local_semantics(
+    plan = materialize_local_execution(
         link_program(load_experiment(), validate_config_environment(config))
     )
-    plan = replace(
-        plan,
-        problems=(
-            Problem(
-                code="plan_warning",
-                impact=ProblemImpact.ADVISORY,
-                category=ProblemCategory.INVALID_INPUT,
-                phase=ProblemPhase.PLANNING,
-                message="materialized local semantics warning",
-                location=model_location("bound_plan"),
-            ),
-        ),
-    )
-
     with pytest.raises(ProviderContractError) as captured:
-        lower_run_local_effects(
-            operation_id="test-local-effects",
-            product_use_ids=tuple(use.id for use in plan.product_uses),
-            config=config,
-            semantics=plan,
-            instrument_provider=provider,
-        )
+        _lower_test_host_binding(plan, config, provider)
 
     assert [problem.code for problem in captured.value.problems] == [
-        "plan_warning",
-        "instrument_provider_description_failed",
+        "instrument_provider_description_failed"
     ]
     assert captured.value.__cause__ is failure
     assert not provider.provide_called
@@ -1002,18 +1000,12 @@ def test_invalid_provider_identity_stops_before_description_and_run(
 ) -> None:
     provider = _InvalidIdentityProvider()
     config = load_config()
-    plan = materialize_local_semantics(
+    plan = materialize_local_execution(
         link_program(load_experiment(), validate_config_environment(config))
     )
 
     with pytest.raises(ProviderContractError) as captured:
-        lower_run_local_effects(
-            operation_id="test-local-effects",
-            product_use_ids=tuple(use.id for use in plan.product_uses),
-            config=config,
-            semantics=plan,
-            instrument_provider=provider,
-        )
+        _lower_test_host_binding(plan, config, provider)
 
     assert [problem.code for problem in captured.value.problems] == [
         "instrument_provider_identity_failed"
@@ -1031,19 +1023,13 @@ def test_provider_product_unit_mismatch_is_rejected_before_run(
 ) -> None:
     provider = _UnitAbiProvider(product_unit=advertised_unit)
     config = load_config()
-    plan = materialize_local_semantics(
+    plan = materialize_local_execution(
         link_program(load_experiment(), validate_config_environment(config))
     )
     plan = _first_point_plan(plan)
 
     with pytest.raises(ProviderContractError) as captured:
-        lower_run_local_effects(
-            operation_id="test-local-effects",
-            product_use_ids=tuple(use.id for use in plan.product_uses),
-            config=config,
-            semantics=plan,
-            instrument_provider=provider,
-        )
+        _lower_test_host_binding(plan, config, provider)
 
     problem = captured.value.problems[0]
     assert len(captured.value.problems) == 1
@@ -1074,43 +1060,36 @@ def test_provider_product_axis_unit_mismatch_is_rejected_before_run(
     environment = validate_config_environment(config)
     assert environment.routing is not None
     experiment = load_experiment()
-    plan = materialize_local_semantics(link_program(experiment, environment))
+    plan = materialize_local_execution(link_program(experiment, environment))
     point = plan.points[0]
-    collect = point.collect[0]
-    request = replace(
-        collect.requests[0],
-        axes=(BoundAxis(id="sample", kind="sample", size=2, unit="ns"),),
+    collect = point.collect_operations[0]
+    request = collect.command.requests[0].model_copy(
+        update={
+            "dimensions": [
+                CollectAxisRequest(id="sample", kind="sample", size=2, unit="ns")
+            ]
+        }
+    )
+    updated_collect = replace(
+        collect,
+        command=collect.command.model_copy(update={"requests": [request]}),
     )
     point = replace(
         point,
-        collect=(replace(collect, requests=(request,)),),
+        stages=tuple(
+            CollectStage((updated_collect,))
+            if isinstance(stage, CollectStage)
+            else stage
+            for stage in point.stages
+        ),
     )
-    product = replace(
-        experiment.product_defs[0],
-        axes=(ProductAxisDef(id="sample", kind="sample", size=2, unit="ns"),),
-    )
-    realizations, realization_problems = select_local_product_realizations(
-        (product,),
-        experiment.instrument_product_producers,
-        plan.product_uses,
-        routing=environment.routing,
-    )
-    assert realization_problems == ()
-    assert realizations is not None
     plan = replace(
         plan,
         points=(point,),
-        local_product_realizations=realizations,
     )
 
     with pytest.raises(ProviderContractError) as captured:
-        lower_run_local_effects(
-            operation_id="test-local-effects",
-            product_use_ids=tuple(use.id for use in plan.product_uses),
-            config=config,
-            semantics=plan,
-            instrument_provider=provider,
-        )
+        _lower_test_host_binding(plan, config, provider)
 
     problem = captured.value.problems[0]
     assert len(captured.value.problems) == 1
@@ -1130,14 +1109,11 @@ def test_provider_product_axis_unit_mismatch_is_rejected_before_run(
 
 
 def _first_point_plan(
-    plan: MaterializedLocalSemantics,
-    *,
-    problems: tuple[Problem, ...] | None = None,
-) -> MaterializedLocalSemantics:
+    plan: MaterializedLocalEffects,
+) -> MaterializedLocalEffects:
     return replace(
         plan,
         points=plan.points[:1],
-        **({"problems": problems} if problems is not None else {}),
     )
 
 
@@ -1146,18 +1122,12 @@ def test_provider_description_interruption_precedes_run_acceptance(
 ) -> None:
     provider = _FailingDescriptionProvider(KeyboardInterrupt("description cancelled"))
     config = load_config()
-    plan = materialize_local_semantics(
+    plan = materialize_local_execution(
         link_program(load_experiment(), validate_config_environment(config))
     )
 
     with pytest.raises(KeyboardInterrupt, match="description cancelled"):
-        lower_run_local_effects(
-            operation_id="test-local-effects",
-            product_use_ids=tuple(use.id for use in plan.product_uses),
-            config=config,
-            semantics=plan,
-            instrument_provider=provider,
-        )
+        _lower_test_host_binding(plan, config, provider)
 
     assert not provider.provide_called
     assert local_run_repository(tmp_path).list_runs() == []

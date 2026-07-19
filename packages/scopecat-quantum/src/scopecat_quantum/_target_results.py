@@ -86,14 +86,6 @@ def validate_target_result_mapping(
         msg = "domain mapping must retain the exact prepared batch inventory"
         raise ValueError(msg)
 
-    expected_entry_ids = tuple(entry.id for entry in request.entries)
-    mapped_entry_ids = tuple(entry.entry_address for entry in domain_mapping.entries)
-    if len(mapped_entry_ids) != len(expected_entry_ids) or set(mapped_entry_ids) != set(
-        expected_entry_ids
-    ):
-        msg = "domain mapping must exactly cover prepared target entries"
-        raise ValueError(msg)
-
     expected_addresses = request.acquisition_addresses
     mapped_addresses = tuple(result.result_address for result in domain_mapping.results)
     if len(mapped_addresses) != len(expected_addresses) or set(mapped_addresses) != set(

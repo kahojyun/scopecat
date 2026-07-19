@@ -11,6 +11,7 @@ from scopecat.compiler.relations.evaluation import (
     EvalContext,
     ParameterRelationData,
     evaluate_relation_in_context,
+    evaluate_relation_ordinals,
 )
 from scopecat.compiler.relations.model import (
     CellValue,
@@ -27,6 +28,7 @@ from scopecat.compiler.relations.point_domain import (
     PointUnit,
     PointZip,
     analyze_point_domain,
+    decompose_product_ordinal,
     iter_point_relation_rows,
     map_point_relation_rows,
 )
@@ -38,8 +40,8 @@ from scopecat.compiler.relations.verification import (
     verify_relation_plan,
 )
 from scopecat.compiler.semantic.value_expressions import TableValueExpr
-from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.payloads import PayloadValue
+from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
 from scopecat.kernel.value_types import (
     Bool,
     Entity,
@@ -55,31 +57,6 @@ from scopecat.kernel.value_validation import ValueValidationError, coerce_litera
 
 type PointRowNormalizer = Callable[[Row], Mapping[str, object]]
 type CompilerPointDomainExpr = PointDomainExpr[TableValueExpr]
-
-
-@dataclass(frozen=True, slots=True)
-class PointDomainId:
-    """Nominal identity of one point domain inside a typed program."""
-
-    program_id: str
-    domain_id: str
-
-    def __post_init__(self) -> None:
-        if not self.program_id or not self.domain_id:
-            msg = "point domain program and local ids must be non-empty"
-            raise ValueError(msg)
-
-    @property
-    def value(self) -> str:
-        """Return a stable transport-safe projection of this nominal identity."""
-
-        return stable_content_hash(
-            {
-                "kind": "scopecat.point_domain.v1",
-                "program_id": self.program_id,
-                "domain_id": self.domain_id,
-            }
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,33 +189,9 @@ class VerifiedPointDomain:
     def coordinate_columns(self) -> tuple[TableColumn, ...]:
         return self._domain.coordinate_columns
 
-
-@dataclass(frozen=True, slots=True)
-class LogicalPointId:
-    """Stable identity derived only from a domain namespace and canonical ordinal."""
-
-    domain_id: PointDomainId
-    logical_ordinal: int
-
-    def __post_init__(self) -> None:
-        if self.logical_ordinal < 0:
-            msg = "logical point ordinal must be non-negative"
-            raise ValueError(msg)
-
     @property
-    def value(self) -> str:
-        """Return the stable durable projection used by current runtime records."""
-
-        return stable_content_hash(
-            {
-                "point_domain": {
-                    "program_id": self.domain_id.program_id,
-                    "domain_id": self.domain_id.domain_id,
-                },
-                "kind": "scopecat.logical_point.v1",
-                "logical_ordinal": self.logical_ordinal,
-            }
-        )
+    def analysis(self) -> PointDomainAnalysis:
+        return self._analysis
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -398,6 +351,211 @@ def materialize_point_domain(
         points,
         verified.cardinality,
     )
+
+
+def materialize_point_domain_ordinals(
+    verified: VerifiedPointDomain,
+    params: ParameterRelationData,
+    ordinals: Sequence[int],
+    *,
+    max_points: int,
+    row_normalizer: PointRowNormalizer | None = None,
+) -> tuple[MaterializedPoint, ...]:
+    """Materialize selected ordinals without expanding the complete point algebra."""
+
+    selected = tuple(ordinals)
+    if type(max_points) is not int or max_points <= 0:
+        raise ValueError("point selection budget must be a positive integer")
+    if len(selected) > max_points:
+        raise ValueError("point selection exceeds the requested budget")
+    point_count = _exact_node_count(verified.analysis, ())
+    if any(ordinal < 0 or ordinal >= point_count for ordinal in selected):
+        raise ValueError("point selection contains an unknown logical ordinal")
+    if not selected:
+        return ()
+    unique_ordinals = tuple(sorted(set(selected)))
+    rows = _materialize_node_ordinals(
+        verified.root,
+        ordinals=unique_ordinals,
+        analysis=verified.analysis,
+        params=params,
+        ambient_row={},
+        path=(),
+    )
+    normalized = {
+        ordinal: (
+            row_normalizer(dict(rows[ordinal]))
+            if row_normalizer is not None
+            else rows[ordinal]
+        )
+        for ordinal in unique_ordinals
+    }
+    row_type = replace(
+        verified.value_type,
+        min_rows=1,
+        max_rows=1,
+    )
+    try:
+        typed_rows = {
+            ordinal: cast(
+                "tuple[dict[str, object], ...]",
+                coerce_literal(
+                    row_type,
+                    [normalized[ordinal]],
+                    path=("points", ordinal),
+                ),
+            )[0]
+            for ordinal in unique_ordinals
+        }
+    except ValueValidationError as error:
+        raise PointDomainValueError(error) from error
+    points = {
+        ordinal: MaterializedPoint(
+            LogicalPointId(verified.id, ordinal),
+            cast("Mapping[str, CellValue]", typed_rows[ordinal]),
+        )
+        for ordinal in unique_ordinals
+    }
+    return tuple(points[ordinal] for ordinal in selected)
+
+
+def _materialize_node_ordinals(
+    node: PointDomainExpr[TableValueExpr],
+    *,
+    ordinals: tuple[int, ...],
+    analysis: PointDomainAnalysis,
+    params: ParameterRelationData,
+    ambient_row: Row,
+    path: PointDomainPath,
+) -> dict[int, Row]:
+    if isinstance(node, PointUnit):
+        return {ordinal: {} for ordinal in ordinals}
+    if isinstance(node, PointRelationRows):
+        try:
+            selected_rows = evaluate_relation_ordinals(
+                node.rows.plan,
+                EvalContext(params=params, point_row=ambient_row),
+                ordinals,
+                max_points=len(ordinals),
+            )
+        except (ArithmeticError, KeyError, TypeError, ValueError) as error:
+            raise PointDomainEvaluationError((*path, "rows"), error) from error
+        return dict(zip(ordinals, selected_rows, strict=True))
+    if isinstance(node, PointZip):
+        sources = tuple(
+            _materialize_node_ordinals(
+                source,
+                ordinals=ordinals,
+                analysis=analysis,
+                params=params,
+                ambient_row=ambient_row,
+                path=(*path, "sources", index),
+            )
+            for index, source in enumerate(node.sources)
+        )
+        return {
+            ordinal: _merge_row_group(
+                tuple(source[ordinal] for source in sources),
+                path=path,
+            )
+            for ordinal in ordinals
+        }
+    if isinstance(node, PointProduct):
+        child_paths = tuple(
+            (*path, "factors", index) for index in range(len(node.factors))
+        )
+        child_counts = tuple(
+            _exact_node_count(analysis, child_path) for child_path in child_paths
+        )
+        child_ordinals_by_root = {
+            ordinal: decompose_product_ordinal(ordinal, child_counts)
+            for ordinal in ordinals
+        }
+        children = tuple(
+            _materialize_node_ordinals(
+                factor,
+                ordinals=tuple(
+                    sorted(
+                        {child_ordinals_by_root[ordinal][index] for ordinal in ordinals}
+                    )
+                ),
+                analysis=analysis,
+                params=params,
+                ambient_row=ambient_row,
+                path=child_paths[index],
+            )
+            for index, factor in enumerate(node.factors)
+        )
+        return {
+            ordinal: _merge_row_group(
+                tuple(
+                    child[child_ordinals_by_root[ordinal][index]]
+                    for index, child in enumerate(children)
+                ),
+                path=path,
+            )
+            for ordinal in ordinals
+        }
+    left_path = (*path, "left")
+    right_path = (*path, "right")
+    right_count = _exact_node_count(analysis, right_path)
+    left_ordinals_by_root = {ordinal: ordinal // right_count for ordinal in ordinals}
+    right_ordinals_by_root = {ordinal: ordinal % right_count for ordinal in ordinals}
+    left_rows = _materialize_node_ordinals(
+        node.left,
+        ordinals=tuple(sorted(set(left_ordinals_by_root.values()))),
+        analysis=analysis,
+        params=params,
+        ambient_row=ambient_row,
+        path=left_path,
+    )
+    right_rows_by_left: dict[int, dict[int, Row]] = {}
+    for left_ordinal, left_row in left_rows.items():
+        right_ordinals = tuple(
+            sorted(
+                {
+                    right_ordinals_by_root[ordinal]
+                    for ordinal in ordinals
+                    if left_ordinals_by_root[ordinal] == left_ordinal
+                }
+            )
+        )
+        right_rows_by_left[left_ordinal] = _materialize_node_ordinals(
+            node.right,
+            ordinals=right_ordinals,
+            analysis=analysis,
+            params=params,
+            ambient_row=_merge_row_group(
+                (ambient_row, left_row),
+                path=right_path,
+            ),
+            path=right_path,
+        )
+    return {
+        ordinal: _merge_row_group(
+            (
+                left_rows[left_ordinals_by_root[ordinal]],
+                right_rows_by_left[left_ordinals_by_root[ordinal]][
+                    right_ordinals_by_root[ordinal]
+                ],
+            ),
+            path=path,
+        )
+        for ordinal in ordinals
+    }
+
+
+def _exact_node_count(
+    analysis: PointDomainAnalysis,
+    path: PointDomainPath,
+) -> int:
+    cardinality = analysis.facts[path].cardinality
+    if cardinality.maximum != cardinality.minimum:
+        rendered = "/".join(str(part) for part in path) or "root"
+        raise ValueError(
+            f"point ordinal selection requires exact cardinality at {rendered}"
+        )
+    return cardinality.minimum
 
 
 def _point_domain_issues(
@@ -759,13 +917,11 @@ def is_point_coordinate_type(value_type: Scalar) -> bool:
 
 __all__ = [
     "CompilerPointDomainExpr",
-    "LogicalPointId",
     "MaterializedPoint",
     "MaterializedPointDomain",
     "PointCardinality",
     "PointDomain",
     "PointDomainEvaluationError",
-    "PointDomainId",
     "PointDomainValueError",
     "PointDomainVerificationError",
     "PointDomainVerificationIssue",
@@ -774,5 +930,6 @@ __all__ = [
     "VerifiedPointDomainRelation",
     "is_point_coordinate_type",
     "materialize_point_domain",
+    "materialize_point_domain_ordinals",
     "verify_point_domain",
 ]

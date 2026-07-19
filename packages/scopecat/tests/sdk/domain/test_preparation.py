@@ -6,10 +6,10 @@ import pytest
 
 import scopecat as sc
 from scopecat.compiler.linking.linked import (
-    MaterializedLinkedPointBatch,
+    LinkedPointMaterializer,
     link_verified_program,
-    materialize_linked_points,
 )
+from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.planning.authoring import resolve_experiment
 from scopecat.records.parameter import Quantity
 from scopecat.sdk.domain import (
@@ -22,7 +22,7 @@ from scopecat.sdk.domain import (
 )
 from scopecat.sdk.domain._bridge import (
     make_domain_batch_context,
-    project_domain_plan,
+    make_domain_compile_request,
 )
 from scopecat.sdk.domain.execution import PreparedDomainExecution
 from scopecat.sdk.domain.job import (
@@ -40,8 +40,6 @@ from scopecat.sdk.domain.runtime import (
     CorrelatedDomainFetch,
     DomainFetchCandidate,
     DomainFetchRequest,
-    DomainReconcileReceipt,
-    DomainReconcileRequest,
     DomainSubmitReceipt,
     DomainSubmitRequest,
 )
@@ -66,13 +64,6 @@ class _NoEffectsRuntime:
     ) -> DomainFetchCandidate[dict[str, str]]:
         del request
         raise AssertionError("preparation must not fetch")
-
-    def reconcile(
-        self,
-        request: DomainReconcileRequest,
-    ) -> DomainReconcileReceipt:
-        del request
-        raise AssertionError("preparation must not reconcile")
 
 
 def _preparation_context(
@@ -135,13 +126,25 @@ def _preparation_context(
         config_profile=load_config(),
     )
     linked = link_verified_program(resolved.verified_program, resolved.environment)
-    linked_points = materialize_linked_points(linked)
-    projection = project_domain_plan(linked_points, execution.id)
-    batch = MaterializedLinkedPointBatch(linked_points, (0, 1))
+    materializer = LinkedPointMaterializer(linked)
+    linked_points = materializer.materialize()
+    closure = domain_result_closure(linked.program, execution.id)
+    request = make_domain_compile_request(
+        linked,
+        execution.id,
+        closure,
+        ((0, 1),),
+        lambda input_ids, ordinals, max_points: materializer.bind_domain_inputs(
+            execution.id,
+            input_ids,
+            ordinals,
+            max_points=max_points,
+        ),
+    )
     return make_domain_batch_context(
-        projection,
-        batch,
-        compiler_id=f"test.compiler.{namespace}",
+        request,
+        linked_points,
+        (0, 1),
         batch_ordinal=0,
     )
 
@@ -191,11 +194,7 @@ def test_map_measurements_closes_exact_direct_product_cover(
     assert len(context.product_uses) == 3
     assert len(context.direct_product_uses) == 2
     assert mapping.target_entries == entries
-    assert tuple(entry.point for entry in mapping.entries) == context.points
-    assert all(
-        mapped.point is point
-        for mapped, point in zip(mapping.entries, context.points, strict=True)
-    )
+    assert tuple(result.point for result in mapping.results) == context.points
     assert tuple(result.result_address for result in mapping.results) == tuple(
         entry.result_addresses[0] for entry in entries
     )
@@ -290,7 +289,7 @@ def test_public_mapping_lookups_require_exact_context_refs(tmp_path: Path) -> No
             strict=True,
         )
     )
-    assert tuple(entry.point for entry in mapping.entries) == context.points
+    assert tuple(result.point for result in mapping.results) == context.points
 
     with pytest.raises(KeyError, match="result address"):
         mapping.result_for_address("unknown-result")
@@ -461,9 +460,7 @@ def test_measurement_plan_and_build_close_the_complete_public_sdk_declaration(
     assert measurements.product_uses == context.product_uses
     assert measurements.host_transforms == (binding,)
     assert isinstance(prepared, PreparedDomainExecution)
-    assert prepared.context is context
-    assert prepared.direct_product_uses == context.direct_product_uses
-    assert prepared.product_uses == context.product_uses
+    assert not hasattr(prepared, "context")
 
 
 def test_measurement_plan_requires_exact_derived_output_coverage(

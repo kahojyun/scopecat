@@ -24,10 +24,7 @@ from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar, String, ValueType
 from scopecat.kernel.value_types import Table as TableType
 from scopecat.records.parameter import Quantity
-from tests.testkit.bound_plan import (
-    bound_plan_result,
-    bound_state_fields,
-)
+from tests.testkit.bound_plan import bound_plan_contract
 from tests.testkit.parameter_fixtures import PARAMETER_TYPES, parameters
 from tests.testkit.relation_plans import (
     point_domain as verified_point_domain,
@@ -90,7 +87,7 @@ def test_bound_plan_rejects_record_output_shape_problems() -> None:
     )
 
     with pytest.raises(CheckFailed) as failure:
-        bound_plan_result(spec, parameters())
+        bound_plan_contract(spec, parameters())
 
     assert [problem.code for problem in failure.value.problems] == [
         "product_axis_duplicate",
@@ -123,7 +120,7 @@ def test_bound_plan_rejects_record_schema_problems_without_model_errors() -> Non
     )
 
     with pytest.raises(CheckFailed) as failure:
-        bound_plan_result(spec, parameters())
+        bound_plan_contract(spec, parameters())
 
     assert [problem.code for problem in failure.value.problems] == [
         "product_unit_unsupported",
@@ -147,7 +144,7 @@ def test_bound_plan_rejects_coordinate_and_record_id_collision() -> None:
     )
 
     with pytest.raises(CheckFailed) as failure:
-        bound_plan_result(spec, parameters())
+        bound_plan_contract(spec, parameters())
 
     assert [problem.code for problem in failure.value.problems] == [
         "experiment_record_coordinate_collision"
@@ -173,12 +170,12 @@ def test_bound_plan_rejects_duplicate_collection_provider_keys() -> None:
         record_uses=[item[1] for item in uses_and_records],
     )
 
-    preview, problems = bound_plan_result(spec, parameters())
+    with pytest.raises(CheckFailed) as failure:
+        bound_plan_contract(spec, parameters())
 
-    assert [problem.code for problem in problems] == [
+    assert [problem.code for problem in failure.value.problems] == [
         "collection_provider_key_duplicate"
     ]
-    assert len(preview.product_uses) == 2
 
 
 def test_bound_plan_reports_demanded_product_without_a_local_producer() -> None:
@@ -193,10 +190,12 @@ def test_bound_plan_reports_demanded_product_without_a_local_producer() -> None:
         record_uses=[record_use],
     )
 
-    preview, problems = bound_plan_result(spec, parameters())
+    with pytest.raises(CheckFailed) as failure:
+        bound_plan_contract(spec, parameters())
 
-    assert [problem.code for problem in problems] == ["product_local_producer_missing"]
-    assert preview.local_product_realizations is None
+    assert [problem.code for problem in failure.value.problems] == [
+        "product_local_producer_missing"
+    ]
 
 
 @pytest.mark.parametrize(
@@ -259,7 +258,7 @@ def test_bound_plan_rejects_conflicting_shared_record_axes(
     )
 
     with pytest.raises(CheckFailed) as failure:
-        bound_plan_result(spec, parameters())
+        bound_plan_contract(spec, parameters())
 
     problems = failure.value.problems
     assert [problem.code for problem in problems] == ["experiment_record_axis_conflict"]
@@ -286,7 +285,7 @@ def test_bound_plan_rejects_missing_point_parameters_before_evaluation() -> None
     )
 
     with pytest.raises(CheckFailed) as failure:
-        bound_plan_result(spec, parameters())
+        bound_plan_contract(spec, parameters())
 
     assert [problem.code for problem in failure.value.problems] == [
         "linked_parameter_missing"
@@ -330,12 +329,12 @@ def test_bound_plan_reports_parameter_overlay_problems() -> None:
         ],
     )
 
-    preview, problems = bound_plan_result(spec, parameters())
+    with pytest.raises(CheckFailed) as failure:
+        bound_plan_contract(spec, parameters())
 
-    assert [problem.code for problem in problems] == [
+    assert [problem.code for problem in failure.value.problems] == [
         "experiment_parameter_overlay_row_not_found"
     ]
-    assert preview.points == ()
 
 
 def test_bound_plan_reports_unknown_parameter_table_problems() -> None:
@@ -358,12 +357,12 @@ def test_bound_plan_reports_unknown_parameter_table_problems() -> None:
         ],
     )
 
-    preview, problems = bound_plan_result(spec, parameters())
+    with pytest.raises(CheckFailed) as failure:
+        bound_plan_contract(spec, parameters())
 
-    assert [problem.code for problem in problems] == [
+    assert [problem.code for problem in failure.value.problems] == [
         "experiment_parameter_overlay_table_missing"
     ]
-    assert preview.points == ()
 
 
 def test_bound_plan_reports_state_evaluation_and_conflict_problems() -> None:
@@ -398,11 +397,9 @@ def test_bound_plan_reports_state_evaluation_and_conflict_problems() -> None:
         ],
     )
 
-    conflict_preview, conflict_problems = bound_plan_result(conflict, parameters())
+    with pytest.raises(CheckFailed) as failure:
+        bound_plan_contract(conflict, parameters())
 
-    assert [problem.code for problem in conflict_problems] == [
+    assert [problem.code for problem in failure.value.problems] == [
         "experiment_conflicting_desired_state"
     ]
-    assert [
-        field.value.root for _, _, field in bound_state_fields(conflict_preview)
-    ] == [Quantity(value=5.9, unit="GHz")]

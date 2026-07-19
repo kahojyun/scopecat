@@ -3,7 +3,6 @@ from dataclasses import replace
 import pytest
 
 from scopecat.compiler.frontend.environment import validate_config_environment
-from scopecat.compiler.linking.materialization import materialize_local_semantics
 from scopecat.compiler.relations.evaluation import EvalContext
 from scopecat.compiler.relations.model import (
     RelationExpr,
@@ -27,9 +26,11 @@ from scopecat.compiler.typed.parameter_overlays import (
     resolve_parameter_cell_bindings,
 )
 from scopecat.compiler.typed.point_domain import PointDomain
+from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar, String
 from scopecat.kernel.value_types import Table as TableType
+from scopecat.planning.local_materialization import materialize_local_execution
 from scopecat.records.parameter import Quantity
 from tests.testkit.authoring import load_config
 from tests.testkit.bound_plan import bound_state_fields, config_with_physical_resources
@@ -151,8 +152,8 @@ def test_point_parameter_overlay_replaces_only_one_existing_cell() -> None:
     base_frequencies = [
         row["frequency"] for row in environment.parameters.table_rows("readout_devices")
     ]
-    plan = materialize_local_semantics(link_program(spec, environment))
-    without_overlay = materialize_local_semantics(
+    plan = materialize_local_execution(link_program(spec, environment))
+    without_overlay = materialize_local_execution(
         link_program(replace(spec, parameter_overlays=()), environment)
     )
 
@@ -227,12 +228,12 @@ def test_point_parameter_overlay_reports_missing_row_without_partial_plan() -> N
         ],
     )
 
-    plan = materialize_local_semantics(link_program(spec, _environment()))
+    with pytest.raises(CheckFailed) as failure:
+        materialize_local_execution(link_program(spec, _environment()))
 
-    assert [problem.code for problem in plan.problems] == [
+    assert [problem.code for problem in failure.value.problems] == [
         "experiment_parameter_overlay_row_not_found"
     ]
-    assert plan.points == ()
 
 
 def test_point_parameter_overlay_validates_value_against_catalog_type() -> None:
@@ -268,8 +269,9 @@ def test_point_parameter_overlay_reports_missing_table() -> None:
         ],
     )
 
-    plan = materialize_local_semantics(link_program(spec, _environment()))
+    with pytest.raises(CheckFailed) as failure:
+        materialize_local_execution(link_program(spec, _environment()))
 
-    assert [problem.code for problem in plan.problems] == [
+    assert [problem.code for problem in failure.value.problems] == [
         "experiment_parameter_overlay_table_missing"
     ]

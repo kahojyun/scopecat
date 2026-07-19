@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from scopecat.measurements.values import MeasurementValueCatalog
 from scopecat.sdk.domain.view import (
     DomainExecutionView,
     DomainMeasurementTransform,
@@ -13,7 +14,6 @@ from scopecat.sdk.domain.view import (
 )
 
 if TYPE_CHECKING:
-    from scopecat.compiler.linking.linked import MaterializedLinkedPointBatch
     from scopecat.sdk.domain.preparation import DomainPreparationBuilder
 
 
@@ -23,13 +23,22 @@ class DomainBatchContext:
 
     batch_ordinal: int
     execution: DomainExecutionView
-    points: tuple[DomainPointRef, ...]
     product_uses: tuple[DomainProductUseRef, ...]
     direct_product_uses: tuple[DomainProductUseRef, ...]
     derived_product_uses: tuple[DomainProductUseRef, ...]
-    measurement_transforms: tuple[DomainMeasurementTransform, ...]
-    linked_points: MaterializedLinkedPointBatch = field(repr=False)
-    compiler_id: str
+    measurement_catalog: MeasurementValueCatalog = field(repr=False)
+
+    @property
+    def points(self) -> tuple[DomainPointRef, ...]:
+        """Return the canonical point references owned by the execution."""
+
+        return tuple(point.ref for point in self.execution.points)
+
+    @property
+    def measurement_transforms(self) -> tuple[DomainMeasurementTransform, ...]:
+        """Return the residual transforms owned by the execution."""
+
+        return self.execution.measurement_transforms
 
     def new_preparation(self) -> DomainPreparationBuilder:
         """Create a builder that closes this batch for execution."""
