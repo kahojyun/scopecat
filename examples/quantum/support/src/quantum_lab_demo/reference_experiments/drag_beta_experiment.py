@@ -137,11 +137,11 @@ _DRAG_BETA_EXECUTION = quantum.domain_execution(
 DRAG_BETA_TEMPLATE = (
     sc.module("quantum_lab_demo.reference.drag_beta.root")
     .use(_TEMPLATE_CAPTURE)
+    .domain(_DRAG_BETA_EXECUTION)
     .template(
         DRAG_BETA_TEMPLATE_ID,
         kind=DRAG_BETA_EXPERIMENT_ID,
     )
-    .domain(_DRAG_BETA_EXECUTION)
     .experiment_id(DRAG_BETA_EXPERIMENT_ID)
     .scan(
         sc.cartesian(

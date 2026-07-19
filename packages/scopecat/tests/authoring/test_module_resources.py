@@ -42,13 +42,13 @@ def _resource_module() -> sc.ExperimentModule:
     )
 
 
-def test_graph_proof_indexes_verified_product_ports() -> None:
+def test_graph_proof_indexes_verified_product_declarations() -> None:
     assembly = elaborate_module(_resource_module())
 
     verified = verify_assembly_graph(assembly)
 
-    assert tuple(verified.product_ports) == tuple(
-        product.product_id for product in assembly.product_ports
+    assert tuple(verified.product_declarations) == tuple(
+        product.product_id for product in assembly.product_declarations
     )
 
 
@@ -77,7 +77,7 @@ def test_explicit_instances_own_independent_resource_ports(tmp_path: Path) -> No
         "value.path",
         "value.path",
     ]
-    assert [product.resource_port_id for product in assembly.product_ports] == [
+    assert [product.resource_port_id for product in assembly.product_declarations] == [
         logical_resource_port_id(SymbolId(scope=("left.arm",), local_id="drive.v1")),
         logical_resource_port_id(SymbolId(scope=("right.arm",), local_id="drive.v1")),
     ]
@@ -95,7 +95,6 @@ def test_explicit_instances_own_independent_resource_ports(tmp_path: Path) -> No
         logical_resource_port_id(SymbolId(scope=("left.arm",), local_id="drive.v1")),
         logical_resource_port_id(SymbolId(scope=("right.arm",), local_id="drive.v1")),
     ]
-
     resolved = resolve_experiment(
         root.template("test.resources.root", kind="resources").build().bind(),
         config_profile=load_config(),
@@ -118,6 +117,70 @@ def test_explicit_instances_own_independent_resource_ports(tmp_path: Path) -> No
     ]
 
 
+def test_parallel_modules_are_a_safe_sequential_refinement() -> None:
+    child = _resource_module()
+    left = child.instantiate("left")
+    right = child.instantiate("right")
+
+    assembly = elaborate_module(
+        sc.module("test.resources.parallel").parallel(left, right).build()
+    )
+
+    assert [binding.port_id.qualified_name for binding in assembly.bindings] == [
+        "left/drive.v1",
+        "right/drive.v1",
+    ]
+    assert assembly.parallel_groups[0].branches == (
+        (assembly.effect_order[0],),
+        (assembly.effect_order[1],),
+    )
+
+
+def test_parallel_modules_reject_same_bound_parent_resource() -> None:
+    child = _resource_module()
+    left = child.instantiate(
+        "left",
+        resource_bindings={"drive.v1": "shared"},
+    )
+    right = child.instantiate(
+        "right",
+        resource_bindings={"drive.v1": "shared"},
+    )
+
+    with pytest.raises(ValueError, match="same parent resources"):
+        (
+            sc.module("test.resources.parallel-conflict")
+            .resource("shared", requires=("set.frequency",))
+            .parallel(left, right)
+            .build()
+        )
+
+
+def test_child_resource_port_can_bind_to_parent_resource_port() -> None:
+    child = _resource_module().instantiate(
+        "nested",
+        resource_bindings={"drive.v1": "shared"},
+    )
+    root = (
+        sc.module("test.resources.bound-root")
+        .resource("shared", requires=("set.frequency",))
+        .use(child)
+        .build()
+    )
+
+    assembly = elaborate_module(root)
+
+    assert tuple(port.qualified_id for port in assembly.resource_ports) == ("shared",)
+    assert tuple(binding.port_id.qualified_name for binding in assembly.bindings) == (
+        "shared",
+    )
+    assert tuple(
+        product.resource_port_id.qualified_name
+        for product in assembly.product_declarations
+        if product.resource_port_id is not None
+    ) == ("shared",)
+
+
 def test_nested_instances_prefix_resource_references_once_per_level() -> None:
     inner = _resource_module().instantiate("inner")
     wrapper = sc.module("test.resources.wrapper").use(inner).build()
@@ -137,7 +200,7 @@ def test_nested_instances_prefix_resource_references_once_per_level() -> None:
     assert assembly.bindings[0].port_path == (
         "outer/inner/drive.v1.set.frequency.value.path"
     )
-    assert assembly.product_ports[0].resource_port_id == expected_port_id
+    assert assembly.product_declarations[0].resource_port_id == expected_port_id
     operation = assembly.semantic_graph.operations[0]
     route_definition = next(
         definition
@@ -168,7 +231,7 @@ def test_resource_identity_distinguishes_slash_from_nested_scope() -> None:
     )
     assert direct_id != nested_id
     assert set(verified.resource_ports) == {direct_id, nested_id}
-    assert {product.resource_port_id for product in assembly.product_ports} == {
+    assert {product.resource_port_id for product in assembly.product_declarations} == {
         direct_id,
         nested_id,
     }
@@ -186,11 +249,10 @@ def test_resource_identity_distinguishes_slash_from_nested_scope() -> None:
     } == {direct_id, nested_id}
 
 
-def test_record_resource_references_are_checked_before_linking() -> None:
+def test_product_resource_references_are_checked_before_linking() -> None:
     with pytest.raises(CheckFailed) as error:
         (
             sc.module("test.resources.missing-record-port")
-            .record("fixed", resource="missing")
             .product("exported", resource="missing")
             .build()
         )
@@ -200,11 +262,11 @@ def test_record_resource_references_are_checked_before_linking() -> None:
     ]
 
 
-def test_record_resource_capabilities_are_checked_before_linking() -> None:
+def test_product_resource_capabilities_are_checked_before_linking() -> None:
     module = (
         sc.module("test.resources.missing-record-capability")
         .resource("readout", requires=("measure.iq",))
-        .record(
+        .product(
             "fixed",
             resource="readout",
             capability="measure.phase",
@@ -225,7 +287,7 @@ def test_record_resource_capabilities_are_checked_before_linking() -> None:
         "module_resource_port_capability_missing",
     ]
     assert [problem.location for problem in error.value.problems] == [
-        model_location("records", "fixed", "capability"),
+        model_location("products", "fixed", "capability"),
         model_location("products", "exported", "capability"),
     ]
 

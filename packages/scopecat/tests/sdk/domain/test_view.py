@@ -48,8 +48,8 @@ def test_domain_batch_context_materializes_only_selected_residual_inputs(
         results={"counts": module.products["counts"]},
     )
     template = (
-        module.template("test.domain.view", kind="domain_view")
-        .domain(execution)
+        module.domain(execution)
+        .template("test.domain.view", kind="domain_view")
         .scan(count, (1, 3, 5))
         .record_product("counts")
         .build()

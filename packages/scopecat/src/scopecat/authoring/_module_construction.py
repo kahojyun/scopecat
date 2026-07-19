@@ -4,13 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from scopecat.authoring._binding_intents import (
-    ExperimentBindingIntent,
-    ResourcePort,
-)
+from scopecat.authoring._binding_intents import ResourcePort
 from scopecat.authoring._intents import (
-    ExperimentStateIntent,
-    ModuleActionDecl,
     ModuleInputPort,
     ModuleOperationDecl,
 )
@@ -21,6 +16,7 @@ from scopecat.authoring._module_handles import (
 )
 from scopecat.authoring._module_ir import (
     ModuleBodyIR,
+    ModuleEffectIR,
     ModuleImportBinding,
     ModuleInstanceIR,
     ModuleInstanceLookup,
@@ -28,11 +24,11 @@ from scopecat.authoring._module_ir import (
     ModuleIR,
     ModuleProductExport,
     ModulePythonImplementation,
+    ModuleResourceBinding,
     ModuleValueExport,
 )
-from scopecat.authoring._record_intents import (
-    ModuleProductPort,
-    RecordIntent,
+from scopecat.authoring._products import (
+    ModuleProductDecl,
 )
 from scopecat.authoring.measurements import MeasurementTransform
 from scopecat.authoring.values import MetadataValue
@@ -46,14 +42,11 @@ def module_from_parts_internal(
     input_ports: Sequence[ModuleInputPort] = (),
     output_ports: Sequence[ModuleValueExport] = (),
     resources: Sequence[ResourcePort] = (),
-    bindings: Sequence[ExperimentBindingIntent] = (),
-    state_intents: Sequence[ExperimentStateIntent] = (),
-    actions: Sequence[ModuleActionDecl] = (),
+    procedure: Sequence[ModuleEffectIR] = (),
     operations: Sequence[ModuleOperationDecl] = (),
     python_implementations: Sequence[ModulePythonImplementation] = (),
     measurement_transforms: Sequence[MeasurementTransform] = (),
-    records: Sequence[RecordIntent] = (),
-    product_ports: Sequence[ModuleProductPort] = (),
+    product_declarations: Sequence[ModuleProductDecl] = (),
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> ExperimentModule:
     instances = tuple(_module_instance_ir(invocation) for invocation in invocations)
@@ -63,7 +56,8 @@ def module_from_parts_internal(
         for product in instance.module.interface.products
     )
     declared_products = tuple(
-        ModuleProductExport.from_declaration(product) for product in product_ports
+        ModuleProductExport.from_declaration(product)
+        for product in product_declarations
     )
     module_ir = ModuleIR(
         id=id,
@@ -75,13 +69,10 @@ def module_from_parts_internal(
         ),
         body=ModuleBodyIR(
             instances=instances,
-            bindings=tuple(bindings),
-            state=tuple(state_intents),
-            actions=tuple(actions),
+            procedure=tuple(procedure),
             operations=tuple(operations),
             measurement_transforms=tuple(measurement_transforms),
-            records=tuple(records),
-            products=tuple(product_ports),
+            products=tuple(product_declarations),
         ),
         python_implementations=tuple(python_implementations),
         metadata=freeze_json_mapping(metadata or {}),
@@ -103,6 +94,10 @@ def _module_instance_ir(invocation: ModuleInvocation) -> ModuleInstanceIR:
         ),
         module=invocation.module.ir,
         input_bindings=bindings,
+        resource_bindings=tuple(
+            ModuleResourceBinding(import_id=child_id, source_id=parent_id)
+            for child_id, parent_id in invocation.resource_bindings.items()
+        ),
     )
 
 
@@ -138,14 +133,11 @@ def build_module_from_builder(
         input_ports=builder.input_ports,
         output_ports=builder.output_ports,
         resources=builder.resources,
-        bindings=builder.bindings,
-        state_intents=builder.state_intents,
-        actions=builder.actions,
+        procedure=builder.procedure,
         operations=builder.operations,
         python_implementations=builder.python_implementations,
         measurement_transforms=builder.measurement_transform_intents,
-        records=builder.records,
-        product_ports=builder.product_ports,
+        product_declarations=builder.product_declarations,
         metadata=merged_metadata,
     )
 

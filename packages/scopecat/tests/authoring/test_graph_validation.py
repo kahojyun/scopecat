@@ -6,7 +6,7 @@ import pytest
 
 import scopecat as sc
 from scopecat.authoring._binding_intents import requires, resource_port
-from scopecat.authoring._record_intents import observable
+from scopecat.authoring._products import ModuleProductDecl, record_product
 from scopecat.authoring._value_refs import internal_value_ref_from_expression
 from scopecat.compiler.frontend.assembly_lowering import validate_assembly_entrypoint
 from scopecat.compiler.frontend.elaboration import SemanticExperimentIR
@@ -280,11 +280,11 @@ def test_static_record_schema_is_checked_before_parameter_catalog() -> None:
         inputs={"value": missing_parameter},
         output_type=missing_parameter.value_type,
     )
-    duplicate_axis = sc.record_axis("sample", size=2)
+    duplicate_axis = sc.product_axis("sample", size=2)
     module = (
         sc.module("test.graph.record-schema")
         .computes(consume)
-        .record("signal", axes=(duplicate_axis, duplicate_axis))
+        .product("signal", axes=(duplicate_axis, duplicate_axis))
         .build()
     )
 
@@ -293,7 +293,7 @@ def test_static_record_schema_is_checked_before_parameter_catalog() -> None:
 
     assert error.value.problems[0].code == ("product_axis_duplicate")
     assert error.value.problems[0].location == model_location(
-        "records", "signal", "axes"
+        "products", "signal", "axes"
     )
 
 
@@ -340,7 +340,7 @@ def test_resource_selector_rejects_external_operation_value() -> None:
     assert "external operation" in problem.message
 
 
-def test_record_axis_rejects_external_operation_value() -> None:
+def test_product_axis_rejects_external_operation_value() -> None:
     size = sc.compute(
         "axis-size",
         fn=lambda: 2,
@@ -349,7 +349,7 @@ def test_record_axis_rejects_external_operation_value() -> None:
     module = (
         sc.module("test.stage.record-execute")
         .computes(size)
-        .record("signal", axes=(sc.record_axis("sample", size=size.output),))
+        .product("signal", axes=(sc.product_axis("sample", size=size.output),))
         .build()
     )
 
@@ -357,17 +357,17 @@ def test_record_axis_rejects_external_operation_value() -> None:
         _resolve(module)
 
     problem = error.value.problems[0]
-    assert problem.code == "record_axis_value_requires_execution"
+    assert problem.code == "product_axis_value_requires_execution"
     assert problem.location == model_location(
-        "records", "signal", "axes", "sample", "size"
+        "products", "signal", "axes", "sample", "size"
     )
 
 
-def test_record_axis_rejects_point_dependent_value() -> None:
+def test_product_axis_rejects_point_dependent_value() -> None:
     size = sc.point("axis-size", sc.ScalarType(sc.IntType(minimum=1)))
     module = (
         sc.module("test.stage.record-point")
-        .record("signal", axes=(sc.record_axis("sample", size=size),))
+        .product("signal", axes=(sc.product_axis("sample", size=size),))
         .build()
     )
     invocation = (
@@ -384,9 +384,9 @@ def test_record_axis_rejects_point_dependent_value() -> None:
         )
 
     problem = error.value.problems[0]
-    assert problem.code == "record_axis_value_depends_on_point"
+    assert problem.code == "product_axis_value_depends_on_point"
     assert problem.location == model_location(
-        "records", "signal", "axes", "sample", "size"
+        "products", "signal", "axes", "sample", "size"
     )
 
 
@@ -679,7 +679,8 @@ def test_source_coordinate_collision_ignores_non_coordinate_payload() -> None:
     verify_assembly_graph(
         SemanticExperimentIR(
             point_domain=point_rows(point_source),
-            records=(observable("payload"),),
+            product_declarations=(ModuleProductDecl(id="payload"),),
+            record_selections=(record_product("payload"),),
         )
     )
 
@@ -694,7 +695,8 @@ def test_source_coordinate_collision_uses_typed_coordinate_predicate() -> None:
         verify_assembly_graph(
             SemanticExperimentIR(
                 point_domain=point_rows(point_source),
-                records=(observable("coordinate"),),
+                product_declarations=(ModuleProductDecl(id="coordinate"),),
+                record_selections=(record_product("coordinate"),),
             )
         )
 

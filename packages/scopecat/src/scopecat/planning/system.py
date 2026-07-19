@@ -454,10 +454,6 @@ def _coverage_blocks(
                 () if local_effects is None else local_effects.effect_operations
             )
         )
-        selected_collects = _select_local_effects(
-            () if local_effects is None else local_effects.collect_operations,
-            barrier,
-        )
         local_regions = _local_schedule_regions(
             barrier,
             (
@@ -487,11 +483,6 @@ def _coverage_blocks(
                         if job.point_ordinals[0] in region
                     )
             for ordinal in region:
-                operations.extend(
-                    effect
-                    for effect in selected_collects
-                    if effect.point_indices == (ordinal,)
-                )
                 operations.append(RunCoverageCheckpoint((ordinal,)))
         local_claims = tuple(
             claim

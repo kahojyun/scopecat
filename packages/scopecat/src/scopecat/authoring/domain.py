@@ -1,4 +1,4 @@
-"""Domain-neutral programs and their template-bound execution.
+"""Domain-neutral programs and their module-bound execution.
 
 Domain bodies and result contracts are opaque transient values.  Core owns
 only their stable identities, typed value ports, and logical product bindings;
@@ -13,11 +13,15 @@ from typing import cast
 
 from scopecat.authoring._frozen_values import freeze_runtime_input
 from scopecat.authoring._intents import ComputeNodeInputValue
-from scopecat.authoring._record_intents import ProductRef
+from scopecat.authoring._products import ProductRef
 from scopecat.authoring._value_refs import ValueRef
 from scopecat.authoring.value_types import ValueType
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.product_identity import ProductId
+from scopecat.kernel.resource_identity import (
+    LogicalResourcePortId,
+    logical_resource_port_id,
+)
 from scopecat.kernel.symbols import SymbolId
 
 
@@ -46,6 +50,19 @@ class DomainResultPort:
 
 
 @dataclass(frozen=True, slots=True)
+class DomainResourcePort:
+    """One logical resource role required by a domain program."""
+
+    id: str
+    capabilities: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.id or any(not item for item in self.capabilities):
+            raise ValueError("domain resource ids and capabilities must be non-empty")
+        _require_unique("domain resource capability", self.capabilities)
+
+
+@dataclass(frozen=True, slots=True)
 class DomainProgramDef:
     """Opaque domain program declaration retained through target linking."""
 
@@ -55,6 +72,7 @@ class DomainProgramDef:
     body: object = field(repr=False)
     input_ports: tuple[DomainInputPort, ...] = ()
     result_ports: tuple[DomainResultPort, ...] = ()
+    resource_ports: tuple[DomainResourcePort, ...] = ()
 
     def __post_init__(self) -> None:
         if not all((self.id, self.dialect_id, self.dialect_version)):
@@ -63,6 +81,9 @@ class DomainProgramDef:
             )
         _require_unique("domain input port", tuple(p.id for p in self.input_ports))
         _require_unique("domain result port", tuple(p.id for p in self.result_ports))
+        _require_unique(
+            "domain resource port", tuple(p.id for p in self.resource_ports)
+        )
 
     @property
     def symbol_id(self) -> SymbolId:
@@ -75,12 +96,13 @@ class DomainProgramDef:
 
 @dataclass(frozen=True, slots=True)
 class DomainExecution:
-    """One identified domain-program effect selected by an experiment."""
+    """One identified domain-program effect placed in a module procedure."""
 
     id: str
     program: DomainProgramDef
     input_bindings: tuple[tuple[str, ComputeNodeInputValue], ...] = ()
     result_bindings: tuple[tuple[str, ProductRef], ...] = ()
+    resource_bindings: tuple[tuple[str, LogicalResourcePortId], ...] = ()
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -92,6 +114,10 @@ class DomainExecution:
         _require_unique(
             "domain execution result",
             tuple(k for k, _ in self.result_bindings),
+        )
+        _require_unique(
+            "domain execution resource",
+            tuple(k for k, _ in self.resource_bindings),
         )
         expected_inputs = tuple(port.id for port in self.program.input_ports)
         actual_inputs = tuple(name for name, _value in self.input_bindings)
@@ -107,6 +133,13 @@ class DomainExecution:
                 "domain execution result bindings must match program port "
                 "declaration order"
             )
+        expected_resources = tuple(port.id for port in self.program.resource_ports)
+        actual_resources = tuple(name for name, _value in self.resource_bindings)
+        if actual_resources != expected_resources:
+            raise ValueError(
+                "domain execution resource bindings must match program port "
+                "declaration order"
+            )
         object.__setattr__(
             self,
             "input_bindings",
@@ -119,16 +152,17 @@ class DomainExecution:
 
 @dataclass(frozen=True, slots=True)
 class LoweredDomainExecution:
-    """Internal product-resolved form of the template-owned execution."""
+    """Internal product-resolved form of the module-owned execution."""
 
     id: str
     program: DomainProgramDef
     input_bindings: tuple[tuple[str, ComputeNodeInputValue], ...] = ()
     result_bindings: tuple[tuple[str, ProductId], ...] = ()
+    resource_bindings: tuple[tuple[str, LogicalResourcePortId], ...] = ()
 
 
 def lower_domain_execution(execution: DomainExecution) -> LoweredDomainExecution:
-    """Lower the root binding after its product ownership has been validated."""
+    """Lower a module call after its product ownership has been validated."""
 
     return LoweredDomainExecution(
         id=execution.id,
@@ -138,6 +172,7 @@ def lower_domain_execution(execution: DomainExecution) -> LoweredDomainExecution
             (result_id, product.product_id)
             for result_id, product in execution.result_bindings
         ),
+        resource_bindings=execution.resource_bindings,
     )
 
 
@@ -149,6 +184,7 @@ def domain_program(
     body: object,
     inputs: Mapping[str, ValueType] | None = None,
     results: Mapping[str, object | None] | None = None,
+    resources: Mapping[str, tuple[str, ...]] | None = None,
 ) -> DomainProgramDef:
     """Declare an opaque program with ordered typed input and result ports."""
 
@@ -165,6 +201,10 @@ def domain_program(
             DomainResultPort(port_id, contract)
             for port_id, contract in (results or {}).items()
         ),
+        resource_ports=tuple(
+            DomainResourcePort(port_id, tuple(capabilities))
+            for port_id, capabilities in (resources or {}).items()
+        ),
     )
 
 
@@ -174,15 +214,22 @@ def domain_execution(
     id: str | None = None,  # noqa: A002
     inputs: Mapping[str, ComputeNodeInputValue] | None = None,
     results: Mapping[str, ProductRef] | None = None,
+    resources: Mapping[str, str] | None = None,
 ) -> DomainExecution:
-    """Bind one template's domain program to values and composed products."""
+    """Bind one module call to typed values and composed products."""
 
     selected_inputs = inputs or {}
     selected_results = results or {}
+    selected_resources = resources or {}
     _require_exact_keys(
         "domain execution inputs",
         selected_inputs,
         tuple(port.id for port in program.input_ports),
+    )
+    _require_exact_keys(
+        "domain execution resources",
+        selected_resources,
+        tuple(port.id for port in program.resource_ports),
     )
     _require_exact_keys(
         "domain execution results",
@@ -201,6 +248,10 @@ def domain_execution(
                 selected_results[port.id],
             )
             for port in program.result_ports
+        ),
+        resource_bindings=tuple(
+            (port.id, logical_resource_port_id(selected_resources[port.id]))
+            for port in program.resource_ports
         ),
     )
 

@@ -39,6 +39,16 @@ READOUT_CAPTURE_MODULE = (
     .product("state1_iq", resource="readout", unit="ratio", dtype="complex128")
     .product("state0_iq_stdev", resource="readout", unit=None)
     .product("state1_iq_stdev", resource="readout", unit=None)
+    .acquire(
+        "read-capture",
+        "raw_iq",
+        "probability_0",
+        "probability_1",
+        "state0_iq",
+        "state1_iq",
+        "state0_iq_stdev",
+        "state1_iq_stdev",
+    )
     .build()
 )
 
@@ -92,6 +102,14 @@ READOUT_MODULE = (
     .product("state1_iq", resource="readout", unit="ratio", dtype="complex128")
     .product("state0_iq_stdev", resource="readout", unit=None)
     .product("state1_iq_stdev", resource="readout", unit=None)
+    .acquire(
+        "read-iq",
+        "raw_iq",
+        "state0_iq",
+        "state1_iq",
+        "state0_iq_stdev",
+        "state1_iq_stdev",
+    )
     .build()
 )
 
@@ -150,6 +168,7 @@ MULTIPLEXED_READOUT_PULSE_MODULE = (
         dtype="complex128",
         axes=(sc.entity_axis("qubit", _MULTIPLEXED_QUBITS),),
     )
+    .acquire("read-multiplexed-iq", "multiplexed_iq")
     .build()
 )
 
@@ -209,10 +228,11 @@ QND_REPEATED_MEASUREMENT_MODULE = (
         unit="ratio",
         dtype="complex128",
         axes=(
-            sc.record_axis("round", size=_QND_ROUNDS, kind="repeat"),
+            sc.product_axis("round", size=_QND_ROUNDS, kind="repeat"),
             sc.shot_axis(_QND_SHOTS),
         ),
     )
+    .acquire("read-qnd-iq", "qnd_iq")
     .build()
 )
 
@@ -241,6 +261,7 @@ MULTIPLEXED_READOUT_MODULE = (
         dtype="complex128",
         axes=(sc.entity_axis("qubit", _MULTIPLEXED_CAPTURE_QUBITS),),
     )
+    .acquire("read-multiplexed-iq", "multiplexed_iq")
     .build()
 )
 

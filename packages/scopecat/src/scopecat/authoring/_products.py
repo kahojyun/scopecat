@@ -1,4 +1,4 @@
-"""Source-only record handles, intents, factories, and composition helpers."""
+"""Source product declarations, hygienic references, and record selections."""
 
 from __future__ import annotations
 
@@ -19,22 +19,19 @@ from scopecat.kernel.product_identity import (
     parse_product_id,
     product_use,
 )
-from scopecat.kernel.resource_identity import (
-    LogicalResourcePortId,
-    logical_resource_port_id,
-)
+from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.symbols import SymbolId
 from scopecat.measurements.results import MeasurementDType
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import Quantity
 
-type RecordKind = Literal["observable", "artifact", "readback", "expression"]
+type ProductKind = Literal["observable", "artifact", "readback", "expression"]
 type AxisSizeInput = ValueRef | Quantity | float | tuple[EntityRef | str, ...]
 type LocalizeValueRef = Callable[[ValueRef, Mapping[str, object]], ValueRef]
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class RecordAxis:
+class ProductAxis:
     id: str
     size: AxisSizeInput
     kind: str | None = None
@@ -43,41 +40,26 @@ class RecordAxis:
 
 
 @dataclass(frozen=True)
-class RecordIntent:
-    id: str
-    kind: RecordKind = "observable"
-    resource_port_id: LogicalResourcePortId | None = None
-    capability: str | None = None
-    product_key: str | None = None
-    unit: str | None = None
-    dtype: MeasurementDType = "float64"
-    axes: tuple[RecordAxis, ...] = ()
-    metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
-    producer_metadata: Mapping[str, MetadataValue] = field(
-        default_factory=empty_frozen_mapping
-    )
+class ModuleProductDecl:
+    """Declare one reusable product independently of execution and storage.
 
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "metadata", freeze_json_mapping(self.metadata))
-        object.__setattr__(
-            self,
-            "producer_metadata",
-            freeze_json_mapping(self.producer_metadata),
-        )
+    A declaration describes the shape and producer-facing mapping available at
+    a module boundary. ``ModuleAcquireEffect`` decides when it is realized;
+    ``RecordSelection`` decides whether a particular use becomes durable.
+    Keeping the three decisions separate lets modules compose without silently
+    imposing experiment-level persistence policy.
+    """
 
-
-@dataclass(frozen=True)
-class ModuleProductPort:
     id: str
     scope: tuple[str, ...] = ()
     origin: tuple[object, ...] = field(default=(), repr=False, compare=False)
-    kind: RecordKind = "observable"
+    kind: ProductKind = "observable"
     resource_port_id: LogicalResourcePortId | None = None
     capability: str | None = None
     product_key: str | None = None
     unit: str | None = None
     dtype: MeasurementDType = "float64"
-    axes: tuple[RecordAxis, ...] = ()
+    axes: tuple[ProductAxis, ...] = ()
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
     producer_metadata: Mapping[str, MetadataValue] = field(
         default_factory=empty_frozen_mapping
@@ -159,6 +141,12 @@ class ProductOutputs(Mapping[str, ProductRef]):
 
 @dataclass(frozen=True, slots=True, repr=False)
 class RecordSelection:
+    """Select one hygienic product use for durable experiment output.
+
+    The selection belongs to a template or scratch experiment, not to the
+    reusable module that declared and acquired the product.
+    """
+
     product_use: ProductUse
     product_origin: tuple[object, ...] | None = field(
         default=None,
@@ -179,15 +167,15 @@ class RecordSelection:
         return self.product_use.product_id
 
 
-def record_axis(
+def product_axis(
     id: str,  # noqa: A002
     *,
     size: ValueRef | Quantity | float | Sequence[EntityRef | str],
     kind: str | None = None,
     unit: str | None = None,
-) -> RecordAxis:
+) -> ProductAxis:
     selected_size = size if isinstance(size, ValueRef) else freeze_runtime_input(size)
-    return RecordAxis(
+    return ProductAxis(
         id=id,
         size=cast("AxisSizeInput", selected_size),
         kind=kind,
@@ -198,11 +186,11 @@ def record_axis(
 def entity_axis(
     id: str,  # noqa: A002
     entities: ValueRef | Sequence[EntityRef | str],
-) -> RecordAxis:
+) -> ProductAxis:
     selected_entities = (
         entities if isinstance(entities, ValueRef) else freeze_runtime_input(entities)
     )
-    return RecordAxis(
+    return ProductAxis(
         id=id,
         size=cast("AxisSizeInput", selected_entities),
         kind="entity",
@@ -213,36 +201,8 @@ def entity_axis(
 
 def shot_axis(
     size: ValueRef | Quantity | float,
-) -> RecordAxis:
-    return record_axis("shot", size=size, kind="shot", unit="count")
-
-
-def observable(
-    id: str,  # noqa: A002
-    *,
-    unit: str | None = "ratio",
-    resource: str | None = None,
-    capability: str | None = None,
-    product_key: str | None = None,
-    dtype: MeasurementDType = "float64",
-    axes: Sequence[RecordAxis] = (),
-    metadata: Mapping[str, MetadataValue] | None = None,
-    producer_metadata: Mapping[str, MetadataValue] | None = None,
-) -> RecordIntent:
-    return RecordIntent(
-        id=id,
-        kind="observable",
-        resource_port_id=(
-            logical_resource_port_id(resource) if resource is not None else None
-        ),
-        capability=capability,
-        product_key=product_key,
-        unit=unit,
-        dtype=dtype,
-        axes=tuple(axes),
-        metadata=freeze_json_mapping(metadata or {}),
-        producer_metadata=freeze_json_mapping(producer_metadata or {}),
-    )
+) -> ProductAxis:
+    return product_axis("shot", size=size, kind="shot", unit="count")
 
 
 def record_product(
@@ -286,12 +246,12 @@ def record_alias(
     )
 
 
-def prefix_product_port(
-    product: ModuleProductPort,
+def prefix_product_decl(
+    product: ModuleProductDecl,
     *scope: str,
     origin: tuple[object, ...] = (),
-) -> ModuleProductPort:
-    """Prefix a product identity while preserving its local instrument intent."""
+) -> ModuleProductDecl:
+    """Prefix a product identity while preserving its producer contract."""
 
     if not scope and not origin:
         return product
@@ -302,35 +262,16 @@ def prefix_product_port(
     )
 
 
-def localize_record_input_refs(
-    record: RecordIntent,
-    inputs: Mapping[str, object],
-    *,
-    localize_value_ref: LocalizeValueRef,
-) -> RecordIntent:
-    return replace(
-        record,
-        axes=tuple(
-            _localize_record_axis_input_refs(
-                axis,
-                inputs,
-                localize_value_ref=localize_value_ref,
-            )
-            for axis in record.axes
-        ),
-    )
-
-
 def localize_product_input_refs(
-    product: ModuleProductPort,
+    product: ModuleProductDecl,
     inputs: Mapping[str, object],
     *,
     localize_value_ref: LocalizeValueRef,
-) -> ModuleProductPort:
+) -> ModuleProductDecl:
     return replace(
         product,
         axes=tuple(
-            _localize_record_axis_input_refs(
+            _localize_product_axis_input_refs(
                 axis,
                 inputs,
                 localize_value_ref=localize_value_ref,
@@ -340,12 +281,12 @@ def localize_product_input_refs(
     )
 
 
-def _localize_record_axis_input_refs(
-    axis: RecordAxis,
+def _localize_product_axis_input_refs(
+    axis: ProductAxis,
     inputs: Mapping[str, object],
     *,
     localize_value_ref: LocalizeValueRef,
-) -> RecordAxis:
+) -> ProductAxis:
     if isinstance(axis.size, ValueRef):
         localized = localize_value_ref(axis.size, inputs)
         return replace(axis, size=localized)

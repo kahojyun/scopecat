@@ -129,11 +129,11 @@ _CZ_EXECUTION = quantum.domain_execution(
 CZ_PHASE_TEMPLATE = (
     sc.module("quantum_lab_demo.reference.cz_phase.root")
     .use(_TEMPLATE_CAPTURE)
+    .domain(_CZ_EXECUTION)
     .template(
         CZ_PHASE_TEMPLATE_ID,
         kind=CZ_PHASE_EXPERIMENT_ID,
     )
-    .domain(_CZ_EXECUTION)
     .experiment_id(CZ_PHASE_EXPERIMENT_ID)
     .scan(
         sc.cartesian(

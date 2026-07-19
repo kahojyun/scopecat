@@ -16,10 +16,9 @@ from scopecat.authoring._binding_intents import ResourcePort
 from scopecat.authoring._point_domain_intents import (
     point_domain_intent_value_type,
 )
-from scopecat.authoring._record_intents import (
-    ModuleProductPort,
-    RecordAxis,
-    RecordIntent,
+from scopecat.authoring._products import (
+    ModuleProductDecl,
+    ProductAxis,
 )
 from scopecat.authoring._value_refs import (
     ValueRef,
@@ -73,7 +72,7 @@ class VerifiedAssemblyGraph:
     implementation_catalog: ImplementationCatalog
     source_map: SourceMap
     resource_ports: Mapping[LogicalResourcePortId, ResourcePort]
-    product_ports: Mapping[ProductId, ModuleProductPort]
+    product_declarations: Mapping[ProductId, ModuleProductDecl]
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,6 +107,8 @@ def verify_assembly_graph(
     """
 
     problems: list[Problem] = []
+    resource_ports = _resource_ports(assembly.resource_ports, problems)
+    product_declarations = _verify_product_schema(assembly, resource_ports, problems)
     try:
         semantic_graph = verify_semantic_graph(assembly.semantic_graph)
     except CheckFailed as error:
@@ -126,7 +127,6 @@ def verify_assembly_graph(
     except CheckFailed as error:
         problems.extend(error.problems)
         source_map = None
-    resource_ports = _resource_ports(assembly.resource_ports, problems)
     if semantic_graph is not None:
         _verify_compute_input_scope(semantic_graph, problems)
         _verify_compute_routes(semantic_graph, resource_ports, problems)
@@ -134,7 +134,6 @@ def verify_assembly_graph(
     _verify_state_resource_ports(assembly, resource_ports, problems)
     if semantic_graph is not None:
         _verify_static_value_dependencies(assembly, semantic_graph, problems)
-    product_ports = _verify_record_schema(assembly, resource_ports, problems)
     if problems:
         raise CheckFailed(problems)
     if semantic_graph is None or implementation_catalog is None or source_map is None:
@@ -146,7 +145,7 @@ def verify_assembly_graph(
         implementation_catalog=implementation_catalog,
         source_map=source_map,
         resource_ports=MappingProxyType(resource_ports),
-        product_ports=MappingProxyType(product_ports),
+        product_declarations=MappingProxyType(product_declarations),
     )
 
 
@@ -558,13 +557,14 @@ def _verify_static_value_dependencies(
                 allow_row=True,
             )
 
-    for record in (*assembly.records, *assembly.product_ports):
-        for axis in record.axes:
+    for product in assembly.product_declarations:
+        for axis in product.axes:
             if not isinstance(axis.size, ValueRef):
                 continue
             location = model_location(
-                "records",
-                record.id,
+                "products",
+                *product.scope,
+                product.id,
                 "axes",
                 axis.id,
                 "size",
@@ -572,24 +572,24 @@ def _verify_static_value_dependencies(
             if internal_value_ref_requires_execution(axis.size):
                 problems.append(
                     _problem(
-                        "record_axis_value_requires_execution",
-                        "record axis size cannot depend on an external operation",
+                        "product_axis_value_requires_execution",
+                        "product axis size cannot depend on an external operation",
                         location,
                     )
                 )
             elif internal_value_ref_point_dependencies(axis.size):
                 problems.append(
                     _problem(
-                        "record_axis_value_depends_on_point",
-                        "record axis size cannot depend on point coordinates",
+                        "product_axis_value_depends_on_point",
+                        "product axis size cannot depend on point coordinates",
                         location,
                     )
                 )
             elif internal_value_ref_is_row_dependent(axis.size):
                 problems.append(
                     _problem(
-                        "record_axis_value_depends_on_row",
-                        "record axis size cannot depend on a row scope",
+                        "product_axis_value_depends_on_row",
+                        "product axis size cannot depend on a row scope",
                         location,
                     )
                 )
@@ -692,15 +692,15 @@ def _definition_is_residual(
     )
 
 
-def _verify_record_schema(
+def _verify_product_schema(
     assembly: SemanticExperimentIR,
     resource_ports: Mapping[LogicalResourcePortId, ResourcePort],
     problems: list[Problem],
-) -> dict[ProductId, ModuleProductPort]:
-    _verify_record_resource_ports(assembly, resource_ports, problems)
-    product_by_id: dict[ProductId, ModuleProductPort] = {}
+) -> dict[ProductId, ModuleProductDecl]:
+    _verify_product_resource_ports(assembly, resource_ports, problems)
+    product_by_id: dict[ProductId, ModuleProductDecl] = {}
     duplicate_products: set[ProductId] = set()
-    for product in assembly.product_ports:
+    for product in assembly.product_declarations:
         if product.product_id in product_by_id:
             duplicate_products.add(product.product_id)
             continue
@@ -716,9 +716,6 @@ def _verify_record_schema(
             )
         )
 
-    records: list[tuple[str, RecordIntent | ModuleProductPort]] = [
-        (record.id, record) for record in assembly.records
-    ]
     product_uses: dict[ProductUseId, ProductUse] = {}
     conflicting_product_uses: dict[ProductUseId, tuple[ProductUse, ProductUse]] = {}
     for selection in assembly.record_selections:
@@ -736,7 +733,7 @@ def _verify_record_schema(
                     "module_product_unknown",
                     "experiment selects unknown product "
                     f"{selection.product_id.qualified_name}",
-                    model_location("records"),
+                    model_location("record_selections"),
                     category=ProblemCategory.NOT_FOUND,
                 )
             )
@@ -751,12 +748,10 @@ def _verify_record_schema(
                     "experiment selects product "
                     f"{selection.product_id.qualified_name!r} from "
                     "another module instance",
-                    model_location("records"),
+                    model_location("record_selections"),
                 )
             )
             continue
-        records.append((record_id, product))
-
     for use_id in sorted(conflicting_product_uses, key=lambda item: item.value):
         existing_use, conflicting_use = conflicting_product_uses[use_id]
         problems.append(
@@ -765,26 +760,23 @@ def _verify_record_schema(
                 f"product use {use_id.value!r} refers to both "
                 f"{existing_use.product_id.qualified_name!r} and "
                 f"{conflicting_use.product_id.qualified_name!r}",
-                model_location("records"),
+                model_location("record_selections"),
                 category=ProblemCategory.CONFLICT,
             )
         )
 
     record_ids = [
-        *(record.id for record in assembly.records),
-        *(
-            selection.record_id or selection.product_id.qualified_name
-            for selection in assembly.record_selections
-        ),
+        selection.record_id or selection.product_id.qualified_name
+        for selection in assembly.record_selections
     ]
     duplicate_records = _duplicates(record_ids)
     if duplicate_records:
         problems.append(
             _problem(
-                "module_record_duplicate",
-                "experiment assembly defines duplicate records: "
+                "template_record_duplicate",
+                "experiment template selects duplicate record ids: "
                 + ", ".join(duplicate_records),
-                model_location("records"),
+                model_location("record_selections"),
                 category=ProblemCategory.CONFLICT,
             )
         )
@@ -799,36 +791,37 @@ def _verify_record_schema(
             _problem(
                 "experiment_record_coordinate_collision",
                 f"record {record_id!r} conflicts with a point coordinate",
-                model_location("records", record_id),
+                model_location("record_selections", record_id),
                 category=ProblemCategory.CONFLICT,
             )
         )
 
-    axes_by_id: dict[str, tuple[str, RecordAxis]] = {}
-    for record_id, record in records:
-        _verify_record_definition(record_id, record, problems)
+    axes_by_id: dict[str, tuple[str, ProductAxis]] = {}
+    for product in assembly.product_declarations:
+        product_id = product.qualified_id
+        _verify_product_definition(product, problems)
         seen_axis_ids: set[str] = set()
-        for axis in record.axes:
+        for axis in product.axes:
             if axis.id in seen_axis_ids:
                 continue
             seen_axis_ids.add(axis.id)
             existing = axes_by_id.get(axis.id)
             if existing is None:
-                axes_by_id[axis.id] = (record_id, axis)
+                axes_by_id[axis.id] = (product_id, axis)
                 continue
             existing_record_id, existing_axis = existing
             if _source_axes_can_conflict(existing_axis, axis):
                 problems.append(
                     _problem(
-                        "experiment_record_axis_conflict",
-                        f"record {record_id!r} axis {axis.id!r} conflicts with "
-                        f"record {existing_record_id!r}; shared axes must have "
+                        "product_axis_conflict",
+                        f"product {product_id!r} axis {axis.id!r} conflicts with "
+                        f"product {existing_record_id!r}; shared axes must have "
                         "identical kind, size, and unit",
-                        model_location("records", record_id, "axes", axis.id),
+                        model_location("products", product_id, "axes", axis.id),
                         category=ProblemCategory.CONFLICT,
                         related_locations=(
                             model_location(
-                                "records",
+                                "products",
                                 existing_record_id,
                                 "axes",
                                 axis.id,
@@ -839,41 +832,19 @@ def _verify_record_schema(
     return product_by_id
 
 
-def _verify_record_resource_ports(
+def _verify_product_resource_ports(
     assembly: SemanticExperimentIR,
     resource_ports: Mapping[LogicalResourcePortId, ResourcePort],
     problems: list[Problem],
 ) -> None:
-    for record in assembly.records:
-        if record.resource_port_id is None:
-            continue
-        port = resource_ports.get(record.resource_port_id)
-        if port is None:
-            problems.append(
-                _problem(
-                    "module_record_resource_port_missing",
-                    f"record {record.id!r} references undeclared resource port "
-                    f"{record.resource_port_id.qualified_name!r}",
-                    model_location("records", record.id, "resource"),
-                    category=ProblemCategory.NOT_FOUND,
-                )
-            )
-            continue
-        _verify_resource_port_capability(
-            record.resource_port_id,
-            record.capability,
-            port,
-            location=model_location("records", record.id, "capability"),
-            problems=problems,
-        )
-    for product in assembly.product_ports:
+    for product in assembly.product_declarations:
         if product.resource_port_id is None:
             continue
         port = resource_ports.get(product.resource_port_id)
         if port is None:
             problems.append(
                 _problem(
-                    "module_record_resource_port_missing",
+                    "product_resource_port_missing",
                     f"product {product.qualified_id!r} references undeclared resource "
                     f"port {product.resource_port_id.qualified_name!r}",
                     model_location(
@@ -900,62 +871,63 @@ def _verify_record_resource_ports(
         )
 
 
-def _verify_record_definition(
-    record_id: str,
-    record: RecordIntent | ModuleProductPort,
+def _verify_product_definition(
+    product: ModuleProductDecl,
     problems: list[Problem],
 ) -> None:
-    if record.unit is not None and not is_supported_unit(record.unit):
+    product_id = product.qualified_id
+    location = model_location("products", *product.scope, product.id)
+    if product.unit is not None and not is_supported_unit(product.unit):
         problems.append(
             _problem(
                 "product_unit_unsupported",
-                f"product {record_id!r} uses unsupported unit {record.unit!r}",
-                model_location("records", record_id, "unit"),
+                f"product {product_id!r} uses unsupported unit {product.unit!r}",
+                model_location(location.root, *location.path, "unit"),
             )
         )
-    duplicate_axes = _duplicates([axis.id for axis in record.axes])
+    duplicate_axes = _duplicates([axis.id for axis in product.axes])
     for axis_id in duplicate_axes:
         problems.append(
             _problem(
                 "product_axis_duplicate",
-                f"product {record_id!r} axis {axis_id!r} is duplicated",
-                model_location("records", record_id, "axes"),
+                f"product {product_id!r} axis {axis_id!r} is duplicated",
+                model_location(location.root, *location.path, "axes"),
                 category=ProblemCategory.CONFLICT,
             )
         )
-    for axis in record.axes:
-        location = model_location("records", record_id, "axes", axis.id)
+    for axis in product.axes:
+        axis_location = model_location(location.root, *location.path, "axes", axis.id)
         if axis.id == "point":
             problems.append(
                 _problem(
                     "product_axis_reserved",
                     "product axis 'point' conflicts with the point dimension",
-                    location,
+                    axis_location,
                 )
             )
         if axis.unit is not None and not is_supported_unit(axis.unit):
             problems.append(
                 _problem(
                     "product_axis_unit_unsupported",
-                    f"product {record_id!r} axis {axis.id!r} uses unsupported "
+                    f"product {product_id!r} axis {axis.id!r} uses unsupported "
                     f"unit {axis.unit!r}",
-                    model_location(location.root, *location.path, "unit"),
+                    model_location(axis_location.root, *axis_location.path, "unit"),
                 )
             )
         size = _literal_axis_size(axis)
         if size is not None and size <= 0:
             problems.append(
                 _problem(
-                    "module_records_value_invalid",
-                    "records value must be a positive integer",
-                    model_location(location.root, *location.path, "size"),
+                    "product_axis_size_invalid",
+                    "product axis size must be a positive integer",
+                    model_location(axis_location.root, *axis_location.path, "size"),
                 )
             )
 
 
 def _source_axes_can_conflict(
-    left: RecordAxis,
-    right: RecordAxis,
+    left: ProductAxis,
+    right: ProductAxis,
 ) -> bool:
     if (left.kind or left.id) != (right.kind or right.id):
         return True
@@ -966,7 +938,7 @@ def _source_axes_can_conflict(
     return left_size is not None and right_size is not None and left_size != right_size
 
 
-def _literal_axis_size(axis: RecordAxis) -> int | None:
+def _literal_axis_size(axis: ProductAxis) -> int | None:
     value = axis.size
     if isinstance(value, tuple):
         return len(value)

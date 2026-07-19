@@ -216,6 +216,15 @@ class DomainResultBindingView:
 
 
 @dataclass(frozen=True, slots=True)
+class DomainResourceBindingView:
+    """One named domain role bound to a logical experiment resource."""
+
+    role: str
+    resource_port_id: str
+    capabilities: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class DomainCallView:
     """Symbolic typed domain call exposed during pure target compilation."""
 
@@ -224,6 +233,13 @@ class DomainCallView:
     results: tuple[DomainResultBindingView, ...]
     measurement_transforms: tuple[DomainMeasurementTransform, ...] = ()
     product_uses: tuple[DomainProductUseRef, ...] = ()
+    resources: tuple[DomainResourceBindingView, ...] = ()
+
+    def resource(self, role: str) -> DomainResourceBindingView:
+        for resource in self.resources:
+            if resource.role == role:
+                return resource
+        raise KeyError(role)
 
     def result(self, name: str) -> DomainResultBindingView:
         for result in self.results:

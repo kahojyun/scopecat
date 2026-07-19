@@ -58,6 +58,7 @@ def _workspace_readout_instance(instance_id: str) -> sc.ModuleInvocation:
             value=DRIVE_FREQUENCY_POINT,
         )
         .product("signal", resource="source", unit="ratio")
+        .acquire("read-signal", "signal")
         .build()
     )
     return module.instantiate(instance_id, subject="q0")
@@ -256,7 +257,7 @@ def test_workspace_experiment_wraps_existing_module_source(tmp_path: Path) -> No
     assert run.manifest.status == "completed"
 
 
-def test_workspace_experiment_composes_module_source_with_fragments(
+def test_workspace_experiment_composes_module_source_with_authored_content(
     tmp_path: Path,
 ) -> None:
     lab = sc.open(
@@ -339,13 +340,17 @@ def test_prepared_experiment_check_returns_record_schema_problems(
 ) -> None:
     module = (
         sc.module("test.invalid-record-unit")
-        .record("signal", unit="not-a-unit")
+        .product("signal", unit="not-a-unit")
         .build()
     )
-    template = module.template(
-        "test.invalid-record-unit",
-        kind="invalid_record",
-    ).build()
+    template = (
+        module.template(
+            "test.invalid-record-unit",
+            kind="invalid_record",
+        )
+        .record_product("signal")
+        .build()
+    )
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
@@ -512,6 +517,7 @@ def test_prepared_template_builder_preview_and_run_terminals(
             span=Quantity(value=200.0, unit="MHz"),
             points=5,
         )
+        .record_product("signal")
     )
 
     plan = (
@@ -790,6 +796,7 @@ def test_workspace_module_can_be_composed(
             value=drive_frequency,
         )
         .product("signal", resource="source")
+        .acquire("read-signal", "signal")
         .build()
     )
     signal_scan_instance = signal_scan.instantiate(

@@ -35,7 +35,8 @@ SIMPLE_MODULE = (
         field="frequency",
         value=DRIVE_FREQUENCY_POINT,
     )
-    .record("signal", resource="source", unit="ratio")
+    .product("signal", resource="source", unit="ratio")
+    .acquire("read-signal", "signal")
     .build()
 )
 
@@ -54,6 +55,7 @@ def simple_template() -> ExperimentTemplate:
             points=5,
         )
         .label("Simple scan")
+        .record_product("signal")
         .inputs(
             InputDescription(id="subject"),
             InputDescription(id="drive_frequency"),

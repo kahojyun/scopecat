@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import cast
+from typing import Protocol, cast
 from uuid import UUID, uuid4
 
 from scopecat.authoring._binding_intents import (
@@ -31,9 +31,9 @@ from scopecat.authoring._intents import (
     ModuleInputPort,
     ModuleOperationDecl,
 )
-from scopecat.authoring._record_intents import (
-    ModuleProductPort,
-    RecordIntent,
+from scopecat.authoring._products import (
+    ModuleProductDecl,
+    ProductRef,
 )
 from scopecat.authoring._value_refs import (
     ValueRef,
@@ -44,6 +44,7 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_operation_origin,
     internal_value_ref_unbound_input_ids,
 )
+from scopecat.authoring.domain import DomainExecution
 from scopecat.authoring.measurements import MeasurementTransform
 from scopecat.authoring.value_types import ValueType
 from scopecat.authoring.values import (
@@ -123,7 +124,7 @@ class ModuleProductExport:
     target_origin: tuple[object, ...] = field(repr=False, compare=False)
 
     @classmethod
-    def from_declaration(cls, product: ModuleProductPort) -> ModuleProductExport:
+    def from_declaration(cls, product: ModuleProductDecl) -> ModuleProductExport:
         symbol_id = product.product_id
         return cls(
             symbol_id=symbol_id,
@@ -165,6 +166,14 @@ class ModuleImportBinding:
 
 
 @dataclass(frozen=True, slots=True)
+class ModuleResourceBinding:
+    """Bind one child resource import to a resource port of its parent."""
+
+    import_id: LogicalResourcePortId
+    source_id: LogicalResourcePortId
+
+
+@dataclass(frozen=True, slots=True)
 class ModuleInterfaceIR:
     imports: tuple[ModuleInputPort, ...] = ()
     exports: tuple[ModuleValueExport, ...] = ()
@@ -189,6 +198,7 @@ class ModuleInstanceIR:
     lookup: ModuleInstanceLookup
     module: ModuleIR
     input_bindings: tuple[ModuleImportBinding, ...]
+    resource_bindings: tuple[ModuleResourceBinding, ...] = ()
 
     @property
     def instance_id(self) -> str:
@@ -219,6 +229,23 @@ class ModuleInstanceIR:
                 imports[import_id].value_type,
                 path=("instances", self.instance_id, "inputs", import_id),
             )
+        resource_imports = {
+            item.symbol_id: item for item in self.module.interface.resources
+        }
+        resource_bindings = {item.import_id: item for item in self.resource_bindings}
+        _require_unique(
+            "module resource binding",
+            tuple(item.import_id for item in self.resource_bindings),
+        )
+        unknown_resources = sorted(
+            item.qualified_name
+            for item in set(resource_bindings) - set(resource_imports)
+        )
+        if unknown_resources:
+            msg = "module instance binds undeclared resources: " + ", ".join(
+                unknown_resources
+            )
+            raise ValueError(msg)
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,15 +262,87 @@ class ModulePythonImplementation:
 
 
 @dataclass(frozen=True, slots=True)
+class ModuleInstanceEffect:
+    """Inline one child module's procedure at this position."""
+
+    invocation_key: InvocationKey
+
+
+@dataclass(frozen=True, slots=True)
+class ModuleParallelEffect:
+    """A set of child procedures that may be scheduled concurrently."""
+
+    invocation_keys: tuple[InvocationKey, ...]
+
+    def __post_init__(self) -> None:
+        if len(self.invocation_keys) < 2:
+            raise ValueError("module parallel groups require at least two branches")
+        _require_unique("module parallel branch", self.invocation_keys)
+
+
+@dataclass(frozen=True, slots=True)
+class ModuleBindingEffect:
+    """Apply one desired-state binding at this position."""
+
+    intent: ExperimentBindingIntent
+
+
+@dataclass(frozen=True, slots=True)
+class ModuleStateEffect:
+    """Apply one row-scoped desired-state region at this position."""
+
+    intent: ExperimentStateIntent
+
+
+@dataclass(frozen=True, slots=True)
+class ModuleActionEffect:
+    """Deliver one receipt-bearing instrument action at this position."""
+
+    intent: ModuleActionDecl
+
+
+@dataclass(frozen=True, slots=True)
+class ModuleDomainEffect:
+    """Invoke one opaque domain program at this position."""
+
+    execution: DomainExecution
+
+
+@dataclass(frozen=True, slots=True)
+class ModuleAcquireEffect:
+    """Realize selected products at this exact procedure position.
+
+    Acquisition is an ordered effect because triggering or reading hardware is
+    observable execution. Product shape remains a declaration and durable
+    recording remains template policy, so neither is encoded in this effect.
+    """
+
+    id: str
+    products: tuple[ProductRef, ...]
+
+    def __post_init__(self) -> None:
+        if not self.id or not self.products:
+            raise ValueError("module acquire requires an id and products")
+
+
+type ModuleEffectIR = (
+    ModuleInstanceEffect
+    | ModuleParallelEffect
+    | ModuleBindingEffect
+    | ModuleStateEffect
+    | ModuleActionEffect
+    | ModuleDomainEffect
+    | ModuleAcquireEffect
+)
+
+
+@dataclass(frozen=True, slots=True)
 class ModuleBodyIR:
     instances: tuple[ModuleInstanceIR, ...] = ()
-    bindings: tuple[ExperimentBindingIntent, ...] = ()
-    state: tuple[ExperimentStateIntent, ...] = ()
-    actions: tuple[ModuleActionDecl, ...] = ()
+    procedure: tuple[ModuleEffectIR, ...] = ()
     operations: tuple[ModuleOperationDecl, ...] = ()
     measurement_transforms: tuple[MeasurementTransform, ...] = ()
-    records: tuple[RecordIntent, ...] = ()
-    products: tuple[ModuleProductPort, ...] = ()
+    products: tuple[ModuleProductDecl, ...] = ()
 
     def __post_init__(self) -> None:
         _require_unique(
@@ -264,6 +363,52 @@ class ModuleBodyIR:
         )
         _require_unique("module action", tuple(item.action_id for item in self.actions))
         _require_unique(
+            "module domain execution",
+            tuple(item.id for item in self.domain_executions),
+        )
+        _require_unique(
+            "module acquisition",
+            tuple(item.id for item in self.acquisitions),
+        )
+        invocation_keys = tuple(
+            key
+            for effect in self.procedure
+            for key in (
+                (effect.invocation_key,)
+                if isinstance(effect, ModuleInstanceEffect)
+                else effect.invocation_keys
+                if isinstance(effect, ModuleParallelEffect)
+                else ()
+            )
+        )
+        _require_unique("module procedure invocation", invocation_keys)
+        declared_invocations = {item.invocation_key for item in self.instances}
+        if set(invocation_keys) != declared_invocations:
+            msg = "module procedure must contain every child invocation exactly once"
+            raise ValueError(msg)
+        instances_by_key = {item.invocation_key: item for item in self.instances}
+        for effect in self.procedure:
+            if not isinstance(effect, ModuleParallelEffect):
+                continue
+            bound_parent_resources: list[LogicalResourcePortId] = []
+            for key in effect.invocation_keys:
+                bound_parent_resources.extend(
+                    binding.source_id
+                    for binding in instances_by_key[key].resource_bindings
+                )
+            conflicts = sorted(
+                {
+                    resource_id.qualified_name
+                    for resource_id in bound_parent_resources
+                    if bound_parent_resources.count(resource_id) > 1
+                }
+            )
+            if conflicts:
+                raise ValueError(
+                    "parallel module branches bind the same parent resources: "
+                    + ", ".join(conflicts)
+                )
+        _require_unique(
             "module measurement transform",
             tuple(item.symbol_id for item in self.measurement_transforms),
         )
@@ -280,6 +425,46 @@ class ModuleBodyIR:
                             f"{role!r} references undeclared local product "
                             f"{product_id.qualified_name!r}"
                         )
+
+    @property
+    def bindings(self) -> tuple[ExperimentBindingIntent, ...]:
+        return tuple(
+            effect.intent
+            for effect in self.procedure
+            if isinstance(effect, ModuleBindingEffect)
+        )
+
+    @property
+    def state(self) -> tuple[ExperimentStateIntent, ...]:
+        return tuple(
+            effect.intent
+            for effect in self.procedure
+            if isinstance(effect, ModuleStateEffect)
+        )
+
+    @property
+    def actions(self) -> tuple[ModuleActionDecl, ...]:
+        return tuple(
+            effect.intent
+            for effect in self.procedure
+            if isinstance(effect, ModuleActionEffect)
+        )
+
+    @property
+    def domain_executions(self) -> tuple[DomainExecution, ...]:
+        return tuple(
+            effect.execution
+            for effect in self.procedure
+            if isinstance(effect, ModuleDomainEffect)
+        )
+
+    @property
+    def acquisitions(self) -> tuple[ModuleAcquireEffect, ...]:
+        return tuple(
+            effect
+            for effect in self.procedure
+            if isinstance(effect, ModuleAcquireEffect)
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -298,6 +483,17 @@ class ModuleIR:
         problems = _module_closure_problems(self)
         if problems:
             raise CheckFailed(problems)
+
+
+class _ModuleProblemAdder(Protocol):
+    def __call__(
+        self,
+        code: str,
+        subject: str,
+        *,
+        category: ProblemCategory,
+        message: str,
+    ) -> None: ...
 
 
 def _module_closure_problems(module: ModuleIR) -> list[Problem]:
@@ -418,9 +614,53 @@ def _module_closure_problems(module: ModuleIR) -> list[Problem]:
 
         internal_transform_value_ref(value, check_leaf)
 
-    declared_resources = {port.symbol_id for port in module.interface.resources}
+    _check_module_resources(module, add_problem)
+    _check_module_products(module, add_problem)
+    return problems
+
+
+def _check_module_resources(
+    module: ModuleIR,
+    add_problem: _ModuleProblemAdder,
+) -> None:
+    declared = {port.symbol_id for port in module.interface.resources}
+    parent_ports = {port.symbol_id: port for port in module.interface.resources}
+    for instance in module.body.instances:
+        child_ports = {
+            port.symbol_id: port for port in instance.module.interface.resources
+        }
+        for binding in instance.resource_bindings:
+            parent_port = parent_ports.get(binding.source_id)
+            if parent_port is None:
+                add_problem(
+                    "module_resource_binding_undeclared",
+                    f"{instance.instance_id}/{binding.source_id.qualified_name}",
+                    category=ProblemCategory.NOT_FOUND,
+                    message=(
+                        f"module instance {instance.instance_id!r} binds to "
+                        f"undeclared parent resource "
+                        f"{binding.source_id.qualified_name!r}"
+                    ),
+                )
+                continue
+            child_port = child_ports[binding.import_id]
+            missing_capabilities = sorted(
+                set(child_port.selector.capabilities)
+                - set(parent_port.selector.capabilities)
+            )
+            if missing_capabilities:
+                add_problem(
+                    "module_resource_binding_capability_mismatch",
+                    f"{instance.instance_id}/{binding.import_id.qualified_name}",
+                    category=ProblemCategory.INVALID_INPUT,
+                    message=(
+                        f"parent resource {binding.source_id.qualified_name!r} "
+                        "does not provide child capabilities: "
+                        + ", ".join(missing_capabilities)
+                    ),
+                )
     for resource_id in _module_resource_uses(module):
-        if resource_id not in declared_resources:
+        if resource_id not in declared:
             add_problem(
                 "module_resource_undeclared",
                 resource_id.qualified_name,
@@ -431,6 +671,12 @@ def _module_closure_problems(module: ModuleIR) -> list[Problem]:
                 ),
             )
 
+
+def _check_module_products(
+    module: ModuleIR,
+    add_problem: _ModuleProblemAdder,
+) -> None:
+    resource_ports = {port.symbol_id: port for port in module.interface.resources}
     expected_products = {
         export.symbol_id: export
         for export in (
@@ -461,6 +707,67 @@ def _module_closure_problems(module: ModuleIR) -> list[Problem]:
                     "projection of a body declaration"
                 ),
             )
+    product_origins = {
+        product_id: export.target_origin
+        for product_id, export in expected_products.items()
+    }
+    for acquire in module.body.acquisitions:
+        for product in acquire.products:
+            expected_origin = product_origins.get(product.product_id)
+            if expected_origin != product.origin:
+                add_problem(
+                    "module_acquire_product_invalid",
+                    f"{acquire.id}/{product.product_id.qualified_name}",
+                    category=ProblemCategory.NOT_FOUND,
+                    message=(
+                        f"module acquisition {acquire.id!r} references product "
+                        f"{product.product_id.qualified_name!r} outside this module"
+                    ),
+                )
+    for execution in module.body.domain_executions:
+        required_resources = {
+            port.id: port for port in execution.program.resource_ports
+        }
+        for role, resource_id in execution.resource_bindings:
+            port = resource_ports.get(resource_id)
+            if port is None:
+                continue
+            missing_capabilities = sorted(
+                set(required_resources[role].capabilities)
+                - set(port.selector.capabilities)
+            )
+            if missing_capabilities:
+                add_problem(
+                    "domain_resource_capability_mismatch",
+                    f"{execution.id}/{role}",
+                    category=ProblemCategory.INVALID_INPUT,
+                    message=(
+                        f"domain resource role {role!r} requires capabilities: "
+                        + ", ".join(missing_capabilities)
+                    ),
+                )
+        for result_id, product in execution.result_bindings:
+            expected_origin = product_origins.get(product.product_id)
+            if expected_origin is None:
+                add_problem(
+                    "domain_execution_product_unknown",
+                    f"{execution.id}/{result_id}",
+                    category=ProblemCategory.NOT_FOUND,
+                    message=(
+                        f"domain result {result_id!r} binds unknown product "
+                        f"{product.id!r}"
+                    ),
+                )
+            elif product.origin != expected_origin:
+                add_problem(
+                    "domain_execution_product_foreign_instance",
+                    f"{execution.id}/{result_id}",
+                    category=ProblemCategory.INVALID_INPUT,
+                    message=(
+                        f"domain result {result_id!r} binds product {product.id!r} "
+                        "from another module instance"
+                    ),
+                )
     if set(expected_products) != {
         product.symbol_id for product in module.interface.products
     }:
@@ -470,7 +777,6 @@ def _module_closure_problems(module: ModuleIR) -> list[Problem]:
             category=ProblemCategory.INVALID_INPUT,
             message=f"module {module.id!r} does not expose its body products exactly",
         )
-    return problems
 
 
 def _module_lexical_value_refs(module: ModuleIR) -> tuple[ValueRef, ...]:
@@ -496,10 +802,14 @@ def _module_lexical_value_refs(module: ModuleIR) -> tuple[ValueRef, ...]:
     )
     roots.extend(
         value
+        for execution in module.body.domain_executions
+        for _name, value in execution.input_bindings
+    )
+    roots.extend(
+        value
         for operation in module.body.operations
         for _name, value in operation.inputs
     )
-    roots.extend(axis.size for record in module.body.records for axis in record.axes)
     roots.extend(axis.size for product in module.body.products for axis in product.axes)
     return tuple(
         value for root in roots for value in _nested_value_refs(root, seen=frozenset())
@@ -548,15 +858,15 @@ def _module_resource_uses(module: ModuleIR) -> tuple[LogicalResourcePortId, ...]
     )
     selected.extend(action.resource_port_id for action in module.body.actions)
     selected.extend(
+        resource_id
+        for execution in module.body.domain_executions
+        for _role, resource_id in execution.resource_bindings
+    )
+    selected.extend(
         value.port_id
         for operation in module.body.operations
         for _name, value in operation.inputs
         if isinstance(value, RouteRef)
-    )
-    selected.extend(
-        record.resource_port_id
-        for record in module.body.records
-        if record.resource_port_id is not None
     )
     selected.extend(
         product.resource_port_id

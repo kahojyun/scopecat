@@ -40,6 +40,7 @@ def test_record_demand_closes_transform_inputs_and_prunes_dead_transform(
             _transform("second", source="middle", output="derived"),
             _transform("first", source="raw", output="middle"),
         )
+        .acquire("read-raw", "raw")
         .build()
     )
     template = (
@@ -108,6 +109,7 @@ def test_hidden_transform_input_use_ids_are_stable_scoped_and_escaped(
                 outputs={"result": "derived"},
             )
         )
+        .acquire("read-raw", "raw")
         .build()
     )
     left = child.instantiate("left")

@@ -34,10 +34,9 @@ from scopecat.authoring._module_handles import (
     StateRouteInput,
     StateScalarInput,
 )
-from scopecat.authoring._record_intents import (
+from scopecat.authoring._products import (
+    ProductAxis,
     ProductRef,
-    RecordAxis,
-    RecordIntent,
     RecordSelection,
     record_product,
 )
@@ -311,17 +310,15 @@ class Experiment:
         default_factory=empty_frozen_mapping
     )
     module: ModuleBuilder = field(default_factory=public_authoring.module)
-    domain_executions: tuple[DomainExecution, ...] = ()
     scans: tuple[Scan, ...] = ()
     record_selections: tuple[RecordSelection, ...] = ()
 
     @property
-    def records(self) -> tuple[RecordIntent, ...]:
-        return self.module.records
-
-    @property
     def observables(self) -> tuple[str, ...]:
-        return self.module.observables
+        return tuple(
+            selection.record_id or selection.product_id.qualified_name
+            for selection in self.record_selections
+        )
 
     def entity(
         self,
@@ -360,9 +357,7 @@ class Experiment:
     def domain(self, execution: DomainExecution) -> Experiment:
         """Append one ordered domain effect to this scratch experiment."""
 
-        if execution.id in {item.id for item in self.domain_executions}:
-            raise ValueError(f"domain execution id {execution.id!r} is repeated")
-        return replace(self, domain_executions=(*self.domain_executions, execution))
+        return replace(self, module=self.module.domain(execution))
 
     def use(
         self,
@@ -468,20 +463,43 @@ class Experiment:
         product_key: str | None = None,
         unit: str | None = "ratio",
         dtype: MeasurementDType = "float64",
-        axes: Sequence[RecordAxis] = (),
+        axes: Sequence[ProductAxis] = (),
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> Experiment:
+        """Add a compact scratch-experiment measurement step.
+
+        The convenience expands to the same three primitives used by reusable
+        authoring: a product declaration, an ordered acquisition, and a durable
+        record selection. It is intentionally not a second record model.
+        """
+
+        module = self.module.product(
+            *record_ids,
+            resource=resource,
+            capability=capability,
+            product_key=product_key,
+            unit=unit,
+            dtype=dtype,
+            axes=axes,
+            metadata=metadata,
+        )
+        module = module.acquire(
+            f"acquire-{'-'.join(record_ids)}",
+            *record_ids,
+        )
         return replace(
             self,
-            module=self.module.record(
-                *record_ids,
-                resource=resource,
-                capability=capability,
-                product_key=product_key,
-                unit=unit,
-                dtype=dtype,
-                axes=axes,
-                metadata=metadata,
+            module=module,
+            record_selections=(
+                *self.record_selections,
+                *(
+                    record_product(
+                        module.products[record_id],
+                        record_id=record_id,
+                        metadata=metadata,
+                    )
+                    for record_id in record_ids
+                ),
             ),
         )
 
@@ -545,7 +563,7 @@ class Experiment:
         return self.session
 
     def to_invocation(self) -> ExperimentInvocation:
-        if not (self.module.has_fragments or self.scans or self.record_selections):
+        if not (self.module.has_content or self.scans or self.record_selections):
             msg = "workspace experiment requires a source, module, scan, or record"
             raise ValueError(msg)
         experiment_id = _safe_experiment_id(self.name)
@@ -976,8 +994,6 @@ def _workspace_template(
     )
     for scan in experiment.scans:
         builder = builder.scan(scan)
-    for execution in experiment.domain_executions:
-        builder = builder.domain(execution)
     builder = builder.records(*experiment.record_selections)
     return builder.build()
 
@@ -990,21 +1006,6 @@ def _workspace_request_inputs(experiment: Experiment) -> dict[str, object]:
             if experiment.entity_inputs
             else {}
         ),
-        "records": [
-            {
-                "id": record.id,
-                "resource_port_id": (
-                    record.resource_port_id.qualified_name
-                    if record.resource_port_id is not None
-                    else None
-                ),
-                "capability": record.capability,
-                "product_key": record.product_key,
-                "unit": record.unit,
-                "dtype": record.dtype,
-            }
-            for record in experiment.module.records
-        ],
         "selected_products": [
             {
                 "product_id": selection.product_id.qualified_name,
@@ -1032,7 +1033,6 @@ __all__ = [
     "Experiment",
     "PreparedExperiment",
     "Quantity",
-    "RecordIntent",
     "RunHandle",
     "SavedAnalysis",
     "Workspace",

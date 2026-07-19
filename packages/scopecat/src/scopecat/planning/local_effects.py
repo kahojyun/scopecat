@@ -50,7 +50,6 @@ class MaterializedLocalEffects:
 
     compute_operations: tuple[RunCoverageEffect, ...]
     effect_operations: tuple[tuple[RunCoverageEffect, ...], ...]
-    collect_operations: tuple[RunCoverageEffect, ...]
 
 
 def local_operation_resource_claims(

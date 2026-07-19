@@ -94,7 +94,7 @@ def _template(
         if isinstance(selected, sc.ModuleInvocation)
         else selected.instantiate(
             selected.id.rsplit(".", maxsplit=1)[-1],
-            **{port.id: root_inputs[port.id] for port in selected.input_ports},
+            {port.id: root_inputs[port.id] for port in selected.input_ports},
         )
         for selected in modules
     )

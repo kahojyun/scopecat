@@ -139,7 +139,7 @@ def test_template_build_validates_product_and_record_selection_names() -> None:
         )
 
     assert [problem.code for problem in error.value.problems] == [
-        "module_record_duplicate",
+        "template_record_duplicate",
     ]
 
 

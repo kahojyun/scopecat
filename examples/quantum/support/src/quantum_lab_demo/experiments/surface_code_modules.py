@@ -114,10 +114,11 @@ TOY_SURFACE_CODE_ROUND_MODULE = (
         unit="ratio",
         dtype="complex128",
         axes=(
-            sc.record_axis("round", size=_ROUNDS, kind="repeat"),
+            sc.product_axis("round", size=_ROUNDS, kind="repeat"),
             sc.entity_axis("qubit", _PATCH_QUBITS),
         ),
     )
+    .acquire("read-stabilizer-iq", "stabilizer_iq")
     .build()
 )
 

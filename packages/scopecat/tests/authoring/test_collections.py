@@ -32,6 +32,7 @@ from scopecat.compiler.relations.verification import (
 )
 from scopecat.compiler.semantic.compute_result import ComputeResultRef
 from scopecat.compiler.semantic.model import (
+    ActionEffectRef,
     OperationId,
     OperationOutputSource,
     PlanExpressionSource,
@@ -42,9 +43,11 @@ from scopecat.compiler.semantic.value_expressions import (
     SeriesValueExpr,
     TableValueExpr,
 )
+from scopecat.compiler.typed.action import ActionSpec
 from scopecat.compiler.typed.point_domain import materialize_point_domain
 from scopecat.compiler.typed.program import (
     ComputeEdge,
+    TypedDomainExecution,
     ValueInput,
     core_actions,
     core_state,
@@ -106,6 +109,74 @@ def test_action_lowers_as_a_distinct_point_effect() -> None:
     execution = bound
     [action] = operations_of_type(execution, InstrumentActionOperation, point_index=0)
     assert action.capability_id == "set_frequency"
+
+
+def test_module_procedure_preserves_effect_order_across_effect_kinds() -> None:
+    program = authoring.domain_program(
+        "pulse",
+        dialect_id="test",
+        dialect_version="1",
+        body=object(),
+    )
+    module = (
+        authoring.module("test.effect-order")
+        .resource("source", requires=("set_frequency",))
+        .action(
+            "arm",
+            resource="source",
+            capability="set_frequency",
+        )
+        .domain(authoring.domain_execution(program))
+        .bind_field(
+            "source",
+            capability="set_frequency",
+            field="frequency",
+            value=Quantity(value=5.0, unit="GHz"),
+        )
+        .action(
+            "trigger",
+            resource="source",
+            capability="set_frequency",
+        )
+        .build()
+    )
+    resolved = resolve_experiment(
+        module.template("test.effect-order", kind="effect-order").bind(),
+        config_profile=load_config(),
+    )
+
+    assert tuple(type(effect) for effect in resolved.experiment.effects) == (
+        ActionSpec,
+        TypedDomainExecution,
+        SetStateSpec,
+        ActionSpec,
+    )
+
+
+def test_child_procedure_is_inlined_at_its_module_occurrence() -> None:
+    child = (
+        authoring.module("test.effect-order.child")
+        .resource("source", requires=("set_frequency",))
+        .action("child", resource="source", capability="set_frequency")
+        .build()
+        .instantiate("nested")
+    )
+    parent = (
+        authoring.module("test.effect-order.parent")
+        .resource("source", requires=("set_frequency",))
+        .action("before", resource="source", capability="set_frequency")
+        .use(child)
+        .action("after", resource="source", capability="set_frequency")
+        .build()
+    )
+
+    assembly = elaborate_module(parent)
+
+    assert tuple(
+        effect.id.qualified_name
+        for effect in assembly.effect_order
+        if isinstance(effect, ActionEffectRef)
+    ) == ("actions/before", "nested/actions/child", "actions/after")
 
 
 def _echo_rows_offsets(*, rows: object, offsets: object) -> dict[str, object]:
@@ -247,6 +318,7 @@ def test_collections_cross_module_route_axis_and_compute_with_provenance() -> No
             resource="source",
             axes=(authoring.entity_axis("qubit", gate_entities),),
         )
+        .acquire("read-signal", "signal")
         .build()
     )
     gate_rows = authoring.input("gate_rows", gate_table)

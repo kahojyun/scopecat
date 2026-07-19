@@ -53,6 +53,7 @@ from scopecat.compiler.typed.products import (
     ProductDef,
 )
 from scopecat.compiler.typed.program import (
+    AcquireSpec,
     CoreProgram,
     TypedDomainExecution,
 )
@@ -87,7 +88,7 @@ from scopecat.kernel.problems import (
     has_blocking_problems,
     model_location,
 )
-from scopecat.kernel.product_identity import ProductUseId
+from scopecat.kernel.product_identity import ProductId, ProductUseId
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
     PhysicalResourceId,
@@ -283,13 +284,65 @@ def materialize_local_execution(
     state_support_by_effect: dict[int, PointVariationSupport] = {}
     state_index = 0
     for effect_index, effect in enumerate(program.effects):
-        if isinstance(effect, TypedDomainExecution | ActionSpec):
+        if isinstance(effect, TypedDomainExecution | ActionSpec | AcquireSpec):
             continue
         state_support_by_effect[effect_index] = target.variation.state[state_index]
         state_index += 1
     known_compute_results = {node.result.id for node in program.compute_nodes}
     for effect_index, effect in enumerate(program.effects):
         if isinstance(effect, TypedDomainExecution):
+            continue
+        if isinstance(effect, AcquireSpec):
+            for ordinal in ordinals:
+                point = point_by_ordinal[ordinal]
+                params = params_by_ordinal[ordinal]
+                routes = _bind_point_routes(
+                    program,
+                    environment,
+                    point,
+                    params,
+                    problems,
+                    verified_program=verified_program,
+                    variation_support=target.variation.routes,
+                    cache=route_cache,
+                )
+                collect = _bind_collect(
+                    program.product_defs,
+                    program.instrument_product_producers,
+                    product_realizations,
+                    routes,
+                    product_ids=frozenset(effect.product_ids),
+                    routing=routing,
+                    point_index=ordinal,
+                    problems=problems,
+                )
+                problems.extend(
+                    validate_point_resource_constraints(
+                        ordinal,
+                        routes,
+                        desired_by_ordinal[ordinal],
+                        collect,
+                        config=environment.config,
+                    )
+                )
+                if _validate_collection_requests(
+                    collect,
+                    point_index=ordinal,
+                    problems=problems,
+                ):
+                    ordered = _order_instrument_operations(
+                        _collect_operations(
+                            point.logical_id.value,
+                            point_index=ordinal,
+                            point_count=point_count,
+                            collects=collect,
+                        ),
+                        instrument_order=selected_instrument_order,
+                    )
+                    effect_operations[effect_index].extend(
+                        RunCoverageEffect.at_point(ordinal, operation)
+                        for operation in ordered
+                    )
             continue
         if isinstance(effect, ActionSpec):
             for ordinal in ordinals:
@@ -334,19 +387,19 @@ def materialize_local_execution(
 
         if effect_index and not isinstance(
             program.effects[effect_index - 1],
-            TypedDomainExecution | ActionSpec,
+            TypedDomainExecution | ActionSpec | AcquireSpec,
         ):
             continue
         state_end = effect_index + 1
         while state_end < len(program.effects) and not isinstance(
             program.effects[state_end],
-            TypedDomainExecution | ActionSpec,
+            TypedDomainExecution | ActionSpec | AcquireSpec,
         ):
             state_end += 1
         state_group: list[tuple[int, StateSpecVariant]] = []
         for index in range(effect_index, state_end):
             state = program.effects[index]
-            if isinstance(state, TypedDomainExecution | ActionSpec):
+            if isinstance(state, TypedDomainExecution | ActionSpec | AcquireSpec):
                 raise AssertionError("state region contains a non-state effect")
             state_group.append((index, state))
         support = PointVariationSupport()
@@ -399,7 +452,6 @@ def materialize_local_execution(
             for ordinal in state_coverage:
                 desired_by_ordinal[ordinal].extend(desired)
 
-    collect_effects: list[RunCoverageEffect] = []
     for ordinal in ordinals:
         point = point_by_ordinal[ordinal]
         params = params_by_ordinal[ordinal]
@@ -413,52 +465,21 @@ def materialize_local_execution(
             variation_support=target.variation.routes,
             cache=route_cache,
         )
-        collect = _bind_collect(
-            program.product_defs,
-            program.instrument_product_producers,
-            product_realizations,
-            routes,
-            routing=routing,
-            point_index=ordinal,
-            problems=problems,
-        )
         problems.extend(
             validate_point_resource_constraints(
                 ordinal,
                 routes,
                 desired_by_ordinal[ordinal],
-                collect,
+                (),
                 config=environment.config,
             )
         )
-        valid_collect = _validate_collection_requests(
-            collect,
-            point_index=ordinal,
-            problems=problems,
-        )
-        collect_operations = (
-            _order_instrument_operations(
-                _collect_operations(
-                    point.logical_id.value,
-                    point_index=ordinal,
-                    point_count=point_count,
-                    collects=collect,
-                ),
-                instrument_order=selected_instrument_order,
-            )
-            if valid_collect
-            else ()
-        )
-        collect_effects.extend(
-            RunCoverageEffect.at_point(ordinal, operation)
-            for operation in collect_operations
-        )
+
     if has_blocking_problems(problems):
         raise CheckFailed(problems)
     return MaterializedLocalEffects(
         compute_operations=tuple(compute_effects),
         effect_operations=tuple(tuple(items) for items in effect_operations),
-        collect_operations=tuple(collect_effects),
     )
 
 
@@ -1218,6 +1239,7 @@ def _bind_collect(
     realizations: SelectedLocalProductRealizations,
     routes: Sequence[PendingRoute],
     *,
+    product_ids: frozenset[ProductId],
     routing: RoutingView,
     point_index: int,
     problems: list[Problem],
@@ -1226,6 +1248,8 @@ def _bind_collect(
     producers_by_id = {producer.id: producer for producer in producers}
     grouped: dict[PhysicalResourceId, list[PendingCollectionRequest]] = {}
     for realization in realizations.entries:
+        if realization.product_id not in product_ids:
+            continue
         product = products_by_id[realization.product_id]
         producer = producers_by_id[realization.producer_id]
         if product != realization.product:

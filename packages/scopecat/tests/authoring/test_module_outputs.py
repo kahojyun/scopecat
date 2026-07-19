@@ -336,15 +336,12 @@ def test_invocation_validates_typed_and_literal_inputs_immediately() -> None:
         module.instantiate("missing-inputs")
 
 
-def test_fixed_records_are_reserved_for_the_template_root() -> None:
-    module = sc.module("test.outputs.fixed-record").record("signal").build()
+def test_module_products_remain_reusable_across_instances() -> None:
+    module = sc.module("test.outputs.product").product("signal").build()
 
-    with pytest.raises(ValueError, match="must declare products"):
-        module.instantiate("child")
+    child = module.instantiate("child")
 
-
-def test_module_is_not_an_anonymous_invocation_factory() -> None:
-    assert not callable(_producer_module())
+    assert child.products["signal"].id == "child/signal"
 
 
 def test_module_export_scalar_operations_resolve_during_elaboration() -> None:

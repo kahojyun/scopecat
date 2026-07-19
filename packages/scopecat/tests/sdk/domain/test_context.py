@@ -69,8 +69,8 @@ def _domain_scenario(
         results={"raw": module.products["raw"]},
     )
     template_builder = (
-        module.template(f"test.sdk.context.{namespace}", kind="domain_context")
-        .domain(execution)
+        module.domain(execution)
+        .template(f"test.sdk.context.{namespace}", kind="domain_context")
         .scan(count, (1, 3, 5))
     )
     if record_raw:

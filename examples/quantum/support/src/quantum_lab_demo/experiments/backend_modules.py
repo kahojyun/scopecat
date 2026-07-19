@@ -48,7 +48,7 @@ BACKEND_BATCH_MODULE = (
         resource="readout",
         unit="ratio",
         axes=(
-            sc.record_axis(
+            sc.product_axis(
                 "backend_point",
                 size=_LOGICAL_POINTS,
                 kind="backend_point",
@@ -56,6 +56,7 @@ BACKEND_BATCH_MODULE = (
             ),
         ),
     )
+    .acquire("read-backend-probabilities", "backend_probabilities")
     .build()
 )
 

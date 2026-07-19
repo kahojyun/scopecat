@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 import scopecat as sc
-from scopecat.authoring._record_intents import RecordSelection
+from scopecat.authoring._products import RecordSelection
 from scopecat.compiler.frontend.elaboration import elaborate_module
 from scopecat.compiler.frontend.invocation import prepare_invocation
 from scopecat.compiler.frontend.resolution import compile_prepared_invocation
@@ -33,20 +33,22 @@ def _product_module() -> sc.ExperimentModule:
             unit="ratio",
             producer_metadata={"adapter_mode": "default"},
         )
+        .acquire("read-signal", "signal")
         .build()
     )
 
 
-def test_inline_record_lowers_logical_and_producer_metadata_independently(
+def test_selected_product_lowers_logical_and_producer_metadata_independently(
     tmp_path: Path,
 ) -> None:
     module = (
         sc.module("test.products.metadata")
-        .record(
+        .product(
             "signal",
             metadata={"schema_owner": "analysis"},
             producer_metadata={"adapter_mode": "fast"},
         )
+        .acquire("read-signal", "signal")
         .build()
     )
     resolved = resolve_experiment(
@@ -54,6 +56,7 @@ def test_inline_record_lowers_logical_and_producer_metadata_independently(
             "test.products.metadata",
             kind="module_products",
         )
+        .record_product("signal")
         .build()
         .bind(),
         config_profile=load_config(),
@@ -63,6 +66,17 @@ def test_inline_record_lowers_logical_and_producer_metadata_independently(
     assert resolved.experiment.instrument_product_producers[0].metadata == {
         "adapter_mode": "fast"
     }
+
+
+def test_acquire_is_an_ordered_effect_with_source_provenance() -> None:
+    builder = sc.module("test.products.acquire").product("signal")
+    module = builder.acquire("read-signal", builder.products.signal).build()
+    assembly = elaborate_module(module)
+
+    acquire = assembly.semantic_graph.acquisitions[0]
+    assert acquire.product_ids == (module.products.signal.product_id,)
+    assert assembly.source_map.acquire_sources[0][0] == acquire.id
+    assert assembly.source_map.acquire_sources[0][1].kind == "acquire"
 
 
 def test_explicit_instances_select_same_named_products_independently(
@@ -79,7 +93,7 @@ def test_explicit_instances_select_same_named_products_independently(
     assert right.products["signal"].id == "right/signal"
 
     assembly = elaborate_module(root)
-    assert [product.qualified_id for product in assembly.product_ports] == [
+    assert [product.qualified_id for product in assembly.product_declarations] == [
         "left/signal",
         "right/signal",
     ]
@@ -159,7 +173,7 @@ def test_nested_product_references_receive_each_parent_instance_prefix(
     nested_product = outer.products["inner/signal"]
     assert nested_product.id == "outer/inner/signal"
     assembly = elaborate_module(root)
-    assert [product.qualified_id for product in assembly.product_ports] == [
+    assert [product.qualified_id for product in assembly.product_declarations] == [
         "outer/inner/signal"
     ]
 
@@ -194,7 +208,7 @@ def test_nested_product_references_receive_each_parent_instance_prefix(
     assert producer.capability is None
 
 
-def test_product_ref_selection_still_checks_membership() -> None:
+def test_product_selection_rejects_unexposed_product() -> None:
     source = _product_module()
     selected = source.instantiate("selected")
     root = sc.module("test.products.selection-validation").use(selected).build()
@@ -312,10 +326,6 @@ def test_authoring_compile_rejects_one_use_identity_for_two_products() -> None:
         "product_use_identity_conflict"
     ]
     assert error.value.problems[0].phase is ProblemPhase.AUTHORING
-
-
-def test_module_is_not_an_anonymous_product_invocation_factory() -> None:
-    assert not callable(_product_module())
 
 
 def test_root_module_products_are_typed_template_refs() -> None:

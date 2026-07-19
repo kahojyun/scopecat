@@ -53,9 +53,12 @@ from scopecat.compiler.relations.verification import (
 )
 from scopecat.compiler.semantic.compute_result import ComputeResultRef
 from scopecat.compiler.semantic.model import (
+    AcquireEffect,
+    AcquireId,
     ActionId,
     DomainInputPortDef,
     DomainProgramId,
+    DomainResourcePortDef,
     DomainResultPortDef,
     ImplementationCatalog,
     ImplementationId,
@@ -138,6 +141,7 @@ def elaborate_semantic_graph(
     measurement_transforms: Sequence[MeasurementTransform] = (),
     domain_executions: Sequence[LoweredDomainExecution] = (),
     actions: Sequence[ModuleActionDecl] = (),
+    acquisitions: Sequence[AcquireEffect] = (),
     value_roots: Sequence[object] = (),
     state_regions: Sequence[StateEachIntent] = (),
     input_types: Mapping[str, ValueType] | None = None,
@@ -161,6 +165,7 @@ def elaborate_semantic_graph(
         builder.add_domain_execution(execution)
     for action in actions:
         builder.add_action(action)
+    builder.add_acquisitions(acquisitions)
     for root in value_roots:
         if isinstance(root, ValueRef):
             builder.add_value_root(root)
@@ -223,9 +228,12 @@ class _SemanticGraphBuilder:
         self._measurement_transforms: list[SemanticMeasurementTransform] = []
         self._domain_executions: list[SemanticDomainExecution] = []
         self._actions: list[InstrumentActionEffect] = []
+        self._acquisitions: list[AcquireEffect] = []
         self._implementations: dict[OperationId, LocalPythonImplementation] = {}
         self._operation_sources: dict[OperationId, SourceAnchor] = {}
         self._action_sources: dict[ActionId, SourceAnchor] = {}
+        self._domain_sources: dict[str, SourceAnchor] = {}
+        self._acquire_sources: dict[AcquireId, SourceAnchor] = {}
         self._value_sources: dict[ValueId, SourceAnchor] = {}
         self._row_regions: list[StateEachRegion] = []
         self._row_region_sources: dict[RowRegionId, SourceAnchor] = {}
@@ -252,6 +260,15 @@ class _SemanticGraphBuilder:
             for dependency in point_dependencies
         )
         self._point_row = RowType(point_columns) if point_columns else None
+
+    def add_acquisitions(self, acquisitions: Sequence[AcquireEffect]) -> None:
+        self._acquisitions.extend(acquisitions)
+        for acquire in acquisitions:
+            self._acquire_sources[acquire.id] = SourceAnchor(
+                kind="acquire",
+                declaration_id=acquire.id.symbol.local_id,
+                composition_scope=acquire.id.symbol.scope,
+            )
 
     def declare_state_regions(self, intents: Sequence[StateEachIntent]) -> None:
         """Register binder ownership before any value definition is elaborated."""
@@ -334,6 +351,10 @@ class _SemanticGraphBuilder:
                 DomainResultPortDef(port.id, port.contract)
                 for port in program.result_ports
             ),
+            resource_ports=tuple(
+                DomainResourcePortDef(port.id, port.capabilities)
+                for port in program.resource_ports
+            ),
         )
         operation_id = OperationId(
             SymbolId(scope=("domain_execution",), local_id=execution.id)
@@ -357,7 +378,14 @@ class _SemanticGraphBuilder:
                     for name, value in execution.input_bindings
                 ),
                 results=execution.result_bindings,
+                resources=execution.resource_bindings,
             )
+        )
+        scope = tuple(execution.id.split("/")[:-1])
+        self._domain_sources[execution.id] = SourceAnchor(
+            kind="domain",
+            declaration_id=execution.id.split("/")[-1],
+            composition_scope=scope,
         )
 
     def add_measurement_transform(
@@ -466,6 +494,7 @@ class _SemanticGraphBuilder:
             measurement_transforms=tuple(self._measurement_transforms),
             domain_executions=tuple(self._domain_executions),
             actions=tuple(self._actions),
+            acquisitions=tuple(self._acquisitions),
             row_regions=tuple(self._row_regions),
         )
         catalog = ImplementationCatalog(
@@ -476,6 +505,8 @@ class _SemanticGraphBuilder:
             value_sources=tuple(self._value_sources.items()),
             action_sources=tuple(self._action_sources.items()),
             row_region_sources=tuple(self._row_region_sources.items()),
+            domain_sources=tuple(self._domain_sources.items()),
+            acquire_sources=tuple(self._acquire_sources.items()),
         )
         return SemanticElaboration(
             graph=graph,

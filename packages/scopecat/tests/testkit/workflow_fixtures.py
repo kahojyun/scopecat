@@ -62,6 +62,7 @@ def load_invocation() -> ExperimentInvocation:
             span=Quantity(value=200.0, unit="MHz"),
             points=3,
         )
+        .record_product("signal")
         .build()
         .bind(subject="q0")
     )

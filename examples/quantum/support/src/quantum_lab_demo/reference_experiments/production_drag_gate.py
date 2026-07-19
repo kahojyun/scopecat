@@ -183,11 +183,11 @@ _PRODUCTION_DRAG_EXECUTION = quantum.domain_execution(
 PRODUCTION_DRAG_GATE_TEMPLATE = (
     sc.module("quantum_lab_demo.production.drag_x90.root")
     .use(_TEMPLATE_CAPTURE)
+    .domain(_PRODUCTION_DRAG_EXECUTION)
     .template(
         PRODUCTION_DRAG_GATE_TEMPLATE_ID,
         kind=PRODUCTION_DRAG_GATE_EXPERIMENT_ID,
     )
-    .domain(_PRODUCTION_DRAG_EXECUTION)
     .experiment_id(PRODUCTION_DRAG_GATE_EXPERIMENT_ID)
     .record_product(_TEMPLATE_CAPTURE.products.probability_0, record_id="probability_0")
     .record_product(_TEMPLATE_CAPTURE.products.probability_1, record_id="probability_1")

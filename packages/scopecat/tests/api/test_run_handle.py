@@ -24,7 +24,8 @@ SIMPLE_FREQUENCY_SCAN = (
         field="frequency",
         value=DRIVE_FREQUENCY_POINT,
     )
-    .record("signal", resource="source", unit="ratio")
+    .product("signal", resource="source", unit="ratio")
+    .acquire("read-signal", "signal")
     .build()
 )
 
@@ -51,6 +52,7 @@ def simple_frequency_scan_template() -> ExperimentTemplate:
         )
         .label("Session test frequency scan")
         .category("session-test")
+        .record_product("signal")
         .build()
     )
 

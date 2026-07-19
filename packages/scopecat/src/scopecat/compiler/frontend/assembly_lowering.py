@@ -269,6 +269,7 @@ def lower_semantic_domain_graph(
             body=semantic_program.body,
             input_ports=semantic_program.input_ports,
             result_ports=semantic_program.result_ports,
+            resource_ports=semantic_program.resource_ports,
         )
         lowered_inputs: dict[str, ValueInput] = {}
         for name, use in execution.inputs:
@@ -310,6 +311,7 @@ def lower_semantic_domain_graph(
                 program=program,
                 inputs=lowered_inputs,
                 results=tuple(result_bindings),
+                resources=dict(execution.resources),
             )
         )
     return tuple(typed_executions), tuple(producers)
@@ -744,9 +746,8 @@ def validate_consumed_inputs(
         if isinstance(definition.source, PlanExpressionSource)
         for input_id in definition.source.source_inputs
     )
-    values.extend(axis.size for record in assembly.records for axis in record.axes)
     values.extend(
-        axis.size for product in assembly.product_ports for axis in product.axes
+        axis.size for product in assembly.product_declarations for axis in product.axes
     )
     for value in values:
         consumed_dependencies.update(_nested_input_dependencies(value, inputs=inputs))

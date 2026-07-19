@@ -68,11 +68,11 @@ def _context(tmp_path: Path, *, namespace: str) -> DomainBatchContext:
         results={"raw": module.products["raw"]},
     )
     template = (
-        module.template(
+        module.domain(execution)
+        .template(
             f"test.sdk.measurements.{namespace}",
             kind="domain_measurements",
         )
-        .domain(execution)
         .scan(count, (1, 3))
         .record_product("raw")
         .record_product("summary")

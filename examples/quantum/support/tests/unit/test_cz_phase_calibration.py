@@ -190,7 +190,7 @@ def test_cz_phase_workspace_run_fits_pi_and_authors_candidate_proposal(
 
 def test_cz_phase_capture_uses_one_quantum_program_without_payload_compute() -> None:
     body = CZ_PHASE_CAPTURE_MODULE.ir.body
-    execution = CZ_PHASE_TEMPLATE.build().domain_executions[0]
+    execution = CZ_PHASE_TEMPLATE.build().module.domain_executions[0]
     assert execution is not None
     program = execution.program
 

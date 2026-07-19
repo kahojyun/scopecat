@@ -7,7 +7,7 @@ from typing import cast
 
 import pytest
 import scopecat as sc
-from scopecat.authoring._record_intents import RecordSelection
+from scopecat.authoring._products import RecordSelection
 from scopecat.authoring._value_refs import (
     ValueRef,
     internal_lower_table_value_ref,
@@ -90,12 +90,7 @@ def test_template_and_scratch_compile_to_equivalent_execution_semantics(
     tmp_path: Path,
     equivalent_authoring_paths: _EquivalentAuthoringPaths,
 ) -> None:
-    """Keep both UX forms above one config-free compiler contract.
-
-    This deliberately stops before config linking or target execution.  The
-    future fake AWG + acquisition-card example can replace the tiny capture
-    module without changing what this contract considers entrypoint-neutral.
-    """
+    """Keep both UX forms above one config-free compiler contract."""
 
     workspace = sc.open(tmp_path)
     template = _compile_through_workspace(

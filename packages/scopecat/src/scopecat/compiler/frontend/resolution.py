@@ -204,7 +204,6 @@ def _compile_invocation_template(
     fragments = [
         elaborate_module(
             template.module,
-            template.domain_executions,
             **module_inputs,
         )
     ]

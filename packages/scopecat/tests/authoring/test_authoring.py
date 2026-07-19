@@ -19,10 +19,14 @@ from scopecat.authoring._intents import (
     ModuleInputPort,
 )
 from scopecat.authoring._module_construction import module_from_parts_internal
-from scopecat.authoring._record_intents import (
-    ModuleProductPort,
-    RecordIntent,
-    observable,
+from scopecat.authoring._module_ir import (
+    ModuleAcquireEffect,
+    ModuleBindingEffect,
+    ModuleStateEffect,
+)
+from scopecat.authoring._products import (
+    ModuleProductDecl,
+    ProductRef,
 )
 from scopecat.authoring._value_refs import (
     ValueRef,
@@ -163,24 +167,8 @@ def _module_fixture(
     resources: Sequence[ResourcePort] = (),
     bindings: Sequence[ExperimentBindingIntent] = (),
     state_intents: Sequence[ExperimentStateIntent] = (),
-    records: Sequence[RecordIntent] = (),
-    product_ports: Sequence[ModuleProductPort] = (),
+    products: Sequence[ModuleProductDecl] = (),
 ) -> ExperimentModule:
-    converted_records = tuple(
-        ModuleProductPort(
-            id=record.id,
-            kind=record.kind,
-            resource_port_id=record.resource_port_id,
-            capability=record.capability,
-            product_key=record.product_key,
-            unit=record.unit,
-            dtype=record.dtype,
-            axes=record.axes,
-            metadata=record.metadata,
-            producer_metadata=record.producer_metadata,
-        )
-        for record in records
-    )
     return module_from_parts_internal(
         id=id,
         input_ports=tuple(
@@ -191,10 +179,41 @@ def _module_fixture(
             for input_id in entity_inputs
         ),
         resources=tuple(resources),
-        bindings=tuple(bindings),
-        state_intents=tuple(state_intents),
-        records=(),
-        product_ports=(*product_ports, *converted_records),
+        procedure=(
+            *(ModuleBindingEffect(binding) for binding in bindings),
+            *(ModuleStateEffect(intent) for intent in state_intents),
+            *(
+                (
+                    ModuleAcquireEffect(
+                        "read-products",
+                        tuple(
+                            ProductRef(product.product_id, product.origin)
+                            for product in products
+                        ),
+                    ),
+                )
+                if products
+                else ()
+            ),
+        ),
+        product_declarations=products,
+    )
+
+
+def _observable_product(
+    id: str,  # noqa: A002
+    *,
+    resource: str | None = None,
+    unit: str | None = "ratio",
+    axes: Sequence[authoring.ProductAxis] = (),
+) -> ModuleProductDecl:
+    return ModuleProductDecl(
+        id=id,
+        resource_port_id=(
+            logical_resource_port_id(resource) if resource is not None else None
+        ),
+        unit=unit,
+        axes=tuple(axes),
     )
 
 
@@ -219,7 +238,7 @@ def _template_invocation(
     instances = tuple(
         module.instantiate(
             module.id,
-            **{port.id: root_inputs[port.id] for port in module.input_ports},
+            {port.id: root_inputs[port.id] for port in module.input_ports},
         )
         for module in modules
     )
@@ -283,6 +302,7 @@ def test_template_selects_module_products_as_records() -> None:
         .inputs(subject)
         .resource("source", requires=("set_frequency",))
         .product("signal", resource="source", unit="ratio")
+        .acquire("read-signal", "signal")
         .build()
     )
     without_selection = (
@@ -422,7 +442,7 @@ def test_compute_function_signature_must_match_explicit_inputs() -> None:
         )
 
 
-def test_template_can_scan_entity_input_without_subject_special_case() -> None:
+def test_template_can_scan_any_entity_input() -> None:
     qubit = authoring.input(
         "qubit",
         authoring.ScalarType(authoring.EntityType()),
@@ -432,6 +452,7 @@ def test_template_can_scan_entity_input_without_subject_special_case() -> None:
         .inputs(qubit)
         .resource("source")
         .product("signal", resource="source", unit="ratio")
+        .acquire("read-signal", "signal")
         .build()
     )
     template = (
@@ -565,6 +586,7 @@ def test_entity_scan_routes_resources_per_point() -> None:
             value=Quantity(value=5.0, unit="GHz"),
         )
         .product("signal", resource="drive", unit="ratio")
+        .acquire("read-signal", "signal")
         .build()
     )
     template = (
@@ -722,6 +744,7 @@ def test_runtime_entity_scan_feeds_routing_and_parameter_lookup() -> None:
             ),
         )
         .product("signal", resource="drive", unit="ratio")
+        .acquire("read-signal", "signal")
         .build()
     )
     template = (
@@ -834,6 +857,7 @@ def test_runtime_entity_scan_can_drive_dependent_default_scan() -> None:
         authoring.module("test.runtime_entity_dependent_points")
         .inputs(qubit)
         .product("signal", unit="ratio")
+        .acquire("read-signal", "signal")
         .build()
     )
     template = (
@@ -888,7 +912,7 @@ def test_runtime_entity_scan_can_drive_dependent_default_scan() -> None:
     ]
 
 
-def test_entity_series_input_can_define_record_axis() -> None:
+def test_entity_series_input_can_define_product_axis() -> None:
     qubits = sc.input(
         "qubits",
         authoring.SeriesType(authoring.ScalarType(authoring.EntityType())),
@@ -903,6 +927,7 @@ def test_entity_series_input_can_define_record_axis() -> None:
             dtype="complex128",
             axes=(authoring.entity_axis("qubit", qubits),),
         )
+        .acquire("read-iq", "iq")
         .build()
     )
     template = (
@@ -938,17 +963,17 @@ def test_entity_series_input_can_define_record_axis() -> None:
             template.bind(qubits=("q0", "q0")),
             config_profile=load_config(),
         )
-    assert error.value.problems[0].code == "module_record_entity_axis_duplicate"
+    assert error.value.problems[0].code == "product_entity_axis_duplicate"
 
     with pytest.raises(CheckFailed) as error:
         resolve_experiment(
             template.bind(qubits=()),
             config_profile=load_config(),
         )
-    assert error.value.problems[0].code == "module_record_entity_axis_invalid"
+    assert error.value.problems[0].code == "product_entity_axis_invalid"
 
 
-def test_non_entity_string_series_defines_categorical_record_axis() -> None:
+def test_non_entity_string_series_defines_categorical_product_axis() -> None:
     module = (
         authoring.module("test.categorical_axis")
         .resource("source")
@@ -957,18 +982,19 @@ def test_non_entity_string_series_defines_categorical_record_axis() -> None:
             resource="source",
             dtype="complex128",
             axes=(
-                authoring.record_axis(
+                authoring.product_axis(
                     "component",
                     size=("I", "Q"),
                     kind="component",
                 ),
-                authoring.record_axis(
+                authoring.product_axis(
                     "entity_role",
                     size=2,
                     kind="entity",
                 ),
             ),
         )
+        .acquire("read-iq", "iq")
         .build()
     )
     template = (
@@ -1059,6 +1085,7 @@ def test_entity_series_routes_as_single_point_with_ordered_product_axis() -> Non
             dtype="complex128",
             axes=(authoring.entity_axis("qubit", qubits),),
         )
+        .acquire("read-iq", "iq")
         .build()
     )
     template = (
@@ -1253,13 +1280,13 @@ def test_template_composition_rejects_duplicate_record_ids() -> None:
         resources=[
             resource_port("source", requires("set_frequency")),
         ],
-        records=[observable("signal", resource="source", unit="ratio")],
+        products=[_observable_product("signal", resource="source", unit="ratio")],
     )
     second = _module_fixture(
         id="test.duplicate_record.second",
         entity_inputs=(),
         resources=[resource_port("source", requires("set_frequency"))],
-        records=[observable("signal", resource="source", unit="ratio")],
+        products=[_observable_product("signal", resource="source", unit="ratio")],
     )
 
     with pytest.raises(CheckFailed) as error:
@@ -1273,7 +1300,7 @@ def test_template_composition_rejects_duplicate_record_ids() -> None:
             config_profile=load_config(),
         )
 
-    assert error.value.problems[0].code == "module_record_duplicate"
+    assert error.value.problems[0].code == "template_record_duplicate"
 
 
 def test_elaboration_invocation_literals_bind_local_inputs() -> None:
@@ -1683,7 +1710,7 @@ def test_template_invocation_runs_composed_modules_directly() -> None:
                 value=DRIVE_FREQUENCY_POINT,
             )
         ],
-        records=[observable("signal", resource="source", unit="ratio")],
+        products=[_observable_product("signal", resource="source", unit="ratio")],
     )
 
     resolved = resolve_experiment(
@@ -1715,7 +1742,7 @@ def test_template_invocation_runs_composed_modules_directly() -> None:
     )
 
 
-def test_module_uses_record_axes() -> None:
+def test_product_declaration_uses_axes() -> None:
     module = _module_fixture(
         id="test.record_axes",
         resources=[
@@ -1729,14 +1756,14 @@ def test_module_uses_record_axes() -> None:
                 value=DRIVE_FREQUENCY_POINT,
             ),
         ],
-        records=[
-            observable(
+        products=[
+            _observable_product(
                 "signal",
                 resource="source",
                 unit="ratio",
                 axes=(
                     authoring.shot_axis(2),
-                    authoring.record_axis("repetition", size=3, kind="repetition"),
+                    authoring.product_axis("repetition", size=3, kind="repetition"),
                 ),
             )
         ],

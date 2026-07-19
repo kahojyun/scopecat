@@ -102,11 +102,11 @@ def _preparation_context(
         results={"raw": module.products["raw"]},
     )
     template = (
-        module.template(
+        module.domain(execution)
+        .template(
             f"test.sdk.preparation.{namespace}",
             kind="domain_preparation",
         )
-        .domain(execution)
         .scan(count, (1, 3))
     )
     if shared_product_uses:

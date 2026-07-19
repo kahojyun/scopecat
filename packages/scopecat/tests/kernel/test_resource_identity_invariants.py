@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -20,10 +21,13 @@ from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
 )
+from scopecat.compiler.semantic.model import AcquireId
 from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.products import InstrumentProductProducer, ProductDef
 from scopecat.compiler.typed.program import (
+    AcquireSpec,
+    CoreEffect,
     CoreProgram,
     ResourceRouteIntent,
     product_output,
@@ -39,6 +43,7 @@ from scopecat.kernel.resource_identity import (
     PhysicalResourceId,
     logical_resource_port_id,
 )
+from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Scalar, String, Table, TableColumn
 from scopecat.planning.authoring import resolve_experiment
 from scopecat.records.config import ConfigProfileSnapshot, RoutingGraph, RoutingResource
@@ -71,6 +76,21 @@ def _unit_program(
         if producers is None
         else producers
     )
+    selected_updates = dict(updates)
+    supplied_effects = cast(
+        "tuple[CoreEffect, ...]",
+        selected_updates.pop("effects", ()),
+    )
+    acquire = (
+        (
+            AcquireSpec(
+                AcquireId(SymbolId(local_id="read-products")),
+                tuple(product.id for product in products),
+            ),
+        )
+        if products
+        else ()
+    )
     return replace(
         CoreProgram(
             id="resource-identity-invariants",
@@ -80,8 +100,9 @@ def _unit_program(
             instrument_product_producers=selected_producers,
             product_uses=tuple(item[0] for item in uses_and_records),
             record_uses=tuple(item[1] for item in uses_and_records),
+            effects=(*supplied_effects, *acquire),
         ),
-        **updates,
+        **selected_updates,
     )
 
 
@@ -119,7 +140,7 @@ def test_logical_and_physical_resource_ids_with_same_text_do_not_alias() -> None
     assert isinstance(physical, PhysicalResourceId)
 
 
-def test_seal_closes_logical_state_and_product_ports_and_capabilities() -> None:
+def test_seal_closes_logical_state_and_product_resources_and_capabilities() -> None:
     drive = logical_resource_port_id("drive")
     missing_record = product_output("missing-record")
     unsupported_record = product_output("unsupported-record")
@@ -505,7 +526,7 @@ def test_capability_less_authored_port_rejects_state_and_record_at_assembly() ->
             field="value",
             value=1.0,
         )
-        .record(
+        .product(
             "signal",
             resource="drive",
             capability="measure.signal",

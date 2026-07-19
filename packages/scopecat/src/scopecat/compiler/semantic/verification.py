@@ -37,6 +37,7 @@ from scopecat.compiler.semantic.dependencies import (
     residual_value_ids,
 )
 from scopecat.compiler.semantic.model import (
+    AcquireId,
     ActionId,
     ImplementationCatalog,
     ImplementationId,
@@ -214,6 +215,16 @@ def verify_semantic_graph(graph: SemanticGraphIR) -> VerifiedSemanticGraph:
                 category=ProblemCategory.CONFLICT,
             )
         )
+    acquisition_ids = tuple(acquire.id for acquire in graph.acquisitions)
+    if len(acquisition_ids) != len(set(acquisition_ids)):
+        problems.append(
+            _problem(
+                "semantic_acquire_id_duplicate",
+                "acquisition ids must be unique",
+                "acquisitions",
+                category=ProblemCategory.CONFLICT,
+            )
+        )
     for execution_index, execution in enumerate(graph.domain_executions):
         _verify_domain_execution(
             execution,
@@ -288,6 +299,7 @@ def verify_semantic_graph(graph: SemanticGraphIR) -> VerifiedSemanticGraph:
         actions=tuple(
             action for action in graph.actions if action.id not in ambiguous_action_ids
         ),
+        acquisitions=graph.acquisitions,
         # State regions retain authored order: desired-state sequencing is
         # semantic, unlike declaration maps normalized only by identity.
         row_regions=graph.row_regions,
@@ -479,6 +491,16 @@ def _verify_domain_execution(
                 "results",
             )
         )
+    expected_resources = tuple(port.id for port in program.resource_ports)
+    if tuple(name for name, _resource in execution.resources) != expected_resources:
+        problems.append(
+            _problem(
+                "semantic_domain_execution_resource_contract_mismatch",
+                "domain execution resources do not match the declared program ports",
+                *location,
+                "resources",
+            )
+        )
     input_ports = {port.id: port for port in program.input_ports}
     for name, use in execution.inputs:
         definition = definitions.get(use.value_id)
@@ -656,6 +678,18 @@ def verify_source_map(graph: SemanticGraphIR, source_map: SourceMap) -> SourceMa
         row_region_ids,
         problems,
     )
+    domain_sources = _verify_optional_string_source_entries(
+        "domain",
+        source_map.domain_sources,
+        {execution.id for execution in graph.domain_executions},
+        problems,
+    )
+    acquire_sources = _verify_optional_source_entries(
+        "acquire",
+        source_map.acquire_sources,
+        {acquire.id for acquire in graph.acquisitions},
+        problems,
+    )
     if problems:
         raise CheckFailed(problems)
     return SourceMap(
@@ -674,11 +708,62 @@ def verify_source_map(graph: SemanticGraphIR, source_map: SourceMap) -> SourceMa
                 key=lambda item: item[0].qualified_name,
             )
         ),
+        domain_sources=tuple(sorted(domain_sources.items())),
+        acquire_sources=tuple(
+            sorted(acquire_sources.items(), key=lambda item: item[0].qualified_name)
+        ),
     )
 
 
+def _verify_optional_string_source_entries(
+    kind: str,
+    entries: tuple[tuple[str, SourceAnchor], ...],
+    expected: set[str],
+    problems: list[Problem],
+) -> dict[str, SourceAnchor]:
+    selected: dict[str, SourceAnchor] = {}
+    for identity, anchor in entries:
+        if identity in selected:
+            problems.append(
+                _problem(
+                    f"semantic_source_map_{kind}_duplicate",
+                    f"{kind} {identity!r} has duplicate source anchors",
+                    "source_map",
+                    kind + "s",
+                    identity,
+                    category=ProblemCategory.CONFLICT,
+                )
+            )
+        elif identity not in expected:
+            problems.append(
+                _problem(
+                    f"semantic_source_map_{kind}_orphan",
+                    f"source anchor references unknown {kind} {identity!r}",
+                    "source_map",
+                    kind + "s",
+                    identity,
+                    category=ProblemCategory.NOT_FOUND,
+                )
+            )
+        selected[identity] = anchor
+    return selected
+
+
+def _verify_optional_source_entries[
+    Identity: (AcquireId),
+](
+    kind: str,
+    entries: tuple[tuple[Identity, SourceAnchor], ...],
+    expected: set[Identity],
+    problems: list[Problem],
+) -> dict[Identity, SourceAnchor]:
+    if not entries:
+        return {}
+    return _verify_source_entries(kind, entries, expected, problems)
+
+
 def _verify_source_entries[
-    Identity: (ActionId, OperationId, RowRegionId, ValueId),
+    Identity: (AcquireId, ActionId, OperationId, RowRegionId, ValueId),
 ](
     kind: str,
     entries: tuple[tuple[Identity, SourceAnchor], ...],

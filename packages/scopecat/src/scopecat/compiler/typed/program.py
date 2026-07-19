@@ -22,9 +22,11 @@ from scopecat.compiler.relations.uses import (
 )
 from scopecat.compiler.semantic.compute_result import ComputeResultRef
 from scopecat.compiler.semantic.model import (
+    AcquireId,
     ActionId,
     DomainInputPortDef,
     DomainProgramId,
+    DomainResourcePortDef,
     DomainResultPortDef,
     ImplementationCatalog,
     MeasurementTransformId,
@@ -123,6 +125,10 @@ def _empty_value_inputs() -> dict[str, ValueInput]:
     return {}
 
 
+def _empty_resource_inputs() -> dict[str, LogicalResourcePortId]:
+    return {}
+
+
 def _empty_compute_inputs() -> dict[str, ComputeInput]:
     return {}
 
@@ -141,6 +147,7 @@ class TypedDomainProgram:
     body: object = field(repr=False)
     input_ports: tuple[DomainInputPortDef, ...] = ()
     result_ports: tuple[DomainResultPortDef, ...] = ()
+    resource_ports: tuple[DomainResourcePortDef, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.dialect_id or not self.dialect_version:
@@ -177,15 +184,32 @@ class TypedDomainExecution:
     program: TypedDomainProgram
     inputs: Mapping[str, ValueInput] = field(default_factory=_empty_value_inputs)
     results: tuple[TypedDomainResultBinding, ...] = ()
+    resources: Mapping[str, LogicalResourcePortId] = field(
+        default_factory=_empty_resource_inputs
+    )
 
     def __post_init__(self) -> None:
         if not self.id:
             raise ValueError("typed domain execution id must be non-empty")
         selected_inputs: dict[str, ValueInput] = dict(self.inputs)
         object.__setattr__(self, "inputs", selected_inputs)
+        object.__setattr__(self, "resources", dict(self.resources))
 
 
-type CoreEffect = StateSpecVariant | ActionSpec | TypedDomainExecution
+@dataclass(frozen=True, slots=True)
+class AcquireSpec:
+    """Ordered local acquisition of one or more logical products.
+
+    It is deliberately smaller than a domain program: providers own the
+    ordinary arm/trigger/read protocol behind each product, while an explicit
+    domain execution models a coordinated program with its own typed boundary.
+    """
+
+    id: AcquireId
+    product_ids: tuple[ProductId, ...]
+
+
+type CoreEffect = StateSpecVariant | ActionSpec | TypedDomainExecution | AcquireSpec
 
 
 @dataclass(frozen=True, slots=True)
@@ -260,6 +284,17 @@ class ResourceRouteIntent:
 
 
 @dataclass(frozen=True, slots=True)
+class EffectParallelGroup:
+    """Explicit permission to schedule independent effect branches concurrently.
+
+    The ordered effect list remains the semantic fallback. A target may exploit
+    this permission only after resource routing proves the branches compatible.
+    """
+
+    branches: tuple[tuple[int, ...], ...]
+
+
+@dataclass(frozen=True, slots=True)
 class CoreProgram:
     """Canonical typed and symbolic meaning of one authored experiment.
 
@@ -275,6 +310,7 @@ class CoreProgram:
     parameter_overlays: tuple[PointParameterOverlay, ...] = ()
     compute_nodes: tuple[TypedComputeNode, ...] = ()
     effects: tuple[CoreEffect, ...] = ()
+    parallel_groups: tuple[EffectParallelGroup, ...] = ()
     measurement_transforms: tuple[TypedMeasurementTransform, ...] = ()
     implementation_catalog: ImplementationCatalog = field(
         default_factory=ImplementationCatalog

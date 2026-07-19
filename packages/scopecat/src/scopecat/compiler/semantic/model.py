@@ -72,6 +72,20 @@ class ActionId:
 
 
 @dataclass(frozen=True, slots=True)
+class AcquireId:
+    """Nominal identity in the acquisition-effect symbol space."""
+
+    symbol: SymbolId
+
+    @property
+    def qualified_name(self) -> str:
+        return self.symbol.qualified_name
+
+    def prefixed(self, *scope: str) -> AcquireId:
+        return AcquireId(self.symbol.prefixed(*scope))
+
+
+@dataclass(frozen=True, slots=True)
 class OperationId:
     """Nominal identity in the semantic-operation symbol space."""
 
@@ -473,6 +487,12 @@ class DomainResultPortDef:
 
 
 @dataclass(frozen=True, slots=True)
+class DomainResourcePortDef:
+    id: str
+    capabilities: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class SemanticDomainProgram:
     """Opaque dialect program retained without core interpretation."""
 
@@ -482,6 +502,7 @@ class SemanticDomainProgram:
     body: object = field(repr=False)
     input_ports: tuple[DomainInputPortDef, ...] = ()
     result_ports: tuple[DomainResultPortDef, ...] = ()
+    resource_ports: tuple[DomainResourcePortDef, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.dialect_id or not self.dialect_version:
@@ -491,6 +512,9 @@ class SemanticDomainProgram:
         )
         _require_unique_names(
             "domain result port", tuple((p.id, p) for p in self.result_ports)
+        )
+        _require_unique_names(
+            "domain resource port", tuple((p.id, p) for p in self.resource_ports)
         )
 
     def __deepcopy__(self, _memo: dict[int, object]) -> SemanticDomainProgram:
@@ -505,12 +529,14 @@ class SemanticDomainExecution:
     program: SemanticDomainProgram
     inputs: tuple[tuple[str, ValueUse], ...] = ()
     results: tuple[tuple[str, ProductId], ...] = ()
+    resources: tuple[tuple[str, LogicalResourcePortId], ...] = ()
 
     def __post_init__(self) -> None:
         if not self.id:
             raise ValueError("semantic domain execution id must be non-empty")
         _require_unique_names("domain execution input", self.inputs)
         _require_unique_names("domain execution result", self.results)
+        _require_unique_names("domain execution resource", self.resources)
 
 
 @dataclass(frozen=True, slots=True)
@@ -547,12 +573,90 @@ class InstrumentActionEffect:
 
 
 @dataclass(frozen=True, slots=True)
+class AcquireEffect:
+    """An ordered request to realize selected instrument products."""
+
+    id: AcquireId
+    product_ids: tuple[ProductId, ...]
+
+    def __post_init__(self) -> None:
+        if not self.product_ids:
+            raise ValueError("acquire effects require at least one product")
+        if len(self.product_ids) != len(set(self.product_ids)):
+            raise ValueError("acquire effect product ids must be unique")
+
+
+@dataclass(frozen=True, slots=True)
+class BindingEffectRef:
+    """Ordered reference to one assembly-level desired-state binding."""
+
+    index: int
+
+    def __post_init__(self) -> None:
+        if self.index < 0:
+            raise ValueError("binding effect indices must be non-negative")
+
+
+@dataclass(frozen=True, slots=True)
+class StateEffectRef:
+    """Ordered reference to one semantic row-scoped state effect."""
+
+    id: RowRegionId
+
+
+@dataclass(frozen=True, slots=True)
+class ActionEffectRef:
+    """Ordered reference to one semantic instrument action."""
+
+    id: ActionId
+
+
+@dataclass(frozen=True, slots=True)
+class DomainEffectRef:
+    """Ordered reference to one semantic domain-program execution."""
+
+    id: str
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            raise ValueError("domain effect ids must be non-empty")
+
+
+@dataclass(frozen=True, slots=True)
+class AcquireEffectRef:
+    """Ordered reference to one semantic acquisition effect."""
+
+    id: AcquireId
+
+
+type SemanticEffectRef = (
+    BindingEffectRef
+    | StateEffectRef
+    | ActionEffectRef
+    | DomainEffectRef
+    | AcquireEffectRef
+)
+
+
+@dataclass(frozen=True, slots=True)
+class SemanticParallelGroup:
+    """Authored effect branches that permit a sequential scheduler refinement."""
+
+    branches: tuple[tuple[SemanticEffectRef, ...], ...]
+
+    def __post_init__(self) -> None:
+        if len(self.branches) < 2 or any(not branch for branch in self.branches):
+            raise ValueError("semantic parallel groups require non-empty branches")
+
+
+@dataclass(frozen=True, slots=True)
 class SemanticGraphIR:
     value_defs: tuple[ValueDef, ...] = ()
     operations: tuple[SemanticOperation, ...] = ()
     measurement_transforms: tuple[SemanticMeasurementTransform, ...] = ()
     domain_executions: tuple[SemanticDomainExecution, ...] = ()
     actions: tuple[InstrumentActionEffect, ...] = ()
+    acquisitions: tuple[AcquireEffect, ...] = ()
     row_regions: tuple[StateEachRegion, ...] = ()
 
 
@@ -602,6 +706,8 @@ class SourceMap:
     value_sources: tuple[tuple[ValueId, SourceAnchor], ...] = ()
     action_sources: tuple[tuple[ActionId, SourceAnchor], ...] = ()
     row_region_sources: tuple[tuple[RowRegionId, SourceAnchor], ...] = ()
+    domain_sources: tuple[tuple[str, SourceAnchor], ...] = ()
+    acquire_sources: tuple[tuple[AcquireId, SourceAnchor], ...] = ()
 
 
 def merge_semantic_graphs(*graphs: SemanticGraphIR) -> SemanticGraphIR:
@@ -615,6 +721,7 @@ def merge_semantic_graphs(*graphs: SemanticGraphIR) -> SemanticGraphIR:
             execution for graph in graphs for execution in graph.domain_executions
         ),
         actions=tuple(item for graph in graphs for item in graph.actions),
+        acquisitions=tuple(item for graph in graphs for item in graph.acquisitions),
         row_regions=tuple(item for graph in graphs for item in graph.row_regions),
     )
 
@@ -642,6 +749,12 @@ def merge_source_maps(*source_maps: SourceMap) -> SourceMap:
         ),
         row_region_sources=tuple(
             item for source_map in source_maps for item in source_map.row_region_sources
+        ),
+        domain_sources=tuple(
+            item for source_map in source_maps for item in source_map.domain_sources
+        ),
+        acquire_sources=tuple(
+            item for source_map in source_maps for item in source_map.acquire_sources
         ),
     )
 

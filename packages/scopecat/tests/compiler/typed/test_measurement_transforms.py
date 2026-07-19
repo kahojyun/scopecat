@@ -5,13 +5,14 @@ from dataclasses import replace
 import pytest
 
 from scopecat.compiler.relations.point_domain import POINT_UNIT
-from scopecat.compiler.semantic.model import MeasurementTransformId
+from scopecat.compiler.semantic.model import AcquireId, MeasurementTransformId
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.products import (
     MeasurementTransformProductProducer,
     ProductDef,
 )
 from scopecat.compiler.typed.program import (
+    AcquireSpec,
     CoreProgram,
     TypedMeasurementTransform,
     TypedMeasurementTransformInput,
@@ -112,6 +113,7 @@ def _chain_program() -> CoreProgram:
         id="typed-transforms",
         kind="compiler_test",
         point_domain=PointDomain(root=POINT_UNIT),
+        effects=(AcquireSpec(AcquireId(SymbolId(local_id="read-raw")), (raw,)),),
         measurement_transforms=(second, first),
         product_defs=(
             ProductDef(id=raw),

@@ -53,7 +53,7 @@ def _quantity_in_unit(value: object, unit: str) -> float:
 
 def test_drag_beta_authors_one_mixed_program_for_both_scan_axes() -> None:
     declaration = drag_beta_calibration_program()
-    execution = DRAG_BETA_TEMPLATE.build().domain_executions[0]
+    execution = DRAG_BETA_TEMPLATE.build().module.domain_executions[0]
     assert execution is not None
     program = execution.program
 

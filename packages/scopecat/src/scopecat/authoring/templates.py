@@ -17,7 +17,6 @@ from scopecat.authoring._validation import (
     validate_template_definition,
 )
 from scopecat.authoring._value_refs import ValueRef
-from scopecat.authoring.domain import DomainExecution
 from scopecat.authoring.scans import (
     Scan,
     ScanCenter,
@@ -34,7 +33,7 @@ from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter import Quantity
 
 if TYPE_CHECKING:
-    from scopecat.authoring._record_intents import (
+    from scopecat.authoring._products import (
         ProductRef,
         RecordSelection,
     )
@@ -87,7 +86,6 @@ class ExperimentTemplate:
     module: TemplateModule
     experiment_id: str | None = None
     category: str | None = None
-    domain_executions: tuple[DomainExecution, ...] = ()
     record_selections: tuple[TemplateRecordSelection, ...] = ()
     inputs: tuple[InputDescription, ...] = ()
     default_scans: tuple[Scan, ...] = ()
@@ -173,7 +171,6 @@ class TemplateBuilder:
     module: TemplateModule
     _category: str | None = None
     _experiment_id: str | None = None
-    _domain_executions: tuple[DomainExecution, ...] = ()
     record_selections: tuple[TemplateRecordSelection, ...] = ()
     _inputs: tuple[InputDescription, ...] = ()
     _default_scans: tuple[Scan, ...] = ()
@@ -199,7 +196,6 @@ class TemplateBuilder:
             module=self.module,
             experiment_id=self._experiment_id,
             category=self._category,
-            domain_executions=self._domain_executions,
             record_selections=self.record_selections,
             inputs=self._inputs,
             default_scans=self._default_scans,
@@ -209,19 +205,11 @@ class TemplateBuilder:
         )
         validate_template_definition(
             module=template.module,
-            domain_executions=template.domain_executions,
             inputs=template.inputs,
             default_scans=template.default_scans,
             record_selections=template.record_selections,
         )
         return template
-
-    def domain(self, execution: DomainExecution) -> TemplateBuilder:
-        """Append one ordered domain-program effect to the template."""
-
-        if execution.id in {item.id for item in self._domain_executions}:
-            raise ValueError(f"domain execution id {execution.id!r} is repeated")
-        return replace(self, _domain_executions=(*self._domain_executions, execution))
 
     def experiment_id(self, experiment_id: str) -> TemplateBuilder:
         return replace(self, _experiment_id=experiment_id)
@@ -284,7 +272,7 @@ class TemplateBuilder:
         if record_id is not None and len(products) != 1:
             msg = "record_id can only be used with one product"
             raise ValueError(msg)
-        from scopecat.authoring._record_intents import record_product
+        from scopecat.authoring._products import record_product
 
         return replace(
             self,

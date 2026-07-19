@@ -71,6 +71,7 @@ from scopecat.sdk.domain.view import (
     DomainProductContractView,
     DomainProductUseRef,
     DomainProgramView,
+    DomainResourceBindingView,
     DomainResultBindingView,
     DomainResultPortView,
     DomainTransformInputPort,
@@ -138,6 +139,18 @@ def make_domain_compile_template(
                 product_use
                 for product_use in product_use_refs
                 if product_use_id(product_use) in owned_use_ids
+            ),
+            resources=tuple(
+                DomainResourceBindingView(
+                    role=role,
+                    resource_port_id=resource_id.qualified_name,
+                    capabilities=next(
+                        port.capabilities
+                        for port in typed_execution.program.resource_ports
+                        if port.id == role
+                    ),
+                )
+                for role, resource_id in typed_execution.resources.items()
             ),
         ),
         inputs=tuple(inputs),

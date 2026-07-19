@@ -222,7 +222,7 @@ def _normalized_signature(
                 product.unit,
                 product.dtype,
             )
-            for product in assembly.product_ports
+            for product in assembly.product_declarations
         ),
     )
 
@@ -237,7 +237,9 @@ def test_alpha_renaming_changes_only_structural_instance_scope() -> None:
         assert {
             operation.id.scope for operation in verified.semantic_graph.graph.operations
         } == {(instance_id,)}
-        assert {product.scope for product in assembly.product_ports} == {(instance_id,)}
+        assert {product.scope for product in assembly.product_declarations} == {
+            (instance_id,)
+        }
         signatures.append(_normalized_signature(assembly, verified))
 
     assert all(signature == signatures[0] for signature in signatures[1:])
@@ -362,7 +364,7 @@ def test_structural_scopes_keep_separator_lookalikes_injective() -> None:
 
     node_ids = {operation.id for operation in verified.semantic_graph.graph.operations}
     resource_ids = {port.qualified_id for port in assembly.resource_ports}
-    product_ids = {product.product_id for product in assembly.product_ports}
+    product_ids = {product.product_id for product in assembly.product_declarations}
 
     assert {node_id.scope for node_id in node_ids} == {("a/b",), ("a", "b")}
     assert len({node_id.qualified_name for node_id in node_ids}) == 4

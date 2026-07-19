@@ -38,7 +38,7 @@ def _entity_id(value: object) -> str:
 
 def test_production_drag_gate_authors_config_lookup_into_program_input() -> None:
     declaration = production_drag_gate_program()
-    execution = PRODUCTION_DRAG_GATE_TEMPLATE.build().domain_executions[0]
+    execution = PRODUCTION_DRAG_GATE_TEMPLATE.build().module.domain_executions[0]
     assert execution is not None
     program = execution.program
 

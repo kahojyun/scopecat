@@ -45,9 +45,11 @@ from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
 )
+from scopecat.compiler.semantic.model import AcquireId
 from scopecat.compiler.semantic.value_expressions import TableValueExpr
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
+    AcquireSpec,
     CoreProgram,
     ResourceRouteIntent,
     product_output,
@@ -64,6 +66,7 @@ from scopecat.kernel.problems import (
     model_location,
 )
 from scopecat.kernel.resource_identity import logical_resource_port_id
+from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import (
     Entity,
     Float,
@@ -159,6 +162,12 @@ def _symbolic_program() -> CoreProgram:
         id="symbolic-linked-plan",
         kind="compiler_test",
         point_domain=PointDomain(root=root),
+        effects=(
+            AcquireSpec(
+                AcquireId(SymbolId(local_id="read-signal")),
+                (selected_product.id,),
+            ),
+        ),
         product_defs=(selected_product, available_product),
         instrument_product_producers=(selected_producer, available_producer),
         product_uses=(selected_use,),

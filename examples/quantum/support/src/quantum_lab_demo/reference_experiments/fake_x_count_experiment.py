@@ -124,11 +124,11 @@ _X_COUNT_EXECUTION = fake_x_count_domain_execution(
 FAKE_X_COUNT_TEMPLATE = (
     sc.module("quantum_lab_demo.reference.fake_x_count.root")
     .use(_TEMPLATE_CAPTURE)
+    .domain(_X_COUNT_EXECUTION)
     .template(
         FAKE_X_COUNT_TEMPLATE_ID,
         kind=FAKE_X_COUNT_EXPERIMENT_ID,
     )
-    .domain(_X_COUNT_EXECUTION)
     .experiment_id(FAKE_X_COUNT_EXPERIMENT_ID)
     .scan(X_COUNT, DEFAULT_X_COUNTS)
     .record_product(

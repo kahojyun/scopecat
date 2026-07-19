@@ -39,10 +39,7 @@ from scopecat.compiler.frontend.parameter_contract_validation import (
     validate_parameter_contracts,
 )
 from scopecat.compiler.frontend.problems import raise_frontend_problem
-from scopecat.compiler.frontend.record_lowering import (
-    lower_product_selections,
-    lower_records,
-)
+from scopecat.compiler.frontend.product_lowering import lower_products
 from scopecat.compiler.frontend.static_evaluation import StaticRelationEvaluator
 from scopecat.compiler.frontend.value_binding import (
     bind_relation_input_refs,
@@ -54,7 +51,17 @@ from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
 )
-from scopecat.compiler.typed.program import CoreProgram
+from scopecat.compiler.semantic.model import (
+    AcquireEffectRef,
+    ActionEffectRef,
+    BindingEffectRef,
+    StateEffectRef,
+)
+from scopecat.compiler.typed.program import (
+    AcquireSpec,
+    CoreProgram,
+    EffectParallelGroup,
+)
 from scopecat.compiler.typed.verification import (
     VerifiedCoreProgram,
     seal_typed_program,
@@ -132,21 +139,11 @@ def _bind_verified_assembly(
     static_evaluator = StaticRelationEvaluator(
         environment.parameters,
     )
-    inline_products = lower_records(
-        static_evaluator,
-        topology,
-        assembly.records,
-        inputs,
-        type_bindings=type_bindings,
-        bind_series_input_refs=bind_series_input_refs,
-        bind_relation_input_refs=bind_relation_input_refs,
-        input_row=input_row,
-    )
-    declared_products = lower_product_selections(
+    products = lower_products(
         static_evaluator,
         topology,
         assembly.record_selections,
-        verified_graph.product_ports,
+        verified_graph.product_declarations,
         inputs,
         type_bindings=type_bindings,
         bind_series_input_refs=bind_series_input_refs,
@@ -169,10 +166,7 @@ def _bind_verified_assembly(
         inputs,
         type_bindings=type_bindings,
     )
-    record_product_uses = (
-        *inline_products.product_uses,
-        *declared_products.product_uses,
-    )
+    record_product_uses = products.product_uses
     measurement_transforms = lower_semantic_measurement_transform_graph(
         verified_graph.semantic_graph,
         record_product_uses,
@@ -187,39 +181,66 @@ def _bind_verified_assembly(
         type_bindings=type_bindings,
         product_uses=product_uses,
     )
+    binding_effects = state_specs(
+        bindings,
+        inputs=inputs,
+        type_bindings=type_bindings,
+    )
+    state_effects = {
+        region.id: lower_state_region(
+            region,
+            verified_graph.semantic_graph,
+            resource_ports,
+            inputs,
+            type_bindings=type_bindings,
+        )
+        for region in verified_graph.semantic_graph.graph.row_regions
+    }
+    action_effects = {
+        action.id: lower_action_effect(
+            action,
+            verified_graph.semantic_graph,
+            resource_ports,
+            inputs,
+            type_bindings=type_bindings,
+        )
+        for action in verified_graph.semantic_graph.graph.actions
+    }
+    domain_effects = {execution.id: execution for execution in domain_executions}
+    acquire_effects = {
+        acquire.id: AcquireSpec(acquire.id, acquire.product_ids)
+        for acquire in verified_graph.semantic_graph.graph.acquisitions
+    }
+    ordered_effects = tuple(
+        binding_effects[effect.index]
+        if isinstance(effect, BindingEffectRef)
+        else state_effects[effect.id]
+        if isinstance(effect, StateEffectRef)
+        else action_effects[effect.id]
+        if isinstance(effect, ActionEffectRef)
+        else acquire_effects[effect.id]
+        if isinstance(effect, AcquireEffectRef)
+        else domain_effects[effect.id]
+        for effect in assembly.effect_order
+    )
+    effect_indices = {
+        effect: index for index, effect in enumerate(assembly.effect_order)
+    }
     program = CoreProgram(
         id=verified.experiment_id,
         kind=verified.kind,
         point_domain=point_domain,
         route_intents=tuple(route_intents),
         compute_nodes=compute_nodes,
-        effects=(
-            *state_specs(
-                bindings,
-                inputs=inputs,
-                type_bindings=type_bindings,
-            ),
-            *(
-                lower_state_region(
-                    region,
-                    verified_graph.semantic_graph,
-                    resource_ports,
-                    inputs,
-                    type_bindings=type_bindings,
+        effects=ordered_effects,
+        parallel_groups=tuple(
+            EffectParallelGroup(
+                tuple(
+                    tuple(effect_indices[effect] for effect in branch)
+                    for branch in group.branches
                 )
-                for region in verified_graph.semantic_graph.graph.row_regions
-            ),
-            *(
-                lower_action_effect(
-                    action,
-                    verified_graph.semantic_graph,
-                    resource_ports,
-                    inputs,
-                    type_bindings=type_bindings,
-                )
-                for action in verified_graph.semantic_graph.graph.actions
-            ),
-            *domain_executions,
+            )
+            for group in assembly.parallel_groups
         ),
         measurement_transforms=measurement_transforms.transforms,
         implementation_catalog=implementation_catalog,
@@ -232,15 +253,12 @@ def _bind_verified_assembly(
             )
             for intent in assembly.parameter_overlays
         ),
-        product_defs=(*inline_products.product_defs, *declared_products.product_defs),
-        instrument_product_producers=(
-            *inline_products.instrument_product_producers,
-            *declared_products.instrument_product_producers,
-        ),
+        product_defs=products.product_defs,
+        instrument_product_producers=products.instrument_product_producers,
         domain_product_producers=domain_product_producers,
         measurement_transform_product_producers=measurement_transforms.producers,
         product_uses=product_uses,
-        record_uses=(*inline_products.record_uses, *declared_products.record_uses),
+        record_uses=products.record_uses,
         metadata=dict(assembly.metadata),
     )
     return seal_typed_program(program, phase=ProblemPhase.PLANNING)

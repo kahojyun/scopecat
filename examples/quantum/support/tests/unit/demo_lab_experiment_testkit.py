@@ -93,7 +93,6 @@ def materialized_effects(
     ordered_effects = (
         *lowered.compute_operations,
         *(effect for group in lowered.effect_operations for effect in group),
-        *lowered.collect_operations,
     )
     claims = tuple(
         dict.fromkeys(

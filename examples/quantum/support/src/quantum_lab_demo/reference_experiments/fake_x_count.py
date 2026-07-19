@@ -145,9 +145,9 @@ def prepare_fake_x_count_reference(
 ) -> PreparedFakeXCountReference:
     """Close the reference program, target, result, and transform mappings.
 
-    ``x_counts`` is supplied by the lab adapter's already bound point view.
-    Its order must exactly match the canonical logical points; this target
-    preparation no longer discovers authoring coordinates by a string name.
+    ``x_counts`` is supplied by the lab adapter's bound point view in exact
+    canonical logical-point order. This keeps target preparation independent
+    of authoring coordinate names.
     """
 
     selected_programs = tuple(programs)

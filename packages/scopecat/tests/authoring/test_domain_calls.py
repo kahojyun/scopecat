@@ -8,6 +8,7 @@ from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
 from scopecat.compiler.typed.program import ValueInput, core_domain_executions
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
+from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.planning.authoring import resolve_experiment
 from tests.testkit.authoring import load_config
 
@@ -58,6 +59,58 @@ def test_domain_execution_rejects_unknown_or_missing_bindings() -> None:
         )
 
 
+def test_domain_execution_binds_declared_resource_roles_and_source_anchor() -> None:
+    program = sc.domain_program(
+        "controller-program",
+        dialect_id="test",
+        dialect_version="1",
+        body=object(),
+        results={"counts": None},
+        resources={"controller": ("run-program",)},
+    )
+    builder = (
+        sc.module("test.domain.resources")
+        .resource("controller", requires=("run-program",))
+        .product("counts", unit="count", dtype="int64")
+    )
+    execution = sc.domain_execution(
+        program,
+        id="run-controller",
+        results={"counts": builder.products.counts},
+        resources={"controller": "controller"},
+    )
+
+    assembly = elaborate_module(builder.domain(execution).build())
+    semantic = assembly.semantic_graph.domain_executions[0]
+
+    assert semantic.resources == (
+        ("controller", logical_resource_port_id("controller")),
+    )
+    assert semantic.program.resource_ports[0].capabilities == ("run-program",)
+    assert assembly.source_map.domain_sources[0][0] == "run-controller"
+    assert assembly.source_map.domain_sources[0][1].kind == "domain"
+
+
+def test_domain_resource_role_checks_module_capabilities() -> None:
+    program = sc.domain_program(
+        "controller-program",
+        dialect_id="test",
+        dialect_version="1",
+        body=object(),
+        resources={"controller": ("run-program",)},
+    )
+    builder = sc.module("test.domain.bad-resource").resource("controller")
+    execution = sc.domain_execution(
+        program,
+        resources={"controller": "controller"},
+    )
+
+    with pytest.raises(CheckFailed) as error:
+        builder.domain(execution).build()
+
+    assert error.value.problems[0].code == "domain_resource_capability_mismatch"
+
+
 def test_domain_execution_captures_literal_inputs_at_authoring_ingress() -> None:
     body = object()
     payload = PayloadValue(schema_id="test.program", payload=body)
@@ -97,13 +150,13 @@ def test_domain_execution_must_bind_a_product_from_the_template_module() -> None
     )
 
     with pytest.raises(CheckFailed) as error:
-        local.template("test.domain", kind="test").domain(execution).build()
+        local.domain(execution)
     assert "domain_execution_product_foreign_instance" in {
         problem.code for problem in error.value.problems
     }
 
 
-def test_template_preserves_ordered_domain_executions() -> None:
+def test_module_preserves_ordered_domain_executions() -> None:
     program = sc.domain_program(
         "program",
         dialect_id="test",
@@ -112,18 +165,44 @@ def test_template_preserves_ordered_domain_executions() -> None:
     )
     first = sc.domain_execution(program, id="first")
     second = sc.domain_execution(program, id="second")
-    builder = (
-        sc.module("test.domain.single")
-        .build()
-        .template(
-            "test.domain",
-            kind="test",
-        )
+    module = sc.module("test.domain.single").domain(first).domain(second).build()
+    template = module.template("test.domain", kind="test").build()
+
+    assert tuple(call.id for call in template.module.domain_executions) == (
+        "first",
+        "second",
     )
 
-    template = builder.domain(first).domain(second).build()
 
-    assert tuple(call.id for call in template.domain_executions) == ("first", "second")
+def test_composed_domain_effects_are_scoped_per_module_instance() -> None:
+    program = sc.domain_program(
+        "program",
+        dialect_id="test",
+        dialect_version="1",
+        body=object(),
+        results={"result": None},
+    )
+    base = sc.module("test.domain.reusable").product("result").build()
+    child = base.domain(
+        sc.domain_execution(
+            program,
+            id="call",
+            results={"result": base.products["result"]},
+        )
+    )
+    right = child.instantiate("right")
+    left = child.instantiate("left")
+    root = sc.module("test.domain.composed").use(right, left).build()
+
+    assembly = elaborate_module(root)
+
+    assert tuple(
+        execution.id for execution in assembly.semantic_graph.domain_executions
+    ) == ("right/call", "left/call")
+    assert tuple(
+        execution.results[0][1].qualified_name
+        for execution in assembly.semantic_graph.domain_executions
+    ) == ("right/result", "left/result")
 
 
 def test_domain_execution_rejects_execute_stage_compute_input() -> None:
@@ -141,7 +220,7 @@ def test_domain_execution_rejects_execute_stage_compute_input() -> None:
         inputs={"value": value_type},
         results={"result": None},
     )
-    module = (
+    base = (
         sc.module("test.domain.execute-input")
         .computes(compute)
         .product("result")
@@ -150,11 +229,12 @@ def test_domain_execution_rejects_execute_stage_compute_input() -> None:
     execution = sc.domain_execution(
         program,
         inputs={"value": compute.output},
-        results={"result": module.products["result"]},
+        results={"result": base.products["result"]},
     )
+    module = base.domain(execution)
 
     with pytest.raises(CheckFailed) as error:
-        verify_assembly_graph(elaborate_module(module, (execution,)))
+        verify_assembly_graph(elaborate_module(module))
     assert "semantic_domain_execution_input_stage_unavailable" in {
         problem.code for problem in error.value.problems
     }
@@ -182,7 +262,8 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
         results={"counts": selected_product},
     )
 
-    assembly = elaborate_module(root, (execution,))
+    root = root.domain(execution)
+    assembly = elaborate_module(root)
     graph = assembly.semantic_graph
     assert len(graph.domain_executions) == 1
     assert graph.domain_executions[0].program.id.qualified_name == "x-count-program"
@@ -192,7 +273,6 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
 
     template = (
         root.template("test.domain", kind="domain")
-        .domain(execution)
         .scan(sc.axis(point_x_count, (1, 2)))
         .record_product(selected_product, record_id="counts_first")
         .record_product(selected_product, record_id="counts_second")
@@ -230,7 +310,7 @@ def test_domain_literal_input_namespace_does_not_collide_with_compute() -> None:
         inputs={"value": value_type},
         results={"result": None},
     )
-    module = (
+    base = (
         sc.module("test.domain.literal-namespace")
         .computes(compute)
         .product("result")
@@ -239,10 +319,11 @@ def test_domain_literal_input_namespace_does_not_collide_with_compute() -> None:
     execution = sc.domain_execution(
         program,
         inputs={"value": 2},
-        results={"result": module.products["result"]},
+        results={"result": base.products["result"]},
     )
+    module = base.domain(execution)
 
-    graph = elaborate_module(module, (execution,)).semantic_graph
+    graph = elaborate_module(module).semantic_graph
     value_ids = {definition.id.qualified_name for definition in graph.value_defs}
     assert "domain/inputs/value" in value_ids
     assert "domain_execution/program/inputs/value" in value_ids

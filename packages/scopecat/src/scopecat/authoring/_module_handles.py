@@ -31,17 +31,23 @@ from scopecat.authoring._intents import (
 )
 from scopecat.authoring._module_ir import (
     InvocationKey,
+    ModuleAcquireEffect,
+    ModuleActionEffect,
+    ModuleBindingEffect,
+    ModuleDomainEffect,
+    ModuleEffectIR,
+    ModuleInstanceEffect,
     ModuleIR,
+    ModuleParallelEffect,
     ModulePythonImplementation,
+    ModuleStateEffect,
     ModuleValueExport,
 )
-from scopecat.authoring._record_intents import (
-    ModuleProductPort,
+from scopecat.authoring._products import (
+    ModuleProductDecl,
+    ProductAxis,
     ProductOutputs,
     ProductRef,
-    RecordAxis,
-    RecordIntent,
-    observable,
 )
 from scopecat.authoring._value_refs import (
     TableRow,
@@ -52,6 +58,7 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_input_id,
     internal_value_ref_operation_id,
 )
+from scopecat.authoring.domain import DomainExecution
 from scopecat.authoring.measurements import MeasurementTransform
 from scopecat.authoring.value_types import (
     Entity as EntityType,
@@ -75,7 +82,10 @@ from scopecat.authoring.values import (
 from scopecat.compiler.relations.model import RowScopeId
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
 from scopecat.kernel.payloads import PayloadValue
-from scopecat.kernel.resource_identity import logical_resource_port_id
+from scopecat.kernel.resource_identity import (
+    LogicalResourcePortId,
+    logical_resource_port_id,
+)
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_type_compatibility import require_assignable
 from scopecat.measurements.results import MeasurementDType
@@ -93,6 +103,12 @@ type BindingInput = StateLiteral | ValueRef
 type StateRowValue = Callable[[TableRow], ValueRef]
 type StateScalarInput = BindingInput | StateRowValue
 type StateRouteInput = StateScalarInput | Sequence[StateLiteral]
+
+
+def _empty_resource_bindings() -> FrozenMapping[
+    LogicalResourcePortId, LogicalResourcePortId
+]:
+    return FrozenMapping()
 
 
 def _is_entity_input_type(value_type: ValueType) -> bool:
@@ -132,36 +148,50 @@ class ModuleBuilder:
     input_ports: tuple[ModuleInputPort, ...] = ()
     output_ports: tuple[ModuleValueExport, ...] = ()
     resources: tuple[ResourcePort, ...] = ()
-    bindings: tuple[ExperimentBindingIntent, ...] = ()
-    state_intents: tuple[ExperimentStateIntent, ...] = ()
-    actions: tuple[ModuleActionDecl, ...] = ()
+    procedure: tuple[ModuleEffectIR, ...] = ()
     operations: tuple[ModuleOperationDecl, ...] = ()
     python_implementations: tuple[ModulePythonImplementation, ...] = ()
     measurement_transform_intents: tuple[MeasurementTransform, ...] = ()
-    records: tuple[RecordIntent, ...] = ()
-    product_ports: tuple[ModuleProductPort, ...] = ()
+    product_declarations: tuple[ModuleProductDecl, ...] = ()
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
 
     @property
     def observables(self) -> tuple[str, ...]:
-        return tuple(record.id for record in self.records)
+        return tuple(
+            product.qualified_id
+            for product in self.product_declarations
+            if product.kind == "observable"
+        )
 
     @property
-    def has_fragments(self) -> bool:
+    def products(self) -> ProductOutputs:
+        """Stable references to products declared on this builder so far."""
+
+        return ProductOutputs(
+            {
+                product.qualified_id: ProductRef(
+                    product_id=product.product_id,
+                    origin=product.origin,
+                )
+                for product in self.product_declarations
+            }
+        )
+
+    @property
+    def has_content(self) -> bool:
+        """Whether this builder contributes declarations or procedure effects."""
+
         return any(
             (
                 self.resources,
                 self.invocations,
                 self.input_ports,
                 self.output_ports,
-                self.bindings,
-                self.state_intents,
-                self.actions,
+                self.procedure,
                 self.operations,
                 self.python_implementations,
                 self.measurement_transform_intents,
-                self.records,
-                self.product_ports,
+                self.product_declarations,
             )
         )
 
@@ -186,7 +216,93 @@ class ModuleBuilder:
             duplicate_list = ", ".join(repr(scope) for scope in duplicates)
             msg = f"module builder has duplicate instance ids: {duplicate_list}"
             raise ValueError(msg)
-        return replace(self, invocations=combined)
+        return replace(
+            self,
+            invocations=combined,
+            procedure=(
+                *self.procedure,
+                *(ModuleInstanceEffect(item.invocation_key) for item in invocations),
+            ),
+        )
+
+    def sequence(self, *modules: ModuleInvocation) -> ModuleBuilder:
+        """Append child procedures in deterministic sequence."""
+
+        return self.use(*modules)
+
+    def parallel(self, *modules: ModuleInvocation) -> ModuleBuilder:
+        """Append child procedures as a may-run-in-parallel group.
+
+        The scheduler may serialize branches when concrete resource claims
+        conflict. Explicit bindings to the same parent resource are rejected
+        at definition time because they are never independent.
+        """
+
+        if len(modules) < 2:
+            raise ValueError("parallel requires at least two module invocations")
+        from scopecat.authoring._module_construction import module_use_invocation
+
+        invocations = tuple(module_use_invocation(module) for module in modules)
+        combined = (*self.invocations, *invocations)
+        instance_ids = tuple(item.instance_id for item in combined)
+        duplicates = sorted(
+            item for item in set(instance_ids) if instance_ids.count(item) > 1
+        )
+        if duplicates:
+            raise ValueError(
+                "module builder has duplicate instance ids: "
+                + ", ".join(repr(item) for item in duplicates)
+            )
+        return replace(
+            self,
+            invocations=combined,
+            procedure=(
+                *self.procedure,
+                ModuleParallelEffect(
+                    tuple(item.invocation_key for item in invocations)
+                ),
+            ),
+        )
+
+    @property
+    def bindings(self) -> tuple[ExperimentBindingIntent, ...]:
+        return tuple(
+            effect.intent
+            for effect in self.procedure
+            if isinstance(effect, ModuleBindingEffect)
+        )
+
+    @property
+    def state_intents(self) -> tuple[ExperimentStateIntent, ...]:
+        return tuple(
+            effect.intent
+            for effect in self.procedure
+            if isinstance(effect, ModuleStateEffect)
+        )
+
+    @property
+    def actions(self) -> tuple[ModuleActionDecl, ...]:
+        return tuple(
+            effect.intent
+            for effect in self.procedure
+            if isinstance(effect, ModuleActionEffect)
+        )
+
+    @property
+    def domain_executions(self) -> tuple[DomainExecution, ...]:
+        return tuple(
+            effect.execution
+            for effect in self.procedure
+            if isinstance(effect, ModuleDomainEffect)
+        )
+
+    @property
+    def acquisitions(self) -> tuple[ModuleAcquireEffect, ...]:
+        return tuple(
+            effect
+            for effect in self.procedure
+            if isinstance(effect, ModuleAcquireEffect)
+        )
 
     def inputs(self, *values: ValueRef) -> ModuleBuilder:
         """Register typed input values declared with :func:`scopecat.input`."""
@@ -273,13 +389,15 @@ class ModuleBuilder:
             raise TypeError(msg)
         return replace(
             self,
-            bindings=(
-                *self.bindings,
-                binding_field(
-                    resource,
-                    capability=capability,
-                    field=field,
-                    value=cast("BindingInput", _capture_state_literal(value)),
+            procedure=(
+                *self.procedure,
+                ModuleBindingEffect(
+                    binding_field(
+                        resource,
+                        capability=capability,
+                        field=field,
+                        value=cast("BindingInput", _capture_state_literal(value)),
+                    )
                 ),
             ),
         )
@@ -314,42 +432,44 @@ class ModuleBuilder:
             raise ValueError(msg)
         return replace(
             self,
-            state_intents=(
-                *self.state_intents,
-                StateEachIntent(
-                    relation=relation,
-                    row_scope_id=row_scope_id,
-                    resource=_state_scalar_expr(
-                        _resolve_state_row_value(
-                            resource,
-                            row,
-                            path="state_each.resource",
-                        )
-                    ),
-                    capability_id=capability,
-                    field_path=field,
-                    value=_state_value_expr(
-                        _resolve_state_row_value(
-                            value,
-                            row,
-                            path="state_each.value",
-                        )
-                    ),
-                    route_entities=tuple(
-                        _state_route_expr(
+            procedure=(
+                *self.procedure,
+                ModuleStateEffect(
+                    StateEachIntent(
+                        relation=relation,
+                        row_scope_id=row_scope_id,
+                        resource=_state_scalar_expr(
                             _resolve_state_row_value(
-                                entity,
+                                resource,
                                 row,
-                                path="state_each.route_entities",
+                                path="state_each.resource",
                             )
-                        )
-                        for entity in route_entities
-                    ),
-                    resource_port=(
-                        logical_resource_port_id(resource_port)
-                        if resource_port is not None
-                        else None
-                    ),
+                        ),
+                        capability_id=capability,
+                        field_path=field,
+                        value=_state_value_expr(
+                            _resolve_state_row_value(
+                                value,
+                                row,
+                                path="state_each.value",
+                            )
+                        ),
+                        route_entities=tuple(
+                            _state_route_expr(
+                                _resolve_state_row_value(
+                                    entity,
+                                    row,
+                                    path="state_each.route_entities",
+                                )
+                            )
+                            for entity in route_entities
+                        ),
+                        resource_port=(
+                            logical_resource_port_id(resource_port)
+                            if resource_port is not None
+                            else None
+                        ),
+                    )
                 ),
             ),
         )
@@ -385,18 +505,50 @@ class ModuleBuilder:
             raise TypeError(msg)
         return replace(
             self,
-            actions=(
-                *self.actions,
-                ModuleActionDecl(
-                    id=id,
-                    resource_port_id=logical_resource_port_id(resource),
-                    capability_id=capability,
-                    fields=tuple(
-                        (name, cast("BindingInput", _capture_state_literal(value)))
-                        for name, value in selected_fields.items()
-                    ),
+            procedure=(
+                *self.procedure,
+                ModuleActionEffect(
+                    ModuleActionDecl(
+                        id=id,
+                        resource_port_id=logical_resource_port_id(resource),
+                        capability_id=capability,
+                        fields=tuple(
+                            (name, cast("BindingInput", _capture_state_literal(value)))
+                            for name, value in selected_fields.items()
+                        ),
+                    )
                 ),
             ),
+        )
+
+    def domain(self, execution: DomainExecution) -> ModuleBuilder:
+        """Append one opaque domain-program effect to this module procedure."""
+
+        if execution.id in {item.id for item in self.domain_executions}:
+            raise ValueError(f"domain execution id {execution.id!r} is repeated")
+        return replace(
+            self,
+            procedure=(*self.procedure, ModuleDomainEffect(execution)),
+        )
+
+    def acquire(
+        self,
+        id: str,  # noqa: A002
+        *products: str | ProductRef,
+    ) -> ModuleBuilder:
+        """Acquire instrument products at this exact procedure position."""
+
+        if not id or not products:
+            raise ValueError("acquire requires a non-empty id and products")
+        if id in {effect.id for effect in self.acquisitions}:
+            raise ValueError(f"module acquisition {id!r} is already declared")
+        selected = tuple(
+            self.products[product] if isinstance(product, str) else product
+            for product in products
+        )
+        return replace(
+            self,
+            procedure=(*self.procedure, ModuleAcquireEffect(id, selected)),
         )
 
     def computes(self, *definitions: Compute) -> ModuleBuilder:
@@ -455,39 +607,6 @@ class ModuleBuilder:
             ),
         )
 
-    def record(
-        self,
-        *record_ids: str,
-        resource: str | None = None,
-        capability: str | None = None,
-        product_key: str | None = None,
-        unit: str | None = "ratio",
-        dtype: MeasurementDType = "float64",
-        axes: Sequence[RecordAxis] = (),
-        metadata: Mapping[str, MetadataValue] | None = None,
-        producer_metadata: Mapping[str, MetadataValue] | None = None,
-    ) -> ModuleBuilder:
-        return replace(
-            self,
-            records=(
-                *self.records,
-                *(
-                    observable(
-                        record_id,
-                        resource=resource,
-                        capability=capability,
-                        product_key=product_key,
-                        unit=unit,
-                        dtype=dtype,
-                        axes=tuple(axes),
-                        metadata=metadata,
-                        producer_metadata=producer_metadata,
-                    )
-                    for record_id in record_ids
-                ),
-            ),
-        )
-
     def product(
         self,
         *product_ids: str,
@@ -496,16 +615,23 @@ class ModuleBuilder:
         product_key: str | None = None,
         unit: str | None = "ratio",
         dtype: MeasurementDType = "float64",
-        axes: Sequence[RecordAxis] = (),
+        axes: Sequence[ProductAxis] = (),
         metadata: Mapping[str, MetadataValue] | None = None,
         producer_metadata: Mapping[str, MetadataValue] | None = None,
     ) -> ModuleBuilder:
+        """Declare products exposed by this reusable module.
+
+        This only defines product identity, shape, and producer mapping. Use
+        :meth:`acquire` to place hardware realization in the procedure; select
+        durable records from a template or scratch experiment.
+        """
+
         return replace(
             self,
-            product_ports=(
-                *self.product_ports,
+            product_declarations=(
+                *self.product_declarations,
                 *(
-                    ModuleProductPort(
+                    ModuleProductDecl(
                         id=product_id,
                         origin=(object(),),
                         kind="observable",
@@ -526,9 +652,6 @@ class ModuleBuilder:
                 ),
             ),
         )
-
-    def measure(self, *observable_ids: str) -> ModuleBuilder:
-        return self.record(*observable_ids)
 
     def build(
         self,
@@ -571,6 +694,9 @@ class ModuleInvocation:
     module: ExperimentModule
     instance_id: str
     inputs: Mapping[str, ValueRef] = field(default_factory=empty_frozen_mapping)
+    resource_bindings: Mapping[LogicalResourcePortId, LogicalResourcePortId] = field(
+        default_factory=_empty_resource_bindings
+    )
     _key: InvocationKey = field(
         default_factory=InvocationKey.fresh,
         repr=False,
@@ -602,6 +728,18 @@ class ModuleInvocation:
             msg = (
                 f"module instance {self.instance_id!r} must connect all inputs: "
                 f"{missing}"
+            )
+            raise ValueError(msg)
+        declared_resources = {
+            port.symbol_id for port in self.module.ir.interface.resources
+        }
+        unknown_resources = sorted(
+            item.qualified_name
+            for item in set(self.resource_bindings) - declared_resources
+        )
+        if unknown_resources:
+            msg = "module instance binds undeclared resources: " + ", ".join(
+                unknown_resources
             )
             raise ValueError(msg)
 
@@ -727,6 +865,14 @@ class ExperimentModule:
         return self._ir.body.actions
 
     @property
+    def domain_executions(self) -> tuple[DomainExecution, ...]:
+        return self._ir.body.domain_executions
+
+    @property
+    def procedure(self) -> tuple[ModuleEffectIR, ...]:
+        return self._ir.body.procedure
+
+    @property
     def operations(self) -> tuple[ModuleOperationDecl, ...]:
         return self._ir.body.operations
 
@@ -737,11 +883,7 @@ class ExperimentModule:
         return self._ir.python_implementations
 
     @property
-    def records(self) -> tuple[RecordIntent, ...]:
-        return self._ir.body.records
-
-    @property
-    def product_ports(self) -> tuple[ModuleProductPort, ...]:
+    def product_declarations(self) -> tuple[ModuleProductDecl, ...]:
         """Local product declarations consumed by the flattening pass."""
 
         return self._ir.body.products
@@ -753,23 +895,46 @@ class ExperimentModule:
     def instantiate(
         self,
         instance_id: str,
+        mapped_inputs: Mapping[str, ModuleInput] | None = None,
+        /,
+        *,
+        resource_bindings: Mapping[str, str] | None = None,
         **inputs: ModuleInput,
     ) -> ModuleInvocation:
         """Create a hygienic, explicitly named module instance."""
 
-        if _module_ir_has_fixed_records(self.ir):
-            msg = (
-                f"module {self.id!r} contains fixed records and cannot be "
-                "instantiated; reusable modules must declare products and let "
-                "the template select them"
+        selected_inputs = dict(mapped_inputs or {})
+        selected_inputs.update(inputs)
+        return self._invocation(
+            instance_id,
+            selected_inputs,
+            resource_bindings=resource_bindings or {},
+        )
+
+    def domain(self, execution: DomainExecution) -> ExperimentModule:
+        """Return this module with one domain call appended to its procedure."""
+
+        if execution.id in {item.id for item in self.domain_executions}:
+            raise ValueError(f"domain execution id {execution.id!r} is repeated")
+        return ExperimentModule(
+            _ir=replace(
+                self._ir,
+                body=replace(
+                    self._ir.body,
+                    procedure=(
+                        *self._ir.body.procedure,
+                        ModuleDomainEffect(execution),
+                    ),
+                ),
             )
-            raise ValueError(msg)
-        return self._invocation(instance_id, inputs)
+        )
 
     def _invocation(
         self,
         instance_id: str,
         inputs: Mapping[str, ModuleInput],
+        *,
+        resource_bindings: Mapping[str, str],
     ) -> ModuleInvocation:
         invalid_values = sorted(
             input_id
@@ -805,6 +970,13 @@ class ExperimentModule:
             module=self,
             instance_id=instance_id,
             inputs=normalized,
+            resource_bindings=FrozenMapping(
+                (
+                    logical_resource_port_id(child_id),
+                    logical_resource_port_id(parent_id),
+                )
+                for child_id, parent_id in resource_bindings.items()
+            ),
             _key=InvocationKey.fresh(),
         )
 
@@ -854,13 +1026,6 @@ class ExperimentModule:
             description=description,
             metadata=metadata,
         )
-
-
-def _module_ir_has_fixed_records(module: ModuleIR) -> bool:
-    return bool(module.body.records) or any(
-        _module_ir_has_fixed_records(instance.module)
-        for instance in module.body.instances
-    )
 
 
 def _module_input_value_ref(

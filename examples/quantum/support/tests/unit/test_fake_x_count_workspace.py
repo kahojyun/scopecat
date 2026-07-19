@@ -136,7 +136,7 @@ class _WrongResultCompiler(FakeXCountDomainCompiler):
 
 def test_fake_x_count_authors_direct_iq_and_derived_probabilities_separately() -> None:
     body = FAKE_X_COUNT_CAPTURE_MODULE.ir.body
-    execution = FAKE_X_COUNT_TEMPLATE.build().domain_executions[0]
+    execution = FAKE_X_COUNT_TEMPLATE.build().module.domain_executions[0]
     assert execution is not None
     program = execution.program
     [transform] = body.measurement_transforms
@@ -249,13 +249,13 @@ def test_fake_x_count_compiler_absorbs_affine_point_input_without_binding(
     template = (
         sc.module("test.fake-x-count.affine")
         .use(capture)
-        .template("test.fake-x-count.affine", kind="fake_x_count")
         .domain(
             fake_x_count_domain_execution(
                 capture.products.integrated_iq_shots,
                 x_count=2 * X_COUNT + 1,
             )
         )
+        .template("test.fake-x-count.affine", kind="fake_x_count")
         .scan(X_COUNT, (0, 1, 2))
         .record_product(capture.products.probability_1, record_id="probability_1")
         .build()
@@ -288,8 +288,8 @@ def test_fake_x_count_compiler_projects_zipped_axis_without_binding(
     template = (
         sc.module("test.fake-x-count.zip")
         .use(capture)
-        .template("test.fake-x-count.zip", kind="fake_x_count")
         .domain(fake_x_count_domain_execution(capture.products.integrated_iq_shots))
+        .template("test.fake-x-count.zip", kind="fake_x_count")
         .scan(
             sc.zip(
                 sc.axis(X_COUNT, (0, 1, 2)),
@@ -320,7 +320,6 @@ def test_two_ordered_domain_calls_share_target_and_produce_canonical_results(
     template = (
         sc.module("test.fake-x-count.two-calls")
         .use(first, second)
-        .template("test.fake-x-count.two-calls", kind="fake_x_count")
         .domain(
             fake_x_count_domain_execution(
                 first.products.integrated_iq_shots,
@@ -333,6 +332,7 @@ def test_two_ordered_domain_calls_share_target_and_produce_canonical_results(
                 id="second",
             )
         )
+        .template("test.fake-x-count.two-calls", kind="fake_x_count")
         .scan(X_COUNT, (0, 1, 2))
         .record_product(first.products.probability_0, record_id="first-p0")
         .record_product(second.products.probability_1, record_id="second-p1")

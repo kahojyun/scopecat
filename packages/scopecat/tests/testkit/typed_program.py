@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from copy import deepcopy
+from dataclasses import replace
 
 from scopecat.compiler.frontend.environment import ValidatedConfigEnvironment
 from scopecat.compiler.linking.linked import (
@@ -16,6 +17,7 @@ from scopecat.compiler.relations.uses import relation_use
 from scopecat.compiler.relations.verification import RelationTypeBindings
 from scopecat.compiler.semantic.compute_result import ComputeResultRef
 from scopecat.compiler.semantic.model import (
+    AcquireId,
     ImplementationCatalog,
     OperationId,
     ValueId,
@@ -33,6 +35,7 @@ from scopecat.compiler.typed.products import (
     ProductDef,
 )
 from scopecat.compiler.typed.program import (
+    AcquireSpec,
     CoreProgram,
     ResourceRouteIntent,
     TypedComputeNode,
@@ -194,6 +197,15 @@ def typed_program(
 ) -> CoreProgram:
     """Build one low-level typed program from explicitly ordered components."""
 
+    used_product_ids = {use.product_id for use in product_uses}
+    acquired_product_ids = tuple(
+        dict.fromkeys(
+            producer.product_id
+            for producer in instrument_product_producers
+            if producer.product_id in used_product_ids
+        )
+    )
+
     return CoreProgram(
         id=id,
         kind=kind,
@@ -205,6 +217,15 @@ def typed_program(
             *state,
             *actions,
             *((domain_execution,) if domain_execution is not None else ()),
+            *(
+                (
+                    AcquireSpec(
+                        AcquireId(SymbolId(local_id="acquire")), acquired_product_ids
+                    ),
+                )
+                if acquired_product_ids
+                else ()
+            ),
         ),
         measurement_transforms=tuple(measurement_transforms),
         implementation_catalog=implementation_catalog or ImplementationCatalog(),
@@ -225,6 +246,29 @@ def link_program(
     environment: ValidatedConfigEnvironment,
 ) -> LinkedPlan:
     """Snapshot, seal, and link an externally constructed test program."""
+
+    acquired = {
+        product_id
+        for effect in program.effects
+        if isinstance(effect, AcquireSpec)
+        for product_id in effect.product_ids
+    }
+    used = {use.product_id for use in program.product_uses}
+    missing = tuple(
+        dict.fromkeys(
+            producer.product_id
+            for producer in program.instrument_product_producers
+            if producer.product_id in used and producer.product_id not in acquired
+        )
+    )
+    if missing:
+        program = replace(
+            program,
+            effects=(
+                *program.effects,
+                AcquireSpec(AcquireId(SymbolId(local_id="test-acquire")), missing),
+            ),
+        )
 
     try:
         verified_program = seal_typed_program(

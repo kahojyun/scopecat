@@ -1,4 +1,4 @@
-"""Config-dependent lowering of source record intents."""
+"""Config-dependent lowering of products and durable record selections."""
 
 from __future__ import annotations
 
@@ -7,11 +7,10 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import cast
 
-from scopecat.authoring._record_intents import (
+from scopecat.authoring._products import (
     AxisSizeInput,
-    ModuleProductPort,
-    RecordAxis,
-    RecordIntent,
+    ModuleProductDecl,
+    ProductAxis,
     RecordSelection,
 )
 from scopecat.authoring._value_refs import (
@@ -50,8 +49,6 @@ from scopecat.kernel.product_identity import (
     ProductProducerId,
     ProductUse,
     ProductUseId,
-    product_id,
-    product_use,
 )
 from scopecat.kernel.value_types import Scalar, Series, Table, ValueType
 from scopecat.records._run_request_values import normalize_json_value
@@ -76,52 +73,14 @@ class LoweredProductModel:
     record_uses: tuple[RecordUse, ...] = ()
 
 
-def lower_records(
-    static_evaluator: StaticRelationEvaluator,
-    topology: Topology,
-    record_intents: Sequence[RecordIntent],
-    inputs: Mapping[str, object],
-    *,
-    type_bindings: RelationTypeBindings,
-    bind_series_input_refs: BindSeriesInputRefs,
-    bind_relation_input_refs: BindRelationInputRefs,
-    input_row: InputRow,
-) -> LoweredProductModel:
-    lowered = tuple(
-        _lower_inline_product(
-            static_evaluator,
-            topology,
-            record_intent,
-            inputs,
-            type_bindings=type_bindings,
-            bind_series_input_refs=bind_series_input_refs,
-            bind_relation_input_refs=bind_relation_input_refs,
-            input_row=input_row,
-        )
-        for record_intent in record_intents
-    )
-    products = tuple(product for product, _producer in lowered)
-    producers = tuple(producer for _product, producer in lowered)
-    uses = tuple(product_use(product.id) for product in products)
-    return LoweredProductModel(
-        product_defs=products,
-        instrument_product_producers=producers,
-        product_uses=uses,
-        record_uses=tuple(
-            RecordUse(id=record.id, product_use_id=use.id)
-            for record, use in zip(record_intents, uses, strict=True)
-        ),
-    )
-
-
 _EMPTY_PRODUCT_IDS: frozenset[ProductId] = frozenset()
 
 
-def lower_product_selections(
+def lower_products(
     static_evaluator: StaticRelationEvaluator,
     topology: Topology,
     selections: Sequence[RecordSelection],
-    product_ports_by_id: Mapping[ProductId, ModuleProductPort],
+    product_declarations_by_id: Mapping[ProductId, ModuleProductDecl],
     inputs: Mapping[str, object],
     *,
     type_bindings: RelationTypeBindings,
@@ -131,7 +90,7 @@ def lower_product_selections(
     non_instrument_product_ids: frozenset[ProductId] = _EMPTY_PRODUCT_IDS,
 ) -> LoweredProductModel:
     lowered = tuple(
-        _lower_product_port(
+        _lower_product_declaration(
             static_evaluator,
             topology,
             product,
@@ -141,7 +100,7 @@ def lower_product_selections(
             bind_relation_input_refs=bind_relation_input_refs,
             input_row=input_row,
         )
-        for product in product_ports_by_id.values()
+        for product in product_declarations_by_id.values()
     )
     products = tuple(product for product, _producer in lowered)
     producers = tuple(
@@ -153,7 +112,7 @@ def lower_product_selections(
     uses_by_id: dict[ProductUseId, ProductUse] = {}
     records: list[RecordUse] = []
     for selection in selections:
-        product = product_ports_by_id.get(selection.product_id)
+        product = product_declarations_by_id.get(selection.product_id)
         if product is None:
             raise AssertionError(
                 "verified product selection is absent from the product map: "
@@ -183,13 +142,13 @@ def lower_product_selections(
     )
 
 
-def _lower_record_axis_intent(
+def _lower_product_axis(
     static_evaluator: StaticRelationEvaluator,
     topology: Topology,
-    axis: RecordAxis,
+    axis: ProductAxis,
     inputs: Mapping[str, object],
     *,
-    record_id: str,
+    product_id: str,
     type_bindings: RelationTypeBindings,
     bind_series_input_refs: BindSeriesInputRefs,
     bind_relation_input_refs: BindRelationInputRefs,
@@ -201,8 +160,8 @@ def _lower_record_axis_intent(
         axis.size,
         default=1,
         location=ModelLocation(
-            root="records",
-            path=(record_id, "axes", axis.id, "size"),
+            root="products",
+            path=(product_id, "axes", axis.id, "size"),
         ),
         inputs=inputs,
         type_bindings=type_bindings,
@@ -220,52 +179,10 @@ def _lower_record_axis_intent(
     )
 
 
-def _lower_inline_product(
+def _lower_product_declaration(
     static_evaluator: StaticRelationEvaluator,
     topology: Topology,
-    record: RecordIntent,
-    inputs: Mapping[str, object],
-    *,
-    type_bindings: RelationTypeBindings,
-    bind_series_input_refs: BindSeriesInputRefs,
-    bind_relation_input_refs: BindRelationInputRefs,
-    input_row: InputRow,
-) -> tuple[ProductDef, InstrumentProductProducer]:
-    product = ProductDef(
-        id=product_id(record.id),
-        kind=record.kind,
-        unit=record.unit,
-        dtype=record.dtype,
-        axes=tuple(
-            _lower_record_axis_intent(
-                static_evaluator,
-                topology,
-                axis,
-                inputs,
-                record_id=record.id,
-                type_bindings=type_bindings,
-                bind_series_input_refs=bind_series_input_refs,
-                bind_relation_input_refs=bind_relation_input_refs,
-                input_row=input_row,
-            )
-            for axis in record.axes
-        ),
-        metadata=_durable_metadata(record.metadata),
-    )
-    return product, InstrumentProductProducer(
-        id=ProductProducerId(product.id.symbol),
-        product_id=product.id,
-        resource_target=record.resource_port_id,
-        capability=record.capability,
-        provider_key=record.product_key or record.id,
-        metadata=_durable_metadata(record.producer_metadata),
-    )
-
-
-def _lower_product_port(
-    static_evaluator: StaticRelationEvaluator,
-    topology: Topology,
-    product: ModuleProductPort,
+    product: ModuleProductDecl,
     inputs: Mapping[str, object],
     *,
     type_bindings: RelationTypeBindings,
@@ -279,12 +196,12 @@ def _lower_product_port(
         unit=product.unit,
         dtype=product.dtype,
         axes=tuple(
-            _lower_record_axis_intent(
+            _lower_product_axis(
                 static_evaluator,
                 topology,
                 axis,
                 inputs,
-                record_id=product.qualified_id,
+                product_id=product.qualified_id,
                 type_bindings=type_bindings,
                 bind_series_input_refs=bind_series_input_refs,
                 bind_relation_input_refs=bind_relation_input_refs,
@@ -327,8 +244,8 @@ def _static_positive_int(
         )
     except (ArithmeticError, KeyError, TypeError, ValueError) as error:
         raise_frontend_problem(
-            "module_records_value_invalid",
-            f"records value must resolve during configuration binding: {error}",
+            "product_axis_size_invalid",
+            f"product axis size must resolve during configuration binding: {error}",
             location.root,
             path=location.path,
         )
@@ -338,15 +255,15 @@ def _static_positive_int(
         number = float(evaluated)
     else:
         raise_frontend_problem(
-            "module_records_value_invalid",
-            "records value must resolve to a numeric count",
+            "product_axis_size_invalid",
+            "product axis size must resolve to a numeric count",
             location.root,
             path=location.path,
         )
     if number <= 0 or int(number) != number:
         raise_frontend_problem(
-            "module_records_value_invalid",
-            "records value must be a positive integer",
+            "product_axis_size_invalid",
+            "product axis size must be a positive integer",
             location.root,
             path=location.path,
         )
@@ -374,7 +291,7 @@ def _static_axis_size(
         lowered = internal_lower_value_ref(value)
         if isinstance(lowered, ComputeResultRef):
             raise AssertionError(
-                "verified record axis unexpectedly depends on a compute result"
+                "verified product axis unexpectedly depends on a compute result"
             )
         selected_value = lowered
     if isinstance(selected_value, SeriesExpr):
@@ -389,13 +306,13 @@ def _static_axis_size(
             )
         except (ArithmeticError, KeyError, TypeError, ValueError) as error:
             code = (
-                "module_record_entity_axis_invalid"
+                "product_entity_axis_invalid"
                 if entity_axis
-                else "module_records_value_invalid"
+                else "product_axis_size_invalid"
             )
             raise_frontend_problem(
                 code,
-                "record axis could not be evaluated during configuration "
+                "product axis could not be evaluated during configuration "
                 f"binding: {error}",
                 location.root,
                 path=location.path,
@@ -407,8 +324,8 @@ def _static_axis_size(
     if isinstance(selected_value, RelationExpr):
         if entity_axis:
             raise_frontend_problem(
-                "module_record_entity_axis_invalid",
-                "entity record axis must be scalar or series-shaped",
+                "product_entity_axis_invalid",
+                "entity product axis must be scalar or series-shaped",
                 location.root,
                 path=location.path,
             )
@@ -423,8 +340,8 @@ def _static_axis_size(
             )
         except (ArithmeticError, KeyError, TypeError, ValueError) as error:
             raise_frontend_problem(
-                "module_records_value_invalid",
-                "record axis could not be evaluated during configuration "
+                "product_axis_size_invalid",
+                "product axis could not be evaluated during configuration "
                 f"binding: {error}",
                 location.root,
                 path=location.path,
@@ -444,8 +361,8 @@ def _static_axis_size(
     if entity_axis:
         if not isinstance(selected_value, ScalarExpr):
             raise_frontend_problem(
-                "module_record_entity_axis_invalid",
-                "entity record axis must resolve to an entity series",
+                "product_entity_axis_invalid",
+                "entity product axis must resolve to an entity series",
                 location.root,
                 path=location.path,
             )
@@ -460,8 +377,8 @@ def _static_axis_size(
             )
         except (ArithmeticError, KeyError, TypeError, ValueError) as error:
             raise_frontend_problem(
-                "module_record_entity_axis_invalid",
-                "entity record axis could not be evaluated during "
+                "product_entity_axis_invalid",
+                "entity product axis could not be evaluated during "
                 f"configuration binding: {error}",
                 location.root,
                 path=location.path,
@@ -503,15 +420,15 @@ def _axis_entities(
 ) -> tuple[EntityRef, ...]:
     if not values:
         raise_frontend_problem(
-            "module_record_entity_axis_invalid",
-            "entity record axis must not be empty",
+            "product_entity_axis_invalid",
+            "entity product axis must not be empty",
             location.root,
             path=location.path,
         )
     if not all(isinstance(value, EntityRef | str) and bool(value) for value in values):
         raise_frontend_problem(
-            "module_record_entity_axis_invalid",
-            "entity record axis values must be entity references",
+            "product_entity_axis_invalid",
+            "entity product axis values must be entity references",
             location.root,
             path=location.path,
         )
@@ -528,8 +445,8 @@ def _axis_entities(
     )
     if duplicates:
         raise_frontend_problem(
-            "module_record_entity_axis_duplicate",
-            "entity record axis contains duplicate entities: " + ", ".join(duplicates),
+            "product_entity_axis_duplicate",
+            "entity product axis contains duplicate entities: " + ", ".join(duplicates),
             location.root,
             path=location.path,
         )

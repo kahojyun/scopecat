@@ -54,6 +54,7 @@ from scopecat.compiler.typed.parameter_overlays import (
 )
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
+    AcquireSpec,
     ComputeEdge,
     ComputeInput,
     CoreEffect,
@@ -408,6 +409,8 @@ def _specialize_effect(
     known: EvalContext,
     parameter_cells: tuple[ParameterCellBinding, ...],
 ) -> CoreEffect:
+    if isinstance(effect, AcquireSpec):
+        return effect
     if isinstance(effect, TypedDomainExecution):
         return replace(
             effect,

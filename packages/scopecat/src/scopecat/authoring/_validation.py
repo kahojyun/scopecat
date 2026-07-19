@@ -12,9 +12,8 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import Protocol
 
 from scopecat.authoring._module_handles import ExperimentModule
-from scopecat.authoring._module_ir import ModuleIR
 from scopecat.authoring._problems import authoring_problem as problem
-from scopecat.authoring._record_intents import RecordSelection
+from scopecat.authoring._products import RecordSelection
 from scopecat.authoring._scan_intents import (
     ParameterScanIntent,
     PointScanIntent,
@@ -28,7 +27,6 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_input_id,
     internal_value_ref_requires_execution,
 )
-from scopecat.authoring.domain import DomainExecution
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
     ModelLocation,
@@ -58,7 +56,6 @@ class TemplateInputDescription(Protocol):
 def validate_template_definition(
     *,
     module: ExperimentModule,
-    domain_executions: Sequence[DomainExecution],
     inputs: Sequence[TemplateInputDescription],
     default_scans: Sequence[Scan],
     record_selections: Sequence[RecordSelection],
@@ -74,8 +71,6 @@ def validate_template_definition(
     problems.extend(_validate_input_descriptions(inputs, input_types))
     problems.extend(_validate_default_scans(default_scans, input_types))
     problems.extend(_validate_record_selections(module, record_selections))
-    for execution in domain_executions:
-        problems.extend(_validate_domain_execution(module, execution))
     _raise_problems(problems, phase=ProblemPhase.DEFINITION)
 
 
@@ -407,7 +402,6 @@ def _validate_record_selections(
     problems: list[Problem] = []
     products = module.ir.interface.products
     product_ids = [product.symbol_id for product in products]
-    record_ids = _module_record_ids(module.ir)
     duplicate_products = {
         product_id for product_id in product_ids if product_ids.count(product_id) > 1
     }
@@ -429,7 +423,7 @@ def _validate_record_selections(
                 "module_product_unknown",
                 "experiment selects unknown products: "
                 + ", ".join(sorted(item.qualified_name for item in unknown_products)),
-                "records",
+                "record_selections",
             )
         )
     product_origins_by_id: dict[ProductId, list[tuple[object, ...]]] = {}
@@ -450,64 +444,24 @@ def _validate_record_selections(
                     "experiment selects product "
                     f"{selection.product_id.qualified_name!r} from "
                     "another module instance",
-                    "records",
+                    "record_selections",
                 )
             )
     selected_record_ids = [
         selection.record_id or selection.product_id.qualified_name
         for selection in selections
     ]
-    duplicate_records = _duplicates((*record_ids, *selected_record_ids))
+    duplicate_records = _duplicates(selected_record_ids)
     if duplicate_records:
         problems.append(
             problem(
-                "module_record_duplicate",
-                "experiment assembly defines duplicate records: "
+                "template_record_duplicate",
+                "experiment template selects duplicate record ids: "
                 + ", ".join(duplicate_records),
-                "records",
+                "record_selections",
             )
         )
     return problems
-
-
-def _validate_domain_execution(
-    module: ExperimentModule,
-    execution: DomainExecution,
-) -> list[Problem]:
-    products_by_id: dict[ProductId, list[tuple[object, ...]]] = {}
-    for product in module.ir.interface.products:
-        products_by_id.setdefault(product.symbol_id, []).append(product.target_origin)
-    problems: list[Problem] = []
-    for result_id, product in execution.result_bindings:
-        origins = products_by_id.get(product.product_id)
-        if origins is None:
-            problems.append(
-                problem(
-                    "domain_execution_product_unknown",
-                    f"domain result {result_id!r} binds unknown product {product.id!r}",
-                    "domain_execution",
-                    path=("results", result_id),
-                )
-            )
-        elif product.origin not in origins:
-            problems.append(
-                problem(
-                    "domain_execution_product_foreign_instance",
-                    f"domain result {result_id!r} binds product {product.id!r} "
-                    "from another module instance",
-                    "domain_execution",
-                    path=("results", result_id),
-                )
-            )
-    return problems
-
-
-def _module_record_ids(module: ModuleIR) -> list[str]:
-    record_ids: list[str] = []
-    for instance in module.body.instances:
-        record_ids.extend(_module_record_ids(instance.module))
-    record_ids.extend(record.id for record in module.body.records)
-    return record_ids
 
 
 def _duplicates(values: Iterable[str]) -> list[str]:

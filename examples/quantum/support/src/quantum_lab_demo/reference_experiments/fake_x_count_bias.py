@@ -56,6 +56,7 @@ FAKE_BIAS_SOURCE_MODULE = (
         product_key="voltage",
         unit="V",
     )
+    .acquire("read-voltage", "voltage_readback")
     .build()
 )
 
@@ -65,11 +66,11 @@ _DOMAIN_EXECUTION = fake_x_count_domain_execution(_CAPTURE.products.integrated_i
 FAKE_X_COUNT_BIAS_TEMPLATE = (
     sc.module("quantum_lab_demo.reference.fake_x_count.bias.root")
     .use(_CAPTURE, _BIAS_SOURCE)
+    .domain(_DOMAIN_EXECUTION)
     .template(
         "quantum_lab_demo.reference.fake_x_count.bias",
         kind="fake-x-count-bias",
     )
-    .domain(_DOMAIN_EXECUTION)
     .experiment_id("fake-x-count-bias")
     .scan(
         sc.cartesian(

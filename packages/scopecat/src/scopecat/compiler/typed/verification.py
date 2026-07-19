@@ -49,6 +49,7 @@ from scopecat.compiler.typed.products import (
     DomainProductProducer,
 )
 from scopecat.compiler.typed.program import (
+    AcquireSpec,
     CoreProgram,
     RouteInput,
     ValueInput,
@@ -116,6 +117,91 @@ def _verified_route_capabilities(
         )
 
     return route_capabilities, tuple(route_problems)
+
+
+def _domain_resource_problems(
+    program: CoreProgram,
+    route_capabilities: Mapping[LogicalResourcePortId, set[str]],
+) -> tuple[Problem, ...]:
+    problems: list[Problem] = []
+    for execution_index, execution in enumerate(core_domain_executions(program)):
+        resource_ports = {port.id: port for port in execution.program.resource_ports}
+        for role, resource_id in execution.resources.items():
+            port = resource_ports[role]
+            for capability in port.capabilities or (None,):
+                problems.extend(
+                    _logical_resource_port_problems(
+                        resource_id,
+                        required_capability=capability,
+                        route_capabilities=route_capabilities,
+                        location=model_location(
+                            "domain_executions",
+                            execution_index,
+                            "resources",
+                            role,
+                        ),
+                        missing_code="domain_resource_port_missing",
+                        capability_code="domain_resource_port_capability_missing",
+                        consumer="domain resource",
+                    )
+                )
+    return tuple(problems)
+
+
+def _acquisition_problems(program: CoreProgram) -> tuple[Problem, ...]:
+    problems: list[Problem] = []
+    instrument_products = {
+        producer.product_id for producer in program.instrument_product_producers
+    }
+    acquired_products = [
+        product_id
+        for effect in program.effects
+        if isinstance(effect, AcquireSpec)
+        for product_id in effect.product_ids
+    ]
+    used_instrument_products = {
+        use.product_id
+        for use in program.product_uses
+        if use.product_id in instrument_products
+    }
+    for product_id in sorted(
+        used_instrument_products - set(acquired_products),
+        key=lambda item: item.qualified_name,
+    ):
+        problems.append(
+            _problem(
+                "product_acquire_missing",
+                f"instrument product {product_id.qualified_name!r} is selected "
+                "but never acquired",
+                model_location("product_uses", product_id.qualified_name),
+            )
+        )
+    repeated = {
+        product_id
+        for product_id in acquired_products
+        if acquired_products.count(product_id) > 1
+    }
+    for product_id in sorted(repeated, key=lambda item: item.qualified_name):
+        problems.append(
+            _problem(
+                "product_acquire_duplicate",
+                f"instrument product {product_id.qualified_name!r} is acquired "
+                "more than once per point",
+                model_location("acquisitions", product_id.qualified_name),
+            )
+        )
+    for product_id in sorted(
+        set(acquired_products) - instrument_products,
+        key=lambda item: item.qualified_name,
+    ):
+        problems.append(
+            _problem(
+                "product_acquire_not_instrument",
+                f"product {product_id.qualified_name!r} has no instrument producer",
+                model_location("acquisitions", product_id.qualified_name),
+            )
+        )
+    return tuple(problems)
 
 
 def _verify_core_program(
@@ -266,6 +352,7 @@ def _verify_core_program(
                         location,
                     )
                 )
+    problems.extend(_domain_resource_problems(program, route_capabilities))
     for location, state in _state_specs(core_state(program)):
         if not isinstance(state, SetStateSpec):
             continue
@@ -381,6 +468,7 @@ def _verify_core_program(
     )
     problems.extend(product_schema_problems)
     problems.extend(product_graph_problems)
+    problems.extend(_acquisition_problems(program))
     coordinate_ids = (
         tuple(column.id for column in verified_point_domain.coordinate_columns)
         if verified_point_domain is not None
