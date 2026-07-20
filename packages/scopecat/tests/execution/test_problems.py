@@ -7,7 +7,7 @@ from typing import override
 
 import pytest
 
-from scopecat.compiler.typed.program import core_state
+from scopecat.compiler.typed.program import core_acquisitions, core_state
 from scopecat.compiler.typed.state import SetStateSpec
 from scopecat.composition.local import local_run_repository
 from scopecat.kernel.errors import RunFailed, RunIndeterminate
@@ -99,7 +99,7 @@ def test_run_rejects_unsupported_field(tmp_path: Path) -> None:
     selected_state = core_state(experiment)[0]
     assert isinstance(selected_state, SetStateSpec)
     state = replace(selected_state, field_path="amplitude")
-    experiment = replace(experiment, effects=(state,))
+    experiment = replace(experiment, effects=(state, *core_acquisitions(experiment)))
 
     with pytest.raises(RunFailed) as error:
         execute_bound_run(
@@ -117,10 +117,16 @@ def test_run_rejects_unsupported_field(tmp_path: Path) -> None:
 
 def test_run_rejects_unsupported_instrument_product(tmp_path: Path) -> None:
     experiment = load_experiment()
+    acquisition = core_acquisitions(experiment)[0]
+    unsupported_acquisition = replace(
+        acquisition,
+        products=(replace(acquisition.products[0], provider_key="missing"),),
+    )
     experiment = replace(
         experiment,
-        instrument_product_producers=(
-            replace(experiment.instrument_product_producers[0], provider_key="missing"),
+        effects=tuple(
+            unsupported_acquisition if effect is acquisition else effect
+            for effect in experiment.effects
         ),
     )
 

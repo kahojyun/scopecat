@@ -38,7 +38,6 @@ _RENDER_RABI_WAVEFORMS = sc.compute(
     output_type=sc.ScalarType(sc.PayloadType("pulse_program")),
     inputs={
         "program": _BUILD_RABI_SEQUENCE.output,
-        "drive_route": sc.route("drive"),
     },
 )
 
@@ -100,7 +99,6 @@ _RENDER_SIMULTANEOUS_RABI_WAVEFORMS = sc.compute(
     output_type=sc.ScalarType(sc.PayloadType("pulse_program")),
     inputs={
         "program": _BUILD_SIMULTANEOUS_RABI_SEQUENCE.output,
-        "drive_route": sc.route("drive"),
     },
 )
 

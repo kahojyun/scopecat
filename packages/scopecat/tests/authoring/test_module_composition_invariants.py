@@ -17,7 +17,6 @@ from scopecat.compiler.frontend.invocation import prepare_invocation
 from scopecat.compiler.frontend.resolution import compile_prepared_invocation
 from scopecat.compiler.semantic.model import (
     OperationOutputSource,
-    RouteValueSource,
     SemanticOperation,
     SourceAnchor,
     ValueDef,
@@ -26,7 +25,6 @@ from scopecat.compiler.semantic.model import (
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.product_identity import ProductId
 from scopecat.kernel.symbols import SymbolId
-from scopecat.kernel.value_types import Route
 
 _INSTANCE_IDS = (
     "alpha",
@@ -54,8 +52,8 @@ def _payload_type() -> sc.ScalarType:
     return sc.ScalarType(sc.PayloadType("test.composition-invariant"))
 
 
-def _combine_payload_and_route(*, payload: object, route: object) -> dict[str, object]:
-    return {"payload": payload, "route": route}
+def _combine_payload_and_label(*, payload: object, label: str) -> dict[str, object]:
+    return {"payload": payload, "label": label}
 
 
 def _identity_payload(*, payload: object) -> object:
@@ -71,10 +69,10 @@ def _composable_module() -> sc.ExperimentModule:
     )
     consume = sc.compute(
         "consume",
-        fn=_combine_payload_and_route,
+        fn=_combine_payload_and_label,
         inputs={
             "payload": produce.output,
-            "route": sc.route("source", capabilities=("measure",)),
+            "label": "stable",
         },
         output_type=payload_type,
     )
@@ -89,7 +87,8 @@ def _composable_module() -> sc.ExperimentModule:
         )
         .computes(consume, produce)
         .export(payload=consume.output)
-        .product("signal", resource="source", unit="ratio")
+        .product("signal", unit="ratio")
+        .acquire("read-signal", "signal", resource="source", capability="measure")
         .build()
     )
 
@@ -112,18 +111,16 @@ def _consumer_module() -> sc.ExperimentModule:
 
 def _stateful_module() -> tuple[sc.ExperimentModule, sc.TableType]:
     row_type = sc.TableType(
-        columns=(
-            sc.TableColumn("resource", sc.ScalarType(sc.StringType())),
-            sc.TableColumn("offset", sc.ScalarType(sc.FloatType())),
-        )
+        columns=(sc.TableColumn("offset", sc.ScalarType(sc.FloatType())),)
     )
     rows = sc.input("rows", row_type)
     module = (
         sc.module("test.composition-invariant.stateful")
         .inputs(rows)
+        .resource("source", requires=("set_offset",))
         .state_each(
             rows,
-            resource=lambda row: row["resource"],
+            resource_port="source",
             capability="set_offset",
             field="offset",
             value=lambda row: row["offset"],
@@ -177,13 +174,6 @@ def _normalized_signature(
                 definition.source.operation_id.local_id,
                 definition.value_type,
             )
-        if isinstance(definition.source, RouteValueSource):
-            assert isinstance(definition.value_type, Route)
-            return (
-                "route",
-                resources[definition.source.port_id],
-                definition.value_type.capabilities,
-            )
         return (type(definition.source).__name__, definition.value_type)
 
     def result_definition(operation: SemanticOperation) -> ValueDef:
@@ -216,9 +206,6 @@ def _normalized_signature(
         tuple(
             (
                 product.id,
-                resources[product.resource_port_id]
-                if product.resource_port_id is not None
-                else None,
                 product.unit,
                 product.dtype,
             )
@@ -252,12 +239,12 @@ def test_alpha_renaming_keeps_synthetic_source_declarations_stable() -> None:
         instance = child.instantiate(instance_id)
         root = sc.module("test.composition-invariant.root").use(instance).build()
         assembly = elaborate_module(root)
-        route_anchor = next(
+        literal_anchor = next(
             anchor
             for _value_id, anchor in assembly.source_map.value_sources
-            if anchor.kind == "operation_route_input"
+            if anchor.kind == "operation_input_literal"
         )
-        anchors.append(route_anchor)
+        anchors.append(literal_anchor)
 
     assert anchors[0].declaration_id == anchors[1].declaration_id
     assert anchors[0].composition_scope == ("alpha",)
@@ -341,12 +328,7 @@ def test_generated_state_region_alpha_renaming_preserves_compilation(
                     kind="contract",
                 )
                 .build()
-                .bind(
-                    rows=tuple(
-                        {"resource": f"source-{index}", "offset": offset}
-                        for index, offset in enumerate(offsets)
-                    )
-                )
+                .bind(rows=tuple({"offset": offset} for offset in offsets))
             )
         )
 

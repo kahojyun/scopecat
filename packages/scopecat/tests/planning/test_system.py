@@ -27,17 +27,15 @@ from scopecat.compiler.relations.verification import (
 from scopecat.compiler.semantic.model import (
     DomainInputPortDef,
     DomainProgramId,
+    DomainResourcePortDef,
     DomainResultPortDef,
     MeasurementTransformId,
 )
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import MaterializedPointDomain, PointDomain
-from scopecat.compiler.typed.products import (
-    DomainProductProducer,
-    MeasurementTransformProductProducer,
-)
 from scopecat.compiler.typed.program import (
     CoreProgram,
+    LogicalResourceRequirement,
     TypedDomainExecution,
     TypedDomainProgram,
     TypedDomainResultBinding,
@@ -49,7 +47,7 @@ from scopecat.compiler.typed.program import (
     record_product,
     set_state_field,
 )
-from scopecat.execution.local.program import ApplyStateOperation
+from scopecat.execution.local.program import ApplyStateOperation, CollectOperation
 from scopecat.execution.program import (
     RunCoverageBlock,
     RunCoverageCheckpoint,
@@ -58,16 +56,17 @@ from scopecat.execution.program import (
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import ProblemPhase
-from scopecat.kernel.product_identity import (
-    ProductProducerId,
-    product_producer_id,
-    product_use,
+from scopecat.kernel.product_identity import product_use
+from scopecat.kernel.resource_identity import (
+    LogicalResourcePortId,
+    ResourceClaim,
+    logical_resource_port_id,
 )
-from scopecat.kernel.resource_identity import ResourceClaim
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar, String, Table, TableColumn
 from scopecat.measurements.semantics import MeasurementTransformSemanticContract
+from scopecat.planning.routing import ResourcePortManifest, RoutingView
 from scopecat.planning.system import ExperimentSystem
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter import (
@@ -117,7 +116,7 @@ from tests.testkit.parameter_fixtures import (
 from tests.testkit.relation_plans import scalar_value_expr, table_value_expr
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.typed_program import (
-    instrument_product_producer,
+    instrument_acquisition,
     link_program,
     overlay_parameter_cell,
 )
@@ -157,7 +156,7 @@ class _DomainCompiler:
     prepare_calls: int = 0
     prepared_inputs: list[tuple[object, ...]] = field(default_factory=list)
     events: list[str] | None = None
-    route_target_by_execution: bool = False
+    assign_target_by_execution: bool = False
 
     def claim_resources(
         self,
@@ -166,7 +165,7 @@ class _DomainCompiler:
         self.claim_calls += 1
         target_id = (
             f"{self.compiler_id}.{call.id}.target"
-            if self.route_target_by_execution
+            if self.assign_target_by_execution
             else f"{self.compiler_id}.target"
         )
         return tuple(
@@ -223,7 +222,7 @@ class _DomainCompiler:
         )
         target_id = (
             f"{self.compiler_id}.{context.execution.id}.target"
-            if self.route_target_by_execution
+            if self.assign_target_by_execution
             else f"{self.compiler_id}.target"
         )
         invocation = DomainInvocationSpec(
@@ -325,9 +324,12 @@ def _linked_program(
     domain_call_count: int = 1,
     state_mode: Literal["none", "constant", "varying"] = "none",
     domain_before_state: bool = False,
+    acquisition_before_domain: bool = False,
+    record_instrument_products: bool = True,
     point_count: Literal[0, 2] = 2,
     equal_point_values: bool = False,
     domain_input: ValueInput | None = None,
+    domain_resource: bool = False,
     parameter_overlays: Sequence[PointParameterOverlay] = (),
     parameter_data: ParameterRelationData | None = None,
     config: ConfigProfileSnapshot | None = None,
@@ -374,21 +376,22 @@ def _linked_program(
         product_count if domain_product_count is None else domain_product_count
     )
     domain_executions: tuple[TypedDomainExecution, ...] = ()
-    domain_product_producers: list[DomainProductProducer] = []
     if selected_domain_product_count:
         program_id = DomainProgramId(SymbolId(local_id="program"))
         selected = tuple(
-            zip(products[:selected_domain_product_count], selections, strict=True)
+            zip(
+                products[:selected_domain_product_count],
+                selections[:selected_domain_product_count],
+                strict=True,
+            )
         )
         result_bindings: list[TypedDomainResultBinding] = []
         for index, (product, (use, _record)) in enumerate(selected):
             result_id = f"result-{index}"
-            producer_id = product_producer_id(f"domain-result-{index}")
             result_bindings.append(
                 TypedDomainResultBinding(
                     id=result_id,
                     product_id=product.id,
-                    producer_id=producer_id,
                     product_use_ids=(use.id,),
                 )
             )
@@ -434,6 +437,11 @@ def _linked_program(
                     result_ports=tuple(
                         DomainResultPortDef(binding.id) for binding in bindings
                     ),
+                    resource_ports=(
+                        (DomainResourcePortDef("drive", ("domain.drive",)),)
+                        if domain_resource
+                        else ()
+                    ),
                 ),
                 inputs=(
                     {"drive_frequency": domain_input}
@@ -441,27 +449,18 @@ def _linked_program(
                     else {}
                 ),
                 results=bindings,
+                resources=(
+                    {"drive": logical_resource_port_id("domain-drive")}
+                    if domain_resource
+                    else {}
+                ),
             )
             for call_index, (execution_id, bindings) in enumerate(
                 zip(execution_ids, result_groups, strict=True)
             )
         )
-        execution_id_by_result = {
-            binding.id: execution.id
-            for execution in domain_executions
-            for binding in execution.results
-        }
-        domain_product_producers.extend(
-            DomainProductProducer(
-                id=binding.producer_id,
-                product_id=binding.product_id,
-                execution_id=execution_id_by_result[binding.id],
-                result_id=binding.id,
-            )
-            for binding in result_bindings
-        )
-    instrument_product_producers = tuple(
-        instrument_product_producer(product)
+    instrument_acquisitions = tuple(
+        instrument_acquisition(product, capability="scalar_signal")
         for product in products[selected_domain_product_count:]
     )
     bindings = RelationTypeBindings(point_row=RowType.from_table(point_type))
@@ -480,10 +479,7 @@ def _linked_program(
     state = (
         (
             set_state_field(
-                scalar_value_expr(
-                    lit("source-0"),
-                    expected_type=Scalar(String()),
-                ),
+                resource_port_id=logical_resource_port_id("source"),
                 capability_id="set_frequency",
                 field_path="frequency",
                 value=state_value,
@@ -492,21 +488,56 @@ def _linked_program(
         if state_value is not None
         else ()
     )
+    domain_and_state = (
+        (*domain_executions, *state)
+        if domain_before_state
+        else (*state, *domain_executions)
+    )
+    effects = (
+        (*instrument_acquisitions, *domain_and_state)
+        if acquisition_before_domain
+        else (*domain_and_state, *instrument_acquisitions)
+    )
+    recorded_selections = (
+        selections
+        if record_instrument_products
+        else selections[:selected_domain_product_count]
+    )
     program = CoreProgram(
         id="unified-system-contract",
         kind="compiler_test",
         point_domain=points,
-        parameter_overlays=tuple(parameter_overlays),
-        effects=(
-            (*domain_executions, *state)
-            if domain_before_state
-            else (*state, *domain_executions)
+        resource_requirements=(
+            *(
+                (
+                    LogicalResourceRequirement(
+                        port_id=logical_resource_port_id("domain-drive"),
+                        capabilities=("domain.drive",),
+                    ),
+                )
+                if domain_resource
+                else ()
+            ),
+            *(
+                (
+                    LogicalResourceRequirement(
+                        port_id=logical_resource_port_id("source"),
+                        capabilities=(
+                            ("set_frequency", "scalar_signal")
+                            if state
+                            else ("scalar_signal",)
+                        ),
+                    ),
+                )
+                if state or instrument_acquisitions
+                else ()
+            ),
         ),
+        parameter_overlays=tuple(parameter_overlays),
+        effects=effects,
         product_defs=products,
-        instrument_product_producers=instrument_product_producers,
-        domain_product_producers=tuple(domain_product_producers),
-        product_uses=tuple(use for use, _record in selections),
-        record_uses=tuple(record for _use, record in selections),
+        product_uses=tuple(use for use, _record in recorded_selections),
+        record_uses=tuple(record for _use, record in recorded_selections),
     )
     environment = validate_config_environment(
         load_config() if config is None else config
@@ -538,7 +569,6 @@ def _linked_instrument_fed_transform_program() -> LinkedPlan:
     source_use = product_use(source.id)
     derived_use, derived_record = record_product(derived)
     transform_id = MeasurementTransformId(SymbolId(local_id="normalize"))
-    producer_id = ProductProducerId(derived.id.symbol)
     transform = TypedMeasurementTransform(
         id=transform_id,
         semantic=MeasurementTransformSemanticContract(
@@ -557,7 +587,6 @@ def _linked_instrument_fed_transform_program() -> LinkedPlan:
             TypedMeasurementTransformOutput(
                 id="result",
                 product_id=derived.id,
-                producer_id=producer_id,
                 product_use_ids=(derived_use.id,),
             ),
         ),
@@ -566,22 +595,21 @@ def _linked_instrument_fed_transform_program() -> LinkedPlan:
         id="unplaced-instrument-transform",
         kind="compiler_test",
         point_domain=PointDomain(root=POINT_UNIT),
-        measurement_transforms=(transform,),
-        product_defs=(source, derived),
-        instrument_product_producers=(
-            instrument_product_producer(
+        resource_requirements=(
+            LogicalResourceRequirement(
+                port_id=logical_resource_port_id("source"),
+                capabilities=("scalar_signal",),
+            ),
+        ),
+        effects=(
+            instrument_acquisition(
                 source,
+                capability="scalar_signal",
                 provider_key="signal",
             ),
         ),
-        measurement_transform_product_producers=(
-            MeasurementTransformProductProducer(
-                id=producer_id,
-                product_id=derived.id,
-                transform_id=transform_id,
-                output_id="result",
-            ),
-        ),
+        measurement_transforms=(transform,),
+        product_defs=(source, derived),
         product_uses=(source_use, derived_use),
         record_uses=(derived_record,),
     )
@@ -595,6 +623,29 @@ def _linked_instrument_fed_transform_program() -> LinkedPlan:
 
 def _problem_codes(error: CheckFailed) -> set[str]:
     return {problem.code for problem in error.problems}
+
+
+def _track_bound_resource_ports(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[LogicalResourcePortId]:
+    calls: list[LogicalResourcePortId] = []
+    original = RoutingView.bind_port
+
+    def track_binding(
+        routing: RoutingView,
+        *,
+        port_id: LogicalResourcePortId,
+        capabilities: Sequence[str],
+    ) -> ResourcePortManifest:
+        calls.append(port_id)
+        return original(
+            routing,
+            port_id=port_id,
+            capabilities=capabilities,
+        )
+
+    monkeypatch.setattr(RoutingView, "bind_port", track_binding)
+    return calls
 
 
 def _assert_no_domain_effects(*compilers: _DomainCompiler) -> None:
@@ -677,6 +728,65 @@ def test_run_compilation_materializes_large_space_in_bounded_blocks() -> None:
         if isinstance(operation, RunCoverageBlock)
     ] == [(0,), (1,)]
     assert compiler.compile_calls == 2
+
+
+def test_local_resource_manifest_is_reused_across_coverage_blocks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    linked = _linked_program(domain_product_count=0, point_count=2)
+    calls = _track_bound_resource_ports(monkeypatch)
+    plan = ExperimentSystem(
+        provider=TestSignalInstrumentProvider(),
+        coverage_block_size=1,
+    ).compile(linked, config=load_config())
+
+    assert calls == [logical_resource_port_id("source")]
+    assert len(tuple(plan.coverage)) == 2
+    assert calls == [logical_resource_port_id("source")]
+
+
+def test_domain_only_resource_does_not_require_a_local_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    linked = _linked_program(domain_resource=True)
+    compiler = _DomainCompiler("tests.domain-only-resource")
+    calls = _track_bound_resource_ports(monkeypatch)
+
+    plan = ExperimentSystem(domain_compiler=compiler).compile(
+        linked,
+        config=load_config(),
+    )
+
+    [block] = plan.coverage
+    assert block.point_indices == (0, 1)
+    assert calls == []
+    assert compiler.compile_calls == 1
+    resource = compiler.compile_requests[0].call.resource("drive")
+    assert resource.resource_port_id == "domain-drive"
+    assert resource.capabilities == ("domain.drive",)
+    assert block.resource_claims == (
+        ResourceClaim("tests.domain-only-resource.target", "target"),
+    )
+
+
+def test_mixed_target_builds_manifests_only_for_local_resources(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    linked = _linked_program(
+        domain_resource=True,
+        state_mode="constant",
+    )
+    compiler = _DomainCompiler("tests.mixed-resource-target")
+    calls = _track_bound_resource_ports(monkeypatch)
+
+    plan = ExperimentSystem(
+        provider=TestSignalInstrumentProvider(),
+        domain_compiler=compiler,
+    ).compile(linked, config=load_config())
+
+    assert calls == [logical_resource_port_id("source")]
+    assert len(tuple(plan.coverage)) == 1
+    assert calls == [logical_resource_port_id("source")]
 
 
 def test_parameter_scan_binding_is_shared_with_domain_inputs() -> None:
@@ -799,6 +909,99 @@ def test_domain_and_local_state_retain_declared_effect_order() -> None:
     assert isinstance(consequential[1].operation, ApplyStateOperation)
 
 
+def test_local_acquisition_before_domain_is_ordered_per_point() -> None:
+    linked = _linked_program(
+        product_count=2,
+        domain_product_count=1,
+        acquisition_before_domain=True,
+    )
+    compiler = _DomainCompiler(
+        "tests.acquisition-before-domain",
+        resource_claims=(DomainResourceClaim("instrument", "source-0"),),
+    )
+    plan = ExperimentSystem(
+        provider=_TrackingProvider(),
+        domain_compiler=compiler,
+    ).compile(linked, config=load_config())
+
+    [block] = plan.coverage
+
+    assert block.point_indices == (0, 1)
+    for ordinal in range(2):
+        offset = ordinal * 3
+        acquisition, domain, checkpoint = block.operations[offset : offset + 3]
+        assert isinstance(acquisition, RunCoverageEffect)
+        assert acquisition.point_indices == (ordinal,)
+        assert isinstance(acquisition.operation, CollectOperation)
+        assert isinstance(domain, RunDomainJob)
+        assert domain.point_ordinals == (ordinal,)
+        assert isinstance(checkpoint, RunCoverageCheckpoint)
+        assert checkpoint.point_indices == (ordinal,)
+    assert [request.barrier_regions for request in compiler.compile_requests] == [
+        ((0,),),
+        ((1,),),
+    ]
+
+
+def test_domain_before_local_acquisition_is_ordered_per_point() -> None:
+    linked = _linked_program(
+        product_count=2,
+        domain_product_count=1,
+    )
+    compiler = _DomainCompiler(
+        "tests.domain-before-acquisition",
+        resource_claims=(DomainResourceClaim("instrument", "source-0"),),
+    )
+    plan = ExperimentSystem(
+        provider=_TrackingProvider(),
+        domain_compiler=compiler,
+    ).compile(linked, config=load_config())
+
+    [block] = plan.coverage
+
+    assert block.point_indices == (0, 1)
+    domain, acquisition_0, checkpoint_0, acquisition_1, checkpoint_1 = block.operations
+    assert isinstance(domain, RunDomainJob)
+    assert domain.point_ordinals == (0, 1)
+    for ordinal, (acquisition, checkpoint) in enumerate(
+        ((acquisition_0, checkpoint_0), (acquisition_1, checkpoint_1))
+    ):
+        assert isinstance(acquisition, RunCoverageEffect)
+        assert acquisition.point_indices == (ordinal,)
+        assert isinstance(acquisition.operation, CollectOperation)
+        assert isinstance(checkpoint, RunCoverageCheckpoint)
+        assert checkpoint.point_indices == (ordinal,)
+    assert [request.barrier_regions for request in compiler.compile_requests] == [
+        ((0, 1),),
+    ]
+
+
+def test_unused_local_acquisition_does_not_fragment_domain_coverage() -> None:
+    linked = _linked_program(
+        product_count=2,
+        domain_product_count=1,
+        record_instrument_products=False,
+    )
+    compiler = _DomainCompiler("tests.unused-acquisition")
+    plan = ExperimentSystem(domain_compiler=compiler).compile(
+        linked,
+        config=load_config(),
+    )
+
+    [block] = plan.coverage
+    [domain] = (
+        operation
+        for operation in block.operations
+        if isinstance(operation, RunDomainJob)
+    )
+
+    assert block.point_indices == (0, 1)
+    assert domain.point_ordinals == (0, 1)
+    assert [request.barrier_regions for request in compiler.compile_requests] == [
+        ((0, 1),)
+    ]
+
+
 def test_conflicting_local_state_refines_domain_jobs_by_exact_coverage() -> None:
     linked = _linked_program(state_mode="varying")
     compiler = _DomainCompiler(
@@ -913,7 +1116,7 @@ def test_ordered_domain_calls_share_one_target_resource_and_keep_job_identity() 
     _assert_no_domain_effects(compiler)
 
 
-def test_system_compiler_can_route_domain_calls_to_distinct_targets() -> None:
+def test_system_compiler_can_assign_domain_calls_to_distinct_targets() -> None:
     linked = _linked_program(
         product_count=2,
         domain_product_count=2,
@@ -921,7 +1124,7 @@ def test_system_compiler_can_route_domain_calls_to_distinct_targets() -> None:
     )
     compiler = _DomainCompiler(
         "tests.multi-target",
-        route_target_by_execution=True,
+        assign_target_by_execution=True,
     )
 
     plan = ExperimentSystem(domain_compiler=compiler).compile(

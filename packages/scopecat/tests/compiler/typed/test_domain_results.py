@@ -17,7 +17,6 @@ from scopecat.compiler.typed.program import (
     TypedMeasurementTransformOutput,
 )
 from scopecat.kernel.product_identity import (
-    ProductProducerId,
     ProductUse,
     ProductUseId,
     product_id,
@@ -44,7 +43,6 @@ def test_domain_result_closure_follows_exact_product_use_edges() -> None:
             TypedDomainResultBinding(
                 id="shared",
                 product_id=shared_product,
-                producer_id=ProductProducerId(shared_product.symbol),
                 product_use_ids=(direct_use.id,),
             ),
         ),
@@ -63,7 +61,6 @@ def test_domain_result_closure_follows_exact_product_use_edges() -> None:
             TypedMeasurementTransformOutput(
                 id="output",
                 product_id=output_product,
-                producer_id=ProductProducerId(output_product.symbol),
                 product_use_ids=(output_use.id,),
             ),
         ),

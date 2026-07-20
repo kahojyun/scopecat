@@ -11,7 +11,6 @@ from scopecat.compiler.semantic.model import (
     SemanticMeasurementTransform,
 )
 from scopecat.compiler.semantic.verification import VerifiedSemanticGraph
-from scopecat.compiler.typed.products import MeasurementTransformProductProducer
 from scopecat.compiler.typed.program import (
     TypedMeasurementTransform,
     TypedMeasurementTransformInput,
@@ -19,7 +18,6 @@ from scopecat.compiler.typed.program import (
 )
 from scopecat.kernel.product_identity import (
     ProductId,
-    ProductProducerId,
     ProductUse,
     ProductUseId,
 )
@@ -30,7 +28,6 @@ class LoweredMeasurementTransformGraph:
     """Live typed transforms plus the consumer uses they introduce."""
 
     transforms: tuple[TypedMeasurementTransform, ...]
-    producers: tuple[MeasurementTransformProductProducer, ...]
     input_product_uses: tuple[ProductUse, ...]
 
 
@@ -70,7 +67,6 @@ def lower_semantic_measurement_transform_graph(
         uses_by_product.setdefault(use.product_id, []).append(use.id)
 
     typed: list[TypedMeasurementTransform] = []
-    producers: list[MeasurementTransformProductProducer] = []
     input_use_index = 0
     for transform in live:
         inputs: list[TypedMeasurementTransformInput] = []
@@ -86,21 +82,11 @@ def lower_semantic_measurement_transform_graph(
             )
         outputs: list[TypedMeasurementTransformOutput] = []
         for role, product_id in transform.outputs:
-            producer_id = ProductProducerId(product_id.symbol)
             outputs.append(
                 TypedMeasurementTransformOutput(
                     id=role,
                     product_id=product_id,
-                    producer_id=producer_id,
                     product_use_ids=tuple(uses_by_product.get(product_id, ())),
-                )
-            )
-            producers.append(
-                MeasurementTransformProductProducer(
-                    id=producer_id,
-                    product_id=product_id,
-                    transform_id=transform.id,
-                    output_id=role,
                 )
             )
         typed.append(
@@ -113,20 +99,7 @@ def lower_semantic_measurement_transform_graph(
         )
     return LoweredMeasurementTransformGraph(
         transforms=tuple(typed),
-        producers=tuple(producers),
         input_product_uses=input_uses,
-    )
-
-
-def authored_measurement_transform_output_product_ids(
-    graph: VerifiedSemanticGraph,
-) -> frozenset[ProductId]:
-    """Return every authored transform output, including dead declarations."""
-
-    return frozenset(
-        product_id
-        for transform in graph.graph.measurement_transforms
-        for _role, product_id in transform.outputs
     )
 
 

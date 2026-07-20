@@ -24,10 +24,6 @@ from scopecat.compiler.semantic.model import (
 from scopecat.compiler.semantic.value_expressions import verify_table_value_expr
 from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.products import (
-    DomainProductProducer,
-    MeasurementTransformProductProducer,
-)
 from scopecat.compiler.typed.program import (
     CoreProgram,
     TypedDomainExecution,
@@ -43,7 +39,7 @@ from scopecat.compiler.typed.program import (
 )
 from scopecat.config.profiles import load_config_profile
 from scopecat.execution.effects.domain import execute_domain_job_values
-from scopecat.kernel.product_identity import product_producer_id, product_use
+from scopecat.kernel.product_identity import product_use
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Scalar, Table, TableColumn
 from scopecat.measurements.projection import (
@@ -197,9 +193,6 @@ def _linked_points() -> MaterializedLinkedPoints:
         ),
     )
     transform_id = MeasurementTransformId(SymbolId(local_id=authored_transform.id))
-    iq_producer_id = product_producer_id("iq-shots-producer")
-    probability_0_producer_id = product_producer_id("probability-0-producer")
-    probability_1_producer_id = product_producer_id("probability-1-producer")
     program = CoreProgram(
         id="fake-host-transform-e2e",
         kind="fake_host_transform_e2e",
@@ -219,7 +212,6 @@ def _linked_points() -> MaterializedLinkedPoints:
                     TypedDomainResultBinding(
                         id="iq_shots",
                         product_id=iq_shots.id,
-                        producer_id=iq_producer_id,
                         product_use_ids=(iq_use.id,),
                     ),
                 ),
@@ -240,38 +232,14 @@ def _linked_points() -> MaterializedLinkedPoints:
                     TypedMeasurementTransformOutput(
                         id="probability_0",
                         product_id=probability_0.id,
-                        producer_id=probability_0_producer_id,
                         product_use_ids=(probability_0_use.id,),
                     ),
                     TypedMeasurementTransformOutput(
                         id="probability_1",
                         product_id=probability_1.id,
-                        producer_id=probability_1_producer_id,
                         product_use_ids=(probability_1_use.id,),
                     ),
                 ),
-            ),
-        ),
-        domain_product_producers=(
-            DomainProductProducer(
-                id=iq_producer_id,
-                product_id=iq_shots.id,
-                execution_id="domain",
-                result_id="iq_shots",
-            ),
-        ),
-        measurement_transform_product_producers=(
-            MeasurementTransformProductProducer(
-                id=probability_0_producer_id,
-                product_id=probability_0.id,
-                transform_id=transform_id,
-                output_id="probability_0",
-            ),
-            MeasurementTransformProductProducer(
-                id=probability_1_producer_id,
-                product_id=probability_1.id,
-                transform_id=transform_id,
-                output_id="probability_1",
             ),
         ),
         product_uses=(iq_use, probability_0_use, probability_1_use),

@@ -49,7 +49,6 @@ from scopecat.compiler.typed.program import (
     ComputeEdge,
     TypedDomainExecution,
     ValueInput,
-    core_actions,
     core_state,
 )
 from scopecat.compiler.typed.state import (
@@ -101,13 +100,10 @@ def test_action_lowers_as_a_distinct_point_effect() -> None:
         config_profile=load_config(),
     )
 
-    assert len(core_actions(resolved.experiment)) == 1
     bound = materialize_local_execution(
         link_verified_program(resolved.verified_program, resolved.environment)
     )
-    assert len(operations_of_type(bound, InstrumentActionOperation, point_index=0)) == 1
-    execution = bound
-    [action] = operations_of_type(execution, InstrumentActionOperation, point_index=0)
+    [action] = operations_of_type(bound, InstrumentActionOperation, point_index=0)
     assert action.capability_id == "set_frequency"
 
 
@@ -292,7 +288,7 @@ def _state_values(
     ]
 
 
-def test_collections_cross_module_route_axis_and_compute_with_provenance() -> None:
+def test_collections_cross_module_resource_entity_axis_with_provenance() -> None:
     gate_table = _gate_table_type()
     offsets_type = authoring.SeriesType(authoring.ScalarType(authoring.FloatType()))
     gates = authoring.input("gates", gate_table)
@@ -309,16 +305,20 @@ def test_collections_cross_module_route_axis_and_compute_with_provenance() -> No
         .inputs(gates, offsets)
         .resource(
             "source",
-            requires=("set_frequency",),
+            requires=("set_frequency", "scalar_signal"),
             for_entities=(gate_entities,),
         )
         .computes(prepare)
         .product(
             "signal",
-            resource="source",
             axes=(authoring.entity_axis("qubit", gate_entities),),
         )
-        .acquire("read-signal", "signal")
+        .acquire(
+            "read-signal",
+            "signal",
+            resource="source",
+            capability="scalar_signal",
+        )
         .build()
     )
     gate_rows = authoring.input("gate_rows", gate_table)
@@ -384,10 +384,10 @@ def test_collections_cross_module_route_axis_and_compute_with_provenance() -> No
         0.5,
     ]
 
-    route_entities = experiment.route_intents[0].entity_uses[0].value
-    assert isinstance(route_entities, SeriesValueExpr)
+    target_entities = experiment.resource_requirements[0].entity_uses[0].value
+    assert isinstance(target_entities, SeriesValueExpr)
     assert materialize_series_value(
-        route_entities,
+        target_entities,
         EvalContext(),
     ) == [EntityRef(id="q0")]
 
@@ -956,9 +956,10 @@ def test_table_input_drives_child_state_with_outer_scanned_input() -> None:
     child = (
         authoring.module("test.collection_state.child")
         .inputs(rows, bias)
+        .resource("source", requires=("set_offset",))
         .state_each(
             rows,
-            resource=lambda row: row["resource_id"],
+            resource_port="source",
             capability="set_offset",
             field="offset",
             value=lambda row: row["base"] + bias,
@@ -1005,10 +1006,10 @@ def test_table_input_drives_child_state_with_outer_scanned_input() -> None:
         config_profile=load_config(),
     )
     assert _state_values(resolved) == [
-        (0, "source-a", 1.25),
-        (0, "source-b", 2.25),
-        (1, "source-a", 1.5),
-        (1, "source-b", 2.5),
+        (0, "state-child/source", 1.25),
+        (0, "state-child/source", 2.25),
+        (1, "state-child/source", 1.5),
+        (1, "state-child/source", 2.5),
     ]
 
 
@@ -1027,26 +1028,27 @@ def test_state_each_rejects_a_row_value_captured_by_another_binder() -> None:
         **row_type,
     )
 
-    def capture_resource(row: authoring.TableRow) -> authoring.ValueRef:
-        resource = row["resource_id"]
-        captured.append(resource)
-        return resource
+    def capture_value(row: authoring.TableRow) -> authoring.ValueRef:
+        value = row["base"]
+        captured.append(value)
+        return value
 
     module = (
         authoring.module("test.collection_state.foreign-row-capture")
+        .resource("source", requires=("set_offset",))
         .state_each(
             first,
-            resource=capture_resource,
+            resource_port="source",
             capability="set_offset",
             field="offset",
-            value=lambda row: row["base"],
+            value=capture_value,
         )
         .state_each(
             second,
-            resource=lambda _row: captured[0],
+            resource_port="source",
             capability="set_offset",
             field="offset",
-            value=lambda row: row["base"],
+            value=lambda _row: captured[0],
         )
         .build()
     )
@@ -1060,51 +1062,46 @@ def test_state_each_rejects_a_row_value_captured_by_another_binder() -> None:
 
 
 @pytest.mark.parametrize(
-    ("resource", "value", "route_entities", "code"),
+    ("value", "target_entities", "code"),
     [
-        (1.0, 1.0, (), "semantic_row_region_resource_type_invalid"),
-        ("source-a", "bad", (), "semantic_row_region_value_type_invalid"),
+        ("bad", (), "semantic_row_region_value_type_invalid"),
         (
-            "source-a",
             10**400,
             (),
             "semantic_row_region_value_type_invalid",
         ),
         (
-            "source-a",
             1.0,
             ((1.0, 2.0),),
-            "semantic_row_region_route_type_invalid",
+            "semantic_row_region_target_type_invalid",
         ),
         (
-            "source-a",
             1.0,
             ((),),
-            "semantic_row_region_route_type_invalid",
+            "semantic_row_region_target_type_invalid",
         ),
         (
-            "source-a",
             1.0,
             (("",),),
-            "semantic_row_region_route_type_invalid",
+            "semantic_row_region_target_type_invalid",
         ),
     ],
 )
 def test_state_each_rejects_body_values_outside_consumer_contracts(
-    resource: Any,
     value: Any,
-    route_entities: tuple[Any, ...],
+    target_entities: tuple[Any, ...],
     code: str,
 ) -> None:
     module = (
         authoring.module("test.collection_state.invalid-body")
+        .resource("source", requires=("set_offset",))
         .state_each(
             _literal_table([{}]),
-            resource=resource,
+            resource_port="source",
             capability="set_offset",
             field="offset",
             value=value,
-            route_entities=route_entities,
+            target_entities=target_entities,
         )
         .build()
     )
@@ -1123,9 +1120,10 @@ def test_module_instances_alpha_rename_state_row_scopes() -> None:
     )
     child = (
         authoring.module("test.collection_state.alpha-child")
+        .resource("source", requires=("set_offset",))
         .state_each(
             rows,
-            resource=lambda row: row["resource_id"],
+            resource_port="source",
             capability="set_offset",
             field="offset",
             value=lambda row: row["base"],
@@ -1152,8 +1150,7 @@ def test_module_instances_alpha_rename_state_row_scopes() -> None:
     assert qualified_scopes[0].startswith("left/state_row_")
     assert qualified_scopes[1].startswith("right/state_row_")
     for region in regions:
-        assert region.resource is not None
-        definition = definitions[region.resource.value_id]
+        definition = definitions[region.value.value_id]
         assert isinstance(definition.source, PlanExpressionSource)
         expression = definition.source.expression
         assert isinstance(expression, ColumnScalarExpr)
@@ -1165,16 +1162,17 @@ def test_state_regions_and_lowered_state_preserve_authored_order() -> None:
     rows = _literal_table([{}])
     module = (
         authoring.module("test.collection_state.order")
+        .resource("source", requires=("set_offset",))
         .state_each(
             rows,
-            resource="source-a",
+            resource_port="source",
             capability="set_offset",
             field="first",
             value=1.0,
         )
         .state_each(
             rows,
-            resource="source-b",
+            resource_port="source",
             capability="set_offset",
             field="second",
             value=2.0,
@@ -1206,27 +1204,28 @@ def test_state_regions_and_lowered_state_preserve_authored_order() -> None:
     ] == ["first", "second"]
 
 
-def test_state_route_entities_use_durable_scalar_and_series_shapes() -> None:
+def test_state_target_entities_use_durable_scalar_and_series_shapes() -> None:
     entity_series = authoring.SeriesType(_entity_scalar())
     qubits = authoring.input("qubits", entity_series)
     module = (
-        authoring.module("test.collection_state.routes")
+        authoring.module("test.collection_state.targets")
         .inputs(qubits)
+        .resource("source", requires=("set_frequency",))
         .state_each(
             _literal_table(
                 [{"resource_id": "source-0"}],
                 resource_id=authoring.ScalarType(authoring.StringType()),
             ),
-            resource=lambda row: row["resource_id"],
+            resource_port="source",
             capability="set_frequency",
             field="frequency",
             value=1.0,
-            route_entities=(EntityRef(id="q0"), qubits),
+            target_entities=(EntityRef(id="q0"), qubits),
         )
         .build()
     )
     template = module.template(
-        "test.collection_state.routes",
+        "test.collection_state.targets",
         kind="collection_state",
     ).build()
     resolved = resolve_experiment(
@@ -1238,9 +1237,9 @@ def test_state_route_entities_use_durable_scalar_and_series_shapes() -> None:
     assert isinstance(state, ForEachStateSpec)
     child = state.state[0]
     assert isinstance(child, SetStateSpec)
-    route_entities = child.route_entity_uses
-    assert isinstance(route_entities[0].value, ScalarValueExpr)
-    assert isinstance(route_entities[1].value, SeriesValueExpr)
+    target_entities = child.target_entity_uses
+    assert isinstance(target_entities[0].value, ScalarValueExpr)
+    assert isinstance(target_entities[1].value, SeriesValueExpr)
 
     verified_program = resolved.verified_program
     records = evaluate_state_spec(
@@ -1250,7 +1249,7 @@ def test_state_route_entities_use_durable_scalar_and_series_shapes() -> None:
         relation_plan=verified_program.relation_plan,
         location=model_location("state", 0),
     )
-    assert records[0].route_entities == (EntityRef(id="q0"),)
+    assert records[0].target_entities == (EntityRef(id="q0"),)
 
 
 def test_nested_state_preserves_an_empty_parent_row_as_outer_scope() -> None:
@@ -1299,10 +1298,6 @@ def test_nested_state_preserves_an_empty_parent_row_as_outer_scope() -> None:
 
 
 def test_state_each_preserves_compute_result_refs_across_module_inputs() -> None:
-    resource_id = authoring.input(
-        "resource_id",
-        authoring.ScalarType(authoring.StringType()),
-    )
     build_program = authoring.compute(
         "build-program",
         fn=_empty_payload,
@@ -1310,14 +1305,14 @@ def test_state_each_preserves_compute_result_refs_across_module_inputs() -> None
     )
     child = (
         authoring.module("test.collection_state.compute_payload_child")
-        .inputs(resource_id)
+        .resource("source", requires=("play_waveforms",))
         .computes(build_program)
         .state_each(
             _literal_table(
                 [{"slot": 0}],
                 slot=authoring.ScalarType(authoring.IntType()),
             ),
-            resource=resource_id,
+            resource_port="source",
             capability="play_waveforms",
             field="program",
             value=build_program.output,
@@ -1326,7 +1321,7 @@ def test_state_each_preserves_compute_result_refs_across_module_inputs() -> None
     )
     parent = (
         authoring.module("test.collection_state.compute_payload_parent")
-        .use(child.instantiate("payload-child", resource_id="source-a"))
+        .use(child.instantiate("payload-child"))
         .build()
     )
     template = parent.template(
@@ -1361,9 +1356,10 @@ def test_state_each_resolves_inputs_nested_inside_a_relation() -> None:
     child = (
         authoring.module("test.collection_state.relation_child")
         .inputs(rows)
+        .resource("source", requires=("set_offset",))
         .state_each(
             rows,
-            resource=lambda row: row["resource_id"],
+            resource_port="source",
             capability="set_offset",
             field="offset",
             value=lambda row: row["adjusted"],
@@ -1407,8 +1403,8 @@ def test_state_each_resolves_inputs_nested_inside_a_relation() -> None:
     )
 
     assert _state_values(resolved) == [
-        (0, "source-a", 1.25),
-        (1, "source-a", 1.5),
+        (0, "relation-child/source", 1.25),
+        (1, "relation-child/source", 1.5),
     ]
 
 
@@ -1426,9 +1422,10 @@ def test_state_each_preserves_outer_scope_across_two_module_boundaries() -> None
     writer = (
         authoring.module("test.collection_state.writer")
         .inputs(writer_rows)
+        .resource("source", requires=("set_offset",))
         .state_each(
             writer_rows,
-            resource=lambda row: row["resource_id"],
+            resource_port="source",
             capability="set_offset",
             field="offset",
             value=lambda row: row["adjusted"],
@@ -1490,8 +1487,8 @@ def test_state_each_preserves_outer_scope_across_two_module_boundaries() -> None
     )
 
     assert _state_values(resolved) == [
-        (0, "source-a", 1.25),
-        (1, "source-a", 1.5),
+        (0, "middle/writer/source", 1.25),
+        (1, "middle/writer/source", 1.5),
     ]
 
 
@@ -1501,9 +1498,10 @@ def test_state_each_rejects_unguarded_optional_column_access() -> None:
     module = (
         authoring.module("test.collection_state.optional_column")
         .inputs(rows)
+        .resource("source", requires=("set_offset",))
         .state_each(
             rows,
-            resource=lambda row: row["resource_id"],
+            resource_port="source",
             capability="set_offset",
             field="offset",
             value=lambda row: row["adjusted"],
@@ -1524,34 +1522,6 @@ def test_state_each_rejects_unguarded_optional_column_access() -> None:
         )
 
     assert caught.value.problems[0].code == "relation_plan_optional_column_access"
-
-
-def test_state_each_treats_resource_string_as_a_fixed_resource_id() -> None:
-    module = (
-        authoring.module("test.collection_state.fixed_resource")
-        .state_each(
-            _literal_table(
-                [{"value": 1.0}],
-                value=authoring.ScalarType(authoring.FloatType()),
-            ),
-            resource="fixed-source",
-            capability="set_offset",
-            field="offset",
-            value=lambda row: row["value"],
-        )
-        .build()
-    )
-    template = module.template(
-        "test.collection_state.fixed_resource",
-        kind="collection_state",
-    ).build()
-
-    resolved = resolve_experiment(
-        template.bind(),
-        config_profile=load_config(),
-    )
-
-    assert _state_values(resolved) == [(0, "fixed-source", 1.0)]
 
 
 def test_state_each_validates_resource_port_capability() -> None:

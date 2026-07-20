@@ -24,14 +24,12 @@ from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.program import (
     ComputeEdge,
     CoreProgram,
-    RouteInput,
     TypedComputeNode,
     core_actions,
     core_state,
 )
 from scopecat.compiler.typed.state import (
     ForEachStateSpec,
-    LogicalStateResourceTarget,
     SetStateSpec,
     StateSpecVariant,
 )
@@ -61,7 +59,7 @@ class VariationAnalysis:
     """
 
     parameters: PointVariationSupport
-    routes: Mapping[str, PointVariationSupport]
+    resource_entities: Mapping[str, PointVariationSupport]
     compute: Mapping[OperationId, PointVariationSupport]
     state: tuple[PointVariationSupport, ...]
 
@@ -78,23 +76,17 @@ class ComputeDependencies:
     point_columns: tuple[str, ...] = ()
     input_refs: tuple[str, ...] = ()
     parameters: tuple[str, ...] = ()
-    routes: tuple[str, ...] = ()
     upstream_compute: tuple[str, ...] = ()
 
     @property
     def scope(self) -> ComputeScope:
-        return (
-            ComputeScope.POINT
-            if self.point_columns or self.routes
-            else ComputeScope.RUN
-        )
+        return ComputeScope.POINT if self.point_columns else ComputeScope.RUN
 
     def merged(self, other: ComputeDependencies) -> ComputeDependencies:
         return ComputeDependencies(
             point_columns=_merge(self.point_columns, other.point_columns),
             input_refs=_merge(self.input_refs, other.input_refs),
             parameters=_merge(self.parameters, other.parameters),
-            routes=_merge(self.routes, other.routes),
             upstream_compute=_merge(
                 self.upstream_compute,
                 other.upstream_compute,
@@ -106,7 +98,6 @@ class ComputeDependencies:
             "point_columns": self.point_columns,
             "input_refs": self.input_refs,
             "parameters": self.parameters,
-            "routes": self.routes,
             "upstream_compute": self.upstream_compute,
         }
         return {name: value for name, value in values.items() if value}
@@ -116,8 +107,8 @@ class ComputeDependencies:
 class ComputePlan:
     """Verified residual compute facts consumed by every target materializer.
 
-    Scope follows transitive point and route dependence. Finer reuse remains
-    separate because it depends on structural variation within point scope.
+    Scope follows transitive point-value dependence. Finer reuse remains separate
+    because it depends on structural variation within point scope.
     """
 
     nodes: tuple[TypedComputeNode, ...]
@@ -225,23 +216,25 @@ def _parameter_overlay_variation_support(
     )
 
 
-def _route_variation_support(
+def _resource_entity_variation_support(
     program: CoreProgram,
     *,
     parameter_support: PointVariationSupport,
 ) -> Mapping[str, PointVariationSupport]:
-    """Return structural point support that can change each resource route."""
+    """Return point support that can change each logical entity selection."""
 
     overlaid_tables = {overlay.table_id for overlay in program.parameter_overlays}
     selected: dict[str, PointVariationSupport] = {}
-    for route in program.route_intents:
+    for requirement in program.resource_requirements:
         columns: set[str] = set()
-        for use in route.entity_uses:
+        for use in requirement.entity_uses:
             dependencies = _value_dependencies(use.value)
             columns.update(dependencies.point_columns)
             if set(dependencies.parameters) & overlaid_tables:
                 columns.update(parameter_support.point_columns)
-        selected[route.port_id.qualified_name] = PointVariationSupport(tuple(columns))
+        selected[requirement.port_id.qualified_name] = PointVariationSupport(
+            tuple(columns)
+        )
     return MappingProxyType(selected)
 
 
@@ -252,7 +245,7 @@ def analyze_variation_support(
     """Project every target-facing support from canonical dependencies once."""
 
     parameter_support = _parameter_overlay_variation_support(program.parameter_overlays)
-    route_support = _route_variation_support(
+    resource_entity_support = _resource_entity_variation_support(
         program,
         parameter_support=parameter_support,
     )
@@ -266,11 +259,6 @@ def analyze_variation_support(
                         parameter_support.point_columns
                         if set(dependency.parameters) & overlaid_tables
                         else ()
-                    ),
-                    *(
-                        column_id
-                        for route_id in dependency.routes
-                        for column_id in route_support[route_id].point_columns
                     ),
                 )
             )
@@ -298,12 +286,10 @@ def analyze_variation_support(
                 selected = selected.merged(spec_support(child))
             return selected
         selected = PointVariationSupport()
-        target = spec.resource_target
-        if isinstance(target, LogicalStateResourceTarget):
-            selected = selected.merged(route_support[target.port_id.qualified_name])
-        else:
-            selected = selected.merged(value_support(target.use.value))
-        for use in spec.route_entity_uses:
+        selected = selected.merged(
+            resource_entity_support[spec.resource_target.port_id.qualified_name]
+        )
+        for use in spec.target_entity_uses:
             selected = selected.merged(value_support(use.value))
         if isinstance(spec.value_use, ComputeResultRef):
             owner = compute_plan.output_owners[spec.value_use.value_id]
@@ -314,7 +300,7 @@ def analyze_variation_support(
 
     return VariationAnalysis(
         parameters=parameter_support,
-        routes=route_support,
+        resource_entities=resource_entity_support,
         compute=compute_support,
         state=tuple(spec_support(spec) for spec in core_state(program)),
     )
@@ -332,8 +318,6 @@ def _node_dependencies(
             current = ComputeDependencies(
                 upstream_compute=(producer_id.qualified_name,)
             )
-        elif isinstance(input_value, RouteInput):
-            current = ComputeDependencies(routes=(input_value.port_id.qualified_name,))
         else:
             current = _value_dependencies(input_value.value)
             if input_value.origin_input_ids:

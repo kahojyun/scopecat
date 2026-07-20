@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 import scopecat as sc
 from scopecat.compiler.frontend.elaboration import elaborate_module
 from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
-from scopecat.compiler.semantic.model import RouteValueSource
 from scopecat.compiler.typed.program import core_state
 from scopecat.compiler.typed.state import ForEachStateSpec, SetStateSpec
 from scopecat.kernel.errors import CheckFailed
@@ -16,17 +13,11 @@ from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.symbols import SymbolId
 from scopecat.planning.authoring import resolve_experiment
 from tests.testkit.authoring import load_config
+from tests.testkit.materialized_effects import config_with_physical_resources
 
 
 def _resource_module() -> sc.ExperimentModule:
     frequency = sc.Quantity(value=5.0, unit="GHz")
-    route = sc.route("drive.v1", capabilities=("set.frequency",))
-    program = sc.compute(
-        "program",
-        fn=_capture_route,
-        inputs={"route": route},
-        output_type=sc.ScalarType(sc.PayloadType("test.resource-program")),
-    )
     return (
         sc.module("test.resources.child")
         .resource("drive.v1", requires=("set.frequency",))
@@ -36,8 +27,13 @@ def _resource_module() -> sc.ExperimentModule:
             field="value.path",
             value=frequency,
         )
-        .computes(program)
-        .product("signal", resource="drive.v1")
+        .product("signal")
+        .acquire(
+            "read-signal",
+            "signal",
+            resource="drive.v1",
+            capability="set.frequency",
+        )
         .build()
     )
 
@@ -52,16 +48,16 @@ def test_graph_proof_indexes_verified_product_declarations() -> None:
     )
 
 
-def test_explicit_instances_own_independent_resource_ports(tmp_path: Path) -> None:
+def test_explicit_instances_own_independent_resource_ports() -> None:
     child = _resource_module()
     left = child.instantiate("left.arm")
     right = child.instantiate("right.arm")
     root = sc.module("test.resources.root").use(left, right).build()
 
     assembly = elaborate_module(root)
-    verified = verify_assembly_graph(assembly)
+    verify_assembly_graph(assembly)
 
-    assert tuple(verified.resource_ports) == (
+    assert tuple(port.symbol_id for port in assembly.resource_ports) == (
         logical_resource_port_id(SymbolId(scope=("left.arm",), local_id="drive.v1")),
         logical_resource_port_id(SymbolId(scope=("right.arm",), local_id="drive.v1")),
     )
@@ -77,20 +73,8 @@ def test_explicit_instances_own_independent_resource_ports(tmp_path: Path) -> No
         "value.path",
         "value.path",
     ]
-    assert [product.resource_port_id for product in assembly.product_declarations] == [
-        logical_resource_port_id(SymbolId(scope=("left.arm",), local_id="drive.v1")),
-        logical_resource_port_id(SymbolId(scope=("right.arm",), local_id="drive.v1")),
-    ]
-    definitions = {
-        definition.id: definition for definition in assembly.semantic_graph.value_defs
-    }
-    routes = [
-        definitions[dict(operation.inputs)["route"].value_id].source
-        for operation in assembly.semantic_graph.operations
-    ]
-    assert all(isinstance(route, RouteValueSource) for route in routes)
     assert [
-        route.port_id for route in routes if isinstance(route, RouteValueSource)
+        acquire.resource_port_id for acquire in assembly.semantic_graph.acquisitions
     ] == [
         logical_resource_port_id(SymbolId(scope=("left.arm",), local_id="drive.v1")),
         logical_resource_port_id(SymbolId(scope=("right.arm",), local_id="drive.v1")),
@@ -117,45 +101,6 @@ def test_explicit_instances_own_independent_resource_ports(tmp_path: Path) -> No
     ]
 
 
-def test_parallel_modules_are_a_safe_sequential_refinement() -> None:
-    child = _resource_module()
-    left = child.instantiate("left")
-    right = child.instantiate("right")
-
-    assembly = elaborate_module(
-        sc.module("test.resources.parallel").parallel(left, right).build()
-    )
-
-    assert [binding.port_id.qualified_name for binding in assembly.bindings] == [
-        "left/drive.v1",
-        "right/drive.v1",
-    ]
-    assert assembly.parallel_groups[0].branches == (
-        (assembly.effect_order[0],),
-        (assembly.effect_order[1],),
-    )
-
-
-def test_parallel_modules_reject_same_bound_parent_resource() -> None:
-    child = _resource_module()
-    left = child.instantiate(
-        "left",
-        resource_bindings={"drive.v1": "shared"},
-    )
-    right = child.instantiate(
-        "right",
-        resource_bindings={"drive.v1": "shared"},
-    )
-
-    with pytest.raises(ValueError, match="same parent resources"):
-        (
-            sc.module("test.resources.parallel-conflict")
-            .resource("shared", requires=("set.frequency",))
-            .parallel(left, right)
-            .build()
-        )
-
-
 def test_child_resource_port_can_bind_to_parent_resource_port() -> None:
     child = _resource_module().instantiate(
         "nested",
@@ -175,9 +120,8 @@ def test_child_resource_port_can_bind_to_parent_resource_port() -> None:
         "shared",
     )
     assert tuple(
-        product.resource_port_id.qualified_name
-        for product in assembly.product_declarations
-        if product.resource_port_id is not None
+        acquire.resource_port_id.qualified_name
+        for acquire in assembly.semantic_graph.acquisitions
     ) == ("shared",)
 
 
@@ -188,7 +132,7 @@ def test_nested_instances_prefix_resource_references_once_per_level() -> None:
     root = sc.module("test.resources.nested-root").use(outer).build()
 
     assembly = elaborate_module(root)
-    verified = verify_assembly_graph(assembly)
+    verify_assembly_graph(assembly)
 
     expected_port_id = logical_resource_port_id(
         SymbolId(
@@ -196,20 +140,13 @@ def test_nested_instances_prefix_resource_references_once_per_level() -> None:
             local_id="drive.v1",
         )
     )
-    assert tuple(verified.resource_ports) == (expected_port_id,)
+    assert tuple(port.symbol_id for port in assembly.resource_ports) == (
+        expected_port_id,
+    )
     assert assembly.bindings[0].port_path == (
         "outer/inner/drive.v1.set.frequency.value.path"
     )
-    assert assembly.product_declarations[0].resource_port_id == expected_port_id
-    operation = assembly.semantic_graph.operations[0]
-    route_definition = next(
-        definition
-        for definition in assembly.semantic_graph.value_defs
-        if definition.id == dict(operation.inputs)["route"].value_id
-    )
-    route = route_definition.source
-    assert isinstance(route, RouteValueSource)
-    assert route.port_id == expected_port_id
+    assert assembly.semantic_graph.acquisitions[0].resource_port_id == expected_port_id
 
 
 def test_resource_identity_distinguishes_slash_from_nested_scope() -> None:
@@ -221,7 +158,7 @@ def test_resource_identity_distinguishes_slash_from_nested_scope() -> None:
     root = sc.module("test.resources.identity-root").use(direct, nested).build()
 
     assembly = elaborate_module(root)
-    verified = verify_assembly_graph(assembly)
+    verify_assembly_graph(assembly)
 
     direct_id = logical_resource_port_id(
         SymbolId(scope=("outer/inner",), local_id="drive.v1")
@@ -230,30 +167,29 @@ def test_resource_identity_distinguishes_slash_from_nested_scope() -> None:
         SymbolId(scope=("outer", "inner"), local_id="drive.v1")
     )
     assert direct_id != nested_id
-    assert set(verified.resource_ports) == {direct_id, nested_id}
-    assert {product.resource_port_id for product in assembly.product_declarations} == {
+    assert {port.symbol_id for port in assembly.resource_ports} == {
         direct_id,
         nested_id,
     }
-    definitions = {
-        definition.id: definition for definition in assembly.semantic_graph.value_defs
-    }
     assert {
-        definition.source.port_id
-        for operation in assembly.semantic_graph.operations
-        for _name, value in operation.inputs
-        if isinstance(
-            (definition := definitions[value.value_id]).source,
-            RouteValueSource,
-        )
-    } == {direct_id, nested_id}
+        acquire.resource_port_id for acquire in assembly.semantic_graph.acquisitions
+    } == {
+        direct_id,
+        nested_id,
+    }
 
 
-def test_product_resource_references_are_checked_before_linking() -> None:
+def test_acquire_resource_references_are_checked_before_linking() -> None:
     with pytest.raises(CheckFailed) as error:
         (
             sc.module("test.resources.missing-record-port")
-            .product("exported", resource="missing")
+            .product("exported")
+            .acquire(
+                "read-exported",
+                "exported",
+                resource="missing",
+                capability="measure.iq",
+            )
             .build()
         )
 
@@ -262,16 +198,19 @@ def test_product_resource_references_are_checked_before_linking() -> None:
     ]
 
 
-def test_product_resource_capabilities_are_checked_before_linking() -> None:
+def test_acquire_resource_capabilities_are_checked_before_linking() -> None:
     module = (
         sc.module("test.resources.missing-record-capability")
         .resource("readout", requires=("measure.iq",))
-        .product(
+        .product("fixed", "exported")
+        .acquire(
+            "read-fixed",
             "fixed",
             resource="readout",
             capability="measure.phase",
         )
-        .product(
+        .acquire(
+            "read-exported",
             "exported",
             resource="readout",
             capability="measure.population",
@@ -287,8 +226,8 @@ def test_product_resource_capabilities_are_checked_before_linking() -> None:
         "module_resource_port_capability_missing",
     ]
     assert [problem.location for problem in error.value.problems] == [
-        model_location("products", "fixed", "capability"),
-        model_location("products", "exported", "capability"),
+        model_location("acquisitions", 0, "resource_port"),
+        model_location("acquisitions", 1, "resource_port"),
     ]
 
 
@@ -357,22 +296,18 @@ def test_state_resource_capabilities_are_checked_before_linking() -> None:
     ]
 
 
-def test_state_each_keeps_dotted_capability_and_field_ids_structured(
-    tmp_path: Path,
-) -> None:
+def test_state_each_keeps_dotted_capability_and_field_ids_structured() -> None:
     rows_type = sc.TableType(
-        columns=(
-            sc.TableColumn("resource", sc.ScalarType(sc.StringType())),
-            sc.TableColumn("value", sc.ScalarType(sc.FloatType())),
-        )
+        columns=(sc.TableColumn("value", sc.ScalarType(sc.FloatType())),)
     )
     rows = sc.input("rows", rows_type)
     child = (
         sc.module("test.resources.structured-state")
         .inputs(rows)
+        .resource("source", requires=("set.offset",))
         .state_each(
             rows,
-            resource=lambda row: row["resource"],
+            resource_port="source",
             capability="set.offset",
             field="value.path",
             value=lambda row: row["value"],
@@ -381,7 +316,7 @@ def test_state_each_keeps_dotted_capability_and_field_ids_structured(
     )
     instance = child.instantiate(
         "state.arm",
-        rows=({"resource": "source-0", "value": 1.0},),
+        rows=({"value": 1.0},),
     )
     root = sc.module("test.resources.structured-state-root").use(instance).build()
 
@@ -389,7 +324,7 @@ def test_state_each_keeps_dotted_capability_and_field_ids_structured(
         root.template("test.resources.structured-state", kind="resources")
         .build()
         .bind(),
-        config_profile=load_config(),
+        config_profile=config_with_physical_resources({"source-0": ("set.offset",)}),
     )
 
     state = core_state(resolved.experiment)[0]
@@ -398,7 +333,3 @@ def test_state_each_keeps_dotted_capability_and_field_ids_structured(
     assert isinstance(child, SetStateSpec)
     assert child.capability_id == "set.offset"
     assert child.field_path == "value.path"
-
-
-def _capture_route(*, route: object) -> dict[str, object]:
-    return {"route": route}

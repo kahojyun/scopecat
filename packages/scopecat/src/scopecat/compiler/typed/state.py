@@ -32,12 +32,10 @@ from scopecat.compiler.semantic.value_expressions import (
 from scopecat.kernel.problems import ModelLocation, model_location
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
-    PhysicalResourceId,
-    ResourceTarget,
 )
 from scopecat.records.entity import EntityRef
 
-type RouteEntityValue = str | EntityRef
+type TargetEntityValue = str | EntityRef
 type RelationPlanResolver = Callable[[RelationUseId], VerifiedRelationPlan[PlanNode]]
 
 
@@ -52,16 +50,6 @@ class LogicalStateResourceTarget:
     port_id: LogicalResourcePortId
 
 
-@dataclass(frozen=True, slots=True)
-class PhysicalStateResourceTarget:
-    """State target whose physical identity is computed by a relation."""
-
-    use: RelationUse[ScalarValueExpr]
-
-
-type StateResourceTarget = LogicalStateResourceTarget | PhysicalStateResourceTarget
-
-
 class StateSpec:
     """Base class for desired-state bindings."""
 
@@ -72,11 +60,11 @@ class StateSpec:
 class SetStateSpec(StateSpec):
     """Assign one capability field after point-local parameter overlays."""
 
-    resource_target: StateResourceTarget
+    resource_target: LogicalStateResourceTarget
     capability_id: str
     field_path: str
     value_use: StateValueUse
-    route_entity_uses: tuple[RelationUse[ScalarOrSeriesValueExpr], ...] = ()
+    target_entity_uses: tuple[RelationUse[ScalarOrSeriesValueExpr], ...] = ()
 
     @property
     def field(self) -> str:
@@ -98,11 +86,11 @@ type StateSpecVariant = SetStateSpec | ForEachStateSpec
 @dataclass(frozen=True, slots=True)
 class StateRecord:
     point_index: int
-    resource_target: ResourceTarget
+    resource_target: LogicalResourcePortId
     capability_id: str
     field_path: str
     value: EvaluatedStateValue
-    route_entities: tuple[RouteEntityValue, ...] = ()
+    target_entities: tuple[TargetEntityValue, ...] = ()
 
     @property
     def field(self) -> str:
@@ -120,23 +108,11 @@ def evaluate_state_spec(
     """Materialize one data-only state plan."""
 
     if isinstance(spec, SetStateSpec):
-        resource_target = spec.resource_target
-        resource = (
-            resource_target.port_id
-            if isinstance(resource_target, LogicalStateResourceTarget)
-            else PhysicalResourceId(
-                _evaluate_physical_resource(
-                    resource_target.use,
-                    ctx,
-                    relation_plan=relation_plan,
-                )
-            )
-        )
         value_use = spec.value_use
         return [
             StateRecord(
                 point_index=point_index,
-                resource_target=resource,
+                resource_target=spec.resource_target.port_id,
                 capability_id=spec.capability_id,
                 field_path=spec.field_path,
                 value=(
@@ -150,9 +126,9 @@ def evaluate_state_spec(
                         ctx,
                     )
                 ),
-                route_entities=tuple(
-                    _evaluate_route_entities(
-                        spec.route_entity_uses,
+                target_entities=tuple(
+                    _evaluate_target_entities(
+                        spec.target_entity_uses,
                         ctx,
                         relation_plan=relation_plan,
                     )
@@ -205,34 +181,12 @@ def evaluate_state_spec(
     return records
 
 
-def _evaluate_physical_resource(
-    use: RelationUse[ScalarValueExpr],
-    ctx: EvalContext,
-    *,
-    relation_plan: RelationPlanResolver,
-) -> str:
-    value = evaluate_scalar(
-        cast(
-            "VerifiedRelationPlan[ScalarExpr]",
-            relation_plan(use.id),
-        ),
-        ctx,
-    )
-    if not isinstance(value, str):
-        msg = f"physical state resource must resolve to string, got {value!r}"
-        raise TypeError(msg)
-    if not value:
-        msg = "physical state resource id must be non-empty"
-        raise ValueError(msg)
-    return value
-
-
-def _evaluate_route_entities(
+def _evaluate_target_entities(
     uses: Sequence[RelationUse[ScalarOrSeriesValueExpr]],
     ctx: EvalContext,
     *,
     relation_plan: RelationPlanResolver,
-) -> list[RouteEntityValue]:
+) -> list[TargetEntityValue]:
     evaluated: list[CellValue] = []
     for use in uses:
         expression = use.value
@@ -255,10 +209,10 @@ def _evaluate_route_entities(
                 ctx,
             )
             if not series_values:
-                msg = "state route entity series must not be empty"
+                msg = "state target entity series must not be empty"
                 raise ValueError(msg)
             evaluated.extend(series_values)
-    entities: list[RouteEntityValue] = []
+    entities: list[TargetEntityValue] = []
     seen_ids: set[str] = set()
     for value in evaluated:
         if isinstance(value, EntityRef):
@@ -267,11 +221,12 @@ def _evaluate_route_entities(
             entity_id = value
         else:
             msg = (
-                f"state route entity must resolve to an entity reference, got {value!r}"
+                "state target entity must resolve to an entity reference, "
+                f"got {value!r}"
             )
             raise TypeError(msg)
         if not entity_id:
-            msg = "state route entity id must be non-empty"
+            msg = "state target entity id must be non-empty"
             raise ValueError(msg)
         if entity_id in seen_ids:
             continue

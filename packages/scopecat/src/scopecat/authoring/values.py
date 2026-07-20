@@ -33,19 +33,14 @@ from scopecat.compiler.relations.model import (
 )
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.payloads import PayloadValue
-from scopecat.kernel.resource_identity import (
-    LogicalResourcePortId,
-    logical_resource_port_id,
-)
-from scopecat.kernel.routes import ResolvedRoute
 from scopecat.kernel.value_type_compatibility import literal_scalar_type
-from scopecat.kernel.value_types import Route, Scalar, Series, ValueType
+from scopecat.kernel.value_types import Scalar, Series, ValueType
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import Quantity
 
 type ComputeFunction = Callable[..., object]
 type ScalarInput = Quantity | EntityRef | PayloadValue | str | int | float | bool | None
-type ComputeInput = ValueRef | RouteRef | ScalarInput
+type ComputeInput = ValueRef | ScalarInput
 type RuntimeInput = (
     Quantity
     | EntityRef
@@ -83,14 +78,6 @@ class ComputeDeclarationKey:
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class RouteRef:
-    """Explicit typed route edge for a point-local compute input."""
-
-    port_id: LogicalResourcePortId
-    value_type: Route
-
-
-@dataclass(frozen=True, slots=True, repr=False)
 class Compute:
     """A typed compute declaration and its composable output value."""
 
@@ -114,7 +101,7 @@ class Compute:
         invalid = [name for name, value in self.inputs if not _is_compute_input(value)]
         if invalid:
             msg = (
-                f"compute {self.id!r} inputs must be typed values, routes, or "
+                f"compute {self.id!r} inputs must be typed values or "
                 f"scalar literals; invalid inputs: {', '.join(invalid)}"
             )
             raise TypeError(msg)
@@ -142,7 +129,8 @@ def input(  # noqa: A001
     """Declare one typed module input value.
 
     Register the returned value with :meth:`ModuleBuilder.inputs`, then pass the
-    same object to compute inputs, child modules, routes, records, or bindings.
+    same object to compute inputs, child modules, resource selections, records,
+    or bindings.
     """
 
     return internal_input_value_ref(id, value_type)
@@ -243,22 +231,6 @@ def parameter_lookup(
     )
 
 
-def route(
-    port_id: str,
-    *,
-    capabilities: tuple[str, ...] = (),
-) -> RouteRef:
-    """Declare one explicit point-local route dependency."""
-
-    if any(not capability for capability in capabilities):
-        msg = "route capabilities must be a sequence of non-empty strings"
-        raise ValueError(msg)
-    return RouteRef(
-        port_id=logical_resource_port_id(port_id),
-        value_type=Route(capabilities=capabilities),
-    )
-
-
 def compute(
     id: str,  # noqa: A002
     *,
@@ -272,7 +244,7 @@ def compute(
     invalid = [name for name, value in selected_inputs if not _is_compute_input(value)]
     if invalid:
         msg = (
-            f"compute {id!r} inputs must be typed values, routes, or "
+            f"compute {id!r} inputs must be typed values or "
             f"scalar literals; invalid inputs: {', '.join(invalid)}"
         )
         raise TypeError(msg)
@@ -288,7 +260,7 @@ def compute(
 
 
 def _capture_compute_input(value: ComputeInput) -> ComputeInput:
-    if isinstance(value, ValueRef | RouteRef):
+    if isinstance(value, ValueRef):
         return value
     if isinstance(value, PayloadValue):
         return value
@@ -298,15 +270,7 @@ def _capture_compute_input(value: ComputeInput) -> ComputeInput:
 def _is_compute_input(value: object) -> bool:
     return value is None or isinstance(
         value,
-        ValueRef
-        | RouteRef
-        | Quantity
-        | EntityRef
-        | PayloadValue
-        | str
-        | int
-        | float
-        | bool,
+        ValueRef | Quantity | EntityRef | PayloadValue | str | int | float | bool,
     )
 
 
@@ -447,8 +411,6 @@ __all__ = [
     "MetadataValue",
     "ModuleInput",
     "ParameterKeyInput",
-    "ResolvedRoute",
-    "RouteRef",
     "RuntimeInput",
     "ScalarInput",
     "TableRow",
@@ -458,5 +420,4 @@ __all__ = [
     "parameter",
     "parameter_lookup",
     "point",
-    "route",
 ]

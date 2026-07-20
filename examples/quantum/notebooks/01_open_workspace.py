@@ -17,6 +17,8 @@ summary = {
     "primary_entity": system.primary_entity_id,
     "entities": [entity.id for entity in system.topology.entities],
     "lines": [line.id for line in system.topology.lines],
-    "resources": [resource.id for resource in system.routing.resources],
+    "routing_instruments": list(
+        dict.fromkeys(binding.instrument_id for binding in system.routing.bindings)
+    ),
 }
 print(summary)

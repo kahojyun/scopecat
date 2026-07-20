@@ -19,7 +19,6 @@ from scopecat.kernel.product_identity import (
     parse_product_id,
     product_use,
 )
-from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.symbols import SymbolId
 from scopecat.measurements.results import MeasurementDType
 from scopecat.records.entity import EntityRef
@@ -43,9 +42,10 @@ class ProductAxis:
 class ModuleProductDecl:
     """Declare one reusable product independently of execution and storage.
 
-    A declaration describes the shape and producer-facing mapping available at
-    a module boundary. ``ModuleAcquireEffect`` decides when it is realized;
-    ``RecordSelection`` decides whether a particular use becomes durable.
+    A declaration describes only the logical product schema available at a
+    module boundary. ``ModuleAcquireEffect`` decides how and when an
+    instrument realizes it; ``RecordSelection`` decides whether a particular
+    use becomes durable.
     Keeping the three decisions separate lets modules compose without silently
     imposing experiment-level persistence policy.
     """
@@ -54,16 +54,10 @@ class ModuleProductDecl:
     scope: tuple[str, ...] = ()
     origin: tuple[object, ...] = field(default=(), repr=False, compare=False)
     kind: ProductKind = "observable"
-    resource_port_id: LogicalResourcePortId | None = None
-    capability: str | None = None
-    product_key: str | None = None
     unit: str | None = None
     dtype: MeasurementDType = "float64"
     axes: tuple[ProductAxis, ...] = ()
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
-    producer_metadata: Mapping[str, MetadataValue] = field(
-        default_factory=empty_frozen_mapping
-    )
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -73,11 +67,6 @@ class ModuleProductDecl:
             msg = "module product scope segments must be non-empty"
             raise ValueError(msg)
         object.__setattr__(self, "metadata", freeze_json_mapping(self.metadata))
-        object.__setattr__(
-            self,
-            "producer_metadata",
-            freeze_json_mapping(self.producer_metadata),
-        )
 
     @property
     def product_id(self) -> ProductId:
@@ -251,7 +240,7 @@ def prefix_product_decl(
     *scope: str,
     origin: tuple[object, ...] = (),
 ) -> ModuleProductDecl:
-    """Prefix a product identity while preserving its producer contract."""
+    """Prefix a product identity while preserving its schema."""
 
     if not scope and not origin:
         return product

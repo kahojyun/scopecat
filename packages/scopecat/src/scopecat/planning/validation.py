@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-
 from scopecat.config.parameter_resolution import resolve_config_parameters
 from scopecat.kernel.problems import (
     Problem,
@@ -13,25 +11,8 @@ from scopecat.kernel.problems import (
     model_location,
 )
 from scopecat.records.config import (
-    Channel,
     ConfigProfileSnapshot,
-    RoutingChannelBinding,
-    RoutingEdge,
-    RoutingResource,
 )
-
-
-@dataclass(slots=True)
-class _RoutingValidationContext:
-    resources: dict[str, RoutingResource]
-    entity_ids: set[str]
-    channel_ids: set[str]
-    line_ids: set[str]
-    group_ids: set[str]
-    channels_by_id: dict[str, Channel]
-    target_topologies: dict[
-        tuple[str, str, str], tuple[str | None, tuple[str, ...]]
-    ] = field(default_factory=dict)
 
 
 def _problem(
@@ -49,245 +30,55 @@ def _problem(
 
 
 def _routing_binding_problems(
-    edge: RoutingEdge,
-    binding: RoutingChannelBinding,
-    resource: RoutingResource | None,
-    context: _RoutingValidationContext,
-) -> tuple[Problem, ...]:
-    problems: list[Problem] = []
-    path = ("system", "routing", "edges")
-    if binding.entity_id not in context.entity_ids:
-        problems.append(
-            _problem(
-                "unknown_routing_binding_entity",
-                f"routing edge {edge.id} binding references unknown entity "
-                f"{binding.entity_id}",
-                path,
-            )
-        )
-    elif edge.entity_ids and binding.entity_id not in edge.entity_ids:
-        problems.append(
-            _problem(
-                "routing_binding_edge_entity_mismatch",
-                f"routing edge {edge.id} binding references entity "
-                f"{binding.entity_id}, but the edge does not list it",
-                path,
-            )
-        )
-    elif (
-        resource is not None
-        and resource.served_entities
-        and binding.entity_id not in resource.served_entities
-    ):
-        problems.append(
-            _problem(
-                "routing_binding_resource_entity_mismatch",
-                f"routing edge {edge.id} binding references entity "
-                f"{binding.entity_id}, but resource {edge.resource_id} "
-                "does not serve it",
-                path,
-            )
-        )
-    if binding.capability is not None:
-        if edge.capabilities and binding.capability not in edge.capabilities:
-            problems.append(
-                _problem(
-                    "routing_binding_edge_capability_mismatch",
-                    f"routing edge {edge.id} binding references capability "
-                    f"{binding.capability}, but the edge does not list it",
-                    path,
-                )
-            )
-        if (
-            resource is not None
-            and resource.capabilities
-            and binding.capability not in resource.capabilities
-        ):
-            problems.append(
-                _problem(
-                    "routing_binding_resource_capability_mismatch",
-                    f"routing edge {edge.id} binding references capability "
-                    f"{binding.capability}, but resource {edge.resource_id} "
-                    "does not declare it",
-                    path,
-                )
-            )
-    if binding.channel_id not in context.channel_ids:
-        problems.append(
-            _problem(
-                "unknown_routing_binding_channel",
-                f"routing edge {edge.id} binding references unknown channel "
-                f"{binding.channel_id}",
-                path,
-            )
-        )
-    else:
-        channel = context.channels_by_id[binding.channel_id]
-        target = (edge.resource_id, binding.entity_id, binding.channel_id)
-        topology = (
-            binding.line_id or channel.line_id,
-            tuple(sorted(binding.group_ids or channel.group_ids)),
-        )
-        previous_topology = context.target_topologies.setdefault(target, topology)
-        if previous_topology != topology:
-            problems.append(
-                _problem(
-                    "routing_binding_topology_conflict",
-                    f"routing bindings for resource {edge.resource_id}, "
-                    f"entity {binding.entity_id}, and channel "
-                    f"{binding.channel_id} disagree on physical topology",
-                    path,
-                )
-            )
-        if edge.channels and binding.channel_id not in edge.channels:
-            problems.append(
-                _problem(
-                    "routing_binding_edge_channel_mismatch",
-                    f"routing edge {edge.id} binding references channel "
-                    f"{binding.channel_id}, but the edge does not list it",
-                    path,
-                )
-            )
-        if (
-            resource is not None
-            and resource.channels
-            and binding.channel_id not in resource.channels
-        ):
-            problems.append(
-                _problem(
-                    "routing_binding_resource_channel_mismatch",
-                    f"routing edge {edge.id} binding references channel "
-                    f"{binding.channel_id}, but resource {edge.resource_id} "
-                    "does not list it",
-                    path,
-                )
-            )
-        if (
-            binding.line_id is not None
-            and channel.line_id is not None
-            and binding.line_id != channel.line_id
-        ):
-            problems.append(
-                _problem(
-                    "routing_binding_line_mismatch",
-                    f"routing edge {edge.id} binding line {binding.line_id} "
-                    f"does not match topology channel {binding.channel_id} "
-                    f"line {channel.line_id}",
-                    path,
-                )
-            )
-        if (
-            binding.group_ids
-            and channel.group_ids
-            and set(binding.group_ids) != set(channel.group_ids)
-        ):
-            problems.append(
-                _problem(
-                    "routing_binding_group_mismatch",
-                    f"routing edge {edge.id} binding groups "
-                    f"{sorted(binding.group_ids)} do not match topology channel "
-                    f"{binding.channel_id} groups {sorted(channel.group_ids)}",
-                    path,
-                )
-            )
-    if binding.line_id is not None and binding.line_id not in context.line_ids:
-        problems.append(
-            _problem(
-                "unknown_routing_binding_line",
-                f"routing edge {edge.id} binding references unknown line "
-                f"{binding.line_id}",
-                path,
-            )
-        )
-    for group_id in binding.group_ids:
-        if group_id not in context.group_ids:
-            problems.append(
-                _problem(
-                    "unknown_routing_binding_group",
-                    f"routing edge {edge.id} binding references unknown group "
-                    f"{group_id}",
-                    path,
-                )
-            )
-    return tuple(problems)
-
-
-def _routing_edge_problems(
     config: ConfigProfileSnapshot,
-    context: _RoutingValidationContext,
 ) -> tuple[Problem, ...]:
     problems: list[Problem] = []
-    path = ("system", "routing", "edges")
-    for edge in config.routing.edges:
-        resource = context.resources.get(edge.resource_id)
-        if resource is None:
+    path = ("system", "routing", "bindings")
+    instrument_ids = {
+        instrument.id for instrument in config.instrument_registry.instruments
+    }
+    entity_ids = {entity.id for entity in config.topology.entities}
+    channels = {channel.id: channel for channel in config.topology.channels}
+
+    for binding in config.routing.bindings:
+        if binding.instrument_id not in instrument_ids:
             problems.append(
                 _problem(
-                    "unknown_routing_edge_resource",
-                    f"routing edge {edge.id} references unknown resource "
-                    f"{edge.resource_id}",
+                    "unknown_routing_binding_instrument",
+                    "routing binding references unknown instrument "
+                    f"{binding.instrument_id}",
                     path,
                 )
             )
-        for entity_id in edge.entity_ids:
-            if entity_id not in context.entity_ids:
-                problems.append(
-                    _problem(
-                        "unknown_routing_edge_entity",
-                        f"routing edge {edge.id} references unknown entity {entity_id}",
-                        path,
-                    )
+        if binding.entity_id is not None and binding.entity_id not in entity_ids:
+            problems.append(
+                _problem(
+                    "unknown_routing_binding_entity",
+                    f"routing binding references unknown entity {binding.entity_id}",
+                    path,
                 )
-            elif (
-                resource is not None
-                and resource.served_entities
-                and entity_id not in resource.served_entities
-            ):
-                problems.append(
-                    _problem(
-                        "routing_edge_resource_entity_mismatch",
-                        f"routing edge {edge.id} references entity {entity_id}, "
-                        f"but resource {edge.resource_id} does not serve it",
-                        path,
-                    )
+            )
+        if binding.channel_id is None:
+            continue
+        if binding.entity_id is None:
+            problems.append(
+                _problem(
+                    "routing_binding_channel_without_entity",
+                    f"routing binding for channel {binding.channel_id} must "
+                    "declare an entity",
+                    path,
                 )
-        for channel_id in edge.channels:
-            if channel_id not in context.channel_ids:
-                problems.append(
-                    _problem(
-                        "unknown_routing_edge_channel",
-                        f"routing edge {edge.id} references unknown channel "
-                        f"{channel_id}",
-                        path,
-                    )
+            )
+        channel = channels.get(binding.channel_id)
+        if channel is None:
+            problems.append(
+                _problem(
+                    "unknown_routing_binding_channel",
+                    f"routing binding references unknown channel {binding.channel_id}",
+                    path,
                 )
-            elif (
-                resource is not None
-                and resource.channels
-                and channel_id not in resource.channels
-            ):
-                problems.append(
-                    _problem(
-                        "routing_edge_resource_channel_mismatch",
-                        f"routing edge {edge.id} references channel {channel_id}, "
-                        f"but resource {edge.resource_id} does not list it",
-                        path,
-                    )
-                )
-        for binding in edge.bindings:
-            problems.extend(_routing_binding_problems(edge, binding, resource, context))
-        if resource is not None:
-            for capability in edge.capabilities:
-                if capability not in resource.capabilities:
-                    problems.append(
-                        _problem(
-                            "unknown_routing_edge_capability",
-                            f"routing edge {edge.id} references capability "
-                            f"{capability} not declared by resource "
-                            f"{edge.resource_id}",
-                            path,
-                        )
-                    )
+            )
+            continue
     return tuple(problems)
 
 
@@ -448,10 +239,6 @@ def validate_config_profile(
         )
 
     entity_ids = {entity.id for entity in config.topology.entities}
-    line_ids = {line.id for line in config.topology.lines}
-    channel_ids = {channel.id for channel in config.topology.channels}
-    group_ids = {group.id for group in config.topology.groups}
-    channels_by_id = {channel.id: channel for channel in config.topology.channels}
     instrument_ids = {
         instrument.id for instrument in config.instrument_registry.instruments
     }
@@ -472,45 +259,7 @@ def validate_config_profile(
 
     problems.extend(_topology_problems(config))
 
-    for resource in config.routing.resources:
-        if resource.kind == "instrument" and resource.id not in instrument_ids:
-            problems.append(
-                _problem(
-                    "unknown_routing_resource_instrument",
-                    f"routing resource {resource.id} references unknown instrument",
-                    ("system", "routing", "resources"),
-                )
-            )
-        for entity_id in resource.served_entities:
-            if entity_id not in entity_ids:
-                problems.append(
-                    _problem(
-                        "unknown_routing_resource_served_entity",
-                        f"routing resource {resource.id} serves unknown entity "
-                        f"{entity_id}",
-                        ("system", "routing", "resources"),
-                    )
-                )
-        for channel_id in resource.channels:
-            if channel_id not in channel_ids:
-                problems.append(
-                    _problem(
-                        "unknown_routing_resource_channel",
-                        f"routing resource {resource.id} references unknown channel "
-                        f"{channel_id}",
-                        ("system", "routing", "resources"),
-                    )
-                )
-
-    routing_context = _RoutingValidationContext(
-        resources={resource.id: resource for resource in config.routing.resources},
-        entity_ids=entity_ids,
-        channel_ids=channel_ids,
-        line_ids=line_ids,
-        group_ids=group_ids,
-        channels_by_id=channels_by_id,
-    )
-    problems.extend(_routing_edge_problems(config, routing_context))
+    problems.extend(_routing_binding_problems(config))
 
     for connection in config.connection_profile.connections:
         if connection.instrument_id not in instrument_ids:

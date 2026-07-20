@@ -5,15 +5,12 @@ from dataclasses import replace
 import pytest
 
 from scopecat.compiler.relations.point_domain import POINT_UNIT
-from scopecat.compiler.semantic.model import AcquireId, MeasurementTransformId
+from scopecat.compiler.semantic.model import MeasurementTransformId
 from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.products import (
-    MeasurementTransformProductProducer,
-    ProductDef,
-)
+from scopecat.compiler.typed.products import ProductDef
 from scopecat.compiler.typed.program import (
-    AcquireSpec,
     CoreProgram,
+    LogicalResourceRequirement,
     TypedMeasurementTransform,
     TypedMeasurementTransformInput,
     TypedMeasurementTransformOutput,
@@ -23,14 +20,14 @@ from scopecat.compiler.typed.verification import verify_core_program
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.product_identity import (
     ProductId,
-    ProductProducerId,
     ProductUse,
     ProductUseId,
     product_id,
 )
+from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.symbols import SymbolId
 from scopecat.measurements.semantics import MeasurementTransformSemanticContract
-from tests.testkit.typed_program import instrument_product_producer
+from tests.testkit.typed_program import instrument_acquisition
 
 
 def _transform_id(name: str) -> MeasurementTransformId:
@@ -39,19 +36,6 @@ def _transform_id(name: str) -> MeasurementTransformId:
 
 def _use(product: ProductId, name: str) -> ProductUse:
     return ProductUse(product_id=product, id=ProductUseId(name))
-
-
-def _producer(
-    transform_id: MeasurementTransformId,
-    role: str,
-    product: ProductId,
-) -> MeasurementTransformProductProducer:
-    return MeasurementTransformProductProducer(
-        id=ProductProducerId(product.symbol),
-        product_id=product,
-        transform_id=transform_id,
-        output_id=role,
-    )
 
 
 def _transform(
@@ -80,7 +64,6 @@ def _transform(
             TypedMeasurementTransformOutput(
                 id="result",
                 product_id=output,
-                producer_id=ProductProducerId(output.symbol),
                 product_use_ids=tuple(use.id for use in output_uses),
             ),
         ),
@@ -113,19 +96,25 @@ def _chain_program() -> CoreProgram:
         id="typed-transforms",
         kind="compiler_test",
         point_domain=PointDomain(root=POINT_UNIT),
-        effects=(AcquireSpec(AcquireId(SymbolId(local_id="read-raw")), (raw,)),),
+        resource_requirements=(
+            LogicalResourceRequirement(
+                port_id=logical_resource_port_id("source"),
+                capabilities=("scalar_signal",),
+            ),
+        ),
+        effects=(
+            instrument_acquisition(
+                raw,
+                id="read-raw",
+                capability="scalar_signal",
+                provider_key="raw",
+            ),
+        ),
         measurement_transforms=(second, first),
         product_defs=(
             ProductDef(id=raw),
             ProductDef(id=middle),
             ProductDef(id=derived),
-        ),
-        instrument_product_producers=(
-            instrument_product_producer(raw, provider_key="raw"),
-        ),
-        measurement_transform_product_producers=(
-            _producer(first.id, "result", middle),
-            _producer(second.id, "result", derived),
         ),
         product_uses=(
             derived_first,
@@ -229,7 +218,7 @@ def test_typed_product_use_has_at_most_one_transform_input_consumer() -> None:
     )
 
 
-def test_typed_transform_input_requires_matching_use_and_producer() -> None:
+def test_typed_transform_input_requires_matching_use_and_product_owner() -> None:
     program = _chain_program()
     second, first = program.measurement_transforms
     foreign_input = replace(
@@ -242,15 +231,15 @@ def test_typed_transform_input_requires_matching_use_and_producer() -> None:
             second,
             replace(first, inputs=(foreign_input,)),
         ),
-        instrument_product_producers=(),
+        effects=(),
     )
 
     codes = _problem_codes(invalid)
     assert "measurement_transform_input_product_use_mismatch" in codes
-    assert "measurement_transform_input_producer_missing" in codes
+    assert "measurement_transform_input_product_owner_missing" in codes
 
 
-def test_typed_transform_rejects_cross_kind_producer() -> None:
+def test_typed_transform_rejects_cross_kind_product_owner() -> None:
     program = _chain_program()
     second, first = program.measurement_transforms
     invalid = replace(
@@ -259,18 +248,19 @@ def test_typed_transform_rejects_cross_kind_producer() -> None:
             second,
             first,
         ),
-        instrument_product_producers=(
-            *program.instrument_product_producers,
-            instrument_product_producer(
+        effects=(
+            *program.effects,
+            instrument_acquisition(
                 first.outputs[0].product_id,
-                id="middle-instrument",
+                id="read-middle",
+                capability="scalar_signal",
                 provider_key="middle",
             ),
         ),
     )
 
     codes = _problem_codes(invalid)
-    assert "measurement_transform_product_instrument_producer_conflict" in codes
+    assert "product_owner_conflict" in codes
 
 
 def test_typed_transform_cycle_is_rejected() -> None:
@@ -298,10 +288,6 @@ def test_typed_transform_cycle_is_rejected() -> None:
         point_domain=PointDomain(root=POINT_UNIT),
         measurement_transforms=(left_transform, right_transform),
         product_defs=(ProductDef(id=left), ProductDef(id=right)),
-        measurement_transform_product_producers=(
-            _producer(left_transform.id, "result", left),
-            _producer(right_transform.id, "result", right),
-        ),
         product_uses=(left_use, right_use),
     )
 

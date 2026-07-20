@@ -21,7 +21,6 @@ from scopecat.compiler.semantic.model import (
 from scopecat.compiler.semantic.value_expressions import verify_table_value_expr
 from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.products import DomainProductProducer
 from scopecat.compiler.typed.program import (
     CoreProgram,
     TypedDomainExecution,
@@ -33,7 +32,6 @@ from scopecat.compiler.typed.program import (
 from scopecat.compiler.typed.verification import seal_typed_program
 from scopecat.config.profiles import load_config_profile
 from scopecat.kernel.problems import ProblemPhase
-from scopecat.kernel.product_identity import product_producer_id
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Scalar, Table, TableColumn
 from scopecat.sdk.domain import (
@@ -124,7 +122,6 @@ def _preparation(
     product = product_output("result", dtype="complex128")
     product_use, record_use = record_product(product, record_id="record")
     domain_program_id = DomainProgramId(SymbolId(local_id="program"))
-    producer_id = product_producer_id("result-producer")
     program = CoreProgram(
         id=program_id,
         kind="mixed_quantum_mapping_test",
@@ -144,18 +141,9 @@ def _preparation(
                     TypedDomainResultBinding(
                         id="result",
                         product_id=product.id,
-                        producer_id=producer_id,
                         product_use_ids=(product_use.id,),
                     ),
                 ),
-            ),
-        ),
-        domain_product_producers=(
-            DomainProductProducer(
-                id=producer_id,
-                product_id=product.id,
-                execution_id="domain",
-                result_id="result",
             ),
         ),
         product_uses=(product_use,),

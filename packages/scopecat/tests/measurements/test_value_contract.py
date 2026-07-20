@@ -333,6 +333,7 @@ def _collect_operation(
             requests=[
                 CollectProductRequest(
                     id="iq",
+                    capability_id="readout",
                     dtype=dtype,
                     unit=unit,
                     dimensions=[
@@ -349,7 +350,7 @@ def _collect_operation(
         result_bindings=(
             CollectionResultBinding(
                 provider_key="iq",
-                product_use_id=product_use_id,
+                product_use_ids=(product_use_id,),
                 product_id=logical_product_id,
             ),
         ),

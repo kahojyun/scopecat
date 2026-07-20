@@ -30,7 +30,7 @@ from scopecat.authoring._value_refs import (
 )
 from scopecat.authoring.domain import LoweredDomainExecution
 from scopecat.authoring.measurements import MeasurementTransform
-from scopecat.authoring.values import ComputeDeclarationKey, ComputeFunction, RouteRef
+from scopecat.authoring.values import ComputeDeclarationKey, ComputeFunction
 from scopecat.compiler.frontend.value_binding import literal_data_expr
 from scopecat.compiler.relations.analysis import (
     PlanReferenceKind,
@@ -69,7 +69,6 @@ from scopecat.compiler.semantic.model import (
     OperationId,
     OperationOutputSource,
     PlanExpressionSource,
-    RouteValueSource,
     RowArgumentDef,
     RowRegionId,
     SemanticDomainExecution,
@@ -440,30 +439,20 @@ class _SemanticGraphBuilder:
             requested_region_id=None,
         )
         composition_scope = intent.row_scope_id.symbol.scope
-        resource_id = (
-            self._add_state_body_value(
-                intent.resource,
-                region_id=region_id,
-                role="resource",
-                composition_scope=composition_scope,
-            )
-            if intent.resource is not None
-            else None
-        )
         value_id = self._add_state_body_value(
             intent.value,
             region_id=region_id,
             role="value",
             composition_scope=composition_scope,
         )
-        route_ids = tuple(
+        target_ids = tuple(
             self._add_state_body_value(
-                route,
+                target,
                 region_id=region_id,
-                role=f"route_{index}",
+                role=f"target_{index}",
                 composition_scope=composition_scope,
             )
-            for index, route in enumerate(intent.route_entities)
+            for index, target in enumerate(intent.target_entities)
         )
         relation_type = intent.relation.value_type
         if not isinstance(relation_type, Table):
@@ -473,12 +462,11 @@ class _SemanticGraphBuilder:
             id=region_id,
             row_argument=RowArgumentDef(intent.row_scope_id, relation_type),
             relation=ValueUse(relation_id),
-            resource=(ValueUse(resource_id) if resource_id is not None else None),
             resource_port=intent.resource_port,
             capability_id=intent.capability_id,
             field_path=intent.field_path,
             value=ValueUse(value_id),
-            route_entities=tuple(ValueUse(value_id) for value_id in route_ids),
+            target_entities=tuple(ValueUse(value_id) for value_id in target_ids),
         )
         self._row_regions.append(region)
         self._row_region_sources[region_id] = SourceAnchor(
@@ -560,22 +548,6 @@ class _SemanticGraphBuilder:
                 local_id=input_name,
             )
         )
-        if isinstance(value, RouteRef):
-            self._add_definition(
-                ValueDef(
-                    id=input_id,
-                    value_type=value.value_type,
-                    source=RouteValueSource(
-                        port_id=value.port_id,
-                    ),
-                )
-            )
-            self._value_sources[input_id] = SourceAnchor(
-                kind="operation_route_input",
-                declaration_id=f"{declaration_id}:{input_name}",
-                composition_scope=operation_id.scope,
-            )
-            return input_id
         self._add_literal(
             input_id,
             value,
@@ -944,11 +916,11 @@ def _literal_series_type(items: tuple[object, ...]) -> Series:
     elif all(isinstance(atom, Payload) for atom in atoms):
         schemas = {atom.schema_id for atom in atoms if isinstance(atom, Payload)}
         if len(schemas) != 1:
-            msg = "state route series cannot mix payload schemas"
+            msg = "state target series cannot mix payload schemas"
             raise TypeError(msg)
         selected_atom = Payload(next(iter(schemas)))
     else:
-        msg = "state route series contains incompatible scalar values"
+        msg = "state target series contains incompatible scalar values"
         raise TypeError(msg)
     return Series(
         Scalar(selected_atom, nullable=nullable),

@@ -6,11 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from scopecat.compiler.linking.implementations import SelectedLocalImplementations
-from scopecat.compiler.linking.product_realizations import (
-    SelectedLocalProductRealizations,
-)
 from scopecat.compiler.semantic.model import ValueId
-from scopecat.compiler.typed.dependencies import VariationAnalysis
 from scopecat.compiler.typed.program import CoreProgram
 from scopecat.execution.local.program import (
     ApplyStateOperation,
@@ -20,7 +16,8 @@ from scopecat.execution.local.program import (
     LocalOperation,
 )
 from scopecat.execution.program import RunCoverageEffect
-from scopecat.kernel.resource_identity import ResourceClaim
+from scopecat.kernel.resource_identity import LogicalResourcePortId, ResourceClaim
+from scopecat.planning.routing import ResourcePortManifest
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,13 +30,17 @@ class ComputeBindingSeed:
 
 @dataclass(frozen=True, slots=True)
 class LocalTargetPlan:
-    """One closed local target selection reused by every coverage block."""
+    """One closed local target selection reused by every coverage block.
+
+    Implementations and physical manifests are selected once so bounded
+    coverage evaluates only point-local values and entity selections, never the
+    accepted configuration or provider inventory again.
+    """
 
     program: CoreProgram
     implementations: SelectedLocalImplementations
-    product_realizations: SelectedLocalProductRealizations
     instrument_order: tuple[str, ...]
-    variation: VariationAnalysis
+    resource_ports: Mapping[LogicalResourcePortId, ResourcePortManifest]
     run_operations: tuple[ComputeOperation, ...]
     compute_seed: ComputeBindingSeed
 
@@ -55,7 +56,12 @@ class MaterializedLocalEffects:
 def local_operation_resource_claims(
     operation: LocalOperation,
 ) -> tuple[ResourceClaim, ...]:
-    """Derive exact physical claims from one final local operation."""
+    """Derive exact physical claims after entity and channel binding.
+
+    Scheduling and leases use the selected instrument, channel, and topology
+    groups rather than a logical port's broader candidate set. Value-dependent
+    hardware compatibility and capacity remain provider or domain concerns.
+    """
 
     claims: list[ResourceClaim] = []
     bindings = ()

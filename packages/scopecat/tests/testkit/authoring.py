@@ -28,15 +28,20 @@ DRIVE_FREQUENCY_POINT = authoring.point(
 SIMPLE_MODULE = (
     authoring.module("test.simple_scan", metadata={"assembled_by": "module"})
     .inputs(_SIMPLE_SUBJECT)
-    .resource("source", requires=("set_frequency",))
+    .resource("source", requires=("set_frequency", "scalar_signal"))
     .bind_field(
         "source",
         capability="set_frequency",
         field="frequency",
         value=DRIVE_FREQUENCY_POINT,
     )
-    .product("signal", resource="source", unit="ratio")
-    .acquire("read-signal", "signal")
+    .product("signal", unit="ratio")
+    .acquire(
+        "read-signal",
+        "signal",
+        resource="source",
+        capability="scalar_signal",
+    )
     .build()
 )
 

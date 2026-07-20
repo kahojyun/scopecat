@@ -7,8 +7,6 @@ from scopecat.compiler.relations.model import (
     col,
     grid,
     linspace,
-    literal_rows,
-    param,
     point_col,
     table,
 )
@@ -17,9 +15,9 @@ from scopecat.compiler.relations.verification import (
     RowType,
 )
 from scopecat.compiler.typed.point_domain import PointDomain
+from scopecat.compiler.typed.program import LogicalResourceRequirement
+from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.state import StateValue
-from scopecat.kernel.value_types import Quantity as QuantityType
-from scopecat.kernel.value_types import Scalar, String
 from scopecat.kernel.value_types import Table as TableType
 from scopecat.records.parameter import Quantity
 from tests.testkit.materialized_effects import (
@@ -41,7 +39,7 @@ from tests.testkit.relation_plans import (
 from tests.testkit.relation_plans import (
     point_domain as verified_point_domain,
 )
-from tests.testkit.typed_program import overlay_parameter_cell, typed_program
+from tests.testkit.typed_program import typed_program
 
 
 def _state_literal(value: object) -> object:
@@ -87,9 +85,15 @@ def test_materialized_effects_binds_desired_state_for_each_point() -> None:
         id="unchanged-state-patches",
         kind="problem",
         point_domain=unchanged_points,
+        resource_requirements=(
+            LogicalResourceRequirement(
+                port_id=logical_resource_port_id("drive"),
+                capabilities=("drive",),
+            ),
+        ),
         state=[
             state_field(
-                "drive-a",
+                "drive",
                 capability_id="drive",
                 field_path="carrier_frequency",
                 value=Quantity(value=5.0, unit="GHz"),
@@ -102,9 +106,15 @@ def test_materialized_effects_binds_desired_state_for_each_point() -> None:
         id="swept-state-patches",
         kind="problem",
         point_domain=swept_points,
+        resource_requirements=(
+            LogicalResourceRequirement(
+                port_id=logical_resource_port_id("drive"),
+                capabilities=("drive",),
+            ),
+        ),
         state=[
             state_field(
-                "drive-a",
+                "drive",
                 capability_id="drive",
                 field_path="carrier_frequency",
                 value=point_col("frequency"),
@@ -175,11 +185,17 @@ def test_materialized_effects_repeated_state_uses_outer_point_row() -> None:
         id="shared-lo-fixed-if-scan",
         kind="drive.shared_lo_scan",
         point_domain=points,
+        resource_requirements=(
+            LogicalResourceRequirement(
+                port_id=logical_resource_port_id("drive"),
+                capabilities=("drive",),
+            ),
+        ),
         state=[
             each_state(
-                table("drive_channels"),
+                table("drive_channels").filter(col("resource_id").eq("xy0")),
                 state_field(
-                    col("resource_id"),
+                    "drive",
                     capability_id="drive",
                     field_path="carrier_frequency",
                     value=point_col("lo_frequency") + col("fixed_if"),
@@ -193,7 +209,7 @@ def test_materialized_effects_repeated_state_uses_outer_point_row() -> None:
     preview = materialized_effects_contract(
         spec,
         _parameters(),
-        config=config_with_physical_resources({"xy0": ("drive",), "xy1": ("drive",)}),
+        config=config_with_physical_resources({"xy0": ("drive",)}),
     )
 
     assert [point.coordinates["lo_frequency"] for point in preview.points] == [
@@ -210,96 +226,5 @@ def test_materialized_effects_repeated_state_uses_outer_point_row() -> None:
         for point_index, state, field in materialized_state_fields(preview)
     ] == [
         (0, "xy0", "drive.carrier_frequency", Quantity(value=5.0, unit="GHz")),
-        (0, "xy1", "drive.carrier_frequency", Quantity(value=5.02, unit="GHz")),
         (1, "xy0", "drive.carrier_frequency", Quantity(value=5.1, unit="GHz")),
-        (1, "xy1", "drive.carrier_frequency", Quantity(value=5.12, unit="GHz")),
-    ]
-
-
-def test_materialized_effects_selected_target_table_plans_simultaneous_resources() -> (
-    None
-):
-    points = _point_domain(
-        table("readout_devices")
-        .join(
-            literal_rows([{"device_id": "r1"}, {"device_id": "r0"}]),
-            on={"device_id": "device_id"},
-        )
-        .sort("device_id")
-    )
-    point_bindings = _point_bindings(points, lookup=True)
-    spec = typed_program(
-        id="selected-readouts-with-shared-drives",
-        kind="readout.selected_parallel_scan",
-        point_domain=points,
-        parameter_overlays=[
-            overlay_parameter_cell(
-                "readout_devices",
-                key={"device_id": point_col("device_id")},
-                key_types={"device_id": Scalar(String())},
-                column_id="frequency",
-                value=point_col("frequency") + Quantity(value=50, unit="MHz"),
-                value_type=Scalar(QuantityType(unit="GHz")),
-                bindings=point_bindings,
-            )
-        ],
-        state=[
-            state_field(
-                point_col("resource_id"),
-                capability_id="readout",
-                field_path="frequency",
-                value=param(
-                    "readout_devices",
-                    key={"device_id": point_col("device_id")},
-                    column="frequency",
-                ),
-                bindings=point_bindings,
-            ),
-            each_state(
-                table("drive_channels"),
-                state_field(
-                    col("resource_id"),
-                    capability_id="drive",
-                    field_path="carrier_frequency",
-                    value=point_col("frequency") + col("fixed_if"),
-                    bindings=_state_bindings(
-                        points,
-                        "drive_channels",
-                        lookup=True,
-                    ),
-                ),
-                bindings=point_bindings,
-            ),
-        ],
-    )
-
-    preview = materialized_effects_contract(
-        spec,
-        _parameters(),
-        config=config_with_physical_resources(
-            {
-                "readout-a": ("readout",),
-                "readout-b": ("readout",),
-                "xy0": ("drive",),
-                "xy1": ("drive",),
-            }
-        ),
-    )
-
-    assert [point.coordinates["device_id"] for point in preview.points] == ["r0", "r1"]
-    assert [
-        (
-            point_index,
-            state.instrument_id,
-            f"{field.capability_id}.{field.field_path}",
-            _state_literal(field.value),
-        )
-        for point_index, state, field in materialized_state_fields(preview)
-    ] == [
-        (0, "readout-a", "readout.frequency", Quantity(value=6.0, unit="GHz")),
-        (0, "xy0", "drive.carrier_frequency", Quantity(value=6.05, unit="GHz")),
-        (0, "xy1", "drive.carrier_frequency", Quantity(value=6.07, unit="GHz")),
-        (1, "readout-b", "readout.frequency", Quantity(value=6.15, unit="GHz")),
-        (1, "xy0", "drive.carrier_frequency", Quantity(value=6.2, unit="GHz")),
-        (1, "xy1", "drive.carrier_frequency", Quantity(value=6.22, unit="GHz")),
     ]

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import pytest
+from pydantic import ValidationError
+
 from scopecat.execution.local.program import (
     CollectionResultBinding,
     CollectOperation,
@@ -43,35 +46,18 @@ def _validate(
     )
 
 
-def test_unspecified_collect_capability_rejects_ambiguous_product_key() -> None:
-    program = _collect_program(capability_id=None, dtype="float64")
-    description = _description(
-        capabilities=(
-            capability("readout", products=(product("signal"),)),
-            capability("spectrum", products=(product("signal"),)),
-        )
-    )
-
-    problems = _validate(
-        program,
-        descriptions={"source-0": description},
-    )
-
-    assert len(problems) == 1
-    problem = problems[0]
-    assert problem.code == "instrument_product_ambiguous"
-    assert problem.impact is ProblemImpact.BLOCKING
-    assert problem.category is ProblemCategory.PROVIDER_CONTRACT
-    assert problem.phase is ProblemPhase.PROVIDER_PREFLIGHT
-    assert problem.location == model_location(
-        "execution_program",
-        "operations",
-        "point-0.collect.source-0",
-        "requests",
-        "signal",
-        "capability_id",
-    )
-    assert "'readout', 'spectrum'" in problem.message
+@pytest.mark.parametrize(
+    "payload",
+    (
+        {"id": "signal"},
+        {"id": "signal", "capability_id": ""},
+    ),
+)
+def test_collect_product_request_requires_non_empty_capability_id(
+    payload: dict[str, object],
+) -> None:
+    with pytest.raises(ValidationError):
+        CollectProductRequest.model_validate(payload)
 
 
 def test_explicit_collect_capability_selects_one_matching_product() -> None:
@@ -113,13 +99,26 @@ def test_duplicate_product_key_within_selected_capability_is_ambiguous() -> None
         descriptions={"source-0": description},
     )
 
-    assert [problem.code for problem in problems] == ["instrument_product_ambiguous"]
-    assert "'readout', 'readout'" in problems[0].message
+    assert len(problems) == 1
+    problem = problems[0]
+    assert problem.code == "instrument_product_ambiguous"
+    assert problem.impact is ProblemImpact.BLOCKING
+    assert problem.category is ProblemCategory.PROVIDER_CONTRACT
+    assert problem.phase is ProblemPhase.PROVIDER_PREFLIGHT
+    assert problem.location == model_location(
+        "execution_program",
+        "operations",
+        "point-0.collect.source-0",
+        "requests",
+        "signal",
+        "capability_id",
+    )
+    assert "under capability 'readout'" in problem.message
 
 
 def _collect_program(
     *,
-    capability_id: str | None,
+    capability_id: str,
     dtype: MeasurementDType,
 ) -> LocalEffectInspection:
     operation_id = "point-0.collect.source-0"
@@ -153,7 +152,7 @@ def _collect_program(
                     result_bindings=(
                         CollectionResultBinding(
                             provider_key="signal",
-                            product_use_id=signal_use.id,
+                            product_use_ids=(signal_use.id,),
                             product_id=signal_use.product_id,
                         ),
                     ),

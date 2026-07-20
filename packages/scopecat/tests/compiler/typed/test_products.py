@@ -10,11 +10,15 @@ from scopecat.compiler.linking.linked import link_verified_program
 from scopecat.compiler.relations.point_domain import POINT_UNIT
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.products import (
-    InstrumentProductProducer,
     ProductAxisDef,
     ProductDef,
 )
-from scopecat.compiler.typed.program import CoreProgram
+from scopecat.compiler.typed.program import (
+    AcquireSpec,
+    CoreProgram,
+    LogicalResourceRequirement,
+    core_acquisitions,
+)
 from scopecat.compiler.typed.records import RecordAxisPlan, RecordPlan, RecordUse
 from scopecat.compiler.typed.verification import verify_core_program
 from scopecat.execution.local.program import CollectOperation
@@ -26,13 +30,14 @@ from scopecat.kernel.product_identity import (
     product_id,
     product_use,
 )
+from scopecat.kernel.resource_identity import LogicalResourcePortId
+from scopecat.records.config import RoutingGraph
 from tests.testkit.authoring import load_config
 from tests.testkit.local_materialization import (
     materialize_local_execution,
     operations_of_type,
 )
-from tests.testkit.materialized_effects import config_with_physical_resources
-from tests.testkit.typed_program import instrument_product_producer, link_program
+from tests.testkit.typed_program import instrument_acquisition, link_program
 
 
 def _product(name: str = "signal") -> ProductDef:
@@ -46,16 +51,30 @@ def _product(name: str = "signal") -> ProductDef:
 def _program(
     *,
     products: tuple[ProductDef, ...],
-    producers: tuple[InstrumentProductProducer, ...] = (),
+    acquisitions: tuple[AcquireSpec, ...] = (),
     uses: tuple[ProductUse, ...] = (),
     records: tuple[RecordUse, ...] = (),
 ) -> CoreProgram:
+    capabilities_by_port: dict[LogicalResourcePortId, set[str]] = {}
+    for acquisition in acquisitions:
+        capabilities = capabilities_by_port.setdefault(
+            acquisition.resource_port_id,
+            set(),
+        )
+        capabilities.add(acquisition.capability_id)
     return CoreProgram(
         id="product-ir",
         kind="compiler_test",
         point_domain=PointDomain(root=POINT_UNIT),
+        resource_requirements=tuple(
+            LogicalResourceRequirement(
+                port_id=port_id,
+                capabilities=tuple(sorted(capabilities)),
+            )
+            for port_id, capabilities in capabilities_by_port.items()
+        ),
+        effects=acquisitions,
         product_defs=products,
-        instrument_product_producers=producers,
         product_uses=uses,
         record_uses=records,
     )
@@ -83,7 +102,11 @@ def test_compiler_product_and_record_metadata_is_recursively_immutable() -> None
         axes=(axis,),
         metadata=metadata,
     )
-    producer = instrument_product_producer(product, metadata=metadata)
+    acquisition = instrument_acquisition(
+        product,
+        capability="scalar_signal",
+        metadata=metadata,
+    )
     use = product_use(product.id)
     record_use = RecordUse(id="signal", product_use_id=use.id, metadata=metadata)
     record_axis = RecordAxisPlan(
@@ -114,7 +137,7 @@ def test_compiler_product_and_record_metadata_is_recursively_immutable() -> None
     for selected in (
         axis.metadata,
         product.metadata,
-        producer.metadata,
+        acquisition.products[0].metadata,
         record_use.metadata,
         record_axis.metadata,
         record_plan.metadata,
@@ -130,22 +153,24 @@ def test_compiler_product_and_record_metadata_is_recursively_immutable() -> None
             cast("dict[str, JsonValue]", selected["owner"])["name"] = "mutated"
 
 
-def _duplicate_producer_program() -> CoreProgram:
+def _duplicate_acquisition_program() -> CoreProgram:
     product = _product()
-    producer = instrument_product_producer(product)
+    first = instrument_acquisition(product, id="first", capability="scalar_signal")
+    second = instrument_acquisition(product, id="second", capability="scalar_signal")
     return _program(
         products=(product,),
-        producers=(producer, producer),
+        acquisitions=(first, second),
     )
 
 
-def _orphan_producer_program() -> CoreProgram:
+def _orphan_acquisition_program() -> CoreProgram:
     return _program(
         products=(_product("available"),),
-        producers=(
-            instrument_product_producer(
+        acquisitions=(
+            instrument_acquisition(
                 product_id("missing"),
                 id="orphan",
+                capability="scalar_signal",
             ),
         ),
     )
@@ -153,14 +178,15 @@ def _orphan_producer_program() -> CoreProgram:
 
 def test_record_aliases_share_one_product_realization() -> None:
     product = _product()
-    producer = instrument_product_producer(
+    acquisition = instrument_acquisition(
         product,
+        capability="scalar_signal",
         metadata={"producer": "signal"},
     )
     use = product_use(product.id)
     program = _program(
         products=(product,),
-        producers=(producer,),
+        acquisitions=(acquisition,),
         uses=(use,),
         records=(
             RecordUse(
@@ -183,27 +209,131 @@ def test_record_aliases_share_one_product_realization() -> None:
     operation = operations_of_type(plan, CollectOperation, point_index=0)[0]
     requests = operation.command.requests
     assert len(requests) == 1
-    assert operation.result_bindings[0].product_use_id == use.id
+    assert operation.result_bindings[0].product_use_ids == (use.id,)
     assert requests[0].metadata == {"producer": "signal"}
 
-    execution = plan
-    [collect] = operations_of_type(execution, CollectOperation, point_index=0)
-    assert len(collect.command.requests) == 1
+
+def test_one_provider_result_fans_out_to_every_use_of_the_product() -> None:
+    product = _product()
+    acquisition = instrument_acquisition(
+        product,
+        capability="scalar_signal",
+        provider_key="raw-signal",
+    )
+    direct_use = ProductUse(product_id=product.id, id=ProductUseId("direct"))
+    transform_use = ProductUse(product_id=product.id, id=ProductUseId("transform"))
+    program = _program(
+        products=(product,),
+        acquisitions=(acquisition,),
+        uses=(direct_use, transform_use),
+        records=(RecordUse(id="direct", product_use_id=direct_use.id),),
+    )
+
+    plan = materialize_local_execution(
+        link_program(program, validate_config_environment(load_config()))
+    )
+
+    [operation] = operations_of_type(plan, CollectOperation, point_index=0)
+    assert [request.id for request in operation.command.requests] == ["raw-signal"]
+    assert operation.result_bindings[0].product_use_ids == (
+        direct_use.id,
+        transform_use.id,
+    )
+
+
+def test_multi_product_acquisition_lowers_to_one_instrument_command() -> None:
+    first = _product("first")
+    second = _product("second")
+    first_acquisition = instrument_acquisition(
+        first,
+        id="read-both",
+        capability="scalar_signal",
+        provider_key="first-key",
+    )
+    second_acquisition = instrument_acquisition(
+        second,
+        capability="scalar_signal",
+        provider_key="second-key",
+    )
+    acquisition = AcquireSpec(
+        id=first_acquisition.id,
+        resource_port_id=first_acquisition.resource_port_id,
+        capability_id="scalar_signal",
+        products=(*first_acquisition.products, *second_acquisition.products),
+    )
+    first_use = product_use(first.id)
+    second_use = product_use(second.id)
+
+    plan = materialize_local_execution(
+        link_program(
+            _program(
+                products=(first, second),
+                acquisitions=(acquisition,),
+                uses=(first_use, second_use),
+            ),
+            validate_config_environment(load_config()),
+        )
+    )
+
+    [operation] = operations_of_type(plan, CollectOperation, point_index=0)
+    assert [request.id for request in operation.command.requests] == [
+        "first-key",
+        "second-key",
+    ]
+    assert [binding.product_use_ids for binding in operation.result_bindings] == [
+        (first_use.id,),
+        (second_use.id,),
+    ]
+
+
+def test_ordered_acquisitions_on_one_instrument_have_distinct_operation_ids() -> None:
+    first = _product("first")
+    second = _product("second")
+    first_use = product_use(first.id)
+    second_use = product_use(second.id)
+
+    plan = materialize_local_execution(
+        link_program(
+            _program(
+                products=(first, second),
+                acquisitions=(
+                    instrument_acquisition(
+                        first,
+                        id="before",
+                        capability="scalar_signal",
+                    ),
+                    instrument_acquisition(
+                        second,
+                        id="after",
+                        capability="scalar_signal",
+                    ),
+                ),
+                uses=(first_use, second_use),
+            ),
+            validate_config_environment(load_config()),
+        )
+    )
+
+    operations = operations_of_type(plan, CollectOperation, point_index=0)
+    assert len({operation.operation_id for operation in operations}) == 2
+    assert all(
+        operation.operation_id.startswith("collect-") for operation in operations
+    )
 
 
 def test_record_policy_does_not_change_collection_request() -> None:
     product = _product()
-    producer = instrument_product_producer(product)
+    acquisition = instrument_acquisition(product, capability="scalar_signal")
     use = product_use(product.id)
     first = _program(
         products=(product,),
-        producers=(producer,),
+        acquisitions=(acquisition,),
         uses=(use,),
         records=(RecordUse(id="first", product_use_id=use.id),),
     )
     second = _program(
         products=(product,),
-        producers=(producer,),
+        acquisitions=(acquisition,),
         uses=(use,),
         records=(
             RecordUse(
@@ -223,19 +353,20 @@ def test_record_policy_does_not_change_collection_request() -> None:
     ) == operations_of_type(second_plan, CollectOperation, point_index=0)
 
 
-def test_unused_product_producer_is_linked_without_placement() -> None:
+def test_unused_product_acquisition_is_linked_without_collection() -> None:
     product = _product()
-    producer = instrument_product_producer(
-        product,
-        physical_resource_id="definitely-missing",
+    acquisition = instrument_acquisition(product, capability="scalar_signal")
+    config = load_config()
+    config = config.model_copy(
+        update={"system": config.system.model_copy(update={"routing": RoutingGraph()})}
     )
     linked = link_program(
-        _program(products=(product,), producers=(producer,)),
-        validate_config_environment(load_config()),
+        _program(products=(product,), acquisitions=(acquisition,)),
+        validate_config_environment(config),
     )
 
     assert linked.product_defs == (product,)
-    assert linked.instrument_product_producers == (producer,)
+    assert core_acquisitions(linked.program) == (acquisition,)
     assert linked.product_uses == ()
     assert linked.record_uses == ()
 
@@ -248,24 +379,29 @@ def test_unused_product_producer_is_linked_without_placement() -> None:
 
 def test_unrecorded_product_use_is_still_realized_once() -> None:
     product = _product()
-    producer = instrument_product_producer(product)
+    acquisition = instrument_acquisition(product, capability="scalar_signal")
     use = product_use(product.id)
 
     plan = materialize_local_execution(
         link_program(
-            _program(products=(product,), producers=(producer,), uses=(use,)),
+            _program(
+                products=(product,),
+                acquisitions=(acquisition,),
+                uses=(use,),
+            ),
             validate_config_environment(load_config()),
         )
     )
 
     assert [
-        binding.product_use_id
+        product_use_id
         for operation in operations_of_type(plan, CollectOperation, point_index=0)
         for binding in operation.result_bindings
+        for product_use_id in binding.product_use_ids
     ] == [use.id]
 
 
-def test_demanded_product_without_a_producer_fails_before_materialization() -> None:
+def test_demanded_product_without_an_owner_fails_before_materialization() -> None:
     product = ProductDef(id=product_id("derived"))
     use = product_use(product.id)
 
@@ -278,26 +414,7 @@ def test_demanded_product_without_a_producer_fails_before_materialization() -> N
         )
 
     assert [problem.code for problem in failure.value.problems] == [
-        "product_local_producer_missing"
-    ]
-
-
-def test_implicit_product_target_requires_one_matching_instrument() -> None:
-    product = _product()
-    producer = instrument_product_producer(product)
-    use = product_use(product.id)
-    config = config_with_physical_resources({"source-1": ()})
-
-    with pytest.raises(CheckFailed) as failure:
-        materialize_local_execution(
-            link_program(
-                _program(products=(product,), producers=(producer,), uses=(use,)),
-                validate_config_environment(config),
-            )
-        )
-
-    assert [problem.code for problem in failure.value.problems] == [
-        "product_instrument_ambiguous"
+        "product_acquire_missing"
     ]
 
 
@@ -313,12 +430,12 @@ def test_implicit_product_target_requires_one_matching_instrument() -> None:
             "product_use_identity_duplicate",
         ),
         (
-            _duplicate_producer_program,
-            "product_producer_duplicate",
+            _duplicate_acquisition_program,
+            "product_acquire_duplicate",
         ),
         (
-            _orphan_producer_program,
-            "product_producer_definition_missing",
+            _orphan_acquisition_program,
+            "product_acquire_definition_missing",
         ),
         (
             lambda: _program(

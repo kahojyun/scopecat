@@ -32,7 +32,6 @@ from scopecat.authoring._module_ir import (
     ModuleInstanceEffect,
     ModuleInstanceIR,
     ModuleIR,
-    ModuleParallelEffect,
     ModuleStateEffect,
 )
 from scopecat.authoring._parameter_contracts import (
@@ -76,7 +75,7 @@ from scopecat.authoring.value_types import (
 from scopecat.authoring.value_types import (
     Table as TableType,
 )
-from scopecat.authoring.values import MetadataValue, RouteRef
+from scopecat.authoring.values import MetadataValue
 from scopecat.compiler.frontend.semantic_elaboration import (
     ScopedPythonImplementation,
     elaborate_semantic_graph,
@@ -87,6 +86,7 @@ from scopecat.compiler.semantic.model import (
     AcquireEffect,
     AcquireEffectRef,
     AcquireId,
+    AcquireProduct,
     ActionEffectRef,
     ActionId,
     BindingEffectRef,
@@ -94,7 +94,6 @@ from scopecat.compiler.semantic.model import (
     ImplementationCatalog,
     SemanticEffectRef,
     SemanticGraphIR,
-    SemanticParallelGroup,
     SourceMap,
     StateEffectRef,
     merge_implementation_catalogs,
@@ -145,7 +144,6 @@ class _ModuleFragment(_ExperimentEnvelope):
     actions: tuple[ModuleActionDecl, ...] = ()
     acquisitions: tuple[AcquireEffect, ...] = ()
     effect_order: tuple[SemanticEffectRef, ...] = ()
-    parallel_groups: tuple[SemanticParallelGroup, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,7 +174,6 @@ class SemanticExperimentIR(_ExperimentEnvelope):
         compare=False,
     )
     effect_order: tuple[SemanticEffectRef, ...] = ()
-    parallel_groups: tuple[SemanticParallelGroup, ...] = ()
 
     def __post_init__(self) -> None:
         expected: tuple[SemanticEffectRef, ...] = (
@@ -227,7 +224,6 @@ def merge_semantic_experiments(
     record_selections: list[RecordSelection] = []
     parameter_contracts: list[tuple[ParameterContract, ...]] = []
     effect_order: list[SemanticEffectRef] = []
-    parallel_groups: list[SemanticParallelGroup] = []
     binding_offset = 0
     for fragment in fragments:
         merged_inputs.update(fragment.inputs)
@@ -247,10 +243,6 @@ def merge_semantic_experiments(
         parameter_contracts.append(fragment.parameter_contracts)
         effect_order.extend(
             _rebase_binding_effects(fragment.effect_order, binding_offset)
-        )
-        parallel_groups.extend(
-            _rebase_parallel_group(group, binding_offset)
-            for group in fragment.parallel_groups
         )
         binding_offset += len(fragment.bindings)
     merged_metadata.update(dict(metadata or {}))
@@ -273,7 +265,6 @@ def merge_semantic_experiments(
         parameter_contracts=merge_parameter_contracts(*parameter_contracts),
         metadata=merged_metadata,
         effect_order=tuple(effect_order),
-        parallel_groups=tuple(parallel_groups),
     )
 
 
@@ -307,7 +298,6 @@ def _merge_module_fragments(
     record_selections: list[RecordSelection] = []
     parameter_contracts: list[tuple[ParameterContract, ...]] = []
     effect_order: list[SemanticEffectRef] = []
-    parallel_groups: list[SemanticParallelGroup] = []
     binding_offset = 0
     for fragment in fragments:
         merged_inputs.update(fragment.inputs)
@@ -331,10 +321,6 @@ def _merge_module_fragments(
         parameter_contracts.append(fragment.parameter_contracts)
         effect_order.extend(
             _rebase_binding_effects(fragment.effect_order, binding_offset)
-        )
-        parallel_groups.extend(
-            _rebase_parallel_group(group, binding_offset)
-            for group in fragment.parallel_groups
         )
         binding_offset += len(fragment.bindings)
     merged_metadata.update(dict(metadata or {}))
@@ -366,7 +352,6 @@ def _merge_module_fragments(
         parameter_contracts=merge_parameter_contracts(*parameter_contracts),
         metadata=merged_metadata,
         effect_order=tuple(effect_order),
-        parallel_groups=tuple(parallel_groups),
     )
 
 
@@ -381,15 +366,6 @@ def _rebase_binding_effects(
         if isinstance(effect, BindingEffectRef)
         else effect
         for effect in effects
-    )
-
-
-def _rebase_parallel_group(
-    group: SemanticParallelGroup,
-    offset: int,
-) -> SemanticParallelGroup:
-    return SemanticParallelGroup(
-        tuple(_rebase_binding_effects(branch, offset) for branch in group.branches)
     )
 
 
@@ -438,7 +414,6 @@ def elaborate_module(
         parameter_contracts=fragment.parameter_contracts,
         metadata=fragment.metadata,
         effect_order=fragment.effect_order,
-        parallel_groups=fragment.parallel_groups,
     )
 
 
@@ -498,7 +473,16 @@ def _elaborate_module_ir(
         acquisitions=tuple(
             AcquireEffect(
                 id=AcquireId(SymbolId(local_id=acquire.id)),
-                product_ids=tuple(product.product_id for product in acquire.products),
+                resource_port_id=acquire.resource_port_id,
+                capability_id=acquire.capability_id,
+                products=tuple(
+                    AcquireProduct(
+                        product_id=product.product.product_id,
+                        provider_key=product.provider_key,
+                        metadata=product.metadata,
+                    )
+                    for product in acquire.products
+                ),
             )
             for acquire in module.body.acquisitions
         ),
@@ -542,26 +526,16 @@ def _elaborate_module_ir(
         binding_offset += len(fragment.bindings)
     own_binding_offset = binding_offset
     effect_order: list[SemanticEffectRef] = []
-    parallel_groups = list(combined.parallel_groups)
     own_binding_index = 0
     for effect in module.body.procedure:
-        if isinstance(effect, ModuleInstanceEffect | ModuleParallelEffect):
-            keys = (
-                (effect.invocation_key,)
-                if isinstance(effect, ModuleInstanceEffect)
-                else effect.invocation_keys
-            )
-            branches: list[tuple[SemanticEffectRef, ...]] = []
-            for key in keys:
-                child = source_fragments[key]
-                branch = _rebase_binding_effects(
+        if isinstance(effect, ModuleInstanceEffect):
+            child = source_fragments[effect.invocation_key]
+            effect_order.extend(
+                _rebase_binding_effects(
                     child.effect_order,
-                    child_binding_offsets[key],
+                    child_binding_offsets[effect.invocation_key],
                 )
-                branches.append(branch)
-                effect_order.extend(branch)
-            if isinstance(effect, ModuleParallelEffect):
-                parallel_groups.append(SemanticParallelGroup(tuple(branches)))
+            )
         elif isinstance(effect, ModuleBindingEffect):
             effect_order.append(
                 BindingEffectRef(own_binding_offset + own_binding_index)
@@ -584,7 +558,6 @@ def _elaborate_module_ir(
         experiment_id=None,
         kind=None,
         effect_order=tuple(effect_order),
-        parallel_groups=tuple(parallel_groups),
     )
 
 
@@ -592,7 +565,7 @@ def _own_effect_order(module: ModuleIR) -> tuple[SemanticEffectRef, ...]:
     effects: list[SemanticEffectRef] = []
     binding_index = 0
     for effect in module.body.procedure:
-        if isinstance(effect, ModuleInstanceEffect | ModuleParallelEffect):
+        if isinstance(effect, ModuleInstanceEffect):
             continue
         if isinstance(effect, ModuleBindingEffect):
             effects.append(BindingEffectRef(binding_index))
@@ -682,9 +655,8 @@ def _module_value_roots(module: ModuleIR) -> tuple[object, ...]:
         values.extend(
             (
                 intent.relation,
-                intent.resource,
                 intent.value,
-                *intent.route_entities,
+                *intent.target_entities,
             )
         )
     values.extend(
@@ -910,19 +882,14 @@ def _resolve_state(
     return replace(
         intent,
         relation=resolver.resolve(intent.relation),
-        resource=(
-            resolver.resolve(intent.resource)
-            if isinstance(intent.resource, ValueRef)
-            else intent.resource
-        ),
         value=(
             resolver.resolve(intent.value)
             if isinstance(intent.value, ValueRef)
             else intent.value
         ),
-        route_entities=tuple(
+        target_entities=tuple(
             resolver.resolve(entity) if isinstance(entity, ValueRef) else entity
-            for entity in intent.route_entities
+            for entity in intent.target_entities
         ),
     )
 
@@ -1026,9 +993,7 @@ def _module_fragment_value_roots(
     )
     add_semantic_roots(binding.value for binding in fragment.bindings)
     for intent in fragment.state_intents:
-        consumed.extend(
-            (intent.relation, intent.resource, intent.value, *intent.route_entities)
-        )
+        consumed.extend((intent.relation, intent.value, *intent.target_entities))
     consumed.extend(
         value for action in fragment.actions for _name, value in action.fields
     )
@@ -1134,8 +1099,16 @@ def _scope_instance_graph(
             replace(
                 acquire,
                 id=acquire.id.prefixed(*scope),
-                product_ids=tuple(
-                    product_id.prefixed(*scope) for product_id in acquire.product_ids
+                resource_port_id=resource_ids.get(
+                    acquire.resource_port_id,
+                    acquire.resource_port_id,
+                ),
+                products=tuple(
+                    replace(
+                        product,
+                        product_id=product.product_id.prefixed(*scope),
+                    )
+                    for product in acquire.products
                 ),
             )
             for acquire in fragment.acquisitions
@@ -1151,22 +1124,12 @@ def _scope_instance_graph(
             for execution in fragment.domain_executions
         ),
         effect_order=_scope_effect_order(fragment.effect_order, scope=scope),
-        parallel_groups=tuple(
-            SemanticParallelGroup(
-                tuple(
-                    _scope_effect_order(branch, scope=scope)
-                    for branch in group.branches
-                )
-            )
-            for group in fragment.parallel_groups
-        ),
         operations=tuple(
             _scope_operation(
                 operation,
                 local_inputs,
                 scope=scope,
                 origin=origin,
-                resource_ids=resource_ids,
             )
             for operation in fragment.operations
         ),
@@ -1184,7 +1147,6 @@ def _scope_instance_graph(
                 local_inputs,
                 scope=scope,
                 origin=origin,
-                resource_ids=resource_ids,
             )
             for product in fragment.product_declarations
         ),
@@ -1269,7 +1231,6 @@ def _scope_product_declaration(
     *,
     scope: tuple[str, ...],
     origin: tuple[object, ...],
-    resource_ids: Mapping[LogicalResourcePortId, LogicalResourcePortId],
 ) -> ModuleProductDecl:
     localized = localize_product_input_refs(
         product,
@@ -1281,17 +1242,7 @@ def _scope_product_declaration(
             origin=origin,
         ),
     )
-    return prefix_product_decl(
-        replace(
-            localized,
-            resource_port_id=_scoped_resource_id(
-                localized.resource_port_id,
-                resource_ids,
-            ),
-        ),
-        *scope,
-        origin=origin,
-    )
+    return prefix_product_decl(localized, *scope, origin=origin)
 
 
 def _scope_resource_ports(
@@ -1403,21 +1354,10 @@ def _scope_state(
     if not isinstance(relation.value_type, TableType):
         msg = "state_each relation must be table-shaped"
         raise TypeError(msg)
-    resource = (
-        _scope_value_ref(
-            intent.resource,
-            inputs,
-            scope=scope,
-            origin=origin,
-        )
-        if isinstance(intent.resource, ValueRef)
-        else intent.resource
-    )
     return replace(
         intent,
         relation=relation,
         row_scope_id=intent.row_scope_id.prefixed(*scope),
-        resource=resource,
         value=(
             _scope_value_ref(
                 intent.value,
@@ -1428,7 +1368,7 @@ def _scope_state(
             if isinstance(intent.value, ValueRef)
             else intent.value
         ),
-        route_entities=tuple(
+        target_entities=tuple(
             _scope_value_ref(
                 entity,
                 inputs,
@@ -1437,9 +1377,9 @@ def _scope_state(
             )
             if isinstance(entity, ValueRef)
             else entity
-            for entity in intent.route_entities
+            for entity in intent.target_entities
         ),
-        resource_port=_scoped_resource_id(intent.resource_port, resource_ids),
+        resource_port=resource_ids.get(intent.resource_port, intent.resource_port),
     )
 
 
@@ -1449,7 +1389,6 @@ def _scope_operation(
     *,
     scope: tuple[str, ...],
     origin: tuple[object, ...],
-    resource_ids: Mapping[LogicalResourcePortId, LogicalResourcePortId],
 ) -> ModuleOperationDecl:
     return replace(
         operation,
@@ -1463,7 +1402,6 @@ def _scope_operation(
                     inputs,
                     scope=scope,
                     origin=origin,
-                    resource_ids=resource_ids,
                 ),
             )
             for name, value in operation.inputs
@@ -1528,7 +1466,6 @@ def _scope_operation_input(
     *,
     scope: tuple[str, ...],
     origin: tuple[object, ...],
-    resource_ids: Mapping[LogicalResourcePortId, LogicalResourcePortId],
 ) -> ComputeNodeInputValue:
     if isinstance(value, ValueRef):
         return _scope_value_ref(
@@ -1537,9 +1474,6 @@ def _scope_operation_input(
             scope=scope,
             origin=origin,
         )
-    if isinstance(value, RouteRef):
-        port_id = resource_ids.get(value.port_id, value.port_id)
-        return replace(value, port_id=port_id)
     return value
 
 

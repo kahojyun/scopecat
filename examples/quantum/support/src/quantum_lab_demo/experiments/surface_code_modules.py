@@ -39,7 +39,6 @@ _RENDER_SURFACE_CODE_DRIVE_WAVEFORMS = sc.compute(
     output_type=sc.ScalarType(sc.PayloadType("pulse_program")),
     inputs={
         "program": _BUILD_SURFACE_CODE_ROUND_PROGRAM.output,
-        "drive_route": sc.route("drive"),
     },
 )
 _RENDER_SURFACE_CODE_COUPLER_WAVEFORMS = sc.compute(
@@ -48,7 +47,6 @@ _RENDER_SURFACE_CODE_COUPLER_WAVEFORMS = sc.compute(
     output_type=sc.ScalarType(sc.PayloadType("pulse_program")),
     inputs={
         "program": _BUILD_SURFACE_CODE_ROUND_PROGRAM.output,
-        "coupler_route": sc.route("coupler"),
     },
 )
 
@@ -110,7 +108,6 @@ TOY_SURFACE_CODE_ROUND_MODULE = (
     )
     .product(
         "stabilizer_iq",
-        resource="readout",
         unit="ratio",
         dtype="complex128",
         axes=(
@@ -118,7 +115,12 @@ TOY_SURFACE_CODE_ROUND_MODULE = (
             sc.entity_axis("qubit", _PATCH_QUBITS),
         ),
     )
-    .acquire("read-stabilizer-iq", "stabilizer_iq")
+    .acquire(
+        "read-stabilizer-iq",
+        "stabilizer_iq",
+        resource="readout",
+        capability="acquire_iq",
+    )
     .build()
 )
 

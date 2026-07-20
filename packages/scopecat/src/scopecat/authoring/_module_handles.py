@@ -27,18 +27,18 @@ from scopecat.authoring._intents import (
     ModuleInputPort,
     ModuleOperationDecl,
     StateEachIntent,
-    StateRouteValue,
+    StateTargetValue,
 )
 from scopecat.authoring._module_ir import (
     InvocationKey,
     ModuleAcquireEffect,
+    ModuleAcquireProduct,
     ModuleActionEffect,
     ModuleBindingEffect,
     ModuleDomainEffect,
     ModuleEffectIR,
     ModuleInstanceEffect,
     ModuleIR,
-    ModuleParallelEffect,
     ModulePythonImplementation,
     ModuleStateEffect,
     ModuleValueExport,
@@ -82,6 +82,7 @@ from scopecat.authoring.values import (
 from scopecat.compiler.relations.model import RowScopeId
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
 from scopecat.kernel.payloads import PayloadValue
+from scopecat.kernel.product_identity import ProductId
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
     logical_resource_port_id,
@@ -102,7 +103,7 @@ type StateLiteral = (
 type BindingInput = StateLiteral | ValueRef
 type StateRowValue = Callable[[TableRow], ValueRef]
 type StateScalarInput = BindingInput | StateRowValue
-type StateRouteInput = StateScalarInput | Sequence[StateLiteral]
+type StateTargetInput = StateScalarInput | Sequence[StateLiteral]
 
 
 def _empty_resource_bindings() -> FrozenMapping[
@@ -229,40 +230,6 @@ class ModuleBuilder:
         """Append child procedures in deterministic sequence."""
 
         return self.use(*modules)
-
-    def parallel(self, *modules: ModuleInvocation) -> ModuleBuilder:
-        """Append child procedures as a may-run-in-parallel group.
-
-        The scheduler may serialize branches when concrete resource claims
-        conflict. Explicit bindings to the same parent resource are rejected
-        at definition time because they are never independent.
-        """
-
-        if len(modules) < 2:
-            raise ValueError("parallel requires at least two module invocations")
-        from scopecat.authoring._module_construction import module_use_invocation
-
-        invocations = tuple(module_use_invocation(module) for module in modules)
-        combined = (*self.invocations, *invocations)
-        instance_ids = tuple(item.instance_id for item in combined)
-        duplicates = sorted(
-            item for item in set(instance_ids) if instance_ids.count(item) > 1
-        )
-        if duplicates:
-            raise ValueError(
-                "module builder has duplicate instance ids: "
-                + ", ".join(repr(item) for item in duplicates)
-            )
-        return replace(
-            self,
-            invocations=combined,
-            procedure=(
-                *self.procedure,
-                ModuleParallelEffect(
-                    tuple(item.invocation_key for item in invocations)
-                ),
-            ),
-        )
 
     @property
     def bindings(self) -> tuple[ExperimentBindingIntent, ...]:
@@ -406,19 +373,18 @@ class ModuleBuilder:
         self,
         relation: ValueRef,
         *,
-        resource: StateScalarInput | None = None,
-        resource_port: str | None = None,
+        resource_port: str,
         capability: str,
         field: str,
         value: StateScalarInput,
-        route_entities: Sequence[StateRouteInput] = (),
+        target_entities: Sequence[StateTargetInput] = (),
     ) -> ModuleBuilder:
         if not isinstance(relation.value_type, TableType):
             msg = "state_each requires a table-shaped typed value"
             raise TypeError(msg)
-        if (resource is None) == (resource_port is None):
-            msg = "state_each requires exactly one of resource or resource_port"
-            raise TypeError(msg)
+        if not resource_port:
+            msg = "state_each requires a non-empty resource_port"
+            raise ValueError(msg)
         declaration_key = ValueDeclarationKey.fresh()
         row_scope_id = RowScopeId(
             SymbolId(local_id=f"state_row_{declaration_key.value.hex}")
@@ -438,13 +404,7 @@ class ModuleBuilder:
                     StateEachIntent(
                         relation=relation,
                         row_scope_id=row_scope_id,
-                        resource=_state_scalar_expr(
-                            _resolve_state_row_value(
-                                resource,
-                                row,
-                                path="state_each.resource",
-                            )
-                        ),
+                        resource_port=logical_resource_port_id(resource_port),
                         capability_id=capability,
                         field_path=field,
                         value=_state_value_expr(
@@ -454,20 +414,15 @@ class ModuleBuilder:
                                 path="state_each.value",
                             )
                         ),
-                        route_entities=tuple(
-                            _state_route_expr(
+                        target_entities=tuple(
+                            _state_target_expr(
                                 _resolve_state_row_value(
                                     entity,
                                     row,
-                                    path="state_each.route_entities",
+                                    path="state_each.target_entities",
                                 )
                             )
-                            for entity in route_entities
-                        ),
-                        resource_port=(
-                            logical_resource_port_id(resource_port)
-                            if resource_port is not None
-                            else None
+                            for entity in target_entities
                         ),
                     )
                 ),
@@ -535,20 +490,79 @@ class ModuleBuilder:
         self,
         id: str,  # noqa: A002
         *products: str | ProductRef,
+        resource: str,
+        capability: str,
+        product_key: str | None = None,
+        product_keys: Mapping[str | ProductRef, str] | None = None,
+        metadata: Mapping[str, MetadataValue] | None = None,
     ) -> ModuleBuilder:
-        """Acquire instrument products at this exact procedure position."""
+        """Acquire instrument products through one logical resource capability.
+
+        ``product_key`` is the single-product shorthand. ``product_keys`` may
+        override provider keys for any subset of a multi-product acquisition;
+        products without an override keep their local logical id.
+        """
 
         if not id or not products:
             raise ValueError("acquire requires a non-empty id and products")
+        if not capability:
+            raise ValueError("acquire requires a non-empty capability")
         if id in {effect.id for effect in self.acquisitions}:
             raise ValueError(f"module acquisition {id!r} is already declared")
+        if product_key is not None and product_keys is not None:
+            raise ValueError("acquire accepts either product_key or product_keys")
+        if product_key is not None and len(products) != 1:
+            raise ValueError("acquire product_key is only valid for one product")
+        if product_key is not None and not product_key:
+            raise ValueError("acquire product_key must be non-empty")
         selected = tuple(
             self.products[product] if isinstance(product, str) else product
             for product in products
         )
+        selected_by_id = {product.id: product for product in selected}
+        provider_keys_by_product_id: dict[ProductId, str] = {}
+        for key, provider_key in (product_keys or {}).items():
+            if not provider_key:
+                raise ValueError("acquire product_keys values must be non-empty")
+            selected_id = key.id if isinstance(key, ProductRef) else key
+            selected_product = selected_by_id.get(selected_id)
+            if selected_product is None:
+                raise ValueError(
+                    "acquire product_keys references unselected product "
+                    f"{selected_id!r}"
+                )
+            if selected_product.product_id in provider_keys_by_product_id:
+                raise ValueError(
+                    "acquire product_keys maps one selected product more than once: "
+                    f"{selected_id!r}"
+                )
+            provider_keys_by_product_id[selected_product.product_id] = provider_key
+        selected_metadata = freeze_json_mapping(metadata or {})
         return replace(
             self,
-            procedure=(*self.procedure, ModuleAcquireEffect(id, selected)),
+            procedure=(
+                *self.procedure,
+                ModuleAcquireEffect(
+                    id=id,
+                    resource_port_id=logical_resource_port_id(resource),
+                    capability_id=capability,
+                    products=tuple(
+                        ModuleAcquireProduct(
+                            product=product,
+                            provider_key=(
+                                product_key
+                                if product_key is not None
+                                else provider_keys_by_product_id.get(
+                                    product.product_id,
+                                    product.local_id,
+                                )
+                            ),
+                            metadata=selected_metadata,
+                        )
+                        for product in selected
+                    ),
+                ),
+            ),
         )
 
     def computes(self, *definitions: Compute) -> ModuleBuilder:
@@ -610,19 +624,15 @@ class ModuleBuilder:
     def product(
         self,
         *product_ids: str,
-        resource: str | None = None,
-        capability: str | None = None,
-        product_key: str | None = None,
         unit: str | None = "ratio",
         dtype: MeasurementDType = "float64",
         axes: Sequence[ProductAxis] = (),
         metadata: Mapping[str, MetadataValue] | None = None,
-        producer_metadata: Mapping[str, MetadataValue] | None = None,
     ) -> ModuleBuilder:
         """Declare products exposed by this reusable module.
 
-        This only defines product identity, shape, and producer mapping. Use
-        :meth:`acquire` to place hardware realization in the procedure; select
+        This only defines product identity and shape. Use :meth:`acquire` to
+        place hardware realization in the procedure; select
         durable records from a template or scratch experiment.
         """
 
@@ -635,18 +645,10 @@ class ModuleBuilder:
                         id=product_id,
                         origin=(object(),),
                         kind="observable",
-                        resource_port_id=(
-                            logical_resource_port_id(resource)
-                            if resource is not None
-                            else None
-                        ),
-                        capability=capability,
-                        product_key=product_key,
                         unit=unit,
                         dtype=dtype,
                         axes=tuple(axes),
                         metadata=freeze_json_mapping(metadata or {}),
-                        producer_metadata=freeze_json_mapping(producer_metadata or {}),
                     )
                     for product_id in product_ids
                 ),
@@ -1051,11 +1053,11 @@ def _state_scalar_expr(value: object) -> ValueRef | ClosedScalarValue:
 
 
 def _resolve_state_row_value(
-    value: StateRouteInput | None,
+    value: StateTargetInput | None,
     row: TableRow,
     *,
     path: str,
-) -> StateRouteInput | None:
+) -> StateTargetInput | None:
     if not _is_state_row_value(value):
         return value
     resolved: object = value(row)
@@ -1077,10 +1079,10 @@ def _state_value_expr(value: object) -> ValueRef | ClosedScalarValue:
     return _state_scalar_expr(value)
 
 
-def _state_route_expr(value: object) -> StateRouteValue:
+def _state_target_expr(value: object) -> StateTargetValue:
     if isinstance(value, ValueRef):
         if isinstance(value.value_type, TableType):
-            msg = "state route entity source must be scalar or series-shaped"
+            msg = "state target entity source must be scalar or series-shaped"
             raise TypeError(msg)
         return value
     if isinstance(value, Sequence) and not isinstance(value, str | bytes):

@@ -6,12 +6,10 @@ from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.relations.evaluation import EvalContext
 from scopecat.compiler.relations.model import (
     RelationExpr,
-    col,
     grid,
     literal_rows,
     param,
     point_col,
-    table,
 )
 from scopecat.compiler.relations.specialization import (
     ResidualScalar,
@@ -26,10 +24,11 @@ from scopecat.compiler.typed.parameter_overlays import (
     resolve_parameter_cell_bindings,
 )
 from scopecat.compiler.typed.point_domain import PointDomain
+from scopecat.compiler.typed.program import LogicalResourceRequirement
 from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar, String
-from scopecat.kernel.value_types import Table as TableType
 from scopecat.records.parameter import Quantity
 from tests.testkit.authoring import load_config
 from tests.testkit.local_materialization import materialize_local_execution
@@ -39,12 +38,9 @@ from tests.testkit.materialized_effects import (
 )
 from tests.testkit.parameter_fixtures import PARAMETER_TYPES, parameters
 from tests.testkit.relation_plans import (
-    each_state,
-    state_field,
-)
-from tests.testkit.relation_plans import (
     point_domain as verified_point_domain,
 )
+from tests.testkit.relation_plans import state_field
 from tests.testkit.typed_program import (
     link_program,
     overlay_parameter_cell,
@@ -65,15 +61,6 @@ def _point_bindings(points: PointDomain) -> RelationTypeBindings:
     return RelationTypeBindings(
         parameters=_PARAMETER_TYPES,
         point_row=RowType.from_table(points.value_type),
-    )
-
-
-def _state_bindings(points: PointDomain, table_id: str) -> RelationTypeBindings:
-    table_type = _PARAMETER_TYPES[table_id]
-    assert isinstance(table_type, TableType)
-    return replace(
-        _point_bindings(points),
-        current_row=RowType.from_table(table_type),
     )
 
 
@@ -117,11 +104,16 @@ def test_point_parameter_overlay_replaces_only_one_existing_cell() -> None:
         )
     )
     point_bindings = _point_bindings(points)
-    state_bindings = _state_bindings(points, "readout_devices")
     spec = typed_program(
         id="readout-frequency-overlay",
         kind="readout.frequency_scan",
         point_domain=points,
+        resource_requirements=(
+            LogicalResourceRequirement(
+                port_id=logical_resource_port_id("readout"),
+                capabilities=("readout",),
+            ),
+        ),
         parameter_overlays=[
             _frequency_overlay(
                 key=point_col("device_id"),
@@ -130,14 +122,14 @@ def test_point_parameter_overlay_replaces_only_one_existing_cell() -> None:
             )
         ],
         state=[
-            each_state(
-                table("readout_devices"),
-                state_field(
-                    col("resource_id"),
-                    capability_id="readout",
-                    field_path="frequency",
-                    value=col("frequency"),
-                    bindings=state_bindings,
+            state_field(
+                "readout",
+                capability_id="readout",
+                field_path="frequency",
+                value=param(
+                    "readout_devices",
+                    key={"device_id": point_col("device_id")},
+                    column="frequency",
                 ),
                 bindings=point_bindings,
             )
@@ -146,9 +138,7 @@ def test_point_parameter_overlay_replaces_only_one_existing_cell() -> None:
 
     environment = replace(
         validate_config_environment(
-            config_with_physical_resources(
-                {"readout-a": ("readout",), "readout-b": ("readout",)}
-            )
+            config_with_physical_resources({"readout-a": ("readout",)})
         ),
         parameters=parameters(),
     )
@@ -162,8 +152,6 @@ def test_point_parameter_overlay_replaces_only_one_existing_cell() -> None:
 
     assert [field.value.root for _, _, field in materialized_state_fields(plan)] == [
         Quantity(value=5.9, unit="GHz"),
-        Quantity(value=6.1, unit="GHz"),
-        Quantity(value=5.95, unit="GHz"),
         Quantity(value=6.2, unit="GHz"),
     ]
     assert [point.logical_id for point in plan.points] == [
@@ -213,6 +201,12 @@ def test_point_parameter_overlay_reports_missing_row_without_partial_plan() -> N
         id="missing-overlay-row",
         kind="problem",
         point_domain=points,
+        resource_requirements=(
+            LogicalResourceRequirement(
+                port_id=logical_resource_port_id("source"),
+                capabilities=("set_frequency",),
+            ),
+        ),
         parameter_overlays=[
             _frequency_overlay(
                 key=point_col("device_id"),
@@ -222,7 +216,7 @@ def test_point_parameter_overlay_reports_missing_row_without_partial_plan() -> N
         ],
         state=[
             state_field(
-                "source-0",
+                "source",
                 capability_id="set_frequency",
                 field_path="frequency",
                 value=point_col("device_id"),

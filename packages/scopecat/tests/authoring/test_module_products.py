@@ -9,11 +9,11 @@ from scopecat.authoring._products import RecordSelection
 from scopecat.compiler.frontend.elaboration import elaborate_module
 from scopecat.compiler.frontend.invocation import prepare_invocation
 from scopecat.compiler.frontend.resolution import compile_prepared_invocation
+from scopecat.compiler.typed.program import core_acquisitions
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import ProblemPhase
 from scopecat.kernel.product_identity import (
     ProductId,
-    ProductProducerId,
     ProductUse,
     ProductUseId,
 )
@@ -26,29 +26,39 @@ from tests.testkit.authoring import load_config
 def _product_module() -> sc.ExperimentModule:
     return (
         sc.module("test.products.source")
-        .resource("source")
+        .resource("source", requires=("scalar_signal",))
         .product(
             "signal",
-            resource="source",
             unit="ratio",
-            producer_metadata={"adapter_mode": "default"},
         )
-        .acquire("read-signal", "signal")
+        .acquire(
+            "read-signal",
+            "signal",
+            resource="source",
+            capability="scalar_signal",
+            metadata={"adapter_mode": "default"},
+        )
         .build()
     )
 
 
-def test_selected_product_lowers_logical_and_producer_metadata_independently(
+def test_selected_product_lowers_schema_and_acquisition_metadata_independently(
     tmp_path: Path,
 ) -> None:
     module = (
         sc.module("test.products.metadata")
+        .resource("source", requires=("scalar_signal",))
         .product(
             "signal",
             metadata={"schema_owner": "analysis"},
-            producer_metadata={"adapter_mode": "fast"},
         )
-        .acquire("read-signal", "signal")
+        .acquire(
+            "read-signal",
+            "signal",
+            resource="source",
+            capability="scalar_signal",
+            metadata={"adapter_mode": "fast"},
+        )
         .build()
     )
     resolved = resolve_experiment(
@@ -63,20 +73,108 @@ def test_selected_product_lowers_logical_and_producer_metadata_independently(
     )
 
     assert resolved.experiment.product_defs[0].metadata == {"schema_owner": "analysis"}
-    assert resolved.experiment.instrument_product_producers[0].metadata == {
+    assert core_acquisitions(resolved.experiment)[0].products[0].metadata == {
         "adapter_mode": "fast"
     }
 
 
 def test_acquire_is_an_ordered_effect_with_source_provenance() -> None:
-    builder = sc.module("test.products.acquire").product("signal")
-    module = builder.acquire("read-signal", builder.products.signal).build()
+    builder = (
+        sc.module("test.products.acquire")
+        .resource("source", requires=("scalar_signal",))
+        .product("signal")
+    )
+    module = builder.acquire(
+        "read-signal",
+        builder.products.signal,
+        resource="source",
+        capability="scalar_signal",
+    ).build()
     assembly = elaborate_module(module)
 
     acquire = assembly.semantic_graph.acquisitions[0]
     assert acquire.product_ids == (module.products.signal.product_id,)
     assert assembly.source_map.acquire_sources[0][0] == acquire.id
     assert assembly.source_map.acquire_sources[0][1].kind == "acquire"
+
+
+def test_multi_product_provider_keys_lower_from_public_authoring_api(
+    tmp_path: Path,
+) -> None:
+    builder = (
+        sc.module("test.products.provider-keys")
+        .resource("source", requires=("scalar_signal",))
+        .product("first", "second", "default")
+    )
+    module = builder.acquire(
+        "read-all",
+        "first",
+        builder.products.second,
+        "default",
+        resource="source",
+        capability="scalar_signal",
+        product_keys={
+            "first": "raw-first",
+            builder.products.second: "raw-second",
+        },
+    ).build()
+    template = (
+        module.template("test.products.provider-keys", kind="module_products")
+        .record_product("first")
+        .record_product("second")
+        .record_product("default")
+        .build()
+    )
+
+    resolved = resolve_experiment(
+        template.bind(),
+        config_profile=load_config(),
+    )
+
+    [acquisition] = core_acquisitions(resolved.experiment)
+    assert acquisition.capability_id == "scalar_signal"
+    assert {
+        product.product_id.local_id: product.provider_key
+        for product in acquisition.products
+    } == {
+        "first": "raw-first",
+        "second": "raw-second",
+        "default": "default",
+    }
+
+
+def test_acquire_rejects_invalid_provider_key_overrides() -> None:
+    builder = (
+        sc.module("test.products.invalid-provider-keys")
+        .resource("source", requires=("scalar_signal",))
+        .product("first", "second")
+    )
+
+    with pytest.raises(ValueError, match="either product_key or product_keys"):
+        builder.acquire(
+            "read-both",
+            "first",
+            resource="source",
+            capability="scalar_signal",
+            product_key="raw-first",
+            product_keys={"first": "other-first"},
+        )
+    with pytest.raises(ValueError, match="unselected product"):
+        builder.acquire(
+            "read-both",
+            "first",
+            resource="source",
+            capability="scalar_signal",
+            product_keys={"second": "raw-second"},
+        )
+    with pytest.raises(ValueError, match="values must be non-empty"):
+        builder.acquire(
+            "read-both",
+            "first",
+            resource="source",
+            capability="scalar_signal",
+            product_keys={"first": ""},
+        )
 
 
 def test_explicit_instances_select_same_named_products_independently(
@@ -125,33 +223,37 @@ def test_explicit_instances_select_same_named_products_independently(
         products_by_id[uses_by_id[record.product_use_id].product_id]
         for record in resolved.experiment.record_uses
     ]
-    producers_by_product = {
-        producer.product_id: producer
-        for producer in resolved.experiment.instrument_product_producers
+    acquisitions_by_product = {
+        product.product_id: (acquisition, product)
+        for acquisition in core_acquisitions(resolved.experiment)
+        for product in acquisition.products
     }
-    selected_producers = [
-        producers_by_product[product.id] for product in selected_products
+    selected_acquisitions = [
+        acquisitions_by_product[product.id] for product in selected_products
     ]
     assert [product.id.qualified_name for product in selected_products] == [
         "left/signal",
         "right/signal",
     ]
-    assert [producer.product_id for producer in selected_producers] == [
+    assert [product.product_id for _acquisition, product in selected_acquisitions] == [
         product.id for product in selected_products
     ]
-    assert [producer.id for producer in selected_producers] == [
-        ProductProducerId(product.id.symbol) for product in selected_products
-    ]
-    assert [producer.provider_key for producer in selected_producers] == [
+    assert [
+        product.provider_key for _acquisition, product in selected_acquisitions
+    ] == [
         "signal",
         "signal",
     ]
-    assert [producer.resource_target for producer in selected_producers] == [
+    assert [
+        acquisition.resource_port_id for acquisition, _product in selected_acquisitions
+    ] == [
         logical_resource_port_id(SymbolId(scope=("left",), local_id="source")),
         logical_resource_port_id(SymbolId(scope=("right",), local_id="source")),
     ]
-    assert [producer.capability for producer in selected_producers] == [None, None]
-    assert [producer.metadata for producer in selected_producers] == [
+    assert [
+        acquisition.capability_id for acquisition, _product in selected_acquisitions
+    ] == ["scalar_signal", "scalar_signal"]
+    assert [product.metadata for _acquisition, product in selected_acquisitions] == [
         {"adapter_mode": "default"},
         {"adapter_mode": "default"},
     ]
@@ -198,14 +300,14 @@ def test_nested_product_references_receive_each_parent_instance_prefix(
         SymbolId(scope=("outer", "inner"), local_id="signal")
     )
     assert use.product_id == expected_product_id
-    producer = resolved.experiment.instrument_product_producers[0]
-    assert producer.product_id == expected_product_id
-    assert producer.id == ProductProducerId(expected_product_id.symbol)
-    assert producer.resource_target == logical_resource_port_id(
+    [acquisition] = core_acquisitions(resolved.experiment)
+    [acquired_product] = acquisition.products
+    assert acquired_product.product_id == expected_product_id
+    assert acquisition.resource_port_id == logical_resource_port_id(
         SymbolId(scope=("outer", "inner"), local_id="source")
     )
-    assert producer.provider_key == "signal"
-    assert producer.capability is None
+    assert acquired_product.provider_key == "signal"
+    assert acquisition.capability_id == "scalar_signal"
 
 
 def test_product_selection_rejects_unexposed_product() -> None:

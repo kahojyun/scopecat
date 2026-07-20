@@ -69,7 +69,6 @@ class SharedResourceGroup(BaseModel):
     id: str
     kind: str
     members: list[str] = Field(default_factory=list)
-    max_resources_per_point: int | None = Field(default=1, ge=1)
     metadata: JsonMetadata = Field(default_factory=dict)
 
 
@@ -84,7 +83,6 @@ class Channel(BaseModel):
     port: str | None = None
     line_id: str | None = None
     group_ids: list[str] = Field(default_factory=list)
-    max_route_ports_per_point: int | None = Field(default=1, ge=1)
     metadata: JsonMetadata = Field(default_factory=dict)
 
 
@@ -155,54 +153,58 @@ class InstrumentRegistry(BaseModel):
         return _ensure_unique(value, "instrument")
 
 
-class RoutingResource(BaseModel):
+class RoutingEndpointBinding(BaseModel):
+    """Accepted physical ownership fact for one instrument endpoint.
+
+    A binding is reproducible configuration, not a runtime alternative. Devices
+    that change a physical path, such as switches or valves, are modeled as
+    explicit state or action effects instead of replacing this ownership fact.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
-    id: str = Field(min_length=1)
-    kind: str = Field(default="instrument", min_length=1)
-    capabilities: list[str] = Field(default_factory=list)
-    served_entities: list[str] = Field(default_factory=list)
-    channels: list[str] = Field(default_factory=list)
+    instrument_id: str = Field(min_length=1)
+    capability: str = Field(min_length=1)
+    entity_id: str | None = None
+    channel_id: str | None = None
     metadata: JsonMetadata = Field(default_factory=dict)
-
-
-class RoutingChannelBinding(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    entity_id: str
-    channel_id: str
-    line_id: str | None = None
-    capability: str | None = None
-    group_ids: list[str] = Field(default_factory=list)
-    metadata: JsonMetadata = Field(default_factory=dict)
-
-
-class RoutingEdge(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    resource_id: str
-    entity_ids: list[str] = Field(default_factory=list)
-    capabilities: list[str] = Field(default_factory=list)
-    channels: list[str] = Field(default_factory=list)
-    bindings: list[RoutingChannelBinding] = Field(default_factory=list)
 
 
 class RoutingGraph(BaseModel):
+    """Finite static endpoint index stored in an accepted system snapshot.
+
+    Planning may project logical capability and entity selections through this
+    index, but it never uses it for live availability, load balancing, or
+    implicit failover.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
-    resources: list[RoutingResource] = Field(default_factory=list)
-    edges: list[RoutingEdge] = Field(default_factory=list)
+    bindings: list[RoutingEndpointBinding] = Field(default_factory=list)
 
-    @field_validator("resources")
+    @field_validator("bindings")
     @classmethod
-    def validate_resources(cls, value: list[RoutingResource]) -> list[RoutingResource]:
-        return _ensure_unique(value, "routing resource")
-
-    @field_validator("edges")
-    @classmethod
-    def validate_edges(cls, value: list[RoutingEdge]) -> list[RoutingEdge]:
-        return _ensure_unique(value, "routing edge")
+    def validate_bindings(
+        cls, value: list[RoutingEndpointBinding]
+    ) -> list[RoutingEndpointBinding]:
+        seen: set[tuple[str, str, str | None, str | None]] = set()
+        for binding in value:
+            identity = (
+                binding.instrument_id,
+                binding.capability,
+                binding.entity_id,
+                binding.channel_id,
+            )
+            if identity in seen:
+                msg = (
+                    "duplicate routing endpoint binding: "
+                    f"instrument={binding.instrument_id}, "
+                    f"capability={binding.capability}, "
+                    f"entity={binding.entity_id}, channel={binding.channel_id}"
+                )
+                raise ValueError(msg)
+            seen.add(identity)
+        return value
 
 
 class ConnectionResource(BaseModel):

@@ -7,8 +7,12 @@ from collections.abc import Mapping
 
 from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.semantic.model import MeasurementTransformId
-from scopecat.compiler.typed.products import MeasurementTransformProductProducer
-from scopecat.compiler.typed.program import CoreProgram, TypedMeasurementTransform
+from scopecat.compiler.typed.program import (
+    CoreProgram,
+    TypedMeasurementTransform,
+    core_acquisitions,
+    core_domain_executions,
+)
 from scopecat.kernel.problems import (
     ModelLocation,
     Problem,
@@ -56,39 +60,20 @@ def typed_measurement_transform_problems(
         for product_id in {use.product_id for use in program.product_uses}
     }
     record_use_ids = {record.product_use_id for record in program.record_uses}
-    producers_by_product: dict[ProductId, list[object]] = {}
-    for producer in (
-        *program.instrument_product_producers,
-        *program.domain_product_producers,
-        *program.measurement_transform_product_producers,
-    ):
-        producers_by_product.setdefault(producer.product_id, []).append(producer)
+    produced_product_ids = {
+        product.product_id
+        for acquisition in core_acquisitions(program)
+        for product in acquisition.products
+    }
+    produced_product_ids.update(
+        result.product_id
+        for execution in core_domain_executions(program)
+        for result in execution.results
+    )
+    produced_product_ids.update(
+        output.product_id for transform in transforms for output in transform.outputs
+    )
 
-    producers_by_output: dict[
-        tuple[MeasurementTransformId, str],
-        list[MeasurementTransformProductProducer],
-    ] = {}
-    for producer in program.measurement_transform_product_producers:
-        producers_by_output.setdefault(
-            (producer.transform_id, producer.output_id),
-            [],
-        ).append(producer)
-    for selected in producers_by_output.values():
-        if len(selected) < 2:
-            continue
-        producer = selected[0]
-        problems.append(
-            _problem(
-                "measurement_transform_output_producer_duplicate",
-                "one measurement transform output has more than one product producer",
-                model_location(
-                    "measurement_transform_product_producers",
-                    producer.id.qualified_name,
-                ),
-            )
-        )
-
-    declared_output_keys: set[tuple[MeasurementTransformId, str]] = set()
     input_use_owners: dict[object, tuple[MeasurementTransformId, str]] = {}
     output_owner_by_product: dict[
         ProductId,
@@ -212,12 +197,12 @@ def typed_measurement_transform_problems(
                         ),
                     )
                 )
-            if not producers_by_product.get(input_port.product_id):
+            if input_port.product_id not in produced_product_ids:
                 problems.append(
                     _problem(
-                        "measurement_transform_input_producer_missing",
+                        "measurement_transform_input_product_owner_missing",
                         "measurement transform input product "
-                        f"{input_port.product_id.qualified_name!r} has no producer",
+                        f"{input_port.product_id.qualified_name!r} has no owner",
                         input_location,
                     )
                 )
@@ -230,7 +215,6 @@ def typed_measurement_transform_problems(
                 output.id,
             )
             key = (transform.id, output.id)
-            declared_output_keys.add(key)
             if output.product_id not in products:
                 problems.append(
                     _problem(
@@ -250,9 +234,9 @@ def typed_measurement_transform_problems(
                 owner_id, owner_role = existing_owner
                 problems.append(
                     _problem(
-                        "measurement_transform_product_producer_duplicate",
+                        "measurement_transform_output_product_duplicate",
                         f"logical product {output.product_id.qualified_name!r} is "
-                        f"produced by both {owner_id.qualified_name!r}/"
+                        f"owned by both {owner_id.qualified_name!r}/"
                         f"{owner_role!r} and {transform.id.qualified_name!r}/"
                         f"{output.id!r}",
                         output_location,
@@ -276,21 +260,6 @@ def typed_measurement_transform_problems(
                         ),
                     )
                 )
-            selected_producers = producers_by_output.get(key, ())
-            producer = selected_producers[0] if len(selected_producers) == 1 else None
-            if (
-                producer is None
-                or producer.id != output.producer_id
-                or producer.product_id != output.product_id
-            ):
-                problems.append(
-                    _problem(
-                        "measurement_transform_output_producer_mismatch",
-                        "measurement transform output does not have one matching "
-                        "producer declaration",
-                        output_location,
-                    )
-                )
         if transform.outputs and not demanded:
             problems.append(
                 _problem(
@@ -300,22 +269,6 @@ def typed_measurement_transform_problems(
                     location,
                 )
             )
-
-    for key, selected in producers_by_output.items():
-        if key in declared_output_keys:
-            continue
-        producer = selected[0]
-        problems.append(
-            _problem(
-                "measurement_transform_product_producer_orphan",
-                "measurement transform product producer references an unknown "
-                "transform output",
-                model_location(
-                    "measurement_transform_product_producers",
-                    producer.id.qualified_name,
-                ),
-            )
-        )
 
     if duplicate_transform_ids or duplicate_output_products:
         return transforms, tuple(problems)

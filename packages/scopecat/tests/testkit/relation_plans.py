@@ -49,6 +49,10 @@ from scopecat.compiler.typed.state import (
     SetStateSpec,
     StateSpecVariant,
 )
+from scopecat.kernel.resource_identity import (
+    LogicalResourcePortId,
+    logical_resource_port_id,
+)
 from scopecat.kernel.value_types import Scalar, Series, Table, ValueType
 
 
@@ -115,22 +119,21 @@ def point_domain(
 
 
 def state_field(
-    resource: object,
+    resource_port: LogicalResourcePortId | str,
     *,
     capability_id: str,
     field_path: str,
     value: object | ComputeResultRef,
-    route_entities: Sequence[object | ScalarValueExpr | SeriesValueExpr] = (),
+    target_entities: Sequence[object | ScalarValueExpr | SeriesValueExpr] = (),
     bindings: RelationTypeBindings | None = None,
-    resource_type: Scalar | None = None,
     value_type: Scalar | None = None,
 ) -> SetStateSpec:
     selected_bindings = bindings or RelationTypeBindings()
     return set_state_field(
-        scalar_value_expr(
-            resource,
-            bindings=selected_bindings,
-            expected_type=resource_type,
+        resource_port_id=(
+            resource_port
+            if isinstance(resource_port, LogicalResourcePortId)
+            else logical_resource_port_id(resource_port)
         ),
         capability_id=capability_id,
         field_path=field_path,
@@ -143,7 +146,7 @@ def state_field(
                 expected_type=value_type,
             )
         ),
-        route_entities=tuple(
+        target_entities=tuple(
             entity
             if isinstance(entity, ScalarValueExpr | SeriesValueExpr)
             else (
@@ -151,7 +154,7 @@ def state_field(
                 if isinstance(entity, SeriesExpr)
                 else scalar_value_expr(entity, bindings=selected_bindings)
             )
-            for entity in route_entities
+            for entity in target_entities
         ),
     )
 

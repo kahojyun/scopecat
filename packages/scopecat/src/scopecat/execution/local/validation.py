@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
 
 from scopecat.execution.local.program import (
     ApplyStateOperation,
@@ -117,23 +116,18 @@ def validate_local_effect_block_instruments(
             if description is None:
                 continue
             for request in operation.command.requests:
-                lookup = _find_product(
+                products = _matching_products(
                     description,
                     capability_id=request.capability_id,
                     product_key=request.id,
                 )
-                if lookup.ambiguous:
-                    capability_ids = ", ".join(
-                        repr(capability_id) for capability_id in lookup.capability_ids
-                    )
+                if len(products) > 1:
                     problems.append(
                         _problem(
                             "instrument_product_ambiguous",
                             f"instrument {operation.instrument_id} product "
-                            f"{request.id} matches multiple provider "
-                            f"declarations under capabilities "
-                            f"{capability_ids}; the request must resolve "
-                            "to exactly one product",
+                            f"{request.id} has multiple provider declarations "
+                            f"under capability {request.capability_id!r}",
                             "operations",
                             operation.operation_id,
                             "requests",
@@ -142,13 +136,13 @@ def validate_local_effect_block_instruments(
                         )
                     )
                     continue
-                product = lookup.product
-                if product is None:
+                if not products:
                     problems.append(
                         _problem(
                             "instrument_product_unsupported",
                             f"instrument {operation.instrument_id} does not "
-                            f"support product {request.id}",
+                            f"support product {request.id} under capability "
+                            f"{request.capability_id!r}",
                             "operations",
                             operation.operation_id,
                             "requests",
@@ -156,6 +150,7 @@ def validate_local_effect_block_instruments(
                         )
                     )
                     continue
+                product = products[0]
                 problems.extend(
                     _validate_product(
                         operation_id=operation.operation_id,
@@ -201,32 +196,18 @@ def _referenced_payloads(
     return selected
 
 
-@dataclass(frozen=True, slots=True)
-class _ProductLookup:
-    product: ProductDescription | None
-    capability_ids: tuple[str, ...]
-
-    @property
-    def ambiguous(self) -> bool:
-        return len(self.capability_ids) > 1
-
-
-def _find_product(
+def _matching_products(
     description: InstrumentDescription,
     *,
-    capability_id: str | None,
+    capability_id: str,
     product_key: str,
-) -> _ProductLookup:
-    matches: list[tuple[str, ProductDescription]] = []
-    for capability in description.capabilities:
-        if capability_id is not None and capability.id != capability_id:
-            continue
-        for product in capability.products:
-            if product.key == product_key:
-                matches.append((capability.id, product))
-    return _ProductLookup(
-        product=matches[0][1] if len(matches) == 1 else None,
-        capability_ids=tuple(capability_id for capability_id, _product in matches),
+) -> tuple[ProductDescription, ...]:
+    return tuple(
+        product
+        for capability in description.capabilities
+        if capability.id == capability_id
+        for product in capability.products
+        if product.key == product_key
     )
 
 

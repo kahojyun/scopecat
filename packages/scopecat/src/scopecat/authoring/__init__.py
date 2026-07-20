@@ -64,7 +64,6 @@ from scopecat.authoring.value_types import (
     ValueType,
     ValueValidationError,
 )
-from scopecat.authoring.value_types import Route as RouteType
 from scopecat.authoring.value_types import (
     Scalar as ScalarType,
 )
@@ -83,8 +82,6 @@ from scopecat.authoring.values import (
     MetadataValue,
     ModuleInput,
     ParameterKeyInput,
-    ResolvedRoute,
-    RouteRef,
     RuntimeInput,
     ScalarInput,
     TableRow,
@@ -93,7 +90,6 @@ from scopecat.authoring.values import (
     parameter,
     parameter_lookup,
     point,
-    route,
 )
 from scopecat.authoring.values import input as input  # noqa: A004
 
@@ -128,9 +124,6 @@ __all__ = [
     "RecordField",
     "RecordSelection",
     "RecordType",
-    "ResolvedRoute",
-    "RouteRef",
-    "RouteType",
     "RuntimeInput",
     "ScalarInput",
     "ScalarType",
@@ -156,6 +149,5 @@ __all__ = [
     "product_axis",
     "record_alias",
     "record_product",
-    "route",
     "shot_axis",
 ]

@@ -25,14 +25,13 @@ from scopecat.compiler.frontend.assembly_lowering import (
     validate_entity_inputs,
 )
 from scopecat.compiler.frontend.binding_lowering import (
-    build_route_intents,
+    build_resource_requirements,
     lower_binding_intent,
 )
 from scopecat.compiler.frontend.elaboration import SemanticExperimentIR
 from scopecat.compiler.frontend.environment import ValidatedConfigEnvironment
 from scopecat.compiler.frontend.graph_validation import VerifiedAssembly
 from scopecat.compiler.frontend.measurement_transform_lowering import (
-    authored_measurement_transform_output_product_ids,
     lower_semantic_measurement_transform_graph,
 )
 from scopecat.compiler.frontend.parameter_contract_validation import (
@@ -58,9 +57,9 @@ from scopecat.compiler.semantic.model import (
     StateEffectRef,
 )
 from scopecat.compiler.typed.program import (
+    AcquireProductSpec,
     AcquireSpec,
     CoreProgram,
-    EffectParallelGroup,
 )
 from scopecat.compiler.typed.verification import (
     VerifiedCoreProgram,
@@ -114,11 +113,7 @@ def _bind_verified_assembly(
         _assembly_parameter_contracts(assembly),
     )
     validate_entity_inputs(topology, assembly.entity_inputs, inputs)
-    resource_ports = verified_graph.resource_ports
-    bindings = [
-        lower_binding_intent(binding, resource_ports[binding.port_id])
-        for binding in assembly.bindings
-    ]
+    bindings = [lower_binding_intent(binding) for binding in assembly.bindings]
     root_type_bindings = _relation_type_bindings(assembly, parameter_catalog)
     point_domain = lower_point_domain(
         assembly.point_domain,
@@ -130,7 +125,7 @@ def _bind_verified_assembly(
         root_type_bindings,
         point_row=RowType.from_table(point_domain.value_type),
     )
-    route_intents = build_route_intents(
+    resource_requirements = build_resource_requirements(
         topology,
         assembly.resource_ports,
         inputs=inputs,
@@ -149,16 +144,6 @@ def _bind_verified_assembly(
         bind_series_input_refs=bind_series_input_refs,
         bind_relation_input_refs=bind_relation_input_refs,
         input_row=input_row,
-        non_instrument_product_ids=(
-            frozenset(
-                product_id
-                for execution in verified_graph.semantic_graph.graph.domain_executions
-                for _result_id, product_id in execution.results
-            )
-            | authored_measurement_transform_output_product_ids(
-                verified_graph.semantic_graph
-            )
-        ),
     )
     compute_nodes, implementation_catalog = lower_semantic_compute_graph(
         verified_graph.semantic_graph,
@@ -175,7 +160,7 @@ def _bind_verified_assembly(
         *record_product_uses,
         *measurement_transforms.input_product_uses,
     )
-    domain_executions, domain_product_producers = lower_semantic_domain_graph(
+    domain_executions = lower_semantic_domain_graph(
         verified_graph.semantic_graph,
         inputs,
         type_bindings=type_bindings,
@@ -190,7 +175,6 @@ def _bind_verified_assembly(
         region.id: lower_state_region(
             region,
             verified_graph.semantic_graph,
-            resource_ports,
             inputs,
             type_bindings=type_bindings,
         )
@@ -200,7 +184,6 @@ def _bind_verified_assembly(
         action.id: lower_action_effect(
             action,
             verified_graph.semantic_graph,
-            resource_ports,
             inputs,
             type_bindings=type_bindings,
         )
@@ -208,7 +191,19 @@ def _bind_verified_assembly(
     }
     domain_effects = {execution.id: execution for execution in domain_executions}
     acquire_effects = {
-        acquire.id: AcquireSpec(acquire.id, acquire.product_ids)
+        acquire.id: AcquireSpec(
+            id=acquire.id,
+            resource_port_id=acquire.resource_port_id,
+            capability_id=acquire.capability_id,
+            products=tuple(
+                AcquireProductSpec(
+                    product_id=product.product_id,
+                    provider_key=product.provider_key,
+                    metadata=product.metadata,
+                )
+                for product in acquire.products
+            ),
+        )
         for acquire in verified_graph.semantic_graph.graph.acquisitions
     }
     ordered_effects = tuple(
@@ -223,25 +218,13 @@ def _bind_verified_assembly(
         else domain_effects[effect.id]
         for effect in assembly.effect_order
     )
-    effect_indices = {
-        effect: index for index, effect in enumerate(assembly.effect_order)
-    }
     program = CoreProgram(
         id=verified.experiment_id,
         kind=verified.kind,
         point_domain=point_domain,
-        route_intents=tuple(route_intents),
+        resource_requirements=tuple(resource_requirements),
         compute_nodes=compute_nodes,
         effects=ordered_effects,
-        parallel_groups=tuple(
-            EffectParallelGroup(
-                tuple(
-                    tuple(effect_indices[effect] for effect in branch)
-                    for branch in group.branches
-                )
-            )
-            for group in assembly.parallel_groups
-        ),
         measurement_transforms=measurement_transforms.transforms,
         implementation_catalog=implementation_catalog,
         parameter_overlays=tuple(
@@ -254,9 +237,6 @@ def _bind_verified_assembly(
             for intent in assembly.parameter_overlays
         ),
         product_defs=products.product_defs,
-        instrument_product_producers=products.instrument_product_producers,
-        domain_product_producers=domain_product_producers,
-        measurement_transform_product_producers=measurement_transforms.producers,
         product_uses=product_uses,
         record_uses=products.record_uses,
         metadata=dict(assembly.metadata),

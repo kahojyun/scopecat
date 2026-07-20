@@ -84,10 +84,10 @@ def config_with_instrument_id(instrument_id: str) -> ConfigProfileSnapshot:
             ),
             "routing": config.routing.model_copy(
                 update={
-                    "resources": [
-                        resource.model_copy(update={"id": instrument_id})
-                        for resource in config.routing.resources
-                    ]
+                    "bindings": [
+                        binding.model_copy(update={"instrument_id": instrument_id})
+                        for binding in config.routing.bindings
+                    ],
                 }
             ),
         }

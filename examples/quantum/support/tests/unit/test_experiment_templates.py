@@ -344,7 +344,7 @@ def test_rabi_generates_point_local_pulse_programs(tmp_path: Path) -> None:
     payload = next(iter(payloads)).payload
     assert isinstance(payload, RenderedWaveformBundle)
     assert payload.source_program_id == "quantum_lab_demo.experiments.rabi_sequence.v1"
-    assert payload.resource_id == "drive-stack"
+    assert payload.entity_ids == ("q0",)
     assert isinstance(payload.samples, np.ndarray)
     assert payload.samples.dtype == np.complex128
     assert payload.samples.shape == (10,)
@@ -359,7 +359,6 @@ def test_simultaneous_rabi_generates_entity_series_waveform_payloads(
     assert len(payloads) == 5
     payload = next(iter(payloads)).payload
     assert isinstance(payload, RenderedWaveformBundle)
-    assert payload.resource_id == "drive-stack"
     assert payload.entity_ids == ("q0", "q1")
     assert isinstance(payload.samples, np.ndarray)
     assert payload.samples.dtype == np.complex128
@@ -514,7 +513,7 @@ def test_cz_chevron_generates_drive_and_coupler_payloads(tmp_path: Path) -> None
     assert isinstance(cz_program, CzChevronProgram)
     assert drive_payload.samples.shape == (2, 24)
     assert coupler_payload.samples.shape == (24,)
-    assert drive_payload.channel_order == ("q0", "q1")
+    assert drive_payload.entity_ids == ("q0", "q1")
     assert cz_program.parameters == ("qubits", "two_qubit_gates")
     build_payload = next(
         call
@@ -656,7 +655,7 @@ def test_spectator_cz_adds_background_state(tmp_path: Path) -> None:
     ]
 
 
-def test_parallel_gate_set_routes_disjoint_pairs(tmp_path: Path) -> None:
+def test_parallel_gate_set_renders_disjoint_pairs(tmp_path: Path) -> None:
     payloads = _run_observed_payloads(
         tmp_path,
         PARALLEL_GATE_SET_TEMPLATE.bind().scan(
@@ -760,7 +759,7 @@ def test_parallel_gate_compute_accepts_arbitrary_table_cardinality(
         ),
     ),
 )
-def test_parallel_gate_table_drives_program_and_resource_route_order(
+def test_parallel_gate_table_drives_program_and_waveform_entity_order(
     tmp_path: Path,
     gates: tuple[dict[str, str], ...],
     expected_qubits: tuple[str, ...],
@@ -779,11 +778,21 @@ def test_parallel_gate_table_drives_program_and_resource_route_order(
         for payload in payloads
         if isinstance(payload.payload, ParallelGateSetProgram)
     )
-    waveform_payloads = {
-        payload.payload.resource_id: payload.payload
+    waveform_payloads = [
+        payload.payload
         for payload in payloads
         if isinstance(payload.payload, RenderedWaveformBundle)
-    }
+    ]
+    drive_payload = next(
+        payload
+        for payload in waveform_payloads
+        if payload.entity_ids == expected_qubits
+    )
+    coupler_payload = next(
+        payload
+        for payload in waveform_payloads
+        if payload.entity_ids == expected_couplers
+    )
 
     assert [
         (gate.control_qubit, gate.partner_qubit, gate.coupler)
@@ -796,13 +805,11 @@ def test_parallel_gate_table_drives_program_and_resource_route_order(
             strict=True,
         )
     ]
-    assert waveform_payloads["drive-stack"].entity_ids == expected_qubits
-    assert waveform_payloads["coupler-stack"].entity_ids == expected_couplers
-    assert waveform_payloads["drive-stack"].samples.shape == (
+    assert drive_payload.samples.shape == (
         len(expected_qubits),
         28,
     )
-    assert waveform_payloads["coupler-stack"].samples.shape == (
+    assert coupler_payload.samples.shape == (
         len(expected_couplers),
         28,
     )

@@ -8,7 +8,7 @@ from scopecat.records.config import (
     ConfigProfileSnapshot,
     Device,
     InstrumentSpec,
-    RoutingResource,
+    RoutingEndpointBinding,
 )
 from scopecat.records.parameter import Quantity
 from scopecat.sdk.instruments import (
@@ -51,12 +51,15 @@ FAKE_BIAS_SOURCE_MODULE = (
     )
     .product(
         "voltage_readback",
+        unit="V",
+    )
+    .acquire(
+        "read-voltage",
+        "voltage_readback",
         resource="bias",
         capability=BIAS_CAPABILITY_ID,
         product_key="voltage",
-        unit="V",
     )
-    .acquire("read-voltage", "voltage_readback")
     .build()
 )
 
@@ -200,14 +203,13 @@ def fake_x_count_bias_config() -> ConfigProfileSnapshot:
                     ),
                     "routing": system.routing.model_copy(
                         update={
-                            "resources": [
-                                *system.routing.resources,
-                                RoutingResource(
-                                    id=BIAS_SOURCE_ID,
-                                    kind="instrument",
-                                    capabilities=[BIAS_CAPABILITY_ID],
+                            "bindings": [
+                                *system.routing.bindings,
+                                RoutingEndpointBinding(
+                                    instrument_id=BIAS_SOURCE_ID,
+                                    capability=BIAS_CAPABILITY_ID,
                                 ),
-                            ]
+                            ],
                         }
                     ),
                 }

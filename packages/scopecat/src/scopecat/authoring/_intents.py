@@ -19,7 +19,6 @@ from scopecat.authoring.value_types import ValueType
 from scopecat.authoring.values import (
     ComputeDeclarationKey,
     ParameterKeyInput,
-    RouteRef,
 )
 from scopecat.compiler.relations.model import RowScopeId
 from scopecat.kernel.payloads import PayloadValue
@@ -34,18 +33,9 @@ if TYPE_CHECKING:
 type ClosedScalarValue = (
     Quantity | str | int | float | bool | None | EntityRef | PayloadValue
 )
-type StateRouteValue = ValueRef | ClosedScalarValue | tuple[ClosedScalarValue, ...]
+type StateTargetValue = ValueRef | ClosedScalarValue | tuple[ClosedScalarValue, ...]
 type ComputeNodeInputValue = (
-    ValueRef
-    | RouteRef
-    | Quantity
-    | str
-    | int
-    | float
-    | bool
-    | None
-    | EntityRef
-    | PayloadValue
+    ValueRef | Quantity | str | int | float | bool | None | EntityRef | PayloadValue
 )
 
 type ActionFieldValue = ValueRef | ClosedScalarValue
@@ -82,12 +72,11 @@ class ModuleActionDecl:
 class StateEachIntent:
     relation: ValueRef
     row_scope_id: RowScopeId
-    resource: ValueRef | ClosedScalarValue | None
+    resource_port: LogicalResourcePortId
     capability_id: str
     field_path: str
     value: ValueRef | ClosedScalarValue
-    route_entities: tuple[StateRouteValue, ...] = ()
-    resource_port: LogicalResourcePortId | None = None
+    target_entities: tuple[StateTargetValue, ...] = ()
 
     @property
     def field(self) -> str:

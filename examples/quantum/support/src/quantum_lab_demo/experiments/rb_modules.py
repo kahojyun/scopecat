@@ -35,7 +35,6 @@ _RENDER_SQG_RB_PULSE_PROGRAM = sc.compute(
     output_type=sc.ScalarType(sc.PayloadType("pulse_program")),
     inputs={
         "sequence": _BUILD_SQG_RB_SEQUENCE.output,
-        "drive_route": sc.route("drive"),
     },
 )
 
@@ -102,7 +101,6 @@ _RENDER_CZ_RB_COUPLER_PULSE = sc.compute(
     output_type=sc.ScalarType(sc.PayloadType("pulse_program")),
     inputs={
         "sequence": _BUILD_CZ_RB_SEQUENCE.output,
-        "coupler_route": sc.route("coupler"),
     },
 )
 

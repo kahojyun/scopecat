@@ -312,10 +312,17 @@ class CollectAxisRequest(BaseModel):
 
 
 class CollectProductRequest(BaseModel):
+    """One explicitly capability-scoped provider product request.
+
+    Capability identity is required because a provider must not infer ownership
+    from a product key or from accidental global uniqueness. Planning derives
+    it from the same logical resource contract used for physical binding.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     id: str
-    capability_id: str | None = None
+    capability_id: _NonEmptyId
     unit: str | None = None
     dtype: MeasurementDType = "float64"
     dimensions: list[CollectAxisRequest] = Field(default_factory=list)
@@ -353,7 +360,12 @@ class CollectCommand(BaseModel):
 
 
 class CollectReceipt(BaseModel):
-    """Explicit outcome reported after one collection command."""
+    """Explicit outcome reported after one collection command.
+
+    ``not_collected`` proves that collection did not occur; ``unknown`` means it
+    may have occurred. The distinction prevents automatic retry from silently
+    duplicating an external acquisition.
+    """
 
     model_config = ConfigDict(extra="forbid")
 

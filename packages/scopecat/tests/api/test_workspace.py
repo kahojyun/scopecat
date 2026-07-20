@@ -50,15 +50,20 @@ def _workspace_readout_instance(instance_id: str) -> sc.ModuleInvocation:
     module = (
         sc.module("workspace.readout")
         .inputs(subject)
-        .resource("source", requires=("set_frequency",))
+        .resource("source", requires=("set_frequency", "scalar_signal"))
         .bind_field(
             "source",
             capability="set_frequency",
             field="frequency",
             value=DRIVE_FREQUENCY_POINT,
         )
-        .product("signal", resource="source", unit="ratio")
-        .acquire("read-signal", "signal")
+        .product("signal", unit="ratio")
+        .acquire(
+            "read-signal",
+            "signal",
+            resource="source",
+            capability="scalar_signal",
+        )
         .build()
     )
     return module.instantiate(instance_id, subject="q0")
@@ -116,7 +121,9 @@ def test_workspace_resolves_authoritative_active_config(tmp_path: Path) -> None:
     config = lab.resolve_config()
     q0 = next(entity for entity in config.topology.entities if entity.id == "q0")
     source = next(
-        resource for resource in config.routing.resources if resource.id == "source-0"
+        instrument
+        for instrument in config.instrument_registry.instruments
+        if instrument.id == "source-0"
     )
 
     assert config.id == "example-workspace-profile"
@@ -124,8 +131,15 @@ def test_workspace_resolves_authoritative_active_config(tmp_path: Path) -> None:
     assert len(config.topology.entities) == 3
     assert len(config.topology.channels) == 2
     assert q0.kind == "logical_device"
-    assert source.capabilities == ["set_frequency"]
-    assert source.channels == ["drive-q0"]
+    assert source.id == "source-0"
+    assert [
+        (binding.capability, binding.entity_id, binding.channel_id)
+        for binding in config.routing.bindings
+        if binding.instrument_id == source.id
+    ] == [
+        ("set_frequency", "q0", "drive-q0"),
+        ("scalar_signal", "q0", "readout-q0"),
+    ]
 
 
 def test_workspace_activates_direct_configs_and_rolls_back_with_cas(
@@ -282,8 +296,11 @@ def test_workspace_experiment_composes_module_source_with_authored_content(
             ],
         )
         .record_product(readout.products.signal, record_id="signal")
+        .resource("source", requires=("scalar_signal",))
         .record(
             "manual_signal",
+            resource="source",
+            capability="scalar_signal",
             product_key="manual_signal",
             unit="ratio",
         )
@@ -410,7 +427,8 @@ def test_workspace_experiment_lowers_to_runnable_spec(
                 Quantity(value=5.1, unit="GHz"),
             ],
         )
-        .measure("signal")
+        .resource("source", requires=("scalar_signal",))
+        .measure("signal", resource="source", capability="scalar_signal")
     )
 
     run = experiment.run()
@@ -556,7 +574,8 @@ def test_workspace_experiment_preview_and_run_terminals(tmp_path: Path) -> None:
         lab.experiment("terminal signal scan")
         .entity("qubit", "q0")
         .scan(DRIVE_FREQUENCY_POINT, span="200 MHz", points=3)
-        .measure("signal")
+        .resource("source", requires=("scalar_signal",))
+        .measure("signal", resource="source", capability="scalar_signal")
     )
 
     preview = experiment.preview()
@@ -728,7 +747,8 @@ def test_workspace_experiment_supports_active_center_scan(
     experiment = (
         lab.experiment("active centered scan")
         .scan(DRIVE_FREQUENCY_POINT, span="200 MHz", points=3)
-        .measure("signal")
+        .resource("source", requires=("scalar_signal",))
+        .measure("signal", resource="source", capability="scalar_signal")
     )
 
     preview = experiment.preview()
@@ -753,7 +773,7 @@ def test_workspace_experiment_defines_complete_experiment(
     )
     experiment = (
         lab.experiment("complete scripted scan")
-        .resource("source", requires=("set_frequency",))
+        .resource("source", requires=("set_frequency", "scalar_signal"))
         .scan(DRIVE_FREQUENCY_POINT, span="200 MHz", points=3)
         .bind_field(
             "source",
@@ -761,7 +781,7 @@ def test_workspace_experiment_defines_complete_experiment(
             field="frequency",
             value=DRIVE_FREQUENCY_POINT,
         )
-        .record("signal", resource="source")
+        .record("signal", resource="source", capability="scalar_signal")
     )
 
     preview = experiment.preview()
@@ -788,15 +808,20 @@ def test_workspace_module_can_be_composed(
     signal_scan = (
         sc.module("workspace.signal_scan")
         .inputs(drive_frequency)
-        .resource("source", requires=("set_frequency",))
+        .resource("source", requires=("set_frequency", "scalar_signal"))
         .bind_field(
             "source",
             capability="set_frequency",
             field="frequency",
             value=drive_frequency,
         )
-        .product("signal", resource="source")
-        .acquire("read-signal", "signal")
+        .product("signal")
+        .acquire(
+            "read-signal",
+            "signal",
+            resource="source",
+            capability="scalar_signal",
+        )
         .build()
     )
     signal_scan_instance = signal_scan.instantiate(

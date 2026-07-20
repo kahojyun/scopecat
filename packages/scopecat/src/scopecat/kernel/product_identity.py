@@ -37,32 +37,6 @@ class ProductId:
 
 
 @dataclass(frozen=True, slots=True)
-class ProductProducerId:
-    """Hygienic identity of one edge that can produce a logical product."""
-
-    symbol: SymbolId
-
-    @property
-    def qualified_name(self) -> str:
-        return self.symbol.qualified_name
-
-    @property
-    def scope(self) -> tuple[str, ...]:
-        return self.symbol.scope
-
-    @property
-    def local_id(self) -> str:
-        return self.symbol.local_id
-
-    def prefixed(self, *scope: str) -> ProductProducerId:
-        return ProductProducerId(self.symbol.prefixed(*scope))
-
-    @override
-    def __str__(self) -> str:
-        return self.qualified_name
-
-
-@dataclass(frozen=True, slots=True)
 class ProductUseId:
     """Opaque identity of one logical-product use occurrence."""
 
@@ -95,13 +69,6 @@ def product_id(value: str | SymbolId) -> ProductId:
 
     symbol = value if isinstance(value, SymbolId) else SymbolId(local_id=value)
     return ProductId(symbol)
-
-
-def product_producer_id(value: str | SymbolId) -> ProductProducerId:
-    """Create an unscoped producer id or wrap an existing structural symbol."""
-
-    symbol = value if isinstance(value, SymbolId) else SymbolId(local_id=value)
-    return ProductProducerId(symbol)
 
 
 def parse_product_id(value: str) -> ProductId:

@@ -1,4 +1,4 @@
-"""Lower source resource bindings into typed compiler route intents."""
+"""Lower source resource declarations into typed logical requirements."""
 
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ from scopecat.compiler.semantic.value_expressions import (
     verify_scalar_value_expr,
     verify_series_value_expr,
 )
-from scopecat.compiler.typed.program import ResourceRouteIntent
+from scopecat.compiler.typed.program import LogicalResourceRequirement
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.value_types import Entity, Scalar, Series
 from scopecat.records.config import Topology
@@ -58,15 +58,9 @@ class BindingSpec:
 
 def lower_binding_intent(
     intent: BindingIntent,
-    resource_port: ResourcePort,
 ) -> BindingSpec:
     """Lower one source binding after config-free graph verification."""
 
-    if resource_port.symbol_id != intent.port_id:
-        raise AssertionError(
-            "verified binding must be paired with its declared resource port"
-        )
-    assert_port_capability(resource_port, intent.capability_id)
     value = intent.value
     value_type: Scalar | None = None
     if isinstance(value, ValueRef):
@@ -93,22 +87,22 @@ def lower_binding_intent(
     )
 
 
-def build_route_intents(
+def build_resource_requirements(
     topology: Topology,
     ports: Sequence[ResourcePort],
     *,
     inputs: Mapping[str, object],
     type_bindings: RelationTypeBindings,
-) -> list[ResourceRouteIntent]:
-    route_intents: list[ResourceRouteIntent] = []
+) -> list[LogicalResourceRequirement]:
+    resource_requirements: list[LogicalResourceRequirement] = []
     for port in ports:
-        route_intents.append(
-            ResourceRouteIntent(
+        resource_requirements.append(
+            LogicalResourceRequirement(
                 port_id=port.symbol_id,
                 capabilities=tuple(port.selector.capabilities),
                 entity_uses=tuple(
                     relation_use(
-                        _route_entity_expr(
+                        _resource_entity_expr(
                             topology,
                             input_id,
                             inputs,
@@ -117,13 +111,12 @@ def build_route_intents(
                     )
                     for input_id in port.selector.entity_inputs
                 ),
-                fixed_resource_id=None,
             )
         )
-    return route_intents
+    return resource_requirements
 
 
-def _route_entity_expr(
+def _resource_entity_expr(
     topology: Topology,
     source: ValueRef,
     inputs: Mapping[str, object],
@@ -155,7 +148,7 @@ def _route_entity_expr(
     if isinstance(bound, LiteralScalarExpr):
         bound = replace(
             bound,
-            value=_resolve_route_entity(
+            value=_resolve_target_entity(
                 topology,
                 cast("EntityRef | str", bound.value),
             ),
@@ -164,7 +157,7 @@ def _route_entity_expr(
         bound = replace(
             bound,
             items=list(
-                _resolve_route_entities(
+                _resolve_target_entities(
                     topology, cast("Sequence[EntityRef | str]", bound.items)
                 )
             ),
@@ -186,18 +179,7 @@ def _route_entity_expr(
     )
 
 
-def assert_port_capability(
-    port: ResourcePort,
-    capability_id: str,
-) -> None:
-    if capability_id not in port.selector.capabilities:
-        raise AssertionError(
-            "verified resource port "
-            f"{port.qualified_id} must declare capability {capability_id}"
-        )
-
-
-def _resolve_route_entity(
+def _resolve_target_entity(
     topology: Topology,
     value: EntityRef | str,
 ) -> EntityRef:
@@ -207,7 +189,7 @@ def _resolve_route_entity(
         raise_entity_resolution_problem(error)
 
 
-def _resolve_route_entities(
+def _resolve_target_entities(
     topology: Topology,
     values: Sequence[EntityRef | str],
 ) -> tuple[EntityRef, ...]:

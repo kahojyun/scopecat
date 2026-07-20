@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import cast
 
 from scopecat.compiler.relations.model import (
     RowScopeId,
@@ -44,9 +43,6 @@ from scopecat.compiler.typed.action import ActionFieldSpec, ActionSpec
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.products import (
-    DomainProductProducer,
-    InstrumentProductProducer,
-    MeasurementTransformProductProducer,
     ProductAxisDef,
     ProductDef,
     ProductKind,
@@ -55,7 +51,6 @@ from scopecat.compiler.typed.records import RecordUse
 from scopecat.compiler.typed.state import (
     ForEachStateSpec,
     LogicalStateResourceTarget,
-    PhysicalStateResourceTarget,
     SetStateSpec,
     StateSpecVariant,
 )
@@ -63,7 +58,6 @@ from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.product_identity import (
     ProductId,
-    ProductProducerId,
     ProductUse,
     ProductUseId,
     product_id,
@@ -71,9 +65,8 @@ from scopecat.kernel.product_identity import (
 )
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
-    PhysicalResourceId,
 )
-from scopecat.kernel.value_types import Route, String, ValueType
+from scopecat.kernel.value_types import ValueType
 from scopecat.measurements.results import MeasurementDType
 from scopecat.measurements.semantics import (
     MeasurementTransformSemanticContract,
@@ -110,15 +103,7 @@ class ComputeEdge:
         return self.expected_type
 
 
-@dataclass(frozen=True, slots=True)
-class RouteInput:
-    """Explicit dependency on a point-local resolved resource route."""
-
-    port_id: LogicalResourcePortId
-    value_type: Route
-
-
-type ComputeInput = ValueInput | ComputeEdge | RouteInput
+type ComputeInput = ValueInput | ComputeEdge
 
 
 def _empty_value_inputs() -> dict[str, ValueInput]:
@@ -167,7 +152,6 @@ class TypedDomainResultBinding:
 
     id: str
     product_id: ProductId
-    producer_id: ProductProducerId
     product_use_ids: tuple[ProductUseId, ...] = ()
 
     def __post_init__(self) -> None:
@@ -197,16 +181,57 @@ class TypedDomainExecution:
 
 
 @dataclass(frozen=True, slots=True)
+class AcquireProductSpec:
+    """Provider-facing mapping for one product in an acquisition."""
+
+    product_id: ProductId
+    provider_key: str
+    metadata: Mapping[str, JsonValue] = field(default_factory=_empty_metadata)
+
+    def __post_init__(self) -> None:
+        if not self.provider_key:
+            raise ValueError("acquired product provider key must be non-empty")
+        object.__setattr__(
+            self,
+            "metadata",
+            freeze_json_mapping(
+                self.metadata,
+                path=f"acquired product {self.product_id.qualified_name!r} metadata",
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class AcquireSpec:
     """Ordered local acquisition of one or more logical products.
 
     It is deliberately smaller than a domain program: providers own the
     ordinary arm/trigger/read protocol behind each product, while an explicit
     domain execution models a coordinated program with its own typed boundary.
+    Every product is acquired through one explicitly named capability on the
+    same logical port; product provider keys never infer or redirect that
+    capability.
     """
 
     id: AcquireId
-    product_ids: tuple[ProductId, ...]
+    resource_port_id: LogicalResourcePortId
+    capability_id: str
+    products: tuple[AcquireProductSpec, ...]
+
+    def __post_init__(self) -> None:
+        if not self.products:
+            raise ValueError("acquisitions require at least one product")
+        if not self.capability_id:
+            raise ValueError("acquisition capability must be non-empty")
+        if len(self.product_ids) != len(set(self.product_ids)):
+            raise ValueError("acquisition product ids must be unique")
+        provider_keys = tuple(product.provider_key for product in self.products)
+        if len(provider_keys) != len(set(provider_keys)):
+            raise ValueError("acquisition provider keys must be unique")
+
+    @property
+    def product_ids(self) -> tuple[ProductId, ...]:
+        return tuple(product.product_id for product in self.products)
 
 
 type CoreEffect = StateSpecVariant | ActionSpec | TypedDomainExecution | AcquireSpec
@@ -232,7 +257,6 @@ class TypedMeasurementTransformOutput:
 
     id: str
     product_id: ProductId
-    producer_id: ProductProducerId
     product_use_ids: tuple[ProductUseId, ...] = ()
 
     def __post_init__(self) -> None:
@@ -274,24 +298,17 @@ class TypedComputeNode:
 
 
 @dataclass(frozen=True, slots=True)
-class ResourceRouteIntent:
-    """Symbolic resource route retained until point-local compilation."""
+class LogicalResourceRequirement:
+    """Stable logical capabilities plus point-local object selection.
+
+    ``capabilities`` is the compile-time contract for the logical port, while
+    ``entity_uses`` selects its objects at each point. Physical instrument and
+    channel identity enter only during target materialization.
+    """
 
     port_id: LogicalResourcePortId
     capabilities: tuple[str, ...] = ()
     entity_uses: tuple[RelationUse[ScalarOrSeriesValueExpr], ...] = ()
-    fixed_resource_id: PhysicalResourceId | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class EffectParallelGroup:
-    """Explicit permission to schedule independent effect branches concurrently.
-
-    The ordered effect list remains the semantic fallback. A target may exploit
-    this permission only after resource routing proves the branches compatible.
-    """
-
-    branches: tuple[tuple[int, ...], ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -306,21 +323,15 @@ class CoreProgram:
     id: str
     kind: str
     point_domain: PointDomain
-    route_intents: tuple[ResourceRouteIntent, ...] = ()
+    resource_requirements: tuple[LogicalResourceRequirement, ...] = ()
     parameter_overlays: tuple[PointParameterOverlay, ...] = ()
     compute_nodes: tuple[TypedComputeNode, ...] = ()
     effects: tuple[CoreEffect, ...] = ()
-    parallel_groups: tuple[EffectParallelGroup, ...] = ()
     measurement_transforms: tuple[TypedMeasurementTransform, ...] = ()
     implementation_catalog: ImplementationCatalog = field(
         default_factory=ImplementationCatalog
     )
     product_defs: tuple[ProductDef, ...] = ()
-    instrument_product_producers: tuple[InstrumentProductProducer, ...] = ()
-    domain_product_producers: tuple[DomainProductProducer, ...] = ()
-    measurement_transform_product_producers: tuple[
-        MeasurementTransformProductProducer, ...
-    ] = ()
     product_uses: tuple[ProductUse, ...] = ()
     record_uses: tuple[RecordUse, ...] = ()
     metadata: Mapping[str, JsonValue] = field(default_factory=_empty_metadata)
@@ -345,6 +356,12 @@ def core_domain_executions(program: CoreProgram) -> tuple[TypedDomainExecution, 
     )
 
 
+def core_acquisitions(program: CoreProgram) -> tuple[AcquireSpec, ...]:
+    return tuple(
+        effect for effect in program.effects if isinstance(effect, AcquireSpec)
+    )
+
+
 def core_actions(program: CoreProgram) -> tuple[ActionSpec, ...]:
     return tuple(effect for effect in program.effects if isinstance(effect, ActionSpec))
 
@@ -358,36 +375,22 @@ def core_state(program: CoreProgram) -> tuple[StateSpecVariant, ...]:
 
 
 def set_state_field(
-    resource: ScalarValueExpr | None = None,
     *,
-    resource_port_id: LogicalResourcePortId | None = None,
+    resource_port_id: LogicalResourcePortId,
     capability_id: str,
     field_path: str,
     value: ScalarValueExpr | ComputeResultRef,
-    route_entities: Sequence[ScalarOrSeriesValueExpr] = (),
+    target_entities: Sequence[ScalarOrSeriesValueExpr] = (),
 ) -> SetStateSpec:
     """Build desired state from orthogonal capability and field identities."""
 
-    if (resource is None) == (resource_port_id is None):
-        msg = "state field requires exactly one physical resource or logical port"
-        raise ValueError(msg)
-    if resource is not None and not isinstance(resource.value_type.atom, String):
-        msg = "physical state resource expressions must have string scalar type"
-        raise TypeError(msg)
-
     return SetStateSpec(
-        resource_target=(
-            LogicalStateResourceTarget(port_id=resource_port_id)
-            if resource_port_id is not None
-            else PhysicalStateResourceTarget(
-                use=relation_use(cast("ScalarValueExpr", resource))
-            )
-        ),
+        resource_target=LogicalStateResourceTarget(port_id=resource_port_id),
         capability_id=capability_id,
         field_path=field_path,
         value_use=value if isinstance(value, ComputeResultRef) else relation_use(value),
-        route_entity_uses=tuple(
-            relation_use(expression) for expression in route_entities
+        target_entity_uses=tuple(
+            relation_use(expression) for expression in target_entities
         ),
     )
 

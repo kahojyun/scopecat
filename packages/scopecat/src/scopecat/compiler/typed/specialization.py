@@ -59,14 +59,13 @@ from scopecat.compiler.typed.program import (
     ComputeInput,
     CoreEffect,
     CoreProgram,
-    ResourceRouteIntent,
+    LogicalResourceRequirement,
     TypedComputeNode,
     TypedDomainExecution,
     ValueInput,
 )
 from scopecat.compiler.typed.state import (
     ForEachStateSpec,
-    PhysicalStateResourceTarget,
     SetStateSpec,
     StateSpecVariant,
 )
@@ -99,9 +98,13 @@ def specialize_core_program(
             )
             for overlay in program.parameter_overlays
         ),
-        route_intents=tuple(
-            _specialize_route(route, known=known, parameter_cells=parameter_cells)
-            for route in program.route_intents
+        resource_requirements=tuple(
+            _specialize_resource_requirement(
+                requirement,
+                known=known,
+                parameter_cells=parameter_cells,
+            )
+            for requirement in program.resource_requirements
         ),
         compute_nodes=tuple(
             _specialize_compute(node, known=known, parameter_cells=parameter_cells)
@@ -476,50 +479,39 @@ def _specialize_state(
                 for child in state.state
             ),
         )
-    resource_target = state.resource_target
-    if isinstance(resource_target, PhysicalStateResourceTarget):
-        resource_target = replace(
-            resource_target,
-            use=_specialize_relation_use(
-                resource_target.use,
-                known=known,
-                parameter_cells=parameter_cells,
-            ),
-        )
     return replace(
         state,
-        resource_target=resource_target,
         value_use=_specialize_value_use(
             state.value_use,
             known=known,
             parameter_cells=parameter_cells,
         ),
-        route_entity_uses=tuple(
+        target_entity_uses=tuple(
             _specialize_relation_use(
                 use,
                 known=known,
                 parameter_cells=parameter_cells,
             )
-            for use in state.route_entity_uses
+            for use in state.target_entity_uses
         ),
     )
 
 
-def _specialize_route(
-    route: ResourceRouteIntent,
+def _specialize_resource_requirement(
+    requirement: LogicalResourceRequirement,
     *,
     known: EvalContext,
     parameter_cells: tuple[ParameterCellBinding, ...],
-) -> ResourceRouteIntent:
+) -> LogicalResourceRequirement:
     return replace(
-        route,
+        requirement,
         entity_uses=tuple(
             _specialize_relation_use(
                 use,
                 known=known,
                 parameter_cells=parameter_cells,
             )
-            for use in route.entity_uses
+            for use in requirement.entity_uses
         ),
     )
 

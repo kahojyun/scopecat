@@ -6,7 +6,6 @@ from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from typing import cast
 
-from scopecat.authoring._binding_intents import ResourcePort
 from scopecat.authoring._intents import ModuleInputPort, ParameterScanOverlayIntent
 from scopecat.authoring._point_domain_intents import (
     PointDomainIntent,
@@ -31,10 +30,7 @@ from scopecat.compiler.entity_resolution import (
     resolve_entities,
     resolve_entity,
 )
-from scopecat.compiler.frontend.binding_lowering import (
-    BindingSpec,
-    assert_port_capability,
-)
+from scopecat.compiler.frontend.binding_lowering import BindingSpec
 from scopecat.compiler.frontend.elaboration import SemanticExperimentIR
 from scopecat.compiler.frontend.problems import (
     raise_entity_resolution_problem,
@@ -81,9 +77,7 @@ from scopecat.compiler.semantic.model import (
     InstrumentActionEffect,
     LiteralValueSource,
     OperationId,
-    OperationOutputSource,
     PlanExpressionSource,
-    RouteValueSource,
     SemanticOperation,
     StateEachRegion,
     ValueDef,
@@ -103,10 +97,8 @@ from scopecat.compiler.semantic.verification import VerifiedSemanticGraph
 from scopecat.compiler.typed.action import ActionSpec
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.products import DomainProductProducer
 from scopecat.compiler.typed.program import (
     ComputeEdge,
-    RouteInput,
     TypedComputeNode,
     TypedComputeOutput,
     TypedDomainExecution,
@@ -121,13 +113,10 @@ from scopecat.compiler.typed.state import ForEachStateSpec, SetStateSpec
 from scopecat.kernel.problems import ProblemPhase
 from scopecat.kernel.product_identity import (
     ProductId,
-    ProductProducerId,
     ProductUse,
     ProductUseId,
 )
-from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.value_type_compatibility import require_assignable
-from scopecat.kernel.value_types import Route
 from scopecat.records.config import Topology
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import ParameterCatalog
@@ -250,7 +239,7 @@ def lower_semantic_domain_graph(
     *,
     type_bindings: RelationTypeBindings,
     product_uses: Sequence[ProductUse],
-) -> tuple[tuple[TypedDomainExecution, ...], tuple[DomainProductProducer, ...]]:
+) -> tuple[TypedDomainExecution, ...]:
     """Lower ordered prepare-stage domain effects and their product uses."""
 
     operations = graph.operations
@@ -258,7 +247,6 @@ def lower_semantic_domain_graph(
     uses_by_product: dict[ProductId, list[ProductUseId]] = {}
     for use in product_uses:
         uses_by_product.setdefault(use.product_id, []).append(use.id)
-    producers: list[DomainProductProducer] = []
     typed_executions: list[TypedDomainExecution] = []
     for execution in graph.graph.domain_executions:
         semantic_program = execution.program
@@ -288,21 +276,11 @@ def lower_semantic_domain_graph(
             lowered_inputs[name] = lowered
         result_bindings: list[TypedDomainResultBinding] = []
         for result_id, product_id in execution.results:
-            producer_id = ProductProducerId(product_id.symbol)
             result_bindings.append(
                 TypedDomainResultBinding(
                     id=result_id,
                     product_id=product_id,
-                    producer_id=producer_id,
                     product_use_ids=tuple(uses_by_product.get(product_id, [])),
-                )
-            )
-            producers.append(
-                DomainProductProducer(
-                    id=producer_id,
-                    product_id=product_id,
-                    execution_id=execution.id,
-                    result_id=result_id,
                 )
             )
         typed_executions.append(
@@ -314,7 +292,7 @@ def lower_semantic_domain_graph(
                 resources=dict(execution.resources),
             )
         )
-    return tuple(typed_executions), tuple(producers)
+    return tuple(typed_executions)
 
 
 def _lower_semantic_operation(
@@ -328,8 +306,6 @@ def _lower_semantic_operation(
 ) -> TypedComputeNode:
     outputs = dict(operation.outputs)
     output = definitions[outputs["result"]]
-    if isinstance(output.value_type, Route):
-        raise AssertionError("semantic operation outputs cannot be route values")
     return TypedComputeNode(
         id=operation.id,
         contract=operation.contract,
@@ -359,25 +335,13 @@ def _lower_semantic_input(
     residual_values: frozenset[ValueId],
     inputs: Mapping[str, object],
     type_bindings: RelationTypeBindings,
-) -> ValueInput | ComputeEdge | RouteInput:
+) -> ValueInput | ComputeEdge:
     definition = definitions[value_id]
-    source = definition.source
-    if isinstance(source, RouteValueSource):
-        if not isinstance(definition.value_type, Route):
-            raise AssertionError("route sources must define route-typed values")
-        return RouteInput(
-            port_id=source.port_id,
-            value_type=definition.value_type,
-        )
     if value_id in residual_values:
-        if isinstance(definition.value_type, Route):
-            raise AssertionError("compute edges cannot carry route values")
         return ComputeEdge(
             value_id=definition.id,
             expected_type=definition.value_type,
         )
-    if isinstance(definition.value_type, Route):
-        raise AssertionError("plan values cannot carry route types")
     expression = _semantic_plan_expression(
         value_id,
         definitions=definitions,
@@ -410,8 +374,6 @@ def _semantic_plan_expression(
         return source.expression
     if isinstance(source, LiteralValueSource):
         return literal_data_expr(source.value)
-    if not isinstance(source, OperationOutputSource):
-        raise AssertionError("route and execute values cannot become plan expressions")
     operation = operations[source.operation_id]
     if not isinstance(operation.contract.semantics, ScalarBinarySemantics):
         raise AssertionError("only core scalar operations can be plan-inlined")
@@ -441,19 +403,10 @@ def _semantic_plan_expression(
 def lower_state_region(
     region: StateEachRegion,
     graph: VerifiedSemanticGraph,
-    resource_ports: Mapping[LogicalResourcePortId, ResourcePort],
     inputs: Mapping[str, object],
     *,
     type_bindings: RelationTypeBindings,
 ) -> ForEachStateSpec:
-    if region.resource_port is not None:
-        port = resource_ports.get(region.resource_port)
-        if port is None:
-            raise AssertionError(
-                "verified state region references unknown resource port "
-                f"{region.resource_port}"
-            )
-        assert_port_capability(port, region.capability_id)
     operations = graph.operations
     residual_values = graph.residual_value_ids
     row_type = RowType.from_table(region.row_argument.value_type)
@@ -463,18 +416,6 @@ def lower_state_region(
         row_arguments={**type_bindings.row_arguments, region.row_argument.id: row_type},
     )
 
-    resource = (
-        None
-        if region.resource_port is not None
-        else _lower_state_region_scalar(
-            _required_region_use(region.resource, role="resource"),
-            graph=graph,
-            operations=operations,
-            inputs=inputs,
-            role="resource",
-            type_bindings=body_bindings,
-        )
-    )
     relation = _lower_state_region_plan_value(
         region.relation,
         graph=graph,
@@ -495,20 +436,19 @@ def lower_state_region(
     return bind_each(
         relation,
         set_state_field(
-            resource,
             resource_port_id=region.resource_port,
             capability_id=region.capability_id,
             field_path=region.field_path,
             value=state_value,
-            route_entities=tuple(
-                _lower_state_region_route(
-                    route,
+            target_entities=tuple(
+                _lower_state_region_target(
+                    target,
                     graph=graph,
                     operations=operations,
                     inputs=inputs,
                     type_bindings=body_bindings,
                 )
-                for route in region.route_entities
+                for target in region.target_entities
             ),
         ),
         row_scope_id=region.row_argument.id,
@@ -518,18 +458,10 @@ def lower_state_region(
 def lower_action_effect(
     action: InstrumentActionEffect,
     graph: VerifiedSemanticGraph,
-    resource_ports: Mapping[LogicalResourcePortId, ResourcePort],
     inputs: Mapping[str, object],
     *,
     type_bindings: RelationTypeBindings,
 ) -> ActionSpec:
-    port = resource_ports.get(action.resource_port_id)
-    if port is None:
-        raise AssertionError(
-            "verified action references unknown resource port "
-            f"{action.resource_port_id}"
-        )
-    assert_port_capability(port, action.capability_id)
     operations = graph.operations
     residual_values = graph.residual_value_ids
     return invoke_action(
@@ -574,28 +506,7 @@ def _lower_state_region_value(
     return value
 
 
-def _lower_state_region_scalar(
-    use: ValueUse,
-    *,
-    graph: VerifiedSemanticGraph,
-    operations: Mapping[OperationId, SemanticOperation],
-    inputs: Mapping[str, object],
-    role: str,
-    type_bindings: RelationTypeBindings,
-) -> ScalarValueExpr:
-    value = _lower_state_region_plan_value(
-        use,
-        graph=graph,
-        operations=operations,
-        inputs=inputs,
-        type_bindings=type_bindings,
-    )
-    if not isinstance(value, ScalarValueExpr):
-        raise AssertionError(f"verified state region {role} must be scalar-shaped")
-    return value
-
-
-def _lower_state_region_route(
+def _lower_state_region_target(
     use: ValueUse,
     *,
     graph: VerifiedSemanticGraph,
@@ -611,7 +522,7 @@ def _lower_state_region_route(
         type_bindings=type_bindings,
     )
     if isinstance(value, TableValueExpr):
-        raise AssertionError("verified state route must be scalar- or series-shaped")
+        raise AssertionError("verified state target must be scalar- or series-shaped")
     return value
 
 
@@ -624,8 +535,6 @@ def _lower_state_region_plan_value(
     type_bindings: RelationTypeBindings,
 ) -> ValueExpr:
     definition = graph.value_defs[use.value_id]
-    if isinstance(definition.value_type, Route):
-        raise AssertionError("state plan values cannot be route-shaped")
     expression = _semantic_plan_expression(
         use.value_id,
         definitions=graph.value_defs,
@@ -637,12 +546,6 @@ def _lower_state_region_plan_value(
         bindings=type_bindings,
         expected_type=definition.value_type,
     )
-
-
-def _required_region_use(use: ValueUse | None, *, role: str) -> ValueUse:
-    if use is None:
-        raise AssertionError(f"verified state region has no {role} use")
-    return use
 
 
 def validate_assembly_entrypoint(assembly: SemanticExperimentIR) -> None:

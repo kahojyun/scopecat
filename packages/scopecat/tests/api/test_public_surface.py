@@ -47,13 +47,7 @@ def test_user_facing_facades_expose_entry_points() -> None:
     assert callable(sc.point)
     assert callable(sc.parameter)
     assert callable(sc.parameter_lookup)
-    assert callable(sc.route)
     assert sc.TableRow
-    assert sc.ResolvedRoute(
-        port_id="drive",
-        resource_id="drive-a",
-        capabilities=("play",),
-    ).capabilities == ("play",)
     assert sc.ScalarType(sc.IntType())
     assert sc.SeriesType(sc.ScalarType(sc.EntityType()))
     assert sc.TableType(columns=())
@@ -197,13 +191,6 @@ def test_typed_around_scans_reject_incompatible_quantity_dimensions() -> None:
         sc.axis(
             frequency, center=sc.Quantity(value=5.0, unit="GHz"), span="20 ns", points=3
         )
-
-
-def test_routes_validate_capabilities() -> None:
-    route = sc.route("drive", capabilities=("play",))
-    assert route.value_type.capabilities == ("play",)
-    with pytest.raises(ValueError, match="non-empty strings"):
-        sc.route("drive", capabilities=("",))
 
 
 def test_scans_reject_non_finite_durable_values_at_capture() -> None:

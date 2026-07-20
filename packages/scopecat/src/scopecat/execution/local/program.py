@@ -1,9 +1,10 @@
 """Structured local-effect payloads embedded in a ``RunProgram``.
 
 The authoring compiler may use richer symbolic IRs.  This module starts after
-configuration linking and point binding: values and routes are concrete, pure
-compute dependencies are ordered, and hardware effects are represented as
-explicit stages.  The program is intentionally not a durable wire format.
+configuration linking and point binding: values and resource bindings are
+concrete, pure compute dependencies are ordered, and hardware effects are
+represented as explicit stages.  The program is intentionally not a durable
+wire format.
 """
 
 from __future__ import annotations
@@ -141,10 +142,10 @@ class InstrumentActionOperation:
 
 @dataclass(frozen=True, slots=True)
 class CollectionResultBinding:
-    """Map one provider response key to one logical product-use occurrence."""
+    """Map one provider response key to every logical use of that result."""
 
     provider_key: str
-    product_use_id: ProductUseId
+    product_use_ids: tuple[ProductUseId, ...]
     product_id: ProductId
 
 

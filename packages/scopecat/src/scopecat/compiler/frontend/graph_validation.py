@@ -34,7 +34,6 @@ from scopecat.compiler.semantic.dependencies import residual_value_ids
 from scopecat.compiler.semantic.model import (
     ImplementationCatalog,
     OperationOutputSource,
-    RouteValueSource,
     SourceMap,
     ValueDef,
     ValueUse,
@@ -60,7 +59,7 @@ from scopecat.kernel.problems import (
 from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.units import is_supported_unit
-from scopecat.kernel.value_types import Entity, Payload, Route, Scalar, Series, Table
+from scopecat.kernel.value_types import Entity, Payload, Scalar, Series, Table
 from scopecat.records.parameter import Quantity as QuantityValue
 
 
@@ -71,7 +70,6 @@ class VerifiedAssemblyGraph:
     semantic_graph: VerifiedSemanticGraph
     implementation_catalog: ImplementationCatalog
     source_map: SourceMap
-    resource_ports: Mapping[LogicalResourcePortId, ResourcePort]
     product_declarations: Mapping[ProductId, ModuleProductDecl]
 
 
@@ -108,7 +106,7 @@ def verify_assembly_graph(
 
     problems: list[Problem] = []
     resource_ports = _resource_ports(assembly.resource_ports, problems)
-    product_declarations = _verify_product_schema(assembly, resource_ports, problems)
+    product_declarations = _verify_product_schema(assembly, problems)
     try:
         semantic_graph = verify_semantic_graph(assembly.semantic_graph)
     except CheckFailed as error:
@@ -129,7 +127,6 @@ def verify_assembly_graph(
         source_map = None
     if semantic_graph is not None:
         _verify_compute_input_scope(semantic_graph, problems)
-        _verify_compute_routes(semantic_graph, resource_ports, problems)
         _verify_state_compute_values(assembly, semantic_graph, problems)
     _verify_state_resource_ports(assembly, resource_ports, problems)
     if semantic_graph is not None:
@@ -144,7 +141,6 @@ def verify_assembly_graph(
         semantic_graph=semantic_graph,
         implementation_catalog=implementation_catalog,
         source_map=source_map,
-        resource_ports=MappingProxyType(resource_ports),
         product_declarations=MappingProxyType(product_declarations),
     )
 
@@ -173,65 +169,6 @@ def _resource_ports(
     return selected
 
 
-def _verify_compute_routes(
-    graph: VerifiedSemanticGraph,
-    ports: Mapping[LogicalResourcePortId, ResourcePort],
-    problems: list[Problem],
-) -> None:
-    for operation in graph.graph.operations:
-        for input_name, use in operation.inputs:
-            definition = graph.value_defs.get(use.value_id)
-            if definition is None or not isinstance(
-                definition.source, RouteValueSource
-            ):
-                continue
-            location = model_location(
-                "compute_nodes",
-                *operation.id.scope,
-                operation.id.local_id,
-                "inputs",
-                input_name,
-            )
-            port = ports.get(definition.source.port_id)
-            if port is None:
-                problems.append(
-                    _problem(
-                        "compute_route_port_missing",
-                        f"compute node {operation.id.qualified_name!r} input "
-                        f"{input_name!r} references undeclared route port "
-                        f"{definition.source.port_id.qualified_name!r}",
-                        location,
-                    )
-                )
-                continue
-            if not isinstance(definition.value_type, Route):
-                problems.append(
-                    _problem(
-                        "compute_route_type_invalid",
-                        f"compute node {operation.id.qualified_name!r} input "
-                        f"{input_name!r} has a non-route route source",
-                        location,
-                    )
-                )
-                continue
-            missing = sorted(
-                set(definition.value_type.capabilities)
-                - set(port.selector.capabilities)
-            )
-            if missing:
-                problems.append(
-                    _problem(
-                        "compute_route_capability_missing",
-                        f"compute node {operation.id.qualified_name!r} input "
-                        f"{input_name!r} requires capabilities not declared by "
-                        "route port "
-                        f"{definition.source.port_id.qualified_name!r}: "
-                        f"{', '.join(missing)}",
-                        location,
-                    )
-                )
-
-
 def _verify_state_resource_ports(
     assembly: SemanticExperimentIR,
     ports: Mapping[LogicalResourcePortId, ResourcePort],
@@ -247,8 +184,6 @@ def _verify_state_resource_ports(
             problems=problems,
         )
     for index, state in enumerate(assembly.semantic_graph.row_regions):
-        if state.resource_port is None:
-            continue
         _verify_state_resource_port(
             state.resource_port,
             state.capability_id,
@@ -266,11 +201,20 @@ def _verify_state_resource_ports(
             location=model_location("actions", index, "resource_port"),
             problems=problems,
         )
+    for index, acquire in enumerate(assembly.semantic_graph.acquisitions):
+        _verify_state_resource_port(
+            acquire.resource_port_id,
+            acquire.capability_id,
+            ports,
+            context="acquisition",
+            location=model_location("acquisitions", index, "resource_port"),
+            problems=problems,
+        )
 
 
 def _verify_state_resource_port(
     port_id: LogicalResourcePortId,
-    capability_id: str,
+    capability_id: str | None,
     ports: Mapping[LogicalResourcePortId, ResourcePort],
     *,
     context: str,
@@ -525,33 +469,20 @@ def _verify_static_value_dependencies(
             location=model_location("state", index, "relation"),
             problems=problems,
         )
-        if state.resource is not None:
-            resource = graph.value_defs[state.resource.value_id]
-            assert isinstance(resource.value_type, Scalar), (  # noqa: S101
-                "verified row-region resource selectors must be scalar-shaped"
+        for target_index, target_entity in enumerate(state.target_entities):
+            target = graph.value_defs[target_entity.value_id]
+            assert isinstance(target.value_type, Scalar | Series), (  # noqa: S101
+                "verified row-region targets must be scalar- or series-shaped"
             )
             _require_semantic_plan_value(
                 graph,
-                state.resource,
-                context="state resource selector",
-                location=model_location("state", index, "resource"),
-                problems=problems,
-                allow_row=True,
-            )
-        for route_index, route_entity in enumerate(state.route_entities):
-            route = graph.value_defs[route_entity.value_id]
-            assert isinstance(route.value_type, Scalar | Series), (  # noqa: S101
-                "verified row-region route selectors must be scalar- or series-shaped"
-            )
-            _require_semantic_plan_value(
-                graph,
-                route_entity,
-                context="state route selector",
+                target_entity,
+                context="state target entity",
                 location=model_location(
                     "state",
                     index,
-                    "route_entities",
-                    route_index,
+                    "target_entities",
+                    target_index,
                 ),
                 problems=problems,
                 allow_row=True,
@@ -694,10 +625,8 @@ def _definition_is_residual(
 
 def _verify_product_schema(
     assembly: SemanticExperimentIR,
-    resource_ports: Mapping[LogicalResourcePortId, ResourcePort],
     problems: list[Problem],
 ) -> dict[ProductId, ModuleProductDecl]:
-    _verify_product_resource_ports(assembly, resource_ports, problems)
     product_by_id: dict[ProductId, ModuleProductDecl] = {}
     duplicate_products: set[ProductId] = set()
     for product in assembly.product_declarations:
@@ -705,6 +634,25 @@ def _verify_product_schema(
             duplicate_products.add(product.product_id)
             continue
         product_by_id[product.product_id] = product
+    for acquire_index, acquire in enumerate(assembly.semantic_graph.acquisitions):
+        for product_index, product in enumerate(acquire.products):
+            if product.product_id in product_by_id:
+                continue
+            problems.append(
+                _problem(
+                    "acquire_product_definition_missing",
+                    f"acquisition {acquire.id.qualified_name!r} references unknown "
+                    f"product {product.product_id.qualified_name!r}",
+                    model_location(
+                        "acquisitions",
+                        acquire_index,
+                        "products",
+                        product_index,
+                        "product_id",
+                    ),
+                    category=ProblemCategory.NOT_FOUND,
+                )
+            )
     if duplicate_products:
         problems.append(
             _problem(
@@ -830,45 +778,6 @@ def _verify_product_schema(
                     )
                 )
     return product_by_id
-
-
-def _verify_product_resource_ports(
-    assembly: SemanticExperimentIR,
-    resource_ports: Mapping[LogicalResourcePortId, ResourcePort],
-    problems: list[Problem],
-) -> None:
-    for product in assembly.product_declarations:
-        if product.resource_port_id is None:
-            continue
-        port = resource_ports.get(product.resource_port_id)
-        if port is None:
-            problems.append(
-                _problem(
-                    "product_resource_port_missing",
-                    f"product {product.qualified_id!r} references undeclared resource "
-                    f"port {product.resource_port_id.qualified_name!r}",
-                    model_location(
-                        "products",
-                        *product.scope,
-                        product.id,
-                        "resource",
-                    ),
-                    category=ProblemCategory.NOT_FOUND,
-                )
-            )
-            continue
-        _verify_resource_port_capability(
-            product.resource_port_id,
-            product.capability,
-            port,
-            location=model_location(
-                "products",
-                *product.scope,
-                product.id,
-                "capability",
-            ),
-            problems=problems,
-        )
 
 
 def _verify_product_definition(

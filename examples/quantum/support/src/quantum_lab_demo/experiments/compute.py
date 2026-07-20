@@ -102,16 +102,13 @@ def build_sqg_rb_sequence(
 def render_sqg_rb_pulse_program(
     *,
     sequence: RandomizedBenchmarkingSequence,
-    drive_route: sc.ResolvedRoute,
 ) -> RandomizedBenchmarkingPulseBundle:
     count = max(8, sequence.clifford_count * 4)
     rng = np.random.default_rng(sequence.seed)
     samples = rng.normal(size=count) + 1j * rng.normal(size=count)
     return RandomizedBenchmarkingPulseBundle(
         source_program_id=sequence.compiler_id,
-        resource_id=drive_route.resource_id,
-        entity_ids=tuple(drive_route.entity_ids),
-        channel_order=tuple(drive_route.product_axis_order),
+        entity_ids=sequence.qubits,
         samples=np.asarray(0.04 * samples, dtype=np.complex128),
     )
 
@@ -138,7 +135,6 @@ def build_cz_rb_sequence(
 def render_cz_rb_coupler_pulse(
     *,
     sequence: RandomizedBenchmarkingSequence,
-    coupler_route: sc.ResolvedRoute,
 ) -> RandomizedBenchmarkingPulseBundle:
     count = max(8, sequence.clifford_count * 6)
     phase = 0.0 if sequence.interleaved_gate == "CZ" else np.pi / 4.0
@@ -146,9 +142,7 @@ def render_cz_rb_coupler_pulse(
     samples = 0.08 * np.sin(t + phase)
     return RandomizedBenchmarkingPulseBundle(
         source_program_id=sequence.compiler_id,
-        resource_id=coupler_route.resource_id,
-        entity_ids=tuple(coupler_route.entity_ids),
-        channel_order=tuple(coupler_route.product_axis_order),
+        entity_ids=() if sequence.coupler is None else (sequence.coupler,),
         samples=np.asarray(samples + 0.0j, dtype=np.complex128),
     )
 
@@ -178,16 +172,13 @@ def build_simultaneous_rabi_gate_sequence(
 def render_rabi_waveforms(
     *,
     program: RabiGateSequence,
-    drive_route: sc.ResolvedRoute,
 ) -> RenderedWaveformBundle:
     sequence = program
     gate = sequence.gates[0]
     samples = _render_drag_like_envelope(gate.length, gate.amplitude)
     return RenderedWaveformBundle(
         source_program_id=sequence.compiler_id,
-        resource_id=drive_route.resource_id,
-        entity_ids=tuple(drive_route.entity_ids),
-        channel_order=tuple(drive_route.product_axis_order),
+        entity_ids=(gate.qubit,),
         sample_rate_hz=1.0e9,
         samples=samples,
     )
@@ -196,7 +187,6 @@ def render_rabi_waveforms(
 def render_simultaneous_rabi_waveforms(
     *,
     program: RabiGateSequence,
-    drive_route: sc.ResolvedRoute,
 ) -> RenderedWaveformBundle:
     if not program.gates:
         msg = "simultaneous Rabi sequence must contain at least one gate"
@@ -209,9 +199,7 @@ def render_simultaneous_rabi_waveforms(
     )
     return RenderedWaveformBundle(
         source_program_id=program.compiler_id,
-        resource_id=drive_route.resource_id,
-        entity_ids=tuple(drive_route.entity_ids),
-        channel_order=tuple(drive_route.product_axis_order),
+        entity_ids=tuple(gate.qubit for gate in program.gates),
         sample_rate_hz=1.0e9,
         samples=np.asarray(samples, dtype=np.complex128),
     )
@@ -282,7 +270,6 @@ def build_cz_chevron_program(
 def render_cz_drive_waveforms(
     *,
     program: CzChevronProgram,
-    drive_route: sc.ResolvedRoute,
 ) -> RenderedWaveformBundle:
     samples = np.vstack(
         [
@@ -295,9 +282,7 @@ def render_cz_drive_waveforms(
     )
     return RenderedWaveformBundle(
         source_program_id=program.compiler_id,
-        resource_id=drive_route.resource_id,
-        entity_ids=tuple(drive_route.entity_ids),
-        channel_order=tuple(drive_route.product_axis_order),
+        entity_ids=tuple(pulse.qubit for pulse in program.drive_pulses),
         sample_rate_hz=program.sample_rate_hz,
         samples=np.asarray(samples, dtype=np.complex128),
     )
@@ -306,7 +291,6 @@ def render_cz_drive_waveforms(
 def render_cz_coupler_waveforms(
     *,
     program: CzChevronProgram,
-    coupler_route: sc.ResolvedRoute,
 ) -> RenderedWaveformBundle:
     count = max(8, round(program.coupler_pulse.duration.value))
     plateau = np.full(
@@ -321,9 +305,7 @@ def render_cz_coupler_waveforms(
     plateau[-edge:] *= ramp[::-1]
     return RenderedWaveformBundle(
         source_program_id=program.compiler_id,
-        resource_id=coupler_route.resource_id,
-        entity_ids=tuple(coupler_route.entity_ids),
-        channel_order=tuple(coupler_route.product_axis_order),
+        entity_ids=(program.coupler_pulse.coupler,),
         sample_rate_hz=1.0e9,
         samples=np.asarray(plateau + 0.0j, dtype=np.complex128),
     )
@@ -381,7 +363,6 @@ def build_parallel_gate_set_program(
 def render_parallel_gate_drive_waveforms(
     *,
     program: ParallelGateSetProgram,
-    drive_route: sc.ResolvedRoute,
 ) -> RenderedWaveformBundle:
     samples = np.vstack(
         [
@@ -395,9 +376,11 @@ def render_parallel_gate_drive_waveforms(
     )
     return RenderedWaveformBundle(
         source_program_id=program.compiler_id,
-        resource_id=drive_route.resource_id,
-        entity_ids=tuple(drive_route.entity_ids),
-        channel_order=tuple(drive_route.product_axis_order),
+        entity_ids=tuple(
+            qubit
+            for gate in program.gates
+            for qubit in (gate.control_qubit, gate.partner_qubit)
+        ),
         sample_rate_hz=1.0e9,
         samples=np.asarray(samples, dtype=np.complex128),
     )
@@ -406,7 +389,6 @@ def render_parallel_gate_drive_waveforms(
 def render_parallel_gate_coupler_waveforms(
     *,
     program: ParallelGateSetProgram,
-    coupler_route: sc.ResolvedRoute,
 ) -> RenderedWaveformBundle:
     samples = np.vstack(
         [
@@ -420,9 +402,7 @@ def render_parallel_gate_coupler_waveforms(
     )
     return RenderedWaveformBundle(
         source_program_id=program.compiler_id,
-        resource_id=coupler_route.resource_id,
-        entity_ids=tuple(coupler_route.entity_ids),
-        channel_order=tuple(coupler_route.product_axis_order),
+        entity_ids=tuple(gate.coupler for gate in program.gates),
         sample_rate_hz=1.0e9,
         samples=np.asarray(samples, dtype=np.complex128),
     )
@@ -460,7 +440,6 @@ def build_surface_code_round_program(
 def render_surface_code_drive_waveforms(
     *,
     program: SurfaceCodeRoundProgram,
-    drive_route: sc.ResolvedRoute,
 ) -> RenderedWaveformBundle:
     samples = np.vstack(
         [
@@ -468,14 +447,12 @@ def render_surface_code_drive_waveforms(
                 program.cycle_time,
                 sc.Quantity(value=0.04, unit="arb"),
             )
-            for _ in drive_route.product_axis_order
+            for _ in program.patch_qubits
         ]
     )
     return RenderedWaveformBundle(
         source_program_id=program.compiler_id,
-        resource_id=drive_route.resource_id,
-        entity_ids=tuple(drive_route.entity_ids),
-        channel_order=tuple(drive_route.product_axis_order),
+        entity_ids=program.patch_qubits,
         sample_rate_hz=1.0e9,
         samples=np.asarray(samples, dtype=np.complex128),
     )
@@ -484,7 +461,6 @@ def render_surface_code_drive_waveforms(
 def render_surface_code_coupler_waveforms(
     *,
     program: SurfaceCodeRoundProgram,
-    coupler_route: sc.ResolvedRoute,
 ) -> RenderedWaveformBundle:
     count = max(8, round(program.cycle_time.value))
     samples = np.vstack(
@@ -493,14 +469,12 @@ def render_surface_code_coupler_waveforms(
                 0.03 * np.sin(np.linspace(0.0, np.pi, count, dtype=np.float64)) + 0.0j,
                 dtype=np.complex128,
             )
-            for _ in coupler_route.product_axis_order
+            for _ in program.couplers
         ]
     )
     return RenderedWaveformBundle(
         source_program_id=program.compiler_id,
-        resource_id=coupler_route.resource_id,
-        entity_ids=tuple(coupler_route.entity_ids),
-        channel_order=tuple(coupler_route.product_axis_order),
+        entity_ids=program.couplers,
         sample_rate_hz=1.0e9,
         samples=np.asarray(samples, dtype=np.complex128),
     )

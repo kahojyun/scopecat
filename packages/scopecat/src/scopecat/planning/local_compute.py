@@ -9,7 +9,7 @@ from scopecat.compiler.linking.implementations import SelectedLocalImplementatio
 from scopecat.compiler.relations.evaluation import EvalContext
 from scopecat.compiler.semantic.model import ValueId
 from scopecat.compiler.typed.dependencies import ComputePlan
-from scopecat.compiler.typed.program import ComputeEdge, TypedComputeNode, ValueInput
+from scopecat.compiler.typed.program import TypedComputeNode, ValueInput
 from scopecat.compiler.typed.verification import VerifiedCoreProgram
 from scopecat.execution.local.program import (
     BoundInput,
@@ -21,10 +21,8 @@ from scopecat.execution.local.program import (
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.payloads import unwrap_payload_values
 from scopecat.kernel.problems import Problem, model_location
-from scopecat.kernel.routes import ResolvedRoute
 from scopecat.kernel.value_types import Payload, Scalar
 from scopecat.kernel.value_validation import coerce_literal
-from scopecat.planning.local_route_constraints import PendingRoute
 from scopecat.planning.local_values import evaluate_value_expr
 
 
@@ -33,7 +31,6 @@ def bind_compute_operations(
     *,
     operation_prefix: str,
     ctx: EvalContext,
-    routes: Sequence[PendingRoute],
     compute_plan: ComputePlan,
     implementations: SelectedLocalImplementations,
     demanded_payload_results: set[ValueId],
@@ -70,7 +67,7 @@ def bind_compute_operations(
                     )
                     inputs[name] = BoundInput(value)
                     signature_inputs[name] = content_fingerprint(value)
-                elif isinstance(input_spec, ComputeEdge):
+                else:
                     owner = compute_plan.output_owners.get(input_spec.value_id)
                     if owner is None:
                         msg = (
@@ -87,37 +84,6 @@ def bind_compute_operations(
                         raise ValueError(msg)
                     inputs[name] = OutputInput(input_spec.value_id)
                     signature_inputs[name] = {"compute": upstream_signature}
-                else:
-                    route = next(
-                        (
-                            route
-                            for route in routes
-                            if route.port_id == input_spec.port_id
-                        ),
-                        None,
-                    )
-                    if route is None:
-                        msg = f"route port {input_spec.port_id!r} is not bound"
-                        raise ValueError(msg)
-                    missing = set(input_spec.value_type.capabilities) - set(
-                        route.capabilities
-                    )
-                    if missing:
-                        msg = "route is missing capabilities: " + ", ".join(
-                            sorted(missing)
-                        )
-                        raise ValueError(msg)
-                    resolved = ResolvedRoute(
-                        port_id=route.port_id.qualified_name,
-                        resource_id=route.resource_id.value,
-                        resource_kind=route.resource_kind,
-                        capabilities=route.capabilities,
-                        entity_ids=route.entity_ids,
-                        served_entity_ids=route.served_entity_ids,
-                        product_axis_order=route.product_axis_order,
-                    )
-                    inputs[name] = BoundInput(resolved)
-                    signature_inputs[name] = content_fingerprint(resolved)
             except (ArithmeticError, KeyError, TypeError, ValueError) as error:
                 failed = True
                 problems.append(

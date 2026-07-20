@@ -16,7 +16,10 @@ from scopecat.measurements.projection import (
     MeasurementProjection,
     select_measurement_projection,
 )
-from scopecat.records.config import ConfigProfileSnapshot, RoutingResource
+from scopecat.records.config import (
+    ConfigProfileSnapshot,
+    RoutingEndpointBinding,
+)
 from tests.testkit.authoring import load_config
 from tests.testkit.local_materialization import (
     LocalEffectInspection,
@@ -28,37 +31,29 @@ from tests.testkit.typed_program import link_program
 def config_with_physical_resources(
     resources: Mapping[str, Sequence[str]],
 ) -> ConfigProfileSnapshot:
-    """Extend the test config with explicit physical-resource contracts."""
+    """Extend the test config with explicit instrument capability bindings."""
 
     config = load_config()
-    existing_resource_ids = {resource.id for resource in config.routing.resources}
     existing_instrument_ids = {
         instrument.id for instrument in config.instrument_registry.instruments
     }
     seed_instrument = config.instrument_registry.instruments[0]
-    routing_resources: list[RoutingResource] = list(config.routing.resources)
+    routing_bindings = list(config.routing.bindings)
+    binding_keys = {
+        (binding.instrument_id, binding.capability) for binding in routing_bindings
+    }
     for resource_id, capabilities in resources.items():
-        if resource_id in existing_resource_ids:
-            routing_resources = [
-                resource.model_copy(
-                    update={
-                        "capabilities": list(
-                            dict.fromkeys((*resource.capabilities, *capabilities))
-                        )
-                    }
-                )
-                if resource.id == resource_id
-                else resource
-                for resource in routing_resources
-            ]
-        else:
-            routing_resources.append(
-                RoutingResource(
-                    id=resource_id,
-                    capabilities=list(capabilities),
+        for capability in dict.fromkeys(capabilities):
+            key = (resource_id, capability)
+            if key in binding_keys:
+                continue
+            routing_bindings.append(
+                RoutingEndpointBinding(
+                    instrument_id=resource_id,
+                    capability=capability,
                 )
             )
-        existing_resource_ids.add(resource_id)
+            binding_keys.add(key)
 
     instruments = list(config.instrument_registry.instruments)
     instruments.extend(
@@ -71,9 +66,7 @@ def config_with_physical_resources(
             "instrument_registry": config.instrument_registry.model_copy(
                 update={"instruments": instruments}
             ),
-            "routing": config.routing.model_copy(
-                update={"resources": routing_resources}
-            ),
+            "routing": config.routing.model_copy(update={"bindings": routing_bindings}),
         }
     )
     return config.model_copy(update={"system": system})

@@ -47,6 +47,7 @@ from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Scalar
 from scopecat.kernel.value_types import Quantity as QuantityType
+from scopecat.measurements.values import MeasurementValueCandidate
 from scopecat.records.execution_journal import (
     CollectionChunk,
     CollectionChunkReceipt,
@@ -168,10 +169,11 @@ def test_workspace_run_schedules_parent_compute_before_child_consumer(
     child = (
         sc.module("tests.compute_schedule.child")
         .inputs(program, state_rows)
+        .resource("source", requires=("play_program",))
         .computes(consume_program)
         .state_each(
             state_rows,
-            resource="source-0",
+            resource_port="source",
             capability="play_program",
             field="program",
             value=consume_program.output,
@@ -806,6 +808,71 @@ def test_invalid_collect_receipt_is_rejected_at_normalize_boundary() -> None:
     ] == ["started", "unknown"]
 
 
+def test_one_provider_readback_fans_out_to_every_logical_product_use() -> None:
+    driver = SignalInstrumentDriver()
+    point = RunPoint(_logical_point_id("shared-readback-point"), {})
+    uses = (
+        _collection_product_use("first-signal-use"),
+        _collection_product_use("second-signal-use"),
+    )
+    operation_id = "shared-readback-point.collect.source-0"
+    operation = CollectOperation(
+        operation_id=operation_id,
+        instrument_id=driver.instrument_id,
+        command=CollectCommand(
+            operation_id=operation_id,
+            instrument_id=driver.instrument_id,
+            point_index=0,
+            point_count=1,
+            requests=[
+                CollectProductRequest(
+                    id="signal",
+                    capability_id="scalar_signal",
+                )
+            ],
+        ),
+        result_bindings=(
+            CollectionResultBinding(
+                provider_key="signal",
+                product_use_ids=tuple(use.id for use in uses),
+                product_id=uses[0].product_id,
+            ),
+        ),
+    )
+    program = LocalEffectInspection.at_point(
+        point,
+        (operation,),
+        resource_order=(driver.instrument_id,),
+        resource_claims=_claims(driver.instrument_id),
+    )
+    readbacks = MemoryCollectionRepository()
+
+    result = RunEffectInterpreter(
+        run_id="shared-readback-run",
+        experiment_id="test-local-effects",
+        experiment_kind="test-local-effects",
+        coordinate_ids=tuple(point.coordinates),
+        resource_order=program.resource_order,
+        drivers={driver.instrument_id: driver},
+        journal=MemoryExecutionJournal(),
+        readbacks=readbacks,
+        payloads=MemoryPayloadEvidenceCommitter(),
+    ).run(complete_coverage_operations(program))
+
+    assert not result.problems and not result.indeterminate
+    assert len(driver.collect_commands) == 1
+    assert [request.id for request in driver.collect_commands[0].requests] == ["signal"]
+    assert len(readbacks.chunks) == 1
+    assert result.measurement_values == tuple(
+        MeasurementValueCandidate(
+            logical_point_id=point.logical_id,
+            product_use_id=use.id,
+            value=Quantity(value=1.0, unit="ratio"),
+        )
+        for use in uses
+    )
+
+
 @pytest.mark.parametrize(
     "receipt_update",
     [
@@ -1176,12 +1243,17 @@ def _collect_operation(
             instrument_id=instrument_id,
             point_index=0,
             point_count=1,
-            requests=[CollectProductRequest(id="signal")],
+            requests=[
+                CollectProductRequest(
+                    id="signal",
+                    capability_id="scalar_signal",
+                )
+            ],
         ),
         result_bindings=(
             CollectionResultBinding(
                 provider_key="signal",
-                product_use_id=use.id,
+                product_use_ids=(use.id,),
                 product_id=use.product_id,
             ),
         ),

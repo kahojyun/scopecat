@@ -37,6 +37,7 @@ from scopecat.compiler.semantic.dependencies import (
     residual_value_ids,
 )
 from scopecat.compiler.semantic.model import (
+    AcquireEffect,
     AcquireId,
     ActionId,
     ImplementationCatalog,
@@ -47,7 +48,6 @@ from scopecat.compiler.semantic.model import (
     OperationId,
     OperationOutputSource,
     PlanExpressionSource,
-    RouteValueSource,
     RowRegionId,
     SemanticDomainExecution,
     SemanticGraphIR,
@@ -79,7 +79,6 @@ from scopecat.kernel.value_types import (
     Int,
     Payload,
     Quantity,
-    Route,
     Scalar,
     Series,
     String,
@@ -239,7 +238,8 @@ def verify_semantic_graph(graph: SemanticGraphIR) -> VerifiedSemanticGraph:
         for transform in graph.measurement_transforms
         if transform.id not in ambiguous_measurement_transform_ids
     )
-    _verify_measurement_product_owners(
+    _verify_product_owners(
+        graph.acquisitions,
         graph.domain_executions,
         unambiguous_measurement_transforms,
         problems,
@@ -343,12 +343,36 @@ def _measurement_transforms_by_id(
     )
 
 
-def _verify_measurement_product_owners(
+def _verify_product_owners(
+    acquisitions: tuple[AcquireEffect, ...],
     executions: tuple[SemanticDomainExecution, ...],
     transforms: tuple[SemanticMeasurementTransform, ...],
     problems: list[Problem],
 ) -> None:
     owners: dict[object, tuple[str, str]] = {}
+    for acquire in acquisitions:
+        for product in acquire.products:
+            existing = owners.get(product.product_id)
+            if existing is not None:
+                owner, owner_port = existing
+                problems.append(
+                    _problem(
+                        "semantic_product_producer_duplicate",
+                        f"logical product {product.product_id.qualified_name!r} is "
+                        f"produced by both {owner}/{owner_port!r} and acquisition "
+                        f"{acquire.id.qualified_name!r}/{product.provider_key!r}",
+                        "acquisitions",
+                        acquire.id.qualified_name,
+                        "products",
+                        product.provider_key,
+                        category=ProblemCategory.CONFLICT,
+                    )
+                )
+                continue
+            owners[product.product_id] = (
+                f"acquisition {acquire.id.qualified_name!r}",
+                product.provider_key,
+            )
     for execution in executions:
         for result_id, product_id in execution.results:
             existing = owners.get(product_id)
@@ -519,12 +543,9 @@ def _verify_domain_execution(
                 )
             continue
         port = input_ports.get(name)
-        if port is not None and (
-            isinstance(definition.value_type, Route)
-            or not is_assignable(
-                definition.value_type,
-                port.value_type,
-            )
+        if port is not None and not is_assignable(
+            definition.value_type,
+            port.value_type,
         ):
             problems.append(
                 _problem(
@@ -1073,32 +1094,6 @@ def _verify_region_body_shapes(
     problems: list[Problem],
 ) -> None:
     location = ("row_regions", region.id.qualified_name)
-    if region.resource is not None:
-        resource = definitions.get(region.resource.value_id)
-        if resource is not None:
-            resource_type = resource.value_type
-            if not isinstance(resource_type, Scalar):
-                problems.append(
-                    _problem(
-                        "semantic_row_region_resource_shape_invalid",
-                        "row region resource must be scalar-shaped",
-                        *location,
-                        "resource",
-                    )
-                )
-            elif (
-                resource_type.nullable
-                or not isinstance(resource_type.atom, String)
-                or resource_type.atom.max_length == 0
-            ):
-                problems.append(
-                    _problem(
-                        "semantic_row_region_resource_type_invalid",
-                        "row region resource must be a non-null string",
-                        *location,
-                        "resource",
-                    )
-                )
     value = definitions.get(region.value.value_id)
     if value is not None and not isinstance(value.value_type, Scalar):
         problems.append(
@@ -1121,26 +1116,26 @@ def _verify_region_body_shapes(
                 "value",
             )
         )
-    for index, use in enumerate(region.route_entities):
-        route = definitions.get(use.value_id)
-        if route is not None and not isinstance(route.value_type, Scalar | Series):
+    for index, use in enumerate(region.target_entities):
+        target = definitions.get(use.value_id)
+        if target is not None and not isinstance(target.value_type, Scalar | Series):
             problems.append(
                 _problem(
-                    "semantic_row_region_route_shape_invalid",
-                    "row region route entity must be scalar- or series-shaped",
+                    "semantic_row_region_target_shape_invalid",
+                    "row region target entity must be scalar- or series-shaped",
                     *location,
-                    "route_entities",
+                    "target_entities",
                     str(index),
                 )
             )
-        elif route is not None and not _valid_region_route_type(route):
+        elif target is not None and not _valid_region_target_type(target):
             problems.append(
                 _problem(
-                    "semantic_row_region_route_type_invalid",
-                    "row region route entities must be non-null strings or "
+                    "semantic_row_region_target_type_invalid",
+                    "row region target entities must be non-null strings or "
                     "entity references and must not be statically empty",
                     *location,
-                    "route_entities",
+                    "target_entities",
                     str(index),
                 )
             )
@@ -1168,7 +1163,7 @@ def _valid_region_state_value_type(
     return isinstance(atom, Float | Quantity) and atom.finite
 
 
-def _valid_region_route_type(definition: ValueDef) -> bool:
+def _valid_region_target_type(definition: ValueDef) -> bool:
     source = definition.source
     if isinstance(source, PlanExpressionSource):
         expression = source.expression
@@ -1471,10 +1466,7 @@ def _verify_value_sources(
                     and isinstance(value_type, Table)
                 )
             )
-            if not valid_type or not (
-                isinstance(value_type, Scalar | Series | Table)
-                and is_assignable(source.certified_type, value_type)
-            ):
+            if not valid_type or not is_assignable(source.certified_type, value_type):
                 _append_source_type_mismatch(definition, problems)
             _verify_plan_source_region(definition, source, regions, problems)
             continue
@@ -1495,12 +1487,6 @@ def _verify_value_sources(
                         )
                     )
             continue
-        if isinstance(source, RouteValueSource):
-            if not isinstance(value_type, Route):
-                _append_source_type_mismatch(definition, problems)
-            continue
-        if isinstance(value_type, Route):
-            _append_source_type_mismatch(definition, problems)
 
 
 def _verify_plan_source_region(

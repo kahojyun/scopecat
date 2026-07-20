@@ -25,7 +25,7 @@ from scopecat.compiler.semantic.operation_contract import (
 )
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
-    ResourceRouteIntent,
+    LogicalResourceRequirement,
     TypedComputeNode,
     TypedComputeOutput,
     product_axis,
@@ -39,10 +39,7 @@ from scopecat.execution.local.program import (
     CollectOperation,
 )
 from scopecat.kernel.errors import CheckFailed
-from scopecat.kernel.resource_identity import (
-    PhysicalResourceId,
-    logical_resource_port_id,
-)
+from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.state import PayloadRef
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Payload, Scalar, String
@@ -70,7 +67,7 @@ from tests.testkit.relation_plans import (
 )
 from tests.testkit.typed_program import (
     compute_result,
-    instrument_product_producer,
+    instrument_acquisition,
     observable_product,
     overlay_parameter_cell,
     typed_program,
@@ -100,15 +97,22 @@ def test_materialized_effects_contract_summarizes_points_and_state() -> None:
         "signal",
         unit="ratio",
     )
-    producer = instrument_product_producer(
+    acquisition = instrument_acquisition(
         product,
-        physical_resource_id=PhysicalResourceId("readout-a"),
+        resource_port_id="readout",
+        capability="pulse",
     )
     product_use, record_use = record_product(product)
     spec = typed_program(
         id="readout-frequency-calibration",
         kind="readout.frequency_scan",
         point_domain=points,
+        resource_requirements=(
+            LogicalResourceRequirement(
+                port_id=logical_resource_port_id("readout"),
+                capabilities=("pulse",),
+            ),
+        ),
         parameter_overlays=[
             overlay_parameter_cell(
                 "readout_devices",
@@ -122,7 +126,7 @@ def test_materialized_effects_contract_summarizes_points_and_state() -> None:
         ],
         state=[
             set_state_field(
-                point_col("readout.resource_id"),
+                "readout",
                 capability_id="pulse",
                 field_path="frequency",
                 value=param(
@@ -134,14 +138,12 @@ def test_materialized_effects_contract_summarizes_points_and_state() -> None:
             )
         ],
         product_defs=[product],
-        instrument_product_producers=[producer],
+        instrument_acquisitions=[acquisition],
         product_uses=[product_use],
         record_uses=[record_use],
     )
 
-    test_config = config_with_physical_resources(
-        {"readout-a": ("pulse",), "readout-b": ("pulse",)}
-    )
+    test_config = config_with_physical_resources({"readout-a": ("pulse",)})
     preview = materialized_effects_contract(
         spec,
         _parameters(),
@@ -184,8 +186,8 @@ def test_materialized_effects_contract_summarizes_compute_payload_boundary() -> 
                 value=compute_result("build-waveform"),
             )
         ],
-        route_intents=(
-            ResourceRouteIntent(
+        resource_requirements=(
+            LogicalResourceRequirement(
                 port_id=drive,
                 capabilities=("play_waveforms",),
             ),
@@ -251,6 +253,12 @@ def test_materialized_effects_groups_shared_typed_compute_result() -> None:
         id="preview-shared-payload",
         kind="problem",
         point_domain=_point_domain(grid(index=[0])),
+        resource_requirements=(
+            LogicalResourceRequirement(
+                port_id=logical_resource_port_id("drive-a"),
+                capabilities=("play_waveforms",),
+            ),
+        ),
         state=[
             set_state_field(
                 "drive-a",
@@ -313,6 +321,12 @@ def test_materialized_effects_contract_rejects_unknown_compute_payload_nodes() -
         id="preview-unknown-payload-node",
         kind="problem",
         point_domain=_point_domain(grid(index=[0])),
+        resource_requirements=(
+            LogicalResourceRequirement(
+                port_id=logical_resource_port_id("drive-a"),
+                capabilities=("play_waveforms",),
+            ),
+        ),
         state=[
             set_state_field(
                 "drive-a",
@@ -335,29 +349,36 @@ def test_materialized_effects_contract_rejects_unknown_compute_payload_nodes() -
     ]
 
 
-def test_materialized_effects_selects_local_product_realization() -> None:
+def test_materialized_effects_binds_acquisition_to_its_logical_port() -> None:
     product = observable_product(
         "iq_trace",
         unit="V",
         axes=[product_axis("time", size=16, kind="time")],
     )
-    producer = instrument_product_producer(
+    acquisition = instrument_acquisition(
         product,
-        physical_resource_id="readout-a",
+        resource_port_id="readout",
+        capability="measure_iq",
     )
     product_use, record_use = record_product(product)
     spec = typed_program(
         id="record-plan",
         kind="problem",
         point_domain=_point_domain(grid(index=[0])),
+        resource_requirements=(
+            LogicalResourceRequirement(
+                port_id=logical_resource_port_id("readout"),
+                capabilities=("measure_iq",),
+            ),
+        ),
         product_defs=[product],
-        instrument_product_producers=[producer],
+        instrument_acquisitions=[acquisition],
         product_uses=[product_use],
         record_uses=[record_use],
     )
-    config = config_with_physical_resources({"readout-a": ()})
+    config = config_with_physical_resources({"readout-a": ("measure_iq",)})
     preview = materialized_effects_contract(spec, _parameters(), config=config)
     [operation] = operations_of_type(preview, CollectOperation, point_index=0)
     [binding] = operation.result_bindings
     assert operation.instrument_id == "readout-a"
-    assert binding.product_use_id == product_use.id
+    assert binding.product_use_ids == (product_use.id,)

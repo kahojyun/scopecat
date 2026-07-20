@@ -470,7 +470,7 @@ PARALLEL_GATE_SET_TEMPLATE = (
     .description(
         "Build a table-defined set of disjoint CZ calibrations in one logical "
         "point stream to "
-        "exercise route fan-out and entity-axis records."
+        "exercise resource shard fan-out and entity-axis records."
     )
     .inputs(
         sc.InputDescription(

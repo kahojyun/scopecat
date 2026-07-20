@@ -21,6 +21,7 @@ from scopecat.authoring._intents import (
 from scopecat.authoring._module_construction import module_from_parts_internal
 from scopecat.authoring._module_ir import (
     ModuleAcquireEffect,
+    ModuleAcquireProduct,
     ModuleBindingEffect,
     ModuleStateEffect,
 )
@@ -74,11 +75,6 @@ from scopecat.compiler.semantic.model import (
     ValueUse,
     operation_result_id,
 )
-from scopecat.compiler.typed.program import core_state
-from scopecat.compiler.typed.state import (
-    LogicalStateResourceTarget,
-    SetStateSpec,
-)
 from scopecat.composition.local import (
     local_config_registry_unit_of_work,
     local_workspace_services,
@@ -90,14 +86,22 @@ from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.symbols import SymbolId
-from scopecat.planning.authoring import resolve_experiment
-from scopecat.records.config import RoutingGraph, RoutingResource
+from scopecat.planning.authoring import (
+    resolve_experiment,
+    resolve_experiment_with_config,
+)
+from scopecat.records.config import (
+    RoutingEndpointBinding,
+    RoutingGraph,
+    config_content_hash,
+)
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import (
     ParameterDefinition,
     Quantity,
     TableParameterValue,
 )
+from scopecat.records.run import RunConfigSource
 from scopecat.records.run_request import RunRequest
 from tests.testkit.authoring import (
     DRIVE_FREQUENCY_POINT,
@@ -185,9 +189,17 @@ def _module_fixture(
             *(
                 (
                     ModuleAcquireEffect(
-                        "read-products",
-                        tuple(
-                            ProductRef(product.product_id, product.origin)
+                        id="read-products",
+                        resource_port_id=logical_resource_port_id("source"),
+                        capability_id="scalar_signal",
+                        products=tuple(
+                            ModuleAcquireProduct(
+                                product=ProductRef(
+                                    product.product_id,
+                                    product.origin,
+                                ),
+                                provider_key=product.id,
+                            )
                             for product in products
                         ),
                     ),
@@ -203,15 +215,11 @@ def _module_fixture(
 def _observable_product(
     id: str,  # noqa: A002
     *,
-    resource: str | None = None,
     unit: str | None = "ratio",
     axes: Sequence[authoring.ProductAxis] = (),
 ) -> ModuleProductDecl:
     return ModuleProductDecl(
         id=id,
-        resource_port_id=(
-            logical_resource_port_id(resource) if resource is not None else None
-        ),
         unit=unit,
         axes=tuple(axes),
     )
@@ -300,9 +308,14 @@ def test_template_selects_module_products_as_records() -> None:
     module = (
         authoring.module("test.product_module")
         .inputs(subject)
-        .resource("source", requires=("set_frequency",))
-        .product("signal", resource="source", unit="ratio")
-        .acquire("read-signal", "signal")
+        .resource("source", requires=("set_frequency", "scalar_signal"))
+        .product("signal", unit="ratio")
+        .acquire(
+            "read-signal",
+            "signal",
+            resource="source",
+            capability="scalar_signal",
+        )
         .build()
     )
     without_selection = (
@@ -450,9 +463,14 @@ def test_template_can_scan_any_entity_input() -> None:
     module = (
         authoring.module("test.entity_scan_module")
         .inputs(qubit)
-        .resource("source")
-        .product("signal", resource="source", unit="ratio")
-        .acquire("read-signal", "signal")
+        .resource("source", requires=("scalar_signal",))
+        .product("signal", unit="ratio")
+        .acquire(
+            "read-signal",
+            "signal",
+            resource="source",
+            capability="scalar_signal",
+        )
         .build()
     )
     template = (
@@ -515,7 +533,7 @@ def test_entity_scan_captures_an_immutable_durable_snapshot() -> None:
     ]
 
 
-def test_entity_scan_routes_resources_per_point() -> None:
+def test_entity_scan_selects_resource_entities_per_point() -> None:
     seed_config = load_config()
     q0 = seed_config.topology.devices[0]
     drive_q0 = seed_config.topology.channels[0]
@@ -549,20 +567,20 @@ def test_entity_scan_routes_resources_per_point() -> None:
                 }
             ),
             "routing": RoutingGraph(
-                resources=[
-                    RoutingResource(
-                        id="source-0",
-                        capabilities=["set_frequency"],
-                        served_entities=["q0"],
-                        channels=["drive-q0"],
+                bindings=[
+                    RoutingEndpointBinding(
+                        instrument_id="source-0",
+                        capability="set_frequency",
+                        entity_id="q0",
+                        channel_id="drive-q0",
                     ),
-                    RoutingResource(
-                        id="source-1",
-                        capabilities=["set_frequency"],
-                        served_entities=["q1"],
-                        channels=["drive-q1"],
+                    RoutingEndpointBinding(
+                        instrument_id="source-1",
+                        capability="set_frequency",
+                        entity_id="q1",
+                        channel_id="drive-q1",
                     ),
-                ]
+                ],
             ),
         }
     )
@@ -572,7 +590,7 @@ def test_entity_scan_routes_resources_per_point() -> None:
         authoring.ScalarType(authoring.EntityType()),
     )
     module = (
-        authoring.module("test.entity_scan_routing")
+        authoring.module("test.entity_scan_selection")
         .inputs(qubit)
         .resource(
             "drive",
@@ -585,13 +603,18 @@ def test_entity_scan_routes_resources_per_point() -> None:
             field="frequency",
             value=Quantity(value=5.0, unit="GHz"),
         )
-        .product("signal", resource="drive", unit="ratio")
-        .acquire("read-signal", "signal")
+        .product("signal", unit="ratio")
+        .acquire(
+            "read-signal",
+            "signal",
+            resource="drive",
+            capability="set_frequency",
+        )
         .build()
     )
     template = (
-        module.template("test.entity_scan_routing", kind="entity_scan_routing")
-        .experiment_id("entity-scan-routing")
+        module.template("test.entity_scan_selection", kind="entity_scan_selection")
+        .experiment_id("entity-scan-selection")
         .scan(
             sc.point("qubit", authoring.ScalarType(authoring.EntityType())),
             [
@@ -620,9 +643,28 @@ def test_entity_scan_routes_resources_per_point() -> None:
         "source-0",
         "source-1",
     ]
+    collections = [
+        operations_of_type(preview, CollectOperation, point_index=point_index)[0]
+        for point_index in range(2)
+    ]
+    assert [operation.instrument_id for operation in collections] == [
+        "source-0",
+        "source-1",
+    ]
+    assert [
+        (
+            tuple(request.entity_ids),
+            tuple(binding.channel_id for binding in request.channel_bindings),
+        )
+        for operation in collections
+        for request in operation.command.requests
+    ] == [
+        (("q0",), ("drive-q0",)),
+        (("q1",), ("drive-q1",)),
+    ]
 
 
-def test_runtime_entity_scan_feeds_routing_and_parameter_lookup() -> None:
+def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> None:
     seed_config = load_config()
     q0 = seed_config.topology.devices[0]
     drive_q0 = seed_config.topology.channels[0]
@@ -700,20 +742,20 @@ def test_runtime_entity_scan_feeds_routing_and_parameter_lookup() -> None:
                 }
             ),
             "routing": RoutingGraph(
-                resources=[
-                    RoutingResource(
-                        id="source-0",
-                        capabilities=["set_frequency"],
-                        served_entities=["q0"],
-                        channels=["drive-q0"],
+                bindings=[
+                    RoutingEndpointBinding(
+                        instrument_id="source-0",
+                        capability="set_frequency",
+                        entity_id="q0",
+                        channel_id="drive-q0",
                     ),
-                    RoutingResource(
-                        id="source-1",
-                        capabilities=["set_frequency"],
-                        served_entities=["q1"],
-                        channels=["drive-q1"],
+                    RoutingEndpointBinding(
+                        instrument_id="source-1",
+                        capability="set_frequency",
+                        entity_id="q1",
+                        channel_id="drive-q1",
                     ),
-                ]
+                ],
             ),
         }
     )
@@ -743,8 +785,13 @@ def test_runtime_entity_scan_feeds_routing_and_parameter_lookup() -> None:
                 value_type=authoring.ScalarType(authoring.QuantityType(unit="GHz")),
             ),
         )
-        .product("signal", resource="drive", unit="ratio")
-        .acquire("read-signal", "signal")
+        .product("signal", unit="ratio")
+        .acquire(
+            "read-signal",
+            "signal",
+            resource="drive",
+            capability="set_frequency",
+        )
         .build()
     )
     template = (
@@ -856,8 +903,14 @@ def test_runtime_entity_scan_can_drive_dependent_default_scan() -> None:
     module = (
         authoring.module("test.runtime_entity_dependent_points")
         .inputs(qubit)
+        .resource("source", requires=("scalar_signal",))
         .product("signal", unit="ratio")
-        .acquire("read-signal", "signal")
+        .acquire(
+            "read-signal",
+            "signal",
+            resource="source",
+            capability="scalar_signal",
+        )
         .build()
     )
     template = (
@@ -920,14 +973,18 @@ def test_entity_series_input_can_define_product_axis() -> None:
     module = (
         authoring.module("test.entity_series_axis_module")
         .inputs(qubits)
-        .resource("source")
+        .resource("source", requires=("scalar_signal",))
         .product(
             "iq",
-            resource="source",
             dtype="complex128",
             axes=(authoring.entity_axis("qubit", qubits),),
         )
-        .acquire("read-iq", "iq")
+        .acquire(
+            "read-iq",
+            "iq",
+            resource="source",
+            capability="scalar_signal",
+        )
         .build()
     )
     template = (
@@ -976,10 +1033,9 @@ def test_entity_series_input_can_define_product_axis() -> None:
 def test_non_entity_string_series_defines_categorical_product_axis() -> None:
     module = (
         authoring.module("test.categorical_axis")
-        .resource("source")
+        .resource("source", requires=("scalar_signal",))
         .product(
             "iq",
-            resource="source",
             dtype="complex128",
             axes=(
                 authoring.product_axis(
@@ -994,7 +1050,12 @@ def test_non_entity_string_series_defines_categorical_product_axis() -> None:
                 ),
             ),
         )
-        .acquire("read-iq", "iq")
+        .acquire(
+            "read-iq",
+            "iq",
+            resource="source",
+            capability="scalar_signal",
+        )
         .build()
     )
     template = (
@@ -1017,7 +1078,7 @@ def test_non_entity_string_series_defines_categorical_product_axis() -> None:
     assert role_axis.metadata == {}
 
 
-def test_entity_series_routes_as_single_point_with_ordered_product_axis() -> None:
+def test_entity_series_selection_keeps_one_point_and_ordered_product_axis() -> None:
     seed_config = load_config()
     source_0 = seed_config.instrument_registry.instruments[0]
     topology = seed_config.topology.model_copy(
@@ -1037,13 +1098,14 @@ def test_entity_series_routes_as_single_point_with_ordered_product_axis() -> Non
                 }
             ),
             "routing": RoutingGraph(
-                resources=[
-                    RoutingResource(
-                        id="readout-array",
-                        capabilities=["set_frequency"],
-                        served_entities=["q0", "q1"],
+                bindings=[
+                    RoutingEndpointBinding(
+                        instrument_id="readout-array",
+                        capability="set_frequency",
+                        entity_id=entity_id,
                     )
-                ]
+                    for entity_id in ("q0", "q1")
+                ],
             ),
         }
     )
@@ -1072,7 +1134,7 @@ def test_entity_series_routes_as_single_point_with_ordered_product_axis() -> Non
         authoring.SeriesType(authoring.ScalarType(authoring.EntityType())),
     )
     module = (
-        authoring.module("test.entity_series_routing")
+        authoring.module("test.entity_series_selection")
         .inputs(qubits)
         .resource(
             "readout",
@@ -1081,16 +1143,20 @@ def test_entity_series_routes_as_single_point_with_ordered_product_axis() -> Non
         )
         .product(
             "iq",
-            resource="readout",
             dtype="complex128",
             axes=(authoring.entity_axis("qubit", qubits),),
         )
-        .acquire("read-iq", "iq")
+        .acquire(
+            "read-iq",
+            "iq",
+            resource="readout",
+            capability="set_frequency",
+        )
         .build()
     )
     template = (
-        module.template("test.entity_series_routing", kind="entity_series_routing")
-        .experiment_id("entity-series-routing")
+        module.template("test.entity_series_selection", kind="entity_series_selection")
+        .experiment_id("entity-series-selection")
         .record_product("iq")
         .build()
     )
@@ -1110,23 +1176,6 @@ def test_entity_series_routes_as_single_point_with_ordered_product_axis() -> Non
     [request] = operation.command.requests
     assert operation.instrument_id == "readout-array"
     assert request.entity_ids == ["q0", "q1"]
-
-
-def test_module_elaborates_without_config() -> None:
-    module = _module_fixture(
-        id="test.simple_reusable",
-        entity_inputs=("subject",),
-        resources=(resource_port("source", requires()),),
-    )
-    assembly = elaborate_module(module, subject="q0")
-
-    assert isinstance(assembly, SemanticExperimentIR)
-    assert assembly.experiment_id is None
-    assert assembly.kind is None
-    assert assembly.inputs == {"subject": "q0"}
-    assert assembly.input_ports[0].id == "subject"
-    assert assembly.resource_ports[0].scope == ()
-    assert assembly.resource_ports[0].id == "source"
 
 
 def test_request_projection_explicitly_handles_authoring_semantic_values() -> None:
@@ -1241,7 +1290,13 @@ def test_explicit_instances_keep_same_named_resource_ports_isolated() -> None:
     records = (
         authoring.module("test.shared_resource.records")
         .resource("source", requires=("acquire_signal",))
-        .product("signal", resource="source", unit="ratio")
+        .product("signal", unit="ratio")
+        .acquire(
+            "read-signal",
+            "signal",
+            resource="source",
+            capability="acquire_signal",
+        )
         .build()
     )
     root = (
@@ -1278,15 +1333,18 @@ def test_template_composition_rejects_duplicate_record_ids() -> None:
     first = _module_fixture(
         id="test.duplicate_record.first",
         resources=[
-            resource_port("source", requires("set_frequency")),
+            resource_port(
+                "source",
+                requires("set_frequency", "scalar_signal"),
+            ),
         ],
-        products=[_observable_product("signal", resource="source", unit="ratio")],
+        products=[_observable_product("signal", unit="ratio")],
     )
     second = _module_fixture(
         id="test.duplicate_record.second",
         entity_inputs=(),
         resources=[resource_port("source", requires("set_frequency"))],
-        products=[_observable_product("signal", resource="source", unit="ratio")],
+        products=[_observable_product("signal", unit="ratio")],
     )
 
     with pytest.raises(CheckFailed) as error:
@@ -1700,7 +1758,10 @@ def test_template_invocation_runs_composed_modules_directly() -> None:
     scan = _module_fixture(
         id="test.scripted_module_scan",
         resources=[
-            resource_port("source", requires("set_frequency")),
+            resource_port(
+                "source",
+                requires("set_frequency", "scalar_signal"),
+            ),
         ],
         bindings=[
             bind_field(
@@ -1710,7 +1771,7 @@ def test_template_invocation_runs_composed_modules_directly() -> None:
                 value=DRIVE_FREQUENCY_POINT,
             )
         ],
-        products=[_observable_product("signal", resource="source", unit="ratio")],
+        products=[_observable_product("signal", unit="ratio")],
     )
 
     resolved = resolve_experiment(
@@ -1746,7 +1807,10 @@ def test_product_declaration_uses_axes() -> None:
     module = _module_fixture(
         id="test.record_axes",
         resources=[
-            resource_port("source", requires("set_frequency")),
+            resource_port(
+                "source",
+                requires("set_frequency", "scalar_signal"),
+            ),
         ],
         bindings=[
             bind_field(
@@ -1759,7 +1823,6 @@ def test_product_declaration_uses_axes() -> None:
         products=[
             _observable_product(
                 "signal",
-                resource="source",
                 unit="ratio",
                 axes=(
                     authoring.shot_axis(2),
@@ -1845,20 +1908,20 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
                 }
             ),
             "routing": RoutingGraph(
-                resources=[
-                    RoutingResource(
-                        id="source-0",
-                        capabilities=["set_frequency"],
-                        served_entities=["q0"],
-                        channels=["drive-q0"],
+                bindings=[
+                    RoutingEndpointBinding(
+                        instrument_id="source-0",
+                        capability="set_frequency",
+                        entity_id="q0",
+                        channel_id="drive-q0",
                     ),
-                    RoutingResource(
-                        id="source-1",
-                        capabilities=["set_frequency"],
-                        served_entities=["q1"],
-                        channels=["drive-q1"],
+                    RoutingEndpointBinding(
+                        instrument_id="source-1",
+                        capability="set_frequency",
+                        entity_id="q1",
+                        channel_id="drive-q1",
                     ),
-                ]
+                ],
             ),
         }
     )
@@ -1868,7 +1931,7 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
         authoring.ScalarType(authoring.EntityType()),
     )
     module = (
-        authoring.module("test.entity_routed_resource")
+        authoring.module("test.entity_selected_resource")
         .inputs(qubit)
         .resource(
             "drive",
@@ -1890,9 +1953,9 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
     resolved = resolve_experiment(
         (
             module.template(
-                "test.entity_routed_resource",
-                kind="entity_routed_resource",
-            ).experiment_id("entity-routed-resource")
+                "test.entity_selected_resource",
+                kind="entity_selected_resource",
+            ).experiment_id("entity-selected-resource")
         ).bind(qubit="q1"),
         config_profile=config,
     )
@@ -1902,19 +1965,50 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
         resolved.parameters,
         config=config,
     )
-    state = core_state(resolved.experiment)[0]
-    assert isinstance(state, SetStateSpec)
-    resource_target = state.resource_target
-    assert isinstance(resource_target, LogicalStateResourceTarget)
-    assert resource_target.port_id.qualified_name == "drive"
     assert materialized_state_fields(preview)[0][1].instrument_id == "source-1"
+
+
+def test_explicit_config_source_survives_experiment_resolution() -> None:
+    selected_instrument = "spare-awg"
+    config = config_with_physical_resources({selected_instrument: ("drive.frequency",)})
+    source = RunConfigSource(
+        selector=selected_instrument,
+        entry_id="entry-spare-awg",
+        config_ref="configs/spare-awg.json",
+        content_hash=config_content_hash(config),
+    )
+    module = (
+        authoring.module("test.explicit-config-source")
+        .resource("drive", requires=("drive.frequency",))
+        .bind_field(
+            "drive",
+            capability="drive.frequency",
+            field="value",
+            value=Quantity(value=5.0, unit="GHz"),
+        )
+        .build()
+    )
+
+    resolved = resolve_experiment_with_config(
+        module.template("test.explicit-config-source", kind="config-source").bind(),
+        config=config,
+        config_source=source,
+    )
+    preview = materialized_effects_contract(
+        resolved.experiment,
+        resolved.parameters,
+        config=config,
+    )
+
+    assert materialized_state_fields(preview)[0][1].instrument_id == selected_instrument
+    assert resolved.config_source == source
+    assert source.content_hash == config_content_hash(resolved.config)
 
 
 def test_module_can_materialize_background_state_from_parameter_table() -> None:
     seed_config = config_with_physical_resources(
         {
-            "flux-q0": ("set_offset",),
-            "flux-q1": ("set_offset",),
+            "flux-source": ("set_offset",),
         }
     )
     catalog = seed_config.parameter_catalog.model_copy(
@@ -1923,11 +2017,11 @@ def test_module_can_materialize_background_state_from_parameter_table() -> None:
                 *seed_config.parameter_catalog.definitions,
                 _table_definition(
                     id="flux_bias",
-                    primary_key=["resource_id"],
+                    primary_key=["slot"],
                     columns=[
                         sc.TableColumn(
-                            id="resource_id",
-                            value_type=sc.ScalarType(sc.StringType()),
+                            id="slot",
+                            value_type=sc.ScalarType(sc.IntType()),
                         ),
                         sc.TableColumn(
                             id="offset",
@@ -1949,12 +2043,8 @@ def test_module_can_materialize_background_state_from_parameter_table() -> None:
                     id="flux_bias",
                     rows=[
                         {
-                            "resource_id": "flux-q0",
+                            "slot": 0,
                             "offset": Quantity(value=0.1, unit="arb"),
-                        },
-                        {
-                            "resource_id": "flux-q1",
-                            "offset": Quantity(value=-0.2, unit="arb"),
                         },
                     ],
                 ),
@@ -1969,8 +2059,8 @@ def test_module_can_materialize_background_state_from_parameter_table() -> None:
         sc.TableType(
             columns=(
                 sc.TableColumn(
-                    "resource_id",
-                    sc.ScalarType(sc.StringType()),
+                    "slot",
+                    sc.ScalarType(sc.IntType()),
                 ),
                 sc.TableColumn(
                     "offset",
@@ -1981,9 +2071,10 @@ def test_module_can_materialize_background_state_from_parameter_table() -> None:
     )
     background = (
         authoring.module("test.background_flux")
+        .resource("flux", requires=("set_offset",))
         .state_each(
             flux_bias,
-            resource=lambda row: row["resource_id"],
+            resource_port="flux",
             capability="set_offset",
             field="offset",
             value=lambda row: row["offset"],
@@ -2013,8 +2104,7 @@ def test_module_can_materialize_background_state_from_parameter_table() -> None:
         )
         for _, state, field in materialized_state_fields(preview)
     ] == [
-        ("flux-q0", "set_offset.offset", Quantity(value=0.1, unit="arb")),
-        ("flux-q1", "set_offset.offset", Quantity(value=-0.2, unit="arb")),
+        ("flux-source", "set_offset.offset", Quantity(value=0.1, unit="arb")),
     ]
 
 
@@ -2033,16 +2123,14 @@ def test_module_assembler_reports_ambiguous_resource_port() -> None:
                 }
             ),
             "routing": RoutingGraph(
-                resources=[
-                    RoutingResource(
-                        id="source-0",
-                        capabilities=["set_frequency"],
-                    ),
-                    RoutingResource(
-                        id="source-1",
-                        capabilities=["set_frequency"],
-                    ),
-                ]
+                bindings=[
+                    RoutingEndpointBinding(
+                        instrument_id=resource_id,
+                        capability=capability,
+                    )
+                    for resource_id in ("source-0", "source-1")
+                    for capability in ("set_frequency", "scalar_signal")
+                ],
             ),
         }
     )

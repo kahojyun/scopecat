@@ -36,9 +36,11 @@ from scopecat.compiler.semantic.operation_contract import (
 )
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
+    LogicalResourceRequirement,
     TypedComputeNode,
     TypedComputeOutput,
     ValueInput,
+    core_acquisitions,
     record_product,
     set_state_field,
 )
@@ -66,7 +68,7 @@ from scopecat.kernel.problems import (
     ProblemPhase,
     model_location,
 )
-from scopecat.kernel.resource_identity import ResourceClaim
+from scopecat.kernel.resource_identity import ResourceClaim, logical_resource_port_id
 from scopecat.kernel.state import StateValue
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Payload, Scalar, String, TableColumn
@@ -125,7 +127,7 @@ from tests.testkit.signal_instruments import (
 )
 from tests.testkit.typed_program import (
     compute_result,
-    instrument_product_producer,
+    instrument_acquisition,
     link_program,
     observable_product,
     typed_program,
@@ -1045,7 +1047,6 @@ def test_provider_product_axis_unit_mismatch_is_rejected_before_run(
     )
     config = load_config()
     environment = validate_config_environment(config)
-    assert environment.routing is not None
     experiment = load_experiment()
     plan = materialize_local_execution(link_program(experiment, environment))
     plan = _first_point_plan(plan)
@@ -1234,9 +1235,10 @@ def test_run_shares_identical_residual_point_compute(tmp_path: Path) -> None:
         allow_extra_columns=True,
     )
     product = observable_product("signal")
-    producer = instrument_product_producer(
+    acquisition = instrument_acquisition(
         product,
-        physical_resource_id="source-0",
+        resource_port_id="source",
+        capability="scalar_signal",
     )
     product_use, record_use = record_product(product)
     spec = typed_program(
@@ -1269,19 +1271,22 @@ def test_run_shares_identical_residual_point_compute(tmp_path: Path) -> None:
                 ),
             ),
         ),
+        resource_requirements=(
+            LogicalResourceRequirement(
+                port_id=logical_resource_port_id("source"),
+                capabilities=("play_program", "scalar_signal"),
+            ),
+        ),
         state=[
             set_state_field(
-                scalar_value_expr(
-                    lit("source-0"),
-                    expected_type=Scalar(String()),
-                ),
+                resource_port_id=logical_resource_port_id("source"),
                 capability_id="play_program",
                 field_path="program",
                 value=compute_result("build-program"),
             )
         ],
         product_defs=[product],
-        instrument_product_producers=[producer],
+        instrument_acquisitions=[acquisition],
         product_uses=[product_use],
         record_uses=[record_use],
         compute_nodes=[
@@ -1319,7 +1324,9 @@ def test_run_shares_identical_residual_point_compute(tmp_path: Path) -> None:
     events: list[RuntimeEvent] = []
     payload_observations: list[RuntimePayloadObservation] = []
 
-    config = config_with_physical_resources({"source-0": ("play_program",)})
+    config = config_with_physical_resources(
+        {"source-0": ("play_program", "scalar_signal")}
+    )
     manifest = execute_bound_run(
         config=config,
         experiment=spec,
@@ -1397,14 +1404,12 @@ def test_run_shares_identical_residual_point_compute(tmp_path: Path) -> None:
 
 def test_run_skips_unchanged_state_fields(tmp_path: Path) -> None:
     instrument = TestSignalInstrument()
+    base_experiment = load_experiment()
     experiment = replace(
-        load_experiment(),
+        base_experiment,
         effects=(
             set_state_field(
-                scalar_value_expr(
-                    lit("source-0"),
-                    expected_type=Scalar(String()),
-                ),
+                resource_port_id=logical_resource_port_id("source"),
                 capability_id="set_frequency",
                 field_path="frequency",
                 value=scalar_value_expr(
@@ -1412,6 +1417,7 @@ def test_run_skips_unchanged_state_fields(tmp_path: Path) -> None:
                     expected_type=Scalar(QuantityType(unit="GHz")),
                 ),
             ),
+            *core_acquisitions(base_experiment),
         ),
     )
     events: list[RuntimeEvent] = []

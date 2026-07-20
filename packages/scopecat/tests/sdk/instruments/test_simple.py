@@ -191,7 +191,12 @@ def test_simple_read_only_driver_collects_without_state_boilerplate() -> None:
             instrument_id="voltmeter-0",
             point_index=0,
             point_count=1,
-            requests=[CollectProductRequest(id="humidity")],
+            requests=[
+                CollectProductRequest(
+                    id="humidity",
+                    capability_id="voltage",
+                )
+            ],
         )
     )
     assert unsupported.status == "not_collected"

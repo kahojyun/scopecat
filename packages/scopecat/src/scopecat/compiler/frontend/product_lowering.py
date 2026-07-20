@@ -35,21 +35,12 @@ from scopecat.compiler.relations.model import (
 )
 from scopecat.compiler.relations.verification import RelationTypeBindings
 from scopecat.compiler.semantic.compute_result import ComputeResultRef
-from scopecat.compiler.typed.products import (
-    InstrumentProductProducer,
-    ProductAxisDef,
-    ProductDef,
-)
+from scopecat.compiler.typed.products import ProductAxisDef, ProductDef
 from scopecat.compiler.typed.program import product_axis as compiler_product_axis
 from scopecat.compiler.typed.records import RecordUse
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.problems import ModelLocation
-from scopecat.kernel.product_identity import (
-    ProductId,
-    ProductProducerId,
-    ProductUse,
-    ProductUseId,
-)
+from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
 from scopecat.kernel.value_types import Scalar, Series, Table, ValueType
 from scopecat.records._run_request_values import normalize_json_value
 from scopecat.records.config import Topology
@@ -65,15 +56,11 @@ type InputRow = Callable[[Mapping[str, object]], Mapping[str, object]]
 
 @dataclass(frozen=True, slots=True)
 class LoweredProductModel:
-    """Orthogonal product declarations, producers, uses, and record consumers."""
+    """Orthogonal product declarations, uses, and record consumers."""
 
     product_defs: tuple[ProductDef, ...] = ()
-    instrument_product_producers: tuple[InstrumentProductProducer, ...] = ()
     product_uses: tuple[ProductUse, ...] = ()
     record_uses: tuple[RecordUse, ...] = ()
-
-
-_EMPTY_PRODUCT_IDS: frozenset[ProductId] = frozenset()
 
 
 def lower_products(
@@ -87,9 +74,8 @@ def lower_products(
     bind_series_input_refs: BindSeriesInputRefs,
     bind_relation_input_refs: BindRelationInputRefs,
     input_row: InputRow,
-    non_instrument_product_ids: frozenset[ProductId] = _EMPTY_PRODUCT_IDS,
 ) -> LoweredProductModel:
-    lowered = tuple(
+    products = tuple(
         _lower_product_declaration(
             static_evaluator,
             topology,
@@ -101,12 +87,6 @@ def lower_products(
             input_row=input_row,
         )
         for product in product_declarations_by_id.values()
-    )
-    products = tuple(product for product, _producer in lowered)
-    producers = tuple(
-        producer
-        for product, producer in lowered
-        if product.id not in non_instrument_product_ids
     )
     uses: list[ProductUse] = []
     uses_by_id: dict[ProductUseId, ProductUse] = {}
@@ -136,7 +116,6 @@ def lower_products(
         )
     return LoweredProductModel(
         product_defs=products,
-        instrument_product_producers=producers,
         product_uses=tuple(uses),
         record_uses=tuple(records),
     )
@@ -189,8 +168,8 @@ def _lower_product_declaration(
     bind_series_input_refs: BindSeriesInputRefs,
     bind_relation_input_refs: BindRelationInputRefs,
     input_row: InputRow,
-) -> tuple[ProductDef, InstrumentProductProducer]:
-    product_def = ProductDef(
+) -> ProductDef:
+    return ProductDef(
         id=product.product_id,
         kind=product.kind,
         unit=product.unit,
@@ -210,14 +189,6 @@ def _lower_product_declaration(
             for axis in product.axes
         ),
         metadata=_durable_metadata(product.metadata),
-    )
-    return product_def, InstrumentProductProducer(
-        id=ProductProducerId(product_def.id.symbol),
-        product_id=product_def.id,
-        resource_target=product.resource_port_id,
-        capability=product.capability,
-        provider_key=product.product_key or product.id,
-        metadata=_durable_metadata(product.producer_metadata),
     )
 
 

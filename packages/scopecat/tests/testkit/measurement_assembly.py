@@ -10,11 +10,16 @@ from scopecat.compiler.linking.linked import (
 from scopecat.compiler.relations.model import literal_rows
 from scopecat.compiler.relations.point_domain import point_rows
 from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.program import CoreProgram, product_output
+from scopecat.compiler.typed.program import (
+    CoreProgram,
+    LogicalResourceRequirement,
+    product_output,
+)
 from scopecat.compiler.typed.records import RecordUse
 from scopecat.execution.points import RunPoint
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.product_identity import ProductUse, product_use
+from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.value_types import Float, Payload, Scalar, Table, TableColumn
 from scopecat.measurements._bridge import (
     project_measurement_catalog,
@@ -31,7 +36,7 @@ from scopecat.measurements.values import (
 from scopecat.records.parameter import Quantity
 from tests.testkit.authoring import load_config
 from tests.testkit.relation_plans import table_value_expr
-from tests.testkit.typed_program import link_program
+from tests.testkit.typed_program import instrument_acquisitions, link_program
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,6 +133,17 @@ def measurement_assembly_scenario(
                 )
             )
         ),
+        resource_requirements=(
+            (
+                LogicalResourceRequirement(
+                    port_id=logical_resource_port_id("source"),
+                    capabilities=("scalar_signal",),
+                ),
+            )
+            if products
+            else ()
+        ),
+        effects=instrument_acquisitions(*products, capability="scalar_signal"),
         product_defs=products,
         product_uses=uses,
         record_uses=tuple(records),

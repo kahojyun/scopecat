@@ -29,10 +29,10 @@ from scopecat.compiler.semantic.model import (
 from scopecat.compiler.semantic.operation_contract import (
     LOCAL_OPAQUE_OPERATION_CONTRACT,
 )
-from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     ComputeEdge,
+    LogicalResourceRequirement,
     TypedComputeNode,
     TypedComputeOutput,
     ValueInput,
@@ -47,6 +47,10 @@ from scopecat.execution.local.program import (
 from scopecat.kernel.content_identity import content_fingerprint
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
+from scopecat.kernel.resource_identity import (
+    LogicalResourcePortId,
+    logical_resource_port_id,
+)
 from scopecat.kernel.state import PayloadRef
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import (
@@ -153,8 +157,8 @@ def _point_bindings(value_type: Table) -> RelationTypeBindings:
     return RelationTypeBindings(point_row=RowType.from_table(value_type))
 
 
-def _resource(value: str) -> ScalarValueExpr:
-    return scalar_value_expr(lit(value), expected_type=Scalar(String()))
+def _resource(value: str) -> LogicalResourcePortId:
+    return logical_resource_port_id(value)
 
 
 def test_content_fingerprint_preserves_primitive_enum_types() -> None:
@@ -184,9 +188,15 @@ def test_bound_state_preserves_primitive_field_types(
             literal_rows([{}]),
             Table(columns=(), min_rows=1, max_rows=1),
         ),
+        resource_requirements=(
+            LogicalResourceRequirement(
+                port_id=_resource("source-0"),
+                capabilities=("configure",),
+            ),
+        ),
         state=(
             set_state_field(
-                _resource("source-0"),
+                resource_port_id=_resource("source-0"),
                 capability_id="configure",
                 field_path="value",
                 value=scalar_value_expr(lit(value), expected_type=value_type),
@@ -267,9 +277,15 @@ def test_effects_use_logical_point_and_content_addressed_payload_identity() -> N
             (unused_id, lambda: {"unused": True}),
             (producer_id, _identity_value),
         ),
+        resource_requirements=(
+            LogicalResourceRequirement(
+                port_id=_resource("source-0"),
+                capabilities=("play_program",),
+            ),
+        ),
         state=(
             set_state_field(
-                _resource("source-0"),
+                resource_port_id=_resource("source-0"),
                 capability_id="play_program",
                 field_path="program",
                 value=compute_result(consumer_output_id),

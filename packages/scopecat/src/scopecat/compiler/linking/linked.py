@@ -21,7 +21,6 @@ from scopecat.compiler.relations.evaluation import (
     validate_relation_parameter_import,
 )
 from scopecat.compiler.relations.model import (
-    LiteralScalarExpr,
     RelationExpr,
     Row,
     ScalarExpr,
@@ -46,28 +45,16 @@ from scopecat.compiler.typed.point_domain import (
     materialize_point_domain,
     materialize_point_domain_ordinals,
 )
-from scopecat.compiler.typed.products import (
-    InstrumentProductProducer,
-    MeasurementTransformProductProducer,
-    ProductDef,
-)
+from scopecat.compiler.typed.products import ProductDef
 from scopecat.compiler.typed.program import (
     CoreProgram,
     TypedDomainExecution,
     TypedMeasurementTransform,
     ValueInput,
-    core_actions,
     core_domain_executions,
-    core_state,
 )
 from scopecat.compiler.typed.records import RecordUse
 from scopecat.compiler.typed.specialization import specialize_core_program
-from scopecat.compiler.typed.state import (
-    LogicalStateResourceTarget,
-    PhysicalStateResourceTarget,
-    SetStateSpec,
-    StateSpecVariant,
-)
 from scopecat.compiler.typed.verification import (
     ProgramRelationConsumer,
     VerifiedCoreProgram,
@@ -76,7 +63,6 @@ from scopecat.compiler.typed.verification import (
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.problems import (
-    ModelLocation,
     Problem,
     ProblemCategory,
     ProblemPhase,
@@ -84,10 +70,8 @@ from scopecat.kernel.problems import (
     model_location,
 )
 from scopecat.kernel.product_identity import ProductUse
-from scopecat.kernel.resource_identity import LogicalResourcePortId, PhysicalResourceId
 from scopecat.kernel.value_types import TableColumn
 from scopecat.kernel.value_validation import ValueValidationError, coerce_literal
-from scopecat.planning.routing import RoutingError, RoutingView
 from scopecat.records.entity import EntityRef
 
 
@@ -118,20 +102,8 @@ class LinkedPlan:
         return self.program.product_defs
 
     @property
-    def instrument_product_producers(
-        self,
-    ) -> tuple[InstrumentProductProducer, ...]:
-        return self.program.instrument_product_producers
-
-    @property
     def measurement_transforms(self) -> tuple[TypedMeasurementTransform, ...]:
         return self.program.measurement_transforms
-
-    @property
-    def measurement_transform_product_producers(
-        self,
-    ) -> tuple[MeasurementTransformProductProducer, ...]:
-        return self.program.measurement_transform_product_producers
 
     @property
     def product_uses(self) -> tuple[ProductUse, ...]:
@@ -642,7 +614,7 @@ def link_verified_program(
 ) -> LinkedPlan:
     """Bind config contracts to an already verified transient program."""
 
-    problems = list(_environment_link_problems(environment))
+    problems = list(environment.problems)
     if environment.valid:
         problems.extend(
             _relation_import_problems(
@@ -650,13 +622,6 @@ def link_verified_program(
                 environment.parameters,
             )
         )
-        if environment.routing is not None:
-            problems.extend(
-                _static_resource_problems(
-                    verified_program.program,
-                    environment.routing,
-                )
-            )
     if has_blocking_problems(problems):
         raise CheckFailed(problems)
     return LinkedPlan(
@@ -680,23 +645,6 @@ def specialize_linked_program(linked: LinkedPlan) -> LinkedPlan:
     )
 
 
-def _environment_link_problems(
-    environment: ValidatedConfigEnvironment,
-) -> tuple[Problem, ...]:
-    problems = list(environment.problems)
-    if environment.valid and environment.routing is None:
-        problems.append(
-            compiler_problem(
-                "config_routing_unavailable",
-                "a linked plan requires a validated configuration routing view",
-                model_location("config", "routing"),
-                phase=ProblemPhase.PLANNING,
-                category=ProblemCategory.UNAVAILABLE,
-            )
-        )
-    return tuple(problems)
-
-
 def _relation_import_problems(
     verified_program: VerifiedCoreProgram,
     parameters: ParameterRelationData,
@@ -717,146 +665,6 @@ def _relation_import_problems(
             except ValueValidationError as error:
                 problems.append(_parameter_import_problem(consumer, error))
     return tuple(problems)
-
-
-def _static_resource_problems(
-    program: CoreProgram,
-    routing: RoutingView,
-) -> tuple[Problem, ...]:
-    problems: list[Problem] = []
-    instrument_port_ids = _instrument_resource_port_ids(program)
-    for route_index, intent in enumerate(program.route_intents):
-        if intent.fixed_resource_id is None:
-            continue
-        problems.extend(
-            _physical_resource_problems(
-                routing,
-                intent.fixed_resource_id,
-                capabilities=intent.capabilities,
-                require_instrument=intent.port_id in instrument_port_ids,
-                location=model_location(
-                    "route_intents",
-                    route_index,
-                    "fixed_resource_id",
-                ),
-            )
-        )
-    for state_index, state in enumerate(core_state(program)):
-        problems.extend(
-            _static_state_resource_problems(
-                state,
-                routing=routing,
-                location=model_location("state", state_index),
-            )
-        )
-    return tuple(problems)
-
-
-def _instrument_resource_port_ids(
-    program: CoreProgram,
-) -> frozenset[LogicalResourcePortId]:
-    selected: set[LogicalResourcePortId] = set()
-
-    def visit(state: StateSpecVariant) -> None:
-        if isinstance(state, SetStateSpec):
-            if isinstance(state.resource_target, LogicalStateResourceTarget):
-                selected.add(state.resource_target.port_id)
-            return
-        for child in state.state:
-            visit(child)
-
-    for state in core_state(program):
-        visit(state)
-    selected.update(action.resource_port_id for action in core_actions(program))
-    return frozenset(selected)
-
-
-def _static_state_resource_problems(
-    state: StateSpecVariant,
-    *,
-    routing: RoutingView,
-    location: ModelLocation,
-) -> tuple[Problem, ...]:
-    problems: list[Problem] = []
-    if isinstance(state, SetStateSpec):
-        target = state.resource_target
-        if isinstance(target, PhysicalStateResourceTarget):
-            root = target.use.value.plan.root
-            if (
-                isinstance(root, LiteralScalarExpr)
-                and isinstance(root.value, str)
-                and root.value
-            ):
-                problems.extend(
-                    _physical_resource_problems(
-                        routing,
-                        PhysicalResourceId(root.value),
-                        capabilities=(state.capability_id,),
-                        require_instrument=True,
-                        location=model_location(
-                            location.root,
-                            *location.path,
-                            "physical_resource_id",
-                        ),
-                    )
-                )
-        return tuple(problems)
-    for child_index, child in enumerate(state.state):
-        problems.extend(
-            _static_state_resource_problems(
-                child,
-                routing=routing,
-                location=model_location(
-                    location.root,
-                    *location.path,
-                    "state",
-                    child_index,
-                ),
-            )
-        )
-    return tuple(problems)
-
-
-def _physical_resource_problems(
-    routing: RoutingView,
-    resource_id: PhysicalResourceId,
-    *,
-    capabilities: tuple[str, ...],
-    location: ModelLocation,
-    require_instrument: bool = False,
-) -> tuple[Problem, ...]:
-    try:
-        binding = routing.bind_physical(
-            resource_id=resource_id,
-            capabilities=capabilities,
-        )
-    except RoutingError as error:
-        return (
-            compiler_problem(
-                error.code,
-                str(error),
-                location,
-                phase=ProblemPhase.PLANNING,
-                category=(
-                    ProblemCategory.NOT_FOUND
-                    if error.code.endswith("not_found")
-                    else ProblemCategory.UNAVAILABLE
-                ),
-            ),
-        )
-    if require_instrument and binding.resource_kind != "instrument":
-        return (
-            compiler_problem(
-                "physical_resource_kind_unsupported",
-                f"physical resource {resource_id.value!r} has kind "
-                f"{binding.resource_kind!r}; local state and collection require "
-                "an instrument",
-                location,
-                phase=ProblemPhase.PLANNING,
-                category=ProblemCategory.UNAVAILABLE,
-            ),
-        )
-    return ()
 
 
 def _unresolved_input_problem(

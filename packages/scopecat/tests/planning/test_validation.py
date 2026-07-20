@@ -12,6 +12,10 @@ def load_config() -> ConfigProfileSnapshot:
     return load_config_profile(EXAMPLE_DIR / "config-profile.json")
 
 
+def _problem_codes(config: ConfigProfileSnapshot) -> set[str]:
+    return {problem.code for problem in validate_config(config)}
+
+
 def test_valid_example_has_no_blocking_problems() -> None:
     config = load_config()
 
@@ -25,10 +29,7 @@ def test_primary_entity_must_be_declared_in_topology() -> None:
     config_data["system"]["primary_entity_id"] = "missing"
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    problems = validate_config(config)
-
-    assert has_blocking_problems(problems)
-    assert problems[0].code == "configuration.unknown_primary_entity"
+    assert "configuration.unknown_primary_entity" in _problem_codes(config)
 
 
 def test_channel_group_must_match_group_members() -> None:
@@ -39,11 +40,7 @@ def test_channel_group_must_match_group_members() -> None:
     config_data["system"]["topology"]["channels"][0]["group_ids"] = ["lo.xy0"]
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    problems = validate_config(config)
-
-    assert {problem.code for problem in problems} >= {
-        "configuration.topology_channel_group_mismatch"
-    }
+    assert "configuration.topology_channel_group_mismatch" in _problem_codes(config)
 
 
 def test_group_member_must_match_channel_group_ids() -> None:
@@ -55,11 +52,7 @@ def test_group_member_must_match_channel_group_ids() -> None:
     config_data["system"]["topology"]["channels"][0]["group_ids"] = ["lo.xy1"]
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    problems = validate_config(config)
-
-    assert {problem.code for problem in problems} >= {
-        "configuration.topology_group_member_mismatch"
-    }
+    assert "configuration.topology_group_member_mismatch" in _problem_codes(config)
 
 
 def test_group_member_can_reference_channel_line() -> None:
@@ -74,9 +67,7 @@ def test_group_member_can_reference_channel_line() -> None:
     config_data["system"]["topology"]["channels"][0]["group_ids"] = ["lo.xy0"]
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    problems = validate_config(config)
-
-    assert not has_blocking_problems(problems)
+    assert not has_blocking_problems(validate_config(config))
 
 
 def test_channel_line_endpoint_must_include_channel_device() -> None:
@@ -96,11 +87,9 @@ def test_channel_line_endpoint_must_include_channel_device() -> None:
     config_data["system"]["topology"]["channels"][0]["device_id"] = "source-0"
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    problems = validate_config(config)
-
-    assert {problem.code for problem in problems} >= {
-        "configuration.topology_channel_line_endpoint_mismatch"
-    }
+    assert "configuration.topology_channel_line_endpoint_mismatch" in _problem_codes(
+        config
+    )
 
 
 def test_channel_line_endpoint_can_explain_channel_device() -> None:
@@ -120,496 +109,56 @@ def test_channel_line_endpoint_can_explain_channel_device() -> None:
     config_data["system"]["topology"]["channels"][0]["device_id"] = "source-0"
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    problems = validate_config(config)
-
-    assert not has_blocking_problems(problems)
+    assert not has_blocking_problems(validate_config(config))
 
 
-def test_routing_resource_served_entities_must_be_declared_in_topology() -> None:
+def test_routing_binding_must_reference_registered_instrument() -> None:
     config_data = load_config().model_dump(mode="json")
-    config_data["system"]["routing"] = {
-        "resources": [
-            {
-                "id": "source-0",
-                "capabilities": ["set_frequency"],
-                "served_entities": ["missing"],
-            }
-        ]
-    }
+    config_data["system"]["routing"]["bindings"][0]["instrument_id"] = "missing"
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    problems = validate_config(config)
-
-    assert has_blocking_problems(problems)
-    assert problems[0].code == ("configuration.unknown_routing_resource_served_entity")
+    assert "configuration.unknown_routing_binding_instrument" in _problem_codes(config)
 
 
-def test_routing_resource_channels_must_be_declared_in_topology() -> None:
+def test_routing_binding_must_reference_declared_entity() -> None:
     config_data = load_config().model_dump(mode="json")
-    config_data["system"]["routing"] = {
-        "resources": [
-            {
-                "id": "source-0",
-                "capabilities": ["set_frequency"],
-                "channels": ["missing"],
-            }
-        ]
-    }
+    config_data["system"]["routing"]["bindings"][0]["entity_id"] = "missing"
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    problems = validate_config(config)
-
-    assert has_blocking_problems(problems)
-    assert problems[0].code == "configuration.unknown_routing_resource_channel"
+    assert "configuration.unknown_routing_binding_entity" in _problem_codes(config)
 
 
-def test_instrument_routing_resource_must_reference_registered_instrument() -> None:
+def test_routing_binding_must_reference_declared_channel() -> None:
     config_data = load_config().model_dump(mode="json")
-    config_data["system"]["routing"] = {
-        "resources": [
-            {
-                "id": "missing",
-                "capabilities": ["set_frequency"],
-            }
-        ]
-    }
+    config_data["system"]["routing"]["bindings"][0]["channel_id"] = "missing"
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    problems = validate_config(config)
-
-    assert has_blocking_problems(problems)
-    assert problems[0].code == "configuration.unknown_routing_resource_instrument"
+    assert "configuration.unknown_routing_binding_channel" in _problem_codes(config)
 
 
-def test_routing_edge_must_reference_declared_resource() -> None:
+def test_routing_channel_binding_requires_an_entity() -> None:
     config_data = load_config().model_dump(mode="json")
-    config_data["system"]["routing"] = {
-        "resources": [],
-        "edges": [
-            {
-                "id": "missing-resource-edge",
-                "resource_id": "missing",
-                "entity_ids": ["q0"],
-            }
-        ],
-    }
+    config_data["system"]["routing"]["bindings"][0]["entity_id"] = None
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    problems = validate_config(config)
+    assert "configuration.routing_binding_channel_without_entity" in _problem_codes(
+        config
+    )
 
-    assert has_blocking_problems(problems)
-    assert problems[0].code == "configuration.unknown_routing_edge_resource"
 
-
-def test_routing_edge_must_reference_declared_entities() -> None:
+def test_one_endpoint_key_can_map_to_multiple_explicit_channels() -> None:
     config_data = load_config().model_dump(mode="json")
-    config_data["system"]["routing"] = {
-        "resources": [
-            {
-                "id": "source-0",
-                "capabilities": ["set_frequency"],
-            }
-        ],
-        "edges": [
-            {
-                "id": "missing-entity-edge",
-                "resource_id": "source-0",
-                "entity_ids": ["missing"],
-            }
-        ],
-    }
+    config_data["system"]["routing"]["bindings"].append(
+        {
+            "instrument_id": "source-0",
+            "capability": "set_frequency",
+            "entity_id": "q0",
+            "channel_id": "readout-q0",
+        }
+    )
     config = ConfigProfileSnapshot.model_validate(config_data)
 
-    problems = validate_config(config)
-
-    assert has_blocking_problems(problems)
-    assert problems[0].code == "configuration.unknown_routing_edge_entity"
-
-
-def test_routing_edge_capabilities_must_be_declared_by_resource() -> None:
-    config_data = load_config().model_dump(mode="json")
-    config_data["system"]["routing"] = {
-        "resources": [
-            {
-                "id": "source-0",
-                "capabilities": ["set_frequency"],
-            }
-        ],
-        "edges": [
-            {
-                "id": "missing-capability-edge",
-                "resource_id": "source-0",
-                "entity_ids": ["q0"],
-                "capabilities": ["acquire_signal"],
-            }
-        ],
-    }
-    config = ConfigProfileSnapshot.model_validate(config_data)
-
-    problems = validate_config(config)
-
-    assert has_blocking_problems(problems)
-    assert problems[0].code == "configuration.unknown_routing_edge_capability"
-
-
-def test_routing_edge_entities_must_match_resource_served_entities() -> None:
-    config_data = load_config().model_dump(mode="json")
-    config_data["system"]["routing"] = {
-        "resources": [
-            {
-                "id": "source-0",
-                "capabilities": ["set_frequency"],
-                "served_entities": ["drive-q0"],
-            }
-        ],
-        "edges": [
-            {
-                "id": "source-0-q0-drive",
-                "resource_id": "source-0",
-                "entity_ids": ["q0"],
-                "capabilities": ["set_frequency"],
-            }
-        ],
-    }
-    config = ConfigProfileSnapshot.model_validate(config_data)
-
-    problems = validate_config(config)
-
-    assert {problem.code for problem in problems} >= {
-        "configuration.routing_edge_resource_entity_mismatch"
-    }
-
-
-def test_routing_edge_channels_must_match_resource_channels() -> None:
-    config_data = load_config().model_dump(mode="json")
-    config_data["system"]["routing"] = {
-        "resources": [
-            {
-                "id": "source-0",
-                "capabilities": ["set_frequency"],
-                "channels": ["readout-q0"],
-            }
-        ],
-        "edges": [
-            {
-                "id": "source-0-q0-drive",
-                "resource_id": "source-0",
-                "entity_ids": ["q0"],
-                "capabilities": ["set_frequency"],
-                "channels": ["drive-q0"],
-            }
-        ],
-    }
-    config = ConfigProfileSnapshot.model_validate(config_data)
-
-    problems = validate_config(config)
-
-    assert {problem.code for problem in problems} >= {
-        "configuration.routing_edge_resource_channel_mismatch"
-    }
-
-
-def test_routing_binding_entities_must_match_edge_entities() -> None:
-    config_data = load_config().model_dump(mode="json")
-    config_data["system"]["routing"] = {
-        "resources": [
-            {
-                "id": "source-0",
-                "capabilities": ["set_frequency"],
-            }
-        ],
-        "edges": [
-            {
-                "id": "source-0-drive",
-                "resource_id": "source-0",
-                "entity_ids": ["drive-q0"],
-                "capabilities": ["set_frequency"],
-                "bindings": [
-                    {
-                        "entity_id": "q0",
-                        "channel_id": "drive-q0",
-                        "capability": "set_frequency",
-                    }
-                ],
-            }
-        ],
-    }
-    config = ConfigProfileSnapshot.model_validate(config_data)
-
-    problems = validate_config(config)
-
-    assert {problem.code for problem in problems} >= {
-        "configuration.routing_binding_edge_entity_mismatch"
-    }
-
-
-def test_routing_binding_entities_must_match_resource_served_entities() -> None:
-    config_data = load_config().model_dump(mode="json")
-    config_data["system"]["routing"] = {
-        "resources": [
-            {
-                "id": "source-0",
-                "capabilities": ["set_frequency"],
-                "served_entities": ["drive-q0"],
-            }
-        ],
-        "edges": [
-            {
-                "id": "source-0-drive",
-                "resource_id": "source-0",
-                "capabilities": ["set_frequency"],
-                "bindings": [
-                    {
-                        "entity_id": "q0",
-                        "channel_id": "drive-q0",
-                        "capability": "set_frequency",
-                    }
-                ],
-            }
-        ],
-    }
-    config = ConfigProfileSnapshot.model_validate(config_data)
-
-    problems = validate_config(config)
-
-    assert {problem.code for problem in problems} >= {
-        "configuration.routing_binding_resource_entity_mismatch"
-    }
-
-
-def test_routing_binding_capability_must_match_edge_capabilities() -> None:
-    config_data = load_config().model_dump(mode="json")
-    config_data["system"]["routing"] = {
-        "resources": [
-            {
-                "id": "source-0",
-                "capabilities": ["set_frequency", "acquire_signal"],
-            }
-        ],
-        "edges": [
-            {
-                "id": "source-0-drive",
-                "resource_id": "source-0",
-                "entity_ids": ["q0"],
-                "capabilities": ["set_frequency"],
-                "bindings": [
-                    {
-                        "entity_id": "q0",
-                        "channel_id": "drive-q0",
-                        "capability": "acquire_signal",
-                    }
-                ],
-            }
-        ],
-    }
-    config = ConfigProfileSnapshot.model_validate(config_data)
-
-    problems = validate_config(config)
-
-    assert {problem.code for problem in problems} >= {
-        "configuration.routing_binding_edge_capability_mismatch"
-    }
-
-
-def test_routing_binding_capability_must_match_resource_capabilities() -> None:
-    config_data = load_config().model_dump(mode="json")
-    config_data["system"]["routing"] = {
-        "resources": [
-            {
-                "id": "source-0",
-                "capabilities": ["set_frequency"],
-            }
-        ],
-        "edges": [
-            {
-                "id": "source-0-drive",
-                "resource_id": "source-0",
-                "entity_ids": ["q0"],
-                "bindings": [
-                    {
-                        "entity_id": "q0",
-                        "channel_id": "drive-q0",
-                        "capability": "acquire_signal",
-                    }
-                ],
-            }
-        ],
-    }
-    config = ConfigProfileSnapshot.model_validate(config_data)
-
-    problems = validate_config(config)
-
-    assert {problem.code for problem in problems} >= {
-        "configuration.routing_binding_resource_capability_mismatch"
-    }
-
-
-def test_routing_binding_channels_must_match_edge_channels() -> None:
-    config_data = load_config().model_dump(mode="json")
-    config_data["system"]["routing"] = {
-        "resources": [
-            {
-                "id": "source-0",
-                "capabilities": ["set_frequency"],
-            }
-        ],
-        "edges": [
-            {
-                "id": "source-0-drive",
-                "resource_id": "source-0",
-                "entity_ids": ["q0"],
-                "capabilities": ["set_frequency"],
-                "channels": ["readout-q0"],
-                "bindings": [
-                    {
-                        "entity_id": "q0",
-                        "channel_id": "drive-q0",
-                        "capability": "set_frequency",
-                    }
-                ],
-            }
-        ],
-    }
-    config = ConfigProfileSnapshot.model_validate(config_data)
-
-    problems = validate_config(config)
-
-    assert {problem.code for problem in problems} >= {
-        "configuration.routing_binding_edge_channel_mismatch"
-    }
-
-
-def test_routing_binding_line_must_match_channel_topology() -> None:
-    config_data = load_config().model_dump(mode="json")
-    config_data["system"]["topology"]["lines"] = [
-        {"id": "q0.xy", "kind": "control_line", "signal": "drive"},
-        {"id": "q0.bad", "kind": "control_line", "signal": "drive"},
-    ]
-    config_data["system"]["topology"]["channels"][0]["line_id"] = "q0.xy"
-    config_data["system"]["routing"] = {
-        "resources": [
-            {
-                "id": "source-0",
-                "capabilities": ["set_frequency"],
-            }
-        ],
-        "edges": [
-            {
-                "id": "source-0-q0-drive",
-                "resource_id": "source-0",
-                "entity_ids": ["q0"],
-                "capabilities": ["set_frequency"],
-                "bindings": [
-                    {
-                        "entity_id": "q0",
-                        "channel_id": "drive-q0",
-                        "line_id": "q0.bad",
-                        "capability": "set_frequency",
-                    }
-                ],
-            }
-        ],
-    }
-    config = ConfigProfileSnapshot.model_validate(config_data)
-
-    problems = validate_config(config)
-
-    assert {problem.code for problem in problems} >= {
-        "configuration.routing_binding_line_mismatch"
-    }
-
-
-def test_routing_binding_groups_must_match_channel_topology() -> None:
-    config_data = load_config().model_dump(mode="json")
-    config_data["system"]["topology"]["groups"] = [
-        {"id": "lo.good", "kind": "lo", "members": ["drive-q0"]},
-        {"id": "lo.bad", "kind": "lo", "members": ["drive-q0"]},
-    ]
-    config_data["system"]["topology"]["channels"][0]["group_ids"] = ["lo.good"]
-    config_data["system"]["routing"] = {
-        "resources": [
-            {
-                "id": "source-0",
-                "capabilities": ["set_frequency"],
-            }
-        ],
-        "edges": [
-            {
-                "id": "source-0-q0-drive",
-                "resource_id": "source-0",
-                "entity_ids": ["q0"],
-                "capabilities": ["set_frequency"],
-                "bindings": [
-                    {
-                        "entity_id": "q0",
-                        "channel_id": "drive-q0",
-                        "group_ids": ["lo.bad"],
-                        "capability": "set_frequency",
-                    }
-                ],
-            }
-        ],
-    }
-    config = ConfigProfileSnapshot.model_validate(config_data)
-
-    problems = validate_config(config)
-
-    assert {problem.code for problem in problems} >= {
-        "configuration.routing_binding_group_mismatch"
-    }
-
-
-def test_routing_bindings_for_one_physical_target_must_agree_on_topology() -> None:
-    config_data = load_config().model_dump(mode="json")
-    config_data["system"]["topology"]["lines"] = [
-        {"id": "q0.xy", "kind": "control_line", "signal": "drive"},
-        {"id": "q0.alt", "kind": "control_line", "signal": "drive"},
-    ]
-    config_data["system"]["routing"] = {
-        "resources": [
-            {
-                "id": "source-0",
-                "capabilities": ["set_frequency", "set_power"],
-            }
-        ],
-        "edges": [
-            {
-                "id": "source-0-q0-frequency",
-                "resource_id": "source-0",
-                "entity_ids": ["q0"],
-                "capabilities": ["set_frequency"],
-                "bindings": [
-                    {
-                        "entity_id": "q0",
-                        "channel_id": "drive-q0",
-                        "line_id": "q0.xy",
-                        "capability": "set_frequency",
-                    }
-                ],
-            },
-            {
-                "id": "source-0-q0-power",
-                "resource_id": "source-0",
-                "entity_ids": ["q0"],
-                "capabilities": ["set_power"],
-                "bindings": [
-                    {
-                        "entity_id": "q0",
-                        "channel_id": "drive-q0",
-                        "line_id": "q0.alt",
-                        "capability": "set_power",
-                    }
-                ],
-            },
-        ],
-    }
-    config = ConfigProfileSnapshot.model_validate(config_data)
-
-    problems = validate_config(config)
-
-    assert {problem.code for problem in problems} >= {
-        "configuration.routing_binding_topology_conflict"
-    }
+    assert not has_blocking_problems(validate_config(config))
 
 
 def test_unsupported_unit_fails_model_validation() -> None:

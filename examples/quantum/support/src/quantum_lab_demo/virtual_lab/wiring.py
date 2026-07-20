@@ -12,10 +12,8 @@ from scopecat.records.config import (
     ConfigProfileSnapshot,
     Device,
     Link,
-    RoutingChannelBinding,
-    RoutingEdge,
+    RoutingEndpointBinding,
     RoutingGraph,
-    RoutingResource,
     SharedResourceGroup,
     SystemSpec,
     Topology,
@@ -63,7 +61,7 @@ class QuantumWiringBuilder:
 
     The builder is intentionally domain-local example code. It lets users edit
     a familiar lab view, then compiles that view into Scopecat's domain-neutral
-    topology and routing graph.
+    topology and canonical endpoint bindings.
     """
 
     def __init__(self) -> None:
@@ -359,50 +357,31 @@ def _topology_from_wiring(*, wiring: QuantumWiring) -> Topology:
 
 
 def _routing_from_wiring(*, wiring: QuantumWiring) -> RoutingGraph:
-    resources: list[RoutingResource] = []
-    edges: list[RoutingEdge] = []
+    bindings: list[RoutingEndpointBinding] = []
     for instrument_id in _instrument_ids(wiring.lines):
         instrument_lines = [
             line for line in wiring.lines if line.instrument_id == instrument_id
         ]
-        resources.append(
-            RoutingResource(
-                id=instrument_id,
-                kind="instrument",
-                capabilities=_resource_capabilities(instrument_lines),
-                served_entities=_served_entities(instrument_lines, wiring=wiring),
-                channels=[line.channel_id for line in instrument_lines],
-            )
-        )
-        edges.extend(_routing_edges(instrument_lines, wiring=wiring))
-    return RoutingGraph(resources=resources, edges=edges)
+        bindings.extend(_routing_bindings(instrument_lines, wiring=wiring))
+    return RoutingGraph(bindings=bindings)
 
 
-def _routing_edges(
+def _routing_bindings(
     lines: Sequence[LineWiring],
     *,
     wiring: QuantumWiring,
-) -> list[RoutingEdge]:
-    result: list[RoutingEdge] = []
+) -> list[RoutingEndpointBinding]:
+    result: list[RoutingEndpointBinding] = []
     for line in lines:
-        bindings = [
-            RoutingChannelBinding(
+        result.extend(
+            RoutingEndpointBinding(
+                instrument_id=line.instrument_id,
+                capability=capability,
                 entity_id=entity_id,
                 channel_id=line.channel_id,
-                capability=capability,
             )
             for entity_id in _line_entities(line=line, wiring=wiring)
             for capability in _line_capabilities(line.kind)
-        ]
-        result.append(
-            RoutingEdge(
-                id=f"{line.instrument_id}-{line.id}",
-                resource_id=line.instrument_id,
-                entity_ids=[binding.entity_id for binding in bindings],
-                capabilities=_line_capabilities(line.kind),
-                channels=[line.channel_id],
-                bindings=bindings,
-            )
         )
     return result
 
@@ -423,24 +402,6 @@ def _line_entities(*, line: LineWiring, wiring: QuantumWiring) -> tuple[str, ...
             coupler.id for coupler in wiring.couplers if coupler.flux == line.id
         )
     return ()
-
-
-def _served_entities(
-    lines: Sequence[LineWiring],
-    *,
-    wiring: QuantumWiring,
-) -> list[str]:
-    entity_ids: list[str] = []
-    for line in lines:
-        entity_ids.extend(_line_entities(line=line, wiring=wiring))
-    return list(dict.fromkeys(entity_ids))
-
-
-def _resource_capabilities(lines: Sequence[LineWiring]) -> list[str]:
-    capabilities: list[str] = []
-    for line in lines:
-        capabilities.extend(_line_capabilities(line.kind))
-    return list(dict.fromkeys(capabilities))
 
 
 def _line_capabilities(kind: str) -> list[str]:

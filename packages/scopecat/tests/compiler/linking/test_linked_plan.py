@@ -45,19 +45,18 @@ from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
 )
-from scopecat.compiler.semantic.model import AcquireId
 from scopecat.compiler.semantic.value_expressions import TableValueExpr
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     AcquireSpec,
     CoreProgram,
-    ResourceRouteIntent,
+    LogicalResourceRequirement,
     product_output,
     record_product,
     set_state_field,
 )
 from scopecat.compiler.typed.verification import seal_typed_program
-from scopecat.execution.local.program import ApplyStateOperation, CollectOperation
+from scopecat.execution.local.program import CollectOperation
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
     ProblemCategory,
@@ -66,7 +65,6 @@ from scopecat.kernel.problems import (
     model_location,
 )
 from scopecat.kernel.resource_identity import logical_resource_port_id
-from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import (
     Entity,
     Float,
@@ -83,8 +81,7 @@ from tests.testkit.local_materialization import (
     operations_of_type,
 )
 from tests.testkit.relation_plans import scalar_value_expr, table_value_expr
-from tests.testkit.typed_program import instrument_product_producer, link_program
-from tests.testkit.workflow_fixtures import load_experiment
+from tests.testkit.typed_program import instrument_acquisition, link_program
 
 _FLOAT = Scalar(Float())
 
@@ -150,26 +147,24 @@ def _symbolic_program() -> CoreProgram:
         selected_product,
         metadata={"owner": "record"},
     )
-    selected_producer = instrument_product_producer(
+    selected_acquisition = instrument_acquisition(
         selected_product,
+        id="read-signal",
+        capability="scalar_signal",
         metadata={"owner": "selected-producer"},
-    )
-    available_producer = instrument_product_producer(
-        available_product,
-        metadata={"owner": "available-producer"},
     )
     return CoreProgram(
         id="symbolic-linked-plan",
         kind="compiler_test",
         point_domain=PointDomain(root=root),
-        effects=(
-            AcquireSpec(
-                AcquireId(SymbolId(local_id="read-signal")),
-                (selected_product.id,),
+        resource_requirements=(
+            LogicalResourceRequirement(
+                port_id=logical_resource_port_id("source"),
+                capabilities=("scalar_signal",),
             ),
         ),
+        effects=(selected_acquisition,),
         product_defs=(selected_product, available_product),
-        instrument_product_producers=(selected_producer, available_producer),
         product_uses=(selected_use,),
         record_uses=(selected_record,),
         metadata={"owner": {"name": "original"}},
@@ -196,7 +191,7 @@ def test_link_retains_symbolic_backend_neutral_domain() -> None:
     assert linked.cardinality.maximum == 4
     assert linked.coordinate_ids == ("a", "b", "c", "d")
     assert linked.product_defs == program.product_defs
-    assert linked.instrument_product_producers == (program.instrument_product_producers)
+    assert linked.program.effects == program.effects
     assert linked.product_uses == program.product_uses
     assert linked.record_uses == program.record_uses
     assert tuple(relation.path for relation in linked.point_domain.relation_leaves) == (
@@ -227,13 +222,16 @@ def test_raw_link_retains_immutable_metadata_and_accepted_environment() -> None:
     program = _symbolic_program()
     environment = _environment()
     linked = link_program(program, environment)
+    acquisition = next(
+        effect for effect in program.effects if isinstance(effect, AcquireSpec)
+    )
 
     assert linked.environment is environment
 
     for metadata in (
         program.metadata,
         program.product_defs[0].metadata,
-        program.instrument_product_producers[0].metadata,
+        acquisition.products[0].metadata,
         program.record_uses[0].metadata,
     ):
         with pytest.raises(TypeError, match="frozen mapping is immutable"):
@@ -241,9 +239,7 @@ def test_raw_link_retains_immutable_metadata_and_accepted_environment() -> None:
 
     assert linked.program.metadata == {"owner": {"name": "original"}}
     assert linked.product_defs[0].metadata == {"owner": "selected"}
-    assert linked.instrument_product_producers[0].metadata == {
-        "owner": "selected-producer"
-    }
+    assert acquisition.products[0].metadata == {"owner": "selected-producer"}
     assert linked.record_uses[0].metadata == {"owner": "record"}
 
 
@@ -292,7 +288,6 @@ def test_link_reports_environment_problems_without_target_selection() -> None:
     )
     environment = replace(
         _environment(),
-        routing=None,
         problems=(environment_problem,),
     )
     expression = grid(x=lit(1.0) + 2.0)
@@ -324,9 +319,9 @@ def test_link_aggregates_environment_and_program_seal_problems() -> None:
         id="invalid-program-link",
         kind="compiler_test",
         point_domain=PointDomain(root=point_product()),
-        route_intents=(
-            ResourceRouteIntent(port_id=logical_resource_port_id("duplicate")),
-            ResourceRouteIntent(port_id=logical_resource_port_id("duplicate")),
+        resource_requirements=(
+            LogicalResourceRequirement(port_id=logical_resource_port_id("duplicate")),
+            LogicalResourceRequirement(port_id=logical_resource_port_id("duplicate")),
         ),
     )
 
@@ -335,20 +330,9 @@ def test_link_aggregates_environment_and_program_seal_problems() -> None:
 
     assert tuple(problem.code for problem in caught.value.problems) == (
         "test_environment_blocked",
-        "resource_route_duplicate",
+        "resource_requirement_duplicate",
     )
     assert caught.value.problems[1].phase is ProblemPhase.PLANNING
-
-
-def test_link_rejects_a_missing_routing_view_as_a_check_problem() -> None:
-    environment = replace(_environment(), routing=None)
-
-    with pytest.raises(CheckFailed) as caught:
-        link_program(_symbolic_program(), environment)
-
-    assert tuple(problem.code for problem in caught.value.problems) == (
-        "config_routing_unavailable",
-    )
 
 
 @pytest.mark.parametrize(
@@ -509,12 +493,15 @@ def test_link_rejects_remaining_relation_input_imports() -> None:
         id="unresolved-input-link",
         kind="compiler_test",
         point_domain=PointDomain(root=POINT_UNIT),
+        resource_requirements=(
+            LogicalResourceRequirement(
+                port_id=logical_resource_port_id("source"),
+                capabilities=("set_frequency",),
+            ),
+        ),
         effects=(
             set_state_field(
-                scalar_value_expr(
-                    "source-0",
-                    expected_type=Scalar(String()),
-                ),
+                resource_port_id=logical_resource_port_id("source"),
                 capability_id="set_frequency",
                 field_path="value",
                 value=scalar_value_expr(
@@ -577,25 +564,6 @@ def test_link_reports_every_missing_import_in_one_relation_consumer() -> None:
     assert {
         problem.details["parameter_id"] for problem in caught.value.problems
     } == set(missing_ids)
-
-
-def test_local_materialization_builds_the_executable_materialized_effects() -> None:
-    program = load_experiment()
-    environment = _environment()
-
-    expected = materialize_local_execution(link_program(program, environment))
-    actual = materialize_local_execution(link_program(program, environment))
-
-    assert actual == expected
-    assert len(actual.points) == 3
-    assert all(
-        operations_of_type(actual, ApplyStateOperation, point_index=point.ordinal)
-        for point in actual.points
-    )
-    assert all(
-        operations_of_type(actual, CollectOperation, point_index=point.ordinal)
-        for point in actual.points
-    )
 
 
 def test_linked_points_retain_exact_proofs_and_only_materialize_the_domain() -> None:

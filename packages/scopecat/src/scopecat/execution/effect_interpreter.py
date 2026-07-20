@@ -1099,26 +1099,27 @@ class RunEffectInterpreter:
                     )
                 )
                 continue
-            if binding.product_use_id in frame.product_use_ids:
-                self.problems.append(
-                    self._problem(
-                        "instrument_duplicate_product_use",
-                        "point received more than one result for logical product use "
-                        f"{binding.product_use_id.value}",
-                        operation_id=operation.operation_id,
-                        point_index=frame.point_index,
-                        instrument_id=operation.instrument_id,
+            for product_use_id in binding.product_use_ids:
+                if product_use_id in frame.product_use_ids:
+                    self.problems.append(
+                        self._problem(
+                            "instrument_duplicate_product_use",
+                            "point received more than one result for logical "
+                            f"product use {product_use_id.value}",
+                            operation_id=operation.operation_id,
+                            point_index=frame.point_index,
+                            instrument_id=operation.instrument_id,
+                        )
+                    )
+                    continue
+                frame.product_use_ids.add(product_use_id)
+                self.measurement_values.append(
+                    MeasurementValueCandidate(
+                        logical_point_id=frame.logical_id,
+                        product_use_id=product_use_id,
+                        value=value,
                     )
                 )
-                continue
-            frame.product_use_ids.add(binding.product_use_id)
-            self.measurement_values.append(
-                MeasurementValueCandidate(
-                    logical_point_id=frame.logical_id,
-                    product_use_id=binding.product_use_id,
-                    value=value,
-                )
-            )
 
     def _read_states(
         self, *, phase: Literal["initial", "terminal"]

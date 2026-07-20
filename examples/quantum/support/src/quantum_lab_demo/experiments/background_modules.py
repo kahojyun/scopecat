@@ -71,6 +71,7 @@ SYSTEM_COUPLER_PARKING_BACKGROUND_MODULE = (
     .resource(
         "coupler_bias",
         requires=("set_flux_bias",),
+        for_entities=(_SYSTEM_COUPLER_PARAMETERS.entities("coupler"),),
     )
     .state_each(
         _SYSTEM_COUPLER_PARAMETERS,
@@ -78,7 +79,7 @@ SYSTEM_COUPLER_PARKING_BACKGROUND_MODULE = (
         capability="set_flux_bias",
         field="offset",
         value=lambda row: row["coupler_parking_flux"],
-        route_entities=(lambda row: row["coupler"],),
+        target_entities=(lambda row: row["coupler"],),
     )
     .build()
 )

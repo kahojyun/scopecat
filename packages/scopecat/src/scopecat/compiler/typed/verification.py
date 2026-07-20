@@ -14,10 +14,7 @@ from types import MappingProxyType
 
 from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.relations.analysis import PlanNode
-from scopecat.compiler.relations.model import (
-    LiteralScalarExpr,
-    RowScopeId,
-)
+from scopecat.compiler.relations.model import RowScopeId
 from scopecat.compiler.relations.uses import RelationUseId
 from scopecat.compiler.relations.verification import (
     RelationPlanVerificationError,
@@ -45,14 +42,10 @@ from scopecat.compiler.typed.point_domain import (
     VerifiedPointDomain,
     verify_point_domain,
 )
-from scopecat.compiler.typed.products import (
-    DomainProductProducer,
-)
 from scopecat.compiler.typed.program import (
-    AcquireSpec,
     CoreProgram,
-    RouteInput,
     ValueInput,
+    core_acquisitions,
     core_actions,
     core_domain_executions,
     core_state,
@@ -66,8 +59,6 @@ from scopecat.compiler.typed.records import (
 from scopecat.compiler.typed.relation_consumers import ProgramRelationConsumerKind
 from scopecat.compiler.typed.state import (
     ForEachStateSpec,
-    LogicalStateResourceTarget,
-    PhysicalStateResourceTarget,
     SetStateSpec,
     StateSpecVariant,
 )
@@ -78,12 +69,12 @@ from scopecat.kernel.problems import (
     ProblemPhase,
     model_location,
 )
-from scopecat.kernel.product_identity import ProductId, ProductProducerId
+from scopecat.kernel.product_identity import ProductId
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
 )
 from scopecat.kernel.value_type_compatibility import is_assignable
-from scopecat.kernel.value_types import Payload, Scalar, String
+from scopecat.kernel.value_types import Payload, Scalar
 
 
 def verify_core_program(program: CoreProgram) -> CoreProgram:
@@ -93,35 +84,35 @@ def verify_core_program(program: CoreProgram) -> CoreProgram:
     return verified
 
 
-def _verified_route_capabilities(
+def _verified_resource_capabilities(
     program: CoreProgram,
 ) -> tuple[dict[LogicalResourcePortId, set[str]], tuple[Problem, ...]]:
-    route_problems: list[Problem] = []
-    route_capabilities: dict[LogicalResourcePortId, set[str]] = {}
-    duplicate_routes: set[LogicalResourcePortId] = set()
-    for route in program.route_intents:
-        if route.port_id in route_capabilities:
-            duplicate_routes.add(route.port_id)
+    resource_problems: list[Problem] = []
+    resource_capabilities: dict[LogicalResourcePortId, set[str]] = {}
+    duplicate_requirements: set[LogicalResourcePortId] = set()
+    for requirement in program.resource_requirements:
+        if requirement.port_id in resource_capabilities:
+            duplicate_requirements.add(requirement.port_id)
             continue
-        route_capabilities[route.port_id] = set(route.capabilities)
+        resource_capabilities[requirement.port_id] = set(requirement.capabilities)
     for port_id in sorted(
-        duplicate_routes,
+        duplicate_requirements,
         key=lambda item: item.qualified_name,
     ):
-        route_problems.append(
+        resource_problems.append(
             _problem(
-                "resource_route_duplicate",
-                f"route port {port_id.qualified_name!r} is declared more than once",
-                model_location("route_intents", port_id.qualified_name),
+                "resource_requirement_duplicate",
+                f"resource port {port_id.qualified_name!r} is declared more than once",
+                model_location("resource_requirements", port_id.qualified_name),
             )
         )
 
-    return route_capabilities, tuple(route_problems)
+    return resource_capabilities, tuple(resource_problems)
 
 
 def _domain_resource_problems(
     program: CoreProgram,
-    route_capabilities: Mapping[LogicalResourcePortId, set[str]],
+    resource_capabilities: Mapping[LogicalResourcePortId, set[str]],
 ) -> tuple[Problem, ...]:
     problems: list[Problem] = []
     for execution_index, execution in enumerate(core_domain_executions(program)):
@@ -133,7 +124,7 @@ def _domain_resource_problems(
                     _logical_resource_port_problems(
                         resource_id,
                         required_capability=capability,
-                        route_capabilities=route_capabilities,
+                        resource_capabilities=resource_capabilities,
                         location=model_location(
                             "domain_executions",
                             execution_index,
@@ -148,31 +139,47 @@ def _domain_resource_problems(
     return tuple(problems)
 
 
-def _acquisition_problems(program: CoreProgram) -> tuple[Problem, ...]:
+def _product_owner_problems(program: CoreProgram) -> tuple[Problem, ...]:
+    """Validate direct product owners across acquisition, domain, and transforms."""
+
     problems: list[Problem] = []
-    instrument_products = {
-        producer.product_id for producer in program.instrument_product_producers
-    }
+    acquisitions = core_acquisitions(program)
+    acquisition_ids = tuple(acquisition.id for acquisition in acquisitions)
+    if len(acquisition_ids) != len(set(acquisition_ids)):
+        problems.append(
+            _problem(
+                "product_acquire_id_duplicate",
+                "acquisition ids must be unique",
+                model_location("acquisitions"),
+            )
+        )
     acquired_products = [
-        product_id
-        for effect in program.effects
-        if isinstance(effect, AcquireSpec)
-        for product_id in effect.product_ids
+        product.product_id
+        for acquisition in acquisitions
+        for product in acquisition.products
     ]
-    used_instrument_products = {
-        use.product_id
-        for use in program.product_uses
-        if use.product_id in instrument_products
+    domain_products = {
+        result.product_id
+        for execution in core_domain_executions(program)
+        for result in execution.results
     }
+    transform_products = {
+        output.product_id
+        for transform in program.measurement_transforms
+        for output in transform.outputs
+    }
+    external_products = domain_products | transform_products
+    defined_products = {product.id for product in program.product_defs}
+    owned_products = set(acquired_products) | external_products
     for product_id in sorted(
-        used_instrument_products - set(acquired_products),
+        {use.product_id for use in program.product_uses} - owned_products,
         key=lambda item: item.qualified_name,
     ):
         problems.append(
             _problem(
                 "product_acquire_missing",
-                f"instrument product {product_id.qualified_name!r} is selected "
-                "but never acquired",
+                f"product {product_id.qualified_name!r} is selected but has no "
+                "acquisition, domain, or transform owner",
                 model_location("product_uses", product_id.qualified_name),
             )
         )
@@ -191,14 +198,38 @@ def _acquisition_problems(program: CoreProgram) -> tuple[Problem, ...]:
             )
         )
     for product_id in sorted(
-        set(acquired_products) - instrument_products,
+        set(acquired_products) - defined_products,
         key=lambda item: item.qualified_name,
     ):
         problems.append(
             _problem(
-                "product_acquire_not_instrument",
-                f"product {product_id.qualified_name!r} has no instrument producer",
+                "product_acquire_definition_missing",
+                f"acquisition references unknown product {product_id.qualified_name!r}",
                 model_location("acquisitions", product_id.qualified_name),
+            )
+        )
+    for product_id in sorted(
+        set(acquired_products) & external_products,
+        key=lambda item: item.qualified_name,
+    ):
+        problems.append(
+            _problem(
+                "product_owner_conflict",
+                f"product {product_id.qualified_name!r} is owned by both an "
+                "acquisition and a domain or transform producer",
+                model_location("acquisitions", product_id.qualified_name),
+            )
+        )
+    for product_id in sorted(
+        domain_products & transform_products,
+        key=lambda item: item.qualified_name,
+    ):
+        problems.append(
+            _problem(
+                "measurement_transform_product_domain_producer_conflict",
+                f"transform-derived product {product_id.qualified_name!r} also "
+                "has a domain producer",
+                model_location("product_defs", product_id.qualified_name),
             )
         )
     return tuple(problems)
@@ -257,44 +288,8 @@ def _verify_core_program(
         )
         problems.extend(_relation_use_identity_problems(consumers))
 
-    route_capabilities, route_problems = _verified_route_capabilities(program)
-    problems.extend(route_problems)
-
-    for node in compute_nodes:
-        for input_name, input_value in node.inputs.items():
-            if not isinstance(input_value, RouteInput):
-                continue
-            location = model_location(
-                "compute_nodes",
-                *node.id.scope,
-                node.id.local_id,
-                "inputs",
-                input_name,
-            )
-            declared = route_capabilities.get(input_value.port_id)
-            if declared is None:
-                problems.append(
-                    _problem(
-                        "compute_route_port_missing",
-                        f"compute node {node.id.qualified_name!r} input "
-                        f"{input_name!r} references undeclared route port "
-                        f"{input_value.port_id.qualified_name!r}",
-                        location,
-                    )
-                )
-                continue
-            missing = sorted(set(input_value.value_type.capabilities) - declared)
-            if missing:
-                problems.append(
-                    _problem(
-                        "compute_route_capability_missing",
-                        f"compute node {node.id.qualified_name!r} input "
-                        f"{input_name!r} requires capabilities not declared by "
-                        f"route port {input_value.port_id.qualified_name!r}: "
-                        f"{', '.join(missing)}",
-                        location,
-                    )
-                )
+    resource_capabilities, resource_problems = _verified_resource_capabilities(program)
+    problems.extend(resource_problems)
 
     compute_outputs = {node.result.id: node.result for node in compute_nodes}
     action_ids = tuple(action.id for action in core_actions(program))
@@ -311,7 +306,7 @@ def _verify_core_program(
             _logical_resource_port_problems(
                 action.resource_port_id,
                 required_capability=action.capability_id,
-                route_capabilities=route_capabilities,
+                resource_capabilities=resource_capabilities,
                 location=model_location(
                     "actions",
                     action_index,
@@ -352,7 +347,7 @@ def _verify_core_program(
                         location,
                     )
                 )
-    problems.extend(_domain_resource_problems(program, route_capabilities))
+    problems.extend(_domain_resource_problems(program, resource_capabilities))
     for location, state in _state_specs(core_state(program)):
         if not isinstance(state, SetStateSpec):
             continue
@@ -364,51 +359,21 @@ def _verify_core_program(
                     model_location(location.root, *location.path, "field"),
                 )
             )
-        target = state.resource_target
-        if isinstance(target, LogicalStateResourceTarget):
-            problems.extend(
-                _logical_resource_port_problems(
-                    target.port_id,
-                    required_capability=state.capability_id,
-                    route_capabilities=route_capabilities,
-                    location=model_location(
-                        location.root,
-                        *location.path,
-                        "resource_port_id",
-                    ),
-                    missing_code="state_resource_port_missing",
-                    capability_code="state_resource_port_capability_missing",
-                    consumer="state",
-                )
+        problems.extend(
+            _logical_resource_port_problems(
+                state.resource_target.port_id,
+                required_capability=state.capability_id,
+                resource_capabilities=resource_capabilities,
+                location=model_location(
+                    location.root,
+                    *location.path,
+                    "resource_port_id",
+                ),
+                missing_code="state_resource_port_missing",
+                capability_code="state_resource_port_capability_missing",
+                consumer="state",
             )
-        elif not isinstance(target.use.value.value_type.atom, String):
-            problems.append(
-                _problem(
-                    "state_physical_resource_type_invalid",
-                    "physical state resource expressions must have string scalar type",
-                    model_location(
-                        location.root,
-                        *location.path,
-                        "physical_resource_id",
-                    ),
-                )
-            )
-        else:
-            root = target.use.value.plan.root
-            if isinstance(root, LiteralScalarExpr) and (
-                not isinstance(root.value, str) or not root.value
-            ):
-                problems.append(
-                    _problem(
-                        "state_physical_resource_id_invalid",
-                        "literal physical state resource ids must be non-empty strings",
-                        model_location(
-                            location.root,
-                            *location.path,
-                            "physical_resource_id",
-                        ),
-                    )
-                )
+        )
         value = state.value_use
         if not isinstance(value, ComputeResultRef):
             continue
@@ -432,22 +397,20 @@ def _verify_core_program(
                 )
             )
 
-    for producer_index, producer in enumerate(program.instrument_product_producers):
-        if not isinstance(producer.resource_target, LogicalResourcePortId):
-            continue
+    for acquisition_index, acquisition in enumerate(core_acquisitions(program)):
         problems.extend(
             _logical_resource_port_problems(
-                producer.resource_target,
-                required_capability=producer.capability,
-                route_capabilities=route_capabilities,
+                acquisition.resource_port_id,
+                required_capability=acquisition.capability_id,
+                resource_capabilities=resource_capabilities,
                 location=model_location(
-                    "instrument_product_producers",
-                    producer_index,
+                    "acquisitions",
+                    acquisition_index,
                     "resource_port_id",
                 ),
-                missing_code="product_resource_port_missing",
-                capability_code="product_resource_port_capability_missing",
-                consumer="product",
+                missing_code="acquire_resource_port_missing",
+                capability_code="acquire_resource_port_capability_missing",
+                consumer="acquisition",
             )
         )
 
@@ -457,18 +420,13 @@ def _verify_core_program(
     )
     product_graph_problems = validate_product_graph(
         program.product_defs,
-        (
-            *program.instrument_product_producers,
-            *program.domain_product_producers,
-            *program.measurement_transform_product_producers,
-        ),
         program.product_uses,
         program.record_uses,
         phase=ProblemPhase.AUTHORING,
     )
     problems.extend(product_schema_problems)
     problems.extend(product_graph_problems)
-    problems.extend(_acquisition_problems(program))
+    problems.extend(_product_owner_problems(program))
     coordinate_ids = (
         tuple(column.id for column in verified_point_domain.coordinate_columns)
         if verified_point_domain is not None
@@ -500,37 +458,6 @@ def _core_domain_problems(program: CoreProgram) -> tuple[Problem, ...]:
 
     products = {item.id for item in program.product_defs}
     uses = {item.id: item for item in program.product_uses}
-    producers_by_result: dict[tuple[str, str], DomainProductProducer] = {}
-    producer_ids: set[ProductProducerId] = set()
-    for producer in program.domain_product_producers:
-        if producer.id in producer_ids:
-            problems.append(
-                _problem(
-                    "domain_product_producer_duplicate",
-                    "domain product producer "
-                    f"{producer.id.qualified_name!r} is duplicated",
-                    model_location(
-                        "domain_product_producers",
-                        producer.id.qualified_name,
-                    ),
-                )
-            )
-        producer_ids.add(producer.id)
-        key = (producer.execution_id, producer.result_id)
-        if key in producers_by_result:
-            problems.append(
-                _problem(
-                    "domain_result_producer_duplicate",
-                    "one domain result has more than one product producer",
-                    model_location(
-                        "domain_product_producers",
-                        producer.id.qualified_name,
-                    ),
-                )
-            )
-        producers_by_result[key] = producer
-
-    declared_result_ids: set[tuple[str, str]] = set()
     produced_products: set[ProductId] = set()
     execution_ids = tuple(execution.id for execution in core_domain_executions(program))
     if len(execution_ids) != len(set(execution_ids)):
@@ -588,8 +515,6 @@ def _core_domain_problems(program: CoreProgram) -> tuple[Problem, ...]:
                 "results",
                 result.id,
             )
-            key = (execution.id, result.id)
-            declared_result_ids.add(key)
             if result.product_id in produced_products:
                 problems.append(
                     _problem(
@@ -606,19 +531,6 @@ def _core_domain_problems(program: CoreProgram) -> tuple[Problem, ...]:
                         "domain_result_product_missing",
                         "domain result references unknown product "
                         f"{result.product_id.qualified_name!r}",
-                        result_location,
-                    )
-                )
-            producer = producers_by_result.get(key)
-            if (
-                producer is None
-                or producer.id != result.producer_id
-                or producer.product_id != result.product_id
-            ):
-                problems.append(
-                    _problem(
-                        "domain_result_producer_mismatch",
-                        "domain result does not have one matching producer declaration",
                         result_location,
                     )
                 )
@@ -647,19 +559,6 @@ def _core_domain_problems(program: CoreProgram) -> tuple[Problem, ...]:
                         result_location,
                     )
                 )
-
-    for key, producer in producers_by_result.items():
-        if key not in declared_result_ids:
-            problems.append(
-                _problem(
-                    "domain_product_producer_orphan",
-                    "domain product producer references an unknown execution result",
-                    model_location(
-                        "domain_product_producers",
-                        producer.id.qualified_name,
-                    ),
-                )
-            )
     return tuple(problems)
 
 
@@ -861,16 +760,16 @@ def _program_relation_consumers_with_roles(
             point_role,
         )
 
-    for route_index, route in enumerate(program.route_intents):
-        for expression_index, use in enumerate(route.entity_uses):
+    for requirement_index, requirement in enumerate(program.resource_requirements):
+        for expression_index, use in enumerate(requirement.entity_uses):
             yield (
                 _consumer(
                     use.id,
-                    ProgramRelationConsumerKind.ROUTE_ENTITY,
+                    ProgramRelationConsumerKind.RESOURCE_ENTITY,
                     use.value,
                     model_location(
-                        "route_intents",
-                        route_index,
+                        "resource_requirements",
+                        requirement_index,
                         "entity_exprs",
                         expression_index,
                     ),
@@ -1037,21 +936,6 @@ def _state_relation_consumers_with_roles(
     location: ModelLocation,
 ) -> Iterator[tuple[ProgramRelationConsumer, _PlanConsumerRole]]:
     if isinstance(state, SetStateSpec):
-        resource_target = state.resource_target
-        if isinstance(resource_target, PhysicalStateResourceTarget):
-            yield (
-                _consumer(
-                    resource_target.use.id,
-                    ProgramRelationConsumerKind.STATE_RESOURCE,
-                    resource_target.use.value,
-                    model_location(
-                        location.root,
-                        *location.path,
-                        "physical_resource_id",
-                    ),
-                ),
-                role,
-            )
         if not isinstance(state.value_use, ComputeResultRef):
             yield (
                 _consumer(
@@ -1062,16 +946,16 @@ def _state_relation_consumers_with_roles(
                 ),
                 role,
             )
-        for index, use in enumerate(state.route_entity_uses):
+        for index, use in enumerate(state.target_entity_uses):
             yield (
                 _consumer(
                     use.id,
-                    ProgramRelationConsumerKind.STATE_ROUTE_ENTITY,
+                    ProgramRelationConsumerKind.STATE_TARGET_ENTITY,
                     use.value,
                     model_location(
                         location.root,
                         *location.path,
-                        "route_entities",
+                        "target_entities",
                         index,
                     ),
                 ),
@@ -1141,13 +1025,13 @@ def _logical_resource_port_problems(
     port_id: LogicalResourcePortId,
     *,
     required_capability: str | None,
-    route_capabilities: Mapping[LogicalResourcePortId, set[str]],
+    resource_capabilities: Mapping[LogicalResourcePortId, set[str]],
     location: ModelLocation,
     missing_code: str,
     capability_code: str,
     consumer: str,
 ) -> tuple[Problem, ...]:
-    declared = route_capabilities.get(port_id)
+    declared = resource_capabilities.get(port_id)
     if declared is None:
         return (
             _problem(

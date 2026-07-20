@@ -1,49 +1,147 @@
-"""Internal routing view over accepted configuration."""
+"""Static physical resource manifests over accepted configuration."""
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from types import MappingProxyType
 
-from scopecat.kernel.resource_identity import (
-    LogicalResourcePortId,
-    PhysicalResourceId,
-)
+from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.records.config import (
     ConfigProfileSnapshot,
-    RoutingChannelBinding,
-    RoutingEdge,
-    RoutingResource,
+    RoutingEndpointBinding,
 )
-from scopecat.records.entity import EntityRef
+from scopecat.records.instrument import CommandChannelBinding
 
 
 @dataclass(frozen=True)
 class ResourceBinding:
-    """Resolved logical resource binding for a port at runtime lowering time."""
+    """One instrument shard selected for a logical resource port."""
 
-    port_id: LogicalResourcePortId
-    resource_id: PhysicalResourceId
-    resource_kind: str
-    capabilities: tuple[str, ...] = ()
+    instrument_id: str
     entity_ids: tuple[str, ...] = ()
-    served_entity_ids: tuple[str, ...] = ()
-    product_axis_order: tuple[str, ...] = ()
-    channel_bindings: tuple[RoutingChannelBinding, ...] = ()
+    channel_bindings: tuple[CommandChannelBinding, ...] = ()
 
 
 @dataclass(frozen=True)
-class PhysicalResourceBinding:
-    """Validated direct binding to one configured physical resource."""
+class ResourcePortManifest:
+    """Frozen physical candidates for one logical resource contract.
 
-    resource_id: PhysicalResourceId
-    resource_kind: str
-    capabilities: tuple[str, ...] = ()
-    entity_ids: tuple[str, ...] = ()
-    channel_bindings: tuple[RoutingChannelBinding, ...] = ()
+    Point-local entity values may only select from this manifest. They cannot
+    discover providers, construct new physical paths, or change endpoint
+    ownership after target preparation.
+    """
+
+    port_id: LogicalResourcePortId
+    default_instrument_ids: tuple[str, ...]
+    instrument_ids_by_entity: Mapping[str, tuple[str, ...]]
+    channel_bindings_by_instrument: Mapping[
+        str,
+        tuple[CommandChannelBinding, ...],
+    ]
+
+    def select_one(
+        self,
+        entity_ids: Sequence[str] = (),
+    ) -> ResourceBinding:
+        """Select the single driver invocation for an action or acquisition.
+
+        Different points may select different instruments, but one point-local
+        action or acquisition is atomic at one driver and is never implicitly
+        broadcast across instrument shards.
+        """
+
+        shards = self.select_shards(entity_ids)
+        if len(shards) > 1:
+            raise ResourceBindingError(
+                "module_resource_port_ambiguous",
+                f"resource port {self.port_id} spans multiple instruments: "
+                + ", ".join(shard.instrument_id for shard in shards),
+            )
+        if not shards:
+            raise AssertionError("successful resource selection lost its shard")
+        return next(iter(shards))
+
+    def select_shards(
+        self,
+        entity_ids: Sequence[str] = (),
+    ) -> tuple[ResourceBinding, ...]:
+        """Project selected entities onto their static instrument owners.
+
+        This split is intended for desired state, where different devices may
+        maintain their explicit values through different drivers. It does not
+        turn a multi-instrument action or acquisition into a broadcast.
+        """
+
+        selected_entity_ids = tuple(dict.fromkeys(entity_ids))
+        if selected_entity_ids:
+            entities_by_instrument: dict[str, list[str]] = {}
+            for entity_id in selected_entity_ids:
+                candidates = self.instrument_ids_by_entity.get(entity_id, ())
+                if not candidates:
+                    raise ResourceBindingError(
+                        "module_resource_endpoint_not_found",
+                        f"no instrument satisfies resource port {self.port_id} for "
+                        f"entity {entity_id!r}",
+                    )
+                if len(candidates) > 1:
+                    raise ResourceBindingError(
+                        "module_resource_endpoint_ambiguous",
+                        f"resource port {self.port_id} entity {entity_id!r} matches "
+                        "multiple instruments: " + ", ".join(candidates),
+                    )
+                instrument_id = next(iter(candidates))
+                entities_by_instrument.setdefault(instrument_id, []).append(entity_id)
+            return tuple(
+                self._resource_binding(
+                    instrument_id,
+                    entity_ids=tuple(shard_entity_ids),
+                )
+                for instrument_id, shard_entity_ids in entities_by_instrument.items()
+            )
+
+        if not self.default_instrument_ids:
+            raise ResourceBindingError(
+                "module_resource_port_not_found",
+                f"no instrument satisfies resource port {self.port_id}",
+            )
+        if len(self.default_instrument_ids) > 1:
+            raise ResourceBindingError(
+                "module_resource_port_ambiguous",
+                f"resource port {self.port_id} matches multiple instruments: "
+                f"{', '.join(self.default_instrument_ids)}",
+            )
+        return (
+            self._resource_binding(
+                next(iter(self.default_instrument_ids)),
+                entity_ids=(),
+            ),
+        )
+
+    def _resource_binding(
+        self,
+        instrument_id: str,
+        *,
+        entity_ids: tuple[str, ...],
+    ) -> ResourceBinding:
+        channel_bindings = self.channel_bindings_by_instrument.get(instrument_id, ())
+        if entity_ids:
+            bindings_by_entity: dict[str, list[CommandChannelBinding]] = {}
+            for binding in channel_bindings:
+                bindings_by_entity.setdefault(binding.entity_id, []).append(binding)
+            channel_bindings = tuple(
+                binding
+                for entity_id in entity_ids
+                for binding in bindings_by_entity.get(entity_id, ())
+            )
+        return ResourceBinding(
+            instrument_id=instrument_id,
+            entity_ids=entity_ids,
+            channel_bindings=channel_bindings,
+        )
 
 
-class RoutingError(ValueError):
+class ResourceBindingError(ValueError):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
@@ -51,20 +149,22 @@ class RoutingError(ValueError):
 
 @dataclass(frozen=True)
 class RoutingView:
-    """Resolves logical resources from config-declared capabilities and entities."""
+    """Pure projection of one accepted configuration into static manifests.
 
-    resources: tuple[RoutingResource, ...]
-    edges: tuple[RoutingEdge, ...] = ()
+    The view never observes provider state and cannot substitute an endpoint.
+    Replacing hardware therefore requires another accepted configuration and
+    plan, preserving the physical choice in run provenance.
+    """
+
+    bindings: tuple[RoutingEndpointBinding, ...] = ()
     channel_lines_by_id: dict[str, str | None] | None = None
     channel_groups_by_id: dict[str, tuple[str, ...]] | None = None
 
     @classmethod
     def from_config(cls, config: ConfigProfileSnapshot) -> RoutingView:
-        resources = tuple(config.routing.resources)
-        edges = tuple(config.routing.edges)
+        bindings = tuple(config.routing.bindings)
         return cls(
-            resources=resources,
-            edges=edges,
+            bindings=bindings,
             channel_lines_by_id={
                 channel.id: channel.line_id for channel in config.topology.channels
             },
@@ -74,318 +174,143 @@ class RoutingView:
             },
         )
 
-    def route(
+    def bind_port(
         self,
         *,
         port_id: LogicalResourcePortId,
         capabilities: Sequence[str],
-        entity_ids: Sequence[str] = (),
-        fixed_resource_id: PhysicalResourceId | None = None,
-    ) -> ResourceBinding:
-        selected_capabilities = tuple(capabilities)
-        selected_entity_ids = tuple(dict.fromkeys(entity_ids))
-        if fixed_resource_id is not None:
-            resource = self.resource(fixed_resource_id)
-            if resource is None:
-                raise RoutingError(
-                    "module_resource_port_not_found",
-                    (
-                        f"resource port {port_id} references unknown resource "
-                        f"{fixed_resource_id}"
-                    ),
-                )
-            if not self._resource_satisfies(
-                resource,
-                capabilities=selected_capabilities,
-                entity_ids=selected_entity_ids,
-            ):
-                raise RoutingError(
-                    "module_resource_port_entity_mismatch",
-                    f"resource {fixed_resource_id} cannot satisfy port {port_id}",
-                )
-            return ResourceBinding(
-                port_id=port_id,
-                resource_id=fixed_resource_id,
-                resource_kind=resource.kind,
-                capabilities=selected_capabilities,
-                entity_ids=selected_entity_ids,
-                served_entity_ids=tuple(
-                    sorted(self._served_entity_ids(resource, selected_capabilities))
-                ),
-                product_axis_order=selected_entity_ids,
-                channel_bindings=self._channel_bindings(
-                    resource,
-                    capabilities=selected_capabilities,
-                    entity_ids=selected_entity_ids,
-                ),
-            )
+    ) -> ResourcePortManifest:
+        """Freeze candidates satisfying the port's complete capability contract.
 
-        candidates = [
-            PhysicalResourceId(resource.id)
-            for resource in self.resources
-            if self._resource_satisfies(
-                resource,
+        Every selected entity must have every capability required by the logical
+        port on the same candidate instrument; partial capability matches are
+        deliberately excluded.
+        """
+
+        selected_capabilities = tuple(capabilities)
+        instrument_ids = tuple(
+            dict.fromkeys(binding.instrument_id for binding in self.bindings)
+        )
+        default_instrument_ids = tuple(
+            instrument_id
+            for instrument_id in instrument_ids
+            if self._instrument_satisfies(
+                instrument_id,
                 capabilities=selected_capabilities,
-                entity_ids=selected_entity_ids,
+                entity_ids=(),
             )
-        ]
-        if not candidates:
-            raise RoutingError(
-                "module_resource_port_not_found",
-                f"no resource satisfies port {port_id}",
+        )
+        entity_ids = tuple(
+            dict.fromkeys(
+                binding.entity_id
+                for binding in self.bindings
+                if binding.entity_id is not None
             )
-        if len(candidates) > 1:
-            raise RoutingError(
-                "module_resource_port_ambiguous",
-                f"resource port {port_id} matches multiple resources: "
-                f"{', '.join(candidate.value for candidate in candidates)}",
-            )
-        selected_resource = self.resource(candidates[0])
-        if selected_resource is None:
-            raise AssertionError("selected routing resource disappeared")
-        return ResourceBinding(
+        )
+        return ResourcePortManifest(
             port_id=port_id,
-            resource_id=candidates[0],
-            resource_kind=selected_resource.kind,
-            capabilities=selected_capabilities,
-            entity_ids=selected_entity_ids,
-            served_entity_ids=tuple(
-                sorted(
-                    self._served_entity_ids(
-                        selected_resource,
-                        selected_capabilities,
+            default_instrument_ids=default_instrument_ids,
+            instrument_ids_by_entity=MappingProxyType(
+                {
+                    entity_id: tuple(
+                        instrument_id
+                        for instrument_id in instrument_ids
+                        if self._instrument_satisfies(
+                            instrument_id,
+                            capabilities=selected_capabilities,
+                            entity_ids=(entity_id,),
+                        )
                     )
-                )
+                    for entity_id in entity_ids
+                }
             ),
-            product_axis_order=selected_entity_ids,
-            channel_bindings=self._channel_bindings(
-                selected_resource,
-                capabilities=selected_capabilities,
-                entity_ids=selected_entity_ids,
-            ),
-        )
-
-    def route_point(
-        self,
-        *,
-        port_id: LogicalResourcePortId,
-        capabilities: Sequence[str],
-        entity_values: Sequence[object] = (),
-        fixed_resource_id: PhysicalResourceId | None = None,
-    ) -> ResourceBinding:
-        return self.route(
-            port_id=port_id,
-            capabilities=capabilities,
-            entity_ids=_entity_ids(entity_values),
-            fixed_resource_id=fixed_resource_id,
-        )
-
-    def bind_physical(
-        self,
-        *,
-        resource_id: PhysicalResourceId,
-        capabilities: Sequence[str] = (),
-        entity_values: Sequence[object] = (),
-    ) -> PhysicalResourceBinding:
-        selected_capabilities = tuple(capabilities)
-        selected_entity_ids = _entity_ids(entity_values)
-        resource = self.resource(resource_id)
-        if resource is None:
-            raise RoutingError(
-                "physical_resource_not_found",
-                f"unknown physical resource {resource_id.value!r}",
-            )
-        if not self._resource_satisfies(
-            resource,
-            capabilities=selected_capabilities,
-            entity_ids=selected_entity_ids,
-        ):
-            raise RoutingError(
-                "physical_resource_contract_mismatch",
-                f"physical resource {resource_id.value!r} cannot satisfy the "
-                "required capabilities and entities",
-            )
-        return PhysicalResourceBinding(
-            resource_id=resource_id,
-            resource_kind=resource.kind,
-            capabilities=selected_capabilities,
-            entity_ids=selected_entity_ids,
-            channel_bindings=(
-                self._channel_bindings(
-                    resource,
-                    capabilities=selected_capabilities,
-                    entity_ids=selected_entity_ids,
-                )
-                if selected_entity_ids
-                else ()
+            channel_bindings_by_instrument=MappingProxyType(
+                {
+                    instrument_id: self._channel_bindings(
+                        instrument_id,
+                        capabilities=selected_capabilities,
+                    )
+                    for instrument_id in instrument_ids
+                }
             ),
         )
 
-    def resource(self, resource_id: PhysicalResourceId) -> RoutingResource | None:
-        for resource in self.resources:
-            if resource.id == resource_id.value:
-                return resource
-        return None
-
-    def _resource_satisfies(
+    def _instrument_satisfies(
         self,
-        resource: RoutingResource,
+        instrument_id: str,
         *,
         capabilities: tuple[str, ...],
         entity_ids: tuple[str, ...],
     ) -> bool:
-        if not all(capability in resource.capabilities for capability in capabilities):
+        instrument_bindings = self._bindings_for_instrument(instrument_id)
+        declared_capabilities = {binding.capability for binding in instrument_bindings}
+        if not all(capability in declared_capabilities for capability in capabilities):
             return False
         if not entity_ids:
             return True
-        served_entity_ids = self._served_entity_ids(resource, capabilities)
-        return all(entity_id in served_entity_ids for entity_id in entity_ids)
-
-    def _served_entity_ids(
-        self,
-        resource: RoutingResource,
-        capabilities: tuple[str, ...],
-    ) -> set[str]:
         if not capabilities:
-            served = set(resource.served_entities)
-            for edge in self.edges:
-                if edge.resource_id != resource.id:
-                    continue
-                served.update(edge.entity_ids)
-                served.update(binding.entity_id for binding in edge.bindings)
-            return served
-        served: set[str] = set()
-        for capability in capabilities:
-            capability_entities: set[str] = set()
-            for edge in self.edges:
-                if edge.resource_id != resource.id:
-                    continue
-                capability_entities.update(
-                    _edge_entities_for_capability(edge, capability)
-                )
-            served.update(capability_entities or resource.served_entities)
-        return served
+            served_entity_ids = {
+                binding.entity_id
+                for binding in instrument_bindings
+                if binding.entity_id is not None
+            }
+            return all(entity_id in served_entity_ids for entity_id in entity_ids)
+        return all(
+            any(
+                binding.capability == capability and binding.entity_id == entity_id
+                for binding in instrument_bindings
+            )
+            for capability in capabilities
+            for entity_id in entity_ids
+        )
 
     def _channel_bindings(
         self,
-        resource: RoutingResource | None,
+        instrument_id: str,
         *,
         capabilities: tuple[str, ...],
-        entity_ids: tuple[str, ...],
-    ) -> tuple[RoutingChannelBinding, ...]:
-        if resource is None:
-            return ()
-        selected: list[RoutingChannelBinding] = []
-        wanted = set(entity_ids)
-        for edge in self.edges:
-            if edge.resource_id != resource.id:
+    ) -> tuple[CommandChannelBinding, ...]:
+        selected: list[CommandChannelBinding] = []
+        for endpoint in self._bindings_for_instrument(instrument_id):
+            if endpoint.entity_id is None or endpoint.channel_id is None:
                 continue
-            if not _edge_relevant_to_capabilities(edge, capabilities):
+            if capabilities and endpoint.capability not in capabilities:
                 continue
-            for binding in edge.bindings:
-                if wanted and binding.entity_id not in wanted:
-                    continue
-                for capability in _effective_binding_capabilities(
-                    binding,
-                    edge=edge,
-                    selected_capabilities=capabilities,
-                ):
-                    selected.append(
-                        self._enriched_binding(
-                            binding.model_copy(update={"capability": capability})
-                        )
+            selected.append(
+                self._enriched_binding(
+                    CommandChannelBinding(
+                        entity_id=endpoint.entity_id,
+                        channel_id=endpoint.channel_id,
+                        capability=endpoint.capability,
+                        metadata=endpoint.metadata,
                     )
-        channels_by_entity = dict(
-            zip(
-                resource.served_entities,
-                resource.channels,
-                strict=False,
-            )
-        )
-        fallback: tuple[RoutingChannelBinding, ...]
-        fallback_entity_ids = entity_ids or tuple(
-            entity_id
-            for entity_id in resource.served_entities
-            if entity_id in self._served_entity_ids(resource, capabilities)
-        )
-        if channels_by_entity:
-            fallback = tuple(
-                RoutingChannelBinding(
-                    entity_id=entity_id,
-                    channel_id=channels_by_entity[entity_id],
-                    line_id=self._channel_line(channels_by_entity[entity_id]),
-                    group_ids=list(self._channel_groups(channels_by_entity[entity_id])),
-                )
-                for entity_id in fallback_entity_ids
-                if entity_id in channels_by_entity
-            )
-        elif not fallback_entity_ids:
-            fallback = ()
-        else:
-            fallback = tuple(
-                RoutingChannelBinding(
-                    entity_id=entity_id,
-                    channel_id=channel_id,
-                    line_id=self._channel_line(channel_id),
-                    group_ids=list(self._channel_groups(channel_id)),
-                )
-                for entity_id, channel_id in zip(
-                    fallback_entity_ids,
-                    resource.channels,
-                    strict=False,
                 )
             )
-        merged: list[RoutingChannelBinding] = []
-        seen: set[tuple[str, str, str | None, str | None, tuple[str, ...]]] = set()
-        for binding in selected:
-            identity = _channel_binding_identity(binding)
-            if identity in seen:
-                continue
-            seen.add(identity)
-            merged.append(binding)
-        fallback_capabilities: tuple[str | None, ...] = (
-            capabilities or tuple(resource.capabilities) or (None,)
-        )
-        for capability in fallback_capabilities:
-            if any(
-                _binding_applies_to_capability(edge, binding, capability)
-                for edge in self.edges
-                if edge.resource_id == resource.id
-                for binding in edge.bindings
-            ):
-                continue
-            for binding in fallback:
-                candidate = binding.model_copy(update={"capability": capability})
-                identity = _channel_binding_identity(candidate)
-                if identity in seen:
-                    continue
-                seen.add(identity)
-                merged.append(candidate)
-        if not entity_ids:
-            return tuple(merged)
-        merged_by_entity: dict[str, list[RoutingChannelBinding]] = {}
-        for binding in merged:
-            merged_by_entity.setdefault(binding.entity_id, []).append(binding)
+        return tuple(selected)
+
+    def _bindings_for_instrument(
+        self,
+        instrument_id: str,
+    ) -> tuple[RoutingEndpointBinding, ...]:
         return tuple(
             binding
-            for entity_id in entity_ids
-            for binding in merged_by_entity.get(entity_id, ())
+            for binding in self.bindings
+            if binding.instrument_id == instrument_id
         )
 
     def _enriched_binding(
         self,
-        binding: RoutingChannelBinding,
-    ) -> RoutingChannelBinding:
+        binding: CommandChannelBinding,
+    ) -> CommandChannelBinding:
         channel_line = self._channel_line(binding.channel_id)
         channel_groups = self._channel_groups(binding.channel_id)
-        has_declared_topology = binding.line_id is not None and bool(binding.group_ids)
         has_inferred_topology = channel_line is not None or bool(channel_groups)
-        if has_declared_topology or not has_inferred_topology:
+        if not has_inferred_topology:
             return binding
         return binding.model_copy(
             update={
-                "line_id": binding.line_id or channel_line,
-                "group_ids": list(binding.group_ids or channel_groups),
+                "line_id": channel_line,
+                "group_ids": list(channel_groups),
             }
         )
 
@@ -398,108 +323,3 @@ class RoutingView:
         if self.channel_groups_by_id is None:
             return ()
         return self.channel_groups_by_id.get(channel_id, ())
-
-
-def _edge_relevant_to_capabilities(
-    edge: RoutingEdge,
-    capabilities: tuple[str, ...],
-) -> bool:
-    if not edge.capabilities or not capabilities:
-        return True
-    return any(capability in edge.capabilities for capability in capabilities)
-
-
-def _effective_binding_capabilities(
-    binding: RoutingChannelBinding,
-    *,
-    edge: RoutingEdge,
-    selected_capabilities: tuple[str, ...],
-) -> tuple[str | None, ...]:
-    if binding.capability is not None:
-        if selected_capabilities and binding.capability not in selected_capabilities:
-            return ()
-        return (binding.capability,)
-    if edge.capabilities:
-        return tuple(
-            capability
-            for capability in edge.capabilities
-            if not selected_capabilities or capability in selected_capabilities
-        )
-    return (None,)
-
-
-def _binding_applies_to_capability(
-    edge: RoutingEdge,
-    binding: RoutingChannelBinding,
-    capability: str | None,
-) -> bool:
-    if capability is None:
-        return True
-    if binding.capability is not None:
-        return binding.capability == capability
-    return not edge.capabilities or capability in edge.capabilities
-
-
-def _edge_entities_for_capability(
-    edge: RoutingEdge,
-    capability: str,
-) -> set[str]:
-    if edge.capabilities and capability not in edge.capabilities:
-        return {
-            binding.entity_id
-            for binding in edge.bindings
-            if binding.capability == capability
-        }
-    relevant_bindings = {
-        binding.entity_id
-        for binding in edge.bindings
-        if _binding_applies_to_capability(edge, binding, capability)
-    }
-    if edge.capabilities or relevant_bindings or not edge.bindings:
-        return {*edge.entity_ids, *relevant_bindings}
-    return relevant_bindings
-
-
-def _physical_channel_binding_identity(
-    binding: RoutingChannelBinding,
-) -> tuple[str, str, str | None, tuple[str, ...]]:
-    return (
-        binding.entity_id,
-        binding.channel_id,
-        binding.line_id,
-        tuple(sorted(binding.group_ids)),
-    )
-
-
-def _channel_binding_identity(
-    binding: RoutingChannelBinding,
-) -> tuple[str, str, str | None, str | None, tuple[str, ...]]:
-    physical = _physical_channel_binding_identity(binding)
-    return (*physical[:3], binding.capability, physical[3])
-
-
-def _entity_ids(values: Sequence[object]) -> tuple[str, ...]:
-    entity_ids: list[str] = []
-    for value in values:
-        if isinstance(value, EntityRef):
-            if not value.id:
-                raise RoutingError(
-                    "module_resource_entity_invalid",
-                    "route entity id must be non-empty",
-                )
-            entity_ids.append(value.id)
-        elif isinstance(value, str) and value:
-            entity_ids.append(value)
-        elif isinstance(value, Sequence) and not isinstance(value, str | bytes):
-            if not value:
-                raise RoutingError(
-                    "module_resource_entity_invalid",
-                    "route entity series must not be empty",
-                )
-            entity_ids.extend(_entity_ids(value))
-        else:
-            raise RoutingError(
-                "module_resource_entity_invalid",
-                f"route entity must resolve to an entity reference, got {value!r}",
-            )
-    return tuple(dict.fromkeys(entity_ids))

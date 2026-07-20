@@ -31,8 +31,8 @@ from scopecat.authoring._frozen_values import (
 )
 from scopecat.authoring._module_handles import (
     BindingInput,
-    StateRouteInput,
     StateScalarInput,
+    StateTargetInput,
 )
 from scopecat.authoring._products import (
     ProductAxis,
@@ -435,32 +435,31 @@ class Experiment:
         self,
         relation: ValueRef,
         *,
-        resource: StateScalarInput | None = None,
-        resource_port: str | None = None,
+        resource_port: str,
         capability: str,
         field: str,
         value: StateScalarInput,
-        route_entities: Sequence[StateRouteInput] = (),
+        target_entities: Sequence[StateTargetInput] = (),
     ) -> Experiment:
         return replace(
             self,
             module=self.module.state_each(
                 relation,
-                resource=resource,
                 resource_port=resource_port,
                 field=field,
                 capability=capability,
                 value=value,
-                route_entities=route_entities,
+                target_entities=target_entities,
             ),
         )
 
     def record(
         self,
         *record_ids: str,
-        resource: str | None = None,
-        capability: str | None = None,
+        resource: str,
+        capability: str,
         product_key: str | None = None,
+        product_keys: Mapping[str | ProductRef, str] | None = None,
         unit: str | None = "ratio",
         dtype: MeasurementDType = "float64",
         axes: Sequence[ProductAxis] = (),
@@ -475,9 +474,6 @@ class Experiment:
 
         module = self.module.product(
             *record_ids,
-            resource=resource,
-            capability=capability,
-            product_key=product_key,
             unit=unit,
             dtype=dtype,
             axes=axes,
@@ -486,6 +482,10 @@ class Experiment:
         module = module.acquire(
             f"acquire-{'-'.join(record_ids)}",
             *record_ids,
+            resource=resource,
+            capability=capability,
+            product_key=product_key,
+            product_keys=product_keys,
         )
         return replace(
             self,
@@ -522,8 +522,17 @@ class Experiment:
             record_selections=(*self.record_selections, *selections),
         )
 
-    def measure(self, *observable_ids: str) -> Experiment:
-        return self.record(*observable_ids)
+    def measure(
+        self,
+        *observable_ids: str,
+        resource: str,
+        capability: str,
+    ) -> Experiment:
+        return self.record(
+            *observable_ids,
+            resource=resource,
+            capability=capability,
+        )
 
     def preview(self) -> ExperimentPreview:
         return self._require_session().prepare(self).preview()

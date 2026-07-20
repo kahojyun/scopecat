@@ -17,10 +17,11 @@ from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
 from scopecat.compiler.typed.point_domain import (
     PointDomain,
 )
-from scopecat.compiler.typed.products import InstrumentProductProducer, ProductDef
+from scopecat.compiler.typed.products import ProductDef
 from scopecat.compiler.typed.program import (
+    AcquireSpec,
     CoreProgram,
-    ResourceRouteIntent,
+    LogicalResourceRequirement,
     record_product,
     set_state_field,
 )
@@ -46,13 +47,11 @@ from scopecat.kernel.resource_identity import (
     logical_resource_port_id,
 )
 from scopecat.kernel.state import StateValue
-from scopecat.kernel.value_types import Entity, Float, Scalar, String
+from scopecat.kernel.value_types import Entity, Float, Scalar
 from scopecat.records.config import (
     ConfigProfileSnapshot,
-    RoutingChannelBinding,
-    RoutingEdge,
+    RoutingEndpointBinding,
     RoutingGraph,
-    RoutingResource,
     SharedResourceGroup,
 )
 from scopecat.records.entity import EntityRef
@@ -78,11 +77,10 @@ from tests.testkit.local_materialization import (
     materialize_local_execution,
     operations_of_type,
 )
-from tests.testkit.materialized_effects import config_with_physical_resources
 from tests.testkit.relation_plans import scalar_value_expr
 from tests.testkit.run_operations import complete_coverage_operations
 from tests.testkit.typed_program import (
-    instrument_product_producer,
+    instrument_acquisition,
     link_program,
     observable_product,
     typed_program,
@@ -91,10 +89,6 @@ from tests.testkit.typed_program import (
 
 def _port(value: str) -> LogicalResourcePortId:
     return logical_resource_port_id(value)
-
-
-def _text(value: str) -> ScalarValueExpr:
-    return scalar_value_expr(lit(value), expected_type=Scalar(String()))
 
 
 def _number(value: float) -> ScalarValueExpr:
@@ -108,20 +102,20 @@ def _entity(value: str) -> ScalarValueExpr:
 def _unit_program(
     *,
     experiment_id: str,
-    route_intents: tuple[ResourceRouteIntent, ...] = (),
+    resource_requirements: tuple[LogicalResourceRequirement, ...] = (),
     state: tuple[StateSpecVariant, ...] = (),
     products: tuple[ProductDef, ...] = (),
-    producers: tuple[InstrumentProductProducer, ...] = (),
+    acquisitions: tuple[AcquireSpec, ...] = (),
 ) -> CoreProgram:
     uses_and_records = tuple(record_product(product) for product in products)
     return typed_program(
         id=experiment_id,
         kind="resource_effect_regression",
         point_domain=PointDomain(root=POINT_UNIT),
-        route_intents=route_intents,
+        resource_requirements=resource_requirements,
         state=state,
         product_defs=products,
-        instrument_product_producers=producers,
+        instrument_acquisitions=acquisitions,
         product_uses=tuple(item[0] for item in uses_and_records),
         record_uses=tuple(item[1] for item in uses_and_records),
     )
@@ -139,42 +133,47 @@ def _bind(
     return materialize_local_execution(link_program(program, environment))
 
 
-def test_record_products_keep_their_exact_logical_route_bindings() -> None:
+def test_record_products_keep_their_exact_logical_resource_bindings() -> None:
     config = _same_instrument_record_config()
     left = _port("left")
     right = _port("right")
+    direct = _port("direct")
     left_product = observable_product("left-result")
     right_product = observable_product("right-result")
     direct_product = observable_product("direct-result")
     program = _unit_program(
-        experiment_id="per-product-route-bindings",
-        route_intents=(
-            ResourceRouteIntent(
+        experiment_id="per-product-resource-bindings",
+        resource_requirements=(
+            LogicalResourceRequirement(
                 port_id=left,
                 capabilities=("measure.left",),
             ),
-            ResourceRouteIntent(
+            LogicalResourceRequirement(
                 port_id=right,
                 capabilities=("measure.right",),
             ),
+            LogicalResourceRequirement(
+                port_id=direct,
+                capabilities=("measure.direct",),
+            ),
         ),
         products=(left_product, right_product, direct_product),
-        producers=(
-            instrument_product_producer(
+        acquisitions=(
+            instrument_acquisition(
                 left_product,
                 resource_port_id=left,
                 capability="measure.left",
                 provider_key="left",
             ),
-            instrument_product_producer(
+            instrument_acquisition(
                 right_product,
                 resource_port_id=right,
                 capability="measure.right",
                 provider_key="right",
             ),
-            instrument_product_producer(
+            instrument_acquisition(
                 direct_product,
-                physical_resource_id="source-0",
+                resource_port_id=direct,
                 capability="measure.direct",
                 provider_key="direct",
             ),
@@ -182,10 +181,11 @@ def test_record_products_keep_their_exact_logical_route_bindings() -> None:
     )
 
     plan = _bind(program, config=config)
-    execution = plan
-
-    [collect_operation] = operations_of_type(execution, CollectOperation, point_index=0)
-    requests = {request.id: request for request in collect_operation.command.requests}
+    requests = {
+        request.id: request
+        for operation in operations_of_type(plan, CollectOperation, point_index=0)
+        for request in operation.command.requests
+    }
     assert {
         key: (
             tuple(request.entity_ids),
@@ -199,229 +199,34 @@ def test_record_products_keep_their_exact_logical_route_bindings() -> None:
     }
 
 
-def test_instrument_product_producers_bind_distinct_collection_requests() -> None:
-    config = config_with_physical_resources(
-        {
-            "source-0": ("measure.signal",),
-            "source-1": ("measure.signal",),
-        }
-    )
-    product = observable_product("signal", unit="ratio")
-    product_use, record_use = record_product(product)
-    source_0_producer = instrument_product_producer(
-        product,
-        id="source-0-signal",
-        physical_resource_id="source-0",
-        capability="measure.signal",
-        provider_key="raw-signal",
-    )
-    source_1_producer = instrument_product_producer(
-        product,
-        id="source-1-signal",
-        physical_resource_id="source-1",
-        capability="measure.signal",
-        provider_key="demodulated-signal",
-    )
-    source_0_program = typed_program(
-        id="producer-independent-schema",
-        kind="resource_effect_regression",
-        point_domain=PointDomain(root=POINT_UNIT),
-        product_defs=(product,),
-        instrument_product_producers=(source_0_producer,),
-        product_uses=(product_use,),
-        record_uses=(record_use,),
-    )
-    source_1_program = replace(
-        source_0_program,
-        instrument_product_producers=(source_1_producer,),
-    )
-
-    source_0_plan = _bind(source_0_program, config=config)
-    source_1_plan = _bind(source_1_program, config=config)
-
-    source_0_collect = operations_of_type(
-        source_0_plan, CollectOperation, point_index=0
-    )[0]
-    source_1_collect = operations_of_type(
-        source_1_plan, CollectOperation, point_index=0
-    )[0]
-    source_0_request = source_0_collect.command.requests[0]
-    source_1_request = source_1_collect.command.requests[0]
-    assert source_0_request != source_1_request
-    assert (
-        source_0_collect.instrument_id,
-        source_0_request.id,
-        source_0_request.capability_id,
-    ) == ("source-0", "raw-signal", "measure.signal")
-    assert (
-        source_1_collect.instrument_id,
-        source_1_request.id,
-        source_1_request.capability_id,
-    ) == ("source-1", "demodulated-signal", "measure.signal")
-
-
-def test_multi_capability_route_unions_capability_specific_edges() -> None:
-    config = _same_instrument_record_config()
-    combined = _port("combined")
-    left_product = observable_product("left-result")
-    right_product = observable_product("right-result")
-    all_product = observable_product("all-result")
-    program = _unit_program(
-        experiment_id="capability-indexed-route-topology",
-        route_intents=(
-            ResourceRouteIntent(
-                port_id=combined,
-                capabilities=("measure.left", "measure.right"),
-            ),
-        ),
-        products=(left_product, right_product, all_product),
-        producers=(
-            instrument_product_producer(
-                left_product,
-                resource_port_id=combined,
-                capability="measure.left",
-                provider_key="left",
-            ),
-            instrument_product_producer(
-                right_product,
-                resource_port_id=combined,
-                capability="measure.right",
-                provider_key="right",
-            ),
-            instrument_product_producer(
-                all_product,
-                resource_port_id=combined,
-                provider_key="all",
-            ),
-        ),
-    )
-
-    plan = _bind(program, config=config)
-
-    requests_by_key = {
-        request.id: request
-        for operation in operations_of_type(plan, CollectOperation, point_index=0)
-        for request in operation.command.requests
-    }
-    assert {
-        key: tuple(binding.channel_id for binding in request.channel_bindings)
-        for key, request in requests_by_key.items()
-    } == {
-        "left": ("drive-q0",),
-        "right": ("readout-q0",),
-        "all": ("drive-q0", "readout-q0"),
-    }
-
-
-def test_capability_unspecified_collection_stays_within_its_logical_port() -> None:
+def test_each_effect_uses_only_its_explicit_capability_endpoints() -> None:
     config = load_config()
     routing = RoutingGraph(
-        resources=[
-            RoutingResource(
-                id="source-0",
-                capabilities=["A", "B"],
-                served_entities=["q0"],
-                channels=["drive-q0", "readout-q0"],
-            )
-        ],
-        edges=[
-            RoutingEdge(
-                id="source-0-A",
-                resource_id="source-0",
-                entity_ids=["q0"],
-                capabilities=["A"],
-                bindings=[
-                    RoutingChannelBinding(
-                        entity_id="q0",
-                        channel_id="drive-q0",
-                        capability="A",
-                    )
-                ],
+        bindings=[
+            RoutingEndpointBinding(
+                instrument_id="source-0",
+                capability="A",
+                entity_id="q0",
+                channel_id="drive-q0",
             ),
-            RoutingEdge(
-                id="source-0-B",
-                resource_id="source-0",
-                entity_ids=["q0"],
-                capabilities=["B"],
-                bindings=[
-                    RoutingChannelBinding(
-                        entity_id="q0",
-                        channel_id="readout-q0",
-                        capability="B",
-                    )
-                ],
+            RoutingEndpointBinding(
+                instrument_id="source-0",
+                capability="B",
+                entity_id="q0",
+                channel_id="readout-q0",
             ),
         ],
     )
     config = config.model_copy(
         update={"system": config.system.model_copy(update={"routing": routing})}
     )
-    port = _port("A-only")
-    product = observable_product("result")
+    port = _port("combined")
+    a_product = observable_product("A-result")
+    b_product = observable_product("B-result")
     program = _unit_program(
-        experiment_id="capability-unspecified-logical-record",
-        route_intents=(
-            ResourceRouteIntent(
-                port_id=port,
-                capabilities=("A",),
-                entity_uses=(relation_use(_entity("q0")),),
-            ),
-        ),
-        products=(product,),
-        producers=(
-            instrument_product_producer(
-                product,
-                resource_port_id=port,
-                provider_key="result",
-            ),
-        ),
-    )
-
-    plan = _bind(program, config=config)
-
-    request = operations_of_type(plan, CollectOperation, point_index=0)[
-        0
-    ].command.requests[0]
-    assert [
-        (binding.capability, binding.channel_id) for binding in request.channel_bindings
-    ] == [(None, "drive-q0")]
-
-
-def test_mixed_explicit_and_fallback_route_topology_closes_durably() -> None:
-    config = load_config()
-    duplicate = RoutingChannelBinding(
-        entity_id="q0",
-        channel_id="drive-q0",
-        capability="B",
-    )
-    routing = RoutingGraph(
-        resources=[
-            RoutingResource(
-                id="source-0",
-                capabilities=["A", "B"],
-                served_entities=["q0"],
-                channels=["drive-q0"],
-            )
-        ],
-        edges=[
-            RoutingEdge(
-                id="source-0-B",
-                resource_id="source-0",
-                entity_ids=["q0"],
-                capabilities=["B"],
-                channels=["drive-q0"],
-                bindings=[duplicate, duplicate.model_copy(deep=True)],
-            )
-        ],
-    )
-    config = config.model_copy(
-        update={"system": config.system.model_copy(update={"routing": routing})}
-    )
-    port = _port("source")
-    program = _unit_program(
-        experiment_id="mixed-explicit-fallback-topology",
-        route_intents=(
-            ResourceRouteIntent(
+        experiment_id="explicit-capability-endpoints",
+        resource_requirements=(
+            LogicalResourceRequirement(
                 port_id=port,
                 capabilities=("A", "B"),
                 entity_uses=(relation_use(_entity("q0")),),
@@ -433,47 +238,80 @@ def test_mixed_explicit_and_fallback_route_topology_closes_durably() -> None:
                 capability_id="A",
                 field_path="level",
                 value=_number(1.0),
-                route_entities=(_entity("q0"),),
+                target_entities=(_entity("q0"),),
+            ),
+        ),
+        products=(a_product, b_product),
+        acquisitions=(
+            instrument_acquisition(
+                a_product,
+                resource_port_id=port,
+                capability="A",
+                provider_key="A-result",
+            ),
+            instrument_acquisition(
+                b_product,
+                resource_port_id=port,
+                capability="B",
+                provider_key="B-result",
             ),
         ),
     )
 
     plan = _bind(program, config=config)
+
+    [state] = operations_of_type(plan, ApplyStateOperation, point_index=0)
+    assert state.instrument_id == "source-0"
     assert [
         (binding.capability, binding.channel_id)
-        for binding in operations_of_type(plan, ApplyStateOperation, point_index=0)[0]
-        .targets[0]
-        .channel_bindings
+        for binding in state.targets[0].channel_bindings
     ] == [("A", "drive-q0")]
-    assert (
-        operations_of_type(plan, ApplyStateOperation, point_index=0)[0].instrument_id
-        == "source-0"
-    )
+
+    requests = {
+        request.id: request
+        for operation in operations_of_type(plan, CollectOperation, point_index=0)
+        for request in operation.command.requests
+    }
+    assert {
+        key: (
+            request.capability_id,
+            tuple(
+                (binding.capability, binding.channel_id)
+                for binding in request.channel_bindings
+            ),
+        )
+        for key, request in requests.items()
+    } == {
+        "A-result": ("A", (("A", "drive-q0"),)),
+        "B-result": ("B", (("B", "readout-q0"),)),
+    }
 
 
-def test_direct_physical_state_bindings_reach_claims_and_shared_constraints() -> None:
+def test_logical_state_bindings_reach_exact_resource_claims() -> None:
     config = _shared_group_config()
+    source = _port("source")
     first_state = set_state_field(
-        _text("source-0"),
+        resource_port_id=source,
         capability_id="set.level",
         field_path="level",
         value=_number(1.0),
-        route_entities=(_entity("q0"),),
-    )
-    second_state = set_state_field(
-        _text("source-1"),
-        capability_id="set.level",
-        field_path="level",
-        value=_number(2.0),
-        route_entities=(_entity("q1"),),
+        target_entities=(_entity("q0"),),
     )
 
     single_plan = _bind(
-        _unit_program(experiment_id="direct-state-claims", state=(first_state,)),
+        _unit_program(
+            experiment_id="logical-state-claims",
+            resource_requirements=(
+                LogicalResourceRequirement(
+                    port_id=source,
+                    capabilities=("set.level",),
+                    entity_uses=(relation_use(_entity("q0")),),
+                ),
+            ),
+            state=(first_state,),
+        ),
         config=config,
     )
-    execution = single_plan
-
     field = operations_of_type(single_plan, ApplyStateOperation, point_index=0)[
         0
     ].targets[0]
@@ -486,24 +324,6 @@ def test_direct_physical_state_bindings_reach_claims_and_shared_constraints() ->
         ("channel", "drive-q0"),
         ("group", "shared.lo"),
     ]
-    assert [(claim.kind, claim.id) for claim in execution.resource_claims] == [
-        ("instrument", "source-0"),
-        ("channel", "drive-q0"),
-        ("group", "shared.lo"),
-    ]
-
-    with pytest.raises(CheckFailed) as failure:
-        _bind(
-            _unit_program(
-                experiment_id="direct-state-shared-group-conflict",
-                state=(first_state, second_state),
-            ),
-            config=config,
-        )
-
-    assert "routing_shared_group_resource_conflict" in {
-        problem.code for problem in failure.value.problems
-    }
 
 
 def test_entity_only_targets_survive_bound_and_execution_boundaries() -> None:
@@ -512,8 +332,8 @@ def test_entity_only_targets_survive_bound_and_execution_boundaries() -> None:
     product = observable_product("signal-result")
     program = _unit_program(
         experiment_id="entity-only-targets",
-        route_intents=(
-            ResourceRouteIntent(
+        resource_requirements=(
+            LogicalResourceRequirement(
                 port_id=signal,
                 capabilities=("set.level", "measure.signal"),
                 entity_uses=(relation_use(_entity("q0")),),
@@ -525,12 +345,12 @@ def test_entity_only_targets_survive_bound_and_execution_boundaries() -> None:
                 capability_id="set.level",
                 field_path="level",
                 value=_number(1.0),
-                route_entities=(_entity("q0"),),
+                target_entities=(_entity("q0"),),
             ),
         ),
         products=(product,),
-        producers=(
-            instrument_product_producer(
+        acquisitions=(
+            instrument_acquisition(
                 product,
                 resource_port_id=signal,
                 capability="measure.signal",
@@ -567,13 +387,13 @@ def test_distinct_logical_ports_cannot_own_one_physical_state_slot() -> None:
     right = _port("right")
     program = _unit_program(
         experiment_id="aliased-logical-state-target",
-        route_intents=(
-            ResourceRouteIntent(
+        resource_requirements=(
+            LogicalResourceRequirement(
                 port_id=left,
                 capabilities=("set.level",),
                 entity_uses=(relation_use(_entity("q0")),),
             ),
-            ResourceRouteIntent(
+            LogicalResourceRequirement(
                 port_id=right,
                 capabilities=("set.level",),
                 entity_uses=(relation_use(_entity("q0")),),
@@ -585,14 +405,14 @@ def test_distinct_logical_ports_cannot_own_one_physical_state_slot() -> None:
                 capability_id="set.level",
                 field_path="level",
                 value=_number(1.0),
-                route_entities=(_entity("q0"),),
+                target_entities=(_entity("q0"),),
             ),
             set_state_field(
                 resource_port_id=right,
                 capability_id="set.level",
                 field_path="level",
                 value=_number(1.0),
-                route_entities=(_entity("q0"),),
+                target_entities=(_entity("q0"),),
             ),
         ),
     )
@@ -697,42 +517,22 @@ def _same_instrument_record_config() -> ConfigProfileSnapshot:
         }
     )
     routing = RoutingGraph(
-        resources=[
-            RoutingResource(
-                id="source-0",
-                capabilities=["measure.left", "measure.right", "measure.direct"],
-                served_entities=["q0", "q1"],
-                channels=["drive-q0", "readout-q0"],
-            )
-        ],
-        edges=[
-            RoutingEdge(
-                id="source-0-left",
-                resource_id="source-0",
-                entity_ids=["q0"],
-                capabilities=["measure.left"],
-                channels=["drive-q0"],
-                bindings=[
-                    RoutingChannelBinding(
-                        entity_id="q0",
-                        channel_id="drive-q0",
-                        capability="measure.left",
-                    )
-                ],
+        bindings=[
+            RoutingEndpointBinding(
+                instrument_id="source-0",
+                capability="measure.left",
+                entity_id="q0",
+                channel_id="drive-q0",
             ),
-            RoutingEdge(
-                id="source-0-right",
-                resource_id="source-0",
-                entity_ids=["q1"],
-                capabilities=["measure.right"],
-                channels=["readout-q0"],
-                bindings=[
-                    RoutingChannelBinding(
-                        entity_id="q1",
-                        channel_id="readout-q0",
-                        capability="measure.right",
-                    )
-                ],
+            RoutingEndpointBinding(
+                instrument_id="source-0",
+                capability="measure.right",
+                entity_id="q1",
+                channel_id="readout-q0",
+            ),
+            RoutingEndpointBinding(
+                instrument_id="source-0",
+                capability="measure.direct",
             ),
         ],
     )
@@ -768,50 +568,18 @@ def _shared_group_config() -> ConfigProfileSnapshot:
         }
     )
     routing = RoutingGraph(
-        resources=[
-            RoutingResource(
-                id="source-0",
-                capabilities=["set.level"],
-                served_entities=["q0"],
-                channels=["drive-q0"],
+        bindings=[
+            RoutingEndpointBinding(
+                instrument_id="source-0",
+                capability="set.level",
+                entity_id="q0",
+                channel_id="drive-q0",
             ),
-            RoutingResource(
-                id="source-1",
-                capabilities=["set.level"],
-                served_entities=["q1"],
-                channels=["readout-q0"],
-            ),
-        ],
-        edges=[
-            RoutingEdge(
-                id="source-0-level",
-                resource_id="source-0",
-                entity_ids=["q0"],
-                capabilities=["set.level"],
-                channels=["drive-q0"],
-                bindings=[
-                    RoutingChannelBinding(
-                        entity_id="q0",
-                        channel_id="drive-q0",
-                        capability="set.level",
-                        group_ids=[group.id],
-                    )
-                ],
-            ),
-            RoutingEdge(
-                id="source-1-level",
-                resource_id="source-1",
-                entity_ids=["q1"],
-                capabilities=["set.level"],
-                channels=["readout-q0"],
-                bindings=[
-                    RoutingChannelBinding(
-                        entity_id="q1",
-                        channel_id="readout-q0",
-                        capability="set.level",
-                        group_ids=[group.id],
-                    )
-                ],
+            RoutingEndpointBinding(
+                instrument_id="source-1",
+                capability="set.level",
+                entity_id="q1",
+                channel_id="readout-q0",
             ),
         ],
     )
@@ -835,13 +603,14 @@ def _shared_group_config() -> ConfigProfileSnapshot:
 def _entity_only_config() -> ConfigProfileSnapshot:
     config = load_config()
     routing = RoutingGraph(
-        resources=[
-            RoutingResource(
-                id="source-0",
-                capabilities=["set.level", "measure.signal"],
-                served_entities=["q0"],
+        bindings=[
+            RoutingEndpointBinding(
+                instrument_id="source-0",
+                capability=capability,
+                entity_id="q0",
             )
-        ]
+            for capability in ("set.level", "measure.signal")
+        ],
     )
     return config.model_copy(
         update={"system": config.system.model_copy(update={"routing": routing})}

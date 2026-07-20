@@ -1,8 +1,8 @@
 # Experiment Execution Semantics
 
 This document records the stable contract between experiment authoring, system
-planning, domain compilers, and execution. Implementation details and local
-design rationale live with the types that enforce them.
+planning, domain compilers, and execution. Local design rationale belongs with
+the types and functions that enforce it.
 
 ## Program Boundaries
 
@@ -19,182 +19,141 @@ RunProgram              closed residual effect program
 logical measurements and durable run records
 ```
 
-`CoreProgram` retains symbolic point composition, typed values, pure compute,
-ordered effects, product ownership, and result demand. It is transient compiler
-data, not a versioned interchange format.
+`CoreProgram` is transient compiler data, not a versioned interchange format.
+`RunProgram` is the executable representation for one accepted run; physical
+batching does not change its logical points, product identities, or results.
 
-`RunProgram` is the executable representation. It combines run-invariant host
-compute with a bounded, single-use source of coverage blocks. Each block
-contains bound host effects, prepared-on-demand domain jobs, exact logical
-coverage, resource claims, and measurement checkpoints.
+## Authoring and Ownership
 
-## Authoring Composition
-
-A reusable module owns:
-
-- a pure typed graph of inputs, computations, values, product declarations,
-  and product transforms; and
-- an ordered procedure of consequential effects, with explicit groups that may
-  be scheduled in parallel.
-
-The procedure may contain desired-state bindings, row-scoped state, instrument
+A reusable module combines a pure typed graph with an ordered procedure of
+consequential effects. The procedure may contain desired state, instrument
 actions, acquisitions, domain executions, and child-module occurrences.
 Composing a child scopes its resource, value, product, and effect identities to
-that instance and places its procedure exactly once. Pure declarations do not
-create procedure positions.
+that instance and places its procedure exactly once.
 
 Logical resource ports and capability requirements form the reusable boundary
-between a module and the physical configuration chosen for a run. Child
-resources bind explicitly to parent resources. `sequence` fixes procedure
-order; `parallel` grants scheduling permission when concrete resource claims
-are compatible.
+between a module and the physical configuration selected for a run. Authoring
+never names an instrument or channel. It may select logical entities from
+accepted inputs, parameters, or point coordinates; the accepted configuration
+alone owns their finite physical endpoint mapping.
 
-Product declaration, acquisition, and durable recording are separate:
+Product declaration, acquisition, and recording are distinct:
 
-1. A module declares the identity, shape, and producer mapping of products it
-   can make.
-2. An acquisition places their realization at an exact procedure position.
+1. A module declares the identity and shape of products it can make.
+2. An acquisition places instrument realization at an exact procedure position
+   and names one logical port, one explicit capability, and provider product
+   keys.
 3. A template or scratch experiment selects product uses that become records.
 
-Every selected instrument product is acquired once per logical point. Products
-created by domain execution or pure transforms retain their own producer and do
-not create instrument acquisitions.
+Products created by domain execution or pure transforms retain those explicit
+producers and do not create instrument acquisitions. Provider product lookup
+never searches globally for a unique capability or product key.
 
-A domain program definition contains reusable, opaque dialect data with typed
-inputs, result products, and logical resource roles. Binding that definition
-creates a module-owned domain effect. The dialect owns internal operations;
-Scopecat owns stable identity, typed bindings, capability requirements,
-ordering, resource correlation, and result correlation.
-
-Templates own invocation policy: defaults, scans, durable record selection,
-labels, and metadata. Effects and domain executions stay in modules. A
-pure-compute-only module, an effect-only module, and a module combining both are
-all valid composition units.
-
-The highest-value reuse boundaries are:
-
-1. device parameter and desired-state mappings;
-2. repeated configure, arm, wait, trigger, acquire, and readout procedures,
-   including safe parallelism;
-3. domain-program input, result, and resource-role mappings; and
-4. experiment-specific domain bodies, scans, defaults, and record choices.
-
-The first three normally belong in reusable modules. The last group belongs in
-a concrete experiment module and its template.
+A domain program owns opaque dialect data with typed inputs, result products,
+and logical resource roles. Scopecat owns the surrounding identities, typed
+bindings, capability requirements, effect order, resource correlation, and
+result correlation. Templates own invocation policy: defaults, scans, durable
+record selection, labels, and metadata.
 
 ## Semantic Invariants
 
 - A run uses an accepted request and an identifiable configuration snapshot.
+- Logical entity selection may vary by point; physical endpoint ownership may
+  vary only through the finite mapping in that snapshot.
+- Every physical selection is deterministic and retained in execution
+  provenance; provider failure never triggers implicit failover.
 - Logical point identity and coordinates are independent of physical batching.
-- A point parameter override is identical in host and domain computation.
+- Point parameter overrides agree across host and domain placement.
 - Pure computation may be folded, shared, hoisted, or placed on a domain target
   without changing its value.
-- Consequential effects retain declared order unless an accepted proof permits
-  reordering.
-- Domain jobs remain inside barriers created by their varying inputs, resource
-  conflicts, and observable effects.
-- Every demanded product maps completely and unambiguously from physical
-  results to logical points and product-use identities.
-- Intent is recorded before a consequential external invocation.
-- An uncertain effect outcome is never silently retried.
+- Consequential effects retain declared order. State, actions, acquisitions,
+  and domain jobs cannot be moved across an observable ordering boundary.
+- Domain jobs remain inside barriers created by varying inputs, conflicting
+  resources, and observable effects.
+- Legal host/domain lowering and legal physical partitioning produce the same
+  demanded logical products.
+- Every physical result maps completely and unambiguously to logical points and
+  product-use identities.
+- Intent is recorded before consequential external invocation.
+- An unknown effect outcome is never silently retried.
+- Check, preview, and run specialize the same accepted semantics; check and
+  preview perform no provider effects.
 - Abort, cleanup, and terminal outcome derivation remain explicit.
 
-Tests should assert these laws instead of transient compiler structure, batch
-counts, cache behavior, or host-versus-domain placement.
+Tests should assert these laws instead of transient compiler fields, cache
+behavior, or incidental batch counts.
 
-## Symbolic Points and Partial Evaluation
+## Symbolic Specialization
 
 Point composition remains symbolic through verification and specialization.
-One compiler-owned iteration layout preserves ordered product and zip nesting,
-dependent boundaries, finite axes and strides, and opaque regions. Consumers
-project that layout rather than reconstructing point structure from rows.
+One compiler-owned iteration model is shared by host lowering, parameter
+overlays, entity selection, and domain projection so consumers cannot disagree
+about point variation or nesting.
 
 Partial evaluation binds accepted inputs and configuration values, applies
 lexical scan overrides, folds pure subgraphs, removes undemanded work, and
-leaves residual host and domain computation. Variation is derived from
-transitive dependencies and the iteration layout.
+leaves residual host and domain computation. It is pure: reads, state mutation,
+actions, acquisitions, and other external effects execute only from a
+`RunProgram`. Any concrete fallback is bounded by an explicit materialization
+limit.
 
-Partial evaluation is pure: live reads, state mutation, actions, acquisitions,
-and other external effects execute only from a `RunProgram`. Any concrete
-fallback for symbolic inputs is bounded by an explicit materialization limit.
-
-## Experiment-System and Domain Lowering
+## Domain Lowering
 
 An experiment definition is independent of the `ExperimentSystem` that runs
-it. The system selects physical providers and the applicable domain compiler,
-then specializes one `CoreProgram` into one `RunProgram` path for host-only,
-domain-only, or mixed execution.
-
-A domain compiler participates through three boundaries:
+it. A domain compiler participates through three boundaries:
 
 1. `claim_resources` declares the target footprint used to form legal barriers.
 2. `compile` performs pure, bounded lowering over symbolic inputs and exact
-   logical ordinal regions.
-3. `prepare` binds a selected job to runtime context and returns its single-use
-   invocation.
+   logical coverage.
+3. `prepare` binds one selected job to runtime context and returns its
+   single-use invocation.
 
-Compilation may absorb constants, finite axes, portable pure computation, and
-supported product transforms. It may choose target-native loops, tables,
-waveforms, shared artifacts, job partitions, and physical order. Unsupported
-work remains residual host work.
+Compilation may absorb supported constants, finite axes, pure computation, and
+product transforms. Unsupported work remains residual host work. Lowering must
+preserve logical points, lexical parameters, effect barriers, and complete
+result correlation, and may claim only work actually absorbed by the target.
 
-Lowering preserves logical points, lexical parameters, effect barriers, and
-complete result correlation. It only claims inputs and transforms actually
-absorbed by the target. The SDK exposes an owned projection of symbolic inputs
-and iteration layout; opaque values use a bounded concrete binder.
+## Effects and Physical Resources
 
-## Effects, Resources, and Coverage
+Provider instruments are provisioned for the run. Physical binding is a pure
+projection of the accepted snapshot: it does not inspect live availability,
+choose by load or cost, or fail over after execution starts. A point-local
+entity scan may select different configured endpoints, but it cannot construct
+a new physical route.
 
-`CoreProgram.effects` is the authoritative order. Parallel groups record
-authored scheduling permission over that sequence. Planning retains those
-positions while lowering state, actions, acquisitions, and domain executions.
-Actions and acquisitions are ordering barriers; state changes create a barrier
-when their claims conflict with a domain target footprint.
+Desired state may be split by static entity ownership so different instruments
+maintain explicit values for their devices. A single action or acquisition is
+one driver invocation and is never implicitly broadcast across instruments.
+Each concrete effect carries only the endpoint bindings for its own explicit
+capability.
 
-Provider instruments are provisioned for the run. Point routes, channels,
-shared groups, and domain claims are leased for the coverage block that uses
-them. Barrier construction uses resource claims declared before compilation.
+Switch matrices, patch panels, valves, probers, and similar path-changing
+devices are explicit state or action effects. Selecting replacement hardware
+requires another accepted configuration and plan so the physical choice stays
+reproducible.
 
-The interpreter consumes every coverage block once, admits its contiguous
-logical point range, executes operations in order, commits completed
-measurement prefixes at checkpoints, and releases block-local resources before
-requesting the next block.
+Exact instrument, channel, and topology-group claims are derived only after
+entity binding. Their enclosing run, coverage block, or domain job defines the
+lease lifetime. Compatibility that depends on values or simultaneous hardware
+operation belongs to the provider or domain compiler rather than generic
+channel-count rules.
 
-Consequential effects have three outcomes:
+## Execution, Outcomes, and Measurements
+
+Execution consumes bounded coverage once, records intent before invoking an
+external effect, and may commit completed measurement prefixes at checkpoints.
+Consequential effects distinguish:
 
 - **completed**: the effect occurred and returned validated evidence;
-- **rejected**: the effect is known not to have occurred; or
-- **unknown**: the effect may have occurred.
+- **rejected**: it is known not to have occurred; and
+- **unknown**: it may have occurred.
 
-An unknown outcome stops dependent execution. The run boundary derives final
-status, certainty, and termination reason from the recorded evidence.
+Unknown outcomes stop dependent execution because automatic retry could repeat
+an external effect. Abort and cleanup remain explicit evidence-bearing steps.
 
-## Measurements and Observability
-
-Host collection and domain execution produce one logical measurement candidate
-stream. Candidates are checked against admitted points and product-use demand,
-transformed, projected, and appended once per completed coverage. Physical
-chunks and target locations do not alter logical result identity.
-
-One physical result may feed multiple uses of the same product. Conflicting
-values for one use are rejected, and exact demanded coverage is verified before
-results enter the canonical stream.
-
-Durable evidence records intent and outcome transitions needed for safety and
-recovery. UI events, metrics, and diagnostics are projections of that trace.
-
-## Verification Laws
-
-High-value verification establishes that:
-
-- partial evaluation preserves logical values;
-- scan overrides agree across host and domain placement;
-- legal host and domain lowerings produce the same demanded products;
-- legal physical partitions produce the same logical results;
-- domain jobs remain inside ordering and resource barriers;
-- every physical result maps exactly to demanded logical outputs;
-- intent precedes every consequential external invocation;
-- rejected and unknown outcomes have distinct retry semantics;
-- abort and cleanup retain their documented order; and
-- check, preview, and run specialize the same accepted program while check and
-  preview perform no provider effects.
+Host collection and domain execution produce one logical measurement stream.
+Physical chunks and target locations do not alter result identity. One physical
+result may feed multiple uses of the same product, conflicting values for one
+use are rejected, and exact demanded coverage is verified before results enter
+the canonical stream. Durable evidence, rather than UI events or metrics, is
+the source of truth for recovery and final run status.

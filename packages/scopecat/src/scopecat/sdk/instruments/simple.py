@@ -263,16 +263,16 @@ class SimpleInstrumentDriver:
             )
         else:
             for request in command.requests:
-                binding = self._find_product(
-                    capability_id=request.capability_id,
-                    product_key=request.id,
+                binding = self._product_bindings.get(
+                    (request.capability_id, request.id)
                 )
                 if binding is None:
                     problems.append(
                         _problem(
                             "simple_instrument_product_unsupported",
-                            f"{self.instrument_id} does not uniquely support product "
-                            f"{request.id!r}",
+                            f"{self.instrument_id} does not support product "
+                            f"{request.id!r} under capability "
+                            f"{request.capability_id!r}",
                             "requests",
                             request.id,
                         )
@@ -280,8 +280,9 @@ class SimpleInstrumentDriver:
                 elif request.entity_ids or request.channel_bindings:
                     problems.append(
                         _problem(
-                            "simple_instrument_routed_target_unsupported",
-                            "simple instrument products do not support routed targets",
+                            "simple_instrument_scoped_target_unsupported",
+                            "simple instrument products do not support "
+                            "entity/channel-scoped targets",
                             "requests",
                             request.id,
                         )
@@ -302,21 +303,6 @@ class SimpleInstrumentDriver:
 
     def abort(self) -> None:
         self._abort()
-
-    def _find_product(
-        self,
-        *,
-        capability_id: str | None,
-        product_key: str,
-    ) -> SimpleProduct | None:
-        if capability_id is not None:
-            return self._product_bindings.get((capability_id, product_key))
-        matches = [
-            binding
-            for (_, selected_key), binding in self._product_bindings.items()
-            if selected_key == product_key
-        ]
-        return matches[0] if len(matches) == 1 else None
 
 
 def _coerce_state(
@@ -343,8 +329,9 @@ def _simple_state_target_problems(
 ) -> list[Problem]:
     return [
         _problem(
-            "simple_instrument_routed_target_unsupported",
-            "simple instrument state fields do not support routed targets",
+            "simple_instrument_scoped_target_unsupported",
+            "simple instrument state fields do not support "
+            "entity/channel-scoped targets",
             "fields",
             index,
         )

@@ -168,16 +168,6 @@ class Payload:
             raise ValueError(msg)
 
 
-@dataclass(frozen=True, slots=True)
-class Route:
-    """Point-local resource route supplied explicitly to a compute function."""
-
-    capabilities: tuple[str, ...] = ()
-
-    def __post_init__(self) -> None:
-        _validate_unique_ids(self.capabilities, label="route capabilities")
-
-
 type AtomType = Bool | Int | Float | String | Quantity | Entity | Record | Payload
 
 

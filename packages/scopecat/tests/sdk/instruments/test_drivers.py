@@ -554,7 +554,10 @@ def test_provider_description_rejects_duplicate_instrument_ids() -> None:
 
 
 def test_collect_command_rejects_duplicate_request_ids() -> None:
-    request = CollectProductRequest(id="signal")
+    request = CollectProductRequest(
+        id="signal",
+        capability_id="scalar_signal",
+    )
 
     with pytest.raises(ValidationError, match="request ids must be unique"):
         CollectCommand(

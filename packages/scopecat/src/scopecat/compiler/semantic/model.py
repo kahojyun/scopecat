@@ -29,15 +29,13 @@ from scopecat.compiler.relations.verification import (
 from scopecat.compiler.semantic.operation_contract import (
     OperationContract,
 )
+from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
+from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.product_identity import ProductId
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.symbols import SymbolId
-from scopecat.kernel.value_types import (
-    Route,
-    Table,
-    ValueType,
-)
+from scopecat.kernel.value_types import Table, ValueType
 from scopecat.measurements.semantics import (
     MeasurementTransformSemanticContract,
 )
@@ -46,7 +44,11 @@ from scopecat.records.parameter import Quantity as QuantityValue
 
 type PlanExpression = ScalarExpr | SeriesExpr | RelationExpr
 type VerifiedPlanExpression = VerifiedRelationPlan[PlanExpression]
-type SemanticValueType = ValueType | Route
+type SemanticValueType = ValueType
+
+
+def _empty_metadata() -> FrozenMapping[str, JsonValue]:
+    return FrozenMapping()
 
 
 @dataclass(frozen=True, slots=True)
@@ -378,11 +380,6 @@ class LiteralValueSource:
 
 
 @dataclass(frozen=True, slots=True)
-class RouteValueSource:
-    port_id: LogicalResourcePortId
-
-
-@dataclass(frozen=True, slots=True)
 class OperationOutputSource:
     operation_id: OperationId
     port: str = "result"
@@ -393,9 +390,7 @@ class OperationOutputSource:
             raise ValueError(msg)
 
 
-type ValueSource = (
-    PlanExpressionSource | LiteralValueSource | RouteValueSource | OperationOutputSource
-)
+type ValueSource = PlanExpressionSource | LiteralValueSource | OperationOutputSource
 
 
 @dataclass(frozen=True, slots=True)
@@ -425,27 +420,20 @@ class StateEachRegion:
     capability_id: str
     field_path: str
     value: ValueUse
-    resource: ValueUse | None = None
-    route_entities: tuple[ValueUse, ...] = ()
-    resource_port: LogicalResourcePortId | None = None
+    resource_port: LogicalResourcePortId
+    target_entities: tuple[ValueUse, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.capability_id or not self.field_path:
             msg = "state row regions require capability and field ids"
             raise ValueError(msg)
-        if (self.resource is None) == (self.resource_port is None):
-            msg = "state row regions require exactly one resource source"
-            raise ValueError(msg)
 
     @property
     def body_entries(self) -> tuple[tuple[tuple[str, ...], ValueUse], ...]:
-        entries: list[tuple[tuple[str, ...], ValueUse]] = (
-            [(("resource",), self.resource)] if self.resource is not None else []
-        )
-        entries.append((("value",), self.value))
+        entries: list[tuple[tuple[str, ...], ValueUse]] = [(("value",), self.value)]
         entries.extend(
-            (("route_entities", str(index)), use)
-            for index, use in enumerate(self.route_entities)
+            (("target_entities", str(index)), use)
+            for index, use in enumerate(self.target_entities)
         )
         return tuple(entries)
 
@@ -573,17 +561,49 @@ class InstrumentActionEffect:
 
 
 @dataclass(frozen=True, slots=True)
+class AcquireProduct:
+    """Provider-facing mapping for one product in an acquisition effect."""
+
+    product_id: ProductId
+    provider_key: str
+    metadata: Mapping[str, JsonValue] = field(default_factory=_empty_metadata)
+
+    def __post_init__(self) -> None:
+        if not self.provider_key:
+            raise ValueError("acquired product provider key must be non-empty")
+        object.__setattr__(
+            self,
+            "metadata",
+            freeze_json_mapping(
+                self.metadata,
+                path=f"acquired product {self.product_id.qualified_name!r} metadata",
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class AcquireEffect:
     """An ordered request to realize selected instrument products."""
 
     id: AcquireId
-    product_ids: tuple[ProductId, ...]
+    resource_port_id: LogicalResourcePortId
+    capability_id: str
+    products: tuple[AcquireProduct, ...]
 
     def __post_init__(self) -> None:
-        if not self.product_ids:
+        if not self.products:
             raise ValueError("acquire effects require at least one product")
+        if not self.capability_id:
+            raise ValueError("acquire effect capability must be non-empty")
         if len(self.product_ids) != len(set(self.product_ids)):
             raise ValueError("acquire effect product ids must be unique")
+        provider_keys = tuple(product.provider_key for product in self.products)
+        if len(provider_keys) != len(set(provider_keys)):
+            raise ValueError("acquire effect provider keys must be unique")
+
+    @property
+    def product_ids(self) -> tuple[ProductId, ...]:
+        return tuple(product.product_id for product in self.products)
 
 
 @dataclass(frozen=True, slots=True)
@@ -636,17 +656,6 @@ type SemanticEffectRef = (
     | DomainEffectRef
     | AcquireEffectRef
 )
-
-
-@dataclass(frozen=True, slots=True)
-class SemanticParallelGroup:
-    """Authored effect branches that permit a sequential scheduler refinement."""
-
-    branches: tuple[tuple[SemanticEffectRef, ...], ...]
-
-    def __post_init__(self) -> None:
-        if len(self.branches) < 2 or any(not branch for branch in self.branches):
-            raise ValueError("semantic parallel groups require non-empty branches")
 
 
 @dataclass(frozen=True, slots=True)

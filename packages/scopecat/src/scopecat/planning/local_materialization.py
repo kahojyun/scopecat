@@ -1,9 +1,8 @@
 """Specialize linked host semantics into final local operations.
 
 Preparation selects implementations and run-invariant compute once. Bounded
-materialization binds routes, state, actions, compute, and collection together
-so resource constraints are checked against the same values written into the
-ordered execution effects.
+materialization selects logical entities and binds state, actions, compute, and
+collection to the static resource manifests prepared for the local target.
 """
 
 from __future__ import annotations
@@ -11,13 +10,13 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping, Sequence
 from collections.abc import Set as AbstractSet
-from dataclasses import replace
+from dataclasses import dataclass, replace
+from dataclasses import field as dataclass_field
 from typing import Protocol, cast
 
 from pydantic import JsonValue
 
 from scopecat.compiler.diagnostics import compiler_problem
-from scopecat.compiler.frontend.environment import ValidatedConfigEnvironment
 from scopecat.compiler.linking.implementations import (
     SelectedLocalImplementations,
     select_local_implementations,
@@ -25,10 +24,6 @@ from scopecat.compiler.linking.implementations import (
 from scopecat.compiler.linking.linked import (
     LinkedPlan,
     MaterializedLinkedPoints,
-)
-from scopecat.compiler.linking.product_realizations import (
-    SelectedLocalProductRealizations,
-    select_local_product_realizations,
 )
 from scopecat.compiler.relations.evaluation import (
     EvalContext,
@@ -48,10 +43,7 @@ from scopecat.compiler.typed.dependencies import (
 from scopecat.compiler.typed.point_domain import (
     MaterializedPoint,
 )
-from scopecat.compiler.typed.products import (
-    InstrumentProductProducer,
-    ProductDef,
-)
+from scopecat.compiler.typed.products import ProductAxisDef, ProductDef
 from scopecat.compiler.typed.program import (
     AcquireSpec,
     CoreProgram,
@@ -61,6 +53,7 @@ from scopecat.compiler.typed.records import (
     point_coordinate_ids,
 )
 from scopecat.compiler.typed.state import (
+    SetStateSpec,
     StateRecord,
     StateSpecVariant,
     evaluate_state_spec,
@@ -78,6 +71,7 @@ from scopecat.execution.local.program import (
     StateTarget,
 )
 from scopecat.execution.program import RunCoverageEffect
+from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.frozen import thaw_json_value
 from scopecat.kernel.problems import (
@@ -88,13 +82,10 @@ from scopecat.kernel.problems import (
     has_blocking_problems,
     model_location,
 )
-from scopecat.kernel.product_identity import ProductId, ProductUseId
-from scopecat.kernel.resource_identity import (
-    LogicalResourcePortId,
-    PhysicalResourceId,
-    ResourceTarget,
-)
+from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
+from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.state import PayloadRef, StateValue
+from scopecat.measurements.results import MeasurementDType
 from scopecat.planning.local_compute import (
     bind_compute_operations as _bind_compute_operations,
 )
@@ -103,17 +94,13 @@ from scopecat.planning.local_effects import (
     LocalTargetPlan,
     MaterializedLocalEffects,
 )
-from scopecat.planning.local_route_constraints import (
-    PendingCollect,
-    PendingCollectionRequest,
-    PendingResourceState,
-    PendingRoute,
-    PendingStateField,
-    validate_point_resource_constraints,
-)
 from scopecat.planning.local_values import evaluate_value_expr
-from scopecat.planning.routing import RoutingError, RoutingView
-from scopecat.records.config import RoutingChannelBinding
+from scopecat.planning.routing import (
+    ResourceBinding,
+    ResourceBindingError,
+    ResourcePortManifest,
+    RoutingView,
+)
 from scopecat.records.entity import EntityRef
 from scopecat.records.instrument import CommandChannelBinding
 from scopecat.records.parameter import Quantity
@@ -133,34 +120,89 @@ type _ChannelBindingIdentity = tuple[
 type _ChannelSignature = tuple[_ChannelBindingIdentity, ...]
 
 
-def _normalize_collection_channel_bindings(
-    bindings: Sequence[RoutingChannelBinding],
+@dataclass(frozen=True, slots=True)
+class _ResourceEntitySelection:
+    """Point-local logical entity ids paired with one static manifest."""
+
+    manifest: ResourcePortManifest
+    entity_ids: tuple[str, ...] = ()
+
+    def select_one(self) -> ResourceBinding:
+        return self.manifest.select_one(self.entity_ids)
+
+
+def _normalize_entity_ids(values: Sequence[object]) -> tuple[str, ...]:
+    entity_ids: list[str] = []
+    for value in values:
+        if isinstance(value, EntityRef):
+            if not value.id:
+                raise ResourceBindingError(
+                    "module_resource_entity_invalid",
+                    "resource entity id must be non-empty",
+                )
+            entity_ids.append(value.id)
+        elif isinstance(value, str) and value:
+            entity_ids.append(value)
+        elif isinstance(value, Sequence) and not isinstance(value, str | bytes):
+            if not value:
+                raise ResourceBindingError(
+                    "module_resource_entity_invalid",
+                    "resource entity series must not be empty",
+                )
+            entity_ids.extend(_normalize_entity_ids(value))
+        else:
+            raise ResourceBindingError(
+                "module_resource_entity_invalid",
+                f"resource entity must resolve to an entity reference, got {value!r}",
+            )
+    return tuple(dict.fromkeys(entity_ids))
+
+
+def _empty_metadata() -> dict[str, object]:
+    return {}
+
+
+@dataclass(frozen=True, slots=True)
+class _PendingStateField:
+    field_path: str
+    value: StateValue
+    entity_ids: tuple[str, ...] = ()
+    channel_bindings: tuple[CommandChannelBinding, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class _PendingResourceState:
+    instrument_id: str
+    capability_id: str
+    fields: tuple[_PendingStateField, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class _PendingCollectionRequest:
+    product_use_ids: tuple[ProductUseId, ...]
+    product_id: ProductId
+    provider_key: str
+    capability: str
+    unit: str | None
+    dtype: MeasurementDType
+    entity_ids: tuple[str, ...] = ()
+    channel_bindings: tuple[CommandChannelBinding, ...] = ()
+    axes: tuple[ProductAxisDef, ...] = ()
+    metadata: Mapping[str, object] = dataclass_field(default_factory=_empty_metadata)
+
+
+@dataclass(frozen=True, slots=True)
+class _PendingCollect:
+    instrument_id: str
+    requests: tuple[_PendingCollectionRequest, ...]
+
+
+def _collection_channel_bindings(
+    bindings: Sequence[CommandChannelBinding],
     *,
-    capability: str | None,
-) -> tuple[RoutingChannelBinding, ...]:
-    selected = tuple(
-        binding
-        for binding in bindings
-        if binding.capability is None
-        or capability is None
-        or binding.capability == capability
-    )
-    if capability is not None:
-        return selected
-    normalized: list[RoutingChannelBinding] = []
-    seen: set[tuple[str, str, str | None, tuple[str, ...]]] = set()
-    for binding in selected:
-        identity = (
-            binding.entity_id,
-            binding.channel_id,
-            binding.line_id,
-            tuple(sorted(binding.group_ids)),
-        )
-        if identity in seen:
-            continue
-        seen.add(identity)
-        normalized.append(binding.model_copy(update={"capability": None}))
-    return tuple(normalized)
+    capability: str,
+) -> tuple[CommandChannelBinding, ...]:
+    return tuple(binding for binding in bindings if binding.capability == capability)
 
 
 class _InstrumentOperation(Protocol):
@@ -185,14 +227,11 @@ def materialize_local_execution(
     if linked.program.id != program.id:
         raise ValueError("local target plan belongs to a different program")
     environment = linked.environment
-    routing = environment.routing
-    if routing is None:
-        raise AssertionError("linked plan lost its validated routing view")
     problems = list(environment.problems)
     verified_program = linked_points.verified_program
     implementations = target.implementations
-    product_realizations = target.product_realizations
     selected_compute_plan = verified_program.compute_plan
+    variation = verified_program.variation_analysis
     selected_instrument_order = target.instrument_order
     compute_seed = target.compute_seed
     materialized_domain = linked_points.point_domain
@@ -219,7 +258,15 @@ def materialize_local_execution(
     rows = {ordinal: point.row for ordinal, point in point_by_ordinal.items()}
     ordinals = tuple(point.logical_ordinal for point in planner_points)
     layout = linked_points.verified_program.iteration_layout
-    route_cache: dict[tuple[str, str], PendingRoute | None] = {}
+    resources_by_ordinal = _select_coverage_resources(
+        program,
+        target.resource_ports,
+        planner_points,
+        params_by_ordinal,
+        problems,
+        verified_program=verified_program,
+        variation_support=variation.resource_entities,
+    )
     payload_ids_by_ordinal: dict[int, dict[ValueId, str]] = {
         ordinal: dict(compute_seed.payload_ids) for ordinal in ordinals
     }
@@ -228,7 +275,7 @@ def materialize_local_execution(
     }
     compute_effects: list[RunCoverageEffect] = []
     for node in selected_compute_plan.point_nodes:
-        support = target.variation.compute[node.id]
+        support = variation.compute[node.id]
         for compute_coverage in layout.partition(
             support.point_columns,
             ordinals,
@@ -236,16 +283,6 @@ def materialize_local_execution(
         ):
             representative = point_by_ordinal[compute_coverage[0]]
             representative_params = params_by_ordinal[compute_coverage[0]]
-            routes = _bind_point_routes(
-                program,
-                environment,
-                representative,
-                representative_params,
-                problems,
-                verified_program=verified_program,
-                variation_support=target.variation.routes,
-                cache=route_cache,
-            )
             compute_operations, point_payload_ids, signatures = (
                 _bind_compute_operations(
                     (node,),
@@ -254,7 +291,6 @@ def materialize_local_execution(
                         params=representative_params,
                         point_row=representative.row,
                     ),
-                    routes=routes,
                     compute_plan=selected_compute_plan,
                     implementations=implementations,
                     demanded_payload_results=set(
@@ -278,15 +314,12 @@ def materialize_local_execution(
     effect_operations: list[list[RunCoverageEffect]] = [
         [] for _effect in program.effects
     ]
-    desired_by_ordinal: dict[int, list[PendingResourceState]] = {
-        ordinal: [] for ordinal in ordinals
-    }
     state_support_by_effect: dict[int, PointVariationSupport] = {}
     state_index = 0
     for effect_index, effect in enumerate(program.effects):
         if isinstance(effect, TypedDomainExecution | ActionSpec | AcquireSpec):
             continue
-        state_support_by_effect[effect_index] = target.variation.state[state_index]
+        state_support_by_effect[effect_index] = variation.state[state_index]
         state_index += 1
     known_compute_results = {node.result.id for node in program.compute_nodes}
     for effect_index, effect in enumerate(program.effects):
@@ -295,69 +328,32 @@ def materialize_local_execution(
         if isinstance(effect, AcquireSpec):
             for ordinal in ordinals:
                 point = point_by_ordinal[ordinal]
-                params = params_by_ordinal[ordinal]
-                routes = _bind_point_routes(
-                    program,
-                    environment,
-                    point,
-                    params,
-                    problems,
-                    verified_program=verified_program,
-                    variation_support=target.variation.routes,
-                    cache=route_cache,
-                )
+                resources = resources_by_ordinal[ordinal]
                 collect = _bind_collect(
                     program.product_defs,
-                    program.instrument_product_producers,
-                    product_realizations,
-                    routes,
-                    product_ids=frozenset(effect.product_ids),
-                    routing=routing,
+                    program.product_uses,
+                    effect,
+                    resources,
                     point_index=ordinal,
                     problems=problems,
                 )
-                problems.extend(
-                    validate_point_resource_constraints(
-                        ordinal,
-                        routes,
-                        desired_by_ordinal[ordinal],
-                        collect,
-                        config=environment.config,
+                if collect is not None:
+                    operation = _collect_operation(
+                        point.logical_id.value,
+                        acquisition_id=effect.id.qualified_name,
+                        point_index=ordinal,
+                        point_count=point_count,
+                        collect=collect,
                     )
-                )
-                if _validate_collection_requests(
-                    collect,
-                    point_index=ordinal,
-                    problems=problems,
-                ):
-                    ordered = _order_instrument_operations(
-                        _collect_operations(
-                            point.logical_id.value,
-                            point_index=ordinal,
-                            point_count=point_count,
-                            collects=collect,
-                        ),
-                        instrument_order=selected_instrument_order,
-                    )
-                    effect_operations[effect_index].extend(
+                    effect_operations[effect_index].append(
                         RunCoverageEffect.at_point(ordinal, operation)
-                        for operation in ordered
                     )
             continue
         if isinstance(effect, ActionSpec):
             for ordinal in ordinals:
                 point = point_by_ordinal[ordinal]
                 params = params_by_ordinal[ordinal]
-                routes = _bind_point_routes(
-                    program,
-                    environment,
-                    point,
-                    params,
-                    problems,
-                    verified_program=verified_program,
-                    variation_support=target.variation.routes,
-                    cache=route_cache,
-                )
+                resources = resources_by_ordinal[ordinal]
                 actions = _bind_actions(
                     _evaluate_action_records(
                         effect,
@@ -367,8 +363,7 @@ def materialize_local_execution(
                         verified_program=verified_program,
                         problems=problems,
                     ),
-                    routes=routes,
-                    routing=routing,
+                    resources=resources,
                     payload_ids=payload_ids_by_ordinal[ordinal],
                     known_compute_results=known_compute_results,
                     point_index=ordinal,
@@ -412,16 +407,7 @@ def materialize_local_execution(
         ):
             representative = point_by_ordinal[state_coverage[0]]
             representative_params = params_by_ordinal[state_coverage[0]]
-            routes = _bind_point_routes(
-                program,
-                environment,
-                representative,
-                representative_params,
-                problems,
-                verified_program=verified_program,
-                variation_support=target.variation.routes,
-                cache=route_cache,
-            )
+            resources = resources_by_ordinal[representative.logical_ordinal]
             desired = _bind_desired_state(
                 tuple(
                     record
@@ -435,8 +421,7 @@ def materialize_local_execution(
                         problems=problems,
                     )
                 ),
-                routes=routes,
-                routing=routing,
+                resources=resources,
                 payload_ids=payload_ids_by_ordinal[representative.logical_ordinal],
                 known_compute_results=known_compute_results,
                 point_index=representative.logical_ordinal,
@@ -449,32 +434,6 @@ def materialize_local_execution(
             effect_operations[state_end - 1].extend(
                 RunCoverageEffect(state_coverage, operation) for operation in ordered
             )
-            for ordinal in state_coverage:
-                desired_by_ordinal[ordinal].extend(desired)
-
-    for ordinal in ordinals:
-        point = point_by_ordinal[ordinal]
-        params = params_by_ordinal[ordinal]
-        routes = _bind_point_routes(
-            program,
-            environment,
-            point,
-            params,
-            problems,
-            verified_program=verified_program,
-            variation_support=target.variation.routes,
-            cache=route_cache,
-        )
-        problems.extend(
-            validate_point_resource_constraints(
-                ordinal,
-                routes,
-                desired_by_ordinal[ordinal],
-                (),
-                config=environment.config,
-            )
-        )
-
     if has_blocking_problems(problems):
         raise CheckFailed(problems)
     return MaterializedLocalEffects(
@@ -489,7 +448,12 @@ def prepare_local_target(
     product_use_ids: AbstractSet[ProductUseId],
     instrument_order: Sequence[str] = (),
 ) -> LocalTargetPlan:
-    """Select and bind the complete local target once for all coverage blocks."""
+    """Select the complete local target once for all bounded coverage.
+
+    Product demand is closed before physical binding so an acquisition with no
+    live product cannot create a spurious missing or ambiguous hardware error.
+    Only surviving local effects receive static manifests.
+    """
 
     requested = frozenset(product_use_ids)
     available = {use.id for use in linked.program.product_uses}
@@ -515,23 +479,20 @@ def prepare_local_target(
         phase=ProblemPhase.PLANNING,
     )
     problems.extend(implementation_problems)
-    routing = linked.environment.routing
-    if routing is None:
-        raise AssertionError("linked plan lost its validated routing view")
-    product_realizations, product_problems = select_local_product_realizations(
-        program.product_defs,
-        program.instrument_product_producers,
-        program.product_uses,
-        routing=routing,
-        phase=ProblemPhase.PLANNING,
-    )
-    problems.extend(product_problems)
-    if (
-        implementations is None
-        or product_realizations is None
-        or has_blocking_problems(problems)
-    ):
+    if implementations is None or has_blocking_problems(problems):
         raise CheckFailed(problems)
+    active_resource_ports = _active_resource_port_ids(program)
+    resource_ports: dict[LogicalResourcePortId, ResourcePortManifest] = {}
+    if active_resource_ports:
+        physical_resources = RoutingView.from_config(linked.environment.config)
+        resource_ports = {
+            requirement.port_id: physical_resources.bind_port(
+                port_id=requirement.port_id,
+                capabilities=requirement.capabilities,
+            )
+            for requirement in program.resource_requirements
+            if requirement.port_id in active_resource_ports
+        }
     compute_plan = linked.verified_program.compute_plan
     run_operations, compute_seed = _bind_run_compute(
         linked,
@@ -544,9 +505,8 @@ def prepare_local_target(
     return LocalTargetPlan(
         program=program,
         implementations=implementations,
-        product_realizations=product_realizations,
         instrument_order=_validate_instrument_order(instrument_order),
-        variation=linked.verified_program.variation_analysis,
+        resource_ports=resource_ports,
         run_operations=run_operations,
         compute_seed=compute_seed,
     )
@@ -624,7 +584,6 @@ def _bind_run_compute(
         compute_plan.run_nodes,
         operation_prefix="run",
         ctx=EvalContext(params=linked.environment.parameters),
-        routes=(),
         compute_plan=compute_plan,
         implementations=implementations,
         demanded_payload_results=set(compute_plan.demanded_payload_results),
@@ -672,23 +631,55 @@ def _order_instrument_operations[T: _InstrumentOperation](
     )
 
 
-def _bind_point_routes(
+def _select_coverage_resources(
     program: CoreProgram,
-    environment: ValidatedConfigEnvironment,
+    resource_ports: Mapping[LogicalResourcePortId, ResourcePortManifest],
+    points: Sequence[MaterializedPoint],
+    params_by_ordinal: Mapping[int, ParameterRelationData],
+    problems: list[Problem],
+    *,
+    verified_program: VerifiedCoreProgram,
+    variation_support: Mapping[str, PointVariationSupport],
+) -> dict[int, Mapping[LogicalResourcePortId, _ResourceEntitySelection]]:
+    """Evaluate point-local entities over the target's static port manifests.
+
+    Variation keys reuse identical logical selections. Physical endpoint
+    candidates were already frozen while preparing the local target.
+    """
+
+    cache: dict[tuple[str, str], _ResourceEntitySelection | None] = {}
+    return {
+        point.logical_ordinal: _select_point_resources(
+            program,
+            resource_ports,
+            point,
+            params_by_ordinal[point.logical_ordinal],
+            problems,
+            verified_program=verified_program,
+            variation_support=variation_support,
+            cache=cache,
+        )
+        for point in points
+    }
+
+
+def _select_point_resources(
+    program: CoreProgram,
+    resource_ports: Mapping[LogicalResourcePortId, ResourcePortManifest],
     point: MaterializedPoint,
     params: ParameterRelationData,
     problems: list[Problem],
     *,
     verified_program: VerifiedCoreProgram,
     variation_support: Mapping[str, PointVariationSupport],
-    cache: dict[tuple[str, str], PendingRoute | None],
-) -> tuple[PendingRoute, ...]:
-    routing = environment.routing
-    if routing is None:
-        return ()
-    selected: list[PendingRoute] = []
-    for intent in program.route_intents:
-        port_id = intent.port_id.qualified_name
+    cache: dict[tuple[str, str], _ResourceEntitySelection | None],
+) -> Mapping[LogicalResourcePortId, _ResourceEntitySelection]:
+    selected: dict[LogicalResourcePortId, _ResourceEntitySelection] = {}
+    for requirement in program.resource_requirements:
+        manifest = resource_ports.get(requirement.port_id)
+        if manifest is None:
+            continue
+        port_id = requirement.port_id.qualified_name
         key = (
             port_id,
             verified_program.iteration_layout.projection_key(
@@ -700,12 +691,12 @@ def _bind_point_routes(
         if key in cache:
             cached = cache[key]
             if cached is not None:
-                selected.append(cached)
+                selected[cached.manifest.port_id] = cached
             continue
         ctx = EvalContext(params=params, point_row=point.row)
         entity_values: list[object] = []
         failed = False
-        for use in intent.entity_uses:
+        for use in requirement.entity_uses:
             try:
                 entity_values.append(
                     evaluate_value_expr(
@@ -718,29 +709,33 @@ def _bind_point_routes(
                 failed = True
                 problems.append(
                     _problem(
-                        "experiment_route_entity_evaluation_failed",
-                        f"route {intent.port_id.qualified_name} entity "
+                        "experiment_resource_entity_evaluation_failed",
+                        f"resource {requirement.port_id.qualified_name} entity "
                         "expression failed for "
                         f"point {point.logical_ordinal}: {error}",
-                        model_location("routes", intent.port_id.qualified_name),
+                        model_location(
+                            "resources",
+                            requirement.port_id.qualified_name,
+                        ),
                     )
                 )
         if failed:
             cache[key] = None
             continue
         try:
-            binding = routing.route_point(
-                port_id=intent.port_id,
-                capabilities=list(intent.capabilities),
-                entity_values=entity_values,
-                fixed_resource_id=intent.fixed_resource_id,
+            resource = _ResourceEntitySelection(
+                manifest=manifest,
+                entity_ids=_normalize_entity_ids(entity_values),
             )
-        except RoutingError as error:
+        except ResourceBindingError as error:
             problems.append(
                 _problem(
                     error.code,
                     str(error),
-                    model_location("routes", intent.port_id.qualified_name),
+                    model_location(
+                        "resources",
+                        requirement.port_id.qualified_name,
+                    ),
                     category=(
                         ProblemCategory.CONFLICT
                         if error.code.endswith("_ambiguous")
@@ -750,26 +745,49 @@ def _bind_point_routes(
             )
             cache[key] = None
             continue
-        route = PendingRoute(
-            port_id=binding.port_id,
-            resource_id=binding.resource_id,
-            resource_kind=binding.resource_kind,
-            capabilities=tuple(binding.capabilities),
-            entity_ids=tuple(binding.entity_ids),
-            served_entity_ids=tuple(binding.served_entity_ids),
-            product_axis_order=tuple(binding.product_axis_order),
-            channel_bindings=tuple(binding.channel_bindings),
-        )
-        cache[key] = route
-        selected.append(route)
-    return tuple(selected)
+        cache[key] = resource
+        selected[resource.manifest.port_id] = resource
+    return selected
+
+
+def _active_resource_port_ids(
+    program: CoreProgram,
+) -> frozenset[LogicalResourcePortId]:
+    """Return ports consumed by effects that survive product demand closure.
+
+    Physical binding must happen after this cut; otherwise an unused
+    acquisition could still make unavailable or ambiguous hardware block a run.
+    """
+
+    demanded_products = {use.product_id for use in program.product_uses}
+    selected: set[LogicalResourcePortId] = set()
+    for effect in program.effects:
+        if isinstance(effect, AcquireSpec):
+            if any(
+                product_id in demanded_products for product_id in effect.product_ids
+            ):
+                selected.add(effect.resource_port_id)
+        elif isinstance(effect, ActionSpec):
+            selected.add(effect.resource_port_id)
+        elif not isinstance(effect, TypedDomainExecution):
+            selected.update(_state_resource_port_ids(effect))
+    return frozenset(selected)
+
+
+def _state_resource_port_ids(
+    state: StateSpecVariant,
+) -> tuple[LogicalResourcePortId, ...]:
+    if isinstance(state, SetStateSpec):
+        return (state.resource_target.port_id,)
+    return tuple(
+        port_id for child in state.state for port_id in _state_resource_port_ids(child)
+    )
 
 
 def _bind_actions(
     records: Sequence[ActionRecord],
     *,
-    routes: Sequence[PendingRoute],
-    routing: RoutingView,
+    resources: Mapping[LogicalResourcePortId, _ResourceEntitySelection],
     payload_ids: Mapping[ValueId, str],
     known_compute_results: set[ValueId],
     point_index: int,
@@ -779,14 +797,17 @@ def _bind_actions(
     bound: list[InstrumentActionOperation] = []
     for record in records:
         try:
-            resource_id, entity_ids, channel_bindings, unbound = _bind_state_resource(
+            binding = _bind_single_resource(
                 record.resource_port_id,
-                capability_id=record.capability_id,
-                route_entities=(),
-                routes=routes,
-                routing=routing,
+                resources=resources,
+                missing_code="action_resource_port_unbound",
             )
-        except RoutingError as error:
+            entity_ids, channel_bindings, _unbound = _logical_state_target(
+                binding=binding,
+                capability_id=record.capability_id,
+                target_entities=(),
+            )
+        except ResourceBindingError as error:
             problems.append(
                 _problem(
                     error.code,
@@ -798,23 +819,14 @@ def _bind_actions(
                         record.id.qualified_name,
                         "resource",
                     ),
-                    category=ProblemCategory.UNAVAILABLE,
-                )
-            )
-            continue
-        if unbound:
-            problems.append(
-                _problem(
-                    "action_route_entity_unbound",
-                    "action route entities are not bound: " + ", ".join(unbound),
-                    model_location(
-                        "points",
-                        point_index,
-                        "actions",
-                        record.id.qualified_name,
-                        "resource",
+                    category=(
+                        ProblemCategory.CONFLICT
+                        if error.code.endswith("ambiguous")
+                        else ProblemCategory.NOT_FOUND
+                        if error.code.endswith("not_found")
+                        or error.code.endswith("unbound")
+                        else ProblemCategory.UNAVAILABLE
                     ),
-                    category=ProblemCategory.UNAVAILABLE,
                 )
             )
             continue
@@ -873,16 +885,13 @@ def _bind_actions(
                     id=field.id,
                     value=value,
                     entity_ids=entity_ids,
-                    channel_bindings=tuple(
-                        _command_channel_binding(binding)
-                        for binding in channel_bindings
-                    ),
+                    channel_bindings=channel_bindings,
                 )
             )
         bound.append(
             InstrumentActionOperation(
                 operation_id=f"{point_uid}.action.{record.id.qualified_name}",
-                instrument_id=resource_id.value,
+                instrument_id=binding.instrument_id,
                 capability_id=record.capability_id,
                 fields=tuple(fields),
             )
@@ -890,40 +899,26 @@ def _bind_actions(
     return tuple(bound)
 
 
-def _command_channel_binding(
-    binding: RoutingChannelBinding,
-) -> CommandChannelBinding:
-    return CommandChannelBinding(
-        entity_id=binding.entity_id,
-        channel_id=binding.channel_id,
-        line_id=binding.line_id,
-        capability=binding.capability,
-        group_ids=list(binding.group_ids),
-        metadata=dict(binding.metadata),
-    )
-
-
 def _bind_desired_state(
     records: Sequence[StateRecord],
     *,
-    routes: Sequence[PendingRoute],
-    routing: RoutingView,
+    resources: Mapping[LogicalResourcePortId, _ResourceEntitySelection],
     payload_ids: Mapping[ValueId, str],
     known_compute_results: set[ValueId],
     point_index: int,
     problems: list[Problem],
-) -> tuple[PendingResourceState, ...]:
+) -> tuple[_PendingResourceState, ...]:
     grouped: dict[
-        tuple[PhysicalResourceId, str],
-        dict[tuple[str, tuple[str, ...], _ChannelSignature], PendingStateField],
+        tuple[str, str],
+        dict[tuple[str, tuple[str, ...], _ChannelSignature], _PendingStateField],
     ] = {}
     signatures: dict[
-        tuple[PhysicalResourceId, str, str, tuple[str, ...], _ChannelSignature],
+        tuple[str, str, str, tuple[str, ...], _ChannelSignature],
         set[str],
     ] = {}
     owners: dict[
-        tuple[PhysicalResourceId, str, str, tuple[str, ...], _ChannelSignature],
-        set[ResourceTarget],
+        tuple[str, str, str, tuple[str, ...], _ChannelSignature],
+        set[LogicalResourcePortId],
     ] = {}
     for record in records:
         capability_id = record.capability_id
@@ -962,24 +957,25 @@ def _bind_desired_state(
             )
             continue
         try:
-            resource_id, entity_ids, channel_bindings, unbound = _bind_state_resource(
+            bound_targets = _bind_state_resources(
                 record.resource_target,
                 capability_id=capability_id,
-                route_entities=record.route_entities,
-                routes=routes,
-                routing=routing,
+                target_entities=record.target_entities,
+                resources=resources,
             )
-        except RoutingError as error:
+        except ResourceBindingError as error:
             problems.append(
                 _problem(
                     error.code,
                     str(error),
                     model_location(
                         "desired_state",
-                        _resource_target_location_field(record.resource_target),
+                        "resource_port_id",
                     ),
                     category=(
-                        ProblemCategory.NOT_FOUND
+                        ProblemCategory.CONFLICT
+                        if error.code.endswith("ambiguous")
+                        else ProblemCategory.NOT_FOUND
                         if error.code.endswith("not_found")
                         or error.code.endswith("unbound")
                         else ProblemCategory.UNAVAILABLE
@@ -987,42 +983,30 @@ def _bind_desired_state(
                 )
             )
             continue
-        if unbound:
-            problems.append(
-                _problem(
-                    "state_route_entity_unbound",
-                    "state route entities are not bound: " + ", ".join(unbound),
-                    model_location("desired_state", "route_entities"),
-                    category=ProblemCategory.UNAVAILABLE,
-                )
+        for binding in bound_targets:
+            channel_key = channel_signature(binding.channel_bindings)
+            group = grouped.setdefault((binding.instrument_id, capability_id), {})
+            key = (field_path, binding.entity_ids, channel_key)
+            signature_key = (
+                binding.instrument_id,
+                capability_id,
+                field_path,
+                binding.entity_ids,
+                channel_key,
             )
-            continue
-        channel_key = channel_signature(channel_bindings)
-        group = grouped.setdefault((resource_id, capability_id), {})
-        key = (field_path, entity_ids, channel_key)
-        signature_key = (
-            resource_id,
-            capability_id,
-            field_path,
-            entity_ids,
-            channel_key,
-        )
-        signatures.setdefault(signature_key, set()).add(state_value.model_dump_json())
-        owners.setdefault(signature_key, set()).add(record.resource_target)
-        group.setdefault(
-            key,
-            PendingStateField(
-                field_path=field_path,
-                value=state_value,
-                resource_port_id=(
-                    record.resource_target
-                    if isinstance(record.resource_target, LogicalResourcePortId)
-                    else None
+            signatures.setdefault(signature_key, set()).add(
+                state_value.model_dump_json()
+            )
+            owners.setdefault(signature_key, set()).add(record.resource_target)
+            group.setdefault(
+                key,
+                _PendingStateField(
+                    field_path=field_path,
+                    value=state_value,
+                    entity_ids=binding.entity_ids,
+                    channel_bindings=binding.channel_bindings,
                 ),
-                entity_ids=entity_ids,
-                channel_bindings=channel_bindings,
-            ),
-        )
+            )
     for (
         resource,
         capability,
@@ -1058,8 +1042,8 @@ def _bind_desired_state(
                 )
             )
     return tuple(
-        PendingResourceState(
-            resource_id=resource,
+        _PendingResourceState(
+            instrument_id=resource,
             capability_id=capability,
             fields=tuple(fields.values()),
         )
@@ -1069,11 +1053,11 @@ def _bind_desired_state(
 
 def _state_operations(
     point_uid: str,
-    states: Sequence[PendingResourceState],
+    states: Sequence[_PendingResourceState],
 ) -> tuple[ApplyStateOperation, ...]:
-    grouped: dict[str, list[PendingResourceState]] = {}
+    grouped: dict[str, list[_PendingResourceState]] = {}
     for state in states:
-        grouped.setdefault(state.resource_id.value, []).append(state)
+        grouped.setdefault(state.instrument_id, []).append(state)
     return tuple(
         ApplyStateOperation(
             operation_id=f"{point_uid}.state.{instrument_id}",
@@ -1084,10 +1068,7 @@ def _state_operations(
                     field_path=field.field_path,
                     value=field.value,
                     entity_ids=field.entity_ids,
-                    channel_bindings=tuple(
-                        _command_channel_binding(binding)
-                        for binding in field.channel_bindings
-                    ),
+                    channel_bindings=field.channel_bindings,
                 )
                 for state in instrument_states
                 for field in state.fields
@@ -1114,109 +1095,138 @@ def _state_value(
     return None
 
 
-def _bind_state_resource(
-    target: ResourceTarget,
+def _bind_single_resource(
+    target: LogicalResourcePortId,
+    *,
+    resources: Mapping[LogicalResourcePortId, _ResourceEntitySelection],
+    missing_code: str,
+) -> ResourceBinding:
+    resource = resources.get(target)
+    if resource is None:
+        raise ResourceBindingError(
+            missing_code,
+            f"logical resource port {target.qualified_name!r} is not bound",
+        )
+    return resource.select_one()
+
+
+def _bind_state_resources(
+    target: LogicalResourcePortId,
     *,
     capability_id: str,
-    route_entities: Sequence[object],
-    routes: Sequence[PendingRoute],
-    routing: RoutingView,
-) -> tuple[
-    PhysicalResourceId,
-    tuple[str, ...],
-    tuple[RoutingChannelBinding, ...],
-    tuple[str, ...],
-]:
-    if isinstance(target, PhysicalResourceId):
-        binding = routing.bind_physical(
-            resource_id=target,
-            capabilities=(capability_id,),
-            entity_values=route_entities,
+    target_entities: Sequence[object],
+    resources: Mapping[LogicalResourcePortId, _ResourceEntitySelection],
+) -> tuple[ResourceBinding, ...]:
+    resource = resources.get(target)
+    if resource is None:
+        raise ResourceBindingError(
+            "state_resource_port_unbound",
+            f"logical state resource port {target.qualified_name!r} is not bound",
         )
-        _require_instrument_resource(
-            binding.resource_id,
-            resource_kind=binding.resource_kind,
+    requested_entity_ids = _normalize_entity_ids(target_entities)
+
+    if not resource.entity_ids:
+        binding = _bind_single_resource(
+            target,
+            resources=resources,
+            missing_code="state_resource_port_unbound",
         )
+        entity_ids, channel_bindings, unbound = _logical_state_target(
+            binding=binding,
+            capability_id=capability_id,
+            target_entities=requested_entity_ids,
+        )
+        if unbound:
+            raise ResourceBindingError(
+                "state_target_entity_unbound",
+                "state target entities are not bound: " + ", ".join(unbound),
+            )
         return (
-            binding.resource_id,
-            binding.entity_ids,
-            binding.channel_bindings,
-            (),
+            replace(
+                binding,
+                entity_ids=entity_ids,
+                channel_bindings=channel_bindings,
+            ),
         )
 
-    port_id = target
-    route = next((route for route in routes if route.port_id == port_id), None)
-    if route is None:
-        raise RoutingError(
-            "state_resource_port_unbound",
-            f"logical state resource port {port_id.qualified_name!r} is not bound",
-        )
-    _require_instrument_resource(
-        route.resource_id,
-        resource_kind=route.resource_kind,
+    selected_entity_ids = requested_entity_ids or resource.entity_ids
+    unbound = tuple(
+        entity_id
+        for entity_id in selected_entity_ids
+        if entity_id not in resource.entity_ids
     )
-    if capability_id not in route.capabilities:
-        raise RoutingError(
-            "state_resource_port_capability_missing",
-            f"logical state resource port {port_id.qualified_name!r} does not "
-            f"provide capability {capability_id!r}",
+    if unbound:
+        raise ResourceBindingError(
+            "state_target_entity_unbound",
+            "state target entities are outside the declared resource scope: "
+            + ", ".join(unbound),
         )
-    entity_ids, channel_bindings, unbound = _logical_state_target(
-        route=route,
-        capability_id=capability_id,
-        route_entities=route_entities,
-        routing=routing,
-    )
-    return route.resource_id, entity_ids, channel_bindings, unbound
+    shards = resource.manifest.select_shards(selected_entity_ids)
+    selected: list[ResourceBinding] = []
+    for shard in shards:
+        entity_ids, channel_bindings, _unbound = _logical_state_target(
+            binding=shard,
+            capability_id=capability_id,
+            target_entities=(),
+        )
+        selected.append(
+            replace(
+                shard,
+                entity_ids=entity_ids,
+                channel_bindings=channel_bindings,
+            )
+        )
+    return tuple(selected)
 
 
 def _logical_state_target(
     *,
-    route: PendingRoute,
+    binding: ResourceBinding,
     capability_id: str,
-    route_entities: Sequence[object],
-    routing: RoutingView,
+    target_entities: Sequence[object],
 ) -> tuple[
     tuple[str, ...],
-    tuple[RoutingChannelBinding, ...],
+    tuple[CommandChannelBinding, ...],
     tuple[str, ...],
 ]:
     requested_entity_ids = tuple(
         dict.fromkeys(
             value.id if isinstance(value, EntityRef) else str(value)
-            for value in route_entities
+            for value in target_entities
         )
     )
-    selected_entity_ids = requested_entity_ids or route.entity_ids
-    if requested_entity_ids and route.entity_ids:
+    selected_entity_ids = requested_entity_ids or binding.entity_ids
+    if requested_entity_ids and binding.entity_ids:
         unbound = tuple(
             entity_id
             for entity_id in requested_entity_ids
-            if entity_id not in route.entity_ids
+            if entity_id not in binding.entity_ids
         )
         if unbound:
             return requested_entity_ids, (), unbound
-    if selected_entity_ids:
-        binding = routing.bind_physical(
-            resource_id=route.resource_id,
-            capabilities=(capability_id,),
-            entity_values=selected_entity_ids,
-        )
-        return binding.entity_ids, binding.channel_bindings, ()
     channel_bindings = tuple(
-        binding
-        for binding in route.channel_bindings
-        if binding.capability is None or binding.capability == capability_id
+        channel_binding
+        for channel_binding in binding.channel_bindings
+        if (not selected_entity_ids or channel_binding.entity_id in selected_entity_ids)
+        and (
+            channel_binding.capability is None
+            or channel_binding.capability == capability_id
+        )
     )
     return (
-        tuple(dict.fromkeys(binding.entity_id for binding in channel_bindings)),
+        selected_entity_ids
+        or tuple(
+            dict.fromkeys(
+                channel_binding.entity_id for channel_binding in channel_bindings
+            )
+        ),
         channel_bindings,
         (),
     )
 
 
 def _channel_binding_identity(
-    binding: RoutingChannelBinding,
+    binding: CommandChannelBinding,
 ) -> _ChannelBindingIdentity:
     return (
         binding.entity_id,
@@ -1228,286 +1238,180 @@ def _channel_binding_identity(
 
 
 def channel_signature(
-    bindings: Sequence[RoutingChannelBinding],
+    bindings: Sequence[CommandChannelBinding],
 ) -> _ChannelSignature:
     return tuple(_channel_binding_identity(binding) for binding in bindings)
 
 
 def _bind_collect(
     products: Sequence[ProductDef],
-    producers: Sequence[InstrumentProductProducer],
-    realizations: SelectedLocalProductRealizations,
-    routes: Sequence[PendingRoute],
+    product_uses: Sequence[ProductUse],
+    acquire: AcquireSpec,
+    resources: Mapping[LogicalResourcePortId, _ResourceEntitySelection],
     *,
-    product_ids: frozenset[ProductId],
-    routing: RoutingView,
     point_index: int,
     problems: list[Problem],
-) -> tuple[PendingCollect, ...]:
+) -> _PendingCollect | None:
     products_by_id = {product.id: product for product in products}
-    producers_by_id = {producer.id: producer for producer in producers}
-    grouped: dict[PhysicalResourceId, list[PendingCollectionRequest]] = {}
-    for realization in realizations.entries:
-        if realization.product_id not in product_ids:
-            continue
-        product = products_by_id[realization.product_id]
-        producer = producers_by_id[realization.producer_id]
-        if product != realization.product:
-            msg = "local product realization contract changed after selection"
-            raise ValueError(msg)
-        if producer != realization.producer:
-            msg = "local product producer contract changed after selection"
-            raise ValueError(msg)
-        try:
-            (
-                resource_id,
-                resource_port_id,
-                entity_ids,
-                channel_bindings,
-            ) = _bind_record_target(
-                producer.resource_target,
-                implicit_resource_id=realization.implicit_resource_id,
-                capability=producer.capability,
-                routes=routes,
-                routing=routing,
+    uses_by_product: dict[ProductId, list[ProductUse]] = {}
+    for use in product_uses:
+        uses_by_product.setdefault(use.product_id, []).append(use)
+    requested = tuple(
+        acquired
+        for acquired in acquire.products
+        if acquired.product_id in uses_by_product
+    )
+    if not requested:
+        return None
+    try:
+        instrument_id, entity_ids, channel_bindings = _bind_record_target(
+            acquire.resource_port_id,
+            capability=acquire.capability_id,
+            resources=resources,
+        )
+    except ResourceBindingError as error:
+        problems.append(
+            _problem(
+                error.code,
+                str(error),
+                model_location(
+                    "points",
+                    point_index,
+                    "acquisitions",
+                    acquire.id.qualified_name,
+                    "resource_port_id",
+                ),
+                category=(
+                    ProblemCategory.CONFLICT
+                    if error.code.endswith("ambiguous")
+                    else ProblemCategory.NOT_FOUND
+                    if error.code.endswith("not_found")
+                    or error.code.endswith("unbound")
+                    else ProblemCategory.UNAVAILABLE
+                ),
             )
-        except RoutingError as error:
-            problems.append(
-                _problem(
-                    error.code,
-                    str(error),
-                    model_location(
-                        "points",
-                        point_index,
-                        "product_uses",
-                        realization.product_use_id.value,
-                        _resource_target_location_field(producer.resource_target),
-                    ),
-                    category=(
-                        ProblemCategory.NOT_FOUND
-                        if error.code.endswith("not_found")
-                        or error.code.endswith("unbound")
-                        else ProblemCategory.UNAVAILABLE
-                    ),
-                )
-            )
-            continue
-        request = PendingCollectionRequest(
-            product_use_id=realization.product_use_id,
+        )
+        return None
+    requests = tuple(
+        _PendingCollectionRequest(
+            product_use_ids=tuple(
+                use.id for use in uses_by_product[acquired.product_id]
+            ),
             product_id=product.id,
-            provider_key=producer.provider_key,
-            capability=producer.capability,
+            provider_key=acquired.provider_key,
+            capability=acquire.capability_id,
             unit=product.unit,
             dtype=product.dtype,
-            resource_port_id=resource_port_id,
             entity_ids=entity_ids,
             channel_bindings=channel_bindings,
             axes=product.axes,
-            metadata=dict(producer.metadata),
+            metadata=dict(acquired.metadata),
         )
-        grouped.setdefault(resource_id, []).append(request)
-    return tuple(
-        PendingCollect(resource_id=resource_id, requests=tuple(requests))
-        for resource_id, requests in grouped.items()
+        for acquired in requested
+        for product in (products_by_id[acquired.product_id],)
     )
+    return _PendingCollect(instrument_id=instrument_id, requests=requests)
 
 
-def _collect_operations(
+def _collect_operation(
     point_uid: str,
     *,
+    acquisition_id: str,
     point_index: int,
     point_count: int,
-    collects: Sequence[PendingCollect],
-) -> tuple[CollectOperation, ...]:
-    operations: list[CollectOperation] = []
-    for collect in collects:
-        instrument_id = collect.resource_id.value
-        operation_id = f"{point_uid}.collect.{instrument_id}"
-        operations.append(
-            CollectOperation(
-                operation_id=operation_id,
-                instrument_id=instrument_id,
-                result_bindings=tuple(
-                    CollectionResultBinding(
-                        provider_key=request.provider_key,
-                        product_use_id=request.product_use_id,
-                        product_id=request.product_id,
-                    )
-                    for request in collect.requests
-                ),
-                command=CollectCommand(
-                    operation_id=operation_id,
-                    instrument_id=instrument_id,
-                    point_index=point_index,
-                    point_count=point_count,
-                    requests=[
-                        CollectProductRequest(
-                            id=request.provider_key,
-                            capability_id=request.capability,
-                            unit=request.unit,
-                            dtype=request.dtype,
-                            dimensions=[
-                                CollectAxisRequest(
-                                    id=axis.id,
-                                    kind=axis.kind,
-                                    size=axis.size,
-                                    unit=axis.unit,
-                                    metadata=cast(
-                                        "dict[str, JsonValue]",
-                                        thaw_json_value(axis.metadata),
-                                    ),
-                                )
-                                for axis in request.axes
-                            ],
-                            entity_ids=list(request.entity_ids),
-                            channel_bindings=[
-                                _command_channel_binding(binding)
-                                for binding in request.channel_bindings
-                            ],
+    collect: _PendingCollect,
+) -> CollectOperation:
+    instrument_id = collect.instrument_id
+    operation_id = "collect-" + stable_content_hash(
+        {
+            "kind": "scopecat.collect_operation.v1",
+            "point_id": point_uid,
+            "acquisition_id": acquisition_id,
+            "instrument_id": instrument_id,
+        }
+    )
+    return CollectOperation(
+        operation_id=operation_id,
+        instrument_id=instrument_id,
+        result_bindings=tuple(
+            CollectionResultBinding(
+                provider_key=request.provider_key,
+                product_use_ids=request.product_use_ids,
+                product_id=request.product_id,
+            )
+            for request in collect.requests
+        ),
+        command=CollectCommand(
+            operation_id=operation_id,
+            instrument_id=instrument_id,
+            point_index=point_index,
+            point_count=point_count,
+            requests=[
+                CollectProductRequest(
+                    id=request.provider_key,
+                    capability_id=request.capability,
+                    unit=request.unit,
+                    dtype=request.dtype,
+                    dimensions=[
+                        CollectAxisRequest(
+                            id=axis.id,
+                            kind=axis.kind,
+                            size=axis.size,
+                            unit=axis.unit,
                             metadata=cast(
                                 "dict[str, JsonValue]",
-                                thaw_json_value(request.metadata),
+                                thaw_json_value(axis.metadata),
                             ),
                         )
-                        for request in collect.requests
+                        for axis in request.axes
                     ],
-                ),
-            )
-        )
-    return tuple(operations)
+                    entity_ids=list(request.entity_ids),
+                    channel_bindings=list(request.channel_bindings),
+                    metadata=cast(
+                        "dict[str, JsonValue]",
+                        thaw_json_value(request.metadata),
+                    ),
+                )
+                for request in collect.requests
+            ],
+        ),
+    )
 
 
 def _bind_record_target(
-    target: ResourceTarget | None,
+    target: LogicalResourcePortId,
     *,
-    implicit_resource_id: PhysicalResourceId | None,
-    capability: str | None,
-    routes: Sequence[PendingRoute],
-    routing: RoutingView,
+    capability: str,
+    resources: Mapping[LogicalResourcePortId, _ResourceEntitySelection],
 ) -> tuple[
-    PhysicalResourceId,
-    LogicalResourcePortId | None,
+    str,
     tuple[str, ...],
-    tuple[RoutingChannelBinding, ...],
+    tuple[CommandChannelBinding, ...],
 ]:
-    if target is None:
-        if implicit_resource_id is None:
-            msg = "implicit product target requires a selected physical resource"
-            raise ValueError(msg)
-        binding = routing.bind_physical(
-            resource_id=implicit_resource_id,
-            capabilities=(() if capability is None else (capability,)),
-        )
-        return binding.resource_id, None, binding.entity_ids, binding.channel_bindings
-    if isinstance(target, PhysicalResourceId):
-        binding = routing.bind_physical(
-            resource_id=target,
-            capabilities=(() if capability is None else (capability,)),
-        )
-        _require_instrument_resource(
-            binding.resource_id,
-            resource_kind=binding.resource_kind,
-        )
-        return binding.resource_id, None, binding.entity_ids, binding.channel_bindings
-    route = next((route for route in routes if route.port_id == target), None)
-    if route is None:
-        raise RoutingError(
-            "record_resource_port_unbound",
-            f"logical record resource port {target.qualified_name!r} is not bound",
-        )
-    _require_instrument_resource(
-        route.resource_id,
-        resource_kind=route.resource_kind,
+    binding = _bind_single_resource(
+        target,
+        resources=resources,
+        missing_code="record_resource_port_unbound",
     )
-    if capability is not None and capability not in route.capabilities:
-        raise RoutingError(
-            "record_resource_port_capability_missing",
-            f"logical record resource port {target.qualified_name!r} does not "
-            f"provide capability {capability!r}",
-        )
-    if route.entity_ids:
-        binding = routing.bind_physical(
-            resource_id=route.resource_id,
-            capabilities=(route.capabilities if capability is None else (capability,)),
-            entity_values=route.entity_ids,
-        )
-        return (
-            binding.resource_id,
-            target,
-            binding.entity_ids,
-            _normalize_collection_channel_bindings(
-                binding.channel_bindings,
-                capability=capability,
-            ),
-        )
-    channel_bindings = _normalize_collection_channel_bindings(
-        route.channel_bindings,
+    channel_bindings = _collection_channel_bindings(
+        binding.channel_bindings,
         capability=capability,
     )
     return (
-        route.resource_id,
-        target,
+        binding.instrument_id,
         tuple(
             dict.fromkeys(
                 (
-                    *route.entity_ids,
-                    *(binding.entity_id for binding in channel_bindings),
+                    *binding.entity_ids,
+                    *(
+                        channel_binding.entity_id
+                        for channel_binding in channel_bindings
+                    ),
                 )
             )
         ),
         channel_bindings,
     )
-
-
-def _resource_target_location_field(target: ResourceTarget | None) -> str:
-    if isinstance(target, LogicalResourcePortId):
-        return "resource_port_id"
-    if isinstance(target, PhysicalResourceId):
-        return "physical_resource_id"
-    return "resource_target"
-
-
-def _require_instrument_resource(
-    resource_id: PhysicalResourceId,
-    *,
-    resource_kind: str,
-) -> None:
-    if resource_kind != "instrument":
-        raise RoutingError(
-            "physical_resource_kind_unsupported",
-            f"physical resource {resource_id.value!r} has kind "
-            f"{resource_kind!r}; local state and collection require an instrument",
-        )
-
-
-def _validate_collection_requests(
-    collects: Sequence[PendingCollect],
-    *,
-    point_index: int,
-    problems: list[Problem],
-) -> bool:
-    valid = True
-    for collect in collects:
-        seen: set[str] = set()
-        duplicates: set[str] = set()
-        for request in collect.requests:
-            if request.provider_key in seen:
-                duplicates.add(request.provider_key)
-            seen.add(request.provider_key)
-        for provider_key in sorted(duplicates):
-            valid = False
-            problems.append(
-                _problem(
-                    "collection_provider_key_duplicate",
-                    f"instrument {collect.resource_id.value!r} receives provider "
-                    "product "
-                    f"{provider_key!r} "
-                    f"more than once at point {point_index}",
-                    model_location("points", point_index, "collection"),
-                    category=ProblemCategory.CONFLICT,
-                )
-            )
-    return valid
 
 
 def _problem(

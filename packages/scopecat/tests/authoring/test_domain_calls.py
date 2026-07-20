@@ -5,7 +5,11 @@ import pytest
 import scopecat as sc
 from scopecat.compiler.frontend.elaboration import elaborate_module
 from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
-from scopecat.compiler.typed.program import ValueInput, core_domain_executions
+from scopecat.compiler.typed.program import (
+    ValueInput,
+    core_acquisitions,
+    core_domain_executions,
+)
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.resource_identity import logical_resource_port_id
@@ -284,12 +288,12 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
     )
     typed = resolved.experiment
 
-    assert typed.instrument_product_producers == ()
-    assert len(typed.domain_product_producers) == 1
+    assert core_acquisitions(typed) == ()
     typed_execution = core_domain_executions(typed)[0]
     assert typed_execution.program.body is body
     assert isinstance(typed_execution.inputs["x_count"], ValueInput)
     result = typed_execution.results[0]
+    assert result.product_id.qualified_name == selected_product.id
     assert result.product_use_ids == tuple(use.id for use in typed.product_uses)
     assert len(result.product_use_ids) == 2
 

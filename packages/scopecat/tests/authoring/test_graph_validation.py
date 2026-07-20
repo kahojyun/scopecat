@@ -54,10 +54,6 @@ def _pair_values(*, upstream: object, parameter: object) -> tuple[object, object
     return upstream, parameter
 
 
-def _identity_route(*, route: object) -> object:
-    return route
-
-
 def _identity_value(*, value: object) -> object:
     return value
 
@@ -85,40 +81,6 @@ def test_compute_graph_is_verified_before_parameter_contracts() -> None:
         sc.module("test.graph.order").computes(consumer).build()
 
     assert error.value.problems[0].code == "module_compute_foreign_definition"
-
-
-def test_compute_route_requires_a_declared_port() -> None:
-    consume = sc.compute(
-        "consume-route",
-        fn=_identity_route,
-        inputs={"route": sc.route("drive")},
-        output_type=sc.ScalarType(sc.StringType()),
-    )
-    with pytest.raises(CheckFailed) as error:
-        sc.module("test.graph.route-missing").computes(consume).build()
-
-    assert error.value.problems[0].code == "module_resource_undeclared"
-
-
-def test_compute_route_requires_port_capabilities() -> None:
-    consume = sc.compute(
-        "consume-route",
-        fn=_identity_route,
-        inputs={"route": sc.route("drive", capabilities=("set_gain",))},
-        output_type=sc.ScalarType(sc.StringType()),
-    )
-    module = (
-        sc.module("test.graph.route-capability")
-        .resource("drive", requires=("set_frequency",))
-        .computes(consume)
-        .build()
-    )
-
-    with pytest.raises(CheckFailed) as error:
-        _resolve(module)
-
-    assert error.value.problems[0].code == ("compute_route_capability_missing")
-    assert "set_gain" in error.value.problems[0].message
 
 
 def test_state_rejects_an_unregistered_compute_output() -> None:
@@ -390,27 +352,27 @@ def test_product_axis_rejects_point_dependent_value() -> None:
     )
 
 
-def test_state_route_selector_rejects_external_operation_value() -> None:
+def test_state_target_rejects_external_operation_value() -> None:
     rows = sc.parameter(
         "missing-state-rows",
         sc.TableType(columns=()),
     )
-    route_entity = sc.compute(
-        "route-entity",
+    target_entity = sc.compute(
+        "target-entity",
         fn=lambda: "q0",
         output_type=sc.ScalarType(sc.EntityType()),
     )
     module = (
-        sc.module("test.stage.state-route")
+        sc.module("test.stage.state-target")
         .resource("drive", requires=("set_gain",))
-        .computes(route_entity)
+        .computes(target_entity)
         .state_each(
             rows,
             resource_port="drive",
             capability="set_gain",
             field="value",
             value=1.0,
-            route_entities=(route_entity.output,),
+            target_entities=(target_entity.output,),
         )
         .build()
     )
@@ -420,8 +382,8 @@ def test_state_route_selector_rejects_external_operation_value() -> None:
 
     problem = error.value.problems[0]
     assert problem.code == "value_requires_execution"
-    assert problem.location == model_location("state", 0, "route_entities", 0)
-    assert "state route selector" in problem.message
+    assert problem.location == model_location("state", 0, "target_entities", 0)
+    assert "state target entity" in problem.message
 
 
 def test_direct_compute_edge_is_topologically_ordered() -> None:

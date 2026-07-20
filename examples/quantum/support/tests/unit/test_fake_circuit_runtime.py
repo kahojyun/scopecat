@@ -27,11 +27,7 @@ from scopecat.compiler.semantic.model import (
 from scopecat.compiler.semantic.value_expressions import verify_table_value_expr
 from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.products import (
-    DomainProductProducer,
-    ProductAxisDef,
-    ProductKind,
-)
+from scopecat.compiler.typed.products import ProductAxisDef, ProductKind
 from scopecat.compiler.typed.program import (
     CoreProgram,
     TypedDomainExecution,
@@ -46,7 +42,6 @@ from scopecat.compiler.typed.program import (
 from scopecat.config.profiles import load_config_profile
 from scopecat.execution.effects.domain import execute_domain_job_values
 from scopecat.kernel.errors import CheckFailed
-from scopecat.kernel.product_identity import product_producer_id
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Scalar, Table, TableColumn
 from scopecat.measurements.projection import (
@@ -341,7 +336,6 @@ def _linked_points(
         for index in range(product_use_count)
     )
     domain_program_id = DomainProgramId(SymbolId(local_id="program"))
-    producer_id = product_producer_id("result-producer")
     program = CoreProgram(
         id="fake-circuit-runtime",
         kind="fake_circuit_runtime_test",
@@ -361,18 +355,9 @@ def _linked_points(
                     TypedDomainResultBinding(
                         id=_SINGLE_RESULT_ID,
                         product_id=product.id,
-                        producer_id=producer_id,
                         product_use_ids=tuple(use.id for use, _record in selections),
                     ),
                 ),
-            ),
-        ),
-        domain_product_producers=(
-            DomainProductProducer(
-                id=producer_id,
-                product_id=product.id,
-                execution_id="domain",
-                result_id=_SINGLE_RESULT_ID,
             ),
         ),
         product_uses=tuple(use for use, _record in selections),
@@ -427,8 +412,6 @@ def _mixed_linked_points(
     iq_use, iq_record = record_product(iq_product)
     trace_use, trace_record = record_product(trace_product)
     domain_program_id = DomainProgramId(SymbolId(local_id="program"))
-    iq_producer_id = product_producer_id("iq-result-producer")
-    trace_producer_id = product_producer_id("trace-result-producer")
     program = CoreProgram(
         id="mixed-fake-circuit-runtime",
         kind="mixed_fake_circuit_runtime_test",
@@ -451,30 +434,14 @@ def _mixed_linked_points(
                     TypedDomainResultBinding(
                         id=_MIXED_IQ_RESULT_ID,
                         product_id=iq_product.id,
-                        producer_id=iq_producer_id,
                         product_use_ids=(iq_use.id,),
                     ),
                     TypedDomainResultBinding(
                         id=_MIXED_TRACE_RESULT_ID,
                         product_id=trace_product.id,
-                        producer_id=trace_producer_id,
                         product_use_ids=(trace_use.id,),
                     ),
                 ),
-            ),
-        ),
-        domain_product_producers=(
-            DomainProductProducer(
-                id=iq_producer_id,
-                product_id=iq_product.id,
-                execution_id="domain",
-                result_id=_MIXED_IQ_RESULT_ID,
-            ),
-            DomainProductProducer(
-                id=trace_producer_id,
-                product_id=trace_product.id,
-                execution_id="domain",
-                result_id=_MIXED_TRACE_RESULT_ID,
             ),
         ),
         product_uses=(iq_use, trace_use),

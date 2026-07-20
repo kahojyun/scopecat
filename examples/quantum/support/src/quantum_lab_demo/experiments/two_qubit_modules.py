@@ -1,4 +1,4 @@
-"""Structural two-qubit module fixtures for generic compute and routing tests.
+"""Structural two-qubit fixtures for compute and resource-selection tests.
 
 Executable two-qubit calibration examples belong in ``reference_experiments``
 and use the unified ``scopecat_quantum.authoring`` gate/pulse DSL. In
@@ -81,7 +81,6 @@ _RENDER_CZ_DRIVE_WAVEFORMS = sc.compute(
     output_type=sc.ScalarType(sc.PayloadType("pulse_program")),
     inputs={
         "program": _BUILD_CZ_CHEVRON_PROGRAM.output,
-        "drive_route": sc.route("drive"),
     },
 )
 _RENDER_CZ_COUPLER_WAVEFORMS = sc.compute(
@@ -90,7 +89,6 @@ _RENDER_CZ_COUPLER_WAVEFORMS = sc.compute(
     output_type=sc.ScalarType(sc.PayloadType("pulse_program")),
     inputs={
         "program": _BUILD_CZ_CHEVRON_PROGRAM.output,
-        "coupler_route": sc.route("coupler"),
     },
 )
 
@@ -231,7 +229,6 @@ _RENDER_PARALLEL_GATE_DRIVE_WAVEFORMS = sc.compute(
     output_type=sc.ScalarType(sc.PayloadType("pulse_program")),
     inputs={
         "program": _BUILD_PARALLEL_GATE_SET_PROGRAM.output,
-        "drive_route": sc.route("drive"),
     },
 )
 _RENDER_PARALLEL_GATE_COUPLER_WAVEFORMS = sc.compute(
@@ -240,7 +237,6 @@ _RENDER_PARALLEL_GATE_COUPLER_WAVEFORMS = sc.compute(
     output_type=sc.ScalarType(sc.PayloadType("pulse_program")),
     inputs={
         "program": _BUILD_PARALLEL_GATE_SET_PROGRAM.output,
-        "coupler_route": sc.route("coupler"),
     },
 )
 

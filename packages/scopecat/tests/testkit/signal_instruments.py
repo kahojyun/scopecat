@@ -104,10 +104,9 @@ class TestSignalInstrumentProvider:
     ) -> tuple[str, list[Problem]]:
         instruments = context.config.instrument_registry.instruments
         routable_instrument_ids = {
-            resource.id
-            for resource in context.config.routing.resources
-            if resource.kind == "instrument"
-            and "set_frequency" in resource.capabilities
+            binding.instrument_id
+            for binding in context.config.routing.bindings
+            if binding.capability == "set_frequency"
         }
         if self.instrument_id is not None:
             instrument = next(
@@ -143,7 +142,7 @@ class TestSignalInstrumentProvider:
                     "test_signal_provider_missing_instrument",
                     "test signal provider requires one routable instrument exposing "
                     "set_frequency",
-                    "config.system.routing.resources",
+                    "config.system.routing.bindings",
                 )
             ]
         if len(matches) > 1:
@@ -152,7 +151,7 @@ class TestSignalInstrumentProvider:
                     "test_signal_provider_ambiguous_instrument",
                     "test signal provider found multiple set_frequency instruments: "
                     f"{', '.join(matches)}",
-                    "config.system.routing.resources",
+                    "config.system.routing.bindings",
                 )
             ]
         return matches[0], []

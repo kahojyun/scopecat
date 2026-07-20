@@ -13,9 +13,14 @@ from scopecat.compiler.relations.verification import (
     RowType,
 )
 from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.program import CoreProgram, record_product
+from scopecat.compiler.typed.program import (
+    CoreProgram,
+    LogicalResourceRequirement,
+    record_product,
+)
 from scopecat.config.profiles import load_config_profile
 from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.value_types import Table as TableType
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter import Quantity
@@ -31,7 +36,7 @@ from tests.testkit.relation_plans import (
     state_field,
 )
 from tests.testkit.typed_program import (
-    instrument_product_producer,
+    instrument_acquisition,
     observable_product,
     typed_program,
 )
@@ -84,18 +89,25 @@ def test_materialized_effects_experiment_includes_float_step_stop_point() -> Non
         "signal",
         unit="ratio",
     )
-    producer = instrument_product_producer(
+    acquisition = instrument_acquisition(
         product,
-        physical_resource_id="source-0",
+        resource_port_id="source",
+        capability="set_frequency",
     )
     product_use, record_use = record_product(product)
     spec = typed_program(
         id="float-range-scan",
         kind="simple_scan",
         point_domain=points,
+        resource_requirements=(
+            LogicalResourceRequirement(
+                port_id=logical_resource_port_id("source"),
+                capabilities=("set_frequency",),
+            ),
+        ),
         state=[
             state_field(
-                "source-0",
+                "source",
                 capability_id="set_frequency",
                 field_path="frequency",
                 value=point_col("drive_frequency"),
@@ -103,7 +115,7 @@ def test_materialized_effects_experiment_includes_float_step_stop_point() -> Non
             )
         ],
         product_defs=[product],
-        instrument_product_producers=[producer],
+        instrument_acquisitions=[acquisition],
         product_uses=[product_use],
         record_uses=[record_use],
     )

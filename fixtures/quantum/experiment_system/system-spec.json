@@ -373,63 +373,150 @@
     "metadata": {}
   },
   "routing": {
-    "resources": [
+    "bindings": [
       {
-        "id": "drive-stack",
-        "kind": "instrument",
-        "capabilities": [
-          "play_pulse_program",
-          "play_gate_sequence"
-        ],
-        "served_entities": [
-          "q0",
-          "q1",
-          "q2",
-          "q3"
-        ],
-        "channels": [
-          "drive-q0",
-          "drive-q1",
-          "drive-q2",
-          "drive-q3"
-        ]
+        "instrument_id": "drive-stack",
+        "capability": "play_pulse_program",
+        "entity_id": "q0",
+        "channel_id": "drive-q0"
       },
       {
-        "id": "readout-stack",
-        "kind": "instrument",
-        "capabilities": [
-          "readout_pulse",
-          "submit_backend_batch",
-          "acquire_iq"
-        ],
-        "served_entities": [
-          "q0",
-          "q1",
-          "q2",
-          "q3"
-        ],
-        "channels": [
-          "readout-q0",
-          "readout-q1",
-          "readout-q2",
-          "readout-q3"
-        ]
+        "instrument_id": "drive-stack",
+        "capability": "play_gate_sequence",
+        "entity_id": "q0",
+        "channel_id": "drive-q0"
       },
       {
-        "id": "coupler-stack",
-        "kind": "instrument",
-        "capabilities": [
-          "play_coupler_pulse",
-          "set_flux_bias"
-        ],
-        "served_entities": [
-          "coupler-q0-q1",
-          "coupler-q2-q3"
-        ],
-        "channels": [
-          "coupler-q0-q1",
-          "coupler-q2-q3"
-        ]
+        "instrument_id": "drive-stack",
+        "capability": "play_pulse_program",
+        "entity_id": "q1",
+        "channel_id": "drive-q1"
+      },
+      {
+        "instrument_id": "drive-stack",
+        "capability": "play_gate_sequence",
+        "entity_id": "q1",
+        "channel_id": "drive-q1"
+      },
+      {
+        "instrument_id": "drive-stack",
+        "capability": "play_pulse_program",
+        "entity_id": "q2",
+        "channel_id": "drive-q2"
+      },
+      {
+        "instrument_id": "drive-stack",
+        "capability": "play_gate_sequence",
+        "entity_id": "q2",
+        "channel_id": "drive-q2"
+      },
+      {
+        "instrument_id": "drive-stack",
+        "capability": "play_pulse_program",
+        "entity_id": "q3",
+        "channel_id": "drive-q3"
+      },
+      {
+        "instrument_id": "drive-stack",
+        "capability": "play_gate_sequence",
+        "entity_id": "q3",
+        "channel_id": "drive-q3"
+      },
+      {
+        "instrument_id": "readout-stack",
+        "capability": "readout_pulse",
+        "entity_id": "q0",
+        "channel_id": "readout-q0"
+      },
+      {
+        "instrument_id": "readout-stack",
+        "capability": "submit_backend_batch",
+        "entity_id": "q0",
+        "channel_id": "readout-q0"
+      },
+      {
+        "instrument_id": "readout-stack",
+        "capability": "acquire_iq",
+        "entity_id": "q0",
+        "channel_id": "readout-q0"
+      },
+      {
+        "instrument_id": "readout-stack",
+        "capability": "readout_pulse",
+        "entity_id": "q1",
+        "channel_id": "readout-q1"
+      },
+      {
+        "instrument_id": "readout-stack",
+        "capability": "submit_backend_batch",
+        "entity_id": "q1",
+        "channel_id": "readout-q1"
+      },
+      {
+        "instrument_id": "readout-stack",
+        "capability": "acquire_iq",
+        "entity_id": "q1",
+        "channel_id": "readout-q1"
+      },
+      {
+        "instrument_id": "readout-stack",
+        "capability": "readout_pulse",
+        "entity_id": "q2",
+        "channel_id": "readout-q2"
+      },
+      {
+        "instrument_id": "readout-stack",
+        "capability": "submit_backend_batch",
+        "entity_id": "q2",
+        "channel_id": "readout-q2"
+      },
+      {
+        "instrument_id": "readout-stack",
+        "capability": "acquire_iq",
+        "entity_id": "q2",
+        "channel_id": "readout-q2"
+      },
+      {
+        "instrument_id": "readout-stack",
+        "capability": "readout_pulse",
+        "entity_id": "q3",
+        "channel_id": "readout-q3"
+      },
+      {
+        "instrument_id": "readout-stack",
+        "capability": "submit_backend_batch",
+        "entity_id": "q3",
+        "channel_id": "readout-q3"
+      },
+      {
+        "instrument_id": "readout-stack",
+        "capability": "acquire_iq",
+        "entity_id": "q3",
+        "channel_id": "readout-q3"
+      },
+      {
+        "instrument_id": "coupler-stack",
+        "capability": "play_coupler_pulse",
+        "entity_id": "coupler-q0-q1",
+        "channel_id": "coupler-q0-q1"
+      },
+      {
+        "instrument_id": "coupler-stack",
+        "capability": "set_flux_bias",
+        "entity_id": "coupler-q0-q1",
+        "channel_id": "coupler-q0-q1"
+      },
+      {
+        "instrument_id": "coupler-stack",
+        "capability": "play_coupler_pulse",
+        "entity_id": "coupler-q2-q3",
+        "channel_id": "coupler-q2-q3"
+      },
+      {
+        "instrument_id": "coupler-stack",
+        "capability": "set_flux_bias",
+        "entity_id": "coupler-q2-q3",
+        "channel_id": "coupler-q2-q3"
       }
     ]
   }

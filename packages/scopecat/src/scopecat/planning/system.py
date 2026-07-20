@@ -27,7 +27,10 @@ from scopecat.compiler.typed.program import (
     core_domain_executions,
     core_state,
 )
-from scopecat.execution.local.program import ApplyStateOperation
+from scopecat.execution.local.program import (
+    ApplyStateOperation,
+    CollectOperation,
+)
 from scopecat.execution.points import RunPoint, RunPointCatalog
 from scopecat.execution.program import (
     RunCompute,
@@ -194,7 +197,6 @@ def _compile_system_program(
     )
     local_required = bool(
         local_product_use_ids
-        or linked.program.route_intents
         or linked.program.compute_nodes
         or core_state(linked.program)
         or core_actions(linked.program)
@@ -386,35 +388,44 @@ def _compile_coverage_region(
         )
 
     compiled_domains: list[_CompiledDomainExecution] = []
-    for execution in core_domain_executions(linked.program):
+    for effect_index, execution in enumerate(linked.program.effects):
+        if not isinstance(execution, TypedDomainExecution):
+            continue
         for barrier in barriers:
-            refined_barriers = _domain_state_barriers(
+            ordered_barriers = _domain_acquisition_barriers(
                 barrier,
+                effect_index=effect_index,
                 local_effects=local_effects,
                 resource_claims=domain_resource_claims[execution.id],
             )
-            for refined in refined_barriers:
-                compiled = _compile_domain_execution(
-                    system.domain_compiler,
-                    domain_templates[execution.id],
-                    refined,
-                    coverage_ordinal=refined[0],
-                    bind_inputs=input_binder(execution.id),
+            for ordered in ordered_barriers:
+                refined_barriers = _domain_state_barriers(
+                    ordered,
+                    local_effects=local_effects,
                     resource_claims=domain_resource_claims[execution.id],
                 )
-                if compiled is None:
-                    raise CheckFailed(
-                        [
-                            _planning_problem(
-                                "domain_compiler_missing",
-                                "the experiment system cannot compile domain call "
-                                f"{execution.id!r}",
-                                category=ProblemCategory.NOT_FOUND,
-                                details={"execution_id": execution.id},
-                            )
-                        ]
+                for refined in refined_barriers:
+                    compiled = _compile_domain_execution(
+                        system.domain_compiler,
+                        domain_templates[execution.id],
+                        refined,
+                        coverage_ordinal=refined[0],
+                        bind_inputs=input_binder(execution.id),
+                        resource_claims=domain_resource_claims[execution.id],
                     )
-                compiled_domains.append(compiled)
+                    if compiled is None:
+                        raise CheckFailed(
+                            [
+                                _planning_problem(
+                                    "domain_compiler_missing",
+                                    "the experiment system cannot compile domain call "
+                                    f"{execution.id!r}",
+                                    category=ProblemCategory.NOT_FOUND,
+                                    details={"execution_id": execution.id},
+                                )
+                            ]
+                        )
+                    compiled_domains.append(compiled)
     jobs_by_execution: dict[str, list[RunDomainJob]] = {}
     for compiled in compiled_domains:
         jobs_by_execution.setdefault(compiled.request.call.id, []).extend(
@@ -552,13 +563,59 @@ def _select_local_effects(
     return tuple(selected)
 
 
+def _domain_acquisition_barriers(
+    region: tuple[int, ...],
+    *,
+    effect_index: int,
+    local_effects: MaterializedLocalEffects | None,
+    resource_claims: tuple[ResourceClaim, ...],
+) -> tuple[tuple[int, ...], ...]:
+    """Split one domain where earlier conflicting acquisitions expose order.
+
+    Only finalized local operations count: a symbolic acquisition can survive after
+    all of its product uses have been removed by demand closure. An earlier collection
+    on the same physical resource must run before this domain at each point, so its
+    point starts bound the domain's compile regions. Independent collections may
+    interleave safely, while a later conflicting collection can begin after one broad
+    domain job finishes and therefore does not constrain that job.
+    """
+
+    target_claims = frozenset(resource_claims)
+    if local_effects is None or not target_claims:
+        return (region,)
+    boundaries = {
+        effect.point_indices[0]
+        for group in local_effects.effect_operations[:effect_index]
+        for effect in group
+        if isinstance(effect.operation, CollectOperation)
+        and frozenset(local_operation_resource_claims(effect.operation)) & target_claims
+        and effect.point_indices[0] != region[0]
+        and effect.point_indices[0] in region
+    }
+    if not boundaries:
+        return (region,)
+    selected: list[tuple[int, ...]] = []
+    start = 0
+    for offset, ordinal in enumerate(region):
+        if offset and ordinal in boundaries:
+            selected.append(region[start:offset])
+            start = offset
+    selected.append(region[start:])
+    return tuple(selected)
+
+
 def _domain_state_barriers(
     region: tuple[int, ...],
     *,
     local_effects: MaterializedLocalEffects | None,
     resource_claims: tuple[ResourceClaim, ...],
 ) -> tuple[tuple[int, ...], ...]:
-    """Split before compilation where changing state conflicts with the target."""
+    """Split domain coverage before compiling around conflicting local state.
+
+    Exact state claims exist only after local resources are bound. Refining the
+    coverage from those final claims before invoking the domain compiler avoids
+    producing a broad artifact that must be discarded once the conflict is known.
+    """
 
     boundaries: set[int] = set()
     target_claims = frozenset(resource_claims)
@@ -573,7 +630,7 @@ def _domain_state_barriers(
         start = effect.point_indices[0]
         if start == region[0] or start not in region:
             continue
-        state_claims = frozenset(_state_operation_claims(effect.operation))
+        state_claims = frozenset(local_operation_resource_claims(effect.operation))
         if state_claims & target_claims:
             boundaries.add(start)
     if not boundaries:
@@ -586,19 +643,6 @@ def _domain_state_barriers(
             start = offset
     selected.append(region[start:])
     return tuple(selected)
-
-
-def _state_operation_claims(
-    operation: ApplyStateOperation,
-) -> tuple[ResourceClaim, ...]:
-    claims = [ResourceClaim(operation.instrument_id)]
-    for target in operation.targets:
-        for binding in target.channel_bindings:
-            claims.append(ResourceClaim(binding.channel_id, "channel"))
-            claims.extend(
-                ResourceClaim(group_id, "group") for group_id in binding.group_ids
-            )
-    return tuple(dict.fromkeys(claims))
 
 
 @dataclass(frozen=True, slots=True)

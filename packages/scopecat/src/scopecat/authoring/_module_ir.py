@@ -51,9 +51,9 @@ from scopecat.authoring.values import (
     ComputeDeclarationKey,
     ComputeFunction,
     MetadataValue,
-    RouteRef,
 )
 from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.frozen import freeze_json_mapping
 from scopecat.kernel.problems import (
     Problem,
     ProblemCategory,
@@ -269,18 +269,6 @@ class ModuleInstanceEffect:
 
 
 @dataclass(frozen=True, slots=True)
-class ModuleParallelEffect:
-    """A set of child procedures that may be scheduled concurrently."""
-
-    invocation_keys: tuple[InvocationKey, ...]
-
-    def __post_init__(self) -> None:
-        if len(self.invocation_keys) < 2:
-            raise ValueError("module parallel groups require at least two branches")
-        _require_unique("module parallel branch", self.invocation_keys)
-
-
-@dataclass(frozen=True, slots=True)
 class ModuleBindingEffect:
     """Apply one desired-state binding at this position."""
 
@@ -309,6 +297,20 @@ class ModuleDomainEffect:
 
 
 @dataclass(frozen=True, slots=True)
+class ModuleAcquireProduct:
+    """One product realized by an authored acquisition effect."""
+
+    product: ProductRef
+    provider_key: str
+    metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
+
+    def __post_init__(self) -> None:
+        if not self.provider_key:
+            raise ValueError("module acquired product provider key must be non-empty")
+        object.__setattr__(self, "metadata", freeze_json_mapping(self.metadata))
+
+
+@dataclass(frozen=True, slots=True)
 class ModuleAcquireEffect:
     """Realize selected products at this exact procedure position.
 
@@ -318,16 +320,25 @@ class ModuleAcquireEffect:
     """
 
     id: str
-    products: tuple[ProductRef, ...]
+    resource_port_id: LogicalResourcePortId
+    capability_id: str
+    products: tuple[ModuleAcquireProduct, ...]
 
     def __post_init__(self) -> None:
         if not self.id or not self.products:
             raise ValueError("module acquire requires an id and products")
+        if not self.capability_id:
+            raise ValueError("module acquire capability must be non-empty")
+        product_ids = tuple(product.product.product_id for product in self.products)
+        _require_unique("module acquire product", product_ids)
+        _require_unique(
+            "module acquire provider key",
+            tuple(product.provider_key for product in self.products),
+        )
 
 
 type ModuleEffectIR = (
     ModuleInstanceEffect
-    | ModuleParallelEffect
     | ModuleBindingEffect
     | ModuleStateEffect
     | ModuleActionEffect
@@ -371,43 +382,15 @@ class ModuleBodyIR:
             tuple(item.id for item in self.acquisitions),
         )
         invocation_keys = tuple(
-            key
+            effect.invocation_key
             for effect in self.procedure
-            for key in (
-                (effect.invocation_key,)
-                if isinstance(effect, ModuleInstanceEffect)
-                else effect.invocation_keys
-                if isinstance(effect, ModuleParallelEffect)
-                else ()
-            )
+            if isinstance(effect, ModuleInstanceEffect)
         )
         _require_unique("module procedure invocation", invocation_keys)
         declared_invocations = {item.invocation_key for item in self.instances}
         if set(invocation_keys) != declared_invocations:
             msg = "module procedure must contain every child invocation exactly once"
             raise ValueError(msg)
-        instances_by_key = {item.invocation_key: item for item in self.instances}
-        for effect in self.procedure:
-            if not isinstance(effect, ModuleParallelEffect):
-                continue
-            bound_parent_resources: list[LogicalResourcePortId] = []
-            for key in effect.invocation_keys:
-                bound_parent_resources.extend(
-                    binding.source_id
-                    for binding in instances_by_key[key].resource_bindings
-                )
-            conflicts = sorted(
-                {
-                    resource_id.qualified_name
-                    for resource_id in bound_parent_resources
-                    if bound_parent_resources.count(resource_id) > 1
-                }
-            )
-            if conflicts:
-                raise ValueError(
-                    "parallel module branches bind the same parent resources: "
-                    + ", ".join(conflicts)
-                )
         _require_unique(
             "module measurement transform",
             tuple(item.symbol_id for item in self.measurement_transforms),
@@ -712,7 +695,8 @@ def _check_module_products(
         for product_id, export in expected_products.items()
     }
     for acquire in module.body.acquisitions:
-        for product in acquire.products:
+        for acquired in acquire.products:
+            product = acquired.product
             expected_origin = product_origins.get(product.product_id)
             if expected_origin != product.origin:
                 add_problem(
@@ -794,9 +778,7 @@ def _module_lexical_value_refs(module: ModuleIR) -> tuple[ValueRef, ...]:
     )
     roots.extend(binding.value for binding in module.body.bindings)
     for intent in module.body.state:
-        roots.extend(
-            (intent.relation, intent.resource, intent.value, *intent.route_entities)
-        )
+        roots.extend((intent.relation, intent.value, *intent.target_entities))
     roots.extend(
         value for action in module.body.actions for _name, value in action.fields
     )
@@ -851,27 +833,13 @@ def _nested_value_refs(
 def _module_resource_uses(module: ModuleIR) -> tuple[LogicalResourcePortId, ...]:
     selected: list[LogicalResourcePortId] = []
     selected.extend(binding.port_id for binding in module.body.bindings)
-    selected.extend(
-        intent.resource_port
-        for intent in module.body.state
-        if intent.resource_port is not None
-    )
+    selected.extend(intent.resource_port for intent in module.body.state)
     selected.extend(action.resource_port_id for action in module.body.actions)
+    selected.extend(acquire.resource_port_id for acquire in module.body.acquisitions)
     selected.extend(
         resource_id
         for execution in module.body.domain_executions
         for _role, resource_id in execution.resource_bindings
-    )
-    selected.extend(
-        value.port_id
-        for operation in module.body.operations
-        for _name, value in operation.inputs
-        if isinstance(value, RouteRef)
-    )
-    selected.extend(
-        product.resource_port_id
-        for product in module.body.products
-        if product.resource_port_id is not None
     )
     return tuple(selected)
 

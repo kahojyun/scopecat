@@ -26,8 +26,7 @@ from scopecat.compiler.semantic.operation_contract import (
 )
 from scopecat.compiler.typed.program import (
     CoreProgram,
-    ResourceRouteIntent,
-    RouteInput,
+    LogicalResourceRequirement,
     TypedComputeNode,
     TypedComputeOutput,
     record_product,
@@ -37,10 +36,9 @@ from scopecat.compiler.typed.verification import verify_core_program
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.symbols import SymbolId
-from scopecat.kernel.value_types import Float, Route, Scalar, Table, TableColumn
+from scopecat.kernel.value_types import Float, Scalar, Table, TableColumn
 from tests.testkit.relation_plans import (
     point_domain,
-    scalar_value_expr,
     table_value_expr,
 )
 from tests.testkit.typed_program import observable_product
@@ -78,36 +76,6 @@ def _output(operation_id: OperationId, value_type: Scalar) -> TypedComputeOutput
     )
 
 
-def test_typed_program_verifier_rejects_incomplete_compute_route() -> None:
-    operation_id = OperationId(SymbolId(local_id="consume-route"))
-    node = TypedComputeNode(
-        id=operation_id,
-        contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-        inputs={
-            "route": RouteInput(
-                port_id=logical_resource_port_id("drive"),
-                value_type=Route(capabilities=("set_gain",)),
-            )
-        },
-        result=_output(operation_id, Scalar(Float())),
-    )
-    program = _program(
-        compute_nodes=(node,),
-        implementation_catalog=_catalog(operation_id),
-        route_intents=(
-            ResourceRouteIntent(
-                port_id=logical_resource_port_id("drive"),
-                capabilities=("set_frequency",),
-            ),
-        ),
-    )
-
-    with pytest.raises(CheckFailed) as error:
-        verify_core_program(program)
-
-    assert error.value.problems[0].code == ("compute_route_capability_missing")
-
-
 def test_typed_program_verifier_rejects_non_payload_state_compute() -> None:
     operation_id = OperationId(SymbolId(local_id="numeric"))
     program = _program(
@@ -119,9 +87,15 @@ def test_typed_program_verifier_rejects_non_payload_state_compute() -> None:
             ),
         ),
         implementation_catalog=_catalog(operation_id),
+        resource_requirements=(
+            LogicalResourceRequirement(
+                port_id=logical_resource_port_id("drive"),
+                capabilities=("set_gain",),
+            ),
+        ),
         effects=(
             set_state_field(
-                scalar_value_expr("drive"),
+                resource_port_id=logical_resource_port_id("drive"),
                 capability_id="set_gain",
                 field_path="value",
                 value=ComputeResultRef(value_id=operation_result_id(operation_id)),

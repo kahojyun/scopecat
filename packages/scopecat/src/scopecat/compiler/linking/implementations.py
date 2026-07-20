@@ -25,14 +25,14 @@ from scopecat.kernel.problems import (
     ProblemPhase,
     model_location,
 )
-from scopecat.kernel.value_types import Route, ValueType
+from scopecat.kernel.value_types import ValueType
 
 
 @dataclass(frozen=True, slots=True)
 class ComputeInterface:
     """Canonical typed ports paired with one selected implementation."""
 
-    inputs: tuple[tuple[str, ValueType | Route], ...]
+    inputs: tuple[tuple[str, ValueType], ...]
     output_type: ValueType
 
     @classmethod

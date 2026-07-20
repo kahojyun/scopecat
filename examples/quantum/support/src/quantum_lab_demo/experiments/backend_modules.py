@@ -45,7 +45,6 @@ BACKEND_BATCH_MODULE = (
     )
     .product(
         "backend_probabilities",
-        resource="readout",
         unit="ratio",
         axes=(
             sc.product_axis(
@@ -56,7 +55,12 @@ BACKEND_BATCH_MODULE = (
             ),
         ),
     )
-    .acquire("read-backend-probabilities", "backend_probabilities")
+    .acquire(
+        "read-backend-probabilities",
+        "backend_probabilities",
+        resource="readout",
+        capability="acquire_iq",
+    )
     .build()
 )
 

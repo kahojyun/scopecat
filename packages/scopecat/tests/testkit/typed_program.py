@@ -4,12 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from copy import deepcopy
-from dataclasses import replace
 
 from scopecat.compiler.frontend.environment import ValidatedConfigEnvironment
 from scopecat.compiler.linking.linked import (
     LinkedPlan,
-    _environment_link_problems,
     link_verified_program,
 )
 from scopecat.compiler.relations.model import ScalarExpr, as_scalar_expr
@@ -28,16 +26,14 @@ from scopecat.compiler.typed.action import ActionSpec
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.products import (
-    DomainProductProducer,
-    InstrumentProductProducer,
-    MeasurementTransformProductProducer,
     ProductAxisDef,
     ProductDef,
 )
 from scopecat.compiler.typed.program import (
+    AcquireProductSpec,
     AcquireSpec,
     CoreProgram,
-    ResourceRouteIntent,
+    LogicalResourceRequirement,
     TypedComputeNode,
     TypedDomainExecution,
     TypedMeasurementTransform,
@@ -54,14 +50,10 @@ from scopecat.kernel.problems import (
 )
 from scopecat.kernel.product_identity import (
     ProductId,
-    ProductProducerId,
     ProductUse,
-    product_producer_id,
 )
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
-    PhysicalResourceId,
-    ResourceTarget,
     logical_resource_port_id,
 )
 from scopecat.kernel.symbols import SymbolId
@@ -140,35 +132,62 @@ def observable_product(
     )
 
 
-def instrument_product_producer(
+def instrument_acquisition(
     product: ProductDef | ProductId,
     *,
-    id: ProductProducerId | str | None = None,  # noqa: A002
-    resource_port_id: LogicalResourcePortId | str | None = None,
-    physical_resource_id: PhysicalResourceId | str | None = None,
-    capability: str | None = None,
+    id: AcquireId | str | None = None,  # noqa: A002
+    resource_port_id: LogicalResourcePortId | str = "source",
+    capability: str,
     provider_key: str | None = None,
     metadata: dict[str, JsonValue] | None = None,
-) -> InstrumentProductProducer:
-    """Declare an instrument edge separately from logical product schema."""
+) -> AcquireSpec:
+    """Build one explicit, single-product instrument acquisition."""
 
     selected_product_id = product.id if isinstance(product, ProductDef) else product
     if id is None:
-        selected_producer_id = ProductProducerId(selected_product_id.symbol)
-    elif isinstance(id, ProductProducerId):
-        selected_producer_id = id
+        selected_acquire_id = AcquireId(
+            SymbolId(
+                scope=selected_product_id.scope,
+                local_id=f"acquire-{selected_product_id.local_id}",
+            )
+        )
+    elif isinstance(id, AcquireId):
+        selected_acquire_id = id
     else:
-        selected_producer_id = product_producer_id(id)
-    return InstrumentProductProducer(
-        id=selected_producer_id,
-        product_id=selected_product_id,
-        resource_target=_product_resource_target(
-            resource_port_id=resource_port_id,
-            physical_resource_id=physical_resource_id,
+        selected_acquire_id = AcquireId(SymbolId(local_id=id))
+    selected_resource_port_id = (
+        resource_port_id
+        if isinstance(resource_port_id, LogicalResourcePortId)
+        else logical_resource_port_id(resource_port_id)
+    )
+    return AcquireSpec(
+        id=selected_acquire_id,
+        resource_port_id=selected_resource_port_id,
+        capability_id=capability,
+        products=(
+            AcquireProductSpec(
+                product_id=selected_product_id,
+                provider_key=provider_key or selected_product_id.local_id,
+                metadata=dict(metadata or {}),
+            ),
         ),
-        capability=capability,
-        provider_key=provider_key or selected_product_id.local_id,
-        metadata=dict(metadata or {}),
+    )
+
+
+def instrument_acquisitions(
+    *products: ProductDef | ProductId,
+    resource_port_id: LogicalResourcePortId | str = "source",
+    capability: str,
+) -> tuple[AcquireSpec, ...]:
+    """Build one independently identified acquisition per logical product."""
+
+    return tuple(
+        instrument_acquisition(
+            product,
+            resource_port_id=resource_port_id,
+            capability=capability,
+        )
+        for product in products
     )
 
 
@@ -177,7 +196,7 @@ def typed_program(
     id: str,  # noqa: A002
     kind: str,
     point_domain: PointDomain,
-    route_intents: Sequence[ResourceRouteIntent] = (),
+    resource_requirements: Sequence[LogicalResourceRequirement] = (),
     parameter_overlays: Sequence[PointParameterOverlay] = (),
     compute_nodes: Sequence[TypedComputeNode] = (),
     domain_execution: TypedDomainExecution | None = None,
@@ -186,55 +205,29 @@ def typed_program(
     state: Sequence[StateSpecVariant] = (),
     actions: Sequence[ActionSpec] = (),
     product_defs: Sequence[ProductDef] = (),
-    instrument_product_producers: Sequence[InstrumentProductProducer] = (),
-    domain_product_producers: Sequence[DomainProductProducer] = (),
-    measurement_transform_product_producers: Sequence[
-        MeasurementTransformProductProducer
-    ] = (),
+    instrument_acquisitions: Sequence[AcquireSpec] = (),
     product_uses: Sequence[ProductUse] = (),
     record_uses: Sequence[RecordUse] = (),
     metadata: dict[str, JsonValue] | None = None,
 ) -> CoreProgram:
     """Build one low-level typed program from explicitly ordered components."""
 
-    used_product_ids = {use.product_id for use in product_uses}
-    acquired_product_ids = tuple(
-        dict.fromkeys(
-            producer.product_id
-            for producer in instrument_product_producers
-            if producer.product_id in used_product_ids
-        )
-    )
-
     return CoreProgram(
         id=id,
         kind=kind,
         point_domain=point_domain,
-        route_intents=tuple(route_intents),
+        resource_requirements=tuple(resource_requirements),
         parameter_overlays=tuple(parameter_overlays),
         compute_nodes=tuple(compute_nodes),
         effects=(
             *state,
             *actions,
             *((domain_execution,) if domain_execution is not None else ()),
-            *(
-                (
-                    AcquireSpec(
-                        AcquireId(SymbolId(local_id="acquire")), acquired_product_ids
-                    ),
-                )
-                if acquired_product_ids
-                else ()
-            ),
+            *instrument_acquisitions,
         ),
         measurement_transforms=tuple(measurement_transforms),
         implementation_catalog=implementation_catalog or ImplementationCatalog(),
         product_defs=tuple(product_defs),
-        instrument_product_producers=tuple(instrument_product_producers),
-        domain_product_producers=tuple(domain_product_producers),
-        measurement_transform_product_producers=tuple(
-            measurement_transform_product_producers
-        ),
         product_uses=tuple(product_uses),
         record_uses=tuple(record_uses),
         metadata=dict(metadata or {}),
@@ -247,36 +240,13 @@ def link_program(
 ) -> LinkedPlan:
     """Snapshot, seal, and link an externally constructed test program."""
 
-    acquired = {
-        product_id
-        for effect in program.effects
-        if isinstance(effect, AcquireSpec)
-        for product_id in effect.product_ids
-    }
-    used = {use.product_id for use in program.product_uses}
-    missing = tuple(
-        dict.fromkeys(
-            producer.product_id
-            for producer in program.instrument_product_producers
-            if producer.product_id in used and producer.product_id not in acquired
-        )
-    )
-    if missing:
-        program = replace(
-            program,
-            effects=(
-                *program.effects,
-                AcquireSpec(AcquireId(SymbolId(local_id="test-acquire")), missing),
-            ),
-        )
-
     try:
         verified_program = seal_typed_program(
             deepcopy(program),
             phase=ProblemPhase.PLANNING,
         )
     except CheckFailed as error:
-        problems = [*_environment_link_problems(environment), *error.problems]
+        problems = [*environment.problems, *error.problems]
         if has_blocking_problems(problems):
             raise CheckFailed(problems) from error
         raise AssertionError(
@@ -287,26 +257,3 @@ def link_program(
 
 def _require_scalar_expression(value: object) -> ScalarExpr:
     return value if isinstance(value, ScalarExpr) else as_scalar_expr(value)
-
-
-def _product_resource_target(
-    *,
-    resource_port_id: LogicalResourcePortId | str | None,
-    physical_resource_id: PhysicalResourceId | str | None,
-) -> ResourceTarget | None:
-    if resource_port_id is not None and physical_resource_id is not None:
-        msg = "product output cannot target both a logical and physical resource"
-        raise ValueError(msg)
-    if resource_port_id is not None:
-        return (
-            resource_port_id
-            if isinstance(resource_port_id, LogicalResourcePortId)
-            else logical_resource_port_id(resource_port_id)
-        )
-    if physical_resource_id is not None:
-        return (
-            physical_resource_id
-            if isinstance(physical_resource_id, PhysicalResourceId)
-            else PhysicalResourceId(physical_resource_id)
-        )
-    return None

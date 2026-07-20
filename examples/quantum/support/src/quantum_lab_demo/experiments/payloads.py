@@ -45,9 +45,7 @@ class RandomizedBenchmarkingSequence:
 @dataclass(frozen=True)
 class RandomizedBenchmarkingPulseBundle:
     source_program_id: str
-    resource_id: str
     entity_ids: tuple[str, ...]
-    channel_order: tuple[str, ...]
     samples: NDArray[np.complex128]
 
 
@@ -81,9 +79,7 @@ class CzChevronProgram:
 @dataclass(frozen=True)
 class RenderedWaveformBundle:
     source_program_id: str
-    resource_id: str
     entity_ids: tuple[str, ...]
-    channel_order: tuple[str, ...]
     sample_rate_hz: float
     samples: NDArray[np.complex128]
 

@@ -1,4 +1,4 @@
-"""Shared logical, physical, and leasing resource identities."""
+"""Shared logical-port and runtime resource-claim identities."""
 
 from __future__ import annotations
 
@@ -35,24 +35,13 @@ class LogicalResourcePortId:
 
 
 @dataclass(frozen=True, slots=True)
-class PhysicalResourceId:
-    """Nominal physical-resource reference, closed against config when linked."""
-
-    value: str
-
-    def __post_init__(self) -> None:
-        if not self.value:
-            msg = "physical resource id must be non-empty"
-            raise ValueError(msg)
-
-    @override
-    def __str__(self) -> str:
-        return self.value
-
-
-@dataclass(frozen=True, slots=True)
 class ResourceClaim:
-    """Run-level exclusive claim closed while specializing resources."""
+    """Exclusive physical identity with lifetime defined by its container.
+
+    A claim may protect a whole run, one coverage block, or one domain job. The
+    enclosing execution object, rather than the identity itself, owns that
+    lease duration.
+    """
 
     id: str
     kind: Literal["target", "instrument", "channel", "group"] = "instrument"
@@ -61,9 +50,6 @@ class ResourceClaim:
         if not self.id:
             msg = "resource claim id must be non-empty"
             raise ValueError(msg)
-
-
-type ResourceTarget = LogicalResourcePortId | PhysicalResourceId
 
 
 def logical_resource_port_id(

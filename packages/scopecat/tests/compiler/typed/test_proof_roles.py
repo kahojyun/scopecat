@@ -17,7 +17,7 @@ from scopecat.compiler.relations.verification import (
 )
 from scopecat.compiler.typed.program import (
     CoreProgram,
-    ResourceRouteIntent,
+    LogicalResourceRequirement,
     bind_each,
     set_state_field,
 )
@@ -48,7 +48,7 @@ _STRING = Scalar(String())
 def _empty_program(
     *,
     state: tuple[StateSpecVariant, ...] = (),
-    route_intents: tuple[ResourceRouteIntent, ...] = (),
+    resource_requirements: tuple[LogicalResourceRequirement, ...] = (),
 ) -> CoreProgram:
     return CoreProgram(
         id="proof-roles",
@@ -58,24 +58,32 @@ def _empty_program(
             expected_type=_EMPTY_POINTS,
         ),
         effects=state,
-        route_intents=route_intents,
+        resource_requirements=resource_requirements,
     )
 
 
 def _fictional_current_row_state() -> CoreProgram:
-    fictional_row = RowType((TableColumn("resource", _STRING),))
-    resource = scalar_value_expr(
-        col("resource"),
+    fictional_row = RowType((TableColumn("value", _FLOAT),))
+    value = scalar_value_expr(
+        col("value"),
         bindings=RelationTypeBindings(current_row=fictional_row),
-        expected_type=_STRING,
+        expected_type=_FLOAT,
     )
     state = set_state_field(
-        resource,
+        resource_port_id=logical_resource_port_id("source"),
         capability_id="set_offset",
         field_path="offset",
-        value=scalar_value_expr(1.0, expected_type=_FLOAT),
+        value=value,
     )
-    return _empty_program(state=(state,))
+    return _empty_program(
+        state=(state,),
+        resource_requirements=(
+            LogicalResourceRequirement(
+                port_id=logical_resource_port_id("source"),
+                capabilities=("set_offset",),
+            ),
+        ),
+    )
 
 
 def test_program_verification_rejects_fictional_top_level_current_row() -> None:
@@ -84,7 +92,7 @@ def test_program_verification_rejects_fictional_top_level_current_row() -> None:
 
     problem = caught.value.problems[0]
     assert problem.code == "compiler_relation_proof_role_mismatch"
-    assert problem.location == model_location("state", 0, "physical_resource_id")
+    assert problem.location == model_location("state", 0, "value")
 
 
 def test_linking_cannot_bypass_program_proof_role_verification() -> None:
@@ -98,14 +106,14 @@ def test_linking_cannot_bypass_program_proof_role_verification() -> None:
     assert problem.phase.value == "planning"
 
 
-def test_program_verification_rechecks_point_schema_used_by_route_proof() -> None:
+def test_program_verification_rechecks_resource_requirement_point_proof() -> None:
     actual_points = Table(
         columns=(TableColumn("selector", _STRING),),
         min_rows=1,
         max_rows=1,
     )
     fictional_point = RowType((TableColumn("selector", _FLOAT),))
-    route = ResourceRouteIntent(
+    requirement = LogicalResourceRequirement(
         port_id=logical_resource_port_id("drive"),
         entity_uses=(
             relation_use(
@@ -124,7 +132,7 @@ def test_program_verification_rechecks_point_schema_used_by_route_proof() -> Non
             literal_rows([{"selector": "q0"}]),
             expected_type=actual_points,
         ),
-        route_intents=(route,),
+        resource_requirements=(requirement,),
     )
 
     with pytest.raises(CheckFailed) as caught:
@@ -140,7 +148,7 @@ def test_program_verification_rejects_assignable_but_stale_point_proof() -> None
         max_rows=1,
     )
     fictional_point = RowType((TableColumn("selector", Scalar(Float(minimum=0.0))),))
-    route = ResourceRouteIntent(
+    requirement = LogicalResourceRequirement(
         port_id=logical_resource_port_id("drive"),
         entity_uses=(
             relation_use(
@@ -159,7 +167,7 @@ def test_program_verification_rejects_assignable_but_stale_point_proof() -> None
             literal_rows([{"selector": 1.5}]),
             expected_type=actual_points,
         ),
-        route_intents=(route,),
+        resource_requirements=(requirement,),
     )
 
     with pytest.raises(CheckFailed) as caught:
@@ -170,24 +178,24 @@ def test_program_verification_rejects_assignable_but_stale_point_proof() -> None
 
 def test_state_each_body_proof_accepts_its_real_current_row() -> None:
     rows_type = Table(
-        columns=(TableColumn("resource", _STRING),),
+        columns=(TableColumn("value", _FLOAT),),
         min_rows=1,
         max_rows=1,
     )
     row = RowType.from_table(rows_type)
     child = set_state_field(
-        scalar_value_expr(
-            col("resource"),
-            bindings=RelationTypeBindings(current_row=row),
-            expected_type=_STRING,
-        ),
+        resource_port_id=logical_resource_port_id("source"),
         capability_id="set_offset",
         field_path="offset",
-        value=scalar_value_expr(1.0, expected_type=_FLOAT),
+        value=scalar_value_expr(
+            col("value"),
+            bindings=RelationTypeBindings(current_row=row),
+            expected_type=_FLOAT,
+        ),
     )
     state = bind_each(
         table_value_expr(
-            literal_rows([{"resource": "source-0"}]),
+            literal_rows([{"value": 1.0}]),
             expected_type=rows_type,
         ),
         child,
@@ -196,7 +204,15 @@ def test_state_each_body_proof_accepts_its_real_current_row() -> None:
     assert isinstance(child, SetStateSpec)
     assert isinstance(state, StateSpec)
     assert isinstance(state, ForEachStateSpec)
-    program = _empty_program(state=(state,))
+    program = _empty_program(
+        state=(state,),
+        resource_requirements=(
+            LogicalResourceRequirement(
+                port_id=logical_resource_port_id("source"),
+                capabilities=("set_offset",),
+            ),
+        ),
+    )
 
     assert verify_core_program(program) is program
 
@@ -219,7 +235,7 @@ def test_nested_state_relation_uses_parent_current_row_as_outer() -> None:
             expected_type=nested_type,
         ),
         set_state_field(
-            scalar_value_expr("source-0", expected_type=_STRING),
+            resource_port_id=logical_resource_port_id("source"),
             capability_id="set_offset",
             field_path="offset",
             value=scalar_value_expr(1.0, expected_type=_FLOAT),
@@ -233,4 +249,14 @@ def test_nested_state_relation_uses_parent_current_row_as_outer() -> None:
         nested,
     )
 
-    assert verify_core_program(_empty_program(state=(state,)))
+    assert verify_core_program(
+        _empty_program(
+            state=(state,),
+            resource_requirements=(
+                LogicalResourceRequirement(
+                    port_id=logical_resource_port_id("source"),
+                    capabilities=("set_offset",),
+                ),
+            ),
+        )
+    )

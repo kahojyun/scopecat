@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import scopecat as sc
+from scopecat.compiler.typed.program import core_acquisitions
 from scopecat.planning.authoring import resolve_experiment
 from tests.testkit.authoring import load_config
 from tests.testkit.typed_program import link_program
@@ -34,13 +35,19 @@ def test_record_demand_closes_transform_inputs_and_prunes_dead_transform(
 ) -> None:
     module = (
         sc.module("test.transform.lowering")
+        .resource("source", requires=("scalar_signal",))
         .product("raw", "middle", "derived", "dead")
         .measurement_transforms(
             _transform("dead-transform", source="raw", output="dead"),
             _transform("second", source="middle", output="derived"),
             _transform("first", source="raw", output="middle"),
         )
-        .acquire("read-raw", "raw")
+        .acquire(
+            "read-raw",
+            "raw",
+            resource="source",
+            capability="scalar_signal",
+        )
         .build()
     )
     template = (
@@ -72,27 +79,33 @@ def test_record_demand_closes_transform_inputs_and_prunes_dead_transform(
         "derived",
     }
     assert {
-        producer.product_id.qualified_name
-        for producer in program.instrument_product_producers
+        product.product_id.qualified_name
+        for acquisition in core_acquisitions(program)
+        for product in acquisition.products
     } == {"raw"}
     assert {
-        producer.product_id.qualified_name
-        for producer in program.measurement_transform_product_producers
+        output.product_id.qualified_name
+        for transform in program.measurement_transforms
+        for output in transform.outputs
     } == {"middle", "derived"}
     assert all(
-        producer.product_id.qualified_name != "dead"
-        for producer in (
-            *program.instrument_product_producers,
-            *program.measurement_transform_product_producers,
+        product.product_id.qualified_name != "dead"
+        for product in (
+            *(
+                product
+                for acquisition in core_acquisitions(program)
+                for product in acquisition.products
+            ),
+            *(
+                output
+                for transform in program.measurement_transforms
+                for output in transform.outputs
+            ),
         )
     )
 
     linked = link_program(program, resolved.environment)
     assert linked.measurement_transforms == program.measurement_transforms
-    assert (
-        linked.measurement_transform_product_producers
-        == program.measurement_transform_product_producers
-    )
 
 
 def test_hidden_transform_input_use_ids_are_stable_scoped_and_escaped(
@@ -100,6 +113,7 @@ def test_hidden_transform_input_use_ids_are_stable_scoped_and_escaped(
 ) -> None:
     child = (
         sc.module("test.transform.hidden-id.child")
+        .resource("source", requires=("scalar_signal",))
         .product("raw", "derived")
         .measurement_transforms(
             sc.measurement_transform(
@@ -109,7 +123,12 @@ def test_hidden_transform_input_use_ids_are_stable_scoped_and_escaped(
                 outputs={"result": "derived"},
             )
         )
-        .acquire("read-raw", "raw")
+        .acquire(
+            "read-raw",
+            "raw",
+            resource="source",
+            capability="scalar_signal",
+        )
         .build()
     )
     left = child.instantiate("left")

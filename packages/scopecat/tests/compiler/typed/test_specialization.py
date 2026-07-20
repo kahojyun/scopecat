@@ -46,7 +46,7 @@ from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     ComputeEdge,
     CoreProgram,
-    ResourceRouteIntent,
+    LogicalResourceRequirement,
     TypedComputeNode,
     TypedComputeOutput,
     TypedDomainExecution,
@@ -66,7 +66,6 @@ from scopecat.kernel.value_types import (
     Int,
     Scalar,
     Series,
-    String,
     Table,
     TableColumn,
 )
@@ -96,7 +95,7 @@ def test_core_specialization_folds_scalar_inputs_across_effect_kinds() -> None:
         inputs={"gain": ValueInput(config_value)},
     )
     state = set_state_field(
-        scalar_value_expr("source-0", expected_type=Scalar(String())),
+        resource_port_id=logical_resource_port_id("drive"),
         capability_id="drive",
         field_path="gain",
         value=config_value,
@@ -182,10 +181,10 @@ def test_value_specialization_folds_series_and_table_parameters() -> None:
     assert table_binding_time is BindingTime.CONFIGURATION_STATIC
 
 
-def test_core_specialization_folds_series_route_entities() -> None:
+def test_core_specialization_folds_series_target_entities() -> None:
     integer = Scalar(Int())
     series_type = Series(integer, min_length=2, max_length=2)
-    route_entities = series_value_expr(
+    target_entities = series_value_expr(
         parameter_series("entities"),
         bindings=RelationTypeBindings(parameters={"entities": series_type}),
         expected_type=series_type,
@@ -193,20 +192,20 @@ def test_core_specialization_folds_series_route_entities() -> None:
 
     specialized = specialize_core_program(
         CoreProgram(
-            id="route-specialized",
+            id="resource-selection-specialized",
             kind="test",
             point_domain=PointDomain(POINT_UNIT),
-            route_intents=(
-                ResourceRouteIntent(
+            resource_requirements=(
+                LogicalResourceRequirement(
                     port_id=logical_resource_port_id("drive"),
-                    entity_uses=(relation_use(route_entities),),
+                    entity_uses=(relation_use(target_entities),),
                 ),
             ),
         ),
         parameters=ParameterRelationData(series={"entities": [1, 2]}),
     )
 
-    root = specialized.route_intents[0].entity_uses[0].value.plan.root
+    root = specialized.resource_requirements[0].entity_uses[0].value.plan.root
     assert isinstance(root, ValuesSeriesExpr)
     assert root.items == [1, 2]
 
