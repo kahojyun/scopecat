@@ -87,7 +87,6 @@ def specialize_core_program(
         point_domain=_specialize_point_domain(
             program.point_domain,
             known=known,
-            parameter_cells=parameter_cells,
         ),
         parameter_overlays=tuple(
             _specialize_parameter_overlay(
@@ -144,8 +143,15 @@ def _specialize_point_domain(
     domain: PointDomain,
     *,
     known: EvalContext,
-    parameter_cells: tuple[ParameterCellBinding, ...],
 ) -> PointDomain:
+    """Materialize axes from base configuration before point-local overlays.
+
+    Parameter overlays consume coordinates produced by the point domain. If an
+    overlay's residual cell binding were fed back into an around-axis center,
+    the centered scan would depend on its own point column instead of the
+    accepted snapshot.
+    """
+
     def visit(
         node: PointDomainExpr[RelationUse[ScalarValueExpr]],
     ) -> PointDomainExpr[RelationUse[ScalarValueExpr]]:
@@ -160,7 +166,7 @@ def _specialize_point_domain(
             value, _binding_time = specialize_value_expression(
                 source.center.value,
                 known=known,
-                parameter_cells=parameter_cells,
+                parameter_cells=(),
             )
             return PointAxis(
                 node.id,

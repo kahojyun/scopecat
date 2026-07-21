@@ -18,10 +18,6 @@ from quantum_lab_demo.experiments.compute import (
     render_parallel_gate_coupler_waveforms,
     render_parallel_gate_drive_waveforms,
 )
-from quantum_lab_demo.experiments.ids import (
-    QUBIT_PARAMETER_TABLE,
-    TWO_QUBIT_GATE_PARAMETER_TABLE,
-)
 from quantum_lab_demo.experiments.parameter_refs import (
     qubit_param,
     two_qubit_gate_param,
@@ -30,6 +26,10 @@ from quantum_lab_demo.experiments.points import (
     COUPLER_AMPLITUDE,
     COUPLER_DURATION,
     GATE_DURATION,
+)
+from quantum_lab_demo.virtual_lab.parameters import (
+    QUBIT_PARAMETER_TABLE,
+    TWO_QUBIT_GATE_PARAMETER_TABLE,
 )
 
 _QUBIT = sc.ScalarType(sc.EntityType(entity_kind="logical_qubit"))

@@ -102,9 +102,14 @@ declaration = authoring.program("cz-point", candidate)
 The same `PulseTemplate` can back both a scanned candidate and an accepted
 production gate. Program inputs may bind directly to Scopecat values such as
 `scopecat.parameter_lookup(...)`, keeping active configuration visible in the
-authored experiment instead of hidden in adapter state.
+authored experiment instead of hidden mutable state.
 
-Attach the resulting program to an experiment with `domain_program` and the
-single `domain_execution`. Laboratory adapters use `scopecat.sdk.domain` to
-select compatible work and prepare it for a target. These integration details
-remain behind the same user-facing authoring model.
+For calibration scans, `scopecat.param_axis(...)` overlays one referenced
+parameter cell per point, so every `parameter_lookup(...)` observes the same
+scanned value for that cell. The fitted result can use Scopecat's normal
+proposal, review, and activation lifecycle.
+
+Attach the resulting program with `domain_program` and `domain_execution`. The
+`ExperimentSystem` compiler resolves inputs through Scopecat's request boundary
+and may delegate prepared, scheduled pulse IR to an internal target compiler;
+both details remain behind the same user-facing authoring model.

@@ -5,21 +5,19 @@ from __future__ import annotations
 # %%
 import math
 
+from quantum_lab_demo import (
+    QuantumLabCompiler,
+    notebook_workspace,
+    quantum_lab,
+)
 from quantum_lab_demo.reference_experiments import (
+    PHASE,
+    RAMSEY_PHASE_PROGRAM,
+    RAMSEY_PHASE_TEMPLATE,
     RAMSEY_READOUT_PULSE_TEMPLATE,
     RAMSEY_X90_PULSE_TEMPLATE,
-    prepare_ramsey_phase_scan,
-)
-from quantum_lab_demo.targets.fake_list_mode import (
-    FakeListTargetCompiler,
-    default_fake_list_target,
 )
 from scopecat import Quantity
-from scopecat_quantum import (
-    TargetCompilerId,
-    compile_target,
-    prepare_quantum_target_batch,
-)
 
 # %%
 # The declaration behind this scan is one Program:
@@ -33,34 +31,35 @@ from scopecat_quantum import (
 # ``phase`` is the only scan input, while the physical acquisition exposes the
 # same first-class MeasurementResult contract as a logical measurement.
 phases = tuple(Quantity(value, "rad") for value in (0, math.pi / 2, math.pi))
-program, entries = prepare_ramsey_phase_scan(phases)
 
 authoring_summary = {
-    "program": program.id,
-    "inputs": tuple(port.id for port in program.inputs),
-    "results": tuple(port.id for port in program.results),
+    "program": RAMSEY_PHASE_PROGRAM.id,
+    "inputs": tuple(port.id for port in RAMSEY_PHASE_PROGRAM.inputs),
+    "results": tuple(port.id for port in RAMSEY_PHASE_PROGRAM.results),
     "x90_template": RAMSEY_X90_PULSE_TEMPLATE.id,
     "readout_template": RAMSEY_READOUT_PULSE_TEMPLATE.id,
 }
 print(authoring_summary)
 
 # %%
-# Target compilation consumes only the scheduled concrete pulse IR.  Frame
-# state begins at zero for every list entry, and the shift rotates only the
-# candidate X90 samples that follow it.
-target = default_fake_list_target()
-compiler = FakeListTargetCompiler(
-    TargetCompilerId("ramsey-phase-notebook.v1"),
-    target,
+# The same Workspace path used by every other quantum example resolves phase
+# values, lowers the Program, and runs the resulting list. Frame state begins at
+# zero for every point, so the shift rotates only the candidate X90 that follows.
+lab = quantum_lab(workspace=notebook_workspace("14-ramsey-phase-dsl"))
+system = lab.system
+assert system is not None
+compiler = system.domain_compiler
+assert isinstance(compiler, QuantumLabCompiler)
+run = (
+    lab.prepare(RAMSEY_PHASE_TEMPLATE)
+    .scan(PHASE, phases)
+    .run(
+        name="Ramsey phase DSL",
+        tags=("reference", "gate-pulse", "frame"),
+    )
 )
-batch = prepare_quantum_target_batch(
-    entries,
-    target_id=target.id,
-    compiler_id=compiler.id,
-    capability_fingerprint=target.capability_fingerprint,
-    repetitions=1,
-)
-artifact = compile_target(compiler, batch.request).artifact
+[preparation] = compiler.trace.preparations(RAMSEY_PHASE_PROGRAM.id)
+artifact = preparation.artifact
 
 candidate_samples = tuple(
     next(
@@ -71,7 +70,9 @@ candidate_samples = tuple(
     for entry in artifact.entries
 )
 compiled_summary = {
+    "status": run.manifest.status,
     "entry_count": len(artifact.entries),
+    "physical_executions": compiler.trace.physical_execution_count,
     "candidate_first_samples": candidate_samples,
     "acquisition_slots": tuple(
         entry.acquisitions[0].slot_id.value for entry in artifact.entries

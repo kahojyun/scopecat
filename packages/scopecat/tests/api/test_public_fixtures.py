@@ -7,10 +7,12 @@ from scopecat.config.parameter_resolution import resolve_config_parameters
 from scopecat.config.profiles import load_config_profile
 from scopecat.records.run_request import (
     AroundScanRecord,
+    ParameterAroundScanRecord,
     ParameterScanRecord,
     RunRequest,
     RunRequestAxisValue,
     RunRequestParameterValue,
+    parameter_scan_records,
 )
 from tests.testkit.materialized_effects import materialized_effects_contract
 from tests.testkit.paths import CORE_FIXTURE_DIR as SIMPLE_SCAN_FIXTURE
@@ -63,6 +65,38 @@ def test_parameter_scan_request_materializes_typed_input_keys() -> None:
     assert isinstance(parameter_scan, ParameterScanRecord)
     assert parameter_scan.key == {"subject": "q0"}
     assert "source_kind" not in request.model_dump_json()
+
+
+def test_parameter_around_scan_request_preserves_implicit_center_intent() -> None:
+    subject = sc.input("subject", sc.ScalarType(sc.EntityType()))
+    frequency = sc.point(
+        "frequency",
+        sc.ScalarType(sc.QuantityType(unit="GHz")),
+    )
+    module = sc.module("test.request_parameter_around").inputs(subject).build()
+    template = module.template(
+        "test.request_parameter_around",
+        kind="request_keys",
+    ).build()
+    invocation = template.bind(subject="q0").scan(
+        sc.param_axis(
+            frequency,
+            sc.param_row("device_parameters", subject=subject),
+            "frequency",
+            span=sc.Quantity(200, "MHz"),
+            points=5,
+        )
+    )
+
+    request = compile_prepared_invocation(prepare_invocation(invocation)).request
+
+    parameter_scan = request.scans[0]
+    assert isinstance(parameter_scan, ParameterAroundScanRecord)
+    assert parameter_scan.key == {"subject": "q0"}
+    assert parameter_scan.span == sc.Quantity(200, "MHz")
+    assert parameter_scan.points == 5
+    assert parameter_scan_records(request.scans) == [parameter_scan]
+    assert RunRequest.model_validate_json(request.model_dump_json()) == request
 
 
 def test_dependent_default_scan_projects_its_input_as_an_axis() -> None:

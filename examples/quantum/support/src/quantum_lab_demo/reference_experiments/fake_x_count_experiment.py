@@ -1,59 +1,22 @@
-"""Public authoring and Workspace adapter for the fake X-count reference."""
+"""Public authoring for the fake X-count Workspace reference."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
-from typing import cast
 
 import scopecat as sc
-from scopecat.kernel.resource_identity import ResourceClaim
-from scopecat.sdk.domain import (
-    CorrelatedDomainFetch,
-    DomainBatchContext,
-    DomainCallView,
-    DomainCompilation,
-    DomainCompiledJob,
-    DomainCompileRequest,
-    DomainExecutionView,
-    DomainResolvedInputs,
-    PreparedDomainExecution,
-    compiled_jobs,
-)
 from scopecat_quantum import (
     BinaryIqDiscriminator,
     GateParameterKind,
     IqCentroid,
-    binary_iq_probability_host_implementation,
     binary_iq_probability_transform,
 )
 from scopecat_quantum import authoring as quantum
 
-from quantum_lab_demo.reference_experiments.fake_x_count import (
-    FakeXCountProductBinding,
-    PreparedFakeXCountReference,
-    prepare_fake_x_count_reference,
-)
-from quantum_lab_demo.targets.fake_list_mode import (
-    FakeListDomainRuntime,
-    FakeListRun,
-    FakeListTarget,
-    default_fake_list_target,
-    realize_fetched_fake_measurements,
-)
-
-FAKE_X_COUNT_ADAPTER_ID = "quantum-lab-demo.fake-x-count.v1"
 FAKE_X_COUNT_TEMPLATE_ID = "quantum_lab_demo.reference.fake_x_count"
 FAKE_X_COUNT_EXPERIMENT_ID = "fake-x-count"
 FAKE_X_COUNT_SHOTS = 32
 DEFAULT_X_COUNTS = (0, 1, 2, 4)
-
-
-def _decode_x_count(value: object) -> int:
-    if type(value) is not int or value < 0:
-        msg = "fake X-count coordinates must be non-negative integers"
-        raise ValueError(msg)
-    return value
 
 
 X_COUNT = sc.point(
@@ -65,14 +28,14 @@ _Q0 = quantum.qubit("q0")
 _X_COUNT_INPUT = quantum.scalar_input("x_count", GateParameterKind.INTEGER)
 _X_GATE = quantum.single_qubit_gate("x")
 _READOUT = quantum.measure(_Q0, result="iq_shots")
-_X_COUNT_PROGRAM = quantum.program(
+X_COUNT_PROGRAM = quantum.program(
     "fake-x-count",
     quantum.sequence(
         quantum.repeat(_X_GATE(_Q0), _X_COUNT_INPUT),
         _READOUT,
     ),
 )
-_X_COUNT_DOMAIN_PROGRAM = quantum.domain_program(_X_COUNT_PROGRAM)
+_X_COUNT_DOMAIN_PROGRAM = quantum.domain_program(X_COUNT_PROGRAM)
 _X_COUNT_DISCRIMINATOR = BinaryIqDiscriminator(
     state_0_centroid=IqCentroid(real=-1.0, imag=0.0),
     state_1_centroid=IqCentroid(real=1.0, imag=0.0),
@@ -147,90 +110,6 @@ FAKE_X_COUNT_TEMPLATE = (
 )
 
 
-@dataclass(frozen=True, slots=True)
-class _FakeXCountArtifact:
-    x_counts: tuple[int, ...]
-
-
-class FakeXCountDomainCompiler:
-    """Lab-owned target selection for the fake list-mode AWG and digitizer."""
-
-    def __init__(self, *, target: FakeListTarget | None = None) -> None:
-        self.target = default_fake_list_target() if target is None else target
-        self.runtime = FakeListDomainRuntime()
-
-    @property
-    def compiler_id(self) -> str:
-        return FAKE_X_COUNT_ADAPTER_ID
-
-    @property
-    def target_id(self) -> str:
-        return self.target.id.value
-
-    def claim_resources(
-        self,
-        call: DomainCallView,
-    ) -> tuple[ResourceClaim, ...] | None:
-        if not _accepts_execution(call):
-            return None
-        return (ResourceClaim(self.target.id.value, "target"),)
-
-    def compile(self, request: DomainCompileRequest) -> DomainCompilation | None:
-        if not _accepts_execution(request.call):
-            return None
-        affine = request.input("x_count").point_affine
-        if affine is None:
-            return None
-
-        def compile_artifact(inputs: DomainResolvedInputs) -> _FakeXCountArtifact:
-            return _FakeXCountArtifact(
-                tuple(_decode_x_count(value) for value in inputs.input("x_count"))
-            )
-
-        return compiled_jobs(
-            request,
-            max_points=self.target.max_list_entries,
-            artifact_input_ids=("x_count",),
-            compile_artifact=compile_artifact,
-        )
-
-    def prepare(
-        self,
-        job: DomainCompiledJob,
-        context: DomainBatchContext,
-    ) -> PreparedDomainExecution:
-        execution = context.execution
-        artifact = cast("_FakeXCountArtifact", job.take_artifact())
-        preparation = context.new_preparation()
-        iq_result = _validated_result_contracts(execution)
-        products = _product_binding(execution)
-        x_counts = artifact.x_counts
-        body = execution.program.body
-        if not isinstance(body, quantum.Program):
-            msg = "fake X-count domain program body must be a quantum Program"
-            raise TypeError(msg)
-        reference = prepare_fake_x_count_reference(
-            preparation,
-            products,
-            acquisition_slot_id=iq_result.acquisition_slot_id,
-            programs=tuple(
-                quantum.bind(body, {"x_count": x_count}).verified
-                for x_count in x_counts
-            ),
-            x_counts=x_counts,
-            shots=FAKE_X_COUNT_SHOTS,
-            target=self.target,
-            invocation_id=f"fake-x-count.batch-{context.batch_ordinal}",
-        )
-        return preparation.build(
-            mapping=reference.measurement_mapping,
-            host_transforms=reference.host_transforms,
-            invocation=reference.invocation,
-            runtime=self.runtime,
-            realize=lambda fetched: _realize(reference, fetched),
-        )
-
-
 def fake_x_count_scratch_experiment(
     lab: sc.Workspace,
     *,
@@ -256,70 +135,15 @@ def fake_x_count_scratch_experiment(
     )
 
 
-def _accepts_execution(execution: DomainCallView) -> bool:
-    if not (
-        execution.program.dialect_id == quantum.QUANTUM_PROGRAM_DIALECT_ID
-        and execution.program.dialect_version == quantum.QUANTUM_PROGRAM_DIALECT_VERSION
-        and isinstance(execution.program.body, quantum.Program)
-        and execution.program.body.id == _X_COUNT_PROGRAM.id
-    ):
-        return False
-    _validated_result_contracts(execution)
-    return True
-
-
-def _product_binding(view: DomainExecutionView) -> FakeXCountProductBinding:
-    [transform] = view.measurement_transforms
-    return FakeXCountProductBinding(
-        iq_shots=view.result("iq_shots").product_uses,
-        transform=transform,
-    )
-
-
-def _validated_result_contracts(
-    execution: DomainCallView | DomainExecutionView,
-) -> quantum.MeasurementResult:
-    body = execution.program.body
-    if not isinstance(body, quantum.Program):
-        msg = "fake X-count domain program body must be a quantum Program"
-        raise TypeError(msg)
-    iq_result = execution.result("iq_shots").contract
-    if (
-        not isinstance(iq_result, quantum.MeasurementResult)
-        or iq_result.id != "iq_shots"
-        or not any(result is iq_result for result in body.results)
-    ):
-        msg = "fake X-count IQ result must bind its authored MeasurementResult handle"
-        raise ValueError(msg)
-    if len(execution.measurement_transforms) != 1:
-        msg = "fake X-count execution requires one authored measurement transform"
-        raise ValueError(msg)
-    binary_iq_probability_host_implementation().validate_transform(
-        execution.measurement_transforms[0]
-    )
-    return iq_result
-
-
-def _realize(
-    reference: PreparedFakeXCountReference,
-    fetched: CorrelatedDomainFetch[FakeListRun],
-):
-    return realize_fetched_fake_measurements(
-        reference.realization,
-        fetched,
-    ).result_values
-
-
 __all__ = [
     "DEFAULT_X_COUNTS",
-    "FAKE_X_COUNT_ADAPTER_ID",
     "FAKE_X_COUNT_CAPTURE_MODULE",
     "FAKE_X_COUNT_EXPERIMENT_ID",
     "FAKE_X_COUNT_SHOTS",
     "FAKE_X_COUNT_TEMPLATE",
     "FAKE_X_COUNT_TEMPLATE_ID",
     "X_COUNT",
-    "FakeXCountDomainCompiler",
+    "X_COUNT_PROGRAM",
     "fake_x_count_domain_execution",
     "fake_x_count_scratch_experiment",
 ]

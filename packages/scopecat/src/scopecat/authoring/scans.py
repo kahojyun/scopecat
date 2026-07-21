@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping, Sequence
-from typing import Literal, cast
+from typing import Literal, cast, overload
 
 from scopecat.authoring._frozen_values import freeze_runtime_input
 from scopecat.authoring._parameter_contracts import (
@@ -137,6 +137,7 @@ def build_scan(
     return _implicit_around_axis(target, span=span, points=points)
 
 
+@overload
 def param_axis(
     target: ValueRef,
     row: ParameterRow,
@@ -144,8 +145,38 @@ def param_axis(
     values: Sequence[ScanValue],
     *,
     unit: str | None = None,
+) -> Scan: ...
+
+
+@overload
+def param_axis(
+    target: ValueRef,
+    row: ParameterRow,
+    column: str,
+    *,
+    span: Quantity | str,
+    points: int,
+) -> Scan: ...
+
+
+def param_axis(
+    target: ValueRef,
+    row: ParameterRow,
+    column: str,
+    values: Sequence[ScanValue] = (),
+    *,
+    unit: str | None = None,
+    span: Quantity | str | None = None,
+    points: int | None = None,
 ) -> Scan:
-    """Scan a parameter-table cell through one typed point value."""
+    """Scan a parameter-table cell over values or around its accepted value.
+
+    The around form records the cell locator, span, and point count; its center
+    is resolved later from the accepted parameter snapshot. Each materialized
+    point overlays that cell only for its own specialization, so every host or
+    domain ``parameter_lookup`` of that cell sees the same scanned value without
+    mutating accepted parameter state.
+    """
 
     point_id = _point_target_id(target)
     if not isinstance(row, _ParameterRowIntent):
@@ -155,12 +186,30 @@ def param_axis(
         msg = "parameter scan column must be non-empty"
         raise ValueError(msg)
     selected_values = tuple(values)
-    if not selected_values:
-        msg = "parameter scan values must contain at least one value"
+    if selected_values and any(item is not None for item in (span, points)):
+        msg = "parameter scan accepts either values or span/points, not both"
         raise ValueError(msg)
-    _validate_scan_values(target, selected_values, unit=unit)
+    if selected_values:
+        _validate_scan_values(target, selected_values, unit=unit)
+    elif any(item is not None for item in (span, points)):
+        if span is None or points is None:
+            msg = "parameter scan around form requires span and points"
+            raise ValueError(msg)
+        if unit is not None:
+            msg = "parameter scan unit is only valid with explicit values"
+            raise ValueError(msg)
+        _validate_around_target(target, points=points)
+        _validate_scan_span(target, span)
+    else:
+        msg = "parameter scan requires values or span and points"
+        raise ValueError(msg)
     captured_values = tuple(
         cast("ScanValue", freeze_runtime_input(value)) for value in selected_values
+    )
+    captured_span = (
+        cast("Quantity", freeze_runtime_input(span))
+        if isinstance(span, Quantity)
+        else span
     )
     return _ParameterScanIntent(
         target=target,
@@ -170,6 +219,8 @@ def param_axis(
         column=column,
         values=captured_values,
         unit=unit,
+        span=captured_span,
+        point_count=points,
         parameter_contracts=(
             ParameterLookupUse(
                 table_id=row.table_id,

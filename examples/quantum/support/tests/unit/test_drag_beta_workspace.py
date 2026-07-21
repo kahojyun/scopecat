@@ -13,32 +13,37 @@ from scopecat.kernel.errors import Conflict
 from scopecat.records.parameter import TableParameterValue
 from scopecat_quantum import authoring as quantum
 
-from quantum_lab_demo import quantum_lab
+from quantum_lab_demo import quantum_lab, quantum_lab_compiler
 from quantum_lab_demo.reference_experiments import drag_beta_analysis as analysis_module
 from quantum_lab_demo.reference_experiments.drag_beta_analysis import (
     DRAG_BETA_PROPOSAL_ID,
+    DragBetaFit,
     DragBetaFitAssessment,
+    DragBetaObservation,
     analyze_drag_beta_run,
     assess_drag_beta_fit,
+    fit_drag_beta,
 )
 from quantum_lab_demo.reference_experiments.drag_beta_calibration import (
     AMPLIFICATION_INPUT,
     BETA_INPUT,
-    DragBetaFit,
-    DragBetaObservation,
     drag_beta_calibration_program,
-    fit_drag_beta,
 )
 from quantum_lab_demo.reference_experiments.drag_beta_experiment import (
     DEFAULT_AMPLIFICATIONS,
     DEFAULT_BETAS,
-    DRAG_BETA_PARAMETER_COLUMN,
-    DRAG_BETA_PARAMETER_ID,
+    DRAG_BETA_PROGRAM,
     DRAG_BETA_TEMPLATE,
-    DragBetaDomainCompiler,
     drag_beta_scratch_experiment,
 )
+from quantum_lab_demo.reference_experiments.drag_beta_response import (
+    synthetic_drag_beta_response,
+)
 from quantum_lab_demo.targets.fake_list_mode import default_fake_list_target
+from quantum_lab_demo.virtual_lab.parameters import (
+    DRAG_BETA_PARAMETER_COLUMN,
+    QUBIT_PARAMETER_TABLE,
+)
 
 
 def _entity_id(value: object) -> str:
@@ -79,14 +84,8 @@ def test_drag_beta_template_and_scratch_share_the_2d_point_model(
     tmp_path: Path,
 ) -> None:
     lab = quantum_lab(workspace=tmp_path)
-    template_preview = lab.prepare(
-        DRAG_BETA_TEMPLATE,
-        system=sc.ExperimentSystem(domain_compiler=DragBetaDomainCompiler()),
-    ).preview()
-    scratch_preview = lab.prepare(
-        drag_beta_scratch_experiment(lab),
-        system=sc.ExperimentSystem(domain_compiler=DragBetaDomainCompiler()),
-    ).preview()
+    template_preview = lab.prepare(DRAG_BETA_TEMPLATE).preview()
+    scratch_preview = lab.prepare(drag_beta_scratch_experiment(lab)).preview()
 
     assert template_preview.point_count == scratch_preview.point_count == 15
     assert (
@@ -118,12 +117,9 @@ def test_drag_beta_workspace_analysis_authors_typed_native_proposal(
         "bind_domain_inputs",
         reject_input_binding,
     )
-    compiler = DragBetaDomainCompiler()
-    lab = quantum_lab(workspace=tmp_path)
-    experiment = lab.prepare(
-        DRAG_BETA_TEMPLATE,
-        system=sc.ExperimentSystem(domain_compiler=compiler),
-    )
+    compiler = quantum_lab_compiler()
+    lab = quantum_lab(workspace=tmp_path, compiler=compiler)
+    experiment = lab.prepare(DRAG_BETA_TEMPLATE)
 
     run = experiment.run()
     records = run.data().measurements().dataset.records
@@ -140,7 +136,11 @@ def test_drag_beta_workspace_analysis_authors_typed_native_proposal(
     analysis = analyze_drag_beta_run(run)
 
     assert run.manifest.status == "completed"
-    assert compiler.physical_execution_count == 1
+    assert compiler.trace.physical_execution_count == 1
+    [evidence] = compiler.trace.preparations(DRAG_BETA_PROGRAM.id)
+    assert evidence.program_id == drag_beta_calibration_program().id
+    assert len(evidence.points) == len(evidence.entries) == 15
+    assert evidence.artifact_fingerprint.startswith("sha256:")
     assert len(records) == 15
     assert len(analysis.observations) == 15
     assert float(analysis.fit.beta_hat.to("ns").value) == pytest.approx(0.765)
@@ -167,7 +167,7 @@ def test_drag_beta_workspace_analysis_authors_typed_native_proposal(
     assert proposal.source_run_id == run.id
     assert proposal.confidence == analysis.assessment.quality_score
     [delta] = proposal.deltas
-    assert delta.parameter_id == DRAG_BETA_PARAMETER_ID
+    assert delta.parameter_id == QUBIT_PARAMETER_TABLE
     assert isinstance(delta.after, TableParameterValue)
     q0 = next(row for row in delta.after.rows if _entity_id(row["qubit"]) == "q0")
     assert q0[DRAG_BETA_PARAMETER_COLUMN] == analysis.fit.beta_hat
@@ -189,7 +189,7 @@ def test_drag_beta_low_quality_fit_saves_evidence_without_a_proposal(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    compiler = DragBetaDomainCompiler()
+    compiler = quantum_lab_compiler()
     lab = quantum_lab(workspace=tmp_path)
     run = lab.prepare(
         DRAG_BETA_TEMPLATE,
@@ -258,11 +258,44 @@ def test_drag_beta_assessment_rejects_amplification_offset_without_beta_signal()
     assert "beta_signal_span_below_limit" in assessment.failed_checks
 
 
+def test_synthetic_joint_quadratic_recovers_beta_optimum() -> None:
+    beta_values = tuple(Quantity(value, "ns") for value in (0.0, 0.5, 0.75, 1.0, 1.5))
+    observations = tuple(
+        DragBetaObservation(
+            beta=beta,
+            amplification=amplification,
+            p1=synthetic_drag_beta_response(beta, amplification=amplification),
+        )
+        for amplification in (1, 2, 3)
+        for beta in beta_values
+    )
+
+    fit = fit_drag_beta(observations)
+
+    assert synthetic_drag_beta_response(
+        Quantity(1.25, "ns"),
+        amplification=2,
+    ) == pytest.approx(0.048)
+    assert float(fit.beta_hat.to("ns").value) == pytest.approx(0.75)
+    assert fit.baseline == pytest.approx(0.04)
+    assert fit.quadratic == pytest.approx(0.008)
+    assert fit.linear == pytest.approx(-0.012)
+    assert fit.scaled_offset == pytest.approx(0.0045)
+    assert fit.rmse < 1e-14
+
+    with pytest.raises(ValueError, match=r"must lie in \[0, 1\]"):
+        DragBetaObservation(
+            beta=Quantity(0.75, "ns"),
+            amplification=1,
+            p1=1.01,
+        )
+
+
 def test_drag_beta_review_activate_active_replay_and_rollback(
     tmp_path: Path,
 ) -> None:
     lab = quantum_lab(workspace=tmp_path)
-    source_compiler = DragBetaDomainCompiler()
+    source_compiler = quantum_lab_compiler()
     source_run = lab.prepare(
         DRAG_BETA_TEMPLATE,
         system=sc.ExperimentSystem(domain_compiler=source_compiler),
@@ -309,7 +342,7 @@ def test_drag_beta_review_activate_active_replay_and_rollback(
         expected_generation=baseline.active_state.generation,
         activation_note="use reviewed DRAG beta",
     )
-    active_compiler = DragBetaDomainCompiler()
+    active_compiler = quantum_lab_compiler()
     active_experiment = lab.prepare(
         DRAG_BETA_TEMPLATE,
         config="active",
@@ -349,7 +382,7 @@ def test_drag_beta_review_activate_active_replay_and_rollback(
     restored_preview = lab.prepare(
         DRAG_BETA_TEMPLATE,
         config="active",
-        system=sc.ExperimentSystem(domain_compiler=DragBetaDomainCompiler()),
+        system=sc.ExperimentSystem(domain_compiler=quantum_lab_compiler()),
     ).preview()
     restored_betas = sorted(
         {
@@ -368,18 +401,15 @@ def test_drag_beta_review_activate_active_replay_and_rollback(
 
 def test_drag_beta_response_and_evidence_remain_batch_local(tmp_path: Path) -> None:
     target = replace(default_fake_list_target(), max_list_entries=4)
-    compiler = DragBetaDomainCompiler(target=target)
-    lab = quantum_lab(workspace=tmp_path)
+    compiler = quantum_lab_compiler(target=target)
+    lab = quantum_lab(workspace=tmp_path, compiler=compiler)
 
-    run = lab.prepare(
-        DRAG_BETA_TEMPLATE,
-        system=sc.ExperimentSystem(domain_compiler=compiler),
-    ).run()
+    run = lab.prepare(DRAG_BETA_TEMPLATE).run()
     analysis = analyze_drag_beta_run(run)
 
     assert run.manifest.status == "completed"
     assert len(run.data().measurements().dataset.records) == 15
-    assert compiler.physical_execution_count == 5
+    assert compiler.trace.physical_execution_count == 5
     assert float(analysis.fit.beta_hat.to("ns").value) == pytest.approx(0.765)
     assert analysis.assessment.eligible
     assert analysis.proposal_id == DRAG_BETA_PROPOSAL_ID

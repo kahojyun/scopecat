@@ -213,7 +213,14 @@ class TargetArtifact(Protocol):
 
 @runtime_checkable
 class TargetCompiler[ArtifactT: TargetArtifact](Protocol):
-    """Laboratory-provided compiler for one quantum target."""
+    """Lower scheduled quantum target IR into one target artifact.
+
+    The request contains already prepared and scheduled target entries; this
+    protocol does not own domain routing, input resolution, or calibration
+    selection. When used in an ``ExperimentSystem`` integration, it is an
+    internal stage invoked by the domain compiler rather than a second system
+    compiler.
+    """
 
     @property
     def id(self) -> TargetCompilerId: ...

@@ -1,30 +1,14 @@
-"""Workspace execution adapter for conditional-phase Ramsey CZ calibration."""
+"""Workspace execution for conditional-phase Ramsey CZ calibration."""
 
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
-from typing import cast
 
 import scopecat as sc
 from scopecat import Quantity
-from scopecat.kernel.resource_identity import ResourceClaim
-from scopecat.sdk.domain import (
-    CorrelatedDomainFetch,
-    DomainBatchContext,
-    DomainCallView,
-    DomainCompilation,
-    DomainCompiledJob,
-    DomainCompileRequest,
-    DomainExecutionView,
-    DomainResolvedInputs,
-    PreparedDomainExecution,
-    compiled_jobs,
-)
 from scopecat_quantum import (
     BinaryIqDiscriminator,
     IqCentroid,
-    binary_iq_probability_host_implementation,
     binary_iq_probability_transform,
 )
 from scopecat_quantum import authoring as quantum
@@ -33,23 +17,19 @@ from quantum_lab_demo.reference_experiments.cz_phase_calibration import (
     ANALYZER_PHASE_INPUT,
     CONTROL_STATE_INPUT,
     CZ_AMPLITUDE_INPUT,
-    CzPhaseProductBinding,
-    PreparedCzPhaseReference,
     cz_conditional_phase_program,
-    prepare_cz_phase_reference,
 )
-from quantum_lab_demo.targets.fake_list_mode import (
-    FakeListRun,
-    FakeListTarget,
-    default_fake_list_target,
-    realize_fetched_fake_measurements,
+from quantum_lab_demo.virtual_lab.parameters import (
+    CZ_AMPLITUDE_PARAMETER_COLUMN,
+    q0_q1_cz_amplitude_lookup,
+    q0_q1_cz_row,
 )
 
-CZ_PHASE_ADAPTER_ID = "quantum-lab-demo.cz-conditional-phase.v1"
 CZ_PHASE_TEMPLATE_ID = "quantum_lab_demo.reference.cz_conditional_phase"
 CZ_PHASE_EXPERIMENT_ID = "cz-conditional-phase"
 CZ_PHASE_SHOTS = 128
-DEFAULT_CZ_AMPLITUDES = tuple(Quantity(value, "arb") for value in (0.18, 0.24, 0.30))
+CZ_AMPLITUDE_SPAN = Quantity(0.08, "arb")
+CZ_AMPLITUDE_POINTS = 3
 DEFAULT_CONTROL_STATES = (0, 1)
 DEFAULT_ANALYZER_PHASES = tuple(
     Quantity(value, "rad")
@@ -65,9 +45,9 @@ CONTROL_STATE = sc.point(
 )
 ANALYZER_PHASE = sc.point("analyzer_phase", _PHASE_TYPE)
 
-_CZ_PROGRAM = cz_conditional_phase_program()
-[_CONTROL_RESULT, _TARGET_RESULT] = _CZ_PROGRAM.results
-_CZ_DOMAIN_PROGRAM = quantum.domain_program(_CZ_PROGRAM)
+CZ_PHASE_PROGRAM = cz_conditional_phase_program()
+[_CONTROL_RESULT, _TARGET_RESULT] = CZ_PHASE_PROGRAM.results
+_CZ_DOMAIN_PROGRAM = quantum.domain_program(CZ_PHASE_PROGRAM)
 _DISCRIMINATOR = BinaryIqDiscriminator(
     state_0_centroid=IqCentroid(real=-1.0, imag=0.0),
     state_1_centroid=IqCentroid(real=1.0, imag=0.0),
@@ -117,7 +97,7 @@ _TEMPLATE_CAPTURE = CZ_PHASE_CAPTURE_MODULE.instantiate("capture")
 _CZ_EXECUTION = quantum.domain_execution(
     _CZ_DOMAIN_PROGRAM,
     inputs={
-        CZ_AMPLITUDE_INPUT: CZ_AMPLITUDE,
+        CZ_AMPLITUDE_INPUT: q0_q1_cz_amplitude_lookup(),
         CONTROL_STATE_INPUT: CONTROL_STATE,
         ANALYZER_PHASE_INPUT: ANALYZER_PHASE,
     },
@@ -137,7 +117,13 @@ CZ_PHASE_TEMPLATE = (
     .experiment_id(CZ_PHASE_EXPERIMENT_ID)
     .scan(
         sc.cartesian(
-            sc.axis(CZ_AMPLITUDE, DEFAULT_CZ_AMPLITUDES),
+            sc.param_axis(
+                CZ_AMPLITUDE,
+                q0_q1_cz_row(),
+                CZ_AMPLITUDE_PARAMETER_COLUMN,
+                span=CZ_AMPLITUDE_SPAN,
+                points=CZ_AMPLITUDE_POINTS,
+            ),
             sc.axis(CONTROL_STATE, DEFAULT_CONTROL_STATES),
             sc.axis(ANALYZER_PHASE, DEFAULT_ANALYZER_PHASES),
         )
@@ -158,224 +144,18 @@ CZ_PHASE_TEMPLATE = (
 )
 
 
-@dataclass(frozen=True, slots=True)
-class _CzPhaseArtifact:
-    amplitudes: tuple[Quantity, ...]
-    control_states: tuple[int, ...]
-    analyzer_phases: tuple[Quantity, ...]
-
-
-class CzPhaseDomainCompiler:
-    """Bind authored two-qubit programs to the fake list-mode laboratory."""
-
-    def __init__(self, *, target: FakeListTarget | None = None) -> None:
-        selected = default_fake_list_target() if target is None else target
-        self.target = selected
-        self._preparations: list[PreparedCzPhaseReference] = []
-
-    @property
-    def compiler_id(self) -> str:
-        return CZ_PHASE_ADAPTER_ID
-
-    @property
-    def target_id(self) -> str:
-        return self.target.id.value
-
-    @property
-    def preparations(self) -> tuple[PreparedCzPhaseReference, ...]:
-        return tuple(self._preparations)
-
-    @property
-    def physical_execution_count(self) -> int:
-        return sum(
-            reference.runtime.physical_execution_count
-            for reference in self._preparations
-        )
-
-    def claim_resources(
-        self,
-        call: DomainCallView,
-    ) -> tuple[ResourceClaim, ...] | None:
-        if not _accepts_execution(call):
-            return None
-        return (ResourceClaim(self.target.id.value, "target"),)
-
-    def compile(self, request: DomainCompileRequest) -> DomainCompilation | None:
-        if not _accepts_execution(request.call):
-            return None
-        return compiled_jobs(
-            request,
-            max_points=self.target.max_list_entries,
-            artifact_input_ids=(
-                "coupler_amplitude",
-                "control_state",
-                "analyzer_phase",
-            ),
-            compile_artifact=_cz_phase_artifact,
-        )
-
-    def prepare(
-        self,
-        job: DomainCompiledJob,
-        context: DomainBatchContext,
-    ) -> PreparedDomainExecution:
-        execution = context.execution
-        artifact = cast("_CzPhaseArtifact", job.take_artifact())
-        control_result, target_result = _validated_result_contracts(execution)
-        preparation = context.new_preparation()
-        reference = prepare_cz_phase_reference(
-            preparation,
-            _product_binding(execution),
-            control_slot_id=control_result.acquisition_slot_id,
-            target_slot_id=target_result.acquisition_slot_id,
-            declaration=_program_body(execution),
-            amplitudes=artifact.amplitudes,
-            control_states=artifact.control_states,
-            analyzer_phases=artifact.analyzer_phases,
-            shots=CZ_PHASE_SHOTS,
-            target=self.target,
-            invocation_id=f"cz-conditional-phase.batch-{context.batch_ordinal}",
-        )
-        self._preparations.append(reference)
-        return preparation.build(
-            mapping=reference.measurement_mapping,
-            host_transforms=reference.host_transforms,
-            invocation=reference.invocation,
-            runtime=reference.runtime,
-            realize=lambda fetched: _realize(reference, fetched),
-        )
-
-
-def _accepts_execution(execution: DomainCallView) -> bool:
-    if not (
-        execution.program.dialect_id == quantum.QUANTUM_PROGRAM_DIALECT_ID
-        and execution.program.dialect_version == quantum.QUANTUM_PROGRAM_DIALECT_VERSION
-        and isinstance(execution.program.body, quantum.Program)
-        and execution.program.body.id == _CZ_PROGRAM.id
-    ):
-        return False
-    _validated_result_contracts(execution)
-    return True
-
-
-def _cz_phase_artifact(inputs: DomainResolvedInputs) -> _CzPhaseArtifact:
-    return _CzPhaseArtifact(
-        amplitudes=tuple(
-            _decode_amplitude(value) for value in inputs.input("coupler_amplitude")
-        ),
-        control_states=tuple(
-            _decode_control_state(value) for value in inputs.input("control_state")
-        ),
-        analyzer_phases=tuple(
-            _decode_phase(value) for value in inputs.input("analyzer_phase")
-        ),
-    )
-
-
-def _program_body(
-    execution: DomainCallView | DomainExecutionView,
-) -> quantum.Program:
-    body = execution.program.body
-    if not isinstance(body, quantum.Program):
-        msg = "CZ phase domain program body must be a Program"
-        raise TypeError(msg)
-    return body
-
-
-def _product_binding(execution: DomainExecutionView) -> CzPhaseProductBinding:
-    [control_transform, target_transform] = execution.measurement_transforms
-    return CzPhaseProductBinding(
-        control_iq_shots=execution.result("control_iq_shots").product_uses,
-        target_iq_shots=execution.result("target_iq_shots").product_uses,
-        control_transform=control_transform,
-        target_transform=target_transform,
-    )
-
-
-def _validated_result_contracts(
-    execution: DomainCallView | DomainExecutionView,
-) -> tuple[quantum.MeasurementResult, quantum.MeasurementResult]:
-    body = _program_body(execution)
-    control = execution.result("control_iq_shots").contract
-    target = execution.result("target_iq_shots").contract
-    if (
-        not isinstance(control, quantum.MeasurementResult)
-        or control.id != "control_iq_shots"
-        or not any(result is control for result in body.results)
-        or not isinstance(target, quantum.MeasurementResult)
-        or target.id != "target_iq_shots"
-        or not any(result is target for result in body.results)
-    ):
-        msg = "CZ phase IQ results must bind their authored result handles"
-        raise ValueError(msg)
-    if len(execution.measurement_transforms) != 2:
-        msg = "CZ phase execution requires exactly two measurement transforms"
-        raise ValueError(msg)
-    implementation = binary_iq_probability_host_implementation()
-    for transform in execution.measurement_transforms:
-        implementation.validate_transform(transform)
-    return control, target
-
-
-def _decode_amplitude(value: object) -> Quantity:
-    if not isinstance(value, Quantity):
-        msg = "CZ amplitudes must be quantities"
-        raise TypeError(msg)
-    try:
-        selected = float(value.to("arb").value)
-    except ValueError as error:
-        msg = "CZ amplitudes must use amplitude units"
-        raise ValueError(msg) from error
-    if not math.isfinite(selected):
-        msg = "CZ amplitudes must be finite"
-        raise ValueError(msg)
-    return Quantity(selected, "arb")
-
-
-def _decode_phase(value: object) -> Quantity:
-    if not isinstance(value, Quantity):
-        msg = "CZ analyzer phases must be quantities"
-        raise TypeError(msg)
-    try:
-        selected = float(value.to("rad").value)
-    except ValueError as error:
-        msg = "CZ analyzer phases must use phase units"
-        raise ValueError(msg) from error
-    if not math.isfinite(selected):
-        msg = "CZ analyzer phases must be finite"
-        raise ValueError(msg)
-    return Quantity(selected, "rad")
-
-
-def _decode_control_state(value: object) -> int:
-    if type(value) is not int or value not in (0, 1):
-        msg = "CZ control states must be 0 or 1"
-        raise ValueError(msg)
-    return value
-
-
-def _realize(
-    reference: PreparedCzPhaseReference,
-    fetched: CorrelatedDomainFetch[FakeListRun],
-):
-    return realize_fetched_fake_measurements(
-        reference.realization,
-        fetched,
-    ).result_values
-
-
 __all__ = [
     "ANALYZER_PHASE",
     "CONTROL_STATE",
     "CZ_AMPLITUDE",
-    "CZ_PHASE_ADAPTER_ID",
+    "CZ_AMPLITUDE_POINTS",
+    "CZ_AMPLITUDE_SPAN",
     "CZ_PHASE_CAPTURE_MODULE",
     "CZ_PHASE_EXPERIMENT_ID",
+    "CZ_PHASE_PROGRAM",
     "CZ_PHASE_SHOTS",
     "CZ_PHASE_TEMPLATE",
     "CZ_PHASE_TEMPLATE_ID",
     "DEFAULT_ANALYZER_PHASES",
     "DEFAULT_CONTROL_STATES",
-    "DEFAULT_CZ_AMPLITUDES",
-    "CzPhaseDomainCompiler",
 ]

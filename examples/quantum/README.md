@@ -12,6 +12,10 @@ the notebook files directly from the command line. The demo lab code they
 import lives in `support/` as the `quantum_lab_demo` package. Treat that
 support package as copyable example lab code, not as a stable product API.
 
+The demo `ExperimentSystem` shares one `QuantumLabCompiler` across every
+quantum program; notebooks 13 and 15 show calibration through the ordinary
+parameter proposal, review, and activation workflow.
+
 ## Run The Learning Path
 
 From the repository root:
@@ -51,13 +55,13 @@ uv sync
 | `notebooks/04_manual_analysis.py` | Build one-off notebook analysis and candidate evidence. |
 | `notebooks/05_promote_analysis_step.py` | Replace repeated manual analysis with an `AnalysisStep`. |
 | `notebooks/06_rerun_candidate_config.py` | Run a follow-up experiment with a candidate config. |
-| `notebooks/07_gate_calibration_family.py` | Preview related Rabi and CZ calibration experiments. |
+| `notebooks/07_gate_calibration_family.py` | Preview related calibrations, including a point-local parameter overlay. |
 | `notebooks/08_readout_family.py` | Compare single, multiplexed, calibrated, and QND readout experiments. |
 | `notebooks/09_system_scale_cases.py` | Preview larger point domains and backend batches. |
 | `notebooks/10_fake_awg_template.py` | Run a reusable template against the fake AWG and digitizer target. |
 | `notebooks/11_fake_awg_scratch.py` | Run the same target through scratch experiment authoring. |
 | `notebooks/12_fake_awg_with_bias.py` | Combine a scalar bias source with a programmable quantum scan. |
-| `notebooks/13_drag_beta_calibration.py` | Fit, review, activate, and roll back a DRAG calibration. |
+| `notebooks/13_drag_beta_calibration.py` | Scan an accepted gate parameter, then fit, review, activate, and roll it back. |
 | `notebooks/14_ramsey_phase_dsl.py` | Compose a Ramsey sequence from gates, pulses, frames, and acquisition. |
 | `notebooks/15_cz_conditional_phase.py` | Calibrate a physical CZ and produce a reviewable parameter proposal. |
 
@@ -70,8 +74,8 @@ workflow you are building:
 |---|---|
 | Define reusable experiment shapes | `support/src/quantum_lab_demo/experiments/` |
 | Try one-off scans and product selection | notebook cells using `Workspace.experiment(...)` or `Workspace.prepare(...)` |
-| Change laboratory configuration or virtual wiring | `support/src/quantum_lab_demo/virtual_lab/` |
-| Adapt quantum programs to a target | `support/src/quantum_lab_demo/reference_experiments/` and `support/src/quantum_lab_demo/targets/` |
+| Change laboratory policy, parameters, calibration, or wiring | `support/src/quantum_lab_demo/virtual_lab/` |
+| Compose the lab or adapt quantum programs to a target | `support/src/quantum_lab_demo/lab.py`, `compiler.py`, and `targets/` |
 | Develop analysis and configuration proposals | notebooks 04–06 and the reusable analysis code under `support/` |
 
 The support package is one copyable way to organize repeated lab code, not a

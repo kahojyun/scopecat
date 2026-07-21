@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-QUBIT_PARAMETER_TABLE = "qubits"
-TWO_QUBIT_GATE_PARAMETER_TABLE = "two_qubit_gates"
-
 RABI_TEMPLATE_ID = "quantum_lab_demo.experiments.rabi"
 SIMULTANEOUS_RABI_TEMPLATE_ID = "quantum_lab_demo.experiments.simultaneous_rabi"
 FLUX_BACKGROUND_RABI_TEMPLATE_ID = "quantum_lab_demo.experiments.flux_background_rabi"
@@ -38,7 +35,6 @@ __all__ = [
     "MULTIPLEXED_READOUT_TEMPLATE_ID",
     "PARALLEL_GATE_SET_TEMPLATE_ID",
     "QND_REPEATED_MEASUREMENT_TEMPLATE_ID",
-    "QUBIT_PARAMETER_TABLE",
     "RABI_TEMPLATE_ID",
     "READOUT_TEMPLATE_ID",
     "SIMULTANEOUS_RABI_TEMPLATE_ID",
@@ -46,5 +42,4 @@ __all__ = [
     "SQG_RB_TEMPLATE_ID",
     "SYSTEM_BACKGROUND_RABI_TEMPLATE_ID",
     "TOY_SURFACE_CODE_ROUND_TEMPLATE_ID",
-    "TWO_QUBIT_GATE_PARAMETER_TABLE",
 ]

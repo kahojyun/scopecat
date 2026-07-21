@@ -4,18 +4,20 @@ from __future__ import annotations
 
 # %%
 import scopecat as sc
-from quantum_lab_demo import notebook_workspace
+from quantum_lab_demo import (
+    notebook_workspace,
+    quantum_lab_compiler,
+)
 from quantum_lab_demo.reference_experiments import (
     FAKE_X_COUNT_BIAS_TEMPLATE,
     FakeBiasVoltageProvider,
-    FakeXCountDomainCompiler,
     fake_x_count_bias_config,
 )
 
 # %%
 workspace = notebook_workspace("12-fake-awg-with-bias")
 voltage_source = FakeBiasVoltageProvider()
-compiler = FakeXCountDomainCompiler()
+compiler = quantum_lab_compiler()
 lab = sc.open(
     workspace,
     config_profile=fake_x_count_bias_config(),
@@ -52,7 +54,7 @@ mixed_execution_results = {
     "logical_points": preview.point_count,
     "record_ids": [record.id for record in preview.records],
     "voltage_writes": list(voltage_source.writes),
-    "physical_awg_executions": compiler.runtime.physical_execution_count,
+    "physical_awg_executions": compiler.trace.physical_execution_count,
     "bias_x_count_points": bias_x_count_points,
     "bias_readbacks": bias_readbacks,
 }

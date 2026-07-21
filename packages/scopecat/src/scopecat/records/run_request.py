@@ -165,6 +165,23 @@ class ParameterScanRecord(_RunRequestModel):
     unit: str | None = None
 
 
+class ParameterAroundScanRecord(_RunRequestModel):
+    """Persisted locator and shape for a snapshot-centered parameter scan.
+
+    The accepted snapshot supplies the center during specialization rather
+    than persisting a copied value, preserving the request's parameter intent
+    while each run still records the exact snapshot it accepted.
+    """
+
+    kind: Literal["parameter_around"] = "parameter_around"
+    table_id: str
+    key: dict[str, RunRequestScalarValue]
+    column: str
+    axis_id: str
+    span: RunRequestScalarValue
+    points: int
+
+
 class ScanGroupRecord(_RunRequestModel):
     """Persisted explicit scan composition record."""
 
@@ -172,9 +189,14 @@ class ScanGroupRecord(_RunRequestModel):
     scans: list[ScanRecord]
 
 
-type ScanLeafRecord = PointScanRecord | AroundScanRecord | ParameterScanRecord
+type ParameterScanLeafRecord = ParameterScanRecord | ParameterAroundScanRecord
+type ScanLeafRecord = PointScanRecord | AroundScanRecord | ParameterScanLeafRecord
 type ScanRecord = Annotated[
-    PointScanRecord | AroundScanRecord | ParameterScanRecord | ScanGroupRecord,
+    PointScanRecord
+    | AroundScanRecord
+    | ParameterScanRecord
+    | ParameterAroundScanRecord
+    | ScanGroupRecord,
     Field(discriminator="kind"),
 ]
 
@@ -209,14 +231,14 @@ def scan_axis_index(
 
 def parameter_scan_records(
     scans: Sequence[ScanRecord],
-) -> list[ParameterScanRecord]:
+) -> list[ParameterScanLeafRecord]:
     """Return parameter-scan leaves derived from canonical scan records."""
 
     return [
         leaf
         for scan in scans
         for leaf in _scan_record_leaves(scan)
-        if isinstance(leaf, ParameterScanRecord)
+        if isinstance(leaf, ParameterScanRecord | ParameterAroundScanRecord)
     ]
 
 

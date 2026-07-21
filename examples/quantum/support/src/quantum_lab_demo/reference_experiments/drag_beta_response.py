@@ -39,6 +39,18 @@ DEFAULT_IQ_JITTER = 0.025
 DRAG_BETA_RESPONSE_MODEL_VERSION = "drag-beta-quadratic.v1"
 
 
+def synthetic_drag_beta_response(beta: Quantity, *, amplification: int) -> float:
+    """Evaluate the deterministic response model without preparing a target."""
+
+    return _probability_one(
+        beta_ns=_beta_ns(beta),
+        amplification=_positive_int(amplification, field_name="amplification"),
+        optimum_beta_ns=_beta_ns(DEFAULT_OPTIMUM_BETA),
+        baseline=DEFAULT_BASELINE,
+        curvature=DEFAULT_CURVATURE,
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class DragBetaResponsePoint:
     """Physical result address and the authored coordinates that drive it."""
@@ -339,4 +351,5 @@ __all__ = [
     "DRAG_BETA_RESPONSE_MODEL_VERSION",
     "DragBetaAcquisitionResponse",
     "DragBetaResponsePoint",
+    "synthetic_drag_beta_response",
 ]

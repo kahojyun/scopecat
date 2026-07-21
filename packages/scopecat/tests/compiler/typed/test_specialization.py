@@ -4,16 +4,20 @@ from scopecat.compiler.relations.evaluation import EvalContext, ParameterRelatio
 from scopecat.compiler.relations.model import (
     LiteralRowsRelationExpr,
     LiteralScalarExpr,
+    PointColumnScalarExpr,
     RowScopeId,
     ValuesSeriesExpr,
     col,
     param,
+    parameter_lookup,
     parameter_series,
     point_col,
     table,
 )
 from scopecat.compiler.relations.point_domain import (
     POINT_UNIT,
+    PointAxis,
+    PointAxisLinear,
     PointDependentProduct,
     PointProduct,
     PointUnit,
@@ -67,10 +71,16 @@ from scopecat.kernel.value_types import (
     Quantity,
     Scalar,
     Series,
+    String,
     Table,
     TableColumn,
 )
 from scopecat.records.parameter import Quantity as QuantityValue
+from tests.testkit.parameter_fixtures import (
+    PARAMETER_TYPES,
+    READOUT_FREQUENCY_LOOKUP,
+    parameters,
+)
 from tests.testkit.relation_plans import (
     scalar_value_expr,
     series_value_expr,
@@ -343,6 +353,94 @@ def test_core_specialization_retains_genuinely_point_dependent_product() -> None
     )
 
     assert isinstance(specialized.point_domain.root, PointDependentProduct)
+
+
+def test_point_domain_center_reads_base_parameter_before_point_overlay() -> None:
+    frequency = Scalar(Quantity(unit="GHz"))
+    point_row = RowType((TableColumn("frequency", frequency),))
+    point_bindings = RelationTypeBindings(
+        parameters=PARAMETER_TYPES,
+        point_row=point_row,
+    )
+    center = scalar_value_expr(
+        parameter_lookup(
+            READOUT_FREQUENCY_LOOKUP,
+            key={"device_id": "r0"},
+        ),
+        bindings=RelationTypeBindings(parameters=PARAMETER_TYPES),
+        expected_type=frequency,
+    )
+    overlaid_lookup = scalar_value_expr(
+        parameter_lookup(
+            READOUT_FREQUENCY_LOOKUP,
+            key={"device_id": "r0"},
+        ),
+        bindings=point_bindings,
+        expected_type=frequency,
+    )
+    overlay = PointParameterOverlay(
+        table_id="readout_devices",
+        key_uses={
+            "device_id": relation_use(
+                scalar_value_expr(
+                    "r0",
+                    bindings=point_bindings,
+                    expected_type=Scalar(String()),
+                )
+            )
+        },
+        column_id="frequency",
+        value_use=relation_use(
+            scalar_value_expr(
+                point_col("frequency"),
+                bindings=point_bindings,
+                expected_type=frequency,
+            )
+        ),
+    )
+    domain = TypedDomainExecution(
+        id="domain",
+        program=TypedDomainProgram(
+            id=DomainProgramId(SymbolId(local_id="program")),
+            dialect_id="tests.specialization",
+            dialect_version="1",
+            body=(),
+            input_ports=(DomainInputPortDef("frequency", frequency),),
+        ),
+        inputs={"frequency": ValueInput(overlaid_lookup)},
+    )
+
+    specialized = specialize_core_program(
+        CoreProgram(
+            id="parameter-centered-axis",
+            kind="test",
+            point_domain=PointDomain(
+                point_axis_linear(
+                    "frequency",
+                    frequency,
+                    relation_use(center),
+                    QuantityValue(value=0.2, unit="GHz"),
+                    3,
+                )
+            ),
+            parameter_overlays=(overlay,),
+            effects=(domain,),
+        ),
+        parameters=parameters(),
+    )
+
+    axis = specialized.point_domain.root
+    assert isinstance(axis, PointAxis)
+    assert isinstance(axis.source, PointAxisLinear)
+    center_root = axis.source.center.value.plan.root
+    assert isinstance(center_root, LiteralScalarExpr)
+    assert center_root.value == QuantityValue(value=5.95, unit="GHz")
+
+    [specialized_domain] = specialized.effects
+    assert isinstance(specialized_domain, TypedDomainExecution)
+    input_root = specialized_domain.inputs["frequency"].value.plan.root
+    assert isinstance(input_root, PointColumnScalarExpr)
+    assert input_root.name == "frequency"
 
 
 def test_core_specialization_folds_parameter_overlay_keys() -> None:

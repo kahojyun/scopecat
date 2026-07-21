@@ -1,24 +1,24 @@
-"""Durable run-to-review analysis UX for the DRAG-beta experiment."""
+"""Observations, fitting, and run-to-review analysis for DRAG beta."""
 
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, SupportsFloat, cast
 
+import numpy as np
 import scopecat as sc
 from scopecat import Quantity
 
 from quantum_lab_demo.reference_experiments.drag_beta_calibration import (
     NEGATIVE_CANDIDATE_ID,
     POSITIVE_CANDIDATE_ID,
-    DragBetaFit,
-    DragBetaObservation,
-    fit_drag_beta,
 )
-from quantum_lab_demo.reference_experiments.drag_beta_experiment import (
+from quantum_lab_demo.virtual_lab.parameters import (
     DRAG_BETA_PARAMETER_COLUMN,
-    DRAG_BETA_PARAMETER_ID,
+    QUBIT_PARAMETER_TABLE,
+    q0_parameter_key,
 )
 
 DRAG_BETA_FIT_MODEL_ID = "quantum_lab_demo.drag_beta.shared_n2_quadratic.v1"
@@ -30,6 +30,96 @@ _MIN_ELIGIBLE_BETA_SIGNAL_SPAN = 0.02
 _MIN_ELIGIBLE_BETA_SIGNAL_TO_RMSE = 3.0
 _MIN_ELIGIBLE_EDGE_MARGIN_FRACTION = 0.10
 _RMSE_FLOOR = 1e-12
+
+
+@dataclass(frozen=True, slots=True)
+class DragBetaObservation:
+    """One probability observation at a beta value and amplification count."""
+
+    beta: Quantity
+    amplification: int
+    p1: float
+
+    def __post_init__(self) -> None:
+        _beta_ns(self.beta)
+        _require_positive_amplification(self.amplification)
+        if isinstance(self.p1, bool):
+            msg = "DRAG-beta p1 observations must be finite numbers"
+            raise TypeError(msg)
+        selected = float(self.p1)
+        if not math.isfinite(selected):
+            msg = "DRAG-beta p1 observations must be finite numbers"
+            raise ValueError(msg)
+        if not 0.0 <= selected <= 1.0:
+            msg = "DRAG-beta p1 observations must lie in [0, 1]"
+            raise ValueError(msg)
+        object.__setattr__(self, "p1", selected)
+
+
+@dataclass(frozen=True, slots=True)
+class DragBetaFit:
+    """Shared fit of ``p1 = baseline + N^2 (a beta^2 + b beta + c)``."""
+
+    beta_hat: Quantity
+    baseline: float
+    quadratic: float
+    linear: float
+    scaled_offset: float
+    rmse: float
+
+
+def fit_drag_beta(observations: Sequence[DragBetaObservation]) -> DragBetaFit:
+    """Jointly fit beta scans from multiple amplification counts.
+
+    The linear least-squares basis is ``1, N^2 beta^2, N^2 beta, N^2``.
+    A full-rank fit therefore requires enough beta coverage and more than one
+    amplification count; the optimum is the shared vertex ``-b / (2a)``.
+    """
+
+    selected = tuple(observations)
+    if len(selected) < 4:
+        msg = "DRAG-beta fitting requires at least four typed observations"
+        raise ValueError(msg)
+    rows: list[tuple[float, float, float, float]] = []
+    values: list[float] = []
+    for observation in selected:
+        beta_ns = _beta_ns(observation.beta)
+        amplification = _require_positive_amplification(observation.amplification)
+        scale = float(amplification**2)
+        rows.append((1.0, scale * beta_ns**2, scale * beta_ns, scale))
+        values.append(observation.p1)
+
+    design = np.asarray(rows, dtype=float)
+    response = np.asarray(values, dtype=float)
+    coefficients, _residuals, rank, _singular_values = np.linalg.lstsq(
+        design,
+        response,
+        rcond=None,
+    )
+    if int(rank) != 4:
+        msg = "DRAG-beta observations do not identify a joint quadratic"
+        raise ValueError(msg)
+    baseline, quadratic, linear, scaled_offset = (
+        float(value) for value in coefficients
+    )
+    if not math.isfinite(quadratic) or quadratic <= 0:
+        msg = "DRAG-beta joint quadratic must have positive curvature"
+        raise ValueError(msg)
+    beta_hat = -linear / (2.0 * quadratic)
+    scanned_betas = tuple(_beta_ns(observation.beta) for observation in selected)
+    if not min(scanned_betas) <= beta_hat <= max(scanned_betas):
+        msg = "fitted DRAG beta lies outside the scanned beta range"
+        raise ValueError(msg)
+    residual = design @ coefficients - response
+    rmse = float(cast("SupportsFloat", np.sqrt(np.mean(residual**2))))
+    return DragBetaFit(
+        beta_hat=Quantity(beta_hat, "ns"),
+        baseline=baseline,
+        quadratic=quadratic,
+        linear=linear,
+        scaled_offset=scaled_offset,
+        rmse=rmse,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -331,8 +421,8 @@ def analyze_drag_beta_run(run: sc.RunHandle) -> DragBetaRunAnalysis:
         analysis = analysis.propose(
             proposal_id,
             sc.update_parameter_rows(
-                DRAG_BETA_PARAMETER_ID,
-                key={"qubit": "q0"},
+                QUBIT_PARAMETER_TABLE,
+                key=q0_parameter_key(),
                 values={DRAG_BETA_PARAMETER_COLUMN: fit.beta_hat},
             ),
             reason=(
@@ -377,14 +467,24 @@ def _fit_summary(
     }
 
 
-def _beta_ns(value: Quantity) -> float:
+def _require_positive_amplification(value: object) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        msg = "DRAG-beta amplification must be a positive integer"
+        raise ValueError(msg)
+    return value
+
+
+def _beta_ns(value: object) -> float:
+    if not isinstance(value, Quantity):
+        msg = "DRAG beta must be a time Quantity"
+        raise TypeError(msg)
     try:
         selected = float(value.to("ns").value)
     except ValueError as error:
-        msg = "DRAG beta values must be time quantities"
+        msg = "DRAG beta must be a time Quantity"
         raise ValueError(msg) from error
     if not math.isfinite(selected):
-        msg = "DRAG beta values must be finite"
+        msg = "DRAG beta must be finite"
         raise ValueError(msg)
     return selected
 
@@ -432,8 +532,11 @@ __all__ = [
     "DRAG_BETA_ANALYSIS_KEY",
     "DRAG_BETA_FIT_MODEL_ID",
     "DRAG_BETA_PROPOSAL_ID",
+    "DragBetaFit",
     "DragBetaFitAssessment",
+    "DragBetaObservation",
     "DragBetaRunAnalysis",
     "analyze_drag_beta_run",
     "assess_drag_beta_fit",
+    "fit_drag_beta",
 ]

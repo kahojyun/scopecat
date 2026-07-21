@@ -23,6 +23,7 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_from_expression,
     internal_value_ref_point_dependencies,
 )
+from scopecat.authoring.values import parameter_lookup as authoring_parameter_lookup
 from scopecat.compiler.frontend.request_values import (
     project_run_request_scalar,
     project_run_request_value,
@@ -47,6 +48,7 @@ from scopecat.kernel.value_types import Scalar
 from scopecat.records.parameter import Quantity
 from scopecat.records.run_request import (
     AroundScanRecord,
+    ParameterAroundScanRecord,
     ParameterScanRecord,
     PointScanRecord,
     ScanGroupRecord,
@@ -91,10 +93,23 @@ def lower_scan_points(
         )
     if isinstance(scan, ParameterScanIntent):
         value_type = _scan_point_value_type(scan)
-        return point_axis_values(
+        if scan.values:
+            return point_axis_values(
+                scan.point_id,
+                value_type,
+                _scan_axis_values(scan.values, unit=scan.unit),
+            )
+        if scan.span is None or scan.point_count is None:
+            msg = (
+                f"parameter scan axis {scan.point_id!r} requires values or span/points"
+            )
+            raise ValueError(msg)
+        return point_axis_linear(
             scan.point_id,
             value_type,
-            _scan_axis_values(scan.values, unit=scan.unit),
+            _lower_parameter_scan_center_value_ref(scan, inputs=inputs),
+            _scan_quantity(scan.span),
+            scan.point_count,
         )
     msg = "scan axis must be a point or parameter scan"
     raise TypeError(msg)
@@ -177,19 +192,36 @@ def project_scan_record(
             }
         )
     if isinstance(scan, ParameterScanIntent):
-        return ParameterScanRecord.model_validate(
+        common = {
+            "table_id": scan.table_id,
+            "key": {
+                name: _request_scalar_value(value, inputs=inputs)
+                for name, value in scan.key
+            },
+            "column": scan.column,
+            "axis_id": scan.point_id,
+        }
+        if scan.values:
+            return ParameterScanRecord.model_validate(
+                {
+                    **common,
+                    "values": [
+                        _request_scalar_value(value, inputs=inputs)
+                        for value in scan.values
+                    ],
+                    "unit": scan.unit,
+                }
+            )
+        if scan.span is None or scan.point_count is None:
+            msg = (
+                f"parameter scan axis {scan.point_id!r} requires values or span/points"
+            )
+            raise ValueError(msg)
+        return ParameterAroundScanRecord.model_validate(
             {
-                "table_id": scan.table_id,
-                "key": {
-                    name: _request_scalar_value(value, inputs=inputs)
-                    for name, value in scan.key
-                },
-                "column": scan.column,
-                "axis_id": scan.point_id,
-                "values": [
-                    _request_scalar_value(value, inputs=inputs) for value in scan.values
-                ],
-                "unit": scan.unit,
+                **common,
+                "span": _request_scalar_value(scan.span, inputs=inputs),
+                "points": scan.point_count,
             }
         )
     if not isinstance(scan, ScanGroupIntent):
@@ -280,6 +312,35 @@ def _lower_scan_center_value_ref(
         point_dependencies=(
             internal_value_ref_point_dependencies(center) if center is not None else ()
         ),
+    )
+
+
+def _lower_parameter_scan_center_value_ref(
+    scan: ParameterScanIntent,
+    *,
+    inputs: Mapping[str, object] | None,
+) -> ValueRef:
+    """Lower an around-axis center through the ordinary parameter lookup path.
+
+    Reusing the same lookup contract as authored program inputs keeps cell
+    identity, input binding, and specialization semantics aligned; a parameter
+    scan does not introduce a second configuration access mechanism.
+    """
+
+    center = authoring_parameter_lookup(
+        scan.table_id,
+        key=dict(scan.key),
+        column=scan.column,
+        value_type=cast("Scalar", scan.target.value_type),
+    )
+    expression = internal_lower_scalar_value_ref(center)
+    if inputs is not None:
+        expression = bind_scalar_input_refs(expression, inputs)
+    return internal_value_ref_from_expression(
+        expression,
+        cast("Scalar", scan.target.value_type),
+        parameter_contracts=scan_parameter_contracts(scan),
+        point_dependencies=internal_value_ref_point_dependencies(center),
     )
 
 

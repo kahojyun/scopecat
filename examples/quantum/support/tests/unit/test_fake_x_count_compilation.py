@@ -20,10 +20,10 @@ from scopecat.sdk.domain.runtime import (
     DomainFetchRequest,
 )
 
+from quantum_lab_demo import QuantumLabCompiler, quantum_lab_compiler
 from quantum_lab_demo.reference_experiments import (
     FAKE_X_COUNT_BIAS_TEMPLATE,
     FakeBiasVoltageProvider,
-    FakeXCountDomainCompiler,
     fake_x_count_bias_config,
 )
 from quantum_lab_demo.targets.fake_list_mode import (
@@ -110,7 +110,7 @@ def test_different_target_partitions_preserve_the_logical_dataset(
     logical_datasets: list[object] = []
     execution_counts: list[int] = []
     for max_list_entries in (256, 2):
-        compiler = FakeXCountDomainCompiler(
+        compiler = quantum_lab_compiler(
             target=replace(
                 default_fake_list_target(),
                 max_list_entries=max_list_entries,
@@ -140,7 +140,7 @@ def test_different_target_partitions_preserve_the_logical_dataset(
                 )
             )
         )
-        execution_counts.append(compiler.runtime.physical_execution_count)
+        execution_counts.append(compiler.trace.physical_execution_count)
 
     assert execution_counts[0] < execution_counts[1]
     assert logical_datasets[0] == logical_datasets[1]
@@ -150,10 +150,10 @@ def test_later_batch_failure_has_one_domain_problem_and_partial_dataset(
     tmp_path: Path,
 ) -> None:
     source = FakeBiasVoltageProvider()
-    compiler = FakeXCountDomainCompiler(
-        target=replace(default_fake_list_target(), max_list_entries=4)
+    compiler = quantum_lab_compiler(
+        target=replace(default_fake_list_target(), max_list_entries=4),
+        runtime=_SecondBatchUnknownRuntime(),
     )
-    compiler.runtime = _SecondBatchUnknownRuntime()
     lab = sc.open(
         tmp_path,
         config_profile=fake_x_count_bias_config(),
@@ -171,7 +171,7 @@ def test_later_batch_failure_has_one_domain_problem_and_partial_dataset(
 
     assert codes.count("injected_second_batch_unknown") == 1
     assert "execution_middle_effect_failed" not in codes
-    assert compiler.runtime.physical_execution_count == 2
+    assert compiler.trace.physical_execution_count == 2
     [dataset] = persisted.manifest.datasets
     assert dataset.metadata["partial"] is True
     assert dataset.metadata["expected_record_count"] == 8
@@ -179,9 +179,9 @@ def test_later_batch_failure_has_one_domain_problem_and_partial_dataset(
 
 def _run_mixed_experiment(
     workspace: Path,
-) -> tuple[sc.RunHandle, FakeBiasVoltageProvider, FakeXCountDomainCompiler]:
+) -> tuple[sc.RunHandle, FakeBiasVoltageProvider, QuantumLabCompiler]:
     source = FakeBiasVoltageProvider()
-    compiler = FakeXCountDomainCompiler()
+    compiler = quantum_lab_compiler()
     lab = sc.open(
         workspace,
         config_profile=fake_x_count_bias_config(),

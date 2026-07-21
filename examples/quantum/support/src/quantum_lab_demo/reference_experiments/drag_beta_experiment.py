@@ -1,4 +1,4 @@
-"""Public 2-D DRAG-beta authoring and Workspace execution adapter.
+"""Public 2-D DRAG-beta authoring and Workspace execution.
 
 The experiment keeps one unified :class:`Program` declaration across the
 whole scan.  Every logical point binds both its pulse-level DRAG coefficient
@@ -8,30 +8,13 @@ fake list-mode target artifact.
 
 from __future__ import annotations
 
-import math
 from collections.abc import Sequence
-from dataclasses import dataclass
-from typing import cast
 
 import scopecat as sc
 from scopecat import Quantity
-from scopecat.kernel.resource_identity import ResourceClaim
-from scopecat.sdk.domain import (
-    CorrelatedDomainFetch,
-    DomainBatchContext,
-    DomainCallView,
-    DomainCompilation,
-    DomainCompiledJob,
-    DomainCompileRequest,
-    DomainExecutionView,
-    DomainResolvedInputs,
-    PreparedDomainExecution,
-    compiled_jobs,
-)
 from scopecat_quantum import (
     BinaryIqDiscriminator,
     IqCentroid,
-    binary_iq_probability_host_implementation,
     binary_iq_probability_transform,
 )
 from scopecat_quantum import authoring as quantum
@@ -39,52 +22,21 @@ from scopecat_quantum import authoring as quantum
 from quantum_lab_demo.reference_experiments.drag_beta_calibration import (
     AMPLIFICATION_INPUT,
     BETA_INPUT,
-    DEFAULT_BASELINE_BETA,
-    DragBetaProductBinding,
-    PreparedDragBetaReference,
     drag_beta_calibration_program,
-    prepare_drag_beta_reference,
 )
-from quantum_lab_demo.targets.fake_list_mode import (
-    FakeListDomainRuntime,
-    FakeListRun,
-    FakeListTarget,
-    default_fake_list_target,
-    realize_fetched_fake_measurements,
+from quantum_lab_demo.virtual_lab.parameters import (
+    DRAG_BETA_PARAMETER_COLUMN,
+    q0_drag_beta_lookup,
+    q0_drag_beta_row,
 )
 
-DRAG_BETA_ADAPTER_ID = "quantum-lab-demo.drag-beta.v1"
 DRAG_BETA_TEMPLATE_ID = "quantum_lab_demo.reference.drag_beta"
 DRAG_BETA_EXPERIMENT_ID = "drag-beta-calibration"
 DRAG_BETA_SHOTS = 64
-DRAG_BETA_PARAMETER_ID = "qubits"
-DRAG_BETA_PARAMETER_COLUMN = "drag_beta"
 DRAG_BETA_SPAN = Quantity(1.0, "ns")
 DRAG_BETA_POINTS = 5
 DEFAULT_BETAS = tuple(Quantity(value, "ns") for value in (0.0, 0.25, 0.5, 0.75, 1.0))
 DEFAULT_AMPLIFICATIONS = (1, 2, 3)
-
-
-def _decode_beta(value: object) -> Quantity:
-    if not isinstance(value, Quantity):
-        msg = "DRAG-beta coordinates must be time quantities"
-        raise TypeError(msg)
-    try:
-        beta_ns = float(value.to("ns").value)
-    except ValueError as error:
-        msg = "DRAG-beta coordinates must be time quantities"
-        raise ValueError(msg) from error
-    if not math.isfinite(beta_ns):
-        msg = "DRAG-beta coordinates must be finite"
-        raise ValueError(msg)
-    return Quantity(beta_ns, "ns")
-
-
-def _decode_amplification(value: object) -> int:
-    if type(value) is not int or value <= 0:
-        msg = "DRAG-beta amplification coordinates must be positive integers"
-        raise ValueError(msg)
-    return value
 
 
 _BETA_VALUE_TYPE = sc.ScalarType(sc.QuantityType(unit="ns"))
@@ -94,9 +46,9 @@ AMPLIFICATION = sc.point(
     sc.ScalarType(sc.IntType(minimum=1)),
 )
 
-_DRAG_BETA_PROGRAM = drag_beta_calibration_program()
-[_IQ_SHOTS_RESULT] = _DRAG_BETA_PROGRAM.results
-_DRAG_BETA_DOMAIN_PROGRAM = quantum.domain_program(_DRAG_BETA_PROGRAM)
+DRAG_BETA_PROGRAM = drag_beta_calibration_program()
+[_IQ_SHOTS_RESULT] = DRAG_BETA_PROGRAM.results
+_DRAG_BETA_DOMAIN_PROGRAM = quantum.domain_program(DRAG_BETA_PROGRAM)
 _DRAG_BETA_DISCRIMINATOR = BinaryIqDiscriminator(
     state_0_centroid=IqCentroid(real=-1.0, imag=0.0),
     state_1_centroid=IqCentroid(real=1.0, imag=0.0),
@@ -127,7 +79,7 @@ _TEMPLATE_CAPTURE = DRAG_BETA_CAPTURE_MODULE.instantiate("capture")
 _DRAG_BETA_EXECUTION = quantum.domain_execution(
     _DRAG_BETA_DOMAIN_PROGRAM,
     inputs={
-        BETA_INPUT: BETA,
+        BETA_INPUT: q0_drag_beta_lookup(),
         AMPLIFICATION_INPUT: AMPLIFICATION,
     },
     results={
@@ -145,14 +97,10 @@ DRAG_BETA_TEMPLATE = (
     .experiment_id(DRAG_BETA_EXPERIMENT_ID)
     .scan(
         sc.cartesian(
-            sc.axis(
+            sc.param_axis(
                 BETA,
-                center=sc.parameter_lookup(
-                    DRAG_BETA_PARAMETER_ID,
-                    key={"qubit": "q0"},
-                    column=DRAG_BETA_PARAMETER_COLUMN,
-                    value_type=_BETA_VALUE_TYPE,
-                ),
+                q0_drag_beta_row(),
+                DRAG_BETA_PARAMETER_COLUMN,
                 span=DRAG_BETA_SPAN,
                 points=DRAG_BETA_POINTS,
             ),
@@ -175,98 +123,6 @@ DRAG_BETA_TEMPLATE = (
 )
 
 
-@dataclass(frozen=True, slots=True)
-class _DragBetaArtifact:
-    betas: tuple[Quantity, ...]
-    amplifications: tuple[int, ...]
-
-
-class DragBetaDomainCompiler:
-    """Bind the authored mixed program to the fake list-mode laboratory."""
-
-    def __init__(
-        self,
-        *,
-        target: FakeListTarget | None = None,
-        baseline_beta: Quantity = DEFAULT_BASELINE_BETA,
-    ) -> None:
-        selected_target = default_fake_list_target() if target is None else target
-        self.target = selected_target
-        self.baseline_beta = _decode_beta(baseline_beta)
-        self._runtimes: list[FakeListDomainRuntime] = []
-
-    @property
-    def runtime(self) -> FakeListDomainRuntime:
-        """Return the batch-local runtime after preparation."""
-
-        if not self._runtimes:
-            msg = "DRAG-beta runtime is available after adapter preparation"
-            raise RuntimeError(msg)
-        return self._runtimes[-1]
-
-    @property
-    def physical_execution_count(self) -> int:
-        """Return physical executions across every prepared target batch."""
-
-        return sum(runtime.physical_execution_count for runtime in self._runtimes)
-
-    @property
-    def compiler_id(self) -> str:
-        return DRAG_BETA_ADAPTER_ID
-
-    @property
-    def target_id(self) -> str:
-        return self.target.id.value
-
-    def claim_resources(
-        self,
-        call: DomainCallView,
-    ) -> tuple[ResourceClaim, ...] | None:
-        if not _accepts_execution(call):
-            return None
-        return (ResourceClaim(self.target.id.value, "target"),)
-
-    def compile(self, request: DomainCompileRequest) -> DomainCompilation | None:
-        if not _accepts_execution(request.call):
-            return None
-        return compiled_jobs(
-            request,
-            max_points=self.target.max_list_entries,
-            artifact_input_ids=("beta", "amplification"),
-            compile_artifact=_drag_beta_artifact,
-        )
-
-    def prepare(
-        self,
-        job: DomainCompiledJob,
-        context: DomainBatchContext,
-    ) -> PreparedDomainExecution:
-        execution = context.execution
-        artifact = cast("_DragBetaArtifact", job.take_artifact())
-        preparation = context.new_preparation()
-        iq_result = _validated_result_contracts(execution)
-        reference = prepare_drag_beta_reference(
-            preparation,
-            _product_binding(execution),
-            result_slot_id=iq_result.acquisition_slot_id,
-            declaration=_program_body(execution),
-            betas=artifact.betas,
-            amplifications=artifact.amplifications,
-            baseline_beta=self.baseline_beta,
-            shots=DRAG_BETA_SHOTS,
-            target=self.target,
-            invocation_id=f"drag-beta.batch-{context.batch_ordinal}",
-        )
-        self._runtimes.append(reference.runtime)
-        return preparation.build(
-            mapping=reference.measurement_mapping,
-            host_transforms=reference.host_transforms,
-            invocation=reference.invocation,
-            runtime=reference.runtime,
-            realize=lambda fetched: _realize(reference, fetched),
-        )
-
-
 def drag_beta_scratch_experiment(
     lab: sc.Workspace,
     *,
@@ -279,7 +135,7 @@ def drag_beta_scratch_experiment(
     execution = quantum.domain_execution(
         _DRAG_BETA_DOMAIN_PROGRAM,
         inputs={
-            BETA_INPUT: BETA,
+            BETA_INPUT: q0_drag_beta_lookup(),
             AMPLIFICATION_INPUT: AMPLIFICATION,
         },
         results={
@@ -292,7 +148,12 @@ def drag_beta_scratch_experiment(
         .domain(execution)
         .scan(
             sc.cartesian(
-                sc.axis(BETA, tuple(betas)),
+                sc.param_axis(
+                    BETA,
+                    q0_drag_beta_row(),
+                    DRAG_BETA_PARAMETER_COLUMN,
+                    tuple(betas),
+                ),
                 sc.axis(AMPLIFICATION, tuple(amplifications)),
             )
         )
@@ -307,91 +168,18 @@ def drag_beta_scratch_experiment(
     )
 
 
-def _accepts_execution(execution: DomainCallView) -> bool:
-    if not (
-        execution.program.dialect_id == quantum.QUANTUM_PROGRAM_DIALECT_ID
-        and execution.program.dialect_version == quantum.QUANTUM_PROGRAM_DIALECT_VERSION
-        and isinstance(execution.program.body, quantum.Program)
-        and execution.program.body.id == _DRAG_BETA_PROGRAM.id
-    ):
-        return False
-    _validated_result_contracts(execution)
-    return True
-
-
-def _drag_beta_artifact(inputs: DomainResolvedInputs) -> _DragBetaArtifact:
-    return _DragBetaArtifact(
-        betas=tuple(_decode_beta(value) for value in inputs.input("beta")),
-        amplifications=tuple(
-            _decode_amplification(value) for value in inputs.input("amplification")
-        ),
-    )
-
-
-def _program_body(
-    execution: DomainCallView | DomainExecutionView,
-) -> quantum.Program:
-    body = execution.program.body
-    if not isinstance(body, quantum.Program):
-        msg = "DRAG-beta domain program body must be a Program"
-        raise TypeError(msg)
-    return body
-
-
-def _product_binding(view: DomainExecutionView) -> DragBetaProductBinding:
-    [transform] = view.measurement_transforms
-    return DragBetaProductBinding(
-        iq_shots=view.result("iq_shots").product_uses,
-        transform=transform,
-    )
-
-
-def _validated_result_contracts(
-    execution: DomainCallView | DomainExecutionView,
-) -> quantum.MeasurementResult:
-    body = _program_body(execution)
-    iq_result = execution.result("iq_shots").contract
-    if (
-        not isinstance(iq_result, quantum.MeasurementResult)
-        or iq_result.id != "iq_shots"
-        or not any(result is iq_result for result in body.results)
-    ):
-        msg = "DRAG-beta IQ result must bind its authored result handle"
-        raise ValueError(msg)
-    if len(execution.measurement_transforms) != 1:
-        msg = "DRAG-beta execution requires one authored measurement transform"
-        raise ValueError(msg)
-    binary_iq_probability_host_implementation().validate_transform(
-        execution.measurement_transforms[0]
-    )
-    return iq_result
-
-
-def _realize(
-    reference: PreparedDragBetaReference,
-    fetched: CorrelatedDomainFetch[FakeListRun],
-):
-    return realize_fetched_fake_measurements(
-        reference.realization,
-        fetched,
-    ).result_values
-
-
 __all__ = [
     "AMPLIFICATION",
     "BETA",
     "DEFAULT_AMPLIFICATIONS",
     "DEFAULT_BETAS",
-    "DRAG_BETA_ADAPTER_ID",
     "DRAG_BETA_CAPTURE_MODULE",
     "DRAG_BETA_EXPERIMENT_ID",
-    "DRAG_BETA_PARAMETER_COLUMN",
-    "DRAG_BETA_PARAMETER_ID",
     "DRAG_BETA_POINTS",
+    "DRAG_BETA_PROGRAM",
     "DRAG_BETA_SHOTS",
     "DRAG_BETA_SPAN",
     "DRAG_BETA_TEMPLATE",
     "DRAG_BETA_TEMPLATE_ID",
-    "DragBetaDomainCompiler",
     "drag_beta_scratch_experiment",
 ]

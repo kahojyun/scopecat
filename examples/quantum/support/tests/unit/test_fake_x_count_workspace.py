@@ -34,21 +34,50 @@ from scopecat.sdk.domain.runtime import (
     DomainSubmitRequest,
 )
 
-from quantum_lab_demo import quantum_lab
+from quantum_lab_demo import (
+    QuantumLabCompiler,
+    quantum_lab,
+    quantum_lab_compiler,
+)
 from quantum_lab_demo.experiments import READOUT_TEMPLATE
 from quantum_lab_demo.reference_experiments import (
     FAKE_X_COUNT_CAPTURE_MODULE,
     FAKE_X_COUNT_TEMPLATE,
     X_COUNT,
-    FakeXCountDomainCompiler,
     fake_x_count_domain_execution,
     fake_x_count_scratch_experiment,
+)
+from quantum_lab_demo.reference_experiments.cz_phase_experiment import (
+    CZ_PHASE_PROGRAM,
+    CZ_PHASE_TEMPLATE,
+)
+from quantum_lab_demo.reference_experiments.drag_beta_experiment import (
+    DRAG_BETA_PROGRAM,
+    DRAG_BETA_TEMPLATE,
+)
+from quantum_lab_demo.reference_experiments.fake_x_count_experiment import (
+    X_COUNT_PROGRAM,
+)
+from quantum_lab_demo.reference_experiments.production_drag_gate import (
+    PRODUCTION_DRAG_GATE_TEMPLATE,
+    PRODUCTION_DRAG_PROGRAM,
+)
+from quantum_lab_demo.reference_experiments.ramsey_phase_experiment import (
+    RAMSEY_PHASE_PROGRAM,
+    RAMSEY_PHASE_TEMPLATE,
 )
 from quantum_lab_demo.targets.fake_list_mode import (
     FakeListDomainRuntime,
     FakeListRun,
     SelectedFakeMeasurementRealization,
     default_fake_list_target,
+)
+from quantum_lab_demo.trace import QuantumLabTrace
+from quantum_lab_demo.virtual_lab.calibrations import (
+    quantum_lab_calibration_catalog,
+)
+from quantum_lab_demo.virtual_lab.quantum_responses import (
+    quantum_lab_response_registry,
 )
 
 
@@ -85,12 +114,6 @@ class _IndeterminateFakeListDomainRuntime(FakeListDomainRuntime):
         raise RuntimeError("target did not return submit evidence")
 
 
-class _IndeterminateFakeXCountCompiler(FakeXCountDomainCompiler):
-    def __init__(self) -> None:
-        super().__init__()
-        self.runtime = _IndeterminateFakeListDomainRuntime()
-
-
 class _SecondSubmitIndeterminateFakeListDomainRuntime(FakeListDomainRuntime):
     @override
     def submit(
@@ -102,7 +125,18 @@ class _SecondSubmitIndeterminateFakeListDomainRuntime(FakeListDomainRuntime):
         return super().submit(request)
 
 
-class _RaisingCompiler(FakeXCountDomainCompiler):
+class _ConfiguredTestCompiler(QuantumLabCompiler):
+    def __init__(self) -> None:
+        super().__init__(
+            target=default_fake_list_target(),
+            runtime=FakeListDomainRuntime(),
+            calibration_catalog=quantum_lab_calibration_catalog(),
+            response_registry=quantum_lab_response_registry(),
+            trace=QuantumLabTrace(),
+        )
+
+
+class _RaisingCompiler(_ConfiguredTestCompiler):
     @property
     @override
     def compiler_id(self) -> str:
@@ -118,7 +152,7 @@ class _RaisingCompiler(FakeXCountDomainCompiler):
         raise RuntimeError("compiler implementation defect")
 
 
-class _WrongResultCompiler(FakeXCountDomainCompiler):
+class _WrongResultCompiler(_ConfiguredTestCompiler):
     @property
     @override
     def compiler_id(self) -> str:
@@ -167,6 +201,49 @@ def test_fake_x_count_authors_direct_iq_and_derived_probabilities_separately() -
     }
 
 
+def test_one_quantum_lab_compiler_prepares_every_reference_program(
+    tmp_path: Path,
+) -> None:
+    compiler = quantum_lab_compiler()
+    lab = quantum_lab(workspace=tmp_path, compiler=compiler)
+
+    runs = tuple(
+        lab.prepare(template).run()
+        for template in (
+            FAKE_X_COUNT_TEMPLATE,
+            DRAG_BETA_TEMPLATE,
+            PRODUCTION_DRAG_GATE_TEMPLATE,
+            RAMSEY_PHASE_TEMPLATE,
+            CZ_PHASE_TEMPLATE,
+        )
+    )
+
+    assert all(run.manifest.status == "completed" for run in runs)
+    assert tuple(
+        evidence.program_id for evidence in compiler.trace.all_preparations
+    ) == (
+        X_COUNT_PROGRAM.id,
+        DRAG_BETA_PROGRAM.id,
+        PRODUCTION_DRAG_PROGRAM.id,
+        RAMSEY_PHASE_PROGRAM.id,
+        CZ_PHASE_PROGRAM.id,
+    )
+    assert tuple(
+        len(evidence.points) for evidence in compiler.trace.all_preparations
+    ) == (
+        4,
+        15,
+        1,
+        3,
+        24,
+    )
+    [target_compiler_id] = {
+        evidence.artifact.compiler_id.value
+        for evidence in compiler.trace.all_preparations
+    }
+    assert target_compiler_id != compiler.compiler_id
+
+
 def test_fake_x_count_authoring_paths_share_one_standard_domain_semantics(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -183,20 +260,16 @@ def test_fake_x_count_authoring_paths_share_one_standard_domain_semantics(
     )
     semantics: dict[str, object] = {}
     for authoring in ("template", "scratch"):
-        adapter = FakeXCountDomainCompiler()
-        lab = quantum_lab(workspace=tmp_path / authoring)
+        compiler = quantum_lab_compiler()
+        lab = quantum_lab(workspace=tmp_path / authoring, compiler=compiler)
         experiment = (
-            lab.prepare(
-                FAKE_X_COUNT_TEMPLATE,
-                system=_domain_only(adapter),
-            )
+            lab.prepare(FAKE_X_COUNT_TEMPLATE)
             if authoring == "template"
             else lab.prepare(
                 fake_x_count_scratch_experiment(
                     lab,
                     x_counts=(0, 1, 2, 4),
                 ),
-                system=_domain_only(adapter),
             )
         )
 
@@ -206,7 +279,16 @@ def test_fake_x_count_authoring_paths_share_one_standard_domain_semantics(
         journal = FilesystemExecutionJournal(lab.workspace, run_id=run.id)
 
         assert run.manifest.status == "completed"
-        assert adapter.runtime.physical_execution_count == 1
+        assert compiler.trace.physical_execution_count == 1
+        [evidence] = compiler.trace.preparations(X_COUNT_PROGRAM.id)
+        assert tuple(point.value("x_count") for point in evidence.points) == (
+            0,
+            1,
+            2,
+            4,
+        )
+        assert len(evidence.entries) == 4
+        assert evidence.artifact_fingerprint.startswith("sha256:")
         assert preview.point_count == len(dataset.records) == 4
         assert [record.id for record in preview.records] == [
             "probability_0",
@@ -260,14 +342,14 @@ def test_fake_x_count_compiler_absorbs_affine_point_input_without_binding(
         .record_product(capture.products.probability_1, record_id="probability_1")
         .build()
     )
-    compiler = FakeXCountDomainCompiler()
+    compiler = quantum_lab_compiler()
     lab = quantum_lab(workspace=tmp_path)
 
     run = lab.prepare(template, system=_domain_only(compiler)).run()
     records = run.data().measurements().dataset.records
 
     assert run.manifest.status == "completed"
-    assert compiler.runtime.physical_execution_count == 1
+    assert compiler.trace.physical_execution_count == 1
     assert [record.coordinates["x_count"] for record in records] == [0, 1, 2]
 
 
@@ -299,13 +381,13 @@ def test_fake_x_count_compiler_projects_zipped_axis_without_binding(
         .record_product(capture.products.probability_1, record_id="probability_1")
         .build()
     )
-    compiler = FakeXCountDomainCompiler()
+    compiler = quantum_lab_compiler()
     lab = quantum_lab(workspace=tmp_path)
 
     run = lab.prepare(template, system=_domain_only(compiler)).run()
 
     assert run.manifest.status == "completed"
-    assert compiler.runtime.physical_execution_count == 1
+    assert compiler.trace.physical_execution_count == 1
     assert [
         (record.coordinates["x_count"], record.coordinates["auxiliary"])
         for record in run.data().measurements().dataset.records
@@ -338,7 +420,7 @@ def test_two_ordered_domain_calls_share_target_and_produce_canonical_results(
         .record_product(second.products.probability_1, record_id="second-p1")
         .build()
     )
-    compiler = FakeXCountDomainCompiler()
+    compiler = quantum_lab_compiler()
     lab = quantum_lab(workspace=tmp_path)
 
     run = lab.prepare(
@@ -349,7 +431,7 @@ def test_two_ordered_domain_calls_share_target_and_produce_canonical_results(
     journal = FilesystemExecutionJournal(lab.workspace, run_id=run.id)
 
     assert run.manifest.status == "completed"
-    assert compiler.runtime.physical_execution_count == 2
+    assert compiler.trace.physical_execution_count == 2
     assert len(records) == 3
     assert all(
         set(record.observables) == {"first-p0", "second-p1"} for record in records
@@ -369,7 +451,7 @@ def test_domain_only_system_reports_missing_local_provider(
     lab = quantum_lab(workspace=tmp_path)
     experiment = lab.prepare(
         READOUT_TEMPLATE,
-        system=_domain_only(FakeXCountDomainCompiler()),
+        system=_domain_only(quantum_lab_compiler()),
     )
     experiment = experiment.input("qubit", "q0")
 
@@ -383,7 +465,7 @@ def test_domain_only_system_reports_missing_local_provider(
 
 
 @pytest.mark.parametrize("compiler", [_RaisingCompiler(), _WrongResultCompiler()])
-def test_adapter_boundary_normalizes_deferred_contract_defects_during_run(
+def test_compiler_boundary_normalizes_deferred_contract_defects_during_run(
     compiler: object,
     tmp_path: Path,
 ) -> None:
@@ -411,11 +493,11 @@ def test_adapter_boundary_normalizes_deferred_contract_defects_during_run(
 def test_indeterminate_submit_retains_durable_target_correlation_context(
     tmp_path: Path,
 ) -> None:
-    adapter = _IndeterminateFakeXCountCompiler()
+    compiler = quantum_lab_compiler(runtime=_IndeterminateFakeListDomainRuntime())
     lab = quantum_lab(workspace=tmp_path)
     experiment = lab.prepare(
         FAKE_X_COUNT_TEMPLATE,
-        system=_domain_only(adapter),
+        system=_domain_only(compiler),
     )
 
     events: list[RuntimeEvent] = []
@@ -466,15 +548,18 @@ def test_later_domain_job_failure_preserves_points_from_earlier_jobs(
     tmp_path: Path,
 ) -> None:
     target = replace(default_fake_list_target(), max_list_entries=2)
-    adapter = FakeXCountDomainCompiler(target=target)
-    adapter.runtime = _SecondSubmitIndeterminateFakeListDomainRuntime()
+    runtime = _SecondSubmitIndeterminateFakeListDomainRuntime()
+    compiler = quantum_lab_compiler(
+        target=target,
+        runtime=runtime,
+    )
     lab = quantum_lab(workspace=tmp_path)
     events: list[RuntimeEvent] = []
 
     with pytest.raises(RunIndeterminate):
         lab.prepare(
             FAKE_X_COUNT_TEMPLATE,
-            system=_domain_only(adapter),
+            system=_domain_only(compiler),
         ).run(event_sink=events.append)
 
     failed_points = [
@@ -493,8 +578,8 @@ def test_later_domain_job_failure_preserves_points_from_earlier_jobs(
         and event.state == "completed"
         and event.point_indices
     ]
-    assert adapter.runtime.physical_execution_count == 1
-    assert adapter.runtime.submit_calls == 1
+    assert compiler.trace.physical_execution_count == 1
+    assert runtime.submit_calls == 1
     assert completed_points == [(0,), (1,)]
     assert failed_points == [(2, 3)]
 
@@ -502,12 +587,11 @@ def test_later_domain_job_failure_preserves_points_from_earlier_jobs(
 def test_unknown_fetch_terminalizes_as_indeterminate_with_known_job_context(
     tmp_path: Path,
 ) -> None:
-    adapter = FakeXCountDomainCompiler()
-    adapter.runtime = _UnknownFetchFakeListDomainRuntime()
+    compiler = quantum_lab_compiler(runtime=_UnknownFetchFakeListDomainRuntime())
     lab = quantum_lab(workspace=tmp_path)
     experiment = lab.prepare(
         FAKE_X_COUNT_TEMPLATE,
-        system=_domain_only(adapter),
+        system=_domain_only(compiler),
     )
 
     with pytest.raises(RunIndeterminate) as caught:
@@ -522,7 +606,7 @@ def test_unknown_fetch_terminalizes_as_indeterminate_with_known_job_context(
     assert recovery.details["phase"] == "fetch"
     assert recovery.details["job_id"]
     assert recovery.details["automatic_resume"] is False
-    assert adapter.runtime.physical_execution_count == 1
+    assert compiler.trace.physical_execution_count == 1
     journal = FilesystemExecutionJournal(lab.workspace, run_id=caught.value.run_id)
     assert any(
         entry.stage == "domain_fetch" and entry.state == "unknown"
@@ -542,11 +626,11 @@ def test_uncertain_measurement_write_retains_durable_correlation(
         "append",
         fail_record_write,
     )
-    adapter = FakeXCountDomainCompiler()
+    compiler = quantum_lab_compiler()
     lab = quantum_lab(workspace=tmp_path)
     experiment = lab.prepare(
         FAKE_X_COUNT_TEMPLATE,
-        system=_domain_only(adapter),
+        system=_domain_only(compiler),
     )
 
     with pytest.raises(RunIndeterminate) as caught:
@@ -561,7 +645,7 @@ def test_uncertain_measurement_write_retains_durable_correlation(
     assert recovery.details["dataset_id"] == "raw-measurements"
     assert "retry_contract" not in recovery.details
     assert "reconciliation" not in recovery.details
-    assert adapter.runtime.physical_execution_count == 1
+    assert compiler.trace.physical_execution_count == 1
     [persisted] = lab.runs()
     assert persisted.manifest.status == "unknown"
 
@@ -578,16 +662,16 @@ def test_successful_recording_does_not_reload_committed_measurements(
         "measurements",
         fail_measurement_reload,
     )
-    adapter = FakeXCountDomainCompiler()
+    compiler = quantum_lab_compiler()
     lab = quantum_lab(workspace=tmp_path)
     experiment = lab.prepare(
         FAKE_X_COUNT_TEMPLATE,
-        system=_domain_only(adapter),
+        system=_domain_only(compiler),
     )
 
     run = experiment.run()
 
-    assert adapter.runtime.physical_execution_count == 1
+    assert compiler.trace.physical_execution_count == 1
     [persisted] = lab.runs()
     assert persisted.id == run.id
     assert persisted.manifest.status == "completed"

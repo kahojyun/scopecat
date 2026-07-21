@@ -30,6 +30,7 @@ def test_notebook_style_examples_execute_user_workflows(
     fake_scratch = _run_notebook("11_fake_awg_scratch.py")
     fake_with_bias = _run_notebook("12_fake_awg_with_bias.py")
     drag_beta = _run_notebook("13_drag_beta_calibration.py")
+    ramsey_phase = _run_notebook("14_ramsey_phase_dsl.py")
     cz_phase = _run_notebook("15_cz_conditional_phase.py")
 
     baseline = cast("RunHandle", candidate_rerun["baseline"])
@@ -110,7 +111,7 @@ def test_notebook_style_examples_execute_user_workflows(
     drag_summary = cast("dict[str, object]", drag_beta["drag_beta_summary"])
     assert drag_summary["status"] == "completed"
     assert drag_summary["point_count"] == 15
-    assert drag_summary["physical_executions"] == 1
+    assert drag_summary["physical_executions"] == 4
     beta_hat = cast("Quantity", drag_summary["beta_hat"])
     quality = cast("dict[str, object]", drag_summary["quality"])
     assert float(beta_hat.to("ns").value) == pytest.approx(0.765)
@@ -126,6 +127,35 @@ def test_notebook_style_examples_execute_user_workflows(
         "rollback": 3,
     }
     assert drag_summary["candidate_preview_center_ns"] == pytest.approx(0.765)
+    assert drag_summary["parameter_flow"] == {
+        "stages": (
+            "ParameterSnapshot",
+            "parameter_lookup",
+            "param_axis overlay",
+            "QuantumLabCompiler input",
+            "proposal",
+            "active",
+            "rollback",
+        ),
+        "source_snapshot_id": "templates-parameter-snapshot",
+        "scan": {
+            "table": "qubits",
+            "row": {"qubit": "q0"},
+            "column": "drag_beta",
+            "center_ns": pytest.approx(0.5),
+        },
+        "compiler_input": {
+            "program_input": "beta",
+            "values_ns": pytest.approx((0.0, 0.25, 0.5, 0.75, 1.0)),
+        },
+        "proposal": {
+            "id": "q0-drag-beta",
+            "candidate_snapshot_id": "candidate-q0-drag-beta.parameters",
+            "beta_ns": pytest.approx(0.765),
+        },
+        "active_snapshot_id": "candidate-q0-drag-beta.parameters",
+        "rollback_snapshot_id": "templates-parameter-snapshot",
+    }
     assert drag_summary["production_baseline"] == {
         "run_status": "completed",
         "run_config_entry_id": f"drag-beta-baseline-{completed_run.id}",
@@ -158,6 +188,23 @@ def test_notebook_style_examples_execute_user_workflows(
         "artifact_restored": True,
         "config_hash_matches": True,
     }
+    assert ramsey_phase["authoring_summary"] == {
+        "program": "ramsey-phase-calibration",
+        "inputs": ("phase",),
+        "results": ("iq_shots",),
+        "x90_template": "ramsey-phase.x90-candidate",
+        "readout_template": "ramsey-phase.readout-stimulus",
+    }
+    ramsey_compiled = cast("dict[str, object]", ramsey_phase["compiled_summary"])
+    assert ramsey_compiled == {
+        "status": "completed",
+        "entry_count": 3,
+        "physical_executions": 1,
+        "candidate_first_samples": pytest.approx(
+            (complex(0.2, 0.0), complex(0.0, 0.2), complex(-0.2, 0.0))
+        ),
+        "acquisition_slots": ("iq_shots", "iq_shots", "iq_shots"),
+    }
     cz_summary = cast("dict[str, dict[str, object]]", cz_phase["summary"])
     assert cz_summary["program"] == {
         "program": "cz-conditional-phase",
@@ -165,6 +212,18 @@ def test_notebook_style_examples_execute_user_workflows(
         "results": ("control_iq_shots", "target_iq_shots"),
         "gate_arities": {"x": 1, "x90": 1, "cz": 2},
         "cz_template": "cz-phase.coupler-flux",
+    }
+    assert cz_summary["parameter_scan"] == {
+        "snapshot_id": "templates-parameter-snapshot",
+        "table": "two_qubit_gates",
+        "row": {
+            "control_qubit": "q0",
+            "partner_qubit": "q1",
+            "gate": "cz",
+        },
+        "column": "coupler_amplitude",
+        "accepted_center": pytest.approx(0.2),
+        "scanned_values": pytest.approx((0.16, 0.2, 0.24)),
     }
     assert cz_summary["measurement"] == {
         "run_id": cz_run.id,

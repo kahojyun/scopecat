@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import cast
+
 import pytest
 
 import scopecat as sc
@@ -14,6 +17,7 @@ from scopecat.compiler.frontend.scan_lowering import (
     lower_scan_point_domain,
     lower_scan_points,
 )
+from scopecat.compiler.relations.model import ParameterLookupUse
 from scopecat.compiler.relations.point_domain import (
     PointAxisLinear,
     PointAxisValues,
@@ -63,6 +67,63 @@ def test_around_scan_keeps_only_its_typed_center_as_authoring_data() -> None:
     assert axis.source.span == Quantity(value=2.0, unit="GHz")
     assert axis.source.count == 5
     assert point_domain_intent_free_point_input_ids(axis) == frozenset({"center"})
+
+
+def test_parameter_around_scan_uses_the_selected_cell_as_its_center() -> None:
+    axis = lower_scan_points(
+        sc.param_axis(
+            _point("frequency"),
+            sc.param_row("device_parameters", device="q0"),
+            "frequency",
+            span="200 MHz",
+            points=5,
+        )
+    )
+
+    assert isinstance(axis.source, PointAxisLinear)
+    assert axis.source.center.value_type == _FREQUENCY
+    assert axis.source.span == Quantity(value=200.0, unit="MHz")
+    assert axis.source.count == 5
+    [lookup] = tuple(
+        contract
+        for contract in point_domain_intent_parameter_contracts(axis)
+        if isinstance(contract, ParameterLookupUse)
+    )
+    assert lookup.table_id == "device_parameters"
+    assert lookup.column_id == "frequency"
+    assert lookup.result_type == _FREQUENCY
+
+
+def test_parameter_scan_forms_are_mutually_exclusive_and_complete() -> None:
+    target = _point("frequency")
+    row = sc.param_row("device_parameters", device="q0")
+    unchecked_param_axis = cast("Callable[..., sc.Scan]", sc.param_axis)
+
+    with pytest.raises(ValueError, match="either values or span/points"):
+        unchecked_param_axis(
+            target,
+            row,
+            "frequency",
+            [4.9, 5.1],
+            unit="GHz",
+            span="200 MHz",
+            points=3,
+        )
+    with pytest.raises(ValueError, match="requires span and points"):
+        unchecked_param_axis(target, row, "frequency", span="200 MHz")
+    with pytest.raises(ValueError, match="requires values or span and points"):
+        unchecked_param_axis(target, row, "frequency")
+
+
+def test_parameter_around_scan_requires_a_quantity_point() -> None:
+    with pytest.raises(TypeError, match="typed quantity point"):
+        sc.param_axis(
+            sc.point("gain", sc.ScalarType(sc.FloatType())),
+            sc.param_row("device_parameters", device="q0"),
+            "gain",
+            span="0.2 ratio",
+            points=3,
+        )
 
 
 def test_dependent_scan_closes_only_the_right_linear_center_requirement() -> None:

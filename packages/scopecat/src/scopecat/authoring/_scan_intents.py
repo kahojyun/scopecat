@@ -68,8 +68,10 @@ class ParameterScanIntent(Scan):
     table_id: str
     key: tuple[tuple[str, ParameterKeyInput], ...]
     column: str
-    values: tuple[ScanValue, ...]
+    values: tuple[ScanValue, ...] = ()
     unit: str | None = None
+    span: Quantity | str | None = None
+    point_count: int | None = None
     parameter_contracts: tuple[ParameterContract, ...] = ()
 
 

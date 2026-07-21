@@ -359,7 +359,7 @@ def _scan_length_problems(
             [],
         )
     if isinstance(scan, ParameterScanIntent):
-        return len(scan.values), []
+        return len(scan.values) if scan.values else scan.point_count or 0, []
     if not isinstance(scan, ScanGroupIntent):
         return 0, []
 

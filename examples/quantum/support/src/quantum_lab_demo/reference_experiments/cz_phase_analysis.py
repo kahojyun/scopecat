@@ -11,11 +11,15 @@ import numpy as np
 import scopecat as sc
 from scopecat import Quantity
 
+from quantum_lab_demo.virtual_lab.parameters import (
+    CZ_AMPLITUDE_PARAMETER_COLUMN,
+    TWO_QUBIT_GATE_PARAMETER_TABLE,
+    q0_q1_cz_parameter_key,
+)
+
 CZ_PHASE_ANALYSIS_KEY = "cz-conditional-phase"
 CZ_PHASE_FIT_MODEL_ID = "quantum_lab_demo.cz_phase.sinusoid.v1"
 CZ_PHASE_PROPOSAL_ID = "q0-q1-cz-coupler-amplitude"
-CZ_PARAMETER_TABLE = "two_qubit_gates"
-CZ_AMPLITUDE_COLUMN = "coupler_amplitude"
 
 _MAX_PHASE_ERROR = 0.20
 _MIN_CONTRAST = 0.75
@@ -257,13 +261,9 @@ def analyze_cz_phase_run(run: sc.RunHandle) -> CzPhaseRunAnalysis:
         analysis = analysis.propose(
             proposal_id,
             sc.update_parameter_rows(
-                CZ_PARAMETER_TABLE,
-                key={
-                    "control_qubit": "q0",
-                    "partner_qubit": "q1",
-                    "gate": "cz",
-                },
-                values={CZ_AMPLITUDE_COLUMN: fit.selected.amplitude},
+                TWO_QUBIT_GATE_PARAMETER_TABLE,
+                key=q0_q1_cz_parameter_key(),
+                values={CZ_AMPLITUDE_PARAMETER_COLUMN: fit.selected.amplitude},
             ),
             reason=(
                 "Conditional-phase Ramsey selected the q0-q1 coupler amplitude "
@@ -401,8 +401,6 @@ def _bounded(value: float) -> float:
 
 
 __all__ = [
-    "CZ_AMPLITUDE_COLUMN",
-    "CZ_PARAMETER_TABLE",
     "CZ_PHASE_ANALYSIS_KEY",
     "CZ_PHASE_FIT_MODEL_ID",
     "CZ_PHASE_PROPOSAL_ID",

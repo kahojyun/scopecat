@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import scopecat as sc
 
-from quantum_lab_demo.experiments.ids import (
+from quantum_lab_demo.virtual_lab.parameters import (
     QUBIT_PARAMETER_TABLE,
     TWO_QUBIT_GATE_PARAMETER_TABLE,
 )

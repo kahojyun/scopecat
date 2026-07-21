@@ -13,6 +13,7 @@ from scopecat.records.parameter import (
     TableParameterValue,
 )
 from tests.testkit.authoring import load_config
+from tests.testkit.materialized_effects import materialized_effects_contract
 
 
 def _identity(value: object) -> object:
@@ -374,6 +375,51 @@ def test_parameter_scan_retains_row_key_parameter_contracts() -> None:
         )
 
     assert error.value.problems[0].code == "authoring_parameter_type_mismatch"
+
+
+def test_parameter_around_scan_materializes_about_the_current_table_cell() -> None:
+    config = _config_with_parameter_table()
+    frequency = sc.point(
+        "scanned_frequency",
+        sc.ScalarType(sc.QuantityType(unit="GHz")),
+    )
+    invocation = (
+        sc.module("test.parameter-around-scan")
+        .build()
+        .template(
+            "test.parameter-around-scan",
+            kind="parameter_contract",
+        )
+        .scan(
+            sc.param_axis(
+                frequency,
+                sc.param_row("device_parameters", device="q0"),
+                "frequency",
+                span="200 MHz",
+                points=3,
+            )
+        )
+        .build()
+        .bind()
+    )
+
+    resolved = resolve_experiment(invocation, config_profile=config)
+    materialized = materialized_effects_contract(
+        resolved.experiment,
+        resolved.parameters,
+        config=config,
+    )
+
+    scanned = [point.coordinates["scanned_frequency"] for point in materialized.points]
+    assert scanned == [
+        sc.Quantity(4.9, "GHz"),
+        sc.Quantity(5.0, "GHz"),
+        sc.Quantity(5.1, "GHz"),
+    ]
+    assert len(resolved.experiment.parameter_overlays) == 1
+    stored = config.parameter_snapshot.get("device_parameters")
+    assert isinstance(stored, TableParameterValue)
+    assert stored.rows[0]["frequency"] == sc.Quantity(5.0, "GHz")
 
 
 def test_parameter_lookup_checks_table_column_and_entity_type() -> None:

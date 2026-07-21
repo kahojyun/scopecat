@@ -13,17 +13,11 @@ from scopecat_quantum import (
     FluxSignal,
     ImplementedGatePulseEventProvenance,
     Play,
-    TargetCompileEntryId,
-    TargetCompilerId,
-    compile_target,
-    prepare_quantum_target_batch,
 )
 from scopecat_quantum import authoring as quantum
 
-from quantum_lab_demo import quantum_lab
+from quantum_lab_demo import quantum_lab, quantum_lab_compiler
 from quantum_lab_demo.reference_experiments.cz_phase_analysis import (
-    CZ_AMPLITUDE_COLUMN,
-    CZ_PARAMETER_TABLE,
     CZ_PHASE_PROPOSAL_ID,
     analyze_cz_phase_run,
 )
@@ -34,16 +28,20 @@ from quantum_lab_demo.reference_experiments.cz_phase_calibration import (
     CZ_CANDIDATE_ID,
     CZ_FLUX_PULSE_TEMPLATE,
     cz_conditional_phase_program,
-    prepare_cz_phase_entry,
 )
 from quantum_lab_demo.reference_experiments.cz_phase_experiment import (
+    ANALYZER_PHASE,
+    CONTROL_STATE,
+    CZ_AMPLITUDE,
     CZ_PHASE_CAPTURE_MODULE,
+    CZ_PHASE_PROGRAM,
     CZ_PHASE_TEMPLATE,
-    CzPhaseDomainCompiler,
 )
-from quantum_lab_demo.targets.fake_list_mode import (
-    FakeListTargetCompiler,
-    default_fake_list_target,
+from quantum_lab_demo.virtual_lab.parameters import (
+    CZ_AMPLITUDE_PARAMETER_COLUMN,
+    TWO_QUBIT_GATE_PARAMETER_TABLE,
+    q0_q1_cz_amplitude_lookup,
+    q0_q1_cz_row,
 )
 
 
@@ -52,14 +50,39 @@ def _entity_id(value: object) -> str:
     return value.id
 
 
-def test_cz_phase_program_keeps_two_qubit_gate_and_coupler_pulse_provenance() -> None:
+def _compiled_cz_point(
+    tmp_path: Path,
+    *,
+    control_state: int,
+    analyzer_phase: Quantity,
+):
+    compiler = quantum_lab_compiler()
+    lab = quantum_lab(workspace=tmp_path, compiler=compiler)
+    scan = sc.cartesian(
+        sc.param_axis(
+            CZ_AMPLITUDE,
+            q0_q1_cz_row(),
+            CZ_AMPLITUDE_PARAMETER_COLUMN,
+            (Quantity(0.24, "arb"),),
+        ),
+        sc.axis(CONTROL_STATE, (control_state,)),
+        sc.axis(ANALYZER_PHASE, (analyzer_phase,)),
+    )
+    lab.prepare(CZ_PHASE_TEMPLATE).scan(scan).run()
+    [preparation] = compiler.trace.preparations(CZ_PHASE_PROGRAM.id)
+    [prepared] = preparation.entries
+    [artifact_entry] = preparation.artifact.entries
+    return prepared, artifact_entry
+
+
+def test_cz_phase_program_keeps_two_qubit_gate_and_coupler_pulse_provenance(
+    tmp_path: Path,
+) -> None:
     declaration = cz_conditional_phase_program()
-    prepared = prepare_cz_phase_entry(
-        declaration,
-        amplitude=Quantity(0.24, "arb"),
+    prepared, _artifact_entry = _compiled_cz_point(
+        tmp_path,
         control_state=1,
         analyzer_phase=Quantity(math.pi / 2.0, "rad"),
-        entry_id=TargetCompileEntryId("cz-phase-golden"),
     )
 
     assert set(declaration.inputs) == {
@@ -92,31 +115,20 @@ def test_cz_phase_program_keeps_two_qubit_gate_and_coupler_pulse_provenance() ->
         if isinstance(provenance, CircuitPulseEventProvenance)
     )
     assert tuple(value.calibration_id.value for value in calibrated) == (
-        "cz-phase.baseline.x.q0",
+        "fake-x-count-x-q0",
         "cz-phase.baseline.x90.q1",
         "cz-phase.baseline.x90.q1",
     )
 
 
-def test_cz_phase_point_compiles_coupler_flux_on_the_target_channel() -> None:
-    prepared = prepare_cz_phase_entry(
-        cz_conditional_phase_program(),
-        amplitude=Quantity(0.24, "arb"),
+def test_cz_phase_point_compiles_coupler_flux_on_the_target_channel(
+    tmp_path: Path,
+) -> None:
+    _prepared, entry = _compiled_cz_point(
+        tmp_path,
         control_state=0,
         analyzer_phase=Quantity(0, "rad"),
-        entry_id=TargetCompileEntryId("cz-phase-waveform"),
     )
-    target = default_fake_list_target()
-    compiler = FakeListTargetCompiler(TargetCompilerId("cz-phase-test.v1"), target)
-    batch = prepare_quantum_target_batch(
-        (prepared,),
-        target_id=target.id,
-        compiler_id=compiler.id,
-        capability_fingerprint=target.capability_fingerprint,
-        repetitions=1,
-    )
-
-    [entry] = compile_target(compiler, batch.request).artifact.entries
     flux = next(
         waveform
         for waveform in entry.waveforms
@@ -142,12 +154,9 @@ def test_cz_phase_workspace_run_fits_pi_and_authors_candidate_proposal(
         "bind_domain_inputs",
         reject_input_binding,
     )
-    compiler = CzPhaseDomainCompiler()
-    lab = quantum_lab(workspace=tmp_path)
-    prepared = lab.prepare(
-        CZ_PHASE_TEMPLATE,
-        system=sc.ExperimentSystem(domain_compiler=compiler),
-    )
+    compiler = quantum_lab_compiler()
+    lab = quantum_lab(workspace=tmp_path, compiler=compiler)
+    prepared = lab.prepare(CZ_PHASE_TEMPLATE)
 
     preview = prepared.preview()
     run = prepared.run()
@@ -161,7 +170,11 @@ def test_cz_phase_workspace_run_fits_pi_and_authors_candidate_proposal(
         "analyzer_phase",
     )
     assert run.manifest.status == "completed"
-    assert compiler.physical_execution_count == 1
+    assert compiler.trace.physical_execution_count == 1
+    [evidence] = compiler.trace.preparations(CZ_PHASE_PROGRAM.id)
+    assert evidence.program_id == cz_conditional_phase_program().id
+    assert len(evidence.points) == len(evidence.entries) == 24
+    assert evidence.artifact_fingerprint.startswith("sha256:")
     assert len(records) == 24
     assert len(result.observations) == 24
     assert float(result.fit.selected.amplitude.to("arb").value) == pytest.approx(0.24)
@@ -174,7 +187,7 @@ def test_cz_phase_workspace_run_fits_pi_and_authors_candidate_proposal(
 
     [proposal] = result.analysis.parameter_proposals
     [delta] = proposal.deltas
-    assert delta.parameter_id == CZ_PARAMETER_TABLE
+    assert delta.parameter_id == TWO_QUBIT_GATE_PARAMETER_TABLE
     assert isinstance(delta.after, TableParameterValue)
     q0_q1 = next(
         row
@@ -183,7 +196,7 @@ def test_cz_phase_workspace_run_fits_pi_and_authors_candidate_proposal(
         and _entity_id(row["partner_qubit"]) == "q1"
         and row["gate"] == "cz"
     )
-    assert q0_q1[CZ_AMPLITUDE_COLUMN] == result.fit.selected.amplitude
+    assert q0_q1[CZ_AMPLITUDE_PARAMETER_COLUMN] == result.fit.selected.amplitude
     saved = result.analysis.save()
     assert saved.record.id == "analysis-cz-conditional-phase"
 
@@ -200,5 +213,9 @@ def test_cz_phase_capture_uses_one_quantum_program_without_payload_compute() -> 
         "control_state",
         "coupler_amplitude",
         "analyzer_phase",
+    )
+    assert (
+        dict(execution.input_bindings)["coupler_amplitude"]
+        == q0_q1_cz_amplitude_lookup()
     )
     assert body.operations == ()

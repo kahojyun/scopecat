@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import scopecat as sc
 from scopecat import Quantity
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.entity import EntityRef
@@ -14,20 +13,21 @@ from scopecat_quantum import (
 )
 from scopecat_quantum import authoring as quantum
 
-from quantum_lab_demo import quantum_lab
+from quantum_lab_demo import quantum_lab, quantum_lab_compiler
 from quantum_lab_demo.reference_experiments.drag_beta_calibration import (
     DRAG_GATE_PULSE_TEMPLATE,
     XM90_CALIBRATION_ID,
 )
 from quantum_lab_demo.reference_experiments.production_drag_gate import (
-    ACTIVE_DRAG_BETA,
     PRODUCTION_DRAG_BETA_INPUT,
     PRODUCTION_DRAG_GATE_TEMPLATE,
+    PRODUCTION_DRAG_PROGRAM,
     TRUSTED_REFERENCE_BETA,
-    ProductionDragGateCompiler,
     production_drag_gate_program,
-    trusted_xm90_calibration_catalog,
+    production_x90_event_id,
+    trusted_xm90_event_id,
 )
+from quantum_lab_demo.virtual_lab.parameters import q0_drag_beta_lookup
 from quantum_lab_demo.virtual_lab.wiring import quantum_wiring_config_profile
 
 
@@ -46,10 +46,7 @@ def test_production_drag_gate_authors_config_lookup_into_program_input() -> None
     assert isinstance(program.body, quantum.Program)
     assert program.body.inputs == (PRODUCTION_DRAG_BETA_INPUT,)
     assert tuple(port.id for port in program.input_ports) == ("drag_beta",)
-    assert execution.input_bindings == (("drag_beta", ACTIVE_DRAG_BETA),)
-
-    [reference] = trusted_xm90_calibration_catalog().gates.entries
-    assert reference.id == XM90_CALIBRATION_ID
+    assert execution.input_bindings == (("drag_beta", q0_drag_beta_lookup()),)
 
 
 def test_active_drag_beta_changes_only_production_compiled_segment(
@@ -58,20 +55,21 @@ def test_active_drag_beta_changes_only_production_compiled_segment(
     baseline_config = quantum_wiring_config_profile()
     active_beta = Quantity(0.8, "ns")
     active_config = _with_q0_drag_beta(baseline_config, active_beta)
-    lab = quantum_lab(workspace=tmp_path, config_profile=baseline_config)
+    compiler = quantum_lab_compiler()
+    lab = quantum_lab(
+        workspace=tmp_path,
+        config_profile=baseline_config,
+        compiler=compiler,
+    )
 
     baseline_activation = lab.activate_config(
         baseline_config,
         entry_id="production-drag-baseline",
         expected_generation=0,
     )
-    baseline_compiler = ProductionDragGateCompiler()
     baseline_run = lab.prepare(
         PRODUCTION_DRAG_GATE_TEMPLATE,
         config="active",
-        system=sc.ExperimentSystem(
-            domain_compiler=baseline_compiler,
-        ),
     ).run()
 
     active_activation = lab.activate_config(
@@ -79,51 +77,70 @@ def test_active_drag_beta_changes_only_production_compiled_segment(
         entry_id="production-drag-active",
         expected_generation=baseline_activation.active_state.generation,
     )
-    active_compiler = ProductionDragGateCompiler()
     active_run = lab.prepare(
         PRODUCTION_DRAG_GATE_TEMPLATE,
         config="active",
-        system=sc.ExperimentSystem(
-            domain_compiler=active_compiler,
-        ),
     ).run()
     rollback = lab.rollback(
         expected_generation=active_activation.active_state.generation,
         note="restore production DRAG baseline",
     )
-    restored_compiler = ProductionDragGateCompiler()
     restored_run = lab.prepare(
         PRODUCTION_DRAG_GATE_TEMPLATE,
         config="active",
-        system=sc.ExperimentSystem(
-            domain_compiler=restored_compiler,
-        ),
     ).run()
 
-    [baseline] = baseline_compiler.preparations
-    [active] = active_compiler.preparations
-    [restored] = restored_compiler.preparations
-    assert isinstance(baseline_compiler.preparations, tuple)
-    assert baseline.resolved_drag_beta == TRUSTED_REFERENCE_BETA
-    assert active.resolved_drag_beta == active_beta
-    assert baseline.production_samples != active.production_samples
-    assert baseline.trusted_reference_samples == active.trusted_reference_samples
-    assert active.trusted_reference_samples == restored.trusted_reference_samples
-    assert restored.resolved_drag_beta == baseline.resolved_drag_beta
-    assert restored.production_samples == baseline.production_samples
-    assert restored.artifact_fingerprint == baseline.artifact_fingerprint
-    assert len(baseline.production_samples) == 16
-    assert len(baseline.trusted_reference_samples) == 16
-    assert tuple(sample.real for sample in baseline.production_samples) == tuple(
-        sample.real for sample in active.production_samples
+    baseline, active, restored = compiler.trace.preparations(PRODUCTION_DRAG_PROGRAM.id)
+    assert isinstance(compiler.trace.preparations(PRODUCTION_DRAG_PROGRAM.id), tuple)
+    [baseline_entry] = baseline.entries
+    [active_entry] = active.entries
+    [restored_entry] = restored.entries
+    baseline_production = baseline.event_samples(
+        baseline_entry,
+        production_x90_event_id(baseline_entry),
     )
-    assert tuple(sample.imag for sample in baseline.production_samples) != tuple(
-        sample.imag for sample in active.production_samples
+    active_production = active.event_samples(
+        active_entry,
+        production_x90_event_id(active_entry),
+    )
+    restored_production = restored.event_samples(
+        restored_entry,
+        production_x90_event_id(restored_entry),
+    )
+    baseline_reference = baseline.event_samples(
+        baseline_entry,
+        trusted_xm90_event_id(baseline_entry),
+    )
+    active_reference = active.event_samples(
+        active_entry,
+        trusted_xm90_event_id(active_entry),
+    )
+    restored_reference = restored.event_samples(
+        restored_entry,
+        trusted_xm90_event_id(restored_entry),
+    )
+    assert baseline.points[0].value("drag_beta") == TRUSTED_REFERENCE_BETA
+    assert active.points[0].value("drag_beta") == active_beta
+    assert baseline_production != active_production
+    assert baseline_reference == active_reference
+    assert active_reference == restored_reference
+    assert restored.points[0].value("drag_beta") == baseline.points[0].value(
+        "drag_beta"
+    )
+    assert restored_production == baseline_production
+    assert restored.artifact_fingerprint == baseline.artifact_fingerprint
+    assert len(baseline_production) == 16
+    assert len(baseline_reference) == 16
+    assert tuple(sample.real for sample in baseline_production) == tuple(
+        sample.real for sample in active_production
+    )
+    assert tuple(sample.imag for sample in baseline_production) != tuple(
+        sample.imag for sample in active_production
     )
 
     [production] = tuple(
         origin.provenance
-        for origin in active.entry.event_origins
+        for origin in active_entry.event_origins
         if isinstance(origin.provenance, ImplementedGatePulseEventProvenance)
     )
     assert production.gate_id == GateId("x90")
@@ -132,7 +149,7 @@ def test_active_drag_beta_changes_only_production_compiled_segment(
 
     [trusted] = tuple(
         origin.provenance
-        for origin in active.entry.event_origins
+        for origin in active_entry.event_origins
         if isinstance(origin.provenance, CircuitPulseEventProvenance)
     )
     assert trusted.calibration_id == XM90_CALIBRATION_ID
@@ -142,8 +159,7 @@ def test_active_drag_beta_changes_only_production_compiled_segment(
     active_records = active_run.data().measurements().dataset.records
     assert [point.coordinates for point in baseline_records] == [{}]
     assert [point.coordinates for point in active_records] == [{}]
-    assert baseline_compiler.physical_execution_count == 1
-    assert active_compiler.physical_execution_count == 1
+    assert compiler.trace.physical_execution_count == 3
     assert baseline_run.manifest.config_source is not None
     assert active_run.manifest.config_source is not None
     assert baseline_run.manifest.config_source.entry_id == baseline_activation.entry.id

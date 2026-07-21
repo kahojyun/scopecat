@@ -9,10 +9,6 @@ import numpy as np
 import scopecat as sc
 from numpy.typing import NDArray
 
-from quantum_lab_demo.experiments.ids import (
-    QUBIT_PARAMETER_TABLE,
-    TWO_QUBIT_GATE_PARAMETER_TABLE,
-)
 from quantum_lab_demo.experiments.payloads import (
     BackendBatchJob,
     CzChevronProgram,
@@ -28,6 +24,10 @@ from quantum_lab_demo.experiments.payloads import (
     RenderedWaveformBundle,
     RepeatedMeasurementProgram,
     SurfaceCodeRoundProgram,
+)
+from quantum_lab_demo.virtual_lab.parameters import (
+    QUBIT_PARAMETER_TABLE,
+    TWO_QUBIT_GATE_PARAMETER_TABLE,
 )
 
 

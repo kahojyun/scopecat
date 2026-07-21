@@ -1,4 +1,4 @@
-"""Keep the laboratory reference adapter on the supported domain SDK surface."""
+"""Keep the laboratory compiler integration on the supported domain SDK."""
 
 from __future__ import annotations
 

@@ -6,15 +6,28 @@ from __future__ import annotations
 import math
 
 import scopecat as sc
-from quantum_lab_demo import notebook_workspace, quantum_lab
+from quantum_lab_demo import (
+    QuantumLabCompiler,
+    notebook_workspace,
+    quantum_lab,
+)
 from quantum_lab_demo.reference_experiments import (
-    CZ_AMPLITUDE_COLUMN,
+    CZ_AMPLITUDE,
+    CZ_AMPLITUDE_POINTS,
+    CZ_AMPLITUDE_SPAN,
     CZ_CANDIDATE_ID,
     CZ_FLUX_PULSE_TEMPLATE,
     CZ_PHASE_TEMPLATE,
-    CzPhaseDomainCompiler,
     analyze_cz_phase_run,
     cz_conditional_phase_program,
+)
+from quantum_lab_demo.reference_experiments.cz_phase_experiment import (
+    CZ_PHASE_PROGRAM,
+)
+from quantum_lab_demo.virtual_lab import (
+    CZ_AMPLITUDE_PARAMETER_COLUMN,
+    TWO_QUBIT_GATE_PARAMETER_TABLE,
+    q0_q1_cz_row,
 )
 from scopecat.records.parameter import TableParameterValue
 from scopecat_quantum import ImplementedGatePulseEventProvenance
@@ -57,11 +70,18 @@ print(authoring_summary)
 # experiment. No payload compute or direct target compiler call appears here.
 workspace = notebook_workspace("15-cz-conditional-phase")
 lab = quantum_lab(workspace=workspace)
-compiler = CzPhaseDomainCompiler()
-prepared = lab.prepare(
-    CZ_PHASE_TEMPLATE,
-    system=sc.ExperimentSystem(domain_compiler=compiler),
+system = lab.system
+assert system is not None
+compiler = system.domain_compiler
+assert isinstance(compiler, QuantumLabCompiler)
+cz_parameter_scan = sc.param_axis(
+    CZ_AMPLITUDE,
+    q0_q1_cz_row(),
+    CZ_AMPLITUDE_PARAMETER_COLUMN,
+    span=CZ_AMPLITUDE_SPAN,
+    points=CZ_AMPLITUDE_POINTS,
 )
+prepared = lab.prepare(CZ_PHASE_TEMPLATE).scan(cz_parameter_scan)
 preview = prepared.preview()
 run = prepared.run(
     name="CZ conditional-phase Ramsey",
@@ -78,21 +98,21 @@ measurement_summary = {
     "coordinates": preview.coordinate_ids,
     "records": len(records),
     "observables": tuple(sorted(records[0].observables)),
-    "physical_executions": compiler.physical_execution_count,
+    "physical_executions": compiler.trace.physical_execution_count,
 }
 print(measurement_summary)
 
 # %%
 # The prepared proof retains the semantic CZ call and its physical coupler
 # event. The target artifact maps that event onto the fake coupler AWG channel.
-reference = compiler.preparations[-1]
+reference = compiler.trace.preparations(CZ_PHASE_PROGRAM.id)[-1]
 candidate_origins = tuple(
     origin.provenance
     for entry in reference.entries
     for origin in entry.event_origins
     if isinstance(origin.provenance, ImplementedGatePulseEventProvenance)
 )
-artifact = reference.compiled_target.compiled.artifact
+artifact = reference.artifact
 flux_channels = tuple(
     sorted(
         {
@@ -121,7 +141,7 @@ physical_summary = {
         sorted({value.template_program_id.value for value in candidate_origins})
     ),
     "flux_channels": flux_channels,
-    "artifact_fingerprint": reference.compiled_target.compiled.artifact_fingerprint,
+    "artifact_fingerprint": reference.artifact_fingerprint,
 }
 print(physical_summary)
 
@@ -142,6 +162,34 @@ q0_q1 = next(
     and _entity_id(row["partner_qubit"]) == "q1"
     and row["gate"] == "cz"
 )
+parameter_table = run.config.parameter_snapshot.get(TWO_QUBIT_GATE_PARAMETER_TABLE)
+assert isinstance(parameter_table, TableParameterValue)
+accepted_q0_q1 = next(
+    row
+    for row in parameter_table.rows
+    if _entity_id(row["control_qubit"]) == "q0"
+    and _entity_id(row["partner_qubit"]) == "q1"
+    and row["gate"] == "cz"
+)
+scanned_amplitudes = tuple(
+    sorted(
+        {
+            _quantity_in_unit(point.coordinates["coupler_amplitude"], "arb")
+            for point in preview.points
+        }
+    )
+)
+parameter_scan_summary = {
+    "snapshot_id": run.config.parameter_snapshot.id,
+    "table": TWO_QUBIT_GATE_PARAMETER_TABLE,
+    "row": {"control_qubit": "q0", "partner_qubit": "q1", "gate": "cz"},
+    "column": CZ_AMPLITUDE_PARAMETER_COLUMN,
+    "accepted_center": _quantity_in_unit(
+        accepted_q0_q1[CZ_AMPLITUDE_PARAMETER_COLUMN],
+        "arb",
+    ),
+    "scanned_values": scanned_amplitudes,
+}
 fit_summary = {
     "selected_amplitude": float(result.fit.selected.amplitude.to("arb").value),
     "conditional_phase": result.fit.selected.conditional_phase,
@@ -152,7 +200,9 @@ fit_summary = {
     "quality_score": result.fit.quality_score,
     "failed_checks": result.fit.failed_checks,
     "proposal_id": result.proposal_id,
-    "candidate_amplitude": _quantity_in_unit(q0_q1[CZ_AMPLITUDE_COLUMN], "arb"),
+    "candidate_amplitude": _quantity_in_unit(
+        q0_q1[CZ_AMPLITUDE_PARAMETER_COLUMN], "arb"
+    ),
     "candidate_proposal_ids": candidate.proposal_ids,
     "analysis_record_id": saved.record.id,
 }
@@ -164,6 +214,7 @@ print(fit_summary)
 # %%
 summary = {
     "program": authoring_summary,
+    "parameter_scan": parameter_scan_summary,
     "measurement": measurement_summary,
     "physical": physical_summary,
     "fit": fit_summary,

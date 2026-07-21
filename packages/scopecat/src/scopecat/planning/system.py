@@ -99,7 +99,9 @@ class ExperimentSystem:
     Pairing the host provider with an optional domain compiler lets the same
     experiment definition be lowered against one coherent capability and
     resource environment. ``compile`` remains free of provider effects and
-    uses the same configuration snapshot accepted during linking.
+    uses the same configuration snapshot accepted during linking. The singular
+    domain compiler owns dispatch for every supported domain program in that
+    environment; lower-level target compilers remain its implementation detail.
     """
 
     provider: InstrumentProvider | None = field(default=None, repr=False)

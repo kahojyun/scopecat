@@ -58,6 +58,8 @@ record selection, labels, and metadata.
 ## Semantic Invariants
 
 - A run uses an accepted request and an identifiable configuration snapshot.
+- One `ExperimentSystem` owns one domain compiler; routing among supported
+  domain programs and physical targets is internal to that compiler.
 - Logical entity selection may vary by point; physical endpoint ownership may
   vary only through the finite mapping in that snapshot.
 - Every physical selection is deterministic and retained in execution
@@ -97,10 +99,17 @@ actions, acquisitions, and other external effects execute only from a
 `RunProgram`. Any concrete fallback is bounded by an explicit materialization
 limit.
 
+A parameter scan is one specialization path: `parameter_lookup` selects a cell
+from the accepted snapshot, and `param_axis` overlays it at each logical point.
+Host and domain placement observe the same overlaid value.
+
+Activating an approved proposal selects a new immutable snapshot for later
+specialization; it does not introduce another compiler or configuration path.
+
 ## Domain Lowering
 
 An experiment definition is independent of the `ExperimentSystem` that runs
-it. A domain compiler participates through three boundaries:
+it. Its domain compiler participates through three boundaries:
 
 1. `claim_resources` declares the target footprint used to form legal barriers.
 2. `compile` performs pure, bounded lowering over symbolic inputs and exact
@@ -112,6 +121,10 @@ Compilation may absorb supported constants, finite axes, pure computation, and
 product transforms. Unsupported work remains residual host work. Lowering must
 preserve logical points, lexical parameters, effect barriers, and complete
 result correlation, and may claim only work actually absorbed by the target.
+
+A domain compiler may call a lower-level target compiler after inputs have been
+resolved and a program has been lowered to target IR. That is an internal
+lowering stage, not another compiler selected on the `ExperimentSystem`.
 
 ## Effects and Physical Resources
 

@@ -2,8 +2,8 @@
 
 `quantum-lab-demo` is the local support package used by the runnable examples
 in `examples/quantum`. It contains reusable experiment definitions, analysis,
-virtual laboratory configuration, and target adapters so the notebooks can
-focus on the user workflow.
+virtual laboratory configuration, and one quantum lab compiler so the
+notebooks can focus on the user workflow.
 
 This is copyable example code, not a stable product API or a required layout
 for laboratory projects.
@@ -14,8 +14,13 @@ Inside `src/quantum_lab_demo/`:
 
 - `experiments/`: reusable experiment shapes and analysis steps.
 - `reference_experiments/`: complete calibration and production examples.
-- `targets/`: fake target compilation and execution.
-- `virtual_lab/`: demo wiring and instrument providers.
+- `lab.py`: the composition root for the configured demo environment.
+- `compiler.py`: the unified `QuantumLabCompiler` domain boundary.
+- `response_registry.py` and `trace.py`: fake-response selection and observable
+  preparation evidence kept outside compiler policy.
+- `targets/`: fake target lowering and execution.
+- `virtual_lab/`: wiring, parameter schema, accepted calibrations, deterministic
+  responses, and instrument providers.
 
 Focused behavior checks live in `tests/unit/`.
 

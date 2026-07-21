@@ -470,6 +470,12 @@ class DomainCompilation:
 class DomainCompiler(Protocol):
     """One experiment system's pure compiler and runtime preparation boundary.
 
+    Domain input normal forms and their binder come from accepted experiment
+    semantics; parameter lookup relations within them reflect the accepted
+    snapshot and any point-local overlays. Compiler implementations resolve
+    through the request boundary rather than a mutable parameter registry,
+    keeping check, preview, and run reproducible against the same semantics.
+
     ``claim_resources`` and ``compile`` must not inspect live state or perform
     effects. ``prepare`` may close target artifacts and runtime bindings for a
     selected single-use job, but submission remains an interpreter effect.
