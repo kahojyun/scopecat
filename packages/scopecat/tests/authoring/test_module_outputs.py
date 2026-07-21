@@ -6,6 +6,7 @@ import pytest
 
 import scopecat as sc
 from scopecat.authoring import ValueValidationError
+from scopecat.authoring._parameter_contracts import ParameterValueContract
 from scopecat.authoring._value_refs import (
     internal_value_ref_scalar_operation,
     internal_value_ref_source_kind,
@@ -479,9 +480,9 @@ def test_output_roots_preserve_free_inputs_and_value_provenance() -> None:
     assert [(port.id, port.value_type) for port in wrapper.ir.interface.imports] == [
         ("value", value_type)
     ]
-    assert [contract.parameter_id for contract in assembly.parameter_contracts] == [
-        "output_parameter"
-    ]
+    assert assembly.parameter_contracts == (
+        ParameterValueContract("output_parameter", value_type),
+    )
     assert [dependency.id for dependency in assembly.point_dependencies] == [
         "output_point"
     ]

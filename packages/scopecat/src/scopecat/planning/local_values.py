@@ -7,7 +7,7 @@ from typing import cast
 from scopecat.compiler.relations.analysis import PlanNode
 from scopecat.compiler.relations.evaluation import (
     EvalContext,
-    evaluate_relation_in_context,
+    evaluate_relation,
     evaluate_scalar,
     evaluate_series,
 )
@@ -37,7 +37,7 @@ def evaluate_value_expr(
             ctx,
         )
     if isinstance(value, TableValueExpr):
-        return evaluate_relation_in_context(
+        return evaluate_relation(
             cast("VerifiedRelationPlan[RelationExpr]", relation_plan),
             ctx,
         )

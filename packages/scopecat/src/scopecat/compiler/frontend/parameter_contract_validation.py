@@ -6,10 +6,10 @@ from collections.abc import Sequence
 
 from scopecat.authoring._parameter_contracts import (
     ParameterContract,
-    ParameterLookupContract,
     ParameterValueContract,
 )
 from scopecat.compiler.frontend.problems import raise_frontend_problem
+from scopecat.compiler.relations.model import ParameterLookupUse
 from scopecat.kernel.problems import ProblemCategory
 from scopecat.kernel.value_type_compatibility import describe_value_type, is_assignable
 from scopecat.kernel.value_types import Entity, String, Table, ValueType
@@ -23,7 +23,7 @@ def validate_parameter_contracts(
     """Validate typed dependencies against the selected unified catalog."""
 
     for contract in contracts:
-        if isinstance(contract, ParameterLookupContract):
+        if isinstance(contract, ParameterLookupUse):
             _validate_parameter_lookup(catalog, contract)
         else:
             _validate_parameter(catalog, contract)
@@ -55,15 +55,14 @@ def _validate_parameter(
 
 def _validate_parameter_lookup(
     catalog: ParameterCatalog,
-    contract: ParameterLookupContract,
+    contract: ParameterLookupUse,
 ) -> None:
-    definition = catalog.get(contract.parameter_id)
-    table_path = (contract.parameter_id,)
+    definition = catalog.get(contract.table_id)
+    table_path = (contract.table_id,)
     if definition is None:
         raise_frontend_problem(
             "unknown_authoring_parameter",
-            "experiment authoring references unknown parameter "
-            f"{contract.parameter_id}",
+            f"experiment authoring references unknown parameter {contract.table_id}",
             "parameters",
             path=table_path,
             category=ProblemCategory.NOT_FOUND,
@@ -82,8 +81,7 @@ def _validate_parameter_lookup(
     if column is None:
         raise_frontend_problem(
             "unknown_authoring_parameter_column",
-            f"parameter table {contract.parameter_id} has no column "
-            f"{contract.column_id}",
+            f"parameter table {contract.table_id} has no column {contract.column_id}",
             "parameters",
             path=column_path,
             category=ProblemCategory.NOT_FOUND,
@@ -91,16 +89,16 @@ def _validate_parameter_lookup(
     if not column.required:
         raise_frontend_problem(
             "authoring_parameter_lookup_column_optional",
-            f"parameter table {contract.parameter_id} lookup result column "
+            f"parameter table {contract.table_id} lookup result column "
             f"{contract.column_id} is not guaranteed to be present",
             "parameters",
             path=column_path,
         )
     _require_declared_type(
         actual=column.value_type,
-        declared=contract.value_type,
+        declared=contract.result_type,
         code="authoring_parameter_column_type_mismatch",
-        label=f"parameter table {contract.parameter_id} column {contract.column_id}",
+        label=f"parameter table {contract.table_id} column {contract.column_id}",
         path=column_path,
     )
 
@@ -120,23 +118,24 @@ def _require_table_definition(
 
 
 def _validate_parameter_lookup_key(
-    contract: ParameterLookupContract,
+    contract: ParameterLookupUse,
     table_type: Table,
 ) -> None:
-    table_path = (contract.parameter_id,)
-    if set(contract.key_columns) != set(table_type.primary_key) or len(
-        contract.key_columns
-    ) != len(table_type.primary_key):
+    table_path = (contract.table_id,)
+    key_columns = tuple(name for name, _value_type in contract.key_input_types)
+    if set(key_columns) != set(table_type.primary_key) or len(key_columns) != len(
+        table_type.primary_key
+    ):
         raise_frontend_problem(
             "authoring_parameter_lookup_key_mismatch",
-            f"parameter table {contract.parameter_id} lookup requires exactly the "
+            f"parameter table {contract.table_id} lookup requires exactly the "
             f"primary key columns {table_type.primary_key!r}; got "
-            f"{contract.key_columns!r}",
+            f"{key_columns!r}",
             "parameters",
             path=(*table_path, "key"),
         )
     columns = {column.id: column for column in table_type.columns}
-    for column_id, source_type in contract.key_types:
+    for column_id, source_type in contract.key_input_types:
         target_type = columns[column_id].value_type
         if is_assignable(source_type, target_type) or (
             column_id in contract.literal_key_columns
@@ -147,7 +146,7 @@ def _validate_parameter_lookup_key(
             continue
         raise_frontend_problem(
             "authoring_parameter_lookup_key_type_mismatch",
-            f"parameter table {contract.parameter_id} key column {column_id} requires "
+            f"parameter table {contract.table_id} key column {column_id} requires "
             f"{describe_value_type(target_type)}, got "
             f"{describe_value_type(source_type)}",
             "parameters",

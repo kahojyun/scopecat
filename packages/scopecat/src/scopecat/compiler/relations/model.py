@@ -16,6 +16,7 @@ from scopecat.compiler.relations.operators import ScalarOperator
 from scopecat.compiler.relations.scalar_eval import is_cell_value
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.symbols import SymbolId
+from scopecat.kernel.value_types import Scalar
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import Quantity
 
@@ -36,6 +37,33 @@ class RowScopeId:
 
     def prefixed(self, *scope: str) -> RowScopeId:
         return RowScopeId(self.symbol.prefixed(*scope))
+
+
+@dataclass(frozen=True, slots=True)
+class ParameterLookupUse:
+    """One selected typed lookup occurrence on a table parameter."""
+
+    table_id: str
+    key_input_types: tuple[tuple[str, Scalar], ...]
+    literal_key_columns: frozenset[str]
+    column_id: str
+    result_type: Scalar
+
+    def __post_init__(self) -> None:
+        if not self.table_id or not self.column_id:
+            msg = "parameter lookup table and result column ids must be non-empty"
+            raise ValueError(msg)
+        key_input_types = tuple(sorted(self.key_input_types, key=lambda item: item[0]))
+        key_ids = tuple(key for key, _value_type in key_input_types)
+        if any(not key for key in key_ids) or len(key_ids) != len(set(key_ids)):
+            msg = "parameter lookup key column ids must be non-empty and unique"
+            raise ValueError(msg)
+        literal_key_columns = frozenset(self.literal_key_columns)
+        if not literal_key_columns <= set(key_ids):
+            msg = "literal parameter lookup keys must belong to the lookup key"
+            raise ValueError(msg)
+        object.__setattr__(self, "key_input_types", key_input_types)
+        object.__setattr__(self, "literal_key_columns", literal_key_columns)
 
 
 class ScalarExpr:
@@ -134,9 +162,8 @@ class ParameterScalarExpr(ScalarExpr):
 
 @dataclass(frozen=True, slots=True)
 class ParameterLookupScalarExpr(ScalarExpr):
-    table_id: str
+    use: ParameterLookupUse
     key: dict[str, ScalarExpression]
-    column: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -315,21 +342,23 @@ def input_table(name: str) -> InputRelationExpr:
     return InputRelationExpr(name=name)
 
 
-def param(
-    parameter_or_table_id: str,
+def param(parameter_id: str) -> ParameterScalarExpr:
+    return ParameterScalarExpr(name=parameter_id)
+
+
+def parameter_lookup(
+    use: ParameterLookupUse,
     *,
-    key: Mapping[str, object] | None = None,
-    column: str | None = None,
-) -> ScalarExpression:
-    if key is None and column is None:
-        return ParameterScalarExpr(name=parameter_or_table_id)
-    if key is None or column is None:
-        msg = "parameter table lookup requires both key and column"
+    key: Mapping[str, object],
+) -> ParameterLookupScalarExpr:
+    key_ids = set(key)
+    expected_key_ids = {name for name, _value_type in use.key_input_types}
+    if key_ids != expected_key_ids:
+        msg = "parameter lookup key expressions must exactly match its typed key inputs"
         raise ValueError(msg)
     return ParameterLookupScalarExpr(
-        table_id=parameter_or_table_id,
+        use=use,
         key={name: as_scalar_expr(value) for name, value in key.items()},
-        column=column,
     )
 
 

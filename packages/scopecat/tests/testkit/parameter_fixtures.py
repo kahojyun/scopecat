@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from scopecat.compiler.relations.evaluation import ParameterRelationData
-from scopecat.compiler.relations.verification import ParameterLookupSignature
+from scopecat.compiler.relations.model import ParameterLookupUse
 from scopecat.kernel.value_types import Bool, Scalar, String, Table, TableColumn
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.records.parameter import Quantity
@@ -26,9 +26,10 @@ PARAMETER_TYPES = {
     "drive_channels": DRIVE_CHANNELS_TYPE,
     "readout_devices": READOUT_DEVICES_TYPE,
 }
-READOUT_FREQUENCY_LOOKUP = ParameterLookupSignature(
+READOUT_FREQUENCY_LOOKUP = ParameterLookupUse(
     table_id="readout_devices",
     key_input_types=(("device_id", Scalar(String())),),
+    literal_key_columns=frozenset(),
     column_id="frequency",
     result_type=Scalar(QuantityType(unit="GHz")),
 )

@@ -15,7 +15,6 @@ from scopecat.authoring._intents import (
 )
 from scopecat.authoring._parameter_contracts import (
     ParameterContract,
-    ParameterLookupContract,
     ParameterValueContract,
 )
 from scopecat.authoring._value_refs import (
@@ -45,7 +44,6 @@ from scopecat.compiler.relations.model import (
 )
 from scopecat.compiler.relations.scalar_eval import eval_binary
 from scopecat.compiler.relations.verification import (
-    ParameterLookupSignature,
     RelationPlanVerificationError,
     RelationTypeBindings,
     RowType,
@@ -244,16 +242,6 @@ class _SemanticGraphBuilder:
             for contract in parameter_contracts
             if isinstance(contract, ParameterValueContract)
         }
-        self._parameter_lookups = tuple(
-            ParameterLookupSignature(
-                table_id=contract.parameter_id,
-                key_input_types=contract.key_types,
-                column_id=contract.column_id,
-                result_type=contract.value_type,
-            )
-            for contract in parameter_contracts
-            if isinstance(contract, ParameterLookupContract)
-        )
         point_columns = tuple(
             TableColumn(dependency.id, dependency.value_type)
             for dependency in point_dependencies
@@ -806,7 +794,6 @@ class _SemanticGraphBuilder:
         bindings = RelationTypeBindings(
             inputs=self._input_types,
             parameters=self._parameter_types,
-            parameter_lookups=self._parameter_lookups,
             point_row=self._point_row,
             row_arguments=(
                 {row_scope_id: row_type}

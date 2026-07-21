@@ -15,10 +15,10 @@ from scopecat.compiler.frontend.environment import ValidatedConfigEnvironment
 from scopecat.compiler.relations.evaluation import (
     EvalContext,
     ParameterRelationData,
-    evaluate_relation_in_context,
+    evaluate_relation,
     evaluate_scalar,
     evaluate_series,
-    validate_relation_parameter_import,
+    normalize_relation_parameter_import,
 )
 from scopecat.compiler.relations.model import (
     RelationExpr,
@@ -43,14 +43,12 @@ from scopecat.compiler.typed.point_domain import (
     materialize_point_domain,
     materialize_point_domain_ordinals,
 )
-from scopecat.compiler.typed.products import ProductDef
 from scopecat.compiler.typed.program import (
     CoreProgram,
     TypedDomainExecution,
     ValueInput,
     core_domain_executions,
 )
-from scopecat.compiler.typed.records import RecordUse
 from scopecat.compiler.typed.specialization import specialize_core_program
 from scopecat.compiler.typed.verification import (
     ProgramRelationConsumer,
@@ -66,7 +64,6 @@ from scopecat.kernel.problems import (
     has_blocking_problems,
     model_location,
 )
-from scopecat.kernel.product_identity import ProductUse
 from scopecat.kernel.value_validation import ValueValidationError, coerce_literal
 from scopecat.records.entity import EntityRef
 
@@ -93,22 +90,6 @@ class LinkedPlan:
     def point_domain(self) -> VerifiedPointDomain:
         return self.verified_program.point_domain
 
-    @property
-    def product_defs(self) -> tuple[ProductDef, ...]:
-        return self.program.product_defs
-
-    @property
-    def product_uses(self) -> tuple[ProductUse, ...]:
-        return self.program.product_uses
-
-    @property
-    def record_uses(self) -> tuple[RecordUse, ...]:
-        return self.program.record_uses
-
-    @property
-    def cardinality(self) -> int:
-        return self.point_domain.cardinality
-
 
 @dataclass(frozen=True, slots=True)
 class MaterializedLinkedPoints:
@@ -126,24 +107,6 @@ class MaterializedLinkedPoints:
         if len(self.point_parameters) != len(self.point_domain.points):
             msg = "materialized points and parameter bindings must have equal length"
             raise ValueError(msg)
-
-    @property
-    def verified_program(self) -> VerifiedCoreProgram:
-        return self.linked_plan.verified_program
-
-
-def materialize_linked_points(
-    linked: LinkedPlan,
-    *,
-    block_size: int = 100_000,
-) -> MaterializedLinkedPoints:
-    """Materialize the logical point domain and parameter bindings.
-
-    Expected point-evaluation, value, and entity errors cross this planning
-    boundary as structured :class:`CheckFailed` problems.
-    """
-
-    return LinkedPointMaterializer(linked, block_size=block_size).materialize()
 
 
 @dataclass(slots=True)
@@ -167,11 +130,6 @@ class LinkedPointMaterializer:
         if type(self.block_size) is not int or self.block_size <= 0:
             raise ValueError("point materialization block size must be positive")
 
-    def point_count(self) -> int:
-        """Return the exact logical point count."""
-
-        return self.linked.cardinality
-
     def materialize_point_domain(self) -> MaterializedPointDomain:
         """Materialize canonical point rows without retaining point parameters."""
 
@@ -194,7 +152,7 @@ class LinkedPointMaterializer:
             raise ValueError("domain input binding budget must be positive")
         if len(selected) > max_points:
             raise ValueError("domain input binding exceeds the requested budget")
-        point_count = self.point_count()
+        point_count = self.linked.point_domain.cardinality
         if any(ordinal < 0 or ordinal >= point_count for ordinal in selected):
             raise ValueError("domain input binding selects an unknown ordinal")
         execution = next(
@@ -259,7 +217,7 @@ class LinkedPointMaterializer:
     def materialize(self) -> MaterializedLinkedPoints:
         """Close canonical points by bounded blocks, without domain inputs."""
 
-        cardinality = self.linked.cardinality
+        cardinality = self.linked.point_domain.cardinality
         if cardinality > self.block_size:
             points = tuple(
                 point
@@ -559,7 +517,7 @@ def _evaluate_domain_input(
             cast("VerifiedRelationPlan[SeriesExpr]", verified_plan),
             context,
         )
-    return evaluate_relation_in_context(
+    return evaluate_relation(
         cast("VerifiedRelationPlan[RelationExpr]", verified_plan),
         context,
     )
@@ -630,7 +588,7 @@ def _relation_import_problems(
                 problems.append(_unresolved_input_problem(consumer, imported.id))
                 continue
             try:
-                validate_relation_parameter_import(
+                normalize_relation_parameter_import(
                     plan,
                     imported,
                     parameters,

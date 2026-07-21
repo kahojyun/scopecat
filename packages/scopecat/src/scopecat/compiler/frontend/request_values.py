@@ -85,12 +85,12 @@ def project_run_request_scalar(expression: ScalarExpr) -> object:
     if isinstance(scalar, ParameterLookupScalarExpr):
         return {
             "kind": "parameter_lookup",
-            "table_id": scalar.table_id,
+            "table_id": scalar.use.table_id,
             "key": {
                 name: project_run_request_scalar(value)
                 for name, value in scalar.key.items()
             },
-            "column": scalar.column,
+            "column": scalar.use.column_id,
         }
     if isinstance(scalar, BinaryScalarExpr):
         return {

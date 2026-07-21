@@ -70,8 +70,8 @@ def evaluate_scalar_expression(expression: ScalarExpr, ctx: EvalContext) -> Cell
                 name: evaluate_scalar_expression(value, ctx)
                 for name, value in scalar.key.items()
             }
-            row = ctx.params.lookup_row(scalar.table_id, resolved_key)
-            return read_path(row, scalar.column)
+            row = ctx.params.lookup_row(scalar.use.table_id, resolved_key)
+            return read_path(row, scalar.use.column_id)
         case BinaryScalarExpr():
             return eval_binary(
                 scalar.op,

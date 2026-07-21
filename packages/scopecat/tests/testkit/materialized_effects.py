@@ -4,7 +4,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import replace
 
 from scopecat.compiler.frontend.environment import validate_config_environment
-from scopecat.compiler.linking.linked import materialize_linked_points
+from scopecat.compiler.linking.linked import LinkedPointMaterializer
 from scopecat.compiler.relations.evaluation import ParameterRelationData
 from scopecat.compiler.typed.program import CoreProgram
 from scopecat.execution.local.program import (
@@ -95,10 +95,12 @@ def measurement_projection_contract(
         validate_config_environment(config or load_config()),
         parameters=parameters,
     )
-    linked_points = materialize_linked_points(link_program(experiment, environment))
+    linked_points = LinkedPointMaterializer(
+        link_program(experiment, environment)
+    ).materialize()
     return select_measurement_projection(
         project_measurement_catalog(linked_points),
-        linked_points.linked_plan.record_uses,
+        linked_points.linked_plan.program.record_uses,
     )
 
 

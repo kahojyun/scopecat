@@ -4,8 +4,8 @@ from dataclasses import dataclass
 
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.linked import (
+    LinkedPointMaterializer,
     MaterializedLinkedPoints,
-    materialize_linked_points,
 )
 from scopecat.compiler.relations.point_domain import point_literal_rows
 from scopecat.compiler.typed.point_domain import PointDomain
@@ -142,9 +142,9 @@ def measurement_assembly_scenario(
         product_uses=uses,
         record_uses=tuple(records),
     )
-    linked_points = materialize_linked_points(
+    linked_points = LinkedPointMaterializer(
         link_program(program, validate_config_environment(load_config()))
-    )
+    ).materialize()
     return MeasurementAssemblyScenario(
         linked_points=linked_points,
         catalog=project_measurement_catalog(linked_points),

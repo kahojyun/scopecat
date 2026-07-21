@@ -228,7 +228,7 @@ def materialize_local_execution(
         raise ValueError("local target plan belongs to a different program")
     environment = linked.environment
     problems = list(environment.problems)
-    verified_program = linked_points.verified_program
+    verified_program = linked_points.linked_plan.verified_program
     implementations = target.implementations
     selected_compute_plan = verified_program.compute_plan
     variation = verified_program.variation_analysis
@@ -257,7 +257,7 @@ def materialize_local_execution(
     }
     rows = {ordinal: point.row for ordinal, point in point_by_ordinal.items()}
     ordinals = tuple(point.logical_ordinal for point in planner_points)
-    layout = linked_points.verified_program.iteration_layout
+    layout = linked_points.linked_plan.verified_program.iteration_layout
     resources_by_ordinal = _select_coverage_resources(
         program,
         target.resource_ports,

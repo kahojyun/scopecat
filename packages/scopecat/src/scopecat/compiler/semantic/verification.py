@@ -18,6 +18,7 @@ from scopecat.compiler.relations.analysis import (
     PlanReferenceKind,
 )
 from scopecat.compiler.relations.model import (
+    ParameterLookupUse,
     RelationExpr,
     RowScopeId,
     ScalarExpr,
@@ -28,11 +29,7 @@ from scopecat.compiler.relations.operators import (
     is_scalar_operator,
     scalar_operator_result_type,
 )
-from scopecat.compiler.relations.verification import (
-    ParameterLookupSignature,
-    PlanImportNamespace,
-    RowType,
-)
+from scopecat.compiler.relations.verification import PlanImportNamespace, RowType
 from scopecat.compiler.semantic.dependencies import (
     residual_operation_ids,
     residual_value_ids,
@@ -1546,7 +1543,7 @@ def _verify_plan_environment_consistency(
     ] = {}
     lookups: dict[
         tuple[str, tuple[str, ...], str],
-        tuple[ParameterLookupSignature, ValueId],
+        tuple[ParameterLookupUse, ValueId],
     ] = {}
     point_columns: dict[str, tuple[TableColumn, ValueId]] = {}
     reported: set[tuple[str, str]] = set()
@@ -1590,10 +1587,10 @@ def _verify_plan_environment_consistency(
                     problems,
                 )
 
-        point_row = source.used_row_signature[0]
-        if point_row is None:
+        point_requirement = source.verified_plan.external_row_interface.point
+        if point_requirement is None:
             continue
-        for column in point_row.columns:
+        for column in point_requirement.row_type.columns:
             previous_column = point_columns.get(column.id)
             if previous_column is None:
                 point_columns[column.id] = column, definition.id

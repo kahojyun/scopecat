@@ -697,7 +697,7 @@ def _program_relation_consumers_with_roles(
 ) -> Iterator[tuple[ProgramRelationConsumer, _PlanConsumerRole]]:
     """Enumerate consumers verified under one generic compiler row role."""
 
-    point_row = point_domain.row_type
+    point_row = RowType.from_table(point_domain.value_type)
     point_role = _PlanConsumerRole(point=point_row)
 
     for overlay_index, overlay in enumerate(program.parameter_overlays):

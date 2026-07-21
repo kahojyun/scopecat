@@ -348,6 +348,7 @@ def test_collections_cross_module_resource_entity_axis_with_provenance() -> None
     assert isinstance(rows.value, TableValueExpr)
     assert materialize_table_value(
         rows.value,
+        EvalContext(),
     ) == [
         {
             "control": EntityRef(id="q0"),
@@ -483,6 +484,7 @@ def test_declared_shapes_disambiguate_empty_table_and_series_of_records() -> Non
     assert (
         materialize_table_value(
             rows.value,
+            EvalContext(),
         )
         == []
     )
@@ -586,6 +588,7 @@ def test_same_name_inputs_pass_through_multiple_module_boundaries() -> None:
     assert isinstance(table.value, TableValueExpr)
     assert materialize_table_value(
         table.value,
+        EvalContext(),
     ) == [{"resource_id": "source-a", "base": 1.0}]
 
 

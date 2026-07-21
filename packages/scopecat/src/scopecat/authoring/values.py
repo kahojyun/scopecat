@@ -11,7 +11,6 @@ from uuid import UUID, uuid4
 
 from scopecat.authoring._frozen_values import freeze_runtime_input
 from scopecat.authoring._parameter_contracts import (
-    ParameterLookupContract,
     ParameterValueContract,
     merge_parameter_contracts,
 )
@@ -27,9 +26,13 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_point_dependencies,
 )
 from scopecat.compiler.relations.model import (
+    ParameterLookupUse,
     param,
     parameter_series,
     table,
+)
+from scopecat.compiler.relations.model import (
+    parameter_lookup as parameter_lookup_expr,
 )
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.payloads import PayloadValue
@@ -195,27 +198,25 @@ def parameter_lookup(
         else value
         for name, value in captured_key.items()
     }
+    lookup_use = ParameterLookupUse(
+        table_id=table_id,
+        key_input_types=tuple(
+            (name, _parameter_key_value_type(value))
+            for name, value in captured_key.items()
+        ),
+        literal_key_columns=frozenset(
+            name
+            for name, value in captured_key.items()
+            if not isinstance(value, ValueRef)
+        ),
+        column_id=column,
+        result_type=value_type,
+    )
     return internal_value_ref_from_expression(
-        param(table_id, key=expression_key, column=column),
+        parameter_lookup_expr(lookup_use, key=expression_key),
         value_type,
         parameter_contracts=merge_parameter_contracts(
-            (
-                ParameterLookupContract(
-                    parameter_id=table_id,
-                    key_columns=tuple(captured_key),
-                    key_types=tuple(
-                        (name, _parameter_key_value_type(value))
-                        for name, value in captured_key.items()
-                    ),
-                    literal_key_columns=frozenset(
-                        name
-                        for name, value in captured_key.items()
-                        if not isinstance(value, ValueRef)
-                    ),
-                    column_id=column,
-                    value_type=value_type,
-                ),
-            ),
+            (lookup_use,),
             *(
                 internal_value_ref_parameter_contracts(value)
                 for value in captured_key.values()

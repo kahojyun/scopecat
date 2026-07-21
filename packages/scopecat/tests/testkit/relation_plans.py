@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 
-from scopecat.compiler.relations.evaluation import (
-    EvalContext,
-    ParameterRelationData,
-)
+from scopecat.compiler.relations.evaluation import EvalContext
 from scopecat.compiler.relations.evaluation import (
     evaluate_relation as evaluate_selected_relation,
 )
@@ -207,11 +204,8 @@ def evaluate_series(
 
 def evaluate_relation(
     expression: RelationExpr,
-    params: ParameterRelationData | None = None,
+    ctx: EvalContext,
     *,
-    point_row: Row | None = None,
-    row_scopes: Mapping[RowScopeId, Row] | None = None,
-    inputs: Mapping[str, object] | None = None,
     bindings: RelationTypeBindings | None = None,
     expected_type: Table | None = None,
 ) -> list[Row]:
@@ -222,10 +216,7 @@ def evaluate_relation(
     )
     return evaluate_selected_relation(
         verified,
-        params,
-        point_row=point_row,
-        row_scopes=row_scopes,
-        inputs=inputs,
+        ctx,
     )
 
 
@@ -251,18 +242,11 @@ def materialize_series_value(
 
 def materialize_table_value(
     value: TableValueExpr,
-    params: ParameterRelationData | None = None,
-    *,
-    point_row: Row | None = None,
-    row_scopes: Mapping[RowScopeId, Row] | None = None,
-    inputs: Mapping[str, object] | None = None,
+    ctx: EvalContext,
 ) -> list[Row]:
     return evaluate_selected_relation(
         value.plan,
-        params,
-        point_row=point_row,
-        row_scopes=row_scopes,
-        inputs=inputs,
+        ctx,
     )
 
 

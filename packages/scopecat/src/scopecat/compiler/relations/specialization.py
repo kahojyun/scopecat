@@ -255,24 +255,23 @@ def _specialize_parameter_lookup(
         }
         matched = _matching_parameter_cell(
             parameter_cells,
-            table_id=expression.table_id,
+            table_id=expression.use.table_id,
             key=key,
-            column_id=expression.column,
+            column_id=expression.use.column_id,
         )
         if matched is not None:
             return specialize_scalar(matched.replacement, known=known)
         try:
-            row = known.params.lookup_row(expression.table_id, key)
-            value = read_path(row, expression.column)
+            row = known.params.lookup_row(expression.use.table_id, key)
+            value = read_path(row, expression.use.column_id)
         except _KNOWN_EVALUATION_ERRORS:
             pass
         else:
             return KnownScalar(deepcopy(value))
     return _residual(
         ParameterLookupScalarExpr(
-            table_id=expression.table_id,
+            use=expression.use,
             key={name: _expression(result) for name, result in key_results.items()},
-            column=expression.column,
         )
     )
 

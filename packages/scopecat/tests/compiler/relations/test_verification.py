@@ -5,6 +5,7 @@ import pytest
 from scopecat.compiler.relations.analysis import PlanNode
 from scopecat.compiler.relations.model import (
     LiteralRowsRelationExpr,
+    ParameterLookupUse,
     RelationExpr,
     RowScopeId,
     col,
@@ -14,6 +15,7 @@ from scopecat.compiler.relations.model import (
     lit,
     literal_rows,
     param,
+    parameter_lookup,
     parameter_series,
     point_col,
     table,
@@ -21,7 +23,6 @@ from scopecat.compiler.relations.model import (
 )
 from scopecat.compiler.relations.verification import (
     ExternalRowRequirement,
-    ParameterLookupSignature,
     RelationPlanVerificationError,
     RelationTypeBindings,
     RowType,
@@ -463,92 +464,86 @@ def _scoped_with_column(
     return source.with_columns(row_scope_id=scope, **{column: value})
 
 
-def test_lookup_signature_closes_a_projection_without_faking_a_table_schema() -> None:
-    signature = ParameterLookupSignature(
+def test_lookup_use_closes_a_projection_without_faking_a_table_schema() -> None:
+    use = ParameterLookupUse(
         table_id="calibration",
         key_input_types=(("device", STRING), ("mode", INT)),
+        literal_key_columns=frozenset({"device", "mode"}),
         column_id="gain",
         result_type=FLOAT,
     )
-    expression = param(
-        "calibration",
+    expression = parameter_lookup(
+        use,
         key={"mode": 1, "device": "q0"},
-        column="gain",
     )
 
-    verified = verify_relation_plan(
-        expression,
-        bindings=RelationTypeBindings(parameter_lookups=(signature,)),
-    )
+    verified = verify_relation_plan(expression)
 
     assert verified.certified_type == FLOAT
-    assert verified.imports[0].lookup == signature
+    assert verified.imports[0].lookup == use
     assert verified.imports[0].value_type == FLOAT
 
 
-def test_lookup_signatures_allow_distinct_literal_key_input_types() -> None:
-    signatures = (
-        ParameterLookupSignature(
+def test_lookup_occurrences_own_distinct_literal_key_input_types() -> None:
+    uses = (
+        ParameterLookupUse(
             table_id="calibration",
             key_input_types=(("device", Scalar(String(min_length=2, max_length=2))),),
+            literal_key_columns=frozenset({"device"}),
             column_id="gain",
             result_type=FLOAT,
         ),
-        ParameterLookupSignature(
+        ParameterLookupUse(
             table_id="calibration",
             key_input_types=(("device", Scalar(String(min_length=9, max_length=9))),),
+            literal_key_columns=frozenset({"device"}),
             column_id="gain",
             result_type=FLOAT,
         ),
     )
 
     verified = verify_relation_plan(
-        param("calibration", key={"device": "long-name"}, column="gain"),
-        bindings=RelationTypeBindings(parameter_lookups=signatures),
+        parameter_lookup(uses[0], key={"device": "q0"})
+        + parameter_lookup(uses[1], key={"device": "long-name"}),
     )
 
-    assert verified.imports[0].lookup == signatures[1]
+    assert {imported.lookup for imported in verified.imports} == set(uses)
 
 
-def test_single_lookup_signature_preserves_key_expression_errors() -> None:
-    signature = ParameterLookupSignature(
+def test_lookup_use_preserves_key_expression_errors() -> None:
+    use = ParameterLookupUse(
         table_id="calibration",
         key_input_types=(("device", STRING),),
+        literal_key_columns=frozenset(),
         column_id="gain",
         result_type=FLOAT,
     )
 
     with pytest.raises(RelationPlanVerificationError) as caught:
         verify_relation_plan(
-            param(
-                "calibration",
+            parameter_lookup(
+                use,
                 key={"device": input_ref("missing")},
-                column="gain",
             ),
-            bindings=RelationTypeBindings(parameter_lookups=(signature,)),
         )
 
     assert caught.value.code == "unknown_input"
     assert caught.value.path == ("key", "device")
 
 
-def test_lookup_signatures_reject_conflicting_result_contracts() -> None:
-    with pytest.raises(ValueError, match="result signatures conflict"):
-        RelationTypeBindings(
-            parameter_lookups=(
-                ParameterLookupSignature(
-                    table_id="calibration",
-                    key_input_types=(("device", STRING),),
-                    column_id="gain",
-                    result_type=FLOAT,
-                ),
-                ParameterLookupSignature(
-                    table_id="calibration",
-                    key_input_types=(("device", STRING),),
-                    column_id="gain",
-                    result_type=INT,
-                ),
-            )
+def test_lookup_expression_requires_exactly_its_declared_key_inputs() -> None:
+    use = ParameterLookupUse(
+        table_id="calibration",
+        key_input_types=(("device", STRING),),
+        literal_key_columns=frozenset(),
+        column_id="gain",
+        result_type=FLOAT,
+    )
+
+    with pytest.raises(ValueError, match="exactly match"):
+        parameter_lookup(
+            use,
+            key={"device": "q0", "mode": 1},
         )
 
 

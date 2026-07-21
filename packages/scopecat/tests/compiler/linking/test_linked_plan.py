@@ -10,17 +10,19 @@ from scopecat.compiler.frontend.environment import (
     validate_config_environment,
 )
 from scopecat.compiler.linking.linked import (
+    LinkedPointMaterializer,
     link_verified_program,
-    materialize_linked_points,
 )
 from scopecat.compiler.relations.evaluation import (
     ParameterRelationData,
 )
 from scopecat.compiler.relations.model import (
     CellValue,
+    ParameterLookupUse,
     ScalarExpr,
     input_ref,
     param,
+    parameter_lookup,
     point_col,
 )
 from scopecat.compiler.relations.point_domain import (
@@ -40,7 +42,6 @@ from scopecat.compiler.relations.point_domain import (
 )
 from scopecat.compiler.relations.uses import RelationUse, relation_use
 from scopecat.compiler.relations.verification import (
-    ParameterLookupSignature,
     RelationTypeBindings,
     RowType,
 )
@@ -91,6 +92,16 @@ from tests.testkit.typed_program import instrument_acquisition, link_program
 _FLOAT = Scalar(Float())
 _FREQUENCY = Scalar(QuantityType(unit="GHz"))
 _SPAN = Quantity(value=2.0, unit="GHz")
+
+
+def _lookup_use(table_id: str) -> ParameterLookupUse:
+    return ParameterLookupUse(
+        table_id=table_id,
+        key_input_types=(("key", Scalar(String())),),
+        literal_key_columns=frozenset({"key"}),
+        column_id="value",
+        result_type=_FREQUENCY,
+    )
 
 
 def _table(column: str, value_type: Scalar, rows: int) -> Table:
@@ -236,17 +247,13 @@ def test_link_retains_symbolic_backend_neutral_domain() -> None:
     second = linked.point_domain.root.factors[1]
     assert isinstance(second, PointDependentProduct)
     assert isinstance(second.right, PointZip)
-    assert linked.cardinality == 4
+    assert linked.point_domain.cardinality == 4
     assert tuple(column.id for column in linked.point_domain.coordinate_columns) == (
         "a",
         "b",
         "c",
         "d",
     )
-    assert linked.product_defs == program.product_defs
-    assert linked.program.effects == program.effects
-    assert linked.product_uses == program.product_uses
-    assert linked.record_uses == program.record_uses
     assert tuple(
         consumer.location.path
         for consumer in linked.verified_program.relation_consumers
@@ -267,7 +274,7 @@ def test_link_retains_unit_domain() -> None:
     linked = link_program(program, _environment())
 
     assert isinstance(linked.point_domain.root, PointUnit)
-    assert linked.cardinality == 1
+    assert linked.point_domain.cardinality == 1
     assert all(
         consumer.kind is not ProgramRelationConsumerKind.POINT_AXIS_CENTER
         for consumer in linked.verified_program.relation_consumers
@@ -295,9 +302,9 @@ def test_raw_link_retains_immutable_metadata_and_accepted_environment() -> None:
             cast("dict[str, object]", metadata)["mutated-source"] = True
 
     assert linked.program.metadata == {"owner": {"name": "original"}}
-    assert linked.product_defs[0].metadata == {"owner": "selected"}
+    assert linked.program.product_defs[0].metadata == {"owner": "selected"}
     assert acquisition.products[0].metadata == {"owner": "selected-producer"}
-    assert linked.record_uses[0].metadata == {"owner": "record"}
+    assert linked.program.record_uses[0].metadata == {"owner": "record"}
 
 
 def test_verified_link_reuses_proof_and_accepted_environment() -> None:
@@ -317,11 +324,13 @@ def test_unselected_product_definition_survives_link_without_collection() -> Non
     linked = link_program(program, _environment())
     plan = materialize_local_execution(linked)
 
-    selected_id, unselected_id = (product.id for product in linked.product_defs)
-    assert linked.product_defs == program.product_defs
-    assert tuple(use.product_id for use in linked.product_uses) == (selected_id,)
-    assert tuple(record.product_use_id for record in linked.record_uses) == (
-        linked.product_uses[0].id,
+    selected_id, unselected_id = (product.id for product in linked.program.product_defs)
+    assert linked.program.product_defs == program.product_defs
+    assert tuple(use.product_id for use in linked.program.product_uses) == (
+        selected_id,
+    )
+    assert tuple(record.product_use_id for record in linked.program.record_uses) == (
+        linked.program.product_uses[0].id,
     )
     assert {
         binding.product_id
@@ -397,21 +406,11 @@ def test_link_aggregates_environment_and_program_seal_problems() -> None:
             RelationTypeBindings(parameters={"definitely_missing": _FREQUENCY}),
         ),
         (
-            param(
-                "definitely_missing",
+            parameter_lookup(
+                _lookup_use("definitely_missing"),
                 key={"key": "selected"},
-                column="value",
             ),
-            RelationTypeBindings(
-                parameter_lookups=(
-                    ParameterLookupSignature(
-                        table_id="definitely_missing",
-                        key_input_types=(("key", Scalar(String())),),
-                        column_id="value",
-                        result_type=_FREQUENCY,
-                    ),
-                )
-            ),
+            RelationTypeBindings(),
         ),
     ),
     ids=("scalar-center", "lookup-center"),
@@ -476,21 +475,11 @@ def test_link_classifies_a_lookup_bound_to_the_wrong_parameter_shape() -> None:
         point_domain=PointDomain(
             root=_linear_axis(
                 "value",
-                param(
-                    parameter_id,
+                parameter_lookup(
+                    _lookup_use(parameter_id),
                     key={"key": "selected"},
-                    column="value",
                 ),
-                bindings=RelationTypeBindings(
-                    parameter_lookups=(
-                        ParameterLookupSignature(
-                            table_id=parameter_id,
-                            key_input_types=(("key", Scalar(String())),),
-                            column_id="value",
-                            result_type=_FREQUENCY,
-                        ),
-                    )
-                ),
+                bindings=RelationTypeBindings(),
             )
         ),
     )
@@ -582,10 +571,9 @@ def test_link_reports_every_missing_import_in_one_axis_center() -> None:
 
 def test_linked_points_retain_exact_proofs_and_only_materialize_the_domain() -> None:
     linked = link_program(_symbolic_program(), _environment())
-    materialized = materialize_linked_points(linked, block_size=1)
+    materialized = LinkedPointMaterializer(linked, block_size=1).materialize()
 
     assert materialized.linked_plan is linked
-    assert materialized.verified_program is linked.verified_program
     assert materialized.point_domain.id == linked.point_domain.id
     assert [point.logical_ordinal for point in materialized.point_domain.points] == [
         0,
@@ -604,7 +592,7 @@ def test_linked_points_normalize_entities_before_point_identity_is_sealed() -> N
 
     linked = link_program(program, _environment())
     assert linked.point_domain.entity_columns == ("subject",)
-    materialized = materialize_linked_points(linked)
+    materialized = LinkedPointMaterializer(linked).materialize()
 
     assert materialized.point_domain.points[0].row["subject"] == EntityRef(
         id="q0",
@@ -620,7 +608,7 @@ def test_linked_points_reject_unknown_entities_at_the_planning_boundary() -> Non
     )
 
     with pytest.raises(CheckFailed) as caught:
-        materialize_linked_points(link_program(program, _environment()))
+        LinkedPointMaterializer(link_program(program, _environment())).materialize()
 
     assert len(caught.value.problems) == 1
     problem = caught.value.problems[0]
@@ -641,7 +629,7 @@ def test_linked_points_preserve_entity_kind_mismatch_problem() -> None:
     )
 
     with pytest.raises(CheckFailed) as caught:
-        materialize_linked_points(link_program(program, _environment()))
+        LinkedPointMaterializer(link_program(program, _environment())).materialize()
 
     assert len(caught.value.problems) == 1
     problem = caught.value.problems[0]
@@ -669,7 +657,7 @@ def test_linked_points_report_unknown_normalized_entities() -> None:
     )
 
     with pytest.raises(CheckFailed) as caught:
-        materialize_linked_points(link_program(program, _environment()))
+        LinkedPointMaterializer(link_program(program, _environment())).materialize()
 
     assert [problem.code for problem in caught.value.problems] == [
         "unknown_authoring_entity"

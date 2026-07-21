@@ -9,7 +9,6 @@ from scopecat.compiler.linking.linked import (
     LinkedPointMaterializer,
     MaterializedLinkedPoints,
     link_verified_program,
-    materialize_linked_points,
 )
 from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.program import core_domain_executions
@@ -81,7 +80,7 @@ def _domain_scenario(
         config_profile=load_config(),
     )
     linked = link_verified_program(resolved.verified_program, resolved.environment)
-    linked_points = materialize_linked_points(linked)
+    linked_points = LinkedPointMaterializer(linked).materialize()
     return linked_points
 
 

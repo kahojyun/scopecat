@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from scopecat.kernel.value_types import Scalar, ValueType
+from scopecat.compiler.relations.model import ParameterLookupUse
+from scopecat.kernel.value_types import ValueType
 
 
 @dataclass(frozen=True, slots=True)
@@ -15,19 +16,7 @@ class ParameterValueContract:
     value_type: ValueType
 
 
-@dataclass(frozen=True, slots=True)
-class ParameterLookupContract:
-    """Declared scalar column lookup on one table-shaped parameter."""
-
-    parameter_id: str
-    key_columns: tuple[str, ...]
-    key_types: tuple[tuple[str, Scalar], ...]
-    literal_key_columns: frozenset[str]
-    column_id: str
-    value_type: Scalar
-
-
-type ParameterContract = ParameterValueContract | ParameterLookupContract
+type ParameterContract = ParameterValueContract | ParameterLookupUse
 
 
 def merge_parameter_contracts(

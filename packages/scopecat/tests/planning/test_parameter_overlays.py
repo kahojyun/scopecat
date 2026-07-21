@@ -6,7 +6,7 @@ from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.relations.evaluation import EvalContext
 from scopecat.compiler.relations.model import (
     CellValue,
-    param,
+    parameter_lookup,
     point_col,
 )
 from scopecat.compiler.relations.point_domain import point_literal_rows
@@ -35,7 +35,11 @@ from tests.testkit.materialized_effects import (
     config_with_physical_resources,
     materialized_state_fields,
 )
-from tests.testkit.parameter_fixtures import PARAMETER_TYPES, parameters
+from tests.testkit.parameter_fixtures import (
+    PARAMETER_TYPES,
+    READOUT_FREQUENCY_LOOKUP,
+    parameters,
+)
 from tests.testkit.relation_plans import state_field
 from tests.testkit.typed_program import (
     link_program,
@@ -120,10 +124,9 @@ def test_point_parameter_overlay_replaces_only_one_existing_cell() -> None:
                 "readout",
                 capability_id="readout",
                 field_path="frequency",
-                value=param(
-                    "readout_devices",
+                value=parameter_lookup(
+                    READOUT_FREQUENCY_LOOKUP,
                     key={"device_id": point_col("device_id")},
-                    column="frequency",
                 ),
                 bindings=point_bindings,
             )
@@ -174,10 +177,9 @@ def test_point_parameter_overlay_residualizes_parameter_lookup() -> None:
     )
 
     result = specialize_scalar(
-        param(
-            "readout_devices",
+        parameter_lookup(
+            READOUT_FREQUENCY_LOOKUP,
             key={"device_id": "r0"},
-            column="frequency",
         ),
         known=EvalContext(params=parameters_for_run),
         parameter_cells=cells,

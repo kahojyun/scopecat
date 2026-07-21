@@ -2,7 +2,7 @@ import pytest
 
 from scopecat.compiler.relations.model import (
     CellValue,
-    param,
+    parameter_lookup,
     point_col,
 )
 from scopecat.compiler.relations.point_domain import point_axis_values
@@ -89,7 +89,6 @@ def test_materialized_effects_contract_summarizes_points_and_state() -> None:
     )
     bindings = RelationTypeBindings(
         parameters=PARAMETER_TYPES,
-        parameter_lookups=(READOUT_FREQUENCY_LOOKUP,),
         point_row=RowType.from_table(points.value_type),
     )
     product = observable_product(
@@ -128,10 +127,9 @@ def test_materialized_effects_contract_summarizes_points_and_state() -> None:
                 "readout",
                 capability_id="pulse",
                 field_path="frequency",
-                value=param(
-                    "readout_devices",
+                value=parameter_lookup(
+                    READOUT_FREQUENCY_LOOKUP,
                     key={"device_id": "r0"},
-                    column="frequency",
                 ),
                 bindings=bindings,
             )

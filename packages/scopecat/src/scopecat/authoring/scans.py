@@ -14,7 +14,6 @@ from typing import Literal, cast
 from scopecat.authoring._frozen_values import freeze_runtime_input
 from scopecat.authoring._parameter_contracts import (
     ParameterContract,
-    ParameterLookupContract,
     ParameterValueContract,
 )
 from scopecat.authoring._scan_intents import (
@@ -47,6 +46,7 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_point_id,
 )
 from scopecat.authoring.values import ParameterKeyInput
+from scopecat.compiler.relations.model import ParameterLookupUse
 from scopecat.kernel.units import compatible_units, unit_kind
 from scopecat.kernel.value_type_compatibility import literal_scalar_type
 from scopecat.kernel.value_types import Quantity as QuantityType
@@ -171,17 +171,16 @@ def param_axis(
         values=captured_values,
         unit=unit,
         parameter_contracts=(
-            ParameterLookupContract(
-                parameter_id=row.table_id,
-                key_columns=tuple(name for name, _value in row.key),
-                key_types=tuple(
+            ParameterLookupUse(
+                table_id=row.table_id,
+                key_input_types=tuple(
                     (name, _parameter_key_value_type(value)) for name, value in row.key
                 ),
                 literal_key_columns=frozenset(
                     name for name, value in row.key if not isinstance(value, ValueRef)
                 ),
                 column_id=column,
-                value_type=cast("Scalar", target.value_type),
+                result_type=cast("Scalar", target.value_type),
             ),
         ),
     )

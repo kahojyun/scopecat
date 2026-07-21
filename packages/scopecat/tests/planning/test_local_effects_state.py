@@ -30,7 +30,6 @@ from tests.testkit.materialized_effects import (
 )
 from tests.testkit.parameter_fixtures import (
     PARAMETER_TYPES,
-    READOUT_FREQUENCY_LOOKUP,
 )
 from tests.testkit.parameter_fixtures import (
     parameters as _parameters,
@@ -58,12 +57,9 @@ def _point_domain(
 
 def _point_bindings(
     points: PointDomain,
-    *,
-    lookup: bool = False,
 ) -> RelationTypeBindings:
     return RelationTypeBindings(
         parameters=PARAMETER_TYPES,
-        parameter_lookups=((READOUT_FREQUENCY_LOOKUP,) if lookup else ()),
         point_row=RowType.from_table(points.value_type),
     )
 
@@ -73,12 +69,11 @@ def _state_bindings(
     table_id: str,
     *,
     row_scope_id: RowScopeId,
-    lookup: bool = False,
 ) -> RelationTypeBindings:
     table_type = PARAMETER_TYPES[table_id]
     assert isinstance(table_type, TableType)
     return replace(
-        _point_bindings(points, lookup=lookup),
+        _point_bindings(points),
         row_arguments={row_scope_id: RowType.from_table(table_type)},
     )
 

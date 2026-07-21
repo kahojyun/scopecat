@@ -7,7 +7,7 @@ from typing import cast
 from scopecat.compiler.relations.analysis import PlanNode
 from scopecat.compiler.relations.evaluation import (
     EvalContext,
-    evaluate_relation_in_context,
+    evaluate_relation,
     evaluate_scalar,
     evaluate_series,
 )
@@ -143,7 +143,7 @@ def evaluate_state_spec(
         inputs=ctx.inputs,
     )
     relation_use = spec.relation_use
-    for row in evaluate_relation_in_context(
+    for row in evaluate_relation(
         cast(
             "VerifiedRelationPlan[RelationExpr]",
             relation_plan(relation_use.id),

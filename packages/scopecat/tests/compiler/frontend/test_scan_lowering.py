@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 import scopecat as sc
+from scopecat.authoring._parameter_contracts import ParameterValueContract
 from scopecat.authoring._point_domain_intents import (
     point_domain_intent_free_point_dependencies,
     point_domain_intent_free_point_input_ids,
@@ -102,10 +103,9 @@ def test_linear_center_is_the_only_point_domain_parameter_contract_source() -> N
     )
 
     assert point_domain_intent_parameter_contracts(explicit) == ()
-    assert [
-        contract.parameter_id
-        for contract in point_domain_intent_parameter_contracts(linear)
-    ] == ["frequency_center"]
+    assert point_domain_intent_parameter_contracts(linear) == (
+        ParameterValueContract("frequency_center", _FREQUENCY),
+    )
 
 
 def test_zip_requires_at_least_two_scan_sources() -> None:

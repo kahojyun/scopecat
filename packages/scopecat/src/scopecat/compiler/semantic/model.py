@@ -22,7 +22,7 @@ from scopecat.compiler.relations.model import (
     SeriesExpr,
 )
 from scopecat.compiler.relations.verification import (
-    RowType,
+    ExternalRowInterface,
     TypedPlanImport,
     VerifiedRelationPlan,
 )
@@ -234,10 +234,7 @@ class PlanExpressionSource:
     _expression: PlanExpression = field(hash=False, repr=False)
     _certified_type: ValueType
     _imports: tuple[TypedPlanImport, ...] = field(hash=False, repr=False)
-    _row_signature: tuple[
-        RowType | None,
-        tuple[tuple[RowScopeId, RowType], ...],
-    ] = field(hash=False, repr=False)
+    _row_interface: ExternalRowInterface = field(hash=False, repr=False)
     _verified_plan: VerifiedPlanExpression = field(
         hash=False,
         repr=False,
@@ -251,11 +248,7 @@ class PlanExpressionSource:
         object.__setattr__(self, "_expression", verified_plan.root)
         object.__setattr__(self, "_certified_type", verified_plan.certified_type)
         object.__setattr__(self, "_imports", verified_plan.imports)
-        object.__setattr__(
-            self,
-            "_row_signature",
-            _used_row_signature(verified_plan),
-        )
+        object.__setattr__(self, "_row_interface", verified_plan.external_row_interface)
         object.__setattr__(self, "_verified_plan", verified_plan)
 
     @property
@@ -283,63 +276,8 @@ class PlanExpressionSource:
         return self._imports
 
     @property
-    def used_row_signature(
-        self,
-    ) -> tuple[
-        RowType | None,
-        tuple[tuple[RowScopeId, RowType], ...],
-    ]:
-        return self._row_signature
-
-    @property
     def verified_plan(self) -> VerifiedPlanExpression:
         return self._verified_plan
-
-
-def _used_row_signature(
-    verified_plan: VerifiedPlanExpression,
-) -> tuple[
-    RowType | None,
-    tuple[tuple[RowScopeId, RowType], ...],
-]:
-    references = verified_plan.references.references
-    free = verified_plan.free_row_references.references
-    bindings = verified_plan.bindings
-    point_names = {
-        reference.id
-        for reference in references
-        if reference.kind is PlanReferenceKind.POINT_COLUMN
-    }
-    point_binding = bindings.point_row
-    if point_names and point_binding is not None:
-        columns = {column.id: column for column in point_binding.columns}
-        selected_ids = {
-            name if name in columns else name.split(".", maxsplit=1)[0]
-            for name in point_names
-        }
-        selected_columns = tuple(
-            column for column in point_binding.columns if column.id in selected_ids
-        )
-        point = (
-            RowType(selected_columns, point_binding.allow_extra_columns)
-            if selected_columns
-            else None
-        )
-    else:
-        point = None
-    nominal_ids = sorted(
-        {
-            cast("RowScopeId", reference.row_scope_id)
-            for reference in free
-            if reference.kind is PlanReferenceKind.ROW_COLUMN
-        },
-        key=lambda item: item.qualified_name,
-    )
-    nominal = tuple(
-        (row_scope_id, bindings.row_arguments[row_scope_id])
-        for row_scope_id in nominal_ids
-    )
-    return point, nominal
 
 
 @dataclass(frozen=True, slots=True, init=False)

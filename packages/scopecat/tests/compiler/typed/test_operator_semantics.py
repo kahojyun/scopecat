@@ -7,7 +7,7 @@ from scopecat.authoring._value_refs import (
     internal_lower_scalar_value_ref,
     internal_lower_table_value_ref,
 )
-from scopecat.compiler.relations.evaluation import ParameterRelationData
+from scopecat.compiler.relations.evaluation import EvalContext
 from scopecat.compiler.relations.model import (
     lit,
 )
@@ -37,7 +37,7 @@ def test_typed_arithmetic_and_runtime_use_the_same_operator_contract() -> None:
     assert (
         evaluate_scalar(
             internal_lower_scalar_value_ref(numeric),
-            ParameterRelationData().to_context(inputs={"count": 2}),
+            EvalContext(inputs={"count": 2}),
             bindings=_input_bindings(count=count.value_type),
         )
         == 2.5
@@ -61,7 +61,7 @@ def test_typed_arithmetic_rejects_non_finite_runtime_results() -> None:
     with pytest.raises(ValueError, match="non-finite result"):
         evaluate_scalar(
             overflow,
-            ParameterRelationData().to_context(inputs={"value": 1e308}),
+            EvalContext(inputs={"value": 1e308}),
             bindings=_input_bindings(value=value.value_type),
         )
 
@@ -82,7 +82,7 @@ def test_entity_equality_uses_kind_and_id_but_not_metadata() -> None:
     assert (
         evaluate_scalar(
             comparison,
-            ParameterRelationData().to_context(
+            EvalContext(
                 inputs={
                     "generic": sc.EntityRef(
                         id="q0",
@@ -106,7 +106,7 @@ def test_entity_equality_uses_kind_and_id_but_not_metadata() -> None:
     assert (
         evaluate_scalar(
             comparison,
-            ParameterRelationData().to_context(
+            EvalContext(
                 inputs={
                     "generic": sc.EntityRef(id="q0", kind="resonator"),
                     "qubit": sc.EntityRef(id="q0", kind="qubit"),
@@ -122,7 +122,7 @@ def test_entity_equality_uses_kind_and_id_but_not_metadata() -> None:
     assert (
         evaluate_scalar(
             concrete_kind_comparison,
-            ParameterRelationData().to_context(
+            EvalContext(
                 inputs={
                     "resonator": sc.EntityRef(id="q0", kind="resonator"),
                     "qubit": sc.EntityRef(id="q0", kind="qubit"),
@@ -159,7 +159,7 @@ def test_record_equality_recurses_through_typed_scalar_semantics() -> None:
     assert (
         evaluate_scalar(
             comparison,
-            ParameterRelationData().to_context(
+            EvalContext(
                 inputs={
                     "left": {
                         "entity": sc.EntityRef(
@@ -245,7 +245,7 @@ def test_nullable_values_are_only_safe_for_equality() -> None:
     assert (
         evaluate_scalar(
             internal_lower_scalar_value_ref(is_null),
-            ParameterRelationData().to_context(inputs={"count": None}),
+            EvalContext(inputs={"count": None}),
             bindings=_input_bindings(count=optional_count.value_type),
         )
         is True
@@ -258,7 +258,7 @@ def test_typed_boolean_composition_uses_the_shared_operator_contract() -> None:
 
     conjunction = internal_lower_scalar_value_ref(left.and_(right))
     disjunction = internal_lower_scalar_value_ref(left.or_(right))
-    context = ParameterRelationData().to_context(inputs={"left": True, "right": False})
+    context = EvalContext(inputs={"left": True, "right": False})
 
     bindings = _input_bindings(left=left.value_type, right=right.value_type)
     assert evaluate_scalar(conjunction, context, bindings=bindings) is False
@@ -287,7 +287,7 @@ def test_ordering_requires_finite_numeric_contracts_and_values() -> None:
     with pytest.raises(ValueError, match="Float bounds must be finite"):
         evaluate_scalar(
             lit(float("nan")).lt(1.0),
-            ParameterRelationData().to_context(),
+            EvalContext(),
         )
 
 
@@ -324,7 +324,7 @@ def test_table_transforms_only_retain_provable_primary_keys() -> None:
     ]
     assert evaluate_relation(
         internal_lower_table_value_ref(partial),
-        inputs={"rows": source_rows},
+        EvalContext(inputs={"rows": source_rows}),
         bindings=_input_bindings(rows=rows.value_type),
     ) == [
         {"group": 1, "value": 10},
@@ -332,7 +332,7 @@ def test_table_transforms_only_retain_provable_primary_keys() -> None:
     ]
     assert evaluate_relation(
         internal_lower_table_value_ref(overwritten),
-        inputs={"rows": source_rows},
+        EvalContext(inputs={"rows": source_rows}),
         bindings=_input_bindings(rows=rows.value_type),
     ) == [
         {"group": 1, "item": 1, "value": 10},
@@ -354,12 +354,14 @@ def test_dotted_table_columns_are_exact_keys_for_row_access() -> None:
 
     assert evaluate_relation(
         internal_lower_table_value_ref(transformed),
-        inputs={
-            "rows": [
-                {"device.rank": 2, "label": "second"},
-                {"device.rank": 1, "label": "first"},
-            ]
-        },
+        EvalContext(
+            inputs={
+                "rows": [
+                    {"device.rank": 2, "label": "second"},
+                    {"device.rank": 1, "label": "first"},
+                ]
+            }
+        ),
         bindings=_input_bindings(rows=rows.value_type),
     ) == [
         {"device.rank": 2, "label": "second", "copied_rank": 2},

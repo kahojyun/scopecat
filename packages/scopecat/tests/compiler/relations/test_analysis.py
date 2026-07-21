@@ -15,6 +15,7 @@ from scopecat.compiler.relations.analysis import (
 from scopecat.compiler.relations.model import (
     ColumnScalarExpr,
     InputScalarExpr,
+    ParameterLookupUse,
     RowScopeId,
     col,
     input_ref,
@@ -23,6 +24,7 @@ from scopecat.compiler.relations.model import (
     lit,
     literal_rows,
     param,
+    parameter_lookup,
     point_col,
 )
 from scopecat.compiler.relations.verification import (
@@ -47,7 +49,15 @@ from scopecat.compiler.typed.program import (
     ValueInput,
 )
 from scopecat.kernel.symbols import SymbolId
-from scopecat.kernel.value_types import Bool, Float, Scalar, Series, Table, TableColumn
+from scopecat.kernel.value_types import (
+    Bool,
+    Float,
+    Scalar,
+    Series,
+    String,
+    Table,
+    TableColumn,
+)
 from tests.testkit.relation_plans import value_expr
 
 
@@ -128,13 +138,21 @@ def test_prefix_plan_row_scopes_alpha_renames_binders_and_uses_together() -> Non
 def test_plan_walk_and_references_cover_every_nested_shape() -> None:
     filter_scope = _scope("filter")
     columns_scope = _scope("columns")
-    lookup = param(
-        "calibrations",
+    lookup = parameter_lookup(
+        ParameterLookupUse(
+            table_id="calibrations",
+            key_input_types=(
+                ("local", Scalar(String())),
+                ("point", Scalar(String())),
+            ),
+            literal_key_columns=frozenset(),
+            column_id="gain",
+            result_type=Scalar(Float()),
+        ),
         key={
             "local": col("local_id", row_scope_id=columns_scope),
             "point": point_col("point_id"),
         },
-        column="gain",
     )
     filtered = input_table("rows").filter(
         input_ref("enabled"),

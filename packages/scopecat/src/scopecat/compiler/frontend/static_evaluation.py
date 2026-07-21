@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from scopecat.compiler.relations.evaluation import (
+    EvalContext,
     ParameterRelationData,
     evaluate_relation,
     evaluate_scalar,
@@ -31,7 +32,6 @@ def _static_bindings(bindings: RelationTypeBindings) -> RelationTypeBindings:
     return RelationTypeBindings(
         inputs=bindings.inputs,
         parameters=bindings.parameters,
-        parameter_lookups=bindings.parameter_lookups,
     )
 
 
@@ -56,7 +56,7 @@ class StaticRelationEvaluator:
         )
         return evaluate_scalar(
             verified,
-            self.parameters.to_context(inputs=inputs),
+            EvalContext(params=self.parameters, inputs=dict(inputs)),
         )
 
     def series(
@@ -74,7 +74,7 @@ class StaticRelationEvaluator:
         )
         return evaluate_series(
             verified,
-            self.parameters.to_context(inputs=inputs),
+            EvalContext(params=self.parameters, inputs=dict(inputs)),
         )
 
     def relation(
@@ -92,6 +92,5 @@ class StaticRelationEvaluator:
         )
         return evaluate_relation(
             verified,
-            self.parameters,
-            inputs=inputs,
+            EvalContext(params=self.parameters, inputs=dict(inputs)),
         )

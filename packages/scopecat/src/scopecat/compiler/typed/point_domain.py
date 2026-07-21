@@ -117,10 +117,6 @@ class VerifiedPointDomain:
         return self.analysis.root.value_type
 
     @property
-    def row_type(self) -> RowType:
-        return RowType.from_table(self.value_type)
-
-    @property
     def coordinate_columns(self) -> tuple[TableColumn, ...]:
         return tuple(
             column

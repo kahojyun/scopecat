@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 import scopecat as sc
+from scopecat.authoring._parameter_contracts import ParameterValueContract
 from scopecat.authoring._value_refs import (
     ValueDeclarationKey,
     ValueRef,
@@ -117,10 +118,9 @@ def test_scalar_operation_derives_parameter_and_point_provenance_from_operands()
     point = sc.point("detuning", scalar)
     expression = parameter + point
 
-    assert [
-        contract.parameter_id
-        for contract in internal_value_ref_parameter_contracts(expression)
-    ] == ["frequency"]
+    assert internal_value_ref_parameter_contracts(expression) == (
+        ParameterValueContract("frequency", scalar),
+    )
     assert [
         dependency.id
         for dependency in internal_value_ref_point_dependencies(expression)

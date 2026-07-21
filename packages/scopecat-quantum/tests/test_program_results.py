@@ -9,7 +9,6 @@ from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.linked import (
     LinkedPointMaterializer,
     link_verified_program,
-    materialize_linked_points,
 )
 from scopecat.compiler.relations.point_domain import point_literal_rows
 from scopecat.compiler.semantic.model import (
@@ -146,12 +145,12 @@ def _preparation(
             _WORKSPACE / "fixtures" / "core" / "simple_scan" / "config-profile.json"
         )
     )
-    linked_points = materialize_linked_points(
+    linked_points = LinkedPointMaterializer(
         link_verified_program(
             seal_typed_program(program, phase=ProblemPhase.PLANNING),
             environment,
         )
-    )
+    ).materialize()
     closure = domain_result_closure(linked_points.linked_plan.program, "domain")
     point_ordinals = (0, 1)
     materializer = LinkedPointMaterializer(linked_points.linked_plan)

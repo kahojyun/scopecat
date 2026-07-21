@@ -6,7 +6,6 @@ from dataclasses import replace
 
 from scopecat.authoring._parameter_contracts import (
     ParameterContract,
-    ParameterLookupContract,
     ParameterValueContract,
     merge_parameter_contracts,
 )
@@ -45,7 +44,6 @@ from scopecat.compiler.frontend.value_binding import (
     bind_series_input_refs,
 )
 from scopecat.compiler.relations.verification import (
-    ParameterLookupSignature,
     RelationPlanVerificationError,
     RelationTypeBindings,
     RowType,
@@ -67,7 +65,7 @@ from scopecat.compiler.typed.verification import (
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import ProblemPhase
-from scopecat.kernel.value_types import Scalar, Table, ValueType
+from scopecat.kernel.value_types import ValueType
 from scopecat.records.parameter import ParameterCatalog
 
 
@@ -261,16 +259,6 @@ def _relation_type_bindings(
             for contract in contracts
             if isinstance(contract, ParameterValueContract)
         },
-        parameter_lookups=tuple(
-            ParameterLookupSignature(
-                table_id=contract.parameter_id,
-                key_input_types=contract.key_types,
-                column_id=contract.column_id,
-                result_type=_catalog_lookup_result_type(parameter_catalog, contract),
-            )
-            for contract in contracts
-            if isinstance(contract, ParameterLookupContract)
-        ),
     )
 
 
@@ -292,15 +280,3 @@ def _catalog_parameter_type(
 ) -> ValueType:
     definition = parameter_catalog.get(parameter_id)
     return definition.value_type if definition is not None else fallback
-
-
-def _catalog_lookup_result_type(
-    parameter_catalog: ParameterCatalog,
-    contract: ParameterLookupContract,
-) -> Scalar:
-    definition = parameter_catalog.get(contract.parameter_id)
-    if definition is not None and isinstance(definition.value_type, Table):
-        for column in definition.value_type.columns:
-            if column.id == contract.column_id:
-                return column.value_type
-    return contract.value_type

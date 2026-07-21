@@ -38,7 +38,6 @@ from scopecat.kernel.value_types import (
 from scopecat.kernel.value_validation import (
     ValueValidationError,
     coerce_literal,
-    validate_literal,
 )
 
 
@@ -104,26 +103,6 @@ class ParameterRelationData:
         if parameter_id in self._tables:
             return "table"
         return None
-
-    def snapshot_scalars(self) -> dict[str, CellValue]:
-        """Return a detached mapping of all scalar bindings."""
-
-        return dict(self._scalars)
-
-    def snapshot_series(self) -> dict[str, list[CellValue]]:
-        """Return detached sequences for all series bindings."""
-
-        return {
-            parameter_id: list(values) for parameter_id, values in self._series.items()
-        }
-
-    def snapshot_tables(self) -> dict[str, list[Row]]:
-        """Return detached rows for all table bindings."""
-
-        return {
-            table_id: [dict(row) for row in rows]
-            for table_id, rows in self._tables.items()
-        }
 
     def scalar(self, parameter_id: str) -> CellValue:
         try:
@@ -209,20 +188,6 @@ class ParameterRelationData:
             raise ValueError(msg)
         return matches[0]
 
-    def to_context(
-        self,
-        *,
-        point_row: Row | None = None,
-        row_scopes: Mapping[RowScopeId, Row] | None = None,
-        inputs: Mapping[str, object] | None = None,
-    ) -> EvalContext:
-        return EvalContext(
-            params=self,
-            point_row=point_row or {},
-            row_scopes=dict(row_scopes or {}),
-            inputs=dict(inputs or {}),
-        )
-
 
 @dataclass(slots=True)
 class EvalContext:
@@ -266,7 +231,7 @@ def evaluate_series(
     )
 
 
-def evaluate_relation_in_context(
+def evaluate_relation(
     verified_plan: VerifiedRelationPlan[RelationExpr],
     ctx: EvalContext,
 ) -> list[Row]:
@@ -280,33 +245,14 @@ def evaluate_relation_in_context(
     )
 
 
-def evaluate_relation(
-    verified_plan: VerifiedRelationPlan[RelationExpr],
-    params: ParameterRelationData | None = None,
-    *,
-    point_row: Row | None = None,
-    row_scopes: Mapping[RowScopeId, Row] | None = None,
-    inputs: Mapping[str, object] | None = None,
-) -> list[Row]:
-    return evaluate_relation_in_context(
-        verified_plan,
-        EvalContext(
-            params=params or ParameterRelationData(),
-            point_row=point_row or {},
-            row_scopes=dict(row_scopes or {}),
-            inputs=dict(inputs or {}),
-        ),
-    )
-
-
-def validate_relation_parameter_import[NodeT: PlanNode](
+def normalize_relation_parameter_import[NodeT: PlanNode](
     verified_plan: VerifiedRelationPlan[NodeT],
     imported: TypedPlanImport,
     params: ParameterRelationData,
-) -> None:
-    """Validate one used parameter import without evaluating its plan.
+) -> object:
+    """Normalize one used parameter import without evaluating its plan.
 
-    Compiler linking uses the same contract check as runtime dispatch so an
+    Compiler linking uses the same boundary as runtime dispatch so an
     accepted configuration cannot become a late missing-parameter or
     parameter-type failure merely because no relation has been evaluated yet.
     """
@@ -314,7 +260,12 @@ def validate_relation_parameter_import[NodeT: PlanNode](
     if imported not in verified_plan.imports:
         msg = "parameter import is not owned by the supplied relation proof"
         raise ValueError(msg)
-    _validate_parameter_import(imported, verified_plan, params)
+    return _normalize_parameter_import(
+        imported,
+        verified_plan,
+        params,
+        table_rows=None,
+    )
 
 
 def _prepare_context[NodeT: PlanNode](
@@ -324,27 +275,38 @@ def _prepare_context[NodeT: PlanNode](
     return _normalize_evaluation_context(verified_plan, ctx)
 
 
-def _validate_parameter_import[NodeT: PlanNode](
+def _normalize_parameter_import[NodeT: PlanNode](
     imported: TypedPlanImport,
     verified_plan: VerifiedRelationPlan[NodeT],
     params: ParameterRelationData,
-) -> None:
+    *,
+    table_rows: list[Row] | None,
+) -> object:
     if imported.namespace is not PlanImportNamespace.PARAMETER:
-        msg = "parameter import validation requires the parameter namespace"
+        msg = "parameter import normalization requires the parameter namespace"
         raise ValueError(msg)
-    if imported.lookup is not None:
-        _validate_lookup_parameter(imported, verified_plan, params)
-        return
     path = ("parameters", imported.id)
+    if imported.lookup is not None:
+        return _normalize_parameter_table_import(
+            imported,
+            verified_plan,
+            params,
+            table_rows=table_rows,
+            path=path,
+        )
     try:
-        value = params.value(imported.id)
+        value = (
+            table_rows
+            if isinstance(imported.value_type, Table) and table_rows is not None
+            else params.value(imported.id)
+        )
     except (KeyError, TypeError) as error:
         raise ValueValidationError(
             path,
             str(error),
             code="unknown_parameter",
         ) from error
-    validate_literal(imported.value_type, value, path=path)
+    return _normalize_typed_value(imported.value_type, value, path=path)
 
 
 def _input_import_value(
@@ -361,19 +323,63 @@ def _input_import_value(
         raise KeyError(msg) from error
 
 
-def _validate_lookup_parameter[NodeT: PlanNode](
+def _normalize_parameter_table_import[NodeT: PlanNode](
     imported: TypedPlanImport,
     verified_plan: VerifiedRelationPlan[NodeT],
     params: ParameterRelationData,
-) -> None:
+    *,
+    table_rows: list[Row] | None,
+    path: tuple[str, str],
+) -> list[Row]:
     lookup = imported.lookup
     if lookup is None:
         raise AssertionError("lookup import is unexpectedly missing its signature")
-    path = ("parameters", imported.id)
+    rows = _parameter_table_rows(
+        imported.id,
+        params,
+        table_rows=table_rows,
+        path=path,
+    )
+
+    declared = verified_plan.bindings.parameters.get(imported.id)
+    if isinstance(declared, Table):
+        return cast(
+            "list[Row]",
+            _normalize_typed_value(declared, rows, path=path),
+        )
+
+    normalized_rows = rows
+    for index, row in enumerate(rows):
+        result_path = (*path, index, lookup.column_id)
+        try:
+            value = read_path(row, lookup.column_id)
+        except (KeyError, TypeError) as error:
+            raise ValueValidationError(result_path, str(error)) from error
+        normalized = _normalize_typed_value(
+            lookup.result_type,
+            value,
+            path=result_path,
+        )
+        normalized_rows[index] = cast(
+            "Row",
+            _replace_path_value(row, lookup.column_id, normalized),
+        )
+    return normalized_rows
+
+
+def _parameter_table_rows(
+    parameter_id: str,
+    params: ParameterRelationData,
+    *,
+    table_rows: list[Row] | None,
+    path: tuple[str, str],
+) -> list[Row]:
+    if table_rows is not None:
+        return [dict(row) for row in table_rows]
     try:
-        rows = params.table_rows(imported.id)
+        return params.table_rows(parameter_id)
     except KeyError as error:
-        actual_shape = params.parameter_shape(imported.id)
+        actual_shape = params.parameter_shape(parameter_id)
         if actual_shape is not None:
             raise ValueValidationError(
                 path,
@@ -385,19 +391,6 @@ def _validate_lookup_parameter[NodeT: PlanNode](
             code="unknown_parameter",
         ) from error
 
-    declared = verified_plan.bindings.parameters.get(imported.id)
-    if isinstance(declared, Table):
-        validate_literal(declared, rows, path=path)
-        return
-
-    for index, row in enumerate(rows):
-        result_path = (*path, index, lookup.column_id)
-        try:
-            value = read_path(row, lookup.column_id)
-        except (KeyError, TypeError) as error:
-            raise ValueValidationError(result_path, str(error)) from error
-        validate_literal(lookup.result_type, value, path=result_path)
-
 
 def _normalize_evaluation_context[NodeT: PlanNode](
     verified_plan: VerifiedRelationPlan[NodeT],
@@ -406,9 +399,9 @@ def _normalize_evaluation_context[NodeT: PlanNode](
     """Snapshot and normalize every dynamic value the proof actually consumes."""
 
     inputs: dict[str, object] = dict(ctx.inputs)
-    parameter_scalars = ctx.params.snapshot_scalars()
-    parameter_series = ctx.params.snapshot_series()
-    tables_by_parameter = ctx.params.snapshot_tables()
+    parameter_scalars: dict[str, CellValue] = {}
+    parameter_series: dict[str, list[CellValue]] = {}
+    tables_by_parameter: dict[str, list[Row]] = {}
 
     for imported in verified_plan.imports:
         path = (imported.namespace.value + "s", imported.id)
@@ -424,34 +417,18 @@ def _normalize_evaluation_context[NodeT: PlanNode](
             )
             inputs = _replace_path_value(inputs, imported.id, normalized)
             continue
-        if imported.lookup is not None:
-            tables_by_parameter[imported.id] = _normalize_lookup_rows(
-                imported,
-                verified_plan,
-                ctx.params,
-                path=path,
-            )
-            continue
-
-        try:
-            value = ctx.params.value(imported.id)
-        except (KeyError, TypeError) as error:
-            raise ValueValidationError(
-                path,
-                str(error),
-                code="unknown_parameter",
-            ) from error
-        normalized = _normalize_typed_value(
-            imported.value_type,
-            value,
-            path=path,
+        normalized = _normalize_parameter_import(
+            imported,
+            verified_plan,
+            ctx.params,
+            table_rows=tables_by_parameter.get(imported.id),
         )
-        if isinstance(imported.value_type, Scalar):
-            parameter_scalars[imported.id] = cast("CellValue", normalized)
-        elif isinstance(imported.value_type, Series):
-            parameter_series[imported.id] = cast("list[CellValue]", normalized)
-        else:
+        if imported.lookup is not None or isinstance(imported.value_type, Table):
             tables_by_parameter[imported.id] = cast("list[Row]", normalized)
+        elif isinstance(imported.value_type, Scalar):
+            parameter_scalars[imported.id] = cast("CellValue", normalized)
+        else:
+            parameter_series[imported.id] = cast("list[CellValue]", normalized)
 
     row_interface = verified_plan.external_row_interface
     row_scopes = {scope_id: dict(value) for scope_id, value in ctx.row_scopes.items()}
@@ -489,56 +466,6 @@ def _normalize_evaluation_context[NodeT: PlanNode](
         row_scopes=row_scopes,
         inputs=inputs,
     )
-
-
-def _normalize_lookup_rows[NodeT: PlanNode](
-    imported: TypedPlanImport,
-    verified_plan: VerifiedRelationPlan[NodeT],
-    params: ParameterRelationData,
-    *,
-    path: tuple[str, str],
-) -> list[Row]:
-    try:
-        rows = params.table_rows(imported.id)
-    except KeyError as error:
-        actual_shape = params.parameter_shape(imported.id)
-        if actual_shape is not None:
-            raise ValueValidationError(
-                path,
-                f"expected table parameter, got {actual_shape}",
-            ) from error
-        raise ValueValidationError(
-            path,
-            str(error),
-            code="unknown_parameter",
-        ) from error
-
-    declared = verified_plan.bindings.parameters.get(imported.id)
-    if isinstance(declared, Table):
-        return cast(
-            "list[Row]",
-            _normalize_typed_value(declared, rows, path=path),
-        )
-
-    lookup = imported.lookup
-    if lookup is None:
-        raise AssertionError("lookup import is unexpectedly missing its signature")
-    normalized_rows: list[Row] = []
-    for index, row in enumerate(rows):
-        result_path = (*path, index, lookup.column_id)
-        try:
-            value = read_path(row, lookup.column_id)
-        except (KeyError, TypeError) as error:
-            raise ValueValidationError(result_path, str(error)) from error
-        normalized = _normalize_typed_value(
-            lookup.result_type,
-            value,
-            path=result_path,
-        )
-        normalized_rows.append(
-            cast("Row", _replace_path_value(row, lookup.column_id, normalized))
-        )
-    return normalized_rows
 
 
 def _replace_path_value(

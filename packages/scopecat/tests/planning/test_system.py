@@ -15,7 +15,7 @@ from scopecat.compiler.linking.linked import (
 from scopecat.compiler.relations.evaluation import ParameterRelationData
 from scopecat.compiler.relations.model import (
     lit,
-    param,
+    parameter_lookup,
     point_col,
 )
 from scopecat.compiler.relations.point_domain import POINT_UNIT, point_axis_values
@@ -108,6 +108,7 @@ from scopecat.sdk.instruments import (
 from tests.testkit.authoring import load_config
 from tests.testkit.parameter_fixtures import (
     PARAMETER_TYPES,
+    READOUT_FREQUENCY_LOOKUP,
 )
 from tests.testkit.parameter_fixtures import (
     parameters as parameter_fixture_data,
@@ -798,10 +799,9 @@ def test_parameter_scan_binding_is_shared_with_domain_inputs() -> None:
     )
     domain_input = ValueInput(
         value=scalar_value_expr(
-            param(
-                "readout_devices",
+            parameter_lookup(
+                READOUT_FREQUENCY_LOOKUP,
                 key={"device_id": "r0"},
-                column="frequency",
             ),
             bindings=bindings,
             expected_type=frequency_type,
@@ -1239,7 +1239,7 @@ def test_zero_point_domain_plan_retains_direct_product_ownership() -> None:
     )
     assert tuple(plan.coverage) == ()
     assert plan.measurements.product_values.product_use_ids == tuple(
-        use.id for use in linked.product_uses
+        use.id for use in linked.program.product_uses
     )
     assert compiler.compile_calls == 0
     assert compiler.prepare_calls == 0

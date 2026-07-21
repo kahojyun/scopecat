@@ -411,7 +411,7 @@ def _scalar_reference(node: ScalarExpr) -> PlanReference | None:
     if isinstance(scalar, ParameterLookupScalarExpr):
         return PlanReference(
             PlanReferenceKind.PARAMETER_TABLE,
-            scalar.table_id,
+            scalar.use.table_id,
         )
     return None
 

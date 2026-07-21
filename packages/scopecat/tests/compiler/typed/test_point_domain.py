@@ -656,7 +656,6 @@ def test_verified_schema_projections_reuse_cached_analysis(
     monkeypatch.setattr(point_domain_module, "analyze_point_domain", reject_analysis)
 
     assert verified.entity_columns == ("qubit",)
-    assert verified.row_type == RowType(verified.value_type.columns)
     assert verified.coordinate_columns == verified.value_type.columns
 
 

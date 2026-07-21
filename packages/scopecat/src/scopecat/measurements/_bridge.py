@@ -47,8 +47,8 @@ def project_measurement_catalog_from_domain(
             experiment_kind=linked.program.kind,
             coordinate_ids=coordinate_ids,
         ),
-        linked.product_uses,
-        linked.product_defs,
+        linked.program.product_uses,
+        linked.program.product_defs,
     )
 
 

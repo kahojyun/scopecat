@@ -365,10 +365,10 @@ def test_unused_product_acquisition_is_linked_without_collection() -> None:
         validate_config_environment(config),
     )
 
-    assert linked.product_defs == (product,)
+    assert linked.program.product_defs == (product,)
     assert core_acquisitions(linked.program) == (acquisition,)
-    assert linked.product_uses == ()
-    assert linked.record_uses == ()
+    assert linked.program.product_uses == ()
+    assert linked.program.record_uses == ()
 
     plan = materialize_local_execution(
         link_verified_program(linked.verified_program, linked.environment)

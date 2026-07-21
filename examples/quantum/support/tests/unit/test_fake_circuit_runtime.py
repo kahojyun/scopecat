@@ -15,7 +15,6 @@ from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.linked import (
     LinkedPointMaterializer,
     MaterializedLinkedPoints,
-    materialize_linked_points,
 )
 from scopecat.compiler.relations.point_domain import point_axis_values
 from scopecat.compiler.semantic.model import (
@@ -352,7 +351,7 @@ def _linked_points(
             _REPO_ROOT / "fixtures/core/simple_scan/config-profile.json"
         )
     )
-    return materialize_linked_points(link_program(program, environment))
+    return LinkedPointMaterializer(link_program(program, environment)).materialize()
 
 
 def _mixed_linked_points(
@@ -427,7 +426,7 @@ def _mixed_linked_points(
             _REPO_ROOT / "fixtures/core/simple_scan/config-profile.json"
         )
     )
-    return materialize_linked_points(link_program(program, environment))
+    return LinkedPointMaterializer(link_program(program, environment)).materialize()
 
 
 def _lowered_measurement_program(
@@ -1805,7 +1804,7 @@ def test_fake_domain_values_reach_receipt_bearing_host_recording() -> None:
     )
     projection = select_measurement_projection(
         context.measurement_catalog,
-        scenario.linked_points.linked_plan.record_uses,
+        scenario.linked_points.linked_plan.program.record_uses,
     )
     projected = project_measurement_records(
         projection,
@@ -1831,7 +1830,7 @@ def test_fake_domain_values_reach_receipt_bearing_host_recording() -> None:
     )
 
     record_ids = {
-        record.id for record in scenario.linked_points.linked_plan.record_uses
+        record.id for record in scenario.linked_points.linked_plan.program.record_uses
     }
     assert len(projected.records) == len(scenario.linked_points.point_domain.points)
     assert all(set(record.observables) == record_ids for record in projected.records)
@@ -1842,7 +1841,9 @@ def test_fake_domain_values_reach_receipt_bearing_host_recording() -> None:
     ]
     assert projected.schema is not None
     assert set(projected.schema.primary_observables) == record_ids
-    assert len(record_ids) > len(scenario.linked_points.linked_plan.product_uses)
+    assert len(record_ids) > len(
+        scenario.linked_points.linked_plan.program.product_uses
+    )
 
     appends = record_committer.appends
     assert len(appends) == 1

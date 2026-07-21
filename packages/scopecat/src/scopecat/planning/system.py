@@ -224,7 +224,7 @@ def _compile_system_program(
         linked,
         block_size=system.coverage_block_size,
     )
-    point_count = lazy_points.point_count()
+    point_count = linked.point_domain.cardinality
     point_domain = lazy_points.materialize_point_domain()
     measurement_catalog = project_measurement_catalog_from_domain(
         linked,
@@ -233,7 +233,7 @@ def _compile_system_program(
     point_catalog = project_run_point_catalog_from_domain(linked, point_domain)
     measurements = select_measurement_projection(
         measurement_catalog,
-        linked.record_uses,
+        linked.program.record_uses,
     )
     preflight = (
         preflight_instrument_provider(

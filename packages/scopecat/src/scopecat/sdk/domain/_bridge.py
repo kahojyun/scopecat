@@ -431,7 +431,8 @@ def _project_domain_assets(
     dict[MeasurementTransformId, DomainMeasurementTransform],
 ]:
     product_contracts = {
-        product.id: _product_contract_view(product) for product in linked.product_defs
+        product.id: _product_contract_view(product)
+        for product in linked.program.product_defs
     }
     product_use_refs = tuple(
         DomainProductUseRef(
@@ -439,7 +440,7 @@ def _project_domain_assets(
             product=product_contracts[use.product_id],
             native=use.id,
         )
-        for use in linked.product_uses
+        for use in linked.program.product_uses
     )
     product_use_refs_by_id = {
         cast("ProductUseId", ref.native): ref for ref in product_use_refs

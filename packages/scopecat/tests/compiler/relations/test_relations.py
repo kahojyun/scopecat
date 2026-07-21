@@ -1,6 +1,6 @@
 import pytest
 
-from scopecat.compiler.relations.evaluation import ParameterRelationData
+from scopecat.compiler.relations.evaluation import EvalContext, ParameterRelationData
 from scopecat.compiler.relations.input_binding import (
     bind_relation_input_refs,
     bind_scalar_input_refs,
@@ -8,6 +8,7 @@ from scopecat.compiler.relations.input_binding import (
 )
 from scopecat.compiler.relations.model import (
     LiteralScalarExpr,
+    ParameterLookupUse,
     RowScopeId,
     SelectRelationExpr,
     TableRelationExpr,
@@ -18,6 +19,7 @@ from scopecat.compiler.relations.model import (
     input_table,
     literal_rows,
     param,
+    parameter_lookup,
     table,
     values,
 )
@@ -97,7 +99,7 @@ def test_literal_rows_filter_select() -> None:
         .select("device.device_id", "frequency", "detuning")
     )
 
-    rows = evaluate_relation(relation)
+    rows = evaluate_relation(relation, EvalContext())
 
     assert rows == [
         {
@@ -152,10 +154,15 @@ def test_parameter_data_drives_variable_key_lookup_and_joins() -> None:
         .with_columns(
             row_scope_id=columns_scope,
             demod=param("readout.demod_frequency"),
-            carrier=param(
-                "readout_devices",
+            carrier=parameter_lookup(
+                ParameterLookupUse(
+                    table_id="readout_devices",
+                    key_input_types=(("device_id", _STRING),),
+                    literal_key_columns=frozenset(),
+                    column_id="frequency",
+                    result_type=_FREQUENCY,
+                ),
                 key={"device_id": col("device_id", row_scope_id=columns_scope)},
-                column="frequency",
             ),
         )
         .select("device_id", "resource_id", "demod", "carrier")
@@ -163,7 +170,7 @@ def test_parameter_data_drives_variable_key_lookup_and_joins() -> None:
 
     assert evaluate_relation(
         relation,
-        params,
+        EvalContext(params=params),
         bindings=RelationTypeBindings(
             parameters={
                 "readout.demod_frequency": _FREQUENCY,
@@ -248,7 +255,7 @@ def test_series_and_table_inputs_are_typed_expressions() -> None:
 
     assert evaluate_relation(
         relation,
-        inputs={"gate_rows": rows},
+        EvalContext(inputs={"gate_rows": rows}),
         bindings=RelationTypeBindings(
             inputs={
                 "gate_rows": _table_type(
@@ -260,7 +267,7 @@ def test_series_and_table_inputs_are_typed_expressions() -> None:
     ) == [rows[1]]
     assert evaluate_series(
         series,
-        ParameterRelationData().to_context(
+        EvalContext(
             inputs={
                 "offsets": [
                     Quantity(value=-10.0, unit="MHz"),
@@ -331,7 +338,7 @@ def test_relation_entities_series_has_explicit_ordering_rules() -> None:
     )
 
     entities = relation.entities("control", "partner")
-    ctx = ParameterRelationData().to_context()
+    ctx = EvalContext()
 
     assert evaluate_series(entities, ctx) == [
         q0,
@@ -356,16 +363,18 @@ def test_record_with_entities_field_preserves_collection_shape() -> None:
 
     table_rows = evaluate_relation(
         input_table("rows"),
-        inputs={
-            "rows": [
-                {
-                    "payload": {
-                        "entities": [{"id": "q0"}, {"id": "q1"}],
-                        "kind": "batch",
+        EvalContext(
+            inputs={
+                "rows": [
+                    {
+                        "payload": {
+                            "entities": [{"id": "q0"}, {"id": "q1"}],
+                            "kind": "batch",
+                        }
                     }
-                }
-            ]
-        },
+                ]
+            }
+        ),
         bindings=RelationTypeBindings(
             inputs={
                 "rows": _table_type(
@@ -402,7 +411,7 @@ def test_entity_series_preserves_series_shape() -> None:
 
     assert evaluate_series(
         series,
-        ParameterRelationData().to_context(),
+        EvalContext(),
     ) == [
         EntityRef(id="q0", kind="logical_device"),
         EntityRef(id="q1", kind="logical_device"),

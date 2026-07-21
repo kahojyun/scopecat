@@ -9,10 +9,12 @@ from scopecat.compiler.relations.analysis import (
     verify_plan_scopes,
 )
 from scopecat.compiler.relations.evaluation import (
+    EvalContext,
     ParameterRelationData,
 )
 from scopecat.compiler.relations.model import (
     CellValue,
+    ParameterLookupUse,
     Row,
     RowScopeId,
     col,
@@ -20,12 +22,11 @@ from scopecat.compiler.relations.model import (
     input_table,
     literal_rows,
     param,
+    parameter_lookup,
     point_col,
+    table,
 )
-from scopecat.compiler.relations.verification import (
-    RelationTypeBindings,
-    RowType,
-)
+from scopecat.compiler.relations.verification import RelationTypeBindings, RowType
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import (
     Bool,
@@ -33,6 +34,7 @@ from scopecat.kernel.value_types import (
     Int,
     Quantity,
     Scalar,
+    String,
     Table,
     TableColumn,
 )
@@ -43,6 +45,8 @@ from tests.testkit.relation_plans import evaluate_relation, evaluate_scalar
 
 _SMALL_INT = st.integers(min_value=-2, max_value=2)
 _INT = Scalar(Int())
+_FREQUENCY = Scalar(Quantity(unit="GHz"))
+_STRING = Scalar(String())
 _NULLABLE_BOOL = Scalar(Bool(), nullable=True)
 
 
@@ -90,7 +94,7 @@ def test_generated_unary_pipeline_preserves_relative_row_order(
 
     actual = evaluate_relation(
         plan,
-        inputs={"rows": rows},
+        EvalContext(inputs={"rows": rows}),
         bindings=RelationTypeBindings(
             inputs={
                 "rows": Table(
@@ -128,7 +132,7 @@ def test_generated_point_and_local_columns_do_not_capture_same_named_values(
 
     assert evaluate_relation(
         plan,
-        point_row={"shared": point_value},
+        EvalContext(point_row={"shared": point_value}),
         bindings=RelationTypeBindings(point_row=_int_row("shared")),
     ) == [
         {
@@ -155,7 +159,7 @@ def test_scope_verifier_rejects_value_captured_from_foreign_row_scope() -> None:
     assert error.value.reference.row_scope_id == foreign_scope
 
 
-def test_parameter_data_owns_its_containers_and_returns_detached_snapshots() -> None:
+def test_parameter_data_owns_its_containers_and_returns_detached_values() -> None:
     source_scalars: dict[str, CellValue] = {"gain": 1}
     source_series: list[CellValue] = [2, 3]
     source_rows: list[Row] = [{"id": "r0", "value": 4}]
@@ -168,10 +172,10 @@ def test_parameter_data_owns_its_containers_and_returns_detached_snapshots() -> 
     source_scalars["gain"] = 10
     source_series[0] = 20
     source_rows[0]["value"] = 40
-    series_snapshot = parameters.snapshot_series()
-    table_snapshot = parameters.snapshot_tables()
-    series_snapshot["offsets"][0] = 30
-    table_snapshot["calibrations"][0]["value"] = 50
+    series_values = parameters.series_values("offsets")
+    table_rows = parameters.table_rows("calibrations")
+    series_values[0] = 30
+    table_rows[0]["value"] = 50
 
     assert parameters.scalar("gain") == 1
     assert parameters.series_values("offsets") == [2, 3]
@@ -193,9 +197,7 @@ def test_lexical_point_binding_replaces_a_cell_without_mutating_base_data() -> N
 
 def test_evaluation_validates_only_used_typed_imports() -> None:
     bindings = RelationTypeBindings(inputs={"used": _INT, "unused": _INT})
-    valid = ParameterRelationData().to_context(
-        inputs={"used": 1, "unused": "not-an-int"}
-    )
+    valid = EvalContext(inputs={"used": 1, "unused": "not-an-int"})
 
     assert (
         evaluate_scalar(
@@ -206,9 +208,7 @@ def test_evaluation_validates_only_used_typed_imports() -> None:
         == 1
     )
 
-    invalid = ParameterRelationData().to_context(
-        inputs={"used": "not-an-int", "unused": 1}
-    )
+    invalid = EvalContext(inputs={"used": "not-an-int", "unused": 1})
     with pytest.raises(ValueValidationError, match=r"inputs\.used: expected int"):
         evaluate_scalar(
             input_ref("used"),
@@ -218,7 +218,7 @@ def test_evaluation_validates_only_used_typed_imports() -> None:
 
 
 def test_evaluation_validates_used_parameter_contracts() -> None:
-    ctx = ParameterRelationData(scalars={"gain": "not-an-int"}).to_context()
+    ctx = EvalContext(params=ParameterRelationData(scalars={"gain": "not-an-int"}))
 
     with pytest.raises(ValueValidationError, match=r"parameters\.gain: expected int"):
         evaluate_scalar(
@@ -226,6 +226,91 @@ def test_evaluation_validates_used_parameter_contracts() -> None:
             ctx,
             bindings=RelationTypeBindings(parameters={"gain": _INT}),
         )
+
+
+def test_evaluation_normalizes_multiple_lookup_projections_cumulatively() -> None:
+    signatures = tuple(
+        ParameterLookupUse(
+            table_id="devices",
+            key_input_types=(("id", _STRING),),
+            literal_key_columns=frozenset({"id"}),
+            column_id=column_id,
+            result_type=_FREQUENCY,
+        )
+        for column_id in ("first", "second")
+    )
+    expression = parameter_lookup(
+        signatures[0],
+        key={"id": "q0"},
+    ) + parameter_lookup(
+        signatures[1],
+        key={"id": "q0"},
+    )
+    context = EvalContext(
+        params=ParameterRelationData(
+            tables={
+                "devices": [
+                    {
+                        "id": "q0",
+                        "first": {"value": 5_000.0, "unit": "MHz"},
+                        "second": {"value": 6.0, "unit": "GHz"},
+                    }
+                ]
+            }
+        )
+    )
+
+    assert evaluate_scalar(
+        expression,
+        context,
+        bindings=RelationTypeBindings(),
+    ) == QuantityValue(value=11.0, unit="GHz")
+
+
+def test_evaluation_rejects_invalid_lookup_projection_without_linking() -> None:
+    use = ParameterLookupUse(
+        table_id="devices",
+        key_input_types=(("id", _STRING),),
+        literal_key_columns=frozenset({"id"}),
+        column_id="frequency",
+        result_type=_FREQUENCY,
+    )
+    context = EvalContext(
+        params=ParameterRelationData(
+            tables={"devices": [{"id": "q0", "frequency": "not-a-quantity"}]}
+        )
+    )
+
+    with pytest.raises(
+        ValueValidationError,
+        match=r"parameters\.devices\[0\]\.frequency: expected quantity",
+    ):
+        evaluate_scalar(
+            parameter_lookup(use, key={"id": "q0"}),
+            context,
+            bindings=RelationTypeBindings(),
+        )
+
+
+def test_evaluation_normalizes_a_used_parameter_table() -> None:
+    table_type = Table(
+        columns=(TableColumn("frequency", _FREQUENCY),),
+        min_rows=1,
+        max_rows=1,
+    )
+    parameters = ParameterRelationData(
+        tables={
+            "devices": [
+                {"frequency": {"value": 5_000.0, "unit": "MHz"}},
+            ]
+        }
+    )
+
+    assert evaluate_relation(
+        table("devices"),
+        EvalContext(params=parameters),
+        bindings=RelationTypeBindings(parameters={"devices": table_type}),
+    ) == [{"frequency": QuantityValue(value=5.0, unit="GHz")}]
 
 
 @pytest.mark.parametrize(
@@ -251,7 +336,7 @@ def test_evaluation_normalizes_used_context_values(
     assert (
         evaluate_scalar(
             input_ref("value"),
-            ParameterRelationData().to_context(inputs={"value": raw}),
+            EvalContext(inputs={"value": raw}),
             bindings=RelationTypeBindings(inputs={"value": value_type}),
         )
         == expected
@@ -269,7 +354,7 @@ def test_evaluation_rejects_invalid_open_input_carrier() -> None:
     with pytest.raises(ValueValidationError, match="unsupported table runtime cell"):
         evaluate_relation(
             input_table("rows"),
-            inputs={"rows": [{"extra": object()}]},
+            EvalContext(inputs={"rows": [{"extra": object()}]}),
             bindings=RelationTypeBindings(inputs={"rows": open_rows}),
         )
 
@@ -281,11 +366,11 @@ def test_evaluation_validates_used_row_roles(role: str) -> None:
     if role == "point":
         expression = point_col("value")
         bindings = RelationTypeBindings(point_row=_int_row("value"))
-        ctx = ParameterRelationData().to_context(point_row=row)
+        ctx = EvalContext(point_row=row)
     else:
         expression = col("value", row_scope_id=row_scope_id)
         bindings = RelationTypeBindings(row_arguments={row_scope_id: _int_row("value")})
-        ctx = ParameterRelationData().to_context(row_scopes={row_scope_id: row})
+        ctx = EvalContext(row_scopes={row_scope_id: row})
 
     with pytest.raises(ValueValidationError, match="expected int"):
         evaluate_scalar(

@@ -106,7 +106,7 @@ def test_domain_batch_context_materializes_only_selected_residual_inputs(
     assert result.product.dtype == "int64"
     product_use = result.require_one_product_use()
     assert isinstance(product_use, DomainProductUseRef)
-    assert product_use.id == linked.product_uses[0].id.value
+    assert product_use.id == linked.program.product_uses[0].id.value
     assert product_use.product is result.product
     assert product_use is full.product_uses[0]
 

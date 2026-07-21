@@ -10,9 +10,9 @@ from scopecat.compiler.frontend.environment import (
 )
 from scopecat.compiler.linking.linked import (
     LinkedPlan,
+    LinkedPointMaterializer,
     MaterializedLinkedPoints,
     link_verified_program,
-    materialize_linked_points,
 )
 from scopecat.compiler.typed.program import CoreProgram
 from scopecat.compiler.typed.verification import seal_typed_program
@@ -141,7 +141,7 @@ def measurement_projection(
     linked_points = _materialized_linked_points(invocation, config=config)
     return select_measurement_projection(
         project_measurement_catalog(linked_points),
-        linked_points.linked_plan.record_uses,
+        linked_points.linked_plan.program.record_uses,
     )
 
 
@@ -154,7 +154,7 @@ def measurement_projection_and_points(
     return (
         select_measurement_projection(
             project_measurement_catalog(linked_points),
-            linked_points.linked_plan.record_uses,
+            linked_points.linked_plan.program.record_uses,
         ),
         project_run_point_catalog(linked_points).points,
     )
@@ -171,4 +171,6 @@ def _materialized_linked_points(
         validate_config_environment(selected_config),
         parameters=resolved.parameters,
     )
-    return materialize_linked_points(link_program(resolved.experiment, environment))
+    return LinkedPointMaterializer(
+        link_program(resolved.experiment, environment)
+    ).materialize()

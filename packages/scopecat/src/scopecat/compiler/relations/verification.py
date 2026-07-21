@@ -35,6 +35,7 @@ from scopecat.compiler.relations.model import (
     LiteralRowsRelationExpr,
     LiteralScalarExpr,
     ParameterLookupScalarExpr,
+    ParameterLookupUse,
     ParameterScalarExpr,
     ParameterSeriesExpr,
     PointColumnScalarExpr,
@@ -155,42 +156,11 @@ class ExternalRowInterface:
 
 
 @dataclass(frozen=True, slots=True)
-class ParameterLookupSignature:
-    """One typed lookup use without pretending to be a full table schema.
-
-    ``key_input_types`` describe the expressions supplied by the plan, not the
-    catalog table's canonical key schema.  ``result_type`` is a guaranteed,
-    present result-column contract; catalog validation establishes that
-    guarantee before authoring elaboration.
-    """
-
-    table_id: str
-    key_input_types: tuple[tuple[str, Scalar], ...]
-    column_id: str
-    result_type: Scalar
-
-    def __post_init__(self) -> None:
-        if not self.table_id or not self.column_id:
-            msg = "parameter lookup table and result column ids must be non-empty"
-            raise ValueError(msg)
-        key_ids = tuple(key for key, _value_type in self.key_input_types)
-        if any(not key for key in key_ids) or len(key_ids) != len(set(key_ids)):
-            msg = "parameter lookup key column ids must be non-empty and unique"
-            raise ValueError(msg)
-        object.__setattr__(
-            self,
-            "key_input_types",
-            tuple(sorted(self.key_input_types, key=lambda item: item[0])),
-        )
-
-
-@dataclass(frozen=True, slots=True)
 class RelationTypeBindings:
     """Typed imports and lexical rows available to one plan root."""
 
     inputs: Mapping[str, ValueType] = field(default_factory=_empty_value_bindings)
     parameters: Mapping[str, ValueType] = field(default_factory=_empty_value_bindings)
-    parameter_lookups: tuple[ParameterLookupSignature, ...] = ()
     point_row: RowType | None = None
     row_arguments: Mapping[RowScopeId, RowType] = field(
         default_factory=_empty_row_bindings
@@ -208,25 +178,6 @@ class RelationTypeBindings:
             "row_arguments",
             MappingProxyType(dict(self.row_arguments)),
         )
-        lookups: list[ParameterLookupSignature] = []
-        result_types: dict[tuple[str, tuple[str, ...], str], Scalar] = {}
-        for signature in tuple(self.parameter_lookups):
-            identity = (
-                signature.table_id,
-                tuple(key for key, _value_type in signature.key_input_types),
-                signature.column_id,
-            )
-            previous_result = result_types.get(identity)
-            if previous_result is not None and previous_result != signature.result_type:
-                msg = (
-                    "parameter lookup result signatures conflict for "
-                    f"{signature.table_id!r}.{signature.column_id!r}"
-                )
-                raise ValueError(msg)
-            result_types.setdefault(identity, signature.result_type)
-            if signature not in lookups:
-                lookups.append(signature)
-        object.__setattr__(self, "parameter_lookups", tuple(lookups))
 
 
 class PlanImportNamespace(StrEnum):
@@ -239,7 +190,7 @@ class TypedPlanImport:
     namespace: PlanImportNamespace
     id: str
     value_type: ValueType
-    lookup: ParameterLookupSignature | None = None
+    lookup: ParameterLookupUse | None = None
 
 
 class RelationPlanVerificationError(ValueError):
@@ -407,7 +358,7 @@ class _Verifier:
         )
         self.external_point_references: set[str] = set()
         self.imports: dict[
-            tuple[PlanImportNamespace, str, ParameterLookupSignature | None],
+            tuple[PlanImportNamespace, str, ParameterLookupUse | None],
             TypedPlanImport,
         ] = {}
 
@@ -759,112 +710,26 @@ class _Verifier:
         path: PlanPath,
         rows: _Rows,
     ) -> Scalar:
-        table_id = node.table_id
-        key_ids = frozenset(node.key)
-        signatures = tuple(
-            item
-            for item in self.bindings.parameter_lookups
-            if item.table_id == table_id
-            and item.column_id == node.column
-            and frozenset(key for key, _value_type in item.key_input_types) == key_ids
-        )
-        if signatures:
-            if len(signatures) == 1:
-                signature = signatures[0]
-                selected_key_types = dict(signature.key_input_types)
-                for name, expression in node.key.items():
-                    self.infer(
-                        expression,
-                        (*path, "key", name),
-                        selected_key_types[name],
-                        rows=rows,
-                    )
-            else:
-                signature = self._select_parameter_lookup_signature(
-                    node,
-                    path,
-                    rows,
-                    signatures,
-                )
-            import_key = (PlanImportNamespace.PARAMETER, table_id, signature)
-            imported = TypedPlanImport(
-                PlanImportNamespace.PARAMETER,
-                table_id,
-                signature.result_type,
-                lookup=signature,
-            )
-            self.imports.setdefault(import_key, imported)
-            result = signature.result_type
-            return result
-
-        table_type = self.import_type(
-            PlanImportNamespace.PARAMETER,
-            table_id,
-            Table,
-            path,
-        )
-        row = RowType.from_table(table_type)
+        use = node.use
+        selected_key_types = dict(use.key_input_types)
         for name, expression in node.key.items():
-            key_type = self.row_column(row, name, (*path, "key", name))
             self.infer(
                 expression,
-                (*path, "key", name),
-                key_type,
-                rows=rows,
-            )
-        result = self.row_column(row, node.column, (*path, "column"))
-        return result
-
-    def _select_parameter_lookup_signature(
-        self,
-        node: ParameterLookupScalarExpr,
-        path: PlanPath,
-        rows: _Rows,
-        signatures: tuple[ParameterLookupSignature, ...],
-    ) -> ParameterLookupSignature:
-        table_id = node.table_id
-        null_keys = {
-            name
-            for name, expression in node.key.items()
-            if _is_null_literal(expression)
-        }
-        actual_key_types = {
-            name: cast(
-                "Scalar",
-                self.infer(expression, (*path, "key", name), rows=rows),
-            )
-            for name, expression in node.key.items()
-            if name not in null_keys
-        }
-        signature = next(
-            (
-                item
-                for item in signatures
-                if all(
-                    expected_type.nullable
-                    if name in null_keys
-                    else is_assignable(actual_key_types[name], expected_type)
-                    for name, expected_type in item.key_input_types
-                )
-            ),
-            None,
-        )
-        if signature is None:
-            raise self.error(
-                "parameter_lookup_key_type_mismatch",
-                path,
-                f"parameter lookup {table_id!r} key types do not match "
-                "any declared lookup use",
-            )
-        selected_key_types = dict(signature.key_input_types)
-        for name in null_keys:
-            self.infer(
-                node.key[name],
                 (*path, "key", name),
                 selected_key_types[name],
                 rows=rows,
             )
-        return signature
+        import_key = (PlanImportNamespace.PARAMETER, use.table_id, use)
+        self.imports.setdefault(
+            import_key,
+            TypedPlanImport(
+                PlanImportNamespace.PARAMETER,
+                use.table_id,
+                use.result_type,
+                lookup=use,
+            ),
+        )
+        return use.result_type
 
     def import_type[ExpectedT: ValueType](
         self,

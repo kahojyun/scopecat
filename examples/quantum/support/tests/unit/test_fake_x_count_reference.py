@@ -7,7 +7,6 @@ from pathlib import Path
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.linked import (
     LinkedPointMaterializer,
-    materialize_linked_points,
 )
 from scopecat.compiler.relations.point_domain import point_axis_values
 from scopecat.compiler.semantic.model import (
@@ -158,7 +157,9 @@ def _linked_points():
             _REPO_ROOT / "fixtures/core/simple_scan/config-profile.json"
         )
     )
-    linked_points = materialize_linked_points(link_program(program, environment))
+    linked_points = LinkedPointMaterializer(
+        link_program(program, environment)
+    ).materialize()
     typed_execution = core_domain_executions(linked_points.linked_plan.program)[0]
     execution_id = typed_execution.id
     closure = domain_result_closure(linked_points.linked_plan.program, execution_id)

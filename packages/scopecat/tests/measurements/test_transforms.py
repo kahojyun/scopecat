@@ -51,7 +51,7 @@ from tests.testkit.measurement_assembly import (
 def _product(scenario: MeasurementAssemblyScenario, use: ProductUse) -> ProductDef:
     products = {
         product.id: product
-        for product in scenario.linked_points.linked_plan.product_defs
+        for product in scenario.linked_points.linked_plan.program.product_defs
     }
     return products[use.product_id]
 
@@ -750,7 +750,7 @@ def test_record_aliases_do_not_multiply_transform_execution() -> None:
 
     # The scenario has primary+alias RecordUse edges for one product use.  The
     # transform still runs once for the whole point coverage, never once per record.
-    assert len(scenario.linked_points.linked_plan.record_uses) == 3
+    assert len(scenario.linked_points.linked_plan.program.record_uses) == 3
     assert calls == 1
 
 

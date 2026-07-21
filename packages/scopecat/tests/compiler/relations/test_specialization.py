@@ -7,12 +7,14 @@ from scopecat.compiler.relations.evaluation import (
 from scopecat.compiler.relations.evaluator import evaluate_scalar_expression
 from scopecat.compiler.relations.model import (
     LiteralRowsRelationExpr,
+    ParameterLookupUse,
     RowScopeId,
     TableRelationExpr,
     ValuesSeriesExpr,
     col,
     input_ref,
     param,
+    parameter_lookup,
     parameter_series,
     point_col,
     table,
@@ -27,6 +29,15 @@ from scopecat.compiler.relations.specialization import (
     specialize_series,
 )
 from scopecat.kernel.symbols import SymbolId
+from scopecat.kernel.value_types import Float, Scalar, String
+
+_DEVICE_FREQUENCY_LOOKUP = ParameterLookupUse(
+    table_id="devices",
+    key_input_types=(("id", Scalar(String())),),
+    literal_key_columns=frozenset(),
+    column_id="frequency",
+    result_type=Scalar(Float()),
+)
 
 
 def _parameters() -> ParameterRelationData:
@@ -118,7 +129,7 @@ def test_specialization_retains_point_expression_and_folds_static_branch() -> No
 
 
 def test_specialization_folds_closed_parameter_lookup() -> None:
-    expression = param("devices", key={"id": "q1"}, column="frequency") + 1
+    expression = parameter_lookup(_DEVICE_FREQUENCY_LOOKUP, key={"id": "q1"}) + 1
 
     result = specialize_scalar(expression, known=EvalContext(params=_parameters()))
 
@@ -126,10 +137,9 @@ def test_specialization_folds_closed_parameter_lookup() -> None:
 
 
 def test_specialization_retains_lookup_with_point_varying_key() -> None:
-    expression = param(
-        "devices",
+    expression = parameter_lookup(
+        _DEVICE_FREQUENCY_LOOKUP,
         key={"id": point_col("device")},
-        column="frequency",
     )
 
     result = specialize_scalar(expression, known=EvalContext(params=_parameters()))
@@ -156,10 +166,9 @@ def test_specialization_substitutes_scanned_parameter_cell() -> None:
         column_id="frequency",
         replacement=point_col("frequency"),
     )
-    expression = param(
-        "devices",
+    expression = parameter_lookup(
+        _DEVICE_FREQUENCY_LOOKUP,
         key={"id": "q0"},
-        column="frequency",
     )
 
     result = specialize_scalar(
