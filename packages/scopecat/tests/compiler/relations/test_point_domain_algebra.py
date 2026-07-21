@@ -6,49 +6,79 @@ from hypothesis import strategies as st
 
 from scopecat.compiler.relations.point_domain import (
     POINT_UNIT,
-    PointCardinality,
+    PointAxis,
+    PointAxisLinear,
+    PointAxisValues,
     PointDependentProduct,
     PointDomainAnalysis,
     PointDomainExpr,
     PointDomainShape,
     PointDomainShapeError,
     PointProduct,
-    PointRelationRows,
+    PointRows,
     PointZip,
     analyze_point_domain,
-    iter_point_relation_rows,
-    map_point_relation_rows,
+    iter_point_axis_linear,
+    map_point_axis_centers,
+    point_axis_linear,
+    point_axis_values,
     point_dependent_product,
+    point_literal_rows,
     point_product,
-    point_rows,
     point_zip,
     walk_point_domain,
 )
-from scopecat.kernel.value_types import Int, Scalar, Table, TableColumn
+from scopecat.kernel.value_types import Int, Scalar, TableColumn
+from scopecat.records.parameter import Quantity
 
 _INT = Scalar(Int())
+_SPAN = Quantity(value=2.0, unit="V")
 
 
-def _table(column_id: str, minimum: int, maximum: int | None) -> Table:
-    return Table(
-        columns=(TableColumn(column_id, _INT),),
-        min_rows=minimum,
-        max_rows=maximum,
+def _rows(column_id: str, count: int) -> PointRows:
+    return point_literal_rows(
+        (TableColumn(column_id, _INT),),
+        tuple((index,) for index in range(count)),
     )
 
 
-def _table_leaf_type(table: Table, _path: tuple[str | int, ...]) -> Table:
-    return table
+def _analyze(root: PointDomainExpr[object]) -> PointDomainAnalysis:
+    return analyze_point_domain(root)
 
 
-def _analyze(root: PointDomainExpr[Table]) -> PointDomainAnalysis:
-    return analyze_point_domain(root, leaf_value_type=_table_leaf_type)
+def test_axis_sources_and_helpers_have_exact_shapes() -> None:
+    values = point_axis_values("values", _INT, (1, 2, 3))
+    linear = point_axis_linear("linear", _INT, "center", _SPAN, 5)
+
+    assert values == PointAxis("values", _INT, PointAxisValues((1, 2, 3)))
+    assert linear == PointAxis(
+        "linear",
+        _INT,
+        PointAxisLinear(center="center", span=_SPAN, count=5),
+    )
+    assert _analyze(values).root.cardinality == 3
+    assert _analyze(linear).root.cardinality == 5
+    assert _analyze(linear).root.value_type.columns == (TableColumn("linear", _INT),)
+    with pytest.raises(ValueError, match="at least 2"):
+        PointAxisLinear(center="center", span=_SPAN, count=1)
+    with pytest.raises(ValueError, match="non-empty"):
+        point_axis_values("", _INT, (1,))
+
+
+def test_literal_rows_derive_exact_cardinality_from_positional_rows() -> None:
+    columns = (TableColumn("a", _INT), TableColumn("b", _INT))
+    rows = point_literal_rows(columns, ((1, 2), (3, 4)))
+
+    assert rows == PointRows(columns, ((1, 2), (3, 4)))
+    assert _analyze(rows).root.cardinality == 2
+    with pytest.raises(ValueError, match="width 1; expected 2"):
+        point_literal_rows(columns, ((1,),))
 
 
 def test_point_product_is_canonical_ordered_and_unit_normalized() -> None:
-    a = point_rows(_table("a", 2, 2))
-    b = point_rows(_table("b", 3, 3))
-    c = point_rows(_table("c", 4, 4))
+    a = _rows("a", 2)
+    b = _rows("b", 3)
+    c = _rows("c", 4)
 
     root = point_product(POINT_UNIT, point_product(a, b), c)
 
@@ -56,12 +86,12 @@ def test_point_product_is_canonical_ordered_and_unit_normalized() -> None:
     assert root.factors == (a, b, c)
     assert point_product() == POINT_UNIT
     assert point_product(POINT_UNIT, a) is a
-    assert _analyze(root).root.cardinality == PointCardinality.exact(24)
+    assert _analyze(root).root.cardinality == 24
 
 
-def test_dependent_product_is_directional_and_applies_only_unit_laws() -> None:
-    left = point_rows(_table("left", 2, 2))
-    right = point_rows(_table("right", 1, 3))
+def test_dependent_product_is_directional_and_exact() -> None:
+    left = _rows("left", 2)
+    right = point_axis_linear("right", _INT, "outer-dependent", _SPAN, 3)
 
     root = point_dependent_product(left, right)
 
@@ -70,37 +100,37 @@ def test_dependent_product_is_directional_and_applies_only_unit_laws() -> None:
     assert root.right is right
     assert point_dependent_product(POINT_UNIT, right) is right
     assert point_dependent_product(left, POINT_UNIT) is left
-    assert _analyze(root).root.cardinality == PointCardinality(2, 6)
+    assert _analyze(root).root.cardinality == 6
 
 
-def test_zip_keeps_unit_semantics_and_intersects_cardinality() -> None:
-    left = point_rows(_table("left", 1, 4))
-    right = point_rows(_table("right", 2, None))
+def test_zip_keeps_unit_semantics_and_requires_equal_exact_counts() -> None:
+    left = _rows("left", 2)
+    right = _rows("right", 2)
 
     root = point_zip(left, right)
 
     assert isinstance(root, PointZip)
-    assert _analyze(root).root.cardinality == PointCardinality(2, 4)
+    assert _analyze(root).root.cardinality == 2
     with pytest.raises(PointDomainShapeError) as caught:
-        _analyze(point_zip(POINT_UNIT, point_rows(_table("many", 2, 2))))
+        _analyze(point_zip(POINT_UNIT, _rows("many", 2)))
     assert caught.value.code == "point_domain_zip_cardinality_mismatch"
 
 
-def test_structural_paths_and_leaf_mapping_are_stable() -> None:
+def test_structural_paths_and_center_mapping_are_stable() -> None:
+    left = point_axis_linear("left", _INT, "left-center", _SPAN, 2)
+    middle = point_axis_values("middle", _INT, (1, 2))
+    right_a = point_axis_linear("right-a", _INT, "right-center", _SPAN, 2)
+    right_b = point_axis_values("right-b", _INT, (3, 4))
     root = point_product(
-        point_rows("left"),
-        point_dependent_product(
-            point_rows("middle"),
-            point_zip(point_rows("right-a"), point_rows("right-b")),
-        ),
+        left,
+        point_dependent_product(middle, point_zip(right_a, right_b)),
     )
 
     paths = tuple(path for path, _node in walk_point_domain(root))
-    leaves = tuple((path, leaf.rows) for path, leaf in iter_point_relation_rows(root))
-    mapped = map_point_relation_rows(root, lambda value, path: (value, path))
-    original_ids = tuple(
-        leaf.relation_use_id for _path, leaf in iter_point_relation_rows(root)
+    linear = tuple(
+        (path, source.center) for path, source in iter_point_axis_linear(root)
     )
+    mapped = map_point_axis_centers(root, lambda center, path: (center, path))
 
     assert paths == (
         (),
@@ -111,32 +141,19 @@ def test_structural_paths_and_leaf_mapping_are_stable() -> None:
         ("factors", 1, "right", "sources", 0),
         ("factors", 1, "right", "sources", 1),
     )
-    assert leaves == (
-        (("factors", 0), "left"),
-        (("factors", 1, "left"), "middle"),
-        (("factors", 1, "right", "sources", 0), "right-a"),
-        (("factors", 1, "right", "sources", 1), "right-b"),
+    assert linear == (
+        (("factors", 0), "left-center"),
+        (("factors", 1, "right", "sources", 0), "right-center"),
     )
     assert tuple(
-        leaf.rows for _path, leaf in iter_point_relation_rows(mapped)
-    ) == tuple((value, path) for path, value in leaves)
-    assert (
-        tuple(leaf.relation_use_id for _path, leaf in iter_point_relation_rows(mapped))
-        == original_ids
-    )
-
-
-def test_relation_rows_get_fresh_nominal_use_identities() -> None:
-    first = point_rows("same")
-    second = point_rows("same")
-
-    assert first.relation_use_id != second.relation_use_id
+        (path, source.center) for path, source in iter_point_axis_linear(mapped)
+    ) == tuple((path, (center, path)) for path, center in linear)
 
 
 def test_duplicate_output_columns_fail_at_the_composition_node() -> None:
     root = point_product(
-        point_rows(_table("same", 1, 1)),
-        point_rows(_table("same", 1, 1)),
+        point_axis_values("same", _INT, (1,)),
+        point_axis_values("same", _INT, (2,)),
     )
 
     with pytest.raises(PointDomainShapeError) as caught:
@@ -146,52 +163,33 @@ def test_duplicate_output_columns_fail_at_the_composition_node() -> None:
     assert caught.value.path == ()
 
 
-def test_statically_empty_factor_annihilates_unknown_product_maximum() -> None:
+def test_statically_empty_factor_annihilates_exact_product() -> None:
     root = point_product(
-        point_rows(_table("empty", 0, 0)),
-        point_rows(_table("unknown", 0, None)),
+        point_axis_values("empty", _INT, ()),
+        point_axis_values("other", _INT, (1, 2, 3)),
     )
 
-    assert _analyze(root).root.cardinality == PointCardinality.exact(0)
+    assert _analyze(root).root.cardinality == 0
 
 
-def test_shape_metadata_has_explicit_composition_rules() -> None:
-    left_type = Table(
-        columns=(TableColumn("left", _INT),),
-        primary_key=("left",),
-        min_rows=1,
-        max_rows=2,
-    )
-    right_type = Table(
-        columns=(TableColumn("right", _INT),),
-        primary_key=("right",),
-        min_rows=1,
-        max_rows=2,
-        allow_extra_columns=True,
-    )
+def test_shape_projects_only_columns_and_exact_cardinality() -> None:
+    left = point_literal_rows((TableColumn("left", _INT),), ((1,), (2,)))
+    right = point_literal_rows((TableColumn("right", _INT),), ((3,), (4,)))
 
-    product_type = _analyze(
-        point_product(point_rows(left_type), point_rows(right_type))
-    ).root.value_type
-    zip_type = _analyze(
-        point_zip(point_rows(left_type), point_rows(right_type))
-    ).root.value_type
+    product_type = _analyze(point_product(left, right)).root.value_type
+    zip_type = _analyze(point_zip(left, right)).root.value_type
 
-    assert product_type.primary_key == ("left", "right")
-    assert zip_type.primary_key == ("left",)
-    assert product_type.allow_extra_columns
-    assert zip_type.allow_extra_columns
+    assert product_type.primary_key == ()
+    assert zip_type.primary_key == ()
+    assert not product_type.allow_extra_columns
+    assert not zip_type.allow_extra_columns
+    assert product_type.min_rows == product_type.max_rows == 4
+    assert zip_type.min_rows == zip_type.max_rows == 2
 
 
-def test_analysis_construction_snapshots_and_validates_root_fact() -> None:
-    shape = PointDomainShape(Table(columns=(), min_rows=1, max_rows=1))
-    facts = {(): shape}
-    analysis = PointDomainAnalysis(root=shape, facts=facts)
-    facts.clear()
-
-    assert analysis.facts == {(): shape}
-    with pytest.raises(ValueError, match="root fact"):
-        PointDomainAnalysis(root=shape, facts={})
+def test_point_domain_shape_requires_nonnegative_cardinality() -> None:
+    with pytest.raises(ValueError, match="nonnegative"):
+        PointDomainShape((), -1)
 
 
 @given(
@@ -201,16 +199,14 @@ def test_generated_product_cardinality_is_multiplicative(
     counts: list[int],
 ) -> None:
     factors = tuple(
-        point_rows(_table(f"c{index}", count, count))
+        point_axis_values(f"c{index}", _INT, tuple(range(count)))
         for index, count in enumerate(counts)
     )
     expected = 1
     for count in counts:
         expected *= count
 
-    assert _analyze(point_product(*factors)).root.cardinality == (
-        PointCardinality.exact(expected)
-    )
+    assert _analyze(point_product(*factors)).root.cardinality == expected
 
 
 @given(
@@ -224,7 +220,7 @@ def test_generated_product_association_has_one_canonical_order(
     counts: tuple[int, int, int],
 ) -> None:
     first, second, third = (
-        point_rows(_table(column_id, count, count))
+        point_axis_values(column_id, _INT, tuple(range(count)))
         for column_id, count in zip(("first", "second", "third"), counts, strict=True)
     )
 
@@ -243,14 +239,12 @@ def test_generated_product_association_has_one_canonical_order(
 )
 def test_generated_zip_accepts_exactly_equal_lengths(counts: list[int]) -> None:
     factors = tuple(
-        point_rows(_table(f"c{index}", count, count))
+        point_axis_values(f"c{index}", _INT, tuple(range(count)))
         for index, count in enumerate(counts)
     )
 
     if len(set(counts)) == 1:
-        assert _analyze(point_zip(*factors)).root.cardinality == (
-            PointCardinality.exact(counts[0])
-        )
+        assert _analyze(point_zip(*factors)).root.cardinality == counts[0]
     else:
         with pytest.raises(PointDomainShapeError) as caught:
             _analyze(point_zip(*factors))
@@ -258,7 +252,7 @@ def test_generated_zip_accepts_exactly_equal_lengths(counts: list[int]) -> None:
 
 
 def test_direct_noncanonical_nodes_are_rejected() -> None:
-    leaf = PointRelationRows(_table("x", 1, 1))
+    leaf = point_axis_values("x", _INT, (1,))
 
     with pytest.raises(ValueError, match="at least two"):
         PointProduct((leaf,))

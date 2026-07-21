@@ -22,9 +22,9 @@ from scopecat.authoring._scan_intents import (
 )
 from scopecat.authoring._value_refs import (
     ValueRef,
-    internal_value_ref_free_point_dependencies,
-    internal_value_ref_free_point_input_ids,
     internal_value_ref_input_id,
+    internal_value_ref_point_dependencies,
+    internal_value_ref_scalar_input_ids,
 )
 from scopecat.kernel.value_type_compatibility import is_assignable
 from scopecat.kernel.value_types import Scalar, ValueType
@@ -48,7 +48,6 @@ class ScanDependencyEdge:
 
     producer_id: str
     consumer_id: str
-    required_type: Scalar
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,26 +69,16 @@ class ScanDependencyError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class VerifiedScanDependencyGraph:
-    """A legal scan forest with stable dependency-normalized product factors."""
+    """A legal authored scan forest and its typed dependency edges.
+
+    Scheduling is deliberately left to point-domain composition, where scans and
+    the base domain can be ordered together instead of normalizing the scan forest
+    once here and sorting the same top-level factors again later.
+    """
 
     scans: tuple[Scan, ...]
     axes: tuple[ScanAxis, ...]
     edges: tuple[ScanDependencyEdge, ...]
-
-    def dependencies(self, axis_id: str) -> tuple[str, ...]:
-        """Return direct producer ids in stable declaration order."""
-
-        ordinals = {axis.id: axis.declaration_ordinal for axis in self.axes}
-        return tuple(
-            sorted(
-                (
-                    edge.producer_id
-                    for edge in self.edges
-                    if edge.consumer_id == axis_id
-                ),
-                key=lambda item: (ordinals.get(item, -1), item),
-            )
-        )
 
 
 def verify_scan_dependencies(
@@ -99,7 +88,7 @@ def verify_scan_dependencies(
     input_types: Mapping[str, ValueType] | None = None,
     external_point_types: Mapping[str, Scalar] | None = None,
 ) -> VerifiedScanDependencyGraph:
-    """Verify point dependencies and return a canonical Cartesian schedule.
+    """Verify point dependencies without choosing an execution schedule.
 
     ``inputs`` are invocation values already fixed for the run.  A free module
     input with the same id as a scan axis becomes a dependency on that axis;
@@ -233,7 +222,6 @@ def verify_scan_dependencies(
                 ScanDependencyEdge(
                     producer_id=dependency_id,
                     consumer_id=axis.id,
-                    required_type=required_type,
                 )
             )
 
@@ -251,18 +239,9 @@ def verify_scan_dependencies(
     if issues:
         raise ScanDependencyError(issues)
 
-    topological_ids = _stable_topological_ids(axes, dependencies)
-    topological_axes = tuple(axes_by_id[axis_id] for axis_id in topological_ids)
-    normalized, composition_issue = _normalize_product_forest(
-        selected,
-        dependencies=dependencies,
-        axes_by_id=axes_by_id,
-    )
-    if composition_issue is not None:
-        raise ScanDependencyError((composition_issue,))
     return VerifiedScanDependencyGraph(
-        scans=normalized,
-        axes=topological_axes,
+        scans=selected,
+        axes=axes,
         edges=tuple(edges),
     )
 
@@ -300,7 +279,7 @@ def _scan_dependency_requirements(
         return {}, {}, frozenset()
     direct = {
         dependency.id: dependency.value_type
-        for dependency in internal_value_ref_free_point_dependencies(scan.center)
+        for dependency in internal_value_ref_point_dependencies(scan.center)
     }
     direct_input_id = internal_value_ref_input_id(scan.center)
     direct_input_types = (
@@ -311,7 +290,7 @@ def _scan_dependency_requirements(
     return (
         direct,
         direct_input_types,
-        internal_value_ref_free_point_input_ids(scan.center),
+        internal_value_ref_scalar_input_ids(scan.center),
     )
 
 
@@ -404,137 +383,3 @@ def _dependency_cycle(
             if cycle is not None:
                 return cycle
     return None
-
-
-def _stable_topological_ids(
-    axes: Sequence[ScanAxis],
-    dependencies: Mapping[str, set[str]],
-) -> tuple[str, ...]:
-    ordinals = {axis.id: axis.declaration_ordinal for axis in axes}
-    remaining = {axis.id: set(dependencies[axis.id]) for axis in axes}
-    selected: list[str] = []
-    while remaining:
-        ready = min(
-            (axis_id for axis_id, required in remaining.items() if not required),
-            key=lambda item: (ordinals[item], item),
-        )
-        selected.append(ready)
-        del remaining[ready]
-        for required in remaining.values():
-            required.discard(ready)
-    return tuple(selected)
-
-
-def _normalize_product_forest(
-    scans: Sequence[Scan],
-    *,
-    dependencies: Mapping[str, set[str]],
-    axes_by_id: Mapping[str, ScanAxis],
-) -> tuple[tuple[Scan, ...], ScanDependencyIssue | None]:
-    factors: list[Scan] = []
-    for scan in scans:
-        normalized, nested_issue = _normalize_scan(
-            scan,
-            dependencies=dependencies,
-            axes_by_id=axes_by_id,
-        )
-        if nested_issue is not None:
-            return (), nested_issue
-        if isinstance(normalized, ScanGroupIntent) and normalized.kind == "cartesian":
-            factors.extend(normalized.scans)
-        else:
-            factors.append(normalized)
-    return _order_product_factors(
-        factors,
-        dependencies=dependencies,
-        axes_by_id=axes_by_id,
-    )
-
-
-def _normalize_scan(
-    scan: Scan,
-    *,
-    dependencies: Mapping[str, set[str]],
-    axes_by_id: Mapping[str, ScanAxis],
-) -> tuple[Scan, ScanDependencyIssue | None]:
-    if not isinstance(scan, ScanGroupIntent):
-        return scan, None
-    if scan.kind == "cartesian":
-        factors, issue = _normalize_product_forest(
-            scan.scans,
-            dependencies=dependencies,
-            axes_by_id=axes_by_id,
-        )
-        if issue is not None:
-            return scan, issue
-        if len(factors) == 1:
-            return factors[0], None
-        return ScanGroupIntent(kind="cartesian", scans=factors), None
-
-    children: list[Scan] = []
-    for child in scan.scans:
-        normalized, issue = _normalize_scan(
-            child,
-            dependencies=dependencies,
-            axes_by_id=axes_by_id,
-        )
-        if issue is not None:
-            return scan, issue
-        children.append(normalized)
-    return ScanGroupIntent(kind="zip", scans=tuple(children)), None
-
-
-def _order_product_factors(
-    factors: Sequence[Scan],
-    *,
-    dependencies: Mapping[str, set[str]],
-    axes_by_id: Mapping[str, ScanAxis],
-) -> tuple[tuple[Scan, ...], ScanDependencyIssue | None]:
-    selected = tuple(factors)
-    if len(selected) < 2:
-        return selected, None
-    axis_sets = [
-        {scan_point_id(leaf) for leaf in iter_scan_leaves(factor)}
-        for factor in selected
-    ]
-    factor_by_axis = {
-        axis_id: factor_index
-        for factor_index, axis_ids in enumerate(axis_sets)
-        for axis_id in axis_ids
-    }
-    required_factors = {index: set[int]() for index in range(len(selected))}
-    for consumer_id, producer_ids in dependencies.items():
-        consumer_factor = factor_by_axis.get(consumer_id)
-        if consumer_factor is None:
-            continue
-        for producer_id in producer_ids:
-            producer_factor = factor_by_axis.get(producer_id)
-            if producer_factor is not None and producer_factor != consumer_factor:
-                required_factors[consumer_factor].add(producer_factor)
-
-    remaining = {index: set(required) for index, required in required_factors.items()}
-    ordered: list[int] = []
-    while remaining:
-        ready = [index for index, required in remaining.items() if not required]
-        if not ready:
-            involved = sorted(
-                {
-                    axis_id
-                    for factor_index in remaining
-                    for axis_id in axis_sets[factor_index]
-                },
-                key=lambda item: (axes_by_id[item].declaration_ordinal, item),
-            )
-            first = involved[0]
-            return (), ScanDependencyIssue(
-                "scan_dependency_composition_cycle",
-                "scan groups cannot be ordered without splitting a positional "
-                "composition: " + ", ".join(involved),
-                axes_by_id[first].path,
-            )
-        next_index = min(ready)
-        ordered.append(next_index)
-        del remaining[next_index]
-        for required in remaining.values():
-            required.discard(next_index)
-    return tuple(selected[index] for index in ordered), None

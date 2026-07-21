@@ -276,22 +276,15 @@ def test_run_request_does_not_duck_project_semantic_python_objects() -> None:
 
 def test_run_request_symbolic_values_are_closed_and_recursive() -> None:
     center = {
-        "kind": "case",
-        "branches": [
-            {
-                "when": {
-                    "kind": "binary",
-                    "operator": ">",
-                    "left": {"kind": "axis", "axis_id": "amplitude"},
-                    "right": 0.5,
-                },
-                "then": {"kind": "input", "input_id": "high_frequency"},
-            }
-        ],
-        "fallback": {
+        "kind": "binary",
+        "operator": "+",
+        "left": {"kind": "input", "input_id": "frequency_offset"},
+        "right": {
             "kind": "parameter_lookup",
             "table_id": "device_parameters",
-            "key": {"subject": "q0"},
+            "key": {
+                "subject": {"kind": "axis", "axis_id": "subject"},
+            },
             "column": "frequency",
         },
     }
@@ -307,6 +300,23 @@ def test_run_request_symbolic_values_are_closed_and_recursive() -> None:
 
     assert scan.model_dump(mode="json")["center"] == center
     assert AroundScanRecord.model_validate_json(scan.model_dump_json()) == scan
+
+
+def test_run_request_rejects_removed_case_expression_schema() -> None:
+    with pytest.raises(ValidationError):
+        AroundScanRecord.model_validate(
+            {
+                "target_id": "drive_frequency",
+                "axis_id": "drive_frequency",
+                "center": {
+                    "kind": "case",
+                    "branches": [{"when": True, "then": 1.0}],
+                    "fallback": 0.0,
+                },
+                "span": Quantity(value=100.0, unit="MHz"),
+                "points": 3,
+            }
+        )
 
 
 @pytest.mark.parametrize(

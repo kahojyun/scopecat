@@ -25,6 +25,7 @@ from scopecat.authoring._module_ir import (
     ModuleBindingEffect,
     ModuleStateEffect,
 )
+from scopecat.authoring._point_domain_intents import PointDomainIntent
 from scopecat.authoring._products import (
     ModuleProductDecl,
     ProductRef,
@@ -66,7 +67,6 @@ from scopecat.compiler.relations.model import (
     input_ref,
     param,
 )
-from scopecat.compiler.relations.point_domain import point_rows
 from scopecat.compiler.relations.verification import RelationTypeBindings
 from scopecat.compiler.semantic.compute_result import ComputeResultRef
 from scopecat.compiler.semantic.model import (
@@ -152,7 +152,7 @@ def _around_parameter_points(
     parameter_id: str = "drive_frequency",
     *,
     points: int = 5,
-) -> ValueRef:
+) -> PointDomainIntent:
     point_type = authoring.ScalarType(authoring.QuantityType(unit="GHz"))
     return lower_scan_points(
         sc.axis(
@@ -1230,7 +1230,7 @@ def test_request_projection_rejects_transient_typed_and_compiler_values() -> Non
 
 def test_link_assembly_resolves_config_dependent_fragments() -> None:
     source = elaborate_module(SIMPLE_MODULE, subject="q0")
-    points = SemanticExperimentIR(point_domain=point_rows(_around_parameter_points()))
+    points = SemanticExperimentIR(point_domain=_around_parameter_points())
     assembly = merge_semantic_experiments(
         experiment_id="authored-simple-scan",
         kind="simple_scan",
@@ -1259,7 +1259,7 @@ def test_link_assembly_validates_parameter_contracts_owned_by_point_source() -> 
     assembly = SemanticExperimentIR(
         experiment_id="missing-parameter-scan",
         kind="simple_scan",
-        point_domain=point_rows(_around_parameter_points("missing_frequency")),
+        point_domain=_around_parameter_points("missing_frequency"),
     )
     request = RunRequest(
         id="missing-parameter.request",

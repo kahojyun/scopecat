@@ -9,6 +9,7 @@ from scopecat.records.run_request import (
     AroundScanRecord,
     ParameterScanRecord,
     RunRequest,
+    RunRequestAxisValue,
     RunRequestParameterValue,
 )
 from tests.testkit.materialized_effects import materialized_effects_contract
@@ -62,3 +63,34 @@ def test_parameter_scan_request_materializes_typed_input_keys() -> None:
     assert isinstance(parameter_scan, ParameterScanRecord)
     assert parameter_scan.key == {"subject": "q0"}
     assert "source_kind" not in request.model_dump_json()
+
+
+def test_dependent_default_scan_projects_its_input_as_an_axis() -> None:
+    frequency = sc.ScalarType(sc.QuantityType(unit="GHz"))
+    first = sc.point("first", frequency)
+    second = sc.point("second", frequency)
+    template = (
+        sc.module("test.request_axis_dependency")
+        .build()
+        .template(
+            "test.request_axis_dependency",
+            kind="request_axis_dependency",
+        )
+        .experiment_id("request-axis-dependency")
+        .scan(
+            second,
+            center=sc.input("first", frequency),
+            span="2 GHz",
+            points=2,
+        )
+        .scan(first, [4.9, 5.1], unit="GHz")
+        .input("first")
+        .build()
+    )
+
+    compiled = compile_prepared_invocation(prepare_invocation(template.bind()))
+
+    centered = compiled.request.scans[0]
+    assert isinstance(centered, AroundScanRecord)
+    assert centered.center == RunRequestAxisValue(axis_id="first")
+    assert set(compiled.assembly.source.inputs) == {"first"}

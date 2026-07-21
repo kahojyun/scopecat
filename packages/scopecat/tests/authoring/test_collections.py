@@ -12,7 +12,6 @@ from scopecat.compiler.frontend.elaboration import elaborate_module
 from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
 from scopecat.compiler.frontend.resolution import ResolvedExperiment
 from scopecat.compiler.linking.linked import link_verified_program
-from scopecat.compiler.relations.analysis import PlanNode
 from scopecat.compiler.relations.evaluation import (
     EvalContext,
     ParameterRelationData,
@@ -20,15 +19,7 @@ from scopecat.compiler.relations.evaluation import (
 from scopecat.compiler.relations.model import (
     ColumnScalarExpr,
     LiteralScalarExpr,
-    grid,
     literal_rows,
-    outer,
-)
-from scopecat.compiler.relations.uses import RelationUseId
-from scopecat.compiler.relations.verification import (
-    RelationTypeBindings,
-    RowType,
-    VerifiedRelationPlan,
 )
 from scopecat.compiler.semantic.compute_result import ComputeResultRef
 from scopecat.compiler.semantic.model import (
@@ -63,7 +54,6 @@ from scopecat.execution.local.program import (
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
 from scopecat.kernel.symbols import SymbolId
-from scopecat.kernel.value_validation import ValueValidationError
 from scopecat.planning.authoring import resolve_experiment
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import Quantity
@@ -74,11 +64,9 @@ from tests.testkit.local_materialization import (
 )
 from tests.testkit.materialized_effects import materialized_effects_contract
 from tests.testkit.relation_plans import (
-    each_state,
     materialize_scalar_value,
     materialize_series_value,
     materialize_table_value,
-    state_field,
 )
 
 
@@ -1250,51 +1238,6 @@ def test_state_target_entities_use_durable_scalar_and_series_shapes() -> None:
         location=model_location("state", 0),
     )
     assert records[0].target_entities == (EntityRef(id="q0"),)
-
-
-def test_nested_state_preserves_an_empty_parent_row_as_outer_scope() -> None:
-    leaf = state_field(
-        "source-a",
-        capability_id="set_offset",
-        field_path="offset",
-        value=1.0,
-    )
-    nested = each_state(
-        grid(observed=outer("ambient")),
-        leaf,
-        bindings=RelationTypeBindings(
-            outer_row=RowType(
-                columns=(
-                    authoring.TableColumn(
-                        "ambient",
-                        authoring.ScalarType(authoring.FloatType()),
-                    ),
-                )
-            )
-        ),
-    )
-    state = each_state(literal_rows([{}]), nested)
-    child = state.state[0]
-    assert isinstance(child, ForEachStateSpec)
-    verified_plans: dict[
-        RelationUseId,
-        VerifiedRelationPlan[PlanNode],
-    ] = {
-        state.relation_use.id: state.relation_use.value.plan,
-        child.relation_use.id: child.relation_use.value.plan,
-    }
-
-    with pytest.raises(
-        ValueValidationError,
-        match=r"rows\.outer.*missing required columns: ambient",
-    ):
-        evaluate_state_spec(
-            state,
-            point_index=0,
-            ctx=EvalContext(outer_row={"ambient": 1.0}),
-            relation_plan=verified_plans.__getitem__,
-            location=model_location("state", 0),
-        )
 
 
 def test_state_each_preserves_compute_result_refs_across_module_inputs() -> None:

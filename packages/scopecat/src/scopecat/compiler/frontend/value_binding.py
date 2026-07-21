@@ -39,52 +39,40 @@ class _ResolvedInputs(Mapping[str, object]):
 def bind_scalar_input_refs(
     expression: ScalarExpr,
     inputs: Mapping[str, object],
-    *,
-    preserve_unbound_inputs: bool = False,
 ) -> ScalarExpr:
     return relation_input_binding.bind_scalar_input_refs(
         expression,
         _ResolvedInputs(inputs),
-        preserve_unbound_inputs=preserve_unbound_inputs,
     )
 
 
 def bind_series_input_refs(
     expression: SeriesExpr,
     inputs: Mapping[str, object],
-    *,
-    preserve_unbound_inputs: bool = False,
 ) -> SeriesExpr:
     return relation_input_binding.bind_series_input_refs(
         expression,
         _ResolvedInputs(inputs),
-        preserve_unbound_inputs=preserve_unbound_inputs,
     )
 
 
 def bind_relation_input_refs(
     expression: RelationExpr,
     inputs: Mapping[str, object],
-    *,
-    preserve_unbound_inputs: bool = False,
 ) -> RelationExpr:
     return relation_input_binding.bind_relation_input_refs(
         expression,
         _ResolvedInputs(inputs),
-        preserve_unbound_inputs=preserve_unbound_inputs,
     )
 
 
 def bind_value_input_refs(
     expression: _DataExpr,
     inputs: Mapping[str, object],
-    *,
-    preserve_unbound_inputs: bool = False,
 ) -> _DataExpr:
     return relation_input_binding.bind_value_input_refs(
         expression,
         _ResolvedInputs(inputs),
-        preserve_unbound_inputs=preserve_unbound_inputs,
     )
 
 

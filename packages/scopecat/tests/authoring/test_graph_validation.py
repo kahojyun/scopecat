@@ -7,7 +7,6 @@ import pytest
 import scopecat as sc
 from scopecat.authoring._binding_intents import requires, resource_port
 from scopecat.authoring._products import ModuleProductDecl, record_product
-from scopecat.authoring._value_refs import internal_value_ref_from_expression
 from scopecat.compiler.frontend.assembly_lowering import validate_assembly_entrypoint
 from scopecat.compiler.frontend.elaboration import SemanticExperimentIR
 from scopecat.compiler.frontend.environment import validate_config_environment
@@ -17,8 +16,7 @@ from scopecat.compiler.frontend.resolution import (
     compile_prepared_invocation,
     resolve_compiled_invocation,
 )
-from scopecat.compiler.relations.model import literal_rows
-from scopecat.compiler.relations.point_domain import point_rows
+from scopecat.compiler.relations.point_domain import point_literal_rows
 from scopecat.compiler.semantic.model import (
     ImplementationCatalog,
     LiteralValueSource,
@@ -35,8 +33,9 @@ from scopecat.compiler.semantic.verification import (
     verify_source_map,
 )
 from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.problems import ProblemPhase, model_location
-from scopecat.kernel.value_types import Float, Payload, Scalar, Table, TableColumn
+from scopecat.kernel.value_types import Float, Payload, Scalar, TableColumn
 from scopecat.planning.authoring import resolve_experiment
 from scopecat.records.entity import EntityRef
 from tests.testkit.authoring import load_config
@@ -631,16 +630,14 @@ def test_execute_core_operation_defers_local_implementation_selection() -> None:
 
 
 def test_source_coordinate_collision_ignores_non_coordinate_payload() -> None:
-    point_source = internal_value_ref_from_expression(
-        literal_rows([{}]),
-        Table(
-            columns=(TableColumn("payload", Scalar(Payload("point-payload"))),),
-        ),
+    point_source = point_literal_rows(
+        (TableColumn("payload", Scalar(Payload("point-payload"))),),
+        ((PayloadValue(schema_id="point-payload", payload={}),),),
     )
 
     verify_assembly_graph(
         SemanticExperimentIR(
-            point_domain=point_rows(point_source),
+            point_domain=point_source,
             product_declarations=(ModuleProductDecl(id="payload"),),
             record_selections=(record_product("payload"),),
         )
@@ -648,15 +645,15 @@ def test_source_coordinate_collision_ignores_non_coordinate_payload() -> None:
 
 
 def test_source_coordinate_collision_uses_typed_coordinate_predicate() -> None:
-    point_source = internal_value_ref_from_expression(
-        literal_rows([{}]),
-        Table(columns=(TableColumn("coordinate", Scalar(Float())),)),
+    point_source = point_literal_rows(
+        (TableColumn("coordinate", Scalar(Float())),),
+        ((1.0,),),
     )
 
     with pytest.raises(CheckFailed) as error:
         verify_assembly_graph(
             SemanticExperimentIR(
-                point_domain=point_rows(point_source),
+                point_domain=point_source,
                 product_declarations=(ModuleProductDecl(id="coordinate"),),
                 record_selections=(record_product("coordinate"),),
             )

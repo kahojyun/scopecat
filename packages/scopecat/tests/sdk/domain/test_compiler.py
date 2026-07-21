@@ -18,8 +18,6 @@ from scopecat.sdk.domain.compiler import (
     DomainCompileRequest,
     DomainInput,
     DomainIterationLayout,
-    DomainIterationLeaf,
-    DomainIterationProduct,
     DomainLiteral,
     DomainPointAffine,
     DomainPointAxis,
@@ -70,8 +68,8 @@ def _request() -> DomainCompileRequest:
 
 def _layout(*axes: DomainPointAxis) -> DomainIterationLayout:
     return DomainIterationLayout(
-        DomainIterationLeaf(tuple(axis.id for axis in axes), len(axes[0].values)),
-        axes,
+        axes=axes,
+        preferred_tile_size=len(axes[0].values),
     )
 
 
@@ -133,16 +131,11 @@ def test_compiler_controls_partition_within_barrier_regions() -> None:
 
 def test_partition_preserves_complete_innermost_sweeps_when_capacity_allows() -> None:
     layout = DomainIterationLayout(
-        DomainIterationProduct(
-            (
-                DomainIterationLeaf(("slow",), 2),
-                DomainIterationLeaf(("fast",), 3),
-            )
-        ),
-        (
+        axes=(
             DomainPointAxis("slow", (10, 20), repeat_each=3),
             DomainPointAxis("fast", (1, 2, 3)),
         ),
+        preferred_tile_size=3,
     )
     request = replace(
         _request(),
@@ -155,16 +148,11 @@ def test_partition_preserves_complete_innermost_sweeps_when_capacity_allows() ->
 
 def test_partition_respects_barrier_clipping_before_axis_alignment() -> None:
     layout = DomainIterationLayout(
-        DomainIterationProduct(
-            (
-                DomainIterationLeaf(("slow",), 2),
-                DomainIterationLeaf(("fast",), 3),
-            )
-        ),
-        (
+        axes=(
             DomainPointAxis("slow", (10, 20), repeat_each=3),
             DomainPointAxis("fast", (1, 2, 3)),
         ),
+        preferred_tile_size=3,
     )
     request = replace(
         _request(),
@@ -231,16 +219,11 @@ def test_compile_request_exposes_exact_finite_point_axis() -> None:
 
 def test_iteration_layout_partitions_coverage_by_selected_axes() -> None:
     layout = DomainIterationLayout(
-        DomainIterationProduct(
-            (
-                DomainIterationLeaf(("slow",), 2),
-                DomainIterationLeaf(("fast",), 3),
-            )
-        ),
-        (
+        axes=(
             DomainPointAxis("slow", (10, 20), repeat_each=3),
             DomainPointAxis("fast", (1, 2, 3)),
         ),
+        preferred_tile_size=3,
     )
 
     assert layout.partition_by_axes(("slow",), range(6)) == (
@@ -259,13 +242,20 @@ def test_iteration_layout_partitions_coverage_by_selected_axes() -> None:
     assert layout.partition_by_axes(("unknown",), range(6)) is None
 
 
-def test_partial_grid_leaf_exposes_known_axis_without_exact_extent() -> None:
+def test_iteration_layout_normalizes_empty_tile_size_and_rejects_negative() -> None:
+    assert DomainIterationLayout(preferred_tile_size=0).preferred_tile_size is None
+
+    with pytest.raises(ValueError, match="tile size must be nonnegative"):
+        DomainIterationLayout(preferred_tile_size=-1)
+
+
+def test_exact_leaf_can_expose_a_repeating_known_axis() -> None:
     layout = DomainIterationLayout(
-        DomainIterationLeaf(("fast",), None),
-        (DomainPointAxis("fast", (1, 2, 3)),),
+        axes=(DomainPointAxis("fast", (1, 2, 3)),),
+        preferred_tile_size=6,
     )
 
-    assert layout.preferred_tile_size is None
+    assert layout.preferred_tile_size == 6
     assert layout.partition_by_axes(("fast",), range(6)) == (
         (0,),
         (1,),
@@ -281,16 +271,11 @@ def test_compile_request_keeps_barriers_while_partitioning_by_axes() -> None:
         _request(),
         barrier_regions=((0, 1), (2, 3, 4, 5)),
         iteration_layout=DomainIterationLayout(
-            DomainIterationProduct(
-                (
-                    DomainIterationLeaf(("slow",), 2),
-                    DomainIterationLeaf(("fast",), 3),
-                )
-            ),
-            (
+            axes=(
                 DomainPointAxis("slow", (10, 20), repeat_each=3),
                 DomainPointAxis("fast", (1, 2, 3)),
             ),
+            preferred_tile_size=3,
         ),
     )
 

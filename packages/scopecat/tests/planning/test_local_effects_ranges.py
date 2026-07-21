@@ -2,12 +2,14 @@ import pytest
 
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.relations.model import (
-    RelationExpr,
-    grid,
+    param,
     point_col,
-    range_values,
-    table,
 )
+from scopecat.compiler.relations.point_domain import (
+    point_axis_linear,
+    point_axis_values,
+)
+from scopecat.compiler.relations.uses import relation_use
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
@@ -21,7 +23,8 @@ from scopecat.compiler.typed.program import (
 from scopecat.config.profiles import load_config_profile
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.resource_identity import logical_resource_port_id
-from scopecat.kernel.value_types import Table as TableType
+from scopecat.kernel.value_types import Quantity as QuantityType
+from scopecat.kernel.value_types import Scalar
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter import Quantity
 from tests.testkit.materialized_effects import (
@@ -30,9 +33,7 @@ from tests.testkit.materialized_effects import (
 )
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 from tests.testkit.relation_plans import (
-    point_domain as verified_point_domain,
-)
-from tests.testkit.relation_plans import (
+    scalar_value_expr,
     state_field,
 )
 from tests.testkit.typed_program import (
@@ -50,11 +51,15 @@ def _materialized_effects_spec(spec: CoreProgram, config: ConfigProfileSnapshot)
 
 
 def _point_domain(
-    expr: RelationExpr,
-    *,
-    bindings: RelationTypeBindings | None = None,
+    values: tuple[Quantity, ...],
 ) -> PointDomain:
-    return verified_point_domain(expr, bindings=bindings)
+    return PointDomain(
+        root=point_axis_values(
+            "drive_frequency",
+            Scalar(QuantityType(unit="GHz")),
+            values,
+        )
+    )
 
 
 def test_materialized_effects_experiment_builds_expected_plan() -> None:
@@ -71,17 +76,12 @@ def test_materialized_effects_experiment_builds_expected_plan() -> None:
     assert field.value.root == Quantity(value=4.9, unit="GHz")
 
 
-def test_materialized_effects_experiment_includes_float_step_stop_point() -> None:
+def test_materialized_effects_materializes_explicit_float_points() -> None:
     config = load_config_profile(EXAMPLE_DIR / "config-profile.json")
     points = _point_domain(
-        grid(
-            drive_frequency=range_values(
-                5.9,
-                6.0,
-                0.025,
-                unit="GHz",
-                include_stop=True,
-            )
+        tuple(
+            Quantity(value=value, unit="GHz")
+            for value in (5.9, 5.925, 5.95, 5.975, 6.0)
         )
     )
     bindings = RelationTypeBindings(point_row=RowType.from_table(points.value_type))
@@ -140,7 +140,7 @@ def test_duplicate_coordinate_rows_have_distinct_point_uids() -> None:
     spec = typed_program(
         id="duplicate-coordinate-scan",
         kind="simple_scan",
-        point_domain=_point_domain(grid(drive_frequency=[value, value])),
+        point_domain=_point_domain((value, value)),
     )
 
     preview = _materialized_effects_spec(spec, config)
@@ -150,19 +150,25 @@ def test_duplicate_coordinate_rows_have_distinct_point_uids() -> None:
 
 def test_materialized_effects_rejects_link_problems_without_duplicates() -> None:
     config = load_config_profile(EXAMPLE_DIR / "config-profile.json")
+    center_type = Scalar(QuantityType(unit="GHz"))
+    center = relation_use(
+        scalar_value_expr(
+            param("missing_center"),
+            bindings=RelationTypeBindings(parameters={"missing_center": center_type}),
+            expected_type=center_type,
+        )
+    )
     spec = typed_program(
         id="bad-preview-points",
         kind="problem",
-        point_domain=_point_domain(
-            table("missing_table"),
-            bindings=RelationTypeBindings(
-                parameters={
-                    "missing_table": TableType(
-                        columns=(),
-                        allow_extra_columns=True,
-                    )
-                }
-            ),
+        point_domain=PointDomain(
+            point_axis_linear(
+                "frequency",
+                center_type,
+                center,
+                Quantity(value=0.2, unit="GHz"),
+                2,
+            )
         ),
     )
 

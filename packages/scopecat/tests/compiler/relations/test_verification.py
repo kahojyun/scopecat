@@ -1,40 +1,23 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-
 import pytest
 
-from scopecat.compiler.relations.analysis import (
-    PlanNode,
-    PlanOperation,
-)
-from scopecat.compiler.relations.evaluation import (
-    evaluate_relation,
-)
+from scopecat.compiler.relations.analysis import PlanNode
 from scopecat.compiler.relations.model import (
-    LinspaceSeriesExpr,
     LiteralRowsRelationExpr,
-    RangeSeriesExpr,
     RelationExpr,
     RowScopeId,
-    ScalarExpr,
-    case,
     col,
-    grid,
     input_ref,
     input_series,
     input_table,
-    linspace,
     lit,
     literal_rows,
-    outer,
     param,
     parameter_series,
     point_col,
-    range_values,
     table,
     values,
-    zip_relations,
 )
 from scopecat.compiler.relations.verification import (
     ExternalRowRequirement,
@@ -59,7 +42,6 @@ from scopecat.kernel.value_types import (
     Table,
     TableColumn,
 )
-from scopecat.records.parameter import Quantity as QuantityValue
 
 BOOL = Scalar(Bool())
 INT = Scalar(Int())
@@ -94,182 +76,7 @@ def _scope(local_id: str) -> RowScopeId:
     return RowScopeId(SymbolId(local_id=local_id))
 
 
-LOCAL_SCOPE = _scope("local")
 EXTERNAL_SCOPE = _scope("external")
-
-
-def _base_bindings() -> RelationTypeBindings:
-    return RelationTypeBindings(
-        inputs={
-            "scalar": INT,
-            "series": Series(INT, min_length=1, max_length=3),
-            "rows": TABLE_INPUT,
-        },
-        parameters={
-            "scalar": FLOAT,
-            "series": Series(FLOAT, min_length=0, max_length=5),
-            "rows": TABLE_PARAMETER,
-        },
-        point_row=RowType(columns=(TableColumn("point", INT),)),
-        current_row=RowType(
-            columns=(
-                TableColumn("current", INT),
-                TableColumn("id", STRING),
-            )
-        ),
-        outer_row=RowType(columns=(TableColumn("outer", INT),)),
-        row_arguments={
-            EXTERNAL_SCOPE: RowType(columns=(TableColumn("external", INT),))
-        },
-    )
-
-
-def _lookup() -> ScalarExpr:
-    return param("rows", key={"id": "q0"}, column="gain")
-
-
-def _filter() -> RelationExpr:
-    return input_table("rows").filter(
-        col("flag", row_scope_id=LOCAL_SCOPE),
-        row_scope_id=LOCAL_SCOPE,
-    )
-
-
-def _with_columns() -> RelationExpr:
-    return input_table("rows").with_columns(
-        row_scope_id=LOCAL_SCOPE,
-        copied=col("value", row_scope_id=LOCAL_SCOPE),
-    )
-
-
-def _join() -> RelationExpr:
-    return input_table("rows").join(table("rows"), on={"id": "id"})
-
-
-def _cross() -> RelationExpr:
-    return input_table("rows").cross(grid(extra=[1, 2]))
-
-
-def _lateral_cross() -> RelationExpr:
-    return input_table("rows").lateral_cross(
-        grid(current_copy=col("value"), outer_copy=outer("value"))
-    )
-
-
-def _point_cross() -> RelationExpr:
-    return literal_rows([{"axis": 1}]).point_cross(grid(point_copy=point_col("axis")))
-
-
-def _zip() -> RelationExpr:
-    return zip_relations(
-        literal_rows([{"left": 1}]),
-        literal_rows([{"right": "a"}]),
-    )
-
-
-OperationCase = tuple[PlanOperation, Callable[[], PlanNode]]
-
-
-_OPERATION_CASES: tuple[OperationCase, ...] = (
-    (PlanOperation.SCALAR_LITERAL, lambda: lit(1)),
-    (PlanOperation.SCALAR_CURRENT_COLUMN, lambda: col("current")),
-    (PlanOperation.SCALAR_OUTER_COLUMN, lambda: outer("outer")),
-    (PlanOperation.SCALAR_POINT_COLUMN, lambda: point_col("point")),
-    (PlanOperation.SCALAR_INPUT, lambda: input_ref("scalar")),
-    (PlanOperation.SCALAR_PARAMETER, lambda: param("scalar")),
-    (PlanOperation.SCALAR_PARAMETER_LOOKUP, _lookup),
-    (PlanOperation.SCALAR_BINARY, lambda: input_ref("scalar") + 1),
-    (
-        PlanOperation.SCALAR_CASE,
-        lambda: case((lit(True), 1), fallback=2),
-    ),
-    (PlanOperation.SERIES_VALUES, lambda: values([1, 2])),
-    (PlanOperation.SERIES_LINSPACE, lambda: linspace(0.0, 1.0, 3)),
-    (PlanOperation.SERIES_RANGE, lambda: range_values(0, 3, 1)),
-    (PlanOperation.SERIES_INPUT, lambda: input_series("series")),
-    (PlanOperation.SERIES_PARAMETER, lambda: parameter_series("series")),
-    (
-        PlanOperation.SERIES_RELATION_COLUMN,
-        lambda: input_table("rows").column("value"),
-    ),
-    (
-        PlanOperation.SERIES_RELATION_ENTITIES,
-        lambda: input_table("rows").entities("entity"),
-    ),
-    (
-        PlanOperation.RELATION_LITERAL_ROWS,
-        lambda: literal_rows([{"literal": 1}]),
-    ),
-    (PlanOperation.RELATION_PARAMETER_TABLE, lambda: table("rows")),
-    (PlanOperation.RELATION_INPUT, lambda: input_table("rows")),
-    (PlanOperation.RELATION_GRID, lambda: grid(axis=[1, 2])),
-    (
-        PlanOperation.RELATION_SELECT,
-        lambda: input_table("rows").select("id", "value"),
-    ),
-    (PlanOperation.RELATION_FILTER, _filter),
-    (PlanOperation.RELATION_JOIN, _join),
-    (PlanOperation.RELATION_CROSS, _cross),
-    (PlanOperation.RELATION_LATERAL_CROSS, _lateral_cross),
-    (PlanOperation.RELATION_POINT_CROSS, _point_cross),
-    (PlanOperation.RELATION_ZIP, _zip),
-    (PlanOperation.RELATION_WITH_COLUMNS, _with_columns),
-    (
-        PlanOperation.RELATION_SORT,
-        lambda: input_table("rows").sort("id"),
-    ),
-    (PlanOperation.RELATION_LIMIT, lambda: input_table("rows").limit(2)),
-)
-
-
-@pytest.mark.parametrize(
-    ("operation", "make_root"),
-    _OPERATION_CASES,
-    ids=lambda value: value.value if isinstance(value, PlanOperation) else None,
-)
-def test_verifier_covers_every_plan_operation(
-    operation: PlanOperation,
-    make_root: Callable[[], PlanNode],
-) -> None:
-    root = make_root()
-
-    verified = verify_relation_plan(root, bindings=_base_bindings())
-
-    assert verified.facts[-1].operation is operation
-    assert (
-        type(verified.certified_type)
-        is {
-            "scalar": Scalar,
-            "series": Series,
-            "relation": Table,
-        }[operation.value.split(".", maxsplit=1)[0]]
-    )
-
-
-def test_operation_matrix_is_exhaustive() -> None:
-    assert {operation for operation, _make_root in _OPERATION_CASES} == set(
-        PlanOperation
-    )
-
-
-def test_plan_facts_use_stable_structural_paths_in_postorder() -> None:
-    root = input_ref("left") + param("right")
-
-    verified = verify_relation_plan(
-        root,
-        bindings=RelationTypeBindings(
-            inputs={"left": INT},
-            parameters={"right": FLOAT},
-        ),
-    )
-
-    assert [
-        (fact.path, fact.operation, fact.value_type) for fact in verified.facts
-    ] == [
-        (("left",), PlanOperation.SCALAR_INPUT, INT),
-        (("right",), PlanOperation.SCALAR_PARAMETER, FLOAT),
-        ((), PlanOperation.SCALAR_BINARY, Scalar(Float())),
-    ]
 
 
 def test_context_supplies_null_literal_type_without_losing_nullability() -> None:
@@ -299,20 +106,15 @@ def test_context_dependent_literals_require_an_expected_type(
     assert caught.value.path == ()
 
 
-def test_empty_series_uses_context_for_items_and_refines_cardinality() -> None:
+def test_empty_series_uses_context_for_items() -> None:
     expected = Series(ENTITY, min_length=0, max_length=10)
 
     verified = verify_relation_plan(values([]), expected_type=expected)
 
     assert verified.certified_type == expected
-    assert verified.facts[-1].value_type == Series(
-        ENTITY,
-        min_length=0,
-        max_length=0,
-    )
 
 
-def test_empty_relation_uses_context_for_schema_and_refines_cardinality() -> None:
+def test_empty_relation_uses_context_for_schema() -> None:
     expected = Table(
         columns=(TableColumn("frequency", FREQUENCY),),
         primary_key=(),
@@ -323,84 +125,6 @@ def test_empty_relation_uses_context_for_schema_and_refines_cardinality() -> Non
     verified = verify_relation_plan(literal_rows([]), expected_type=expected)
 
     assert verified.certified_type == expected
-    assert verified.facts[-1].value_type == Table(
-        columns=expected.columns,
-        primary_key=(),
-        min_rows=0,
-        max_rows=0,
-    )
-
-
-def test_empty_grid_column_uses_output_schema_context() -> None:
-    expected = Table(
-        columns=(TableColumn("axis", INT),),
-        min_rows=0,
-        max_rows=10,
-    )
-
-    verified = verify_relation_plan(grid(axis=[]), expected_type=expected)
-
-    assert verified.certified_type == expected
-    assert verified.facts[-1].value_type == Table(
-        columns=expected.columns,
-        min_rows=0,
-        max_rows=0,
-    )
-
-
-def test_explicit_series_unit_types_numeric_bounds_as_quantities() -> None:
-    expression = LinspaceSeriesExpr(
-        start=input_ref("start"),
-        stop=input_ref("stop"),
-        count=3,
-        unit="GHz",
-    )
-
-    verified = verify_relation_plan(
-        expression,
-        bindings=RelationTypeBindings(inputs={"start": FLOAT, "stop": FLOAT}),
-    )
-
-    assert verified.certified_type == Series(
-        Scalar(Quantity(unit="GHz")),
-        min_length=3,
-        max_length=3,
-    )
-    assert [item.code for item in verified.runtime_obligations] == [
-        "series_values_finite"
-    ]
-
-
-def test_explicit_series_unit_is_validated_before_materialization() -> None:
-    expression = LinspaceSeriesExpr(
-        start=lit(0.0),
-        stop=lit(1.0),
-        count=2,
-        unit="not-a-unit",
-    )
-
-    with pytest.raises(RelationPlanVerificationError) as caught:
-        verify_relation_plan(expression)
-
-    assert caught.value.code == "invalid_series_unit"
-
-
-def test_series_bounds_must_statically_guarantee_finite_values() -> None:
-    expression = LinspaceSeriesExpr(
-        start=input_ref("start"),
-        stop=lit(1.0),
-        count=2,
-    )
-
-    with pytest.raises(RelationPlanVerificationError) as caught:
-        verify_relation_plan(
-            expression,
-            bindings=RelationTypeBindings(
-                inputs={"start": Scalar(Float(finite=False))}
-            ),
-        )
-
-    assert caught.value.code == "invalid_series_bound"
 
 
 def test_all_null_literal_column_is_typed_from_expected_schema() -> None:
@@ -416,50 +140,6 @@ def test_all_null_literal_column_is_typed_from_expected_schema() -> None:
     )
 
     assert verified.certified_type == expected
-
-
-def test_case_propagates_sibling_context_to_null_branch() -> None:
-    expression = case(
-        (lit(False), None),
-        fallback=QuantityValue(value=5.0, unit="GHz"),
-    )
-
-    verified = verify_relation_plan(expression)
-
-    assert verified.certified_type == Scalar(
-        Quantity(unit="GHz", minimum=5.0, maximum=5.0),
-        nullable=True,
-    )
-
-
-def test_case_common_type_does_not_invent_a_finite_guarantee() -> None:
-    nonfinite = Scalar(Float(minimum=0.0, maximum=1.0, finite=False))
-    finite = Scalar(Float(minimum=2.0, maximum=3.0))
-    expression = case((lit(True), input_ref("left")), fallback=input_ref("right"))
-
-    verified = verify_relation_plan(
-        expression,
-        bindings=RelationTypeBindings(inputs={"left": nonfinite, "right": finite}),
-    )
-
-    assert verified.certified_type == Scalar(
-        Float(minimum=0.0, maximum=3.0, finite=False)
-    )
-
-
-def test_unbounded_integer_is_not_unsafely_widened_to_float() -> None:
-    expression = case(
-        (lit(True), input_ref("integer")),
-        fallback=input_ref("floating"),
-    )
-
-    with pytest.raises(RelationPlanVerificationError) as caught:
-        verify_relation_plan(
-            expression,
-            bindings=RelationTypeBindings(inputs={"integer": INT, "floating": FLOAT}),
-        )
-
-    assert caught.value.code == "incompatible_branch_types"
 
 
 def test_only_referenced_typed_imports_enter_the_proof() -> None:
@@ -483,7 +163,7 @@ def test_input_and_parameter_namespaces_are_typed_independently() -> None:
     )
 
     verified = verify_relation_plan(
-        grid(from_input=input_ref("shared"), from_parameter=param("shared")),
+        input_ref("shared") + param("shared"),
         bindings=bindings,
     )
 
@@ -535,16 +215,13 @@ def test_typed_imports_reject_reference_shape_mismatches(
 
 
 def test_unknown_import_reports_a_stable_code_and_nested_path() -> None:
-    root = grid(
-        known=[1],
-        missing=input_series("missing"),
-    )
+    root = literal_rows([{}]).with_columns(missing=input_ref("missing"))
 
     with pytest.raises(RelationPlanVerificationError) as caught:
         verify_relation_plan(root)
 
     assert caught.value.code == "unknown_input"
-    assert caught.value.path == ("columns", "missing", "series")
+    assert caught.value.path == ("new_columns", "missing")
 
 
 def test_filter_uses_its_source_row_signature_not_the_ambient_current_row() -> None:
@@ -609,60 +286,6 @@ def test_plan_local_binder_cannot_shadow_an_external_row_argument() -> None:
     assert caught.value.path == ()
 
 
-def test_lateral_cross_introduces_current_and_outer_left_row_signatures() -> None:
-    left_type = Table(
-        columns=(TableColumn("value", INT),),
-        min_rows=1,
-        max_rows=2,
-    )
-    root = input_table("left").lateral_cross(
-        grid(current=col("value"), lexical=outer("value"))
-    )
-
-    verified = verify_relation_plan(
-        root,
-        bindings=RelationTypeBindings(inputs={"left": left_type}),
-    )
-
-    assert isinstance(verified.certified_type, Table)
-    assert tuple(column.id for column in verified.certified_type.columns) == (
-        "value",
-        "current",
-        "lexical",
-    )
-
-
-def test_plain_cross_does_not_synthesize_a_left_row_signature() -> None:
-    left_type = Table(columns=(TableColumn("value", INT),))
-    root = input_table("left").cross(grid(captured=col("value")))
-
-    with pytest.raises(RelationPlanVerificationError) as caught:
-        verify_relation_plan(
-            root,
-            bindings=RelationTypeBindings(inputs={"left": left_type}),
-        )
-
-    assert caught.value.code == "unbound_row_reference"
-    assert caught.value.path == ()
-
-
-def test_point_cross_extends_only_the_right_point_signature() -> None:
-    root = literal_rows([{"axis": 1}]).point_cross(grid(copy=point_col("axis")))
-
-    verified = verify_relation_plan(root)
-
-    assert isinstance(verified.certified_type, Table)
-    assert tuple(column.id for column in verified.certified_type.columns) == (
-        "axis",
-        "copy",
-    )
-    assert verified.external_row_interface.point is None
-    assert evaluate_relation(
-        verified,
-        point_row={"undeclared": "not part of this interface"},
-    ) == [{"axis": 1, "copy": 1}]
-
-
 def test_external_row_interface_projects_only_free_typed_column_reads() -> None:
     point = RowType(
         (
@@ -677,12 +300,10 @@ def test_external_row_interface_projects_only_free_typed_column_reads() -> None:
             TableColumn("unused_current", STRING),
         )
     )
-    outer_row = RowType((TableColumn("outer", INT),))
     argument = RowType((TableColumn("argument", INT),))
     expression = (
         point_col("point")
         + col("current")
-        + outer("outer")
         + col("argument", row_scope_id=EXTERNAL_SCOPE)
     )
 
@@ -691,7 +312,6 @@ def test_external_row_interface_projects_only_free_typed_column_reads() -> None:
         bindings=RelationTypeBindings(
             point_row=point,
             current_row=current,
-            outer_row=outer_row,
             row_arguments={EXTERNAL_SCOPE: argument},
         ),
     )
@@ -705,7 +325,6 @@ def test_external_row_interface_projects_only_free_typed_column_reads() -> None:
         RowType((TableColumn("current", INT),)),
         ("current",),
     )
-    assert interface.outer == ExternalRowRequirement(outer_row, ("outer",))
     assert len(interface.arguments) == 1
     assert interface.arguments[0].row_scope_id == EXTERNAL_SCOPE
     assert interface.arguments[0].requirement == ExternalRowRequirement(
@@ -725,7 +344,6 @@ def test_external_row_interface_excludes_plan_local_row_binders() -> None:
 
     assert verified.external_row_interface.point is None
     assert verified.external_row_interface.current is None
-    assert verified.external_row_interface.outer is None
     assert verified.external_row_interface.arguments == ()
 
 
@@ -750,34 +368,6 @@ def test_external_row_interface_retains_nested_path_and_root_column_type() -> No
             allow_extra_columns=True,
         ),
         ("device.rank",),
-    )
-
-
-def test_point_cross_requires_full_external_point_row_but_not_local_columns() -> None:
-    device = Scalar(Record(fields=(RecordField("rank", INT),)))
-    point = RowType(
-        (
-            TableColumn("device", device),
-            TableColumn("unused", STRING),
-        ),
-        allow_extra_columns=True,
-    )
-    expression = literal_rows([{"axis": 1}]).point_cross(
-        grid(
-            inherited=point_col("device.rank"),
-            local=point_col("axis"),
-        )
-    )
-
-    verified = verify_relation_plan(
-        expression,
-        bindings=RelationTypeBindings(point_row=point),
-    )
-
-    assert verified.external_row_interface.point == ExternalRowRequirement(
-        row_type=point,
-        column_references=("device.rank",),
-        requires_full_row=True,
     )
 
 
@@ -818,123 +408,13 @@ def test_unknown_column_reports_the_condition_path() -> None:
     assert caught.value.path == ("condition",)
 
 
-def test_binary_and_case_validate_operand_types_before_execution() -> None:
+def test_binary_validates_operand_types_before_execution() -> None:
     bad_binary = lit("not-a-number") + 1
-    bad_case = case((lit(1), "yes"), fallback="no")
 
     with pytest.raises(RelationPlanVerificationError) as binary_error:
         verify_relation_plan(bad_binary)
-    with pytest.raises(RelationPlanVerificationError) as case_error:
-        verify_relation_plan(bad_case)
 
     assert binary_error.value.code == "invalid_scalar_operator"
-    assert case_error.value.code == "non_boolean_condition"
-    assert case_error.value.path == ("cases", 0, "condition")
-
-
-def test_floating_arithmetic_records_its_finite_result_obligation() -> None:
-    verified = verify_relation_plan(
-        input_ref("left") + input_ref("right"),
-        bindings=RelationTypeBindings(inputs={"left": FLOAT, "right": FLOAT}),
-    )
-
-    assert [item.code for item in verified.runtime_obligations] == [
-        "scalar_result_finite"
-    ]
-
-
-def test_join_allows_only_same_named_join_key_overlap() -> None:
-    left = Table(
-        columns=(TableColumn("id", STRING), TableColumn("left", INT)),
-        primary_key=("id",),
-        min_rows=1,
-        max_rows=2,
-    )
-    right = Table(
-        columns=(TableColumn("id", STRING), TableColumn("right", FLOAT)),
-        primary_key=("id",),
-        min_rows=1,
-        max_rows=3,
-    )
-
-    verified = verify_relation_plan(
-        input_table("left").join(input_table("right"), on={"id": "id"}),
-        bindings=RelationTypeBindings(inputs={"left": left, "right": right}),
-    )
-
-    assert verified.certified_type == Table(
-        columns=(*left.columns, right.columns[1]),
-        primary_key=("id",),
-        min_rows=0,
-        max_rows=6,
-    )
-
-
-def test_join_consumer_contract_does_not_retype_dropped_right_key() -> None:
-    left = Table(columns=(TableColumn("id", INT),))
-    right = Table(columns=(TableColumn("id", FLOAT),))
-    expected = Table(columns=(TableColumn("id", INT),))
-
-    verified = verify_relation_plan(
-        input_table("left").join(input_table("right"), on={"id": "id"}),
-        bindings=RelationTypeBindings(inputs={"left": left, "right": right}),
-        expected_type=expected,
-    )
-
-    assert verified.certified_type == expected
-    assert verified.facts[-2].path == ("right",)
-    assert verified.facts[-2].value_type == right
-
-
-def test_join_rejects_nullable_keys_before_materialization() -> None:
-    left = Table(
-        columns=(TableColumn("id", Scalar(String(), nullable=True)),),
-    )
-    right = Table(columns=(TableColumn("id", STRING),))
-
-    with pytest.raises(RelationPlanVerificationError) as caught:
-        verify_relation_plan(
-            input_table("left").join(input_table("right"), on={"id": "id"}),
-            bindings=RelationTypeBindings(inputs={"left": left, "right": right}),
-        )
-
-    assert caught.value.code == "nullable_join_key"
-    assert caught.value.path == ("on", "id")
-
-
-@pytest.mark.parametrize(
-    ("root", "expected_path"),
-    [
-        (
-            literal_rows([{"same": 1}]).cross(literal_rows([{"same": 2}])),
-            (),
-        ),
-        (
-            literal_rows([{"same": 1}]).lateral_cross(literal_rows([{"same": 2}])),
-            (),
-        ),
-        (
-            literal_rows([{"same": 1}]).point_cross(literal_rows([{"same": 2}])),
-            (),
-        ),
-        (
-            zip_relations(
-                literal_rows([{"same": 1}]),
-                literal_rows([{"same": 2}]),
-            ),
-            ("sources", 1),
-        ),
-    ],
-)
-def test_relation_combinators_reject_static_column_collisions(
-    root: RelationExpr,
-    expected_path: tuple[str | int, ...],
-) -> None:
-    with pytest.raises(RelationPlanVerificationError) as caught:
-        verify_relation_plan(root)
-
-    assert caught.value.code == "duplicate_columns"
-    assert caught.value.path == expected_path
 
 
 def test_relational_operators_preserve_cardinality_facts() -> None:
@@ -960,12 +440,6 @@ def test_relational_operators_preserve_cardinality_facts() -> None:
         _scoped_with_column(input_table("rows"), "item", 0),
         bindings=bindings,
     )
-    crossed = verify_relation_plan(
-        input_table("rows").cross(literal_rows([{"side": 1}, {"side": 2}])),
-        bindings=bindings,
-    )
-    limited = verify_relation_plan(input_table("rows").limit(4), bindings=bindings)
-
     assert isinstance(selected.certified_type, Table)
     assert selected.certified_type.primary_key == ()
     assert (selected.certified_type.min_rows, selected.certified_type.max_rows) == (
@@ -979,16 +453,6 @@ def test_relational_operators_preserve_cardinality_facts() -> None:
     )
     assert isinstance(overwritten.certified_type, Table)
     assert overwritten.certified_type.primary_key == ()
-    assert isinstance(crossed.certified_type, Table)
-    assert (crossed.certified_type.min_rows, crossed.certified_type.max_rows) == (
-        6,
-        10,
-    )
-    assert isinstance(limited.certified_type, Table)
-    assert (limited.certified_type.min_rows, limited.certified_type.max_rows) == (
-        3,
-        4,
-    )
 
 
 def _scoped_filter(source: RelationExpr) -> RelationExpr:
@@ -1003,66 +467,6 @@ def _scoped_with_column(
 ) -> RelationExpr:
     scope = _scope("columns-cardinality")
     return source.with_columns(row_scope_id=scope, **{column: value})
-
-
-def test_zip_rejects_disjoint_cardinality_ranges_before_execution() -> None:
-    left = Table(columns=(TableColumn("left", INT),), min_rows=0, max_rows=1)
-    right = Table(columns=(TableColumn("right", INT),), min_rows=2, max_rows=3)
-
-    with pytest.raises(RelationPlanVerificationError) as caught:
-        verify_relation_plan(
-            zip_relations(input_table("left"), input_table("right")),
-            bindings=RelationTypeBindings(inputs={"left": left, "right": right}),
-        )
-
-    assert caught.value.code == "zip_cardinality_mismatch"
-
-
-def test_zip_with_overlapping_unknown_cardinalities_emits_runtime_obligation() -> None:
-    left = Table(columns=(TableColumn("left", INT),), min_rows=0, max_rows=5)
-    right = Table(columns=(TableColumn("right", INT),), min_rows=2, max_rows=8)
-
-    verified = verify_relation_plan(
-        zip_relations(input_table("left"), input_table("right")),
-        bindings=RelationTypeBindings(inputs={"left": left, "right": right}),
-    )
-
-    assert isinstance(verified.certified_type, Table)
-    assert (verified.certified_type.min_rows, verified.certified_type.max_rows) == (
-        2,
-        5,
-    )
-    assert [obligation.code for obligation in verified.runtime_obligations] == [
-        "zip_equal_length"
-    ]
-    assert verified.runtime_obligations[0].path == ()
-
-
-def test_dynamic_range_step_and_parameter_lookup_emit_runtime_obligations() -> None:
-    bounds = RelationTypeBindings(
-        inputs={"step": FLOAT},
-        parameters={"rows": TABLE_PARAMETER},
-    )
-    dynamic_range = verify_relation_plan(
-        RangeSeriesExpr(
-            start=lit(0.0),
-            stop=lit(1.0),
-            step=input_ref("step"),
-        ),
-        bindings=bounds,
-    )
-    lookup = verify_relation_plan(
-        param("rows", key={"id": "q0"}, column="gain"),
-        bindings=bounds,
-    )
-
-    assert [item.code for item in dynamic_range.runtime_obligations] == [
-        "range_step_nonzero",
-        "range_progress",
-    ]
-    assert [item.code for item in lookup.runtime_obligations] == [
-        "parameter_lookup_exactly_one"
-    ]
 
 
 def test_lookup_signature_closes_a_projection_without_faking_a_table_schema() -> None:
@@ -1154,113 +558,8 @@ def test_lookup_signatures_reject_conflicting_result_contracts() -> None:
         )
 
 
-def test_literal_zero_range_step_is_rejected_statically() -> None:
-    with pytest.raises(RelationPlanVerificationError) as caught:
-        verify_relation_plan(range_values(0, 1, 0))
-
-    assert caught.value.code == "range_step_zero"
-    assert caught.value.path == ("step",)
-
-
-def test_open_schema_cross_records_a_runtime_disjointness_obligation() -> None:
-    open_rows = Table(
-        columns=(TableColumn("known", INT),),
-        allow_extra_columns=True,
-    )
-
-    verified = verify_relation_plan(
-        input_table("open").cross(literal_rows([{"other": 1}])),
-        bindings=RelationTypeBindings(inputs={"open": open_rows}),
-    )
-
-    assert [item.code for item in verified.runtime_obligations] == [
-        "no_extra_column_collision"
-    ]
-
-
-def test_open_schema_merge_omits_impossible_column_collision_obligation() -> None:
-    open_rows = Table(
-        columns=(TableColumn("id", STRING),),
-        allow_extra_columns=True,
-    )
-    empty_rows = Table(columns=())
-    shared_key_rows = Table(columns=(TableColumn("id", STRING),))
-    bindings = RelationTypeBindings(
-        inputs={
-            "open": open_rows,
-            "empty": empty_rows,
-            "shared": shared_key_rows,
-        }
-    )
-
-    empty_cross = verify_relation_plan(
-        input_table("open").cross(input_table("empty")),
-        bindings=bindings,
-    )
-    shared_key_join = verify_relation_plan(
-        input_table("open").join(input_table("shared"), on={"id": "id"}),
-        bindings=bindings,
-    )
-
-    assert empty_cross.runtime_obligations == ()
-    assert shared_key_join.runtime_obligations == ()
-
-
-def test_two_empty_open_schemas_record_column_collision_obligation() -> None:
-    open_rows = Table(columns=(), allow_extra_columns=True)
-
-    verified = verify_relation_plan(
-        input_table("left").cross(input_table("right")),
-        bindings=RelationTypeBindings(inputs={"left": open_rows, "right": open_rows}),
-    )
-
-    assert [item.code for item in verified.runtime_obligations] == [
-        "no_extra_column_collision"
-    ]
-
-
-def test_statically_empty_merge_omits_column_collision_obligation() -> None:
-    empty_open = Table(columns=(), max_rows=0, allow_extra_columns=True)
-    known = Table(
-        columns=(TableColumn("value", INT),),
-        min_rows=1,
-        max_rows=1,
-    )
-    bindings = RelationTypeBindings(inputs={"empty": empty_open, "known": known})
-
-    left_empty = verify_relation_plan(
-        input_table("empty").cross(input_table("known")),
-        bindings=bindings,
-    )
-    right_empty = verify_relation_plan(
-        input_table("known").cross(input_table("empty")),
-        bindings=bindings,
-    )
-
-    assert left_empty.runtime_obligations == ()
-    assert right_empty.runtime_obligations == ()
-
-
-def test_statically_empty_point_cross_omits_point_collision_obligation() -> None:
-    empty = Table(
-        columns=(TableColumn("axis", INT),),
-        max_rows=0,
-    )
-
-    verified = verify_relation_plan(
-        input_table("empty").point_cross(literal_rows([{}])),
-        bindings=RelationTypeBindings(
-            inputs={"empty": empty},
-            point_row=RowType(allow_extra_columns=True),
-        ),
-    )
-
-    assert verified.runtime_obligations == ()
-    assert verified.external_row_interface.point is None
-
-
 def test_verified_plan_defensively_copies_nested_literal_data() -> None:
-    source = literal_rows([{"value": 1}]).limit(1)
+    source = literal_rows([{"value": 1}]).select("value")
     verified = verify_relation_plan(source)
 
     assert isinstance(source.source, LiteralRowsRelationExpr)

@@ -10,7 +10,7 @@ import scopecat as sc
 from scopecat.authoring._products import RecordSelection
 from scopecat.authoring._value_refs import (
     ValueRef,
-    internal_lower_table_value_ref,
+    internal_lower_scalar_value_ref,
 )
 from scopecat.compiler.frontend.invocation import PreparedInvocation
 from scopecat.compiler.frontend.resolution import (
@@ -18,10 +18,12 @@ from scopecat.compiler.frontend.resolution import (
     compile_prepared_invocation,
 )
 from scopecat.compiler.relations.point_domain import (
+    PointAxis,
+    PointAxisLinear,
     PointDependentProduct,
     PointDomainExpr,
     PointProduct,
-    PointRelationRows,
+    PointRows,
     PointUnit,
 )
 
@@ -164,15 +166,32 @@ def _normalized_assembly_field(name: str, value: object) -> object:
 def _point_domain_semantics(
     domain: PointDomainExpr[ValueRef],
 ) -> object:
-    """Alpha-normalize transient relation-use and ValueRef identities."""
+    """Alpha-normalize transient ValueRef identities."""
 
     if isinstance(domain, PointUnit):
         return ("unit",)
-    if isinstance(domain, PointRelationRows):
+    if isinstance(domain, PointRows):
         return (
             "rows",
-            internal_lower_table_value_ref(domain.rows),
-            domain.rows.value_type,
+            domain.value_type,
+            domain.rows,
+        )
+    if isinstance(domain, PointAxis):
+        source = domain.source
+        return (
+            "axis",
+            domain.id,
+            domain.value_type,
+            (
+                (
+                    "linear",
+                    internal_lower_scalar_value_ref(source.center),
+                    source.span,
+                    source.count,
+                )
+                if isinstance(source, PointAxisLinear)
+                else ("values", source.values)
+            ),
         )
     if isinstance(domain, PointProduct):
         return (

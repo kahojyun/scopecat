@@ -14,14 +14,7 @@ from scopecat.authoring._scan_intents import (
     scan_point_id,
 )
 from scopecat.authoring._validation import validate_invocation_scans
-from scopecat.authoring._value_refs import (
-    PointValueDependency,
-    ValueRef,
-    internal_value_ref_bound_point_input_ids,
-    internal_value_ref_free_point_dependencies,
-    internal_value_ref_from_expression,
-    internal_value_ref_point_dependencies,
-)
+from scopecat.authoring._value_refs import ValueRef
 from scopecat.compiler.frontend.assembly_lowering import (
     lower_point_domain,
     point_domain_input_dependencies,
@@ -33,17 +26,17 @@ from scopecat.compiler.frontend.scan_dependencies import (
     verify_scan_dependencies,
 )
 from scopecat.compiler.frontend.scan_lowering import lower_scan_points
-from scopecat.compiler.relations.analysis import PlanOperation
 from scopecat.compiler.relations.evaluation import ParameterRelationData
-from scopecat.compiler.relations.model import param
 from scopecat.compiler.relations.point_domain import (
+    PointAxis,
     PointDependentProduct,
     PointDomainExpr,
     PointProduct,
-    PointRelationRows,
+    PointRows,
     PointUnit,
     PointZip,
-    point_rows,
+    iter_point_axis_linear,
+    point_dependent_product,
 )
 from scopecat.compiler.relations.verification import RelationTypeBindings
 from scopecat.compiler.typed.point_domain import (
@@ -52,8 +45,6 @@ from scopecat.compiler.typed.point_domain import (
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import ModelLocation
-from scopecat.kernel.value_types import Table
-from tests.testkit.value_refs import internal_point_cross_value_refs
 
 _FREQUENCY = sc.ScalarType(sc.QuantityType(unit="GHz"))
 _DURATION = sc.ScalarType(sc.QuantityType(unit="ns"))
@@ -101,10 +92,10 @@ def _axis_ids(scans: Sequence[Scan]) -> tuple[str, ...]:
 def _domain_columns(domain: PointDomainExpr[ValueRef]) -> tuple[str, ...]:
     if isinstance(domain, PointUnit):
         return ()
-    if isinstance(domain, PointRelationRows):
-        value_type = domain.rows.value_type
-        assert isinstance(value_type, Table)
-        return tuple(column.id for column in value_type.columns)
+    if isinstance(domain, PointAxis):
+        return (domain.id,)
+    if isinstance(domain, PointRows):
+        return tuple(column.id for column in domain.columns)
     if isinstance(domain, PointProduct):
         return tuple(
             column for factor in domain.factors for column in _domain_columns(factor)
@@ -125,14 +116,22 @@ def test_generated_dependency_chain_is_declaration_order_independent(
         "b": _dependent("b", "a"),
         "c": _dependent("c", "b"),
     }
+    selected = tuple(scans[axis_id] for axis_id in order)
 
-    graph = verify_scan_dependencies(tuple(scans[axis_id] for axis_id in order))
+    graph = verify_scan_dependencies(selected)
+    resolved = apply_scans(
+        SemanticExperimentIR(experiment_id="test", kind="test"),
+        selected,
+        inputs={},
+    )
 
-    assert tuple(axis.id for axis in graph.axes) == ("a", "b", "c")
-    assert _axis_ids(graph.scans) == ("a", "b", "c")
-    assert graph.dependencies("a") == ()
-    assert graph.dependencies("b") == ("a",)
-    assert graph.dependencies("c") == ("b",)
+    assert tuple(axis.id for axis in graph.axes) == tuple(order)
+    assert _axis_ids(graph.scans) == tuple(order)
+    assert {(edge.producer_id, edge.consumer_id) for edge in graph.edges} == {
+        ("a", "b"),
+        ("b", "c"),
+    }
+    assert _domain_columns(resolved.point_domain) == ("a", "b", "c")
 
 
 @given(order=st.permutations(("a", "b", "c", "d")))
@@ -173,33 +172,6 @@ def test_fixed_input_removes_an_otherwise_point_local_dependency() -> None:
 
     assert _axis_ids(graph.scans) == ("target", "source")
     assert graph.edges == ()
-
-
-def test_scan_leaf_preserves_closed_center_dependency_metadata() -> None:
-    historical = PointValueDependency(id="closed", value_type=_FREQUENCY)
-    center = internal_value_ref_from_expression(
-        param("center"),
-        _FREQUENCY,
-        point_dependencies=(historical,),
-        free_point_dependencies=(),
-        bound_point_input_ids=frozenset({"closed_input"}),
-    )
-    scan = sc.axis(
-        _point("target"),
-        center=center,
-        span="2 GHz",
-        points=2,
-    )
-
-    graph = verify_scan_dependencies((scan,))
-    lowered = lower_scan_points(scan)
-
-    assert graph.edges == ()
-    assert internal_value_ref_point_dependencies(lowered) == (historical,)
-    assert internal_value_ref_free_point_dependencies(lowered) == ()
-    assert internal_value_ref_bound_point_input_ids(lowered) == frozenset(
-        {"closed_input"}
-    )
 
 
 def test_unbound_scan_center_input_requires_a_point_provider() -> None:
@@ -296,16 +268,22 @@ def test_zip_branches_can_share_an_external_ancestor() -> None:
     }
 
 
-def test_cartesian_groups_are_flattened_and_stably_topologically_ordered() -> None:
+def test_cartesian_groups_are_flattened_and_ordered_during_domain_composition() -> None:
     grouped = sc.cartesian(
         _dependent("c", "b"),
         sc.cartesian(_dependent("b", "a"), _values("a")),
     )
 
     graph = verify_scan_dependencies((grouped,))
+    resolved = apply_scans(
+        SemanticExperimentIR(experiment_id="test", kind="test"),
+        (grouped,),
+        inputs={},
+    )
 
-    assert _axis_ids(graph.scans) == ("a", "b", "c")
-    assert len(graph.scans) == 3
+    assert _axis_ids(graph.scans) == ("c", "b", "a")
+    assert len(graph.scans) == 1
+    assert _domain_columns(resolved.point_domain) == ("a", "b", "c")
 
 
 def test_positional_group_aggregate_cycle_is_rejected() -> None:
@@ -315,12 +293,41 @@ def test_positional_group_aggregate_cycle_is_rejected() -> None:
     )
     b = _dependent("b", "c", direct_point=True)
 
-    with pytest.raises(ScanDependencyError) as caught:
-        verify_scan_dependencies((positional, b))
+    with pytest.raises(CheckFailed) as caught:
+        apply_scans(
+            SemanticExperimentIR(experiment_id="test", kind="test"),
+            (positional, b),
+            inputs={},
+        )
 
-    assert [issue.code for issue in caught.value.issues] == [
+    assert [problem.code for problem in caught.value.problems] == [
         "scan_dependency_composition_cycle"
     ]
+
+
+def test_scan_composition_cycle_is_not_attributed_to_a_downstream_base() -> None:
+    positional = sc.zip(
+        _dependent("a", "b", direct_point=True),
+        _values("c"),
+    )
+    assembly = SemanticExperimentIR(
+        experiment_id="test",
+        kind="test",
+        input_ports=(ModuleInputPort("a", _FREQUENCY),),
+        point_domain=lower_scan_points(_dependent("base", "a")),
+    )
+
+    with pytest.raises(CheckFailed) as caught:
+        apply_scans(
+            assembly,
+            (positional, _dependent("b", "c", direct_point=True)),
+            inputs={},
+        )
+
+    problem = caught.value.problems[0]
+    assert problem.code == "scan_dependency_composition_cycle"
+    assert isinstance(problem.location, ModelLocation)
+    assert problem.location.root == "scans"
 
 
 def test_dependency_errors_are_projected_as_authoring_problems() -> None:
@@ -383,16 +390,35 @@ def test_scan_dependency_chain_remains_directional_in_domain_ir() -> None:
         ParameterRelationData(),
     )
 
-    assert len(verified.relation_leaves) == 3
-    assert all(
-        PlanOperation.RELATION_POINT_CROSS
-        not in {fact.operation for fact in relation.value.plan.facts}
-        and PlanOperation.RELATION_ZIP
-        not in {fact.operation for fact in relation.value.plan.facts}
-        for relation in verified.relation_leaves
-    )
+    assert [path for path, _source in iter_point_axis_linear(verified.root)] == [
+        ("left", "right"),
+        ("right",),
+    ]
     assert len(materialized.points) == 8
     assert tuple(materialized.points[0].row) == ("first", "second", "third")
+
+
+def test_scan_input_dependency_binds_to_its_point_provider() -> None:
+    assembly = SemanticExperimentIR(experiment_id="test", kind="test")
+
+    resolved = apply_scans(
+        assembly,
+        (_dependent("second", "first"), _values("first")),
+        inputs={},
+    )
+    compiled = lower_point_domain(
+        resolved.point_domain,
+        inputs=resolved.inputs,
+        type_bindings=RelationTypeBindings(),
+    )
+    materialized = materialize_point_domain(
+        verify_point_domain(compiled, program_id="test"),
+        ParameterRelationData(),
+    )
+
+    assert set(resolved.inputs) == {"first"}
+    assert len(materialized.points) == 4
+    assert tuple(materialized.points[0].row) == ("first", "second")
 
 
 def test_positional_scan_group_remains_an_explicit_zip() -> None:
@@ -408,13 +434,35 @@ def test_positional_scan_group_remains_an_explicit_zip() -> None:
     assert _domain_columns(resolved.point_domain) == ("left", "right")
 
 
+def test_nested_cartesian_region_is_scheduled_inside_a_zip() -> None:
+    assembly = SemanticExperimentIR(experiment_id="test", kind="test")
+    nested = sc.cartesian(
+        _dependent("dependent", "source", direct_point=True),
+        _values("source"),
+    )
+    positional = sc.zip(
+        nested,
+        sc.axis(_point("position"), [1.0, 2.0, 3.0, 4.0], unit="GHz"),
+    )
+
+    resolved = apply_scans(assembly, (positional,), inputs={})
+
+    assert isinstance(resolved.point_domain, PointZip)
+    assert isinstance(resolved.point_domain.sources[0], PointDependentProduct)
+    assert _domain_columns(resolved.point_domain) == (
+        "source",
+        "dependent",
+        "position",
+    )
+
+
 def test_base_point_source_and_scans_share_one_topological_order() -> None:
     base = lower_scan_points(_dependent("base", "a"))
     assembly = SemanticExperimentIR(
         experiment_id="test",
         kind="test",
         input_ports=(ModuleInputPort("a", _FREQUENCY),),
-        point_domain=point_rows(base),
+        point_domain=base,
     )
 
     resolved = apply_scans(
@@ -432,7 +480,7 @@ def test_scan_can_depend_on_a_base_point_source() -> None:
     assembly = SemanticExperimentIR(
         experiment_id="test",
         kind="test",
-        point_domain=point_rows(lower_scan_points(_values("base"))),
+        point_domain=lower_scan_points(_values("base")),
     )
 
     resolved = apply_scans(
@@ -445,12 +493,39 @@ def test_scan_can_depend_on_a_base_point_source() -> None:
     assert _domain_columns(resolved.point_domain) == ("base", "scan")
 
 
+def test_scan_input_dependency_binds_to_a_base_point_provider() -> None:
+    assembly = SemanticExperimentIR(
+        experiment_id="test",
+        kind="test",
+        point_domain=lower_scan_points(_values("base")),
+    )
+
+    resolved = apply_scans(
+        assembly,
+        (_dependent("scan", "base"),),
+        inputs={},
+    )
+    compiled = lower_point_domain(
+        resolved.point_domain,
+        inputs=resolved.inputs,
+        type_bindings=RelationTypeBindings(),
+    )
+    materialized = materialize_point_domain(
+        verify_point_domain(compiled, program_id="test"),
+        ParameterRelationData(),
+    )
+
+    assert set(resolved.inputs) == {"base"}
+    assert len(materialized.points) == 4
+    assert tuple(materialized.points[0].row) == ("base", "scan")
+
+
 def test_base_and_scan_dependency_cycle_is_an_authoring_problem() -> None:
     assembly = SemanticExperimentIR(
         experiment_id="test",
         kind="test",
         input_ports=(ModuleInputPort("scan", _FREQUENCY),),
-        point_domain=point_rows(lower_scan_points(_dependent("base", "scan"))),
+        point_domain=lower_scan_points(_dependent("base", "scan")),
     )
 
     with pytest.raises(CheckFailed) as caught:
@@ -469,7 +544,7 @@ def test_base_only_missing_input_fails_at_the_dependency_boundary() -> None:
     assembly = SemanticExperimentIR(
         experiment_id="test",
         kind="test",
-        point_domain=point_rows(lower_scan_points(_dependent("base", "missing"))),
+        point_domain=lower_scan_points(_dependent("base", "missing")),
     )
 
     with pytest.raises(CheckFailed) as caught:
@@ -484,9 +559,7 @@ def test_base_only_self_dependency_is_rejected() -> None:
     assembly = SemanticExperimentIR(
         experiment_id="test",
         kind="test",
-        point_domain=point_rows(
-            lower_scan_points(_dependent("base", "base", direct_point=True))
-        ),
+        point_domain=lower_scan_points(_dependent("base", "base", direct_point=True)),
     )
 
     with pytest.raises(CheckFailed) as caught:
@@ -498,14 +571,13 @@ def test_base_only_self_dependency_is_rejected() -> None:
 
 
 @pytest.mark.parametrize("direct_point", [False, True])
-def test_point_cross_closes_the_right_source_point_dependency(
+def test_dependent_product_closes_the_right_source_point_dependency(
     direct_point: bool,
 ) -> None:
-    combined = internal_point_cross_value_refs(
+    base_domain = point_dependent_product(
         lower_scan_points(_values("source")),
         lower_scan_points(_dependent("target", "source", direct_point=direct_point)),
     )
-    base_domain = point_rows(combined)
     assembly = SemanticExperimentIR(
         experiment_id="test",
         kind="test",

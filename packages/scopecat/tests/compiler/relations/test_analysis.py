@@ -1,7 +1,6 @@
 import pytest
 
 from scopecat.compiler.relations.analysis import (
-    PlanOperation,
     PlanReference,
     PlanReferenceKind,
     RelationPlanBinderError,
@@ -9,27 +8,20 @@ from scopecat.compiler.relations.analysis import (
     iter_plan_children,
     plan_input_refs,
     plan_references,
-    relation_operation,
     rewrite_plan,
     verify_plan_scopes,
-    walk_plan,
 )
 from scopecat.compiler.relations.model import (
     InputScalarExpr,
     RowScopeId,
     col,
-    grid,
     input_ref,
     input_series,
     input_table,
     lit,
     literal_rows,
-    outer,
     param,
-    parameter_series,
     point_col,
-    range_values,
-    table,
 )
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
@@ -57,14 +49,13 @@ from scopecat.kernel.value_types import Bool, Float, Scalar, Series, Table, Tabl
 from tests.testkit.relation_plans import value_expr
 
 
-def test_plan_input_refs_deduplicate_ids_across_shapes() -> None:
-    plan = grid(
-        scalar=input_ref("shared"),
-        series=input_series("shared"),
-        table=input_table("shared"),
+def test_plan_input_refs_deduplicate_scalar_and_table_refs() -> None:
+    plan = input_table("shared").with_columns(
+        copied=input_ref("shared"),
     )
 
     assert plan_input_refs(plan) == ("shared",)
+    assert plan_input_refs(input_series("shared")) == ("shared",)
 
 
 def test_free_row_references_exclude_plan_local_binders() -> None:
@@ -96,10 +87,8 @@ def test_nominal_row_binders_cannot_shadow_an_enclosing_identity() -> None:
         col("value", row_scope_id=scope).gt(0),
         row_scope_id=scope,
     )
-    reused = filtered.cross(
-        filtered.with_columns(
-            copied=col("value"),
-        )
+    reused = filtered.with_columns(
+        copied=col("value"),
     )
 
     verify_plan_scopes(reused)
@@ -116,59 +105,38 @@ def test_plan_walk_and_references_cover_every_nested_shape() -> None:
         },
         column="gain",
     )
-    left = grid(
-        sweep=range_values(
-            input_ref("start"),
-            param("stop"),
-            lit(1.0),
-        ),
-        input_offsets=input_series("offsets"),
-        configured_offsets=parameter_series("configured_offsets"),
-        rows=input_table("rows"),
+    filtered = input_table("rows").filter(input_ref("enabled"))
+    plan = filtered.with_columns(
+        start=input_ref("start"),
+        gain=lookup,
+        stop=param("stop"),
     )
-    right = (
-        table("records")
-        .filter(input_ref("enabled"))
-        .with_columns(
-            gain=lookup,
-            outer_flag=outer("outer_flag"),
-        )
-    )
-    plan = left.lateral_cross(right)
 
-    assert tuple(iter_plan_children(plan)) == (left, right)
-    assert relation_operation(next(walk_plan(plan))) is (
-        PlanOperation.RELATION_LATERAL_CROSS
+    assert tuple(iter_plan_children(plan)) == (
+        filtered,
+        plan.new_columns["start"],
+        plan.new_columns["gain"],
+        plan.new_columns["stop"],
     )
     assert plan_references(plan).references == frozenset(
         {
             PlanReference(PlanReferenceKind.CURRENT_COLUMN, "local_id"),
-            PlanReference(PlanReferenceKind.OUTER_COLUMN, "outer_flag"),
             PlanReference(PlanReferenceKind.POINT_COLUMN, "point_id"),
             PlanReference(PlanReferenceKind.INPUT_SCALAR, "enabled"),
             PlanReference(PlanReferenceKind.INPUT_SCALAR, "start"),
-            PlanReference(PlanReferenceKind.INPUT_SERIES, "offsets"),
             PlanReference(PlanReferenceKind.INPUT_TABLE, "rows"),
             PlanReference(PlanReferenceKind.PARAMETER_SCALAR, "stop"),
-            PlanReference(
-                PlanReferenceKind.PARAMETER_SERIES,
-                "configured_offsets",
-            ),
             PlanReference(PlanReferenceKind.PARAMETER_TABLE, "calibrations"),
-            PlanReference(PlanReferenceKind.PARAMETER_TABLE, "records"),
         }
     )
-    assert plan_input_refs(plan) == ("enabled", "offsets", "rows", "start")
+    assert plan_input_refs(plan) == ("enabled", "rows", "start")
 
     rewritten = rewrite_plan(
         plan,
         lambda node: lit(True) if isinstance(node, InputScalarExpr) else node,
     )
     assert plan_references(rewritten).ids(PlanReferenceKind.INPUT_SCALAR) == ()
-    assert plan_references(rewritten).ids(
-        PlanReferenceKind.INPUT_SERIES,
-        PlanReferenceKind.INPUT_TABLE,
-    ) == ("offsets", "rows")
+    assert plan_references(rewritten).ids(PlanReferenceKind.INPUT_TABLE) == ("rows",)
 
 
 def test_compute_dependencies_project_shared_plan_references() -> None:
@@ -187,14 +155,9 @@ def test_compute_dependencies_project_shared_plan_references() -> None:
         },
         parameters={"gain": Scalar(Float())},
         point_row=RowType((TableColumn("point_enabled", bool_type),)),
-        outer_row=RowType((TableColumn("outer_enabled", bool_type),)),
     )
     plan = input_table("rows").filter(
-        input_ref("enabled").and_(
-            point_col("point_enabled")
-            .and_(outer("outer_enabled"))
-            .and_(col("local_enabled"))
-        )
+        input_ref("enabled").and_(point_col("point_enabled").and_(col("local_enabled")))
     )
     node = TypedComputeNode(
         id=operation_id,

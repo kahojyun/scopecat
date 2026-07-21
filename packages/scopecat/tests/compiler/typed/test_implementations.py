@@ -11,9 +11,7 @@ from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.implementations import (
     select_local_implementations,
 )
-from scopecat.compiler.relations.model import (
-    literal_rows,
-)
+from scopecat.compiler.relations.point_domain import point_literal_rows
 from scopecat.compiler.semantic.model import (
     ImplementationCatalog,
     ImplementationId,
@@ -26,6 +24,7 @@ from scopecat.compiler.semantic.operation_contract import (
     LOCAL_OPAQUE_OPERATION_CONTRACT,
     PlacementConstraint,
 )
+from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     CoreProgram,
     TypedComputeNode,
@@ -36,13 +35,12 @@ from scopecat.execution.local.program import ComputeOperation
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import ProblemPhase
 from scopecat.kernel.symbols import SymbolId
-from scopecat.kernel.value_types import Float, Payload, Scalar, Table, ValueType
+from scopecat.kernel.value_types import Float, Payload, Scalar, ValueType
 from tests.testkit.authoring import load_config
 from tests.testkit.local_materialization import (
     materialize_local_execution,
     operations_of_type,
 )
-from tests.testkit.relation_plans import point_domain
 from tests.testkit.typed_program import link_program, typed_program
 
 _FLOAT = Scalar(Float())
@@ -75,13 +73,11 @@ def _program(
     return typed_program(
         id="implementation-sidecar",
         kind="compiler_test",
-        point_domain=point_domain(
-            literal_rows([{} for _index in range(point_count)]),
-            expected_type=Table(
-                columns=(),
-                min_rows=point_count,
-                max_rows=point_count,
-            ),
+        point_domain=PointDomain(
+            root=point_literal_rows(
+                (),
+                tuple(() for _index in range(point_count)),
+            )
         ),
         compute_nodes=(
             TypedComputeNode(

@@ -7,7 +7,6 @@ from typing import cast
 
 from scopecat.compiler.relations.model import (
     BinaryScalarExpr,
-    CaseScalarExpr,
     InputScalarExpr,
     LiteralScalarExpr,
     ParameterLookupScalarExpr,
@@ -99,17 +98,5 @@ def project_run_request_scalar(expression: ScalarExpr) -> object:
             "operator": scalar.op,
             "left": project_run_request_scalar(scalar.left),
             "right": project_run_request_scalar(scalar.right),
-        }
-    if isinstance(scalar, CaseScalarExpr):
-        return {
-            "kind": "case",
-            "branches": [
-                {
-                    "when": project_run_request_scalar(branch.condition),
-                    "then": project_run_request_scalar(branch.value),
-                }
-                for branch in scalar.cases
-            ],
-            "fallback": project_run_request_scalar(scalar.fallback),
         }
     raise AssertionError(f"unsupported request scalar expression: {scalar!r}")

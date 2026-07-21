@@ -11,22 +11,24 @@ from scopecat.authoring._parameter_contracts import (
 from scopecat.authoring._value_refs import (
     PointValueDependency,
     ValueRef,
-    internal_value_ref_free_point_dependencies,
-    internal_value_ref_free_point_input_ids,
     internal_value_ref_parameter_contracts,
+    internal_value_ref_point_dependencies,
+    internal_value_ref_scalar_input_ids,
 )
 from scopecat.compiler.relations.point_domain import (
     POINT_UNIT,
+    PointAxis,
+    PointAxisLinear,
     PointDomainAnalysis,
     PointDomainExpr,
     PointDomainPath,
     PointProduct,
-    PointRelationRows,
+    PointRows,
     PointUnit,
     PointZip,
     analyze_point_domain,
-    iter_point_relation_rows,
-    map_point_relation_rows,
+    iter_point_axis_linear,
+    map_point_axis_centers,
     point_dependent_product,
     point_product,
 )
@@ -56,12 +58,9 @@ def compose_point_domain_intents(
 
 
 def analyze_point_domain_intent(domain: PointDomainIntent) -> PointDomainAnalysis:
-    """Project schema and cardinality facts from typed relation leaves."""
+    """Project schema and cardinality facts from the structural domain."""
 
-    return analyze_point_domain(
-        domain,
-        leaf_value_type=_relation_rows_value_type,
-    )
+    return analyze_point_domain(domain)
 
 
 def point_domain_intent_value_type(domain: PointDomainIntent) -> Table:
@@ -80,15 +79,15 @@ def point_domain_intent_output_types(
 def iter_point_domain_value_refs(
     domain: PointDomainIntent,
 ) -> Iterator[tuple[PointDomainPath, ValueRef]]:
-    for path, leaf in iter_point_relation_rows(domain):
-        yield path, leaf.rows
+    for path, source in iter_point_axis_linear(domain):
+        yield path, source.center
 
 
 def map_point_domain_value_refs(
     domain: PointDomainIntent,
     transform: Callable[[ValueRef, PointDomainPath], ValueRef],
 ) -> PointDomainIntent:
-    return map_point_relation_rows(domain, transform)
+    return map_point_axis_centers(domain, transform)
 
 
 def point_domain_intent_parameter_contracts(
@@ -121,10 +120,14 @@ def point_domain_intent_free_point_dependencies(
             selected.setdefault(dependency.id, dependency)
 
     def visit(node: PointDomainIntent) -> tuple[PointValueDependency, ...]:
-        if isinstance(node, PointUnit):
+        if isinstance(node, PointUnit | PointRows):
             return ()
-        if isinstance(node, PointRelationRows):
-            return internal_value_ref_free_point_dependencies(node.rows)
+        if isinstance(node, PointAxis):
+            return (
+                internal_value_ref_point_dependencies(node.source.center)
+                if isinstance(node.source, PointAxisLinear)
+                else ()
+            )
         if isinstance(node, PointProduct):
             return tuple(
                 dependency for factor in node.factors for dependency in visit(factor)
@@ -152,10 +155,14 @@ def point_domain_intent_free_point_input_ids(
     """Return scalar imports not closed by dependent products."""
 
     def visit(node: PointDomainIntent) -> frozenset[str]:
-        if isinstance(node, PointUnit):
+        if isinstance(node, PointUnit | PointRows):
             return frozenset()
-        if isinstance(node, PointRelationRows):
-            return internal_value_ref_free_point_input_ids(node.rows)
+        if isinstance(node, PointAxis):
+            return (
+                internal_value_ref_scalar_input_ids(node.source.center)
+                if isinstance(node.source, PointAxisLinear)
+                else frozenset()
+            )
         if isinstance(node, PointProduct):
             return frozenset(
                 input_id for factor in node.factors for input_id in visit(factor)
@@ -168,14 +175,6 @@ def point_domain_intent_free_point_input_ids(
         return visit(node.left) | (visit(node.right) - bound_ids)
 
     return visit(domain)
-
-
-def _relation_rows_value_type(value: ValueRef, _path: PointDomainPath) -> Table:
-    value_type = value.value_type
-    if not isinstance(value_type, Table):
-        msg = "point relation rows must carry a table value type"
-        raise TypeError(msg)
-    return value_type
 
 
 __all__ = [

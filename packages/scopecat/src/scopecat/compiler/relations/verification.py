@@ -17,65 +17,42 @@ from typing import cast
 
 from scopecat.compiler.relations.analysis import (
     PlanNode,
-    PlanOperation,
     PlanReferenceKind,
     PlanReferences,
     RelationPlanBinderError,
     RelationPlanScopeError,
     free_row_references,
     plan_references,
-    relation_operation,
     verify_plan_scopes,
 )
 from scopecat.compiler.relations.model import (
     BinaryScalarExpr,
-    CaseScalarExpr,
     ColumnScalarExpr,
-    CrossRelationExpr,
     FilterRelationExpr,
-    GridColumn,
-    GridRelationExpr,
     InputRelationExpr,
     InputScalarExpr,
     InputSeriesExpr,
-    JoinRelationExpr,
-    LateralCrossRelationExpr,
-    LimitRelationExpr,
-    LinspaceSeriesExpr,
     LiteralRowsRelationExpr,
     LiteralScalarExpr,
-    OuterColumnScalarExpr,
     ParameterLookupScalarExpr,
     ParameterScalarExpr,
     ParameterSeriesExpr,
     PointColumnScalarExpr,
-    PointCrossRelationExpr,
-    RangeSeriesExpr,
-    RelationColumnSeriesExpr,
     RelationEntitiesSeriesExpr,
     RelationExpr,
     RelationExpression,
-    RelationGridColumn,
     RowScopeId,
     ScalarExpr,
     ScalarExpression,
-    ScalarGridColumn,
     SelectRelationExpr,
     SeriesExpr,
     SeriesExpression,
-    SeriesGridColumn,
-    SortRelationExpr,
     TableRelationExpr,
-    ValuesGridColumn,
     ValuesSeriesExpr,
     WithColumnsRelationExpr,
-    ZipRelationExpr,
 )
-from scopecat.compiler.relations.operators import (
-    require_sortable_scalar,
-    scalar_operator_result_type,
-)
-from scopecat.kernel.units import compatible_units, unit_kind
+from scopecat.compiler.relations.operators import scalar_operator_result_type
+from scopecat.kernel.units import unit_kind
 from scopecat.kernel.value_type_compatibility import is_assignable, literal_scalar_type
 from scopecat.kernel.value_types import (
     Bool,
@@ -131,22 +108,19 @@ class ExternalRowRequirement:
     """The typed part of one external row that a plan can observe.
 
     ``column_references`` retains the exact authored paths, while ``row_type``
-    retains the corresponding root-column types and open-row semantics.  A
-    full-row requirement means the operation observes row shape beyond named
-    column reads, as ``point_cross`` does while merging its point environment.
+    retains the corresponding root-column types and open-row semantics.
     """
 
     row_type: RowType
     column_references: tuple[str, ...] = ()
-    requires_full_row: bool = False
 
     def __post_init__(self) -> None:
         references = tuple(sorted(set(self.column_references)))
         if any(not reference for reference in references):
             msg = "external row column references must be non-empty"
             raise ValueError(msg)
-        if not references and not self.requires_full_row:
-            msg = "an external row requirement must observe columns or the full row"
+        if not references:
+            msg = "an external row requirement must observe at least one column"
             raise ValueError(msg)
         object.__setattr__(self, "column_references", references)
 
@@ -165,7 +139,6 @@ class ExternalRowInterface:
 
     point: ExternalRowRequirement | None = None
     current: ExternalRowRequirement | None = None
-    outer: ExternalRowRequirement | None = None
     arguments: tuple[NamedExternalRowRequirement, ...] = ()
 
     def __post_init__(self) -> None:
@@ -221,7 +194,6 @@ class RelationTypeBindings:
     parameter_lookups: tuple[ParameterLookupSignature, ...] = ()
     point_row: RowType | None = None
     current_row: RowType | None = None
-    outer_row: RowType | None = None
     row_arguments: Mapping[RowScopeId, RowType] = field(
         default_factory=_empty_row_bindings
     )
@@ -264,43 +236,12 @@ class PlanImportNamespace(StrEnum):
     PARAMETER = "parameter"
 
 
-class RelationRuntimeObligationKind(StrEnum):
-    """Stable identities for checks deferred to plan materialization."""
-
-    DIVISION_RIGHT_NONZERO = "division_right_nonzero"
-    NO_EXTRA_COLUMN_COLLISION = "no_extra_column_collision"
-    PARAMETER_LOOKUP_EXACTLY_ONE = "parameter_lookup_exactly_one"
-    RANGE_PROGRESS = "range_progress"
-    RANGE_STEP_NONZERO = "range_step_nonzero"
-    SCALAR_RESULT_FINITE = "scalar_result_finite"
-    SERIES_VALUES_FINITE = "series_values_finite"
-    ZIP_EQUAL_LENGTH = "zip_equal_length"
-
-
 @dataclass(frozen=True, slots=True)
 class TypedPlanImport:
     namespace: PlanImportNamespace
     id: str
     value_type: ValueType
     lookup: ParameterLookupSignature | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class PlanTypeFact:
-    """The inferred type of one operation occurrence at a stable AST path."""
-
-    path: PlanPath
-    operation: PlanOperation
-    value_type: ValueType
-
-
-@dataclass(frozen=True, slots=True)
-class RuntimeObligation:
-    """A checked condition that remains data-dependent at materialization time."""
-
-    code: RelationRuntimeObligationKind
-    path: PlanPath
-    message: str
 
 
 class RelationPlanVerificationError(ValueError):
@@ -325,22 +266,19 @@ class VerifiedRelationPlan[NodeT: PlanNode]:
         "_bindings",
         "_certified_type",
         "_external_row_interface",
-        "_facts",
         "_free_row_references",
         "_imports",
         "_references",
         "_root",
-        "_runtime_obligations",
     )
 
     def __init__(
         self,
         root: NodeT,
         certified_type: ValueType,
-        facts: tuple[PlanTypeFact, ...],
         imports: tuple[TypedPlanImport, ...],
         references: PlanReferences,
-        runtime_obligations: tuple[RuntimeObligation, ...],
+        free_references: PlanReferences,
         bindings: RelationTypeBindings,
         external_row_interface: ExternalRowInterface | None = None,
     ) -> None:
@@ -348,13 +286,11 @@ class VerifiedRelationPlan[NodeT: PlanNode]:
             raise AssertionError("verified relation plan row interface is missing")
         self._root = deepcopy(root)
         self._certified_type = certified_type
-        self._facts = facts
         self._imports = imports
         self._bindings = bindings
         self._external_row_interface = external_row_interface
-        self._free_row_references = free_row_references(root)
+        self._free_row_references = free_references
         self._references = references
-        self._runtime_obligations = runtime_obligations
 
     def __copy__(self) -> VerifiedRelationPlan[NodeT]:
         """Share the sealed proof; every exposed AST remains defensive."""
@@ -378,10 +314,6 @@ class VerifiedRelationPlan[NodeT: PlanNode]:
         return self._certified_type
 
     @property
-    def facts(self) -> tuple[PlanTypeFact, ...]:
-        return self._facts
-
-    @property
     def imports(self) -> tuple[TypedPlanImport, ...]:
         return self._imports
 
@@ -401,10 +333,6 @@ class VerifiedRelationPlan[NodeT: PlanNode]:
     def references(self) -> PlanReferences:
         return self._references
 
-    @property
-    def runtime_obligations(self) -> tuple[RuntimeObligation, ...]:
-        return self._runtime_obligations
-
 
 def verify_relation_plan[NodeT: PlanNode](
     root: NodeT,
@@ -419,7 +347,6 @@ def verify_relation_plan[NodeT: PlanNode](
         verify_plan_scopes(
             root,
             current_row_available=selected.current_row is not None,
-            outer_row_available=selected.outer_row is not None,
             active_row_scopes=selected.row_arguments,
         )
     except RelationPlanScopeError as error:
@@ -448,10 +375,9 @@ def verify_relation_plan[NodeT: PlanNode](
     return VerifiedRelationPlan(
         root,
         certified,
-        tuple(verifier.facts),
         tuple(verifier.imports.values()),
         plan_references(root),
-        tuple(verifier.obligations),
+        free_references,
         selected,
         _external_row_interface(verifier, free_references, selected),
     )
@@ -461,9 +387,7 @@ def verify_relation_plan[NodeT: PlanNode](
 class _Rows:
     point: RowType | None
     current: RowType | None
-    outer: RowType | None
     arguments: Mapping[RowScopeId, RowType]
-    local_point_columns: frozenset[str] = frozenset()
 
     def with_current(
         self,
@@ -476,13 +400,8 @@ class _Rows:
         return _Rows(
             self.point,
             row,
-            self.outer,
             MappingProxyType(arguments),
-            self.local_point_columns,
         )
-
-
-_EMPTY_COLUMN_IDS: frozenset[str] = frozenset()
 
 
 class _Verifier:
@@ -491,13 +410,9 @@ class _Verifier:
         self.rows = _Rows(
             bindings.point_row,
             bindings.current_row,
-            bindings.outer_row,
             bindings.row_arguments,
         )
-        self.facts: list[PlanTypeFact] = []
-        self.obligations: list[RuntimeObligation] = []
         self.external_point_references: set[str] = set()
-        self.requires_full_external_point_row = False
         self.imports: dict[
             tuple[PlanImportNamespace, str, ParameterLookupSignature | None],
             TypedPlanImport,
@@ -540,7 +455,6 @@ class _Verifier:
                         "expected a non-table value",
                     )
                 result = self.relation(node, path, table_expected, selected_rows)
-        self.facts.append(PlanTypeFact(path, relation_operation(node), result))
         return result
 
     def scalar(
@@ -561,16 +475,10 @@ class _Verifier:
                     else rows.current
                 )
                 result = self.row_column(selected, scalar.name, path)
-            case OuterColumnScalarExpr():
-                result = self.row_column(rows.outer, scalar.name, path)
             case PointColumnScalarExpr():
                 name = scalar.name
                 result = self.row_column(rows.point, name, path)
-                if (
-                    _row_column_root_id(rows.point, name)
-                    not in rows.local_point_columns
-                ):
-                    self.external_point_references.add(name)
+                self.external_point_references.add(name)
             case InputScalarExpr():
                 result = self.import_type(
                     PlanImportNamespace.INPUT,
@@ -645,88 +553,12 @@ class _Verifier:
                     raise self.error(
                         "invalid_scalar_operator", path, str(error)
                     ) from error
-                if scalar.op == "/":
-                    if _is_zero_literal(scalar.right):
-                        raise self.error(
-                            "division_by_zero",
-                            (*path, "right"),
-                            "division denominator is statically zero",
-                        )
-                    if not _literal_is_provably_nonzero(scalar.right):
-                        self.obligation(
-                            RelationRuntimeObligationKind.DIVISION_RIGHT_NONZERO,
-                            (*path, "right"),
-                            "division denominator must be non-zero",
-                        )
-                if scalar.op in {"+", "-", "*", "/"} and isinstance(
-                    result.atom,
-                    Float | Quantity,
-                ):
-                    self.obligation(
-                        RelationRuntimeObligationKind.SCALAR_RESULT_FINITE,
-                        path,
-                        "floating-point arithmetic must produce a finite result",
+                if scalar.op == "/" and _is_zero_literal(scalar.right):
+                    raise self.error(
+                        "division_by_zero",
+                        (*path, "right"),
+                        "division denominator is statically zero",
                     )
-            case CaseScalarExpr():
-                value_nodes: list[tuple[ScalarExpr, PlanPath]] = []
-                for index, branch in enumerate(scalar.cases):
-                    condition = cast(
-                        "Scalar",
-                        self.infer(
-                            branch.condition,
-                            (*path, "cases", index, "condition"),
-                            rows=rows,
-                        ),
-                    )
-                    self.require_bool(condition, (*path, "cases", index, "condition"))
-                    value_nodes.append((branch.value, (*path, "cases", index, "value")))
-                value_nodes.append((scalar.fallback, (*path, "fallback")))
-                if expected is not None:
-                    values = [
-                        cast(
-                            "Scalar",
-                            self.infer(value, value_path, expected, rows=rows),
-                        )
-                        for value, value_path in value_nodes
-                    ]
-                    result = expected
-                else:
-                    seed_index = next(
-                        (
-                            index
-                            for index, (value, _) in enumerate(value_nodes)
-                            if not _is_null_literal(value)
-                        ),
-                        None,
-                    )
-                    if seed_index is None:
-                        raise self.error(
-                            "ambiguous_null",
-                            path,
-                            "a case containing only null values needs an expected type",
-                        )
-                    seed_node, seed_path = value_nodes[seed_index]
-                    seed = cast(
-                        "Scalar",
-                        self.infer(seed_node, seed_path, rows=rows),
-                    )
-                    values = [seed]
-                    nullable_seed = Scalar(seed.atom, nullable=True)
-                    for index, (value, value_path) in enumerate(value_nodes):
-                        if index == seed_index:
-                            continue
-                        values.append(
-                            cast(
-                                "Scalar",
-                                self.infer(
-                                    value,
-                                    value_path,
-                                    nullable_seed if _is_null_literal(value) else None,
-                                    rows=rows,
-                                ),
-                            )
-                        )
-                    result = _common_scalars(values, path)
         self.require_expected(result, expected, path)
         return result
 
@@ -762,49 +594,6 @@ class _Verifier:
                         len(items),
                         len(items),
                     )
-            case LinspaceSeriesExpr() | RangeSeriesExpr():
-                start = cast(
-                    "Scalar",
-                    self.infer(series.start, (*path, "start"), rows=rows),
-                )
-                stop = cast(
-                    "Scalar",
-                    self.infer(series.stop, (*path, "stop"), rows=rows),
-                )
-                operands = [start, stop]
-                if isinstance(series, RangeSeriesExpr):
-                    step = cast(
-                        "Scalar",
-                        self.infer(series.step, (*path, "step"), rows=rows),
-                    )
-                    operands.append(step)
-                    if _is_zero_literal(series.step):
-                        raise self.error(
-                            "range_step_zero",
-                            (*path, "step"),
-                            "range step is statically zero",
-                        )
-                    if not _literal_is_provably_nonzero(series.step):
-                        self.obligation(
-                            RelationRuntimeObligationKind.RANGE_STEP_NONZERO,
-                            (*path, "step"),
-                            "range step must be non-zero",
-                        )
-                item = _numeric_series_item(operands, path, unit=series.unit)
-                if isinstance(series, LinspaceSeriesExpr):
-                    result = Series(item, series.count, series.count)
-                    self.obligation(
-                        RelationRuntimeObligationKind.SERIES_VALUES_FINITE,
-                        path,
-                        "linspace materialization must produce only finite values",
-                    )
-                else:
-                    result = Series(item)
-                    self.obligation(
-                        RelationRuntimeObligationKind.RANGE_PROGRESS,
-                        path,
-                        "range step must advance every materialized value",
-                    )
             case InputSeriesExpr():
                 result = self.import_type(
                     PlanImportNamespace.INPUT,
@@ -819,17 +608,6 @@ class _Verifier:
                     Series,
                     path,
                 )
-            case RelationColumnSeriesExpr():
-                source = cast(
-                    "Table",
-                    self.infer(series.source, (*path, "source"), rows=rows),
-                )
-                item = self.row_column(
-                    RowType.from_table(source),
-                    series.column,
-                    (*path, "column"),
-                )
-                result = Series(item, source.min_rows, source.max_rows)
             case RelationEntitiesSeriesExpr():
                 source = cast(
                     "Table",
@@ -899,8 +677,6 @@ class _Verifier:
                     Table,
                     path,
                 )
-            case GridRelationExpr():
-                result = self.grid(relation.columns, path, rows, expected)
             case SelectRelationExpr():
                 source = cast(
                     "Table",
@@ -952,176 +728,6 @@ class _Verifier:
                     source.max_rows,
                     source.allow_extra_columns,
                 )
-            case JoinRelationExpr():
-                on = relation.on
-                allowed_shared = {
-                    left_name
-                    for left_name, right_name in on.items()
-                    if left_name == right_name
-                }
-                left = cast(
-                    "Table",
-                    self.infer(
-                        relation.left,
-                        (*path, "left"),
-                        self.relation_expected(relation.left, expected),
-                        rows=rows,
-                    ),
-                )
-                right = cast(
-                    "Table",
-                    self.infer(
-                        relation.right,
-                        (*path, "right"),
-                        self.relation_expected(
-                            relation.right,
-                            expected,
-                            excluded_column_ids=allowed_shared,
-                        ),
-                        rows=rows,
-                    ),
-                )
-                for left_name, right_name in on.items():
-                    left_key = self.row_column(
-                        RowType.from_table(left), left_name, (*path, "on", left_name)
-                    )
-                    right_key = self.row_column(
-                        RowType.from_table(right), right_name, (*path, "on", left_name)
-                    )
-                    if left_key.nullable or right_key.nullable:
-                        raise self.error(
-                            "nullable_join_key",
-                            (*path, "on", left_name),
-                            "join keys must be non-null scalars",
-                        )
-                    try:
-                        scalar_operator_result_type(left_key, right_key, "==")
-                    except TypeError as error:
-                        raise self.error(
-                            "incompatible_join_key",
-                            (*path, "on", left_name),
-                            str(error),
-                        ) from error
-                result = self.merge_tables(
-                    left,
-                    right,
-                    path,
-                    operation="join",
-                    allowed_shared=allowed_shared,
-                    minimum=0,
-                    maximum=_multiply_optional(left.max_rows, right.max_rows),
-                )
-            case (
-                CrossRelationExpr()
-                | LateralCrossRelationExpr()
-                | PointCrossRelationExpr()
-            ):
-                left = cast(
-                    "Table",
-                    self.infer(
-                        relation.left,
-                        (*path, "left"),
-                        self.relation_expected(relation.left, expected),
-                        rows=rows,
-                    ),
-                )
-                right_rows = rows
-                if isinstance(relation, LateralCrossRelationExpr):
-                    left_row = RowType.from_table(left)
-                    right_rows = _Rows(
-                        rows.point,
-                        left_row,
-                        left_row,
-                        rows.arguments,
-                        rows.local_point_columns,
-                    )
-                elif isinstance(relation, PointCrossRelationExpr):
-                    external_point = self.bindings.point_row
-                    self.requires_full_external_point_row |= (
-                        left.max_rows != 0 and external_point is not None
-                    )
-                    point = self.merge_rows(
-                        rows.point or RowType(),
-                        RowType.from_table(left),
-                        (*path, "point"),
-                        operation="point_cross",
-                        rows_can_coexist=left.max_rows != 0,
-                    )
-                    right_rows = _Rows(
-                        point,
-                        rows.current,
-                        rows.outer,
-                        rows.arguments,
-                        rows.local_point_columns
-                        | frozenset(column.id for column in left.columns),
-                    )
-                right = cast(
-                    "Table",
-                    self.infer(
-                        relation.right,
-                        (*path, "right"),
-                        self.relation_expected(relation.right, expected),
-                        rows=right_rows,
-                    ),
-                )
-                result = self.merge_tables(
-                    left,
-                    right,
-                    path,
-                    operation=relation_operation(relation).value.removeprefix(
-                        "relation."
-                    ),
-                    minimum=left.min_rows * right.min_rows,
-                    maximum=_multiply_optional(left.max_rows, right.max_rows),
-                )
-            case ZipRelationExpr():
-                sources = [
-                    cast(
-                        "Table",
-                        self.infer(source, (*path, "sources", index), rows=rows),
-                    )
-                    for index, source in enumerate(relation.sources)
-                ]
-                minimum = max(source.min_rows for source in sources)
-                maxima = [source.max_rows for source in sources]
-                finite_maxima = [maximum for maximum in maxima if maximum is not None]
-                maximum = min(finite_maxima) if finite_maxima else None
-                if maximum is not None and minimum > maximum:
-                    raise self.error(
-                        "zip_cardinality_mismatch",
-                        path,
-                        "zip source cardinality ranges do not overlap",
-                    )
-                exact = {
-                    source.min_rows
-                    for source in sources
-                    if source.max_rows == source.min_rows
-                }
-                all_exact = all(
-                    source.min_rows == source.max_rows for source in sources
-                )
-                if all_exact and len(exact) > 1:
-                    raise self.error(
-                        "zip_cardinality_mismatch",
-                        path,
-                        "zip sources have unequal fixed lengths",
-                    )
-                if not all_exact:
-                    self.obligation(
-                        RelationRuntimeObligationKind.ZIP_EQUAL_LENGTH,
-                        path,
-                        "zip sources must materialize with equal lengths",
-                    )
-                result = Table((), (), minimum, maximum)
-                for index, source in enumerate(sources):
-                    result = self.merge_tables(
-                        result,
-                        source,
-                        (*path, "sources", index),
-                        operation="zip",
-                        minimum=minimum,
-                        maximum=maximum,
-                    )
             case WithColumnsRelationExpr():
                 source = cast(
                     "Table",
@@ -1155,142 +761,8 @@ class _Verifier:
                     source.max_rows,
                     source.allow_extra_columns,
                 )
-            case SortRelationExpr():
-                source = cast(
-                    "Table",
-                    self.infer(relation.source, (*path, "source"), rows=rows),
-                )
-                for index, name in enumerate(relation.sort_columns):
-                    value_type = self.row_column(
-                        RowType.from_table(source),
-                        name,
-                        (*path, "sort_columns", index),
-                    )
-                    try:
-                        require_sortable_scalar(value_type, column_id=name)
-                    except TypeError as error:
-                        raise self.error(
-                            "unsortable_column",
-                            (*path, "sort_columns", index),
-                            str(error),
-                        ) from error
-                result = source
-            case LimitRelationExpr():
-                source = cast(
-                    "Table",
-                    self.infer(relation.source, (*path, "source"), rows=rows),
-                )
-                count = relation.limit_count
-                result = Table(
-                    source.columns,
-                    source.primary_key,
-                    min(source.min_rows, count),
-                    _min_optional(source.max_rows, count),
-                    source.allow_extra_columns,
-                )
         self.require_expected(result, expected, path)
         return result
-
-    def grid(
-        self,
-        columns: Mapping[str, GridColumn],
-        path: PlanPath,
-        rows: _Rows,
-        expected: Table | None,
-    ) -> Table:
-        output: list[TableColumn] = []
-        minimum = 1
-        maximum: int | None = 1
-        expected_columns = (
-            {column.id: column for column in expected.columns}
-            if expected is not None
-            else {}
-        )
-        for name, column in columns.items():
-            column_path = (*path, "columns", name)
-            expected_item = (
-                selected.value_type
-                if (selected := expected_columns.get(name)) is not None
-                else None
-            )
-            match column:
-                case ScalarGridColumn():
-                    item = cast(
-                        "Scalar",
-                        self.infer(
-                            column.scalar,
-                            (*column_path, "scalar"),
-                            expected_item,
-                            rows=rows,
-                        ),
-                    )
-                    lower, upper = 1, 1
-                case SeriesGridColumn():
-                    series = cast(
-                        "Series",
-                        self.infer(
-                            column.series,
-                            (*column_path, "series"),
-                            (
-                                Series(expected_item)
-                                if expected_item is not None
-                                else None
-                            ),
-                            rows=rows,
-                        ),
-                    )
-                    item = series.item_type
-                    lower, upper = series.min_length, series.max_length
-                case RelationGridColumn():
-                    relation_expected = (
-                        _table_from_record(expected_item.atom)
-                        if expected_item is not None
-                        and isinstance(expected_item.atom, Record)
-                        else None
-                    )
-                    relation = cast(
-                        "Table",
-                        self.infer(
-                            column.relation,
-                            (*column_path, "relation"),
-                            relation_expected,
-                            rows=rows,
-                        ),
-                    )
-                    item = Scalar(_record_from_row(RowType.from_table(relation)))
-                    lower, upper = relation.min_rows, relation.max_rows
-                case ValuesGridColumn():
-                    values = column.values
-                    if expected_item is not None:
-                        self.validate_literal(
-                            Series(expected_item, len(values), len(values)),
-                            values,
-                            (*column_path, "values"),
-                        )
-                        item = expected_item
-                    elif not values:
-                        raise self.error(
-                            "ambiguous_empty_series",
-                            (*column_path, "values"),
-                            "an empty grid values column needs contextual typing",
-                        )
-                    else:
-                        item = _common_scalars(
-                            [
-                                self.literal(
-                                    value,
-                                    (*column_path, "values", index),
-                                    None,
-                                )
-                                for index, value in enumerate(values)
-                            ],
-                            column_path,
-                        )
-                    lower = upper = len(values)
-            output.append(TableColumn(name, item))
-            minimum *= lower
-            maximum = _multiply_optional(maximum, upper)
-        return Table(tuple(output), (), minimum, maximum)
 
     def parameter_lookup(
         self,
@@ -1334,11 +806,6 @@ class _Verifier:
             )
             self.imports.setdefault(import_key, imported)
             result = signature.result_type
-            self.obligation(
-                RelationRuntimeObligationKind.PARAMETER_LOOKUP_EXACTLY_ONE,
-                path,
-                "parameter lookup key must match exactly one row",
-            )
             return result
 
         table_type = self.import_type(
@@ -1357,11 +824,6 @@ class _Verifier:
                 rows=rows,
             )
         result = self.row_column(row, node.column, (*path, "column"))
-        self.obligation(
-            RelationRuntimeObligationKind.PARAMETER_LOOKUP_EXACTLY_ONE,
-            path,
-            "parameter lookup key must match exactly one row",
-        )
         return result
 
     def _select_parameter_lookup_signature(
@@ -1516,116 +978,6 @@ class _Verifier:
             )
         return current
 
-    def merge_tables(
-        self,
-        left: Table,
-        right: Table,
-        path: PlanPath,
-        *,
-        operation: str,
-        minimum: int,
-        maximum: int | None,
-        allowed_shared: set[str] | None = None,
-    ) -> Table:
-        row = self.merge_rows(
-            RowType.from_table(left),
-            RowType.from_table(right),
-            path,
-            operation=operation,
-            allowed_shared=allowed_shared,
-            rows_can_coexist=left.max_rows != 0 and right.max_rows != 0,
-        )
-        if operation == "zip":
-            primary_key = left.primary_key or right.primary_key
-        elif left.primary_key and right.primary_key:
-            primary_key = tuple(dict.fromkeys((*left.primary_key, *right.primary_key)))
-        else:
-            primary_key = ()
-        return Table(
-            row.columns,
-            primary_key,
-            minimum,
-            maximum,
-            row.allow_extra_columns,
-        )
-
-    def relation_expected(
-        self,
-        node: RelationExpr,
-        expected: Table | None,
-        *,
-        excluded_column_ids: set[str] | frozenset[str] = _EMPTY_COLUMN_IDS,
-    ) -> Table | None:
-        """Project a consumer row contract onto one compositional child."""
-
-        if expected is None:
-            return None
-        column_ids = _relation_output_column_ids(node, self.bindings)
-        if column_ids is None:
-            return None
-        selected = tuple(
-            column
-            for column in expected.columns
-            if column.id in column_ids and column.id not in excluded_column_ids
-        )
-        if not selected:
-            return None
-        selected_ids = {column.id for column in selected}
-        primary_key = (
-            expected.primary_key
-            if expected.primary_key and set(expected.primary_key) <= selected_ids
-            else ()
-        )
-        return Table(
-            columns=selected,
-            primary_key=primary_key,
-            allow_extra_columns=_relation_may_have_extra_columns(
-                node,
-                self.bindings,
-            ),
-        )
-
-    def merge_rows(
-        self,
-        left: RowType,
-        right: RowType,
-        path: PlanPath,
-        *,
-        operation: str,
-        allowed_shared: set[str] | None = None,
-        rows_can_coexist: bool = True,
-    ) -> RowType:
-        allowed = allowed_shared or set()
-        left_by_id = {column.id: column for column in left.columns}
-        right_by_id = {column.id: column for column in right.columns}
-        overlap = set(left_by_id).intersection(right_by_id)
-        forbidden = sorted(overlap - allowed)
-        if forbidden:
-            raise self.error(
-                "duplicate_columns",
-                path,
-                f"{operation} contains duplicate columns: {', '.join(forbidden)}",
-            )
-        left_column_ids = set(left_by_id)
-        right_column_ids = set(right_by_id)
-        dynamic_collision_possible = (
-            left.allow_extra_columns
-            and (right.allow_extra_columns or bool(right_column_ids - left_column_ids))
-        ) or (right.allow_extra_columns and bool(left_column_ids - right_column_ids))
-        if rows_can_coexist and dynamic_collision_possible:
-            self.obligation(
-                RelationRuntimeObligationKind.NO_EXTRA_COLUMN_COLLISION,
-                path,
-                f"{operation} open rows must not materialize duplicate columns",
-            )
-        columns = left.columns + tuple(
-            column for column in right.columns if column.id not in allowed
-        )
-        return RowType(
-            columns,
-            left.allow_extra_columns or right.allow_extra_columns,
-        )
-
     def literal(
         self,
         value: object,
@@ -1684,16 +1036,6 @@ class _Verifier:
                 path,
                 "condition must be a non-null Bool scalar",
             )
-
-    def obligation(
-        self,
-        code: RelationRuntimeObligationKind,
-        path: PlanPath,
-        message: str,
-    ) -> None:
-        obligation = RuntimeObligation(code, path, message)
-        if obligation not in self.obligations:
-            self.obligations.append(obligation)
 
     @staticmethod
     def error(
@@ -1853,77 +1195,6 @@ def _join_scalar_types(left: Scalar, right: Scalar, path: PlanPath) -> Scalar:
     )
 
 
-def _numeric_series_item(
-    values: Sequence[Scalar],
-    path: PlanPath,
-    *,
-    unit: str | None,
-) -> Scalar:
-    if any(value.nullable for value in values):
-        raise RelationPlanVerificationError(
-            "invalid_series_bound",
-            path,
-            "series bounds must be non-null numeric scalars",
-        )
-    atoms = [value.atom for value in values]
-    if any(isinstance(atom, Float | Quantity) and not atom.finite for atom in atoms):
-        raise RelationPlanVerificationError(
-            "invalid_series_bound",
-            path,
-            "series bounds must guarantee finite values",
-        )
-    if any(
-        isinstance(atom, Int) and not _int_type_is_float_representable(atom)
-        for atom in atoms
-    ):
-        raise RelationPlanVerificationError(
-            "invalid_series_bound",
-            path,
-            "integer series bounds must have finite float-representable bounds",
-        )
-    if unit is not None:
-        try:
-            output_atom = Quantity(unit=unit)
-        except ValueError as error:
-            raise RelationPlanVerificationError(
-                "invalid_series_unit",
-                path,
-                str(error),
-            ) from error
-        for atom in atoms:
-            if isinstance(atom, Int | Float):
-                continue
-            if not isinstance(atom, Quantity) or not _quantity_accepts_unit(atom, unit):
-                raise RelationPlanVerificationError(
-                    "invalid_series_bound",
-                    path,
-                    "explicit-unit series bounds must be numbers or quantities "
-                    f"compatible with {unit!r}",
-                )
-        return Scalar(output_atom)
-    if all(isinstance(atom, Int | Float) for atom in atoms):
-        return Scalar(Float())
-    if all(isinstance(atom, Quantity) for atom in atoms):
-        common = _common_scalars(values, path)
-        if isinstance(common.atom, Quantity):
-            return Scalar(
-                Quantity(dimension=common.atom.dimension, unit=common.atom.unit)
-            )
-    raise RelationPlanVerificationError(
-        "invalid_series_bound",
-        path,
-        "series bounds must all be numbers or compatible quantities",
-    )
-
-
-def _quantity_accepts_unit(value_type: Quantity, unit: str) -> bool:
-    if value_type.unit is not None:
-        return compatible_units(value_type.unit, unit)
-    if value_type.dimension is not None:
-        return value_type.dimension == unit_kind(unit)
-    return False
-
-
 def _int_type_is_float_representable(value_type: Int) -> bool:
     if value_type.minimum is None or value_type.maximum is None:
         return False
@@ -1933,130 +1204,6 @@ def _int_type_is_float_representable(value_type: Int) -> bool:
         )
     except OverflowError:
         return False
-
-
-def _record_from_row(row: RowType) -> Record:
-    return Record(
-        tuple(
-            RecordField(column.id, column.value_type, column.required)
-            for column in row.columns
-        ),
-        allow_extra_fields=row.allow_extra_columns,
-    )
-
-
-def _table_from_record(record: Record) -> Table | None:
-    if any(not isinstance(field.value_type, Scalar) for field in record.fields):
-        return None
-    return Table(
-        tuple(
-            TableColumn(
-                field.id,
-                cast("Scalar", field.value_type),
-                field.required,
-            )
-            for field in record.fields
-        ),
-        allow_extra_columns=record.allow_extra_fields,
-    )
-
-
-def _relation_output_column_ids(
-    node: RelationExpr,
-    bindings: RelationTypeBindings,
-) -> frozenset[str] | None:
-    """Resolve structural output ids without performing value-type inference."""
-
-    relation = cast("RelationExpression", node)
-    if isinstance(relation, LiteralRowsRelationExpr):
-        return frozenset(name for row in relation.rows for name in row)
-    if isinstance(relation, TableRelationExpr):
-        value_type = bindings.parameters.get(relation.table_id)
-        return (
-            frozenset(column.id for column in value_type.columns)
-            if isinstance(value_type, Table)
-            else None
-        )
-    if isinstance(relation, InputRelationExpr):
-        value_type = bindings.inputs.get(relation.name)
-        return (
-            frozenset(column.id for column in value_type.columns)
-            if isinstance(value_type, Table)
-            else None
-        )
-    if isinstance(relation, GridRelationExpr):
-        return frozenset(relation.columns)
-    if isinstance(relation, SelectRelationExpr):
-        return frozenset(relation.select_columns)
-    if isinstance(relation, (FilterRelationExpr, SortRelationExpr, LimitRelationExpr)):
-        return _relation_output_column_ids(relation.source, bindings)
-    if isinstance(
-        relation,
-        (
-            JoinRelationExpr,
-            CrossRelationExpr,
-            LateralCrossRelationExpr,
-            PointCrossRelationExpr,
-        ),
-    ):
-        left = _relation_output_column_ids(relation.left, bindings)
-        right = _relation_output_column_ids(relation.right, bindings)
-        return left | right if left is not None and right is not None else None
-    if isinstance(relation, ZipRelationExpr):
-        sources = tuple(
-            _relation_output_column_ids(source, bindings) for source in relation.sources
-        )
-        if any(source is None for source in sources):
-            return None
-        return frozenset(
-            column_id
-            for source in sources
-            if source is not None
-            for column_id in source
-        )
-    source = _relation_output_column_ids(relation.source, bindings)
-    return source | frozenset(relation.new_columns) if source is not None else None
-
-
-def _relation_may_have_extra_columns(
-    node: RelationExpr,
-    bindings: RelationTypeBindings,
-) -> bool:
-    relation = cast("RelationExpression", node)
-    if isinstance(relation, TableRelationExpr):
-        value_type = bindings.parameters.get(relation.table_id)
-        return isinstance(value_type, Table) and value_type.allow_extra_columns
-    if isinstance(relation, InputRelationExpr):
-        value_type = bindings.inputs.get(relation.name)
-        return isinstance(value_type, Table) and value_type.allow_extra_columns
-    if isinstance(
-        relation,
-        (
-            FilterRelationExpr,
-            SortRelationExpr,
-            LimitRelationExpr,
-            WithColumnsRelationExpr,
-        ),
-    ):
-        return _relation_may_have_extra_columns(relation.source, bindings)
-    if isinstance(
-        relation,
-        (
-            JoinRelationExpr,
-            CrossRelationExpr,
-            LateralCrossRelationExpr,
-            PointCrossRelationExpr,
-        ),
-    ):
-        return _relation_may_have_extra_columns(
-            relation.left, bindings
-        ) or _relation_may_have_extra_columns(relation.right, bindings)
-    if isinstance(relation, ZipRelationExpr):
-        return any(
-            _relation_may_have_extra_columns(source, bindings)
-            for source in relation.sources
-        )
-    return False
 
 
 def _require_unique_column_ids(
@@ -2091,12 +1238,9 @@ def _external_row_interface(
     bindings: RelationTypeBindings,
 ) -> ExternalRowInterface:
     current: set[str] = set()
-    outer: set[str] = set()
     arguments: dict[RowScopeId, set[str]] = {}
     for reference in free_references:
-        if reference.kind is PlanReferenceKind.OUTER_COLUMN:
-            outer.add(reference.id)
-        elif reference.kind is PlanReferenceKind.CURRENT_COLUMN:
+        if reference.kind is PlanReferenceKind.CURRENT_COLUMN:
             if reference.row_scope_id is None:
                 current.add(reference.id)
             else:
@@ -2118,10 +1262,8 @@ def _external_row_interface(
         point=_external_row_requirement(
             bindings.point_row,
             verifier.external_point_references,
-            requires_full_row=verifier.requires_full_external_point_row,
         ),
         current=_external_row_requirement(bindings.current_row, current),
-        outer=_external_row_requirement(bindings.outer_row, outer),
         arguments=named,
     )
 
@@ -2129,26 +1271,18 @@ def _external_row_interface(
 def _external_row_requirement(
     row_type: RowType | None,
     references: set[str],
-    *,
-    requires_full_row: bool = False,
 ) -> ExternalRowRequirement | None:
-    if not references and not requires_full_row:
+    if not references:
         return None
     bound = row_type or RowType()
-    if requires_full_row:
-        required_type = bound
-    else:
-        selected_ids = {
-            _row_column_root_id(bound, reference) for reference in references
-        }
-        required_type = RowType(
-            tuple(column for column in bound.columns if column.id in selected_ids),
-            bound.allow_extra_columns,
-        )
+    selected_ids = {_row_column_root_id(bound, reference) for reference in references}
+    required_type = RowType(
+        tuple(column for column in bound.columns if column.id in selected_ids),
+        bound.allow_extra_columns,
+    )
     return ExternalRowRequirement(
         row_type=required_type,
         column_references=tuple(references),
-        requires_full_row=requires_full_row,
     )
 
 
@@ -2168,15 +1302,6 @@ def _is_null_literal(node: ScalarExpr) -> bool:
     return isinstance(node, LiteralScalarExpr) and node.value is None
 
 
-def _literal_is_provably_nonzero(node: ScalarExpr) -> bool:
-    if not isinstance(node, LiteralScalarExpr):
-        return False
-    value = node.value
-    if isinstance(value, QuantityValue):
-        return value.value != 0
-    return isinstance(value, int | float) and not isinstance(value, bool) and value != 0
-
-
 def _is_zero_literal(node: ScalarExpr) -> bool:
     if not isinstance(node, LiteralScalarExpr):
         return False
@@ -2190,10 +1315,6 @@ def _multiply_optional(left: int | None, right: int | None) -> int | None:
     if left is None or right is None:
         return None
     return left * right
-
-
-def _min_optional(value: int | None, limit: int) -> int:
-    return limit if value is None else min(value, limit)
 
 
 def _required[ValueT](value: ValueT | None) -> ValueT:

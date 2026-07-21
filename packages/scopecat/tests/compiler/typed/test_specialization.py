@@ -6,7 +6,6 @@ from scopecat.compiler.relations.model import (
     LiteralScalarExpr,
     ValuesSeriesExpr,
     col,
-    grid,
     param,
     parameter_series,
     point_col,
@@ -16,11 +15,11 @@ from scopecat.compiler.relations.point_domain import (
     POINT_UNIT,
     PointDependentProduct,
     PointProduct,
-    PointRelationRows,
     PointUnit,
+    point_axis_linear,
+    point_axis_values,
     point_dependent_product,
     point_product,
-    point_rows,
 )
 from scopecat.compiler.relations.specialization import BindingTime
 from scopecat.compiler.relations.uses import RelationUse, relation_use
@@ -64,11 +63,13 @@ from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import (
     Float,
     Int,
+    Quantity,
     Scalar,
     Series,
     Table,
     TableColumn,
 )
+from scopecat.records.parameter import Quantity as QuantityValue
 from tests.testkit.relation_plans import (
     scalar_value_expr,
     series_value_expr,
@@ -210,51 +211,6 @@ def test_core_specialization_folds_series_target_entities() -> None:
     assert root.items == [1, 2]
 
 
-def test_core_specialization_collapses_point_independent_dependent_product() -> None:
-    integer = Scalar(Int())
-    left_type = Table(
-        (TableColumn("x", integer),),
-        min_rows=1,
-        max_rows=1,
-    )
-    right_type = Table(
-        (TableColumn("y", integer),),
-        min_rows=2,
-        max_rows=2,
-    )
-    left = table_value_expr(
-        LiteralRowsRelationExpr([{"x": 1}]),
-        expected_type=left_type,
-    )
-    right = table_value_expr(
-        table("right"),
-        bindings=RelationTypeBindings(parameters={"right": right_type}),
-        expected_type=right_type,
-    )
-
-    specialized = specialize_core_program(
-        CoreProgram(
-            id="point-specialized",
-            kind="test",
-            point_domain=PointDomain(
-                point_dependent_product(point_rows(left), point_rows(right))
-            ),
-        ),
-        parameters=ParameterRelationData(tables={"right": [{"y": 2}, {"y": 3}]}),
-    )
-
-    root = specialized.point_domain.root
-    assert isinstance(root, PointProduct)
-    assert specialized.point_domain.value_type.min_rows == 2
-    assert specialized.point_domain.value_type.max_rows == 2
-    assert all(isinstance(factor, PointRelationRows) for factor in root.factors)
-    assert all(
-        isinstance(factor.rows.plan.root, LiteralRowsRelationExpr)
-        for factor in root.factors
-        if isinstance(factor, PointRelationRows)
-    )
-
-
 def test_core_specialization_prunes_dead_compute_nodes() -> None:
     value_type = Scalar(Float())
 
@@ -308,18 +264,12 @@ def test_core_specialization_prunes_dead_compute_nodes() -> None:
     )
 
 
-def test_core_specialization_reduces_single_empty_row_point_leaf_to_unit() -> None:
-    unit_table = Table(columns=(), min_rows=1, max_rows=1)
-    leaf = table_value_expr(
-        LiteralRowsRelationExpr([{}]),
-        expected_type=unit_table,
-    )
-
+def test_core_specialization_preserves_structural_point_unit() -> None:
     specialized = specialize_core_program(
         CoreProgram(
             id="unit-specialized",
             kind="test",
-            point_domain=PointDomain(point_rows(leaf)),
+            point_domain=PointDomain(POINT_UNIT),
         ),
         parameters=ParameterRelationData(),
     )
@@ -327,67 +277,40 @@ def test_core_specialization_reduces_single_empty_row_point_leaf_to_unit() -> No
     assert isinstance(specialized.point_domain.root, PointUnit)
 
 
-def test_core_specialization_collapses_known_empty_point_composition() -> None:
+def test_core_specialization_preserves_exact_empty_point_composition() -> None:
     integer = Scalar(Int())
-    left_type = Table(
-        (TableColumn("x", integer),),
-        min_rows=1,
-        max_rows=1,
-    )
-    right_type = Table(
-        (TableColumn("y", integer),),
-        min_rows=0,
-        max_rows=2,
-    )
-    left = table_value_expr(
-        LiteralRowsRelationExpr([{"x": 1}]),
-        expected_type=left_type,
-    )
-    right = table_value_expr(
-        table("empty"),
-        bindings=RelationTypeBindings(parameters={"empty": right_type}),
-        expected_type=right_type,
-    )
 
     specialized = specialize_core_program(
         CoreProgram(
             id="empty-specialized",
             kind="test",
             point_domain=PointDomain(
-                point_product(point_rows(left), point_rows(right))
+                point_product(
+                    point_axis_values("x", integer, (1,)),
+                    point_axis_values("y", integer, ()),
+                )
             ),
         ),
-        parameters=ParameterRelationData(tables={"empty": []}),
+        parameters=ParameterRelationData(),
     )
 
     root = specialized.point_domain.root
-    assert isinstance(root, PointRelationRows)
-    assert isinstance(root.rows.plan.root, LiteralRowsRelationExpr)
-    assert root.rows.plan.root.rows == []
-    assert tuple(column.id for column in root.rows.value_type.columns) == ("x", "y")
-    assert root.rows.value_type.max_rows == 0
+    assert isinstance(root, PointProduct)
+    column_ids = tuple(
+        column.id for column in specialized.point_domain.value_type.columns
+    )
+    assert column_ids == ("x", "y")
+    assert specialized.point_domain.value_type.max_rows == 0
 
 
 def test_core_specialization_retains_genuinely_point_dependent_product() -> None:
-    integer = Scalar(Int())
-    left_type = Table(
-        (TableColumn("x", integer),),
-        min_rows=1,
-        max_rows=1,
-    )
-    right_type = Table(
-        (TableColumn("y", integer),),
-        min_rows=1,
-        max_rows=1,
-    )
-    left = table_value_expr(
-        LiteralRowsRelationExpr([{"x": 1}]),
-        expected_type=left_type,
-    )
-    right = table_value_expr(
-        grid(y=point_col("x")),
-        bindings=RelationTypeBindings(point_row=RowType.from_table(left_type)),
-        expected_type=right_type,
+    frequency = Scalar(Quantity(unit="GHz"))
+    center = scalar_value_expr(
+        point_col("x"),
+        bindings=RelationTypeBindings(
+            point_row=RowType((TableColumn("x", frequency),))
+        ),
+        expected_type=frequency,
     )
 
     specialized = specialize_core_program(
@@ -395,7 +318,20 @@ def test_core_specialization_retains_genuinely_point_dependent_product() -> None
             id="dependent-specialized",
             kind="test",
             point_domain=PointDomain(
-                point_dependent_product(point_rows(left), point_rows(right))
+                point_dependent_product(
+                    point_axis_values(
+                        "x",
+                        frequency,
+                        (QuantityValue(value=5.0, unit="GHz"),),
+                    ),
+                    point_axis_linear(
+                        "y",
+                        frequency,
+                        relation_use(center),
+                        QuantityValue(value=0.2, unit="GHz"),
+                        2,
+                    ),
+                )
             ),
         ),
         parameters=ParameterRelationData(),

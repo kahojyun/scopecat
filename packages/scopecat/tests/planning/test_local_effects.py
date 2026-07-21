@@ -1,14 +1,11 @@
 import pytest
 
 from scopecat.compiler.relations.model import (
-    RelationExpr,
-    col,
-    grid,
-    linspace,
+    CellValue,
     param,
     point_col,
-    table,
 )
+from scopecat.compiler.relations.point_domain import point_axis_values
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
@@ -42,7 +39,7 @@ from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.state import PayloadRef
 from scopecat.kernel.symbols import SymbolId
-from scopecat.kernel.value_types import Payload, Scalar, String
+from scopecat.kernel.value_types import Int, Payload, Scalar, String
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.records.parameter import Quantity
 from tests.testkit.local_materialization import operations_of_type
@@ -60,9 +57,6 @@ from tests.testkit.parameter_fixtures import (
     parameters as _parameters,
 )
 from tests.testkit.relation_plans import (
-    point_domain as verified_point_domain,
-)
-from tests.testkit.relation_plans import (
     state_field as set_state_field,
 )
 from tests.testkit.typed_program import (
@@ -74,19 +68,24 @@ from tests.testkit.typed_program import (
 )
 
 
-def _point_domain(expr: RelationExpr) -> PointDomain:
-    return verified_point_domain(
-        expr,
-        bindings=RelationTypeBindings(parameters=PARAMETER_TYPES),
+def _point_domain(
+    column_id: str,
+    value_type: Scalar,
+    values: tuple[CellValue, ...],
+) -> PointDomain:
+    return PointDomain(
+        root=point_axis_values(column_id, value_type, values),
     )
 
 
 def test_materialized_effects_contract_summarizes_points_and_state() -> None:
     points = _point_domain(
-        grid(
-            readout=table("readout_devices").filter(col("enabled").eq(True)),
-            readout_frequency=linspace(5.9, 6.0, 2, unit="GHz"),
-        )
+        "readout_frequency",
+        Scalar(QuantityType(unit="GHz")),
+        (
+            Quantity(value=5.9, unit="GHz"),
+            Quantity(value=6.0, unit="GHz"),
+        ),
     )
     bindings = RelationTypeBindings(
         parameters=PARAMETER_TYPES,
@@ -116,7 +115,7 @@ def test_materialized_effects_contract_summarizes_points_and_state() -> None:
         parameter_overlays=[
             overlay_parameter_cell(
                 "readout_devices",
-                key={"device_id": point_col("readout.device_id")},
+                key={"device_id": "r0"},
                 key_types={"device_id": Scalar(String())},
                 column_id="frequency",
                 value=point_col("readout_frequency"),
@@ -131,7 +130,7 @@ def test_materialized_effects_contract_summarizes_points_and_state() -> None:
                 field_path="frequency",
                 value=param(
                     "readout_devices",
-                    key={"device_id": point_col("readout.device_id")},
+                    key={"device_id": "r0"},
                     column="frequency",
                 ),
                 bindings=bindings,
@@ -177,7 +176,7 @@ def test_materialized_effects_contract_summarizes_compute_payload_boundary() -> 
     spec = typed_program(
         id="preview-waveform-boundary",
         kind="problem",
-        point_domain=_point_domain(grid(index=[0])),
+        point_domain=_point_domain("index", Scalar(Int()), (0,)),
         state=[
             set_typed_state_field(
                 resource_port_id=drive,
@@ -252,7 +251,7 @@ def test_materialized_effects_groups_shared_typed_compute_result() -> None:
     spec = typed_program(
         id="preview-shared-payload",
         kind="problem",
-        point_domain=_point_domain(grid(index=[0])),
+        point_domain=_point_domain("index", Scalar(Int()), (0,)),
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=logical_resource_port_id("drive-a"),
@@ -320,7 +319,7 @@ def test_materialized_effects_contract_rejects_unknown_compute_payload_nodes() -
     spec = typed_program(
         id="preview-unknown-payload-node",
         kind="problem",
-        point_domain=_point_domain(grid(index=[0])),
+        point_domain=_point_domain("index", Scalar(Int()), (0,)),
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=logical_resource_port_id("drive-a"),
@@ -364,7 +363,7 @@ def test_materialized_effects_binds_acquisition_to_its_logical_port() -> None:
     spec = typed_program(
         id="record-plan",
         kind="problem",
-        point_domain=_point_domain(grid(index=[0])),
+        point_domain=_point_domain("index", Scalar(Int()), (0,)),
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=logical_resource_port_id("readout"),

@@ -13,6 +13,7 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_parameter_contracts,
     internal_value_ref_point_dependencies,
     internal_value_ref_requires_execution,
+    internal_value_ref_scalar_input_ids,
     internal_value_ref_scalar_operation,
     internal_value_ref_source_kind,
 )
@@ -42,6 +43,28 @@ def test_bound_expression_inherits_external_execution_dependency() -> None:
     bound = internal_bind_value_ref_inputs(expression, {"value": compute.output})
 
     assert internal_value_ref_requires_execution(bound)
+
+
+def test_nested_binding_tracks_point_and_remaining_scalar_inputs() -> None:
+    scalar = sc.ScalarType(sc.FloatType())
+    inner_input = sc.input("inner", scalar)
+    outer_input = sc.input("outer", scalar)
+    point = sc.point("inner", scalar)
+    nested_input = sc.input("nested", scalar)
+
+    inner = internal_bind_value_ref_inputs(
+        inner_input + outer_input,
+        {"inner": point},
+    )
+    nested = internal_bind_value_ref_inputs(
+        nested_input * 2.0,
+        {"nested": inner},
+    )
+
+    assert [
+        dependency.id for dependency in internal_value_ref_point_dependencies(nested)
+    ] == ["inner"]
+    assert internal_value_ref_scalar_input_ids(nested) == frozenset({"outer"})
 
 
 def test_direct_execute_scalar_operation_remains_symbolic_until_graph_lowering() -> (

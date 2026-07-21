@@ -5,12 +5,11 @@ import pytest
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.relations.evaluation import EvalContext
 from scopecat.compiler.relations.model import (
-    RelationExpr,
-    grid,
-    literal_rows,
+    CellValue,
     param,
     point_col,
 )
+from scopecat.compiler.relations.point_domain import point_literal_rows
 from scopecat.compiler.relations.specialization import (
     ResidualScalar,
     specialize_scalar,
@@ -28,7 +27,7 @@ from scopecat.compiler.typed.program import LogicalResourceRequirement
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.value_types import Quantity as QuantityType
-from scopecat.kernel.value_types import Scalar, String
+from scopecat.kernel.value_types import Scalar, String, TableColumn
 from scopecat.records.parameter import Quantity
 from tests.testkit.authoring import load_config
 from tests.testkit.local_materialization import materialize_local_execution
@@ -37,9 +36,6 @@ from tests.testkit.materialized_effects import (
     materialized_state_fields,
 )
 from tests.testkit.parameter_fixtures import PARAMETER_TYPES, parameters
-from tests.testkit.relation_plans import (
-    point_domain as verified_point_domain,
-)
 from tests.testkit.relation_plans import state_field
 from tests.testkit.typed_program import (
     link_program,
@@ -48,13 +44,15 @@ from tests.testkit.typed_program import (
 )
 
 _PARAMETER_TYPES = PARAMETER_TYPES
+_DEVICE_ID = Scalar(String())
+_FREQUENCY = Scalar(QuantityType(dimension="frequency"))
 
 
-def _point_domain(expr: RelationExpr) -> PointDomain:
-    return verified_point_domain(
-        expr,
-        bindings=RelationTypeBindings(parameters=_PARAMETER_TYPES),
-    )
+def _point_domain(
+    columns: tuple[TableColumn, ...],
+    rows: tuple[tuple[CellValue, ...], ...],
+) -> PointDomain:
+    return PointDomain(root=point_literal_rows(columns, rows))
 
 
 def _point_bindings(points: PointDomain) -> RelationTypeBindings:
@@ -90,18 +88,14 @@ def _frequency_overlay(
 
 def test_point_parameter_overlay_replaces_only_one_existing_cell() -> None:
     points = _point_domain(
-        literal_rows(
-            [
-                {
-                    "device_id": "r0",
-                    "frequency": Quantity(value=5_900, unit="MHz"),
-                },
-                {
-                    "device_id": "r1",
-                    "frequency": Quantity(value=6_200, unit="MHz"),
-                },
-            ]
-        )
+        (
+            TableColumn("device_id", _DEVICE_ID),
+            TableColumn("frequency", _FREQUENCY),
+        ),
+        (
+            ("r0", Quantity(value=5_900, unit="MHz")),
+            ("r1", Quantity(value=6_200, unit="MHz")),
+        ),
     )
     point_bindings = _point_bindings(points)
     spec = typed_program(
@@ -164,9 +158,8 @@ def test_point_parameter_overlay_replaces_only_one_existing_cell() -> None:
 
 def test_point_parameter_overlay_residualizes_parameter_lookup() -> None:
     points = _point_domain(
-        literal_rows(
-            [{"frequency": Quantity(value=5.9, unit="GHz")}],
-        )
+        (TableColumn("frequency", _FREQUENCY),),
+        ((Quantity(value=5.9, unit="GHz"),),),
     )
     bindings = _point_bindings(points)
     overlay = _frequency_overlay(
@@ -195,7 +188,10 @@ def test_point_parameter_overlay_residualizes_parameter_lookup() -> None:
 
 
 def test_point_parameter_overlay_reports_missing_row_without_partial_plan() -> None:
-    points = _point_domain(grid(device_id=["missing"]))
+    points = _point_domain(
+        (TableColumn("device_id", _DEVICE_ID),),
+        (("missing",),),
+    )
     bindings = _point_bindings(points)
     spec = typed_program(
         id="missing-overlay-row",
@@ -234,7 +230,13 @@ def test_point_parameter_overlay_reports_missing_row_without_partial_plan() -> N
 
 
 def test_point_parameter_overlay_validates_value_against_catalog_type() -> None:
-    points = _point_domain(grid(device_id=["r0"], frequency=["not-a-frequency"]))
+    points = _point_domain(
+        (
+            TableColumn("device_id", _DEVICE_ID),
+            TableColumn("frequency", Scalar(String())),
+        ),
+        (("r0", "not-a-frequency"),),
+    )
 
     with pytest.raises(RelationPlanVerificationError) as error:
         _frequency_overlay(
@@ -247,7 +249,10 @@ def test_point_parameter_overlay_validates_value_against_catalog_type() -> None:
 
 
 def test_point_parameter_overlay_reports_missing_table() -> None:
-    points = _point_domain(grid(device_id=["r0"]))
+    points = _point_domain(
+        (TableColumn("device_id", _DEVICE_ID),),
+        (("r0",),),
+    )
     bindings = _point_bindings(points)
     spec = typed_program(
         id="missing-overlay-table",

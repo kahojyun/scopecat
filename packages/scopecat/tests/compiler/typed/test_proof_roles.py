@@ -5,16 +5,16 @@ import pytest
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.relations.model import (
     col,
-    grid,
     literal_rows,
-    outer,
     point_col,
 )
+from scopecat.compiler.relations.point_domain import POINT_UNIT, point_literal_rows
 from scopecat.compiler.relations.uses import relation_use
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
 )
+from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     CoreProgram,
     LogicalResourceRequirement,
@@ -34,13 +34,11 @@ from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.value_types import Float, Scalar, String, Table, TableColumn
 from tests.testkit.authoring import load_config
 from tests.testkit.relation_plans import (
-    point_domain,
     scalar_value_expr,
     table_value_expr,
 )
 from tests.testkit.typed_program import link_program
 
-_EMPTY_POINTS = Table(columns=(), min_rows=1, max_rows=1)
 _FLOAT = Scalar(Float())
 _STRING = Scalar(String())
 
@@ -53,10 +51,7 @@ def _empty_program(
     return CoreProgram(
         id="proof-roles",
         kind="compiler_test",
-        point_domain=point_domain(
-            literal_rows([{}]),
-            expected_type=_EMPTY_POINTS,
-        ),
+        point_domain=PointDomain(root=POINT_UNIT),
         effects=state,
         resource_requirements=resource_requirements,
     )
@@ -128,9 +123,11 @@ def test_program_verification_rechecks_resource_requirement_point_proof() -> Non
     program = CoreProgram(
         id="point-proof-role",
         kind="compiler_test",
-        point_domain=point_domain(
-            literal_rows([{"selector": "q0"}]),
-            expected_type=actual_points,
+        point_domain=PointDomain(
+            root=point_literal_rows(
+                actual_points.columns,
+                (("q0",),),
+            )
         ),
         resource_requirements=(requirement,),
     )
@@ -163,9 +160,11 @@ def test_program_verification_rejects_assignable_but_stale_point_proof() -> None
     program = CoreProgram(
         id="stale-point-proof",
         kind="compiler_test",
-        point_domain=point_domain(
-            literal_rows([{"selector": 1.5}]),
-            expected_type=actual_points,
+        point_domain=PointDomain(
+            root=point_literal_rows(
+                actual_points.columns,
+                ((1.5,),),
+            )
         ),
         resource_requirements=(requirement,),
     )
@@ -215,48 +214,3 @@ def test_state_each_body_proof_accepts_its_real_current_row() -> None:
     )
 
     assert verify_core_program(program) is program
-
-
-def test_nested_state_relation_uses_parent_current_row_as_outer() -> None:
-    parent_type = Table(
-        columns=(TableColumn("ambient", _FLOAT),),
-        min_rows=1,
-        max_rows=1,
-    )
-    nested_type = Table(
-        columns=(TableColumn("observed", _FLOAT),),
-        min_rows=1,
-        max_rows=1,
-    )
-    nested = bind_each(
-        table_value_expr(
-            grid(observed=outer("ambient")),
-            bindings=RelationTypeBindings(outer_row=RowType.from_table(parent_type)),
-            expected_type=nested_type,
-        ),
-        set_state_field(
-            resource_port_id=logical_resource_port_id("source"),
-            capability_id="set_offset",
-            field_path="offset",
-            value=scalar_value_expr(1.0, expected_type=_FLOAT),
-        ),
-    )
-    state = bind_each(
-        table_value_expr(
-            literal_rows([{"ambient": 1.0}]),
-            expected_type=parent_type,
-        ),
-        nested,
-    )
-
-    assert verify_core_program(
-        _empty_program(
-            state=(state,),
-            resource_requirements=(
-                LogicalResourceRequirement(
-                    port_id=logical_resource_port_id("source"),
-                    capabilities=("set_offset",),
-                ),
-            ),
-        )
-    )

@@ -11,14 +11,11 @@ from scopecat.compiler.linking.linked import (
     link_verified_program,
     materialize_linked_points,
 )
-from scopecat.compiler.relations.model import literal_rows
-from scopecat.compiler.relations.point_domain import point_rows
-from scopecat.compiler.relations.verification import RelationTypeBindings
+from scopecat.compiler.relations.point_domain import point_literal_rows
 from scopecat.compiler.semantic.model import (
     DomainProgramId,
     DomainResultPortDef,
 )
-from scopecat.compiler.semantic.value_expressions import verify_table_value_expr
 from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
@@ -106,17 +103,12 @@ def _preparation(
         max_rows=2,
     )
     point_domain = PointDomain(
-        root=point_rows(
-            verify_table_value_expr(
-                literal_rows(
-                    (
-                        {"coordinate": 10.0},
-                        {"coordinate": 20.0},
-                    )
-                ),
-                bindings=RelationTypeBindings(),
-                expected_type=point_type,
-            )
+        root=point_literal_rows(
+            point_type.columns,
+            (
+                (10.0,),
+                (20.0,),
+            ),
         )
     )
     product = product_output("result", dtype="complex128")

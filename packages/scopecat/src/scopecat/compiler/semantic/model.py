@@ -237,7 +237,6 @@ class PlanExpressionSource:
     _row_signature: tuple[
         RowType | None,
         RowType | None,
-        RowType | None,
         tuple[tuple[RowScopeId, RowType], ...],
     ] = field(hash=False, repr=False)
     _verified_plan: VerifiedPlanExpression = field(
@@ -290,7 +289,6 @@ class PlanExpressionSource:
     ) -> tuple[
         RowType | None,
         RowType | None,
-        RowType | None,
         tuple[tuple[RowScopeId, RowType], ...],
     ]:
         return self._row_signature
@@ -303,7 +301,6 @@ class PlanExpressionSource:
 def _used_row_signature(
     verified_plan: VerifiedPlanExpression,
 ) -> tuple[
-    RowType | None,
     RowType | None,
     RowType | None,
     tuple[tuple[RowScopeId, RowType], ...],
@@ -342,11 +339,6 @@ def _used_row_signature(
         )
         else None
     )
-    outer = (
-        bindings.outer_row
-        if any(reference.kind is PlanReferenceKind.OUTER_COLUMN for reference in free)
-        else None
-    )
     nominal_ids = sorted(
         {
             reference.row_scope_id
@@ -360,7 +352,7 @@ def _used_row_signature(
         (row_scope_id, bindings.row_arguments[row_scope_id])
         for row_scope_id in nominal_ids
     )
-    return point, current, outer, nominal
+    return point, current, nominal
 
 
 @dataclass(frozen=True, slots=True, init=False)

@@ -3,13 +3,12 @@ from __future__ import annotations
 from dataclasses import replace
 
 from scopecat.compiler.relations.model import (
-    RelationExpr,
+    CellValue,
     col,
-    grid,
-    linspace,
     point_col,
     table,
 )
+from scopecat.compiler.relations.point_domain import point_axis_values
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
@@ -18,6 +17,8 @@ from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import LogicalResourceRequirement
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.state import StateValue
+from scopecat.kernel.value_types import Int, Scalar
+from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Table as TableType
 from scopecat.records.parameter import Quantity
 from tests.testkit.materialized_effects import (
@@ -36,9 +37,6 @@ from tests.testkit.relation_plans import (
     each_state,
     state_field,
 )
-from tests.testkit.relation_plans import (
-    point_domain as verified_point_domain,
-)
 from tests.testkit.typed_program import typed_program
 
 
@@ -46,10 +44,13 @@ def _state_literal(value: object) -> object:
     return value.root if isinstance(value, StateValue) else value
 
 
-def _point_domain(expr: RelationExpr) -> PointDomain:
-    return verified_point_domain(
-        expr,
-        bindings=RelationTypeBindings(parameters=PARAMETER_TYPES),
+def _point_domain(
+    column_id: str,
+    value_type: Scalar,
+    values: tuple[CellValue, ...],
+) -> PointDomain:
+    return PointDomain(
+        root=point_axis_values(column_id, value_type, values),
     )
 
 
@@ -80,7 +81,7 @@ def _state_bindings(
 
 
 def test_materialized_effects_binds_desired_state_for_each_point() -> None:
-    unchanged_points = _point_domain(grid(index=[0, 1]))
+    unchanged_points = _point_domain("index", Scalar(Int()), (0, 1))
     unchanged = typed_program(
         id="unchanged-state-patches",
         kind="problem",
@@ -101,7 +102,14 @@ def test_materialized_effects_binds_desired_state_for_each_point() -> None:
             )
         ],
     )
-    swept_points = _point_domain(grid(frequency=linspace(5.0, 5.1, 2, unit="GHz")))
+    swept_points = _point_domain(
+        "frequency",
+        Scalar(QuantityType(unit="GHz")),
+        (
+            Quantity(value=5.0, unit="GHz"),
+            Quantity(value=5.1, unit="GHz"),
+        ),
+    )
     swept = typed_program(
         id="swept-state-patches",
         kind="problem",
@@ -179,7 +187,14 @@ def test_materialized_effects_binds_desired_state_for_each_point() -> None:
 
 
 def test_materialized_effects_repeated_state_uses_outer_point_row() -> None:
-    points = _point_domain(grid(lo_frequency=linspace(4.9, 5.0, 2, unit="GHz")))
+    points = _point_domain(
+        "lo_frequency",
+        Scalar(QuantityType(unit="GHz")),
+        (
+            Quantity(value=4.9, unit="GHz"),
+            Quantity(value=5.0, unit="GHz"),
+        ),
+    )
     point_bindings = _point_bindings(points)
     spec = typed_program(
         id="shared-lo-fixed-if-scan",

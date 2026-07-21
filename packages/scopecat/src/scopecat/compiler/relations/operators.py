@@ -149,31 +149,6 @@ def scalar_operator_result_type(
     raise ValueError(msg)
 
 
-def require_sortable_scalar(value_type: Scalar, *, column_id: str) -> None:
-    """Require a scalar type that has a total local ordering."""
-
-    if value_type.nullable:
-        msg = f"sort column {column_id!r} must be non-nullable"
-        raise TypeError(msg)
-    category = scalar_category(value_type)
-    if category not in _ORDERING_CATEGORIES:
-        msg = f"sort column {column_id!r} is not orderable"
-        raise TypeError(msg)
-    try:
-        _require_finite_ordering_type(value_type.atom)
-    except TypeError as error:
-        msg = f"sort column {column_id!r} must guarantee finite values"
-        raise TypeError(msg) from error
-    if isinstance(value_type.atom, Quantity) and not _quantity_type_is_orderable(
-        value_type.atom
-    ):
-        msg = (
-            f"sort column {column_id!r} quantity type does not guarantee "
-            "compatible units"
-        )
-        raise TypeError(msg)
-
-
 def require_runtime_operator(
     operator: ScalarOperator,
     left: object,
@@ -494,13 +469,6 @@ def _quantity_types_are_compatible(left: Quantity, right: Quantity) -> bool:
             right.unit,
         )
     return _dimension_is_linear(left_dimension)
-
-
-def _quantity_type_is_orderable(value_type: Quantity) -> bool:
-    if value_type.unit is not None:
-        return True
-    dimension = _quantity_dimension(value_type)
-    return dimension is not None and _dimension_is_linear(dimension)
 
 
 def _quantity_dimension(value_type: Quantity) -> str | None:

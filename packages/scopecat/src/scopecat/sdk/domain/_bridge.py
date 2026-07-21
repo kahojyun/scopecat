@@ -23,12 +23,7 @@ from scopecat.compiler.typed.domain_results import (
     DomainResultClosure,
 )
 from scopecat.compiler.typed.iteration import (
-    PointIterationDependent,
-    PointIterationLeaf,
-    PointIterationNode,
-    PointIterationOpaque,
-    PointIterationProduct,
-    PointIterationUnit,
+    PointIterationLinearValues,
 )
 from scopecat.compiler.typed.products import ProductDef
 from scopecat.compiler.typed.program import (
@@ -47,17 +42,11 @@ from scopecat.sdk.domain.compiler import (
     DomainCompileTemplate,
     DomainInput,
     DomainInputBinder,
-    DomainIterationDependent,
     DomainIterationLayout,
-    DomainIterationLeaf,
-    DomainIterationNode,
-    DomainIterationOpaque,
-    DomainIterationProduct,
-    DomainIterationUnit,
-    DomainIterationZip,
     DomainLiteral,
     DomainPointAffine,
     DomainPointAxis,
+    DomainPointLinearValues,
 )
 from scopecat.sdk.domain.context import DomainBatchContext
 from scopecat.sdk.domain.view import (
@@ -235,33 +224,24 @@ def _is_affine_number(value: object) -> TypeGuard[int | float]:
 
 def _iteration_layout(linked: LinkedPlan) -> DomainIterationLayout:
     source = linked.verified_program.iteration_layout
-
-    def project(node: PointIterationNode) -> DomainIterationNode:
-        if isinstance(node, PointIterationUnit):
-            return DomainIterationUnit()
-        if isinstance(node, PointIterationLeaf):
-            return DomainIterationLeaf(node.axis_ids, node.extent)
-        if isinstance(node, PointIterationOpaque):
-            return DomainIterationOpaque(node.extent)
-        if isinstance(node, PointIterationProduct):
-            return DomainIterationProduct(tuple(project(item) for item in node.factors))
-        if isinstance(node, PointIterationDependent):
-            return DomainIterationDependent(
-                project(node.left),
-                project(node.right),
-                node.extent,
-            )
-        return DomainIterationZip(
-            tuple(project(item) for item in node.sources),
-            node.extent,
-        )
-
     return DomainIterationLayout(
-        project(source.root),
-        tuple(
-            DomainPointAxis(axis.id, axis.values, axis.repeat_each)
+        axes=tuple(
+            DomainPointAxis(
+                axis.id,
+                (
+                    DomainPointLinearValues(
+                        axis.values.center,
+                        axis.values.span,
+                        axis.values.count,
+                    )
+                    if isinstance(axis.values, PointIterationLinearValues)
+                    else axis.values
+                ),
+                axis.repeat_each,
+            )
             for axis in source.axes
         ),
+        preferred_tile_size=source.preferred_tile_size,
     )
 
 

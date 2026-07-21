@@ -15,11 +15,10 @@ from scopecat.compiler.linking.linked import (
 from scopecat.compiler.relations.evaluation import ParameterRelationData
 from scopecat.compiler.relations.model import (
     lit,
-    literal_rows,
     param,
     point_col,
 )
-from scopecat.compiler.relations.point_domain import POINT_UNIT, point_rows
+from scopecat.compiler.relations.point_domain import POINT_UNIT, point_axis_values
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
@@ -113,7 +112,7 @@ from tests.testkit.parameter_fixtures import (
 from tests.testkit.parameter_fixtures import (
     parameters as parameter_fixture_data,
 )
-from tests.testkit.relation_plans import scalar_value_expr, table_value_expr
+from tests.testkit.relation_plans import scalar_value_expr
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.typed_program import (
     instrument_acquisition,
@@ -345,23 +344,20 @@ def _linked_program(
         max_rows=point_count,
     )
     points = PointDomain(
-        root=point_rows(
-            table_value_expr(
-                literal_rows(
-                    (
-                        {"frequency": Quantity(value=4.9, unit="GHz")},
-                        {
-                            "frequency": Quantity(
-                                value=4.9 if equal_point_values else 5.1,
-                                unit="GHz",
-                            )
-                        },
-                    )
-                    if point_count
-                    else ()
-                ),
-                expected_type=point_type,
-            )
+        root=point_axis_values(
+            "frequency",
+            point_type.columns[0].value_type,
+            (
+                (
+                    Quantity(value=4.9, unit="GHz"),
+                    Quantity(
+                        value=4.9 if equal_point_values else 5.1,
+                        unit="GHz",
+                    ),
+                )
+                if point_count
+                else ()
+            ),
         )
     )
     products = tuple(

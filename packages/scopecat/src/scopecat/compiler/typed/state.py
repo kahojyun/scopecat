@@ -139,7 +139,6 @@ def evaluate_state_spec(
     relation_ctx = EvalContext(
         params=ctx.params,
         row=None,
-        outer_row=ctx.row if ctx.row is not None else ctx.outer_row,
         point_row=ctx.point_row,
         row_scopes=ctx.row_scopes,
         inputs=ctx.inputs,
@@ -155,7 +154,6 @@ def evaluate_state_spec(
         child_ctx = EvalContext(
             params=ctx.params,
             row=row,
-            outer_row=ctx.row if ctx.row is not None else ctx.outer_row,
             point_row=ctx.point_row,
             row_scopes={
                 **ctx.row_scopes,

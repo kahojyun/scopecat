@@ -27,7 +27,6 @@ def test_domain_facade_exports_curated_adapter_contracts() -> None:
     assert set(domain.__all__) >= _NEW_ADAPTER_VALUES
     assert {
         "DomainIterationLayout",
-        "DomainIterationProduct",
         "DomainLiteral",
         "DomainPointAffine",
         "DomainPointAxis",

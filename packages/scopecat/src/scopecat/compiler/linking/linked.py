@@ -26,7 +26,6 @@ from scopecat.compiler.relations.model import (
     ScalarExpr,
     SeriesExpr,
 )
-from scopecat.compiler.relations.point_domain import PointCardinality
 from scopecat.compiler.relations.verification import (
     PlanImportNamespace,
     VerifiedRelationPlan,
@@ -40,7 +39,6 @@ from scopecat.compiler.typed.point_domain import (
     MaterializedPoint,
     MaterializedPointDomain,
     PointDomainEvaluationError,
-    PointDomainValueError,
     VerifiedPointDomain,
     materialize_point_domain,
     materialize_point_domain_ordinals,
@@ -49,7 +47,6 @@ from scopecat.compiler.typed.products import ProductDef
 from scopecat.compiler.typed.program import (
     CoreProgram,
     TypedDomainExecution,
-    TypedMeasurementTransform,
     ValueInput,
     core_domain_executions,
 )
@@ -70,7 +67,6 @@ from scopecat.kernel.problems import (
     model_location,
 )
 from scopecat.kernel.product_identity import ProductUse
-from scopecat.kernel.value_types import TableColumn
 from scopecat.kernel.value_validation import ValueValidationError, coerce_literal
 from scopecat.records.entity import EntityRef
 
@@ -102,10 +98,6 @@ class LinkedPlan:
         return self.program.product_defs
 
     @property
-    def measurement_transforms(self) -> tuple[TypedMeasurementTransform, ...]:
-        return self.program.measurement_transforms
-
-    @property
     def product_uses(self) -> tuple[ProductUse, ...]:
         return self.program.product_uses
 
@@ -114,17 +106,7 @@ class LinkedPlan:
         return self.program.record_uses
 
     @property
-    def coordinate_columns(self) -> tuple[TableColumn, ...]:
-        """Return the statically typed point-coordinate contract."""
-
-        return self.point_domain.coordinate_columns
-
-    @property
-    def coordinate_ids(self) -> tuple[str, ...]:
-        return tuple(column.id for column in self.coordinate_columns)
-
-    @property
-    def cardinality(self) -> PointCardinality:
+    def cardinality(self) -> int:
         return self.point_domain.cardinality
 
 
@@ -186,12 +168,9 @@ class LinkedPointMaterializer:
             raise ValueError("point materialization block size must be positive")
 
     def point_count(self) -> int:
-        """Return exact logical cardinality, evaluating the point root if needed."""
+        """Return the exact logical point count."""
 
-        maximum = self.linked.cardinality.maximum
-        if maximum == self.linked.cardinality.minimum:
-            return self.linked.cardinality.minimum
-        return len(self._materialize_point_domain().points)
+        return self.linked.cardinality
 
     def materialize_point_domain(self) -> MaterializedPointDomain:
         """Materialize canonical point rows without retaining point parameters."""
@@ -281,24 +260,18 @@ class LinkedPointMaterializer:
         """Close canonical points by bounded blocks, without domain inputs."""
 
         cardinality = self.linked.cardinality
-        if (
-            cardinality.maximum == cardinality.minimum
-            and cardinality.minimum > self.block_size
-        ):
+        if cardinality > self.block_size:
             points = tuple(
                 point
-                for start in range(0, cardinality.minimum, self.block_size)
+                for start in range(0, cardinality, self.block_size)
                 for point in self._materialize_selected_points(
-                    tuple(
-                        range(start, min(start + self.block_size, cardinality.minimum))
-                    ),
+                    tuple(range(start, min(start + self.block_size, cardinality))),
                     max_points=self.block_size,
                 )
             )
             point_domain = MaterializedPointDomain(
                 self.linked.point_domain.id,
                 points,
-                cardinality,
             )
             self._point_domain = point_domain
         else:
@@ -353,7 +326,6 @@ class LinkedPointMaterializer:
             MaterializedPointDomain(
                 self.linked.point_domain.id,
                 points,
-                self.linked.cardinality,
             ),
             tuple(parameter_by_ordinal[point.logical_ordinal] for point in points),
         )
@@ -362,13 +334,14 @@ class LinkedPointMaterializer:
         if self._point_domain is not None:
             return self._point_domain
         problems: list[Problem] = []
+        entity_columns = self.linked.point_domain.entity_columns
         try:
             point_domain = materialize_point_domain(
                 self.linked.point_domain,
                 self.linked.environment.parameters,
                 row_normalizer=lambda row: _normalize_point_domain_row(
                     row,
-                    program=self.linked.program,
+                    entity_columns=entity_columns,
                     environment=self.linked.environment,
                     problems=problems,
                 ),
@@ -383,7 +356,7 @@ class LinkedPointMaterializer:
                 )
             )
             raise CheckFailed(problems) from error
-        except PointDomainValueError as error:
+        except ValueValidationError as error:
             problems.append(
                 compiler_problem(
                     "module_point_value_type_mismatch",
@@ -405,8 +378,7 @@ class LinkedPointMaterializer:
                 points[ordinal] = selected
             point_domain = MaterializedPointDomain(
                 point_domain.id,
-                points,
-                point_domain.declared_cardinality,
+                tuple(points),
             )
         self._point_domain = point_domain
         return point_domain
@@ -426,6 +398,7 @@ class LinkedPointMaterializer:
         )
         if missing:
             problems: list[Problem] = []
+            entity_columns = self.linked.point_domain.entity_columns
             try:
                 points = materialize_point_domain_ordinals(
                     self.linked.point_domain,
@@ -434,7 +407,7 @@ class LinkedPointMaterializer:
                     max_points=max_points,
                     row_normalizer=lambda row: _normalize_point_domain_row(
                         row,
-                        program=self.linked.program,
+                        entity_columns=entity_columns,
                         environment=self.linked.environment,
                         problems=problems,
                     ),
@@ -449,7 +422,7 @@ class LinkedPointMaterializer:
                     )
                 )
                 raise CheckFailed(problems) from error
-            except PointDomainValueError as error:
+            except ValueValidationError as error:
                 problems.append(
                     compiler_problem(
                         "module_point_value_type_mismatch",
@@ -725,12 +698,12 @@ def _parameter_import_problem(
 def _normalize_point_domain_row(
     row: Row,
     *,
-    program: CoreProgram,
+    entity_columns: Sequence[str],
     environment: ValidatedConfigEnvironment,
     problems: list[Problem],
 ) -> Row:
     selected = dict(row)
-    for column_id in program.point_domain.entity_columns:
+    for column_id in entity_columns:
         value = selected.get(column_id)
         if value is None:
             continue

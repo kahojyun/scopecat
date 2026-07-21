@@ -6,16 +6,11 @@ from scopecat.compiler.relations.evaluation import (
 )
 from scopecat.compiler.relations.evaluator import evaluate_scalar_expression
 from scopecat.compiler.relations.model import (
-    CaseBranch,
-    CaseScalarExpr,
-    CrossRelationExpr,
     LiteralRowsRelationExpr,
     TableRelationExpr,
     ValuesSeriesExpr,
     col,
-    grid,
     input_ref,
-    lit,
     param,
     parameter_series,
     point_col,
@@ -65,16 +60,6 @@ def test_specialization_materializes_closed_relation_pipeline() -> None:
             {"id": "q1", "frequency": 6.0},
         ]
     )
-
-
-def test_specialization_folds_static_relation_child_of_point_plan() -> None:
-    expression = table("devices").cross(grid(selected=point_col("selected")))
-
-    result = specialize_relation(expression, known=EvalContext(params=_parameters()))
-
-    assert isinstance(result, CrossRelationExpr)
-    assert isinstance(result.left, LiteralRowsRelationExpr)
-    assert not isinstance(result.right, LiteralRowsRelationExpr)
 
 
 def test_specialization_does_not_freeze_scanned_parameter_table() -> None:
@@ -176,29 +161,6 @@ def test_specialization_substitutes_scanned_parameter_cell() -> None:
     assert isinstance(result, ResidualScalar)
     assert result.expression == point_col("frequency")
     assert result.binding_time is BindingTime.POINT
-
-
-def test_specialization_prunes_known_case_prefix() -> None:
-    expression = CaseScalarExpr(
-        cases=[
-            CaseBranch(condition=lit(False), value=lit(0)),
-            CaseBranch(
-                condition=point_col("enabled").eq(True),
-                value=param("gain"),
-            ),
-        ],
-        fallback=input_ref("fallback"),
-    )
-
-    result = specialize_scalar(
-        expression,
-        known=EvalContext(params=_parameters(), inputs={"fallback": 9}),
-    )
-
-    assert isinstance(result, ResidualScalar)
-    assert isinstance(result.expression, CaseScalarExpr)
-    assert len(result.expression.cases) == 1
-    assert result.expression.fallback == lit(9)
 
 
 def test_specialized_residual_is_equivalent_for_remaining_point_bindings() -> None:

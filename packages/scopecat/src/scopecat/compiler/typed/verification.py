@@ -15,6 +15,7 @@ from types import MappingProxyType
 from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.relations.analysis import PlanNode
 from scopecat.compiler.relations.model import RowScopeId
+from scopecat.compiler.relations.point_domain import iter_point_axis_linear
 from scopecat.compiler.relations.uses import RelationUseId
 from scopecat.compiler.relations.verification import (
     RelationPlanVerificationError,
@@ -273,18 +274,23 @@ def _verify_core_program(
             measurement_transforms=measurement_transforms,
         )
     if verified_point_domain is not None:
-        problems.extend(
-            typed_program_proof_role_problems(
-                program,
-                _point_domain=verified_point_domain,
-            )
-        )
-        consumers = tuple(
-            consumer
-            for consumer, _role in _program_relation_consumers_with_roles(
+        consumer_roles = tuple(
+            _program_relation_consumers_with_roles(
                 program,
                 point_domain=verified_point_domain,
             )
+        )
+        for consumer, role in consumer_roles:
+            _verify_plan_role(
+                consumer.plan,
+                role=role,
+                location=consumer.location,
+                phase=ProblemPhase.AUTHORING,
+                problems=problems,
+            )
+        consumers = (
+            *tuple(_point_axis_center_consumers(verified_point_domain)),
+            *(consumer for consumer, _role in consumer_roles),
         )
         problems.extend(_relation_use_identity_problems(consumers))
 
@@ -649,53 +655,10 @@ def seal_typed_program(
         ) from error
 
 
-def typed_program_proof_role_problems(
-    program: CoreProgram,
-    *,
-    phase: ProblemPhase = ProblemPhase.AUTHORING,
-    _point_domain: VerifiedPointDomain | None = None,
-) -> tuple[Problem, ...]:
-    """Return proof failures under the exact row roles supplied by consumers."""
-
-    if _point_domain is None:
-        try:
-            _point_domain = verify_point_domain(
-                program.point_domain,
-                program_id=program.id,
-            )
-        except PointDomainVerificationError as error:
-            return tuple(
-                compiler_problem(
-                    issue.code,
-                    issue.message,
-                    model_location("point_domain", *issue.path),
-                    phase=phase,
-                )
-                for issue in error.issues
-            )
-    problems: list[Problem] = []
-    for consumer, role in _program_relation_consumers_with_roles(
-        program,
-        point_domain=_point_domain,
-    ):
-        if consumer.kind is ProgramRelationConsumerKind.POINT_DOMAIN_ROWS:
-            # VerifiedPointDomain owns each leaf's exact structural row role.
-            continue
-        _verify_plan_role(
-            consumer.plan,
-            role=role,
-            location=consumer.location,
-            phase=phase,
-            problems=problems,
-        )
-    return tuple(problems)
-
-
 @dataclass(frozen=True, slots=True)
 class _PlanConsumerRole:
     point: RowType | None = None
     current: RowType | None = None
-    outer: RowType | None = None
     row_arguments: tuple[tuple[RowScopeId, RowType], ...] = ()
 
 
@@ -713,26 +676,30 @@ def _consumer(
     )
 
 
+def _point_axis_center_consumers(
+    point_domain: VerifiedPointDomain,
+) -> Iterator[ProgramRelationConsumer]:
+    """Index centers already checked in their exact structural row roles."""
+
+    for path, source in iter_point_axis_linear(point_domain.root):
+        center = source.center
+        yield _consumer(
+            center.id,
+            ProgramRelationConsumerKind.POINT_AXIS_CENTER,
+            center.value,
+            model_location("point_domain", *path, "source", "center"),
+        )
+
+
 def _program_relation_consumers_with_roles(
     program: CoreProgram,
     *,
     point_domain: VerifiedPointDomain,
 ) -> Iterator[tuple[ProgramRelationConsumer, _PlanConsumerRole]]:
-    """Enumerate the complete executable relation surface exactly once."""
+    """Enumerate consumers verified under one generic compiler row role."""
 
     point_row = point_domain.row_type
-    root_role = _PlanConsumerRole()
     point_role = _PlanConsumerRole(point=point_row)
-    for relation in point_domain.relation_leaves:
-        yield (
-            _consumer(
-                relation.id,
-                ProgramRelationConsumerKind.POINT_DOMAIN_ROWS,
-                relation.value,
-                model_location("point_domain", *relation.path, "rows"),
-            ),
-            root_role,
-        )
 
     for overlay_index, overlay in enumerate(program.parameter_overlays):
         for column_id, use in overlay.key_uses.items():
@@ -858,7 +825,6 @@ def _verify_plan_role[NodeT: PlanNode](
                 plan.bindings,
                 point_row=role.point,
                 current_row=role.current,
-                outer_row=role.outer,
                 row_arguments=dict(role.row_arguments),
             ),
             expected_type=plan.certified_type,
@@ -878,10 +844,8 @@ def _verify_plan_role[NodeT: PlanNode](
         return
 
     if (
-        reverified.facts != plan.facts
-        or reverified.imports != plan.imports
+        reverified.imports != plan.imports
         or reverified.external_row_interface != plan.external_row_interface
-        or reverified.runtime_obligations != plan.runtime_obligations
     ):
         problems.append(
             compiler_problem(
@@ -965,7 +929,6 @@ def _state_relation_consumers_with_roles(
 
     relation_role = _PlanConsumerRole(
         point=role.point,
-        outer=role.current if role.current is not None else role.outer,
         row_arguments=role.row_arguments,
     )
     relation_use = state.relation_use
@@ -986,7 +949,6 @@ def _state_relation_consumers_with_roles(
     child_role = _PlanConsumerRole(
         point=role.point,
         current=row,
-        outer=relation_role.outer,
         row_arguments=tuple(row_arguments.items()),
     )
     for index, child in enumerate(state.state):
@@ -1067,6 +1029,5 @@ __all__ = [
     "ProgramRelationConsumerKind",
     "VerifiedCoreProgram",
     "seal_typed_program",
-    "typed_program_proof_role_problems",
     "verify_core_program",
 ]

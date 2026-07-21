@@ -119,7 +119,6 @@ def _bind_verified_assembly(
         assembly.point_domain,
         inputs=inputs,
         type_bindings=root_type_bindings,
-        entity_input_ids=assembly.entity_inputs,
     )
     type_bindings = replace(
         root_type_bindings,

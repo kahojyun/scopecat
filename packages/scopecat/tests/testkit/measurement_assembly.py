@@ -7,8 +7,7 @@ from scopecat.compiler.linking.linked import (
     MaterializedLinkedPoints,
     materialize_linked_points,
 )
-from scopecat.compiler.relations.model import literal_rows
-from scopecat.compiler.relations.point_domain import point_rows
+from scopecat.compiler.relations.point_domain import point_literal_rows
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     CoreProgram,
@@ -35,7 +34,6 @@ from scopecat.measurements.values import (
 )
 from scopecat.records.parameter import Quantity
 from tests.testkit.authoring import load_config
-from tests.testkit.relation_plans import table_value_expr
 from tests.testkit.typed_program import instrument_acquisitions, link_program
 
 
@@ -115,22 +113,18 @@ def measurement_assembly_scenario(
         id=f"measurement-assembly-{len(point_values)}-{use_count}",
         kind="compiler_test",
         point_domain=PointDomain(
-            root=point_rows(
-                table_value_expr(
-                    literal_rows(
-                        [
-                            {
-                                "x": value,
-                                "opaque": PayloadValue(
-                                    schema_id="point-payload",
-                                    payload={"ordinal": index},
-                                ),
-                            }
-                            for index, value in enumerate(point_values)
-                        ]
-                    ),
-                    expected_type=point_type,
-                )
+            root=point_literal_rows(
+                point_type.columns,
+                tuple(
+                    (
+                        value,
+                        PayloadValue(
+                            schema_id="point-payload",
+                            payload={"ordinal": index},
+                        ),
+                    )
+                    for index, value in enumerate(point_values)
+                ),
             )
         ),
         resource_requirements=(

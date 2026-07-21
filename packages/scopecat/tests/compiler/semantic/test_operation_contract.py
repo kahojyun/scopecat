@@ -8,14 +8,11 @@ from hypothesis import strategies as st
 
 from scopecat.compiler.frontend.assembly_lowering import lower_semantic_compute_graph
 from scopecat.compiler.frontend.environment import validate_config_environment
-from scopecat.compiler.relations.model import (
-    literal_rows,
-)
 from scopecat.compiler.relations.operators import (
     SCALAR_OPERATORS,
     ScalarOperator,
 )
-from scopecat.compiler.relations.point_domain import point_rows
+from scopecat.compiler.relations.point_domain import POINT_UNIT
 from scopecat.compiler.relations.scalar_eval import eval_binary
 from scopecat.compiler.relations.verification import RelationTypeBindings
 from scopecat.compiler.semantic.model import (
@@ -52,10 +49,9 @@ from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import CoreProgram
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.symbols import SymbolId
-from scopecat.kernel.value_types import Float, Scalar, Table
+from scopecat.kernel.value_types import Float, Scalar
 from tests.testkit.authoring import load_config
 from tests.testkit.local_materialization import materialize_local_execution
-from tests.testkit.relation_plans import table_value_expr
 from tests.testkit.typed_program import link_program
 
 _FLOAT = Scalar(Float())
@@ -244,11 +240,4 @@ def _compute_program(
 
 
 def _point_domain() -> PointDomain:
-    return PointDomain(
-        root=point_rows(
-            table_value_expr(
-                literal_rows([{}]),
-                expected_type=Table(columns=(), min_rows=1, max_rows=1),
-            )
-        )
-    )
+    return PointDomain(root=POINT_UNIT)

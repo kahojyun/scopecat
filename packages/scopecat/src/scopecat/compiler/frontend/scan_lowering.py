@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Collection, Mapping
 from dataclasses import replace
+from typing import cast
 
 from scopecat.authoring._point_domain_intents import PointDomainIntent
 from scopecat.authoring._scan_intents import (
@@ -19,8 +20,6 @@ from scopecat.authoring._scan_intents import (
 from scopecat.authoring._value_refs import (
     ValueRef,
     internal_lower_scalar_value_ref,
-    internal_value_ref_bound_point_input_ids,
-    internal_value_ref_free_point_dependencies,
     internal_value_ref_from_expression,
     internal_value_ref_point_dependencies,
 )
@@ -30,22 +29,21 @@ from scopecat.compiler.frontend.request_values import (
 )
 from scopecat.compiler.frontend.value_binding import bind_scalar_input_refs
 from scopecat.compiler.relations.model import (
-    RelationExpr,
+    CellValue,
     ScalarExpr,
     as_scalar_expr,
-    grid,
     param,
 )
-from scopecat.compiler.relations.model import linspace as relation_linspace
-from scopecat.compiler.relations.model import values as relation_values
 from scopecat.compiler.relations.point_domain import (
+    PointAxis,
+    point_axis_linear,
+    point_axis_values,
     point_dependent_product,
     point_product,
-    point_rows,
     point_zip,
 )
 from scopecat.kernel.value_types import Quantity as QuantityType
-from scopecat.kernel.value_types import Scalar, Table, TableColumn
+from scopecat.kernel.value_types import Scalar
 from scopecat.records.parameter import Quantity
 from scopecat.records.run_request import (
     AroundScanRecord,
@@ -60,35 +58,46 @@ def lower_scan_points(
     scan: Scan,
     *,
     inputs: Mapping[str, object] | None = None,
-) -> ValueRef:
-    """Build one typed relation leaf from a scalar scan axis."""
+) -> PointAxis[ValueRef]:
+    """Build one structural point-domain axis from a scalar scan intent."""
 
     if isinstance(scan, ScanGroupIntent):
         msg = "scan groups must lower through the point-domain algebra"
         raise TypeError(msg)
-    center = (
-        scan.center
-        if isinstance(scan, PointScanIntent) and isinstance(scan.center, ValueRef)
-        else None
-    )
-    return internal_value_ref_from_expression(
-        _lower_scan_points_relation(scan, inputs=inputs),
-        _scan_points_type(scan),
-        parameter_contracts=scan_parameter_contracts(scan),
-        point_dependencies=(
-            internal_value_ref_point_dependencies(center) if center is not None else ()
-        ),
-        free_point_dependencies=(
-            internal_value_ref_free_point_dependencies(center)
-            if center is not None
-            else ()
-        ),
-        bound_point_input_ids=(
-            internal_value_ref_bound_point_input_ids(center)
-            if center is not None
-            else frozenset()
-        ),
-    )
+    if isinstance(scan, PointScanIntent):
+        value_type = _scan_point_value_type(scan)
+        if scan.point_values:
+            return point_axis_values(
+                scan.point_id,
+                value_type,
+                _scan_axis_values(scan.point_values, unit=scan.unit),
+            )
+        if (
+            (scan.center is None and not scan.implicit_center)
+            or scan.span is None
+            or scan.point_count is None
+        ):
+            msg = f"scan axis {scan.point_id!r} requires values or center/span/points"
+            raise ValueError(msg)
+        if scan.point_count < 2:
+            msg = "scan axis points must be at least 2"
+            raise ValueError(msg)
+        return point_axis_linear(
+            scan.point_id,
+            value_type,
+            _lower_scan_center_value_ref(scan, inputs=inputs),
+            _scan_quantity(scan.span),
+            scan.point_count,
+        )
+    if isinstance(scan, ParameterScanIntent):
+        value_type = _scan_point_value_type(scan)
+        return point_axis_values(
+            scan.point_id,
+            value_type,
+            _scan_axis_values(scan.values, unit=scan.unit),
+        )
+    msg = "scan axis must be a point or parameter scan"
+    raise TypeError(msg)
 
 
 def lower_scan_point_domain(
@@ -100,7 +109,7 @@ def lower_scan_point_domain(
     """Preserve Cartesian, dependent, and positional scan composition."""
 
     if not isinstance(scan, ScanGroupIntent):
-        return point_rows(lower_scan_points(scan, inputs=inputs))
+        return lower_scan_points(scan, inputs=inputs)
     children = tuple(
         lower_scan_point_domain(
             child,
@@ -127,53 +136,6 @@ def lower_scan_point_domain(
         )
         produced.update(child_ids)
     return combined
-
-
-def _lower_scan_points_relation(
-    scan: Scan,
-    *,
-    inputs: Mapping[str, object] | None = None,
-) -> RelationExpr:
-    """Lower a scan at the private typed-value implementation boundary."""
-
-    if isinstance(scan, PointScanIntent):
-        if scan.point_values:
-            source = (
-                relation_values(scan.point_values, unit=scan.unit)
-                if scan.unit is not None
-                else list(scan.point_values)
-            )
-            return grid(**{scan.point_id: source})
-        if (
-            (scan.center is None and not scan.implicit_center)
-            or scan.span is None
-            or scan.point_count is None
-        ):
-            msg = f"scan axis {scan.point_id!r} requires values or center/span/points"
-            raise ValueError(msg)
-        if scan.point_count < 2:
-            msg = "scan axis points must be at least 2"
-            raise ValueError(msg)
-        span = _scan_quantity(scan.span)
-        center = _lower_scan_center(scan, inputs=inputs)
-        return grid(
-            **{
-                scan.point_id: relation_linspace(
-                    center - span / 2,
-                    center + span / 2,
-                    scan.point_count,
-                )
-            }
-        )
-    if isinstance(scan, ParameterScanIntent):
-        source = (
-            relation_values(scan.values, unit=scan.unit)
-            if scan.unit is not None
-            else list(scan.values)
-        )
-        return grid(**{scan.point_id: source})
-    msg = "scan relation leaf must be a point or parameter scan"
-    raise TypeError(msg)
 
 
 def project_scan_record(
@@ -239,48 +201,6 @@ def project_scan_record(
     )
 
 
-def _scan_points_type(scan: Scan) -> Table:
-    if isinstance(scan, PointScanIntent | ParameterScanIntent):
-        if not isinstance(scan.target.value_type, Scalar):
-            msg = "scan target must carry a scalar value type"
-            raise TypeError(msg)
-        row_count = (
-            len(scan.point_values)
-            if isinstance(scan, PointScanIntent) and scan.point_values
-            else scan.point_count
-            if isinstance(scan, PointScanIntent)
-            else len(scan.values)
-        )
-        if row_count is None:
-            msg = f"scan axis {scan.point_id!r} has no statically known row count"
-            raise ValueError(msg)
-        return Table(
-            columns=(TableColumn(scan.point_id, _scan_point_value_type(scan)),),
-            min_rows=row_count,
-            max_rows=row_count,
-        )
-    if not isinstance(scan, ScanGroupIntent):
-        msg = "invalid scan handle"
-        raise TypeError(msg)
-    children = tuple(_scan_points_type(child) for child in scan.scans)
-    columns = tuple(column for child in children for column in child.columns)
-    row_counts = tuple(child.min_rows for child in children)
-    if scan.kind == "zip":
-        if len(set(row_counts)) != 1:
-            msg = "zip scan group requires scans with equal length"
-            raise ValueError(msg)
-        row_count = row_counts[0]
-    else:
-        row_count = 1
-        for count in row_counts:
-            row_count *= count
-    return Table(
-        columns=columns,
-        min_rows=row_count,
-        max_rows=row_count,
-    )
-
-
 def _scan_point_value_type(scan: PointScanIntent | ParameterScanIntent) -> Scalar:
     value_type = scan.target.value_type
     if not isinstance(value_type, Scalar):
@@ -296,6 +216,18 @@ def _scan_point_value_type(scan: PointScanIntent | ParameterScanIntent) -> Scala
             nullable=value_type.nullable,
         )
     return value_type
+
+
+def _scan_axis_values(
+    values: tuple[CellValue, ...],
+    *,
+    unit: str | None,
+) -> tuple[CellValue, ...]:
+    if unit is None:
+        return values
+    return tuple(
+        Quantity(value=float(cast("int | float", value)), unit=unit) for value in values
+    )
 
 
 def _scan_quantity(value: object) -> Quantity:
@@ -329,6 +261,26 @@ def _lower_scan_center(
     if inputs is None:
         return expression
     return bind_scalar_input_refs(expression, inputs)
+
+
+def _lower_scan_center_value_ref(
+    scan: PointScanIntent,
+    *,
+    inputs: Mapping[str, object] | None,
+) -> ValueRef:
+    center = scan.center if isinstance(scan.center, ValueRef) else None
+    center_type = center.value_type if center is not None else scan.target.value_type
+    if not isinstance(center_type, Scalar):
+        msg = "scan center must carry a scalar value type"
+        raise TypeError(msg)
+    return internal_value_ref_from_expression(
+        _lower_scan_center(scan, inputs=inputs),
+        center_type,
+        parameter_contracts=scan_parameter_contracts(scan),
+        point_dependencies=(
+            internal_value_ref_point_dependencies(center) if center is not None else ()
+        ),
+    )
 
 
 def _request_scalar_value(

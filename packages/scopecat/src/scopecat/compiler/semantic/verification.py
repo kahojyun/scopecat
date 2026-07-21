@@ -1521,8 +1521,6 @@ def _verify_plan_source_region(
                 actual = bindings.row_arguments.get(reference.row_scope_id)
             else:
                 actual = None
-        elif reference.kind is PlanReferenceKind.OUTER_COLUMN:
-            actual = None
         else:
             continue
         if actual == expected_row:

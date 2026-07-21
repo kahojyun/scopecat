@@ -42,7 +42,6 @@ from scopecat.compiler.relations.model import (
 )
 from scopecat.compiler.relations.operators import (
     ScalarOperator,
-    require_sortable_scalar,
     scalar_operator_result_type,
 )
 from scopecat.compiler.semantic.compute_result import ComputeResultRef
@@ -194,7 +193,6 @@ class TableRow:
     scope_id: RowScopeId
     parameter_contracts: tuple[ParameterContract, ...]
     point_dependencies: tuple[PointValueDependency, ...]
-    free_point_dependencies: tuple[PointValueDependency, ...]
 
     def __init__(self, value: ValueRef, *, scope_id: RowScopeId) -> None:
         table_type = value.value_type
@@ -216,11 +214,6 @@ class TableRow:
             self,
             "point_dependencies",
             internal_value_ref_point_dependencies(value),
-        )
-        object.__setattr__(
-            self,
-            "free_point_dependencies",
-            internal_value_ref_free_point_dependencies(value),
         )
 
     def __copy__(self) -> TableRow:
@@ -247,11 +240,7 @@ class TableRow:
             column.value_type,
             parameter_contracts=self.parameter_contracts,
             point_dependencies=self.point_dependencies,
-            free_point_dependencies=self.free_point_dependencies,
         )
-
-
-_EMPTY_BOUND_POINT_INPUT_IDS: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True, slots=True, eq=False, repr=False)
@@ -271,24 +260,12 @@ class ValueRef:
     declaration_scope: tuple[str, ...] = ()
     parameter_contracts: tuple[ParameterContract, ...] = ()
     point_dependencies: tuple[PointValueDependency, ...] = ()
-    free_point_dependencies: tuple[PointValueDependency, ...] = ()
-    bound_point_input_ids: frozenset[str] = _EMPTY_BOUND_POINT_INPUT_IDS
 
     def __post_init__(self) -> None:
         object.__setattr__(
             self,
             "point_dependencies",
             _merge_point_dependencies(self.point_dependencies),
-        )
-        object.__setattr__(
-            self,
-            "free_point_dependencies",
-            _merge_point_dependencies(self.free_point_dependencies),
-        )
-        object.__setattr__(
-            self,
-            "bound_point_input_ids",
-            frozenset(self.bound_point_input_ids),
         )
 
     def __copy__(self) -> ValueRef:
@@ -365,28 +342,6 @@ class ValueRef:
 
         return _logical_value(self, other, "or")
 
-    def column(self, column_id: str) -> ValueRef:
-        """Return a typed series projection from a table expression."""
-
-        table_type = self.value_type
-        if not isinstance(table_type, Table):
-            msg = "column projection requires a table value"
-            raise TypeError(msg)
-        columns = {column.id: column for column in table_type.columns}
-        column = columns.get(column_id)
-        if column is None:
-            msg = f"table value has no column {column_id!r}"
-            raise KeyError(msg)
-        expression = internal_lower_table_value_ref(self)
-        return internal_value_ref_from_expression(
-            expression.column(column_id),
-            Series(column.value_type),
-            parameter_contracts=self.parameter_contracts,
-            point_dependencies=self.point_dependencies,
-            free_point_dependencies=internal_value_ref_free_point_dependencies(self),
-            bound_point_input_ids=internal_value_ref_bound_point_input_ids(self),
-        )
-
     def select(self, *column_ids: str) -> ValueRef:
         """Return a typed table projection."""
 
@@ -417,8 +372,6 @@ class ValueRef:
             ),
             parameter_contracts=self.parameter_contracts,
             point_dependencies=self.point_dependencies,
-            free_point_dependencies=internal_value_ref_free_point_dependencies(self),
-            bound_point_input_ids=internal_value_ref_bound_point_input_ids(self),
         )
 
     def filter(self, predicate: Callable[[TableRow], ValueRef]) -> ValueRef:
@@ -465,191 +418,7 @@ class ValueRef:
                 self.point_dependencies,
                 internal_value_ref_point_dependencies(condition),
             ),
-            free_point_dependencies=_merge_point_dependencies(
-                internal_value_ref_free_point_dependencies(self),
-                internal_value_ref_free_point_dependencies(condition),
-            ),
-            bound_point_input_ids=frozenset(
-                {
-                    *internal_value_ref_bound_point_input_ids(self),
-                    *internal_value_ref_bound_point_input_ids(condition),
-                }
-            ),
             declaration_key=declaration_key,
-        )
-
-    def join(
-        self,
-        other: ValueRef,
-        *,
-        on: Mapping[str, str],
-    ) -> ValueRef:
-        """Join two typed tables by explicit left-to-right column ids."""
-
-        left_type = _require_table_type(self, operation="join")
-        right_type = _require_table_type(other, operation="join")
-        left_columns = {column.id: column for column in left_type.columns}
-        right_columns = {column.id: column for column in right_type.columns}
-        selected_on = cast("Mapping[object, object]", on)
-        if not selected_on:
-            msg = "join requires at least one key column"
-            raise ValueError(msg)
-        normalized_on: dict[str, str] = {}
-        for left_id, right_id in selected_on.items():
-            if not isinstance(left_id, str) or not left_id:
-                msg = "join left column ids must be non-empty strings"
-                raise TypeError(msg)
-            if not isinstance(right_id, str) or not right_id:
-                msg = "join right column ids must be non-empty strings"
-                raise TypeError(msg)
-            if left_id not in left_columns:
-                msg = f"left table has no join column {left_id!r}"
-                raise KeyError(msg)
-            if right_id not in right_columns:
-                msg = f"right table has no join column {right_id!r}"
-                raise KeyError(msg)
-            if right_id in normalized_on.values():
-                msg = f"join right column {right_id!r} is mapped more than once"
-                raise ValueError(msg)
-            left_column = left_columns[left_id]
-            right_column = right_columns[right_id]
-            _require_join_key_column(left_column, side="left")
-            _require_join_key_column(right_column, side="right")
-            scalar_operator_result_type(
-                left_column.value_type,
-                right_column.value_type,
-                "==",
-            )
-            normalized_on[left_id] = right_id
-        allowed_shared = {
-            left_id
-            for left_id, right_id in normalized_on.items()
-            if left_id == right_id
-        }
-        _require_no_column_conflicts(
-            left_type,
-            right_type,
-            operation="join",
-            allowed_shared=allowed_shared,
-        )
-        return internal_value_ref_from_expression(
-            internal_lower_table_value_ref(self).join(
-                internal_lower_table_value_ref(other),
-                on=normalized_on,
-            ),
-            _combined_table_type(left_type, right_type, minimum=0),
-            parameter_contracts=merge_parameter_contracts(
-                self.parameter_contracts,
-                other.parameter_contracts,
-            ),
-            point_dependencies=_merge_point_dependencies(
-                self.point_dependencies,
-                other.point_dependencies,
-            ),
-            free_point_dependencies=_merge_point_dependencies(
-                internal_value_ref_free_point_dependencies(self),
-                internal_value_ref_free_point_dependencies(other),
-            ),
-            bound_point_input_ids=frozenset(
-                {
-                    *internal_value_ref_bound_point_input_ids(self),
-                    *internal_value_ref_bound_point_input_ids(other),
-                }
-            ),
-        )
-
-    def cross(self, other: ValueRef) -> ValueRef:
-        """Take the typed Cartesian product of two tables."""
-
-        left_type = _require_table_type(self, operation="cross")
-        right_type = _require_table_type(other, operation="cross")
-        _require_no_column_conflicts(
-            left_type,
-            right_type,
-            operation="cross",
-        )
-        return internal_value_ref_from_expression(
-            internal_lower_table_value_ref(self).cross(
-                internal_lower_table_value_ref(other)
-            ),
-            _combined_table_type(
-                left_type,
-                right_type,
-                minimum=left_type.min_rows * right_type.min_rows,
-            ),
-            parameter_contracts=merge_parameter_contracts(
-                self.parameter_contracts,
-                other.parameter_contracts,
-            ),
-            point_dependencies=_merge_point_dependencies(
-                self.point_dependencies,
-                other.point_dependencies,
-            ),
-            free_point_dependencies=_merge_point_dependencies(
-                internal_value_ref_free_point_dependencies(self),
-                internal_value_ref_free_point_dependencies(other),
-            ),
-            bound_point_input_ids=frozenset(
-                {
-                    *internal_value_ref_bound_point_input_ids(self),
-                    *internal_value_ref_bound_point_input_ids(other),
-                }
-            ),
-        )
-
-    def sort(self, *column_ids: str) -> ValueRef:
-        """Sort a typed table by one or more declared columns."""
-
-        table_type = _require_table_type(self, operation="sort")
-        if not column_ids:
-            msg = "sort requires at least one column"
-            raise ValueError(msg)
-        columns = {column.id: column for column in table_type.columns}
-        missing = [column_id for column_id in column_ids if column_id not in columns]
-        if missing:
-            msg = "table value has no columns: " + ", ".join(missing)
-            raise KeyError(msg)
-        for column_id in column_ids:
-            column = columns[column_id]
-            if not column.required:
-                msg = f"sort column {column_id!r} must be required"
-                raise TypeError(msg)
-            require_sortable_scalar(column.value_type, column_id=column_id)
-        return internal_value_ref_from_expression(
-            internal_lower_table_value_ref(self).sort(*column_ids),
-            table_type,
-            parameter_contracts=self.parameter_contracts,
-            point_dependencies=self.point_dependencies,
-            free_point_dependencies=internal_value_ref_free_point_dependencies(self),
-            bound_point_input_ids=internal_value_ref_bound_point_input_ids(self),
-        )
-
-    def limit(self, count: int) -> ValueRef:
-        """Limit a typed table while retaining its column schema."""
-
-        table_type = _require_table_type(self, operation="limit")
-        if isinstance(count, bool):
-            msg = "table limit must be an integer"
-            raise TypeError(msg)
-        if count < 0:
-            msg = "table limit must be non-negative"
-            raise ValueError(msg)
-        maximum = (
-            count if table_type.max_rows is None else min(count, table_type.max_rows)
-        )
-        return internal_value_ref_from_expression(
-            internal_lower_table_value_ref(self).limit(count),
-            Table(
-                columns=table_type.columns,
-                primary_key=table_type.primary_key,
-                min_rows=min(count, table_type.min_rows),
-                max_rows=maximum,
-                allow_extra_columns=table_type.allow_extra_columns,
-            ),
-            parameter_contracts=self.parameter_contracts,
-            point_dependencies=self.point_dependencies,
-            free_point_dependencies=internal_value_ref_free_point_dependencies(self),
-            bound_point_input_ids=internal_value_ref_bound_point_input_ids(self),
         )
 
     def with_columns(
@@ -738,25 +507,6 @@ class ValueRef:
                     if isinstance(value, ValueRef)
                 ),
             ),
-            free_point_dependencies=_merge_point_dependencies(
-                internal_value_ref_free_point_dependencies(self),
-                *(
-                    internal_value_ref_free_point_dependencies(value)
-                    for value in columns.values()
-                    if isinstance(value, ValueRef)
-                ),
-            ),
-            bound_point_input_ids=frozenset(
-                {
-                    *internal_value_ref_bound_point_input_ids(self),
-                    *(
-                        input_id
-                        for value in columns.values()
-                        if isinstance(value, ValueRef)
-                        for input_id in internal_value_ref_bound_point_input_ids(value)
-                    ),
-                }
-            ),
             declaration_key=declaration_key,
         )
 
@@ -788,8 +538,6 @@ class ValueRef:
             Series(Scalar(Entity(entity_kind=entity_kind))),
             parameter_contracts=self.parameter_contracts,
             point_dependencies=self.point_dependencies,
-            free_point_dependencies=internal_value_ref_free_point_dependencies(self),
-            bound_point_input_ids=internal_value_ref_bound_point_input_ids(self),
         )
 
 
@@ -799,58 +547,6 @@ def _require_table_type(value: ValueRef, *, operation: str) -> Table:
         msg = f"{operation} requires table values"
         raise TypeError(msg)
     return value_type
-
-
-def _require_join_key_column(column: TableColumn, *, side: str) -> None:
-    if not column.required or column.value_type.nullable:
-        msg = f"{side} join column {column.id!r} must be required and non-nullable"
-        raise TypeError(msg)
-
-
-def _require_no_column_conflicts(
-    left: Table,
-    right: Table,
-    *,
-    operation: str,
-    allowed_shared: set[str] | None = None,
-) -> None:
-    shared = {column.id for column in left.columns} & {
-        column.id for column in right.columns
-    }
-    conflicts = sorted(shared - (allowed_shared or set()))
-    if conflicts:
-        msg = f"{operation} has conflicting columns: {', '.join(conflicts)}"
-        raise ValueError(msg)
-
-
-def _combined_table_type(
-    left: Table,
-    right: Table,
-    *,
-    minimum: int,
-) -> Table:
-    left_ids = {column.id for column in left.columns}
-    columns = (
-        *left.columns,
-        *(column for column in right.columns if column.id not in left_ids),
-    )
-    primary_key = (
-        tuple(dict.fromkeys((*left.primary_key, *right.primary_key)))
-        if left.primary_key and right.primary_key
-        else ()
-    )
-    maximum = (
-        None
-        if left.max_rows is None or right.max_rows is None
-        else left.max_rows * right.max_rows
-    )
-    return Table(
-        columns=columns,
-        primary_key=primary_key,
-        min_rows=minimum,
-        max_rows=maximum,
-        allow_extra_columns=(left.allow_extra_columns or right.allow_extra_columns),
-    )
 
 
 def internal_input_value_ref(input_id: str, value_type: ValueType) -> ValueRef:
@@ -879,7 +575,6 @@ def internal_operation_result_value_ref(
         ),
         value_type=value_type,
         point_dependencies=_merge_point_dependencies(point_dependencies),
-        free_point_dependencies=_merge_point_dependencies(point_dependencies),
     )
 
 
@@ -891,7 +586,6 @@ def internal_point_value_ref(point_id: str, value_type: Scalar) -> ValueRef:
         source=_PointValueSource(id=point_id),
         value_type=value_type,
         point_dependencies=point_dependencies,
-        free_point_dependencies=point_dependencies,
     )
 
 
@@ -1164,23 +858,6 @@ def _transform_value_ref(
                 for bound in transformed_values
             ),
         ),
-        free_point_dependencies=_merge_point_dependencies(
-            internal_value_ref_free_point_dependencies(value),
-            *(
-                internal_value_ref_free_point_dependencies(bound)
-                for bound in transformed_values
-            ),
-        ),
-        bound_point_input_ids=frozenset(
-            {
-                *internal_value_ref_bound_point_input_ids(value),
-                *(
-                    input_id
-                    for bound in transformed_values
-                    for input_id in internal_value_ref_bound_point_input_ids(bound)
-                ),
-            }
-        ),
     )
 
 
@@ -1228,8 +905,6 @@ def internal_scope_value_ref(
             declaration_scope=declaration_scope,
             parameter_contracts=internal_value_ref_parameter_contracts(value),
             point_dependencies=internal_value_ref_point_dependencies(value),
-            free_point_dependencies=internal_value_ref_free_point_dependencies(value),
-            bound_point_input_ids=internal_value_ref_bound_point_input_ids(value),
         )
     if isinstance(source, _ScalarOperationValueSource):
         operation = source.operation
@@ -1282,8 +957,6 @@ def internal_scope_value_ref(
             declaration_scope=declaration_scope,
             parameter_contracts=internal_value_ref_parameter_contracts(value),
             point_dependencies=internal_value_ref_point_dependencies(value),
-            free_point_dependencies=internal_value_ref_free_point_dependencies(value),
-            bound_point_input_ids=internal_value_ref_bound_point_input_ids(value),
         )
     return ValueRef(
         source=source,
@@ -1292,8 +965,6 @@ def internal_scope_value_ref(
         declaration_scope=declaration_scope,
         parameter_contracts=internal_value_ref_parameter_contracts(value),
         point_dependencies=internal_value_ref_point_dependencies(value),
-        free_point_dependencies=internal_value_ref_free_point_dependencies(value),
-        bound_point_input_ids=internal_value_ref_bound_point_input_ids(value),
     )
 
 
@@ -1337,43 +1008,13 @@ def internal_value_ref_point_dependencies(
     return value.point_dependencies
 
 
-def internal_value_ref_free_point_dependencies(
-    value: ValueRef,
-) -> tuple[PointValueDependency, ...]:
-    """Return point requirements not closed by a point-domain binder."""
-
-    operation = internal_value_ref_scalar_operation(value)
-    if operation is not None:
-        return _merge_point_dependencies(
-            *(
-                internal_value_ref_free_point_dependencies(operand)
-                for operand in _scalar_operation_value_operands(operation)
-            )
-        )
-    return value.free_point_dependencies
-
-
-def internal_value_ref_bound_point_input_ids(value: ValueRef) -> frozenset[str]:
-    """Return scalar input ids closed by point-domain binders in this value."""
-
-    operation = internal_value_ref_scalar_operation(value)
-    if operation is not None:
-        return frozenset(
-            input_id
-            for operand in _scalar_operation_value_operands(operation)
-            for input_id in internal_value_ref_bound_point_input_ids(operand)
-        )
-    return value.bound_point_input_ids
-
-
-def internal_value_ref_free_point_input_ids(value: ValueRef) -> frozenset[str]:
-    """Return scalar imports that would become external point references."""
+def internal_value_ref_scalar_input_ids(value: ValueRef) -> frozenset[str]:
+    """Return scalar imports remaining after authored input bindings."""
 
     lowered = internal_lower_value_ref(value)
     if isinstance(lowered, ComputeResultRef):
         return frozenset()
-    input_ids = frozenset(plan_references(lowered).ids(PlanReferenceKind.INPUT_SCALAR))
-    return input_ids - internal_value_ref_bound_point_input_ids(value)
+    return frozenset(plan_references(lowered).ids(PlanReferenceKind.INPUT_SCALAR))
 
 
 def internal_value_ref_requires_execution(value: ValueRef) -> bool:
@@ -1545,8 +1186,6 @@ def internal_value_ref_from_expression(
     declaration_key: ValueDeclarationKey | None = None,
     parameter_contracts: tuple[ParameterContract, ...] = (),
     point_dependencies: tuple[PointValueDependency, ...] = (),
-    free_point_dependencies: tuple[PointValueDependency, ...] | None = None,
-    bound_point_input_ids: frozenset[str] = _EMPTY_BOUND_POINT_INPUT_IDS,
 ) -> ValueRef:
     """Construct a typed expression edge inside the authoring implementation."""
 
@@ -1557,12 +1196,6 @@ def internal_value_ref_from_expression(
         declaration_key=declaration_key or ValueDeclarationKey.fresh(),
         parameter_contracts=parameter_contracts,
         point_dependencies=point_dependencies,
-        free_point_dependencies=(
-            point_dependencies
-            if free_point_dependencies is None
-            else free_point_dependencies
-        ),
-        bound_point_input_ids=bound_point_input_ids,
     )
 
 
@@ -1649,23 +1282,6 @@ def internal_bind_value_ref_inputs(
                 internal_value_ref_point_dependencies(selected)
                 for selected in bound_values
             ),
-        ),
-        free_point_dependencies=_merge_point_dependencies(
-            internal_value_ref_free_point_dependencies(value),
-            *(
-                internal_value_ref_free_point_dependencies(selected)
-                for selected in bound_values
-            ),
-        ),
-        bound_point_input_ids=frozenset(
-            {
-                *internal_value_ref_bound_point_input_ids(value),
-                *(
-                    input_id
-                    for selected in bound_values
-                    for input_id in internal_value_ref_bound_point_input_ids(selected)
-                ),
-            }
         ),
     )
 

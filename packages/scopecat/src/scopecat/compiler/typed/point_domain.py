@@ -1,96 +1,67 @@
-"""Proof-carrying symbolic point domains and stable logical point identity."""
+"""Exact symbolic point domains and stable logical point identity.
+
+The point model deliberately owns only finite point-generation semantics.  A
+linear axis may carry one verified scalar plan for its center; arbitrary table
+relations are not point-domain leaves.
+"""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import InitVar, dataclass, field, replace
+from dataclasses import dataclass, replace
 from itertools import product
 from typing import cast
 
 from scopecat.compiler.relations.evaluation import (
     EvalContext,
     ParameterRelationData,
-    evaluate_relation_in_context,
-    evaluate_relation_ordinals,
+    evaluate_scalar,
 )
-from scopecat.compiler.relations.model import (
-    CellValue,
-    Row,
-)
+from scopecat.compiler.relations.model import CellValue, Row
 from scopecat.compiler.relations.point_domain import (
-    PointCardinality,
+    PointAxis,
+    PointAxisLinear,
+    PointAxisValues,
     PointDomainAnalysis,
     PointDomainExpr,
     PointDomainPath,
     PointDomainShapeError,
     PointProduct,
-    PointRelationRows,
+    PointRows,
     PointUnit,
     PointZip,
     analyze_point_domain,
     decompose_product_ordinal,
-    iter_point_relation_rows,
-    map_point_relation_rows,
+    is_point_coordinate_type,
+    point_axis_linear_value,
 )
-from scopecat.compiler.relations.uses import RelationUseId
+from scopecat.compiler.relations.uses import RelationUse
 from scopecat.compiler.relations.verification import (
     PlanImportNamespace,
     RelationPlanVerificationError,
     RowType,
     verify_relation_plan,
 )
-from scopecat.compiler.semantic.value_expressions import TableValueExpr
-from scopecat.kernel.payloads import PayloadValue
+from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
-from scopecat.kernel.value_types import (
-    Bool,
-    Entity,
-    Float,
-    Int,
-    Quantity,
-    Scalar,
-    String,
-    Table,
-    TableColumn,
-)
-from scopecat.kernel.value_validation import ValueValidationError, coerce_literal
+from scopecat.kernel.value_types import Entity, Scalar, Table, TableColumn
+from scopecat.kernel.value_validation import coerce_literal
+from scopecat.records.parameter import Quantity as QuantityValue
 
 type PointRowNormalizer = Callable[[Row], Mapping[str, object]]
-type CompilerPointDomainExpr = PointDomainExpr[TableValueExpr]
+type CompilerPointDomainExpr = PointDomainExpr[RelationUse[ScalarValueExpr]]
 
 
 @dataclass(frozen=True, slots=True)
 class PointDomain:
-    """One canonical algebra tree defining an ordered logical point space."""
+    """One exact algebra tree defining an ordered logical point space."""
 
     root: CompilerPointDomainExpr
-    entity_columns: tuple[str, ...] = ()
     id: str = "root"
-
-    def __post_init__(self) -> None:
-        if not self.id:
-            msg = "point domain id must be non-empty"
-            raise ValueError(msg)
-        object.__setattr__(self, "root", _copy_root(self.root))
-        object.__setattr__(self, "entity_columns", tuple(self.entity_columns))
 
     @property
     def value_type(self) -> Table:
-        return _analyze(self.root).root.value_type
-
-    @property
-    def row_type(self) -> RowType:
-        return RowType.from_table(self.value_type)
-
-    @property
-    def coordinate_columns(self) -> tuple[TableColumn, ...]:
-        """Return the statically typed coordinate projection of this domain."""
-
-        return tuple(
-            column
-            for column in self.value_type.columns
-            if is_point_coordinate_type(column.value_type)
-        )
+        return analyze_point_domain(self.root).root.value_type
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,7 +82,7 @@ class PointDomainVerificationError(ValueError):
 
 
 class PointDomainEvaluationError(ValueError):
-    """The selected backend failed while evaluating the symbolic point root."""
+    """A dynamic linear-axis center failed during point evaluation."""
 
     def __init__(self, path: PointDomainPath, error: Exception) -> None:
         self.path = path
@@ -121,140 +92,61 @@ class PointDomainEvaluationError(ValueError):
         super().__init__(f"{prefix} failed: {error}")
 
 
-class PointDomainValueError(ValueError):
-    """A materialized point row violated the verified table contract."""
-
-    def __init__(self, error: ValueValidationError) -> None:
-        self.error = error
-        super().__init__(str(error))
-
-
-@dataclass(frozen=True, slots=True)
-class VerifiedPointDomainRelation:
-    """One nominal relation use and its diagnostic structural location."""
-
-    id: RelationUseId
-    path: PointDomainPath
-    value: TableValueExpr
-
-
 @dataclass(frozen=True, slots=True)
 class VerifiedPointDomain:
-    """A defensively snapshotted point domain with all root invariants checked."""
+    """A shape-checked exact point domain."""
 
-    program_id: InitVar[str]
-    source: InitVar[PointDomain]
-    _id: PointDomainId = field(init=False)
-    _domain: PointDomain = field(init=False)
-    _analysis: PointDomainAnalysis = field(init=False)
-    relation_leaves: tuple[VerifiedPointDomainRelation, ...] = field(init=False)
-    cardinality: PointCardinality = field(init=False)
-
-    def __post_init__(self, program_id: str, source: PointDomain) -> None:
-        domain_id, analysis, relation_leaves = _verified_point_domain_components(
-            source,
-            program_id=program_id,
-        )
-        object.__setattr__(self, "_id", domain_id)
-        object.__setattr__(self, "_domain", _copy_domain(source))
-        object.__setattr__(self, "_analysis", analysis)
-        object.__setattr__(self, "relation_leaves", tuple(relation_leaves))
-        object.__setattr__(self, "cardinality", analysis.root.cardinality)
+    id: PointDomainId
+    root: CompilerPointDomainExpr
+    analysis: PointDomainAnalysis
 
     @property
-    def id(self) -> PointDomainId:
-        return self._id
-
-    @property
-    def domain(self) -> PointDomain:
-        return _copy_domain(self._domain)
-
-    @property
-    def root(self) -> PointDomainExpr[TableValueExpr]:
-        return _copy_root(self._domain.root)
+    def cardinality(self) -> int:
+        return self.analysis.root.cardinality
 
     @property
     def entity_columns(self) -> tuple[str, ...]:
-        return self._domain.entity_columns
+        return tuple(
+            column.id
+            for column in self.value_type.columns
+            if isinstance(column.value_type.atom, Entity)
+        )
 
     @property
     def value_type(self) -> Table:
-        return self._analysis.root.value_type
+        return self.analysis.root.value_type
 
     @property
     def row_type(self) -> RowType:
-        return self._domain.row_type
+        return RowType.from_table(self.value_type)
 
     @property
     def coordinate_columns(self) -> tuple[TableColumn, ...]:
-        return self._domain.coordinate_columns
+        return tuple(
+            column
+            for column in self.value_type.columns
+            if is_point_coordinate_type(column.value_type)
+        )
 
-    @property
-    def analysis(self) -> PointDomainAnalysis:
-        return self._analysis
 
-
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class MaterializedPoint:
     """One concrete point retaining its canonical logical identity."""
 
     logical_id: LogicalPointId
-    _row: Row
-
-    def __init__(
-        self,
-        logical_id: LogicalPointId,
-        row: Mapping[str, CellValue],
-    ) -> None:
-        object.__setattr__(self, "logical_id", logical_id)
-        object.__setattr__(self, "_row", _snapshot_row(row))
-
-    @property
-    def row(self) -> Row:
-        return _snapshot_row(self._row)
+    row: Row
 
     @property
     def logical_ordinal(self) -> int:
         return self.logical_id.logical_ordinal
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True)
 class MaterializedPointDomain:
-    """One canonical contiguous coverage of a symbolic point domain."""
+    """One materialized coverage of an exact symbolic domain."""
 
     id: PointDomainId
     points: tuple[MaterializedPoint, ...]
-    cardinality: PointCardinality
-    declared_cardinality: PointCardinality
-
-    def __init__(
-        self,
-        domain_id: PointDomainId,
-        points: Sequence[MaterializedPoint],
-        declared_cardinality: PointCardinality,
-    ) -> None:
-        selected = tuple(points)
-        if any(point.logical_id.domain_id != domain_id for point in selected):
-            msg = "materialized point identities must belong to their domain"
-            raise ValueError(msg)
-        first_ordinal = selected[0].logical_ordinal if selected else 0
-        if any(
-            point.logical_id != LogicalPointId(domain_id, ordinal)
-            for ordinal, point in enumerate(selected, start=first_ordinal)
-        ):
-            msg = (
-                "materialized point identities must follow canonical contiguous "
-                "ordinal order"
-            )
-            raise ValueError(msg)
-        object.__setattr__(self, "id", domain_id)
-        object.__setattr__(self, "points", selected)
-        object.__setattr__(self, "cardinality", PointCardinality.exact(len(selected)))
-        object.__setattr__(
-            self,
-            "declared_cardinality",
-            declared_cardinality,
-        )
 
 
 def verify_point_domain(
@@ -262,28 +154,11 @@ def verify_point_domain(
     *,
     program_id: str,
 ) -> VerifiedPointDomain:
-    """Check the complete algebra, exact leaf roles, and coordinate contract."""
-
-    return VerifiedPointDomain(program_id, domain)
-
-
-def _verified_point_domain_components(
-    domain: PointDomain,
-    *,
-    program_id: str,
-) -> tuple[
-    PointDomainId,
-    PointDomainAnalysis,
-    tuple[VerifiedPointDomainRelation, ...],
-]:
-    """Validate and derive the fields stored by a verified point domain."""
+    """Check exact shape and every dynamic center in its structural row role."""
 
     domain_id = PointDomainId(program_id=program_id, domain_id=domain.id)
-    identity_issues = _relation_use_identity_issues(domain.root)
-    if identity_issues:
-        raise PointDomainVerificationError(identity_issues)
     try:
-        analysis = _analyze(domain.root)
+        analysis = analyze_point_domain(domain.root)
     except PointDomainShapeError as error:
         raise PointDomainVerificationError(
             (
@@ -294,22 +169,17 @@ def _verified_point_domain_components(
                 ),
             )
         ) from error
-    issues = _point_domain_issues(domain, analysis)
+    issues: list[PointDomainVerificationIssue] = []
+    _verify_center_roles(
+        domain.root,
+        analysis=analysis,
+        path=(),
+        ambient_row=None,
+        issues=issues,
+    )
     if issues:
         raise PointDomainVerificationError(issues)
-    relations = tuple(
-        VerifiedPointDomainRelation(
-            leaf.relation_use_id,
-            path,
-            leaf.rows,
-        )
-        for path, leaf in iter_point_relation_rows(domain.root)
-    )
-    return (
-        domain_id,
-        analysis,
-        relations,
-    )
+    return VerifiedPointDomain(domain_id, domain.root, analysis)
 
 
 def materialize_point_domain(
@@ -318,7 +188,7 @@ def materialize_point_domain(
     *,
     row_normalizer: PointRowNormalizer | None = None,
 ) -> MaterializedPointDomain:
-    """Coerce every row before assigning canonical ordinal identities."""
+    """Materialize the exact tree and assign canonical ordinal identities."""
 
     rows = _materialize_node(
         verified.root,
@@ -326,32 +196,22 @@ def materialize_point_domain(
         ambient_row={},
         path=(),
     )
-    normalized_rows: list[Mapping[str, object]] = list(rows)
+    normalized_rows: Sequence[Mapping[str, object]] = rows
     if row_normalizer is not None:
-        normalized_rows = [row_normalizer(dict(row)) for row in rows]
-    try:
-        typed_rows = cast(
-            "tuple[dict[str, object], ...]",
-            coerce_literal(
-                verified.value_type,
-                normalized_rows,
-                path=("points",),
-            ),
-        )
-    except ValueValidationError as error:
-        raise PointDomainValueError(error) from error
+        normalized_rows = tuple(row_normalizer(dict(row)) for row in rows)
+    typed_rows = _coerce_rows(
+        verified.value_type,
+        normalized_rows,
+        path=("points",),
+    )
     points = tuple(
         MaterializedPoint(
             LogicalPointId(verified.id, ordinal),
-            cast("Mapping[str, CellValue]", row),
+            row,
         )
         for ordinal, row in enumerate(typed_rows)
     )
-    return MaterializedPointDomain(
-        verified.id,
-        points,
-        verified.cardinality,
-    )
+    return MaterializedPointDomain(verified.id, points)
 
 
 def materialize_point_domain_ordinals(
@@ -362,15 +222,14 @@ def materialize_point_domain_ordinals(
     max_points: int,
     row_normalizer: PointRowNormalizer | None = None,
 ) -> tuple[MaterializedPoint, ...]:
-    """Materialize selected ordinals without expanding the complete point algebra."""
+    """Materialize selected ordinals without expanding the complete domain."""
 
     selected = tuple(ordinals)
     if type(max_points) is not int or max_points <= 0:
         raise ValueError("point selection budget must be a positive integer")
     if len(selected) > max_points:
         raise ValueError("point selection exceeds the requested budget")
-    point_count = _exact_node_count(verified.analysis, ())
-    if any(ordinal < 0 or ordinal >= point_count for ordinal in selected):
+    if any(ordinal < 0 or ordinal >= verified.cardinality for ordinal in selected):
         raise ValueError("point selection contains an unknown logical ordinal")
     if not selected:
         return ()
@@ -391,37 +250,89 @@ def materialize_point_domain_ordinals(
         )
         for ordinal in unique_ordinals
     }
-    row_type = replace(
-        verified.value_type,
-        min_rows=1,
-        max_rows=1,
-    )
-    try:
-        typed_rows = {
-            ordinal: cast(
-                "tuple[dict[str, object], ...]",
-                coerce_literal(
-                    row_type,
-                    [normalized[ordinal]],
-                    path=("points", ordinal),
-                ),
-            )[0]
-            for ordinal in unique_ordinals
-        }
-    except ValueValidationError as error:
-        raise PointDomainValueError(error) from error
+    row_type = replace(verified.value_type, min_rows=1, max_rows=1)
+    typed_rows = {
+        ordinal: _coerce_rows(
+            row_type,
+            (normalized[ordinal],),
+            path=("points", ordinal),
+        )[0]
+        for ordinal in unique_ordinals
+    }
     points = {
         ordinal: MaterializedPoint(
             LogicalPointId(verified.id, ordinal),
-            cast("Mapping[str, CellValue]", typed_rows[ordinal]),
+            typed_rows[ordinal],
         )
         for ordinal in unique_ordinals
     }
     return tuple(points[ordinal] for ordinal in selected)
 
 
+def _materialize_node(
+    node: CompilerPointDomainExpr,
+    *,
+    params: ParameterRelationData,
+    ambient_row: Row,
+    path: PointDomainPath,
+) -> list[Row]:
+    if isinstance(node, PointUnit):
+        return [{}]
+    if isinstance(node, PointRows):
+        column_ids = tuple(column.id for column in node.columns)
+        return [dict(zip(column_ids, row, strict=True)) for row in node.rows]
+    if isinstance(node, PointAxis):
+        return [
+            {node.id: value}
+            for value in _axis_values(
+                node,
+                params=params,
+                ambient_row=ambient_row,
+                path=path,
+            )
+        ]
+    if isinstance(node, PointProduct):
+        factor_rows = tuple(
+            _materialize_node(
+                factor,
+                params=params,
+                ambient_row=ambient_row,
+                path=(*path, "factors", index),
+            )
+            for index, factor in enumerate(node.factors)
+        )
+        return [_merge_rows(group) for group in product(*factor_rows)]
+    if isinstance(node, PointZip):
+        source_rows = tuple(
+            _materialize_node(
+                source,
+                params=params,
+                ambient_row=ambient_row,
+                path=(*path, "sources", index),
+            )
+            for index, source in enumerate(node.sources)
+        )
+        return [_merge_rows(group) for group in zip(*source_rows, strict=True)]
+    left_rows = _materialize_node(
+        node.left,
+        params=params,
+        ambient_row=ambient_row,
+        path=(*path, "left"),
+    )
+    rows: list[Row] = []
+    for left in left_rows:
+        right_rows = _materialize_node(
+            node.right,
+            params=params,
+            ambient_row=_merge_rows((ambient_row, left)),
+            path=(*path, "right"),
+        )
+        rows.extend(_merge_rows((left, right)) for right in right_rows)
+    return rows
+
+
 def _materialize_node_ordinals(
-    node: PointDomainExpr[TableValueExpr],
+    node: CompilerPointDomainExpr,
     *,
     ordinals: tuple[int, ...],
     analysis: PointDomainAnalysis,
@@ -431,17 +342,24 @@ def _materialize_node_ordinals(
 ) -> dict[int, Row]:
     if isinstance(node, PointUnit):
         return {ordinal: {} for ordinal in ordinals}
-    if isinstance(node, PointRelationRows):
-        try:
-            selected_rows = evaluate_relation_ordinals(
-                node.rows.plan,
-                EvalContext(params=params, point_row=ambient_row),
-                ordinals,
-                max_points=len(ordinals),
-            )
-        except (ArithmeticError, KeyError, TypeError, ValueError) as error:
-            raise PointDomainEvaluationError((*path, "rows"), error) from error
-        return dict(zip(ordinals, selected_rows, strict=True))
+    if isinstance(node, PointRows):
+        column_ids = tuple(column.id for column in node.columns)
+        return {
+            ordinal: dict(zip(column_ids, node.rows[ordinal], strict=True))
+            for ordinal in ordinals
+        }
+    if isinstance(node, PointAxis):
+        values = _axis_values_at(
+            node,
+            ordinals,
+            params=params,
+            ambient_row=ambient_row,
+            path=path,
+        )
+        return {
+            ordinal: {node.id: value}
+            for ordinal, value in zip(ordinals, values, strict=True)
+        }
     if isinstance(node, PointZip):
         sources = tuple(
             _materialize_node_ordinals(
@@ -455,10 +373,7 @@ def _materialize_node_ordinals(
             for index, source in enumerate(node.sources)
         )
         return {
-            ordinal: _merge_row_group(
-                tuple(source[ordinal] for source in sources),
-                path=path,
-            )
+            ordinal: _merge_rows(tuple(source[ordinal] for source in sources))
             for ordinal in ordinals
         }
     if isinstance(node, PointProduct):
@@ -466,9 +381,9 @@ def _materialize_node_ordinals(
             (*path, "factors", index) for index in range(len(node.factors))
         )
         child_counts = tuple(
-            _exact_node_count(analysis, child_path) for child_path in child_paths
+            analysis.facts[child_path].cardinality for child_path in child_paths
         )
-        child_ordinals_by_root = {
+        local_ordinals = {
             ordinal: decompose_product_ordinal(ordinal, child_counts)
             for ordinal in ordinals
         }
@@ -476,9 +391,7 @@ def _materialize_node_ordinals(
             _materialize_node_ordinals(
                 factor,
                 ordinals=tuple(
-                    sorted(
-                        {child_ordinals_by_root[ordinal][index] for ordinal in ordinals}
-                    )
+                    sorted({local_ordinals[root][index] for root in ordinals})
                 ),
                 analysis=analysis,
                 params=params,
@@ -488,168 +401,128 @@ def _materialize_node_ordinals(
             for index, factor in enumerate(node.factors)
         )
         return {
-            ordinal: _merge_row_group(
+            ordinal: _merge_rows(
                 tuple(
-                    child[child_ordinals_by_root[ordinal][index]]
+                    child[local_ordinals[ordinal][index]]
                     for index, child in enumerate(children)
-                ),
-                path=path,
+                )
             )
             for ordinal in ordinals
         }
     left_path = (*path, "left")
     right_path = (*path, "right")
-    right_count = _exact_node_count(analysis, right_path)
-    left_ordinals_by_root = {ordinal: ordinal // right_count for ordinal in ordinals}
-    right_ordinals_by_root = {ordinal: ordinal % right_count for ordinal in ordinals}
+    right_count = analysis.facts[right_path].cardinality
+    left_ordinal = {ordinal: ordinal // right_count for ordinal in ordinals}
+    right_ordinal = {ordinal: ordinal % right_count for ordinal in ordinals}
     left_rows = _materialize_node_ordinals(
         node.left,
-        ordinals=tuple(sorted(set(left_ordinals_by_root.values()))),
+        ordinals=tuple(sorted(set(left_ordinal.values()))),
         analysis=analysis,
         params=params,
         ambient_row=ambient_row,
         path=left_path,
     )
-    right_rows_by_left: dict[int, dict[int, Row]] = {}
-    for left_ordinal, left_row in left_rows.items():
-        right_ordinals = tuple(
+    right_rows: dict[int, dict[int, Row]] = {}
+    for outer_ordinal, left_row in left_rows.items():
+        selected_right = tuple(
             sorted(
                 {
-                    right_ordinals_by_root[ordinal]
-                    for ordinal in ordinals
-                    if left_ordinals_by_root[ordinal] == left_ordinal
+                    right_ordinal[root]
+                    for root in ordinals
+                    if left_ordinal[root] == outer_ordinal
                 }
             )
         )
-        right_rows_by_left[left_ordinal] = _materialize_node_ordinals(
+        right_rows[outer_ordinal] = _materialize_node_ordinals(
             node.right,
-            ordinals=right_ordinals,
+            ordinals=selected_right,
             analysis=analysis,
             params=params,
-            ambient_row=_merge_row_group(
-                (ambient_row, left_row),
-                path=right_path,
-            ),
+            ambient_row=_merge_rows((ambient_row, left_row)),
             path=right_path,
         )
     return {
-        ordinal: _merge_row_group(
+        ordinal: _merge_rows(
             (
-                left_rows[left_ordinals_by_root[ordinal]],
-                right_rows_by_left[left_ordinals_by_root[ordinal]][
-                    right_ordinals_by_root[ordinal]
-                ],
-            ),
-            path=path,
+                left_rows[left_ordinal[ordinal]],
+                right_rows[left_ordinal[ordinal]][right_ordinal[ordinal]],
+            )
         )
         for ordinal in ordinals
     }
 
 
-def _exact_node_count(
-    analysis: PointDomainAnalysis,
+def _axis_values(
+    axis: PointAxis[RelationUse[ScalarValueExpr]],
+    *,
+    params: ParameterRelationData,
+    ambient_row: Row,
     path: PointDomainPath,
-) -> int:
-    cardinality = analysis.facts[path].cardinality
-    if cardinality.maximum != cardinality.minimum:
-        rendered = "/".join(str(part) for part in path) or "root"
-        raise ValueError(
-            f"point ordinal selection requires exact cardinality at {rendered}"
-        )
-    return cardinality.minimum
-
-
-def _point_domain_issues(
-    domain: PointDomain,
-    analysis: PointDomainAnalysis,
-) -> tuple[PointDomainVerificationIssue, ...]:
-    issues: list[PointDomainVerificationIssue] = []
-    _verify_domain_leaf_roles(
-        domain.root,
-        analysis=analysis,
-        path=(),
-        ambient_row=None,
-        issues=issues,
+) -> tuple[CellValue, ...]:
+    source = axis.source
+    count = len(source.values) if isinstance(source, PointAxisValues) else source.count
+    return _axis_values_at(
+        axis,
+        range(count),
+        params=params,
+        ambient_row=ambient_row,
+        path=path,
     )
 
-    entity_columns = domain.entity_columns
-    for duplicate in sorted(
-        {
-            column_id
-            for column_id in entity_columns
-            if entity_columns.count(column_id) > 1
-        }
-    ):
-        issues.append(
-            PointDomainVerificationIssue(
-                "point_domain_entity_column_duplicate",
-                ("entity_columns", duplicate),
-                f"point entity column {duplicate!r} is declared more than once",
-            )
+
+def _axis_values_at(
+    axis: PointAxis[RelationUse[ScalarValueExpr]],
+    ordinals: Sequence[int],
+    *,
+    params: ParameterRelationData,
+    ambient_row: Row,
+    path: PointDomainPath,
+) -> tuple[CellValue, ...]:
+    source = axis.source
+    if isinstance(source, PointAxisValues):
+        return tuple(source.values[ordinal] for ordinal in ordinals)
+    try:
+        center = evaluate_scalar(
+            source.center.value.plan,
+            EvalContext(params=params, point_row=ambient_row),
         )
-    columns = {column.id: column for column in analysis.root.value_type.columns}
-    for column_id in dict.fromkeys(entity_columns):
-        column = columns.get(column_id)
-        if column is None:
-            issues.append(
-                PointDomainVerificationIssue(
-                    "point_domain_entity_column_missing",
-                    ("entity_columns", column_id),
-                    f"point entity column {column_id!r} does not exist",
-                )
-            )
-        elif not isinstance(column.value_type.atom, Entity):
-            issues.append(
-                PointDomainVerificationIssue(
-                    "point_domain_entity_column_type",
-                    ("entity_columns", column_id),
-                    f"point entity column {column_id!r} must have Entity type",
-                )
-            )
-    return tuple(issues)
+        if not isinstance(center, QuantityValue):
+            msg = "linear point axis center must materialize as a quantity"
+            raise TypeError(msg)
+        return tuple(
+            point_axis_linear_value(center, source.span, source.count, index)
+            for index in ordinals
+        )
+    except (ArithmeticError, KeyError, TypeError, ValueError) as error:
+        raise PointDomainEvaluationError(
+            (*path, "source", "center"),
+            error,
+        ) from error
 
 
-def _relation_use_identity_issues(
-    root: PointDomainExpr[TableValueExpr],
-) -> tuple[PointDomainVerificationIssue, ...]:
-    first_path_by_id: dict[RelationUseId, PointDomainPath] = {}
-    issues: list[PointDomainVerificationIssue] = []
-    for path, leaf in iter_point_relation_rows(root):
-        first_path = first_path_by_id.setdefault(leaf.relation_use_id, path)
-        if first_path != path:
-            rendered = "/".join(str(part) for part in first_path) or "root"
-            issues.append(
-                PointDomainVerificationIssue(
-                    "point_domain_relation_use_duplicate",
-                    (*path, "rows"),
-                    "point-domain relation use identity is already owned by "
-                    f"{rendered}",
-                )
-            )
-    return tuple(issues)
-
-
-def _verify_domain_leaf_roles(
-    node: PointDomainExpr[TableValueExpr],
+def _verify_center_roles(
+    node: CompilerPointDomainExpr,
     *,
     analysis: PointDomainAnalysis,
     path: PointDomainPath,
     ambient_row: RowType | None,
     issues: list[PointDomainVerificationIssue],
 ) -> None:
-    if isinstance(node, PointUnit):
+    if isinstance(node, PointUnit | PointRows):
         return
-    if isinstance(node, PointRelationRows):
-        _verify_relation_leaf_role(
-            node.rows,
-            path=path,
-            ambient_row=ambient_row,
-            issues=issues,
-        )
+    if isinstance(node, PointAxis):
+        if isinstance(node.source, PointAxisLinear):
+            _verify_center_role(
+                node.source.center.value,
+                expected_type=node.value_type,
+                path=(*path, "source", "center"),
+                ambient_row=ambient_row,
+                issues=issues,
+            )
         return
     if isinstance(node, PointProduct):
         for index, factor in enumerate(node.factors):
-            _verify_domain_leaf_roles(
+            _verify_center_roles(
                 factor,
                 analysis=analysis,
                 path=(*path, "factors", index),
@@ -659,7 +532,7 @@ def _verify_domain_leaf_roles(
         return
     if isinstance(node, PointZip):
         for index, source in enumerate(node.sources):
-            _verify_domain_leaf_roles(
+            _verify_center_roles(
                 source,
                 analysis=analysis,
                 path=(*path, "sources", index),
@@ -668,29 +541,29 @@ def _verify_domain_leaf_roles(
             )
         return
     left_path = (*path, "left")
-    _verify_domain_leaf_roles(
+    _verify_center_roles(
         node.left,
         analysis=analysis,
         path=left_path,
         ambient_row=ambient_row,
         issues=issues,
     )
-    right_ambient = _extend_row_type(
-        ambient_row,
-        analysis.facts[left_path].value_type,
-    )
-    _verify_domain_leaf_roles(
+    _verify_center_roles(
         node.right,
         analysis=analysis,
         path=(*path, "right"),
-        ambient_row=right_ambient,
+        ambient_row=_extend_row_type(
+            ambient_row,
+            analysis.facts[left_path].value_type,
+        ),
         issues=issues,
     )
 
 
-def _verify_relation_leaf_role(
-    value: TableValueExpr,
+def _verify_center_role(
+    value: ScalarValueExpr,
     *,
+    expected_type: Scalar,
     path: PointDomainPath,
     ambient_row: RowType | None,
     issues: list[PointDomainVerificationIssue],
@@ -699,16 +572,15 @@ def _verify_relation_leaf_role(
     row_interface = plan.external_row_interface
     open_interface = (
         row_interface.current is not None
-        or row_interface.outer is not None
         or bool(row_interface.arguments)
         or (row_interface.point is not None and ambient_row is None)
     )
     if open_interface:
         issues.append(
             PointDomainVerificationIssue(
-                "point_domain_open_row_interface",
-                (*path, "rows"),
-                "point-domain relation has an unbound external row",
+                "point_axis_center_open_row_interface",
+                path,
+                "point-axis center has an unbound external row",
             )
         )
     if any(
@@ -716,9 +588,9 @@ def _verify_relation_leaf_role(
     ):
         issues.append(
             PointDomainVerificationIssue(
-                "point_domain_open_input",
-                (*path, "rows"),
-                "point-domain relation depends on an unresolved input",
+                "point_axis_center_open_input",
+                path,
+                "point-axis center depends on an unresolved input",
             )
         )
     if open_interface:
@@ -730,206 +602,65 @@ def _verify_relation_leaf_role(
                 plan.bindings,
                 point_row=ambient_row,
                 current_row=None,
-                outer_row=None,
                 row_arguments={},
             ),
-            expected_type=plan.certified_type,
+            expected_type=expected_type,
         )
     except RelationPlanVerificationError as error:
         issues.append(
             PointDomainVerificationIssue(
                 error.code,
-                (*path, "rows", *error.path),
+                (*path, *error.path),
                 error.reason,
             )
         )
         return
     if (
         reverified.certified_type != plan.certified_type
-        or reverified.facts != plan.facts
         or reverified.imports != plan.imports
-        or reverified.runtime_obligations != plan.runtime_obligations
         or reverified.external_row_interface != plan.external_row_interface
     ):
         issues.append(
             PointDomainVerificationIssue(
-                "point_domain_stale_relation_proof",
-                (*path, "rows"),
-                "point-domain relation proof does not match its structural role",
+                "point_axis_center_stale_proof",
+                path,
+                "point-axis center proof does not match its structural role",
             )
         )
 
 
 def _extend_row_type(parent: RowType | None, child: Table) -> RowType:
-    parent_columns = parent.columns if parent is not None else ()
     return RowType(
-        (*parent_columns, *child.columns),
-        (parent.allow_extra_columns if parent is not None else False)
+        (*(() if parent is None else parent.columns), *child.columns),
+        (False if parent is None else parent.allow_extra_columns)
         or child.allow_extra_columns,
     )
 
 
-def _materialize_node(
-    node: PointDomainExpr[TableValueExpr],
+def _merge_rows(rows: Sequence[Mapping[str, CellValue]]) -> Row:
+    return {key: value for row in rows for key, value in row.items()}
+
+
+def _coerce_rows(
+    value_type: Table,
+    rows: Sequence[Mapping[str, object]],
     *,
-    params: ParameterRelationData,
-    ambient_row: Row,
-    path: PointDomainPath,
-) -> list[Row]:
-    if isinstance(node, PointUnit):
-        return [{}]
-    if isinstance(node, PointRelationRows):
-        try:
-            return evaluate_relation_in_context(
-                node.rows.plan,
-                EvalContext(params=params, point_row=ambient_row),
-            )
-        except (ArithmeticError, KeyError, TypeError, ValueError) as error:
-            raise PointDomainEvaluationError((*path, "rows"), error) from error
-    if isinstance(node, PointProduct):
-        factor_rows = tuple(
-            _materialize_node(
-                factor,
-                params=params,
-                ambient_row=ambient_row,
-                path=(*path, "factors", index),
-            )
-            for index, factor in enumerate(node.factors)
-        )
-        return [_merge_row_group(group, path=path) for group in product(*factor_rows)]
-    if isinstance(node, PointZip):
-        source_rows = tuple(
-            _materialize_node(
-                source,
-                params=params,
-                ambient_row=ambient_row,
-                path=(*path, "sources", index),
-            )
-            for index, source in enumerate(node.sources)
-        )
-        lengths = tuple(len(rows) for rows in source_rows)
-        if len(set(lengths)) != 1:
-            error = ValueError(
-                "point zip sources materialized with unequal lengths: "
-                + ", ".join(str(length) for length in lengths)
-            )
-            raise PointDomainEvaluationError(path, error)
-        return [
-            _merge_row_group(group, path=path)
-            for group in zip(*source_rows, strict=True)
-        ]
-    left_rows = _materialize_node(
-        node.left,
-        params=params,
-        ambient_row=ambient_row,
-        path=(*path, "left"),
-    )
-    rows: list[Row] = []
-    for left in left_rows:
-        right_ambient = _merge_row_group(
-            (ambient_row, left),
-            path=(*path, "right"),
-        )
-        right_rows = _materialize_node(
-            node.right,
-            params=params,
-            ambient_row=right_ambient,
-            path=(*path, "right"),
-        )
-        rows.extend(_merge_row_group((left, right), path=path) for right in right_rows)
-    return rows
-
-
-def _merge_row_group(
-    rows: Sequence[Mapping[str, CellValue]],
-    *,
-    path: PointDomainPath,
-) -> Row:
-    merged: Row = {}
-    for row in rows:
-        duplicates = sorted(set(merged) & set(row))
-        if duplicates:
-            error = ValueError(
-                "point-domain rows contain duplicate columns: " + ", ".join(duplicates)
-            )
-            raise PointDomainEvaluationError(path, error)
-        merged.update(row)
-    return merged
-
-
-def _copy_domain(domain: PointDomain) -> PointDomain:
-    return PointDomain(
-        id=domain.id,
-        root=_copy_root(domain.root),
-        entity_columns=domain.entity_columns,
-    )
-
-
-def _copy_root(
-    root: CompilerPointDomainExpr,
-) -> CompilerPointDomainExpr:
-    return map_point_relation_rows(
-        root,
-        lambda value, _path: value,
-    )
-
-
-def _analyze(root: PointDomainExpr[TableValueExpr]) -> PointDomainAnalysis:
-    return analyze_point_domain(
-        root,
-        leaf_value_type=lambda value, _path: value.value_type,
-    )
-
-
-def _snapshot_row(row: Mapping[str, CellValue]) -> Row:
-    """Copy known mutable carriers while treating opaque payloads as atoms."""
-
-    return cast("Row", {key: _snapshot_value(value) for key, value in row.items()})
-
-
-def _snapshot_value(value: object) -> object:
-    if isinstance(value, PayloadValue):
-        return PayloadValue(
-            schema_id=value.schema_id,
-            payload=_snapshot_value(value.payload),
-        )
-    if isinstance(value, dict):
-        return {
-            key: _snapshot_value(item)
-            for key, item in cast("dict[object, object]", value).items()
-        }
-    if isinstance(value, list):
-        return [_snapshot_value(item) for item in cast("list[object]", value)]
-    if isinstance(value, tuple):
-        return tuple(
-            _snapshot_value(item) for item in cast("tuple[object, ...]", value)
-        )
-    return value
-
-
-def is_point_coordinate_type(value_type: Scalar) -> bool:
-    """Return whether a point value belongs to the dataset coordinate domain."""
-
-    return isinstance(
-        value_type.atom,
-        Bool | Int | Float | String | Quantity | Entity,
-    )
+    path: tuple[str | int, ...],
+) -> tuple[Row, ...]:
+    coerced = coerce_literal(value_type, rows, path=path)
+    return cast("tuple[Row, ...]", coerced)
 
 
 __all__ = [
     "CompilerPointDomainExpr",
     "MaterializedPoint",
     "MaterializedPointDomain",
-    "PointCardinality",
     "PointDomain",
     "PointDomainEvaluationError",
-    "PointDomainValueError",
     "PointDomainVerificationError",
     "PointDomainVerificationIssue",
     "PointRowNormalizer",
     "VerifiedPointDomain",
-    "VerifiedPointDomainRelation",
-    "is_point_coordinate_type",
     "materialize_point_domain",
     "materialize_point_domain_ordinals",
     "verify_point_domain",

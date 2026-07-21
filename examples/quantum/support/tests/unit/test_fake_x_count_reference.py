@@ -9,15 +9,12 @@ from scopecat.compiler.linking.linked import (
     LinkedPointMaterializer,
     materialize_linked_points,
 )
-from scopecat.compiler.relations.model import literal_rows
-from scopecat.compiler.relations.point_domain import point_rows
-from scopecat.compiler.relations.verification import RelationTypeBindings
+from scopecat.compiler.relations.point_domain import point_axis_values
 from scopecat.compiler.semantic.model import (
     DomainProgramId,
     DomainResultPortDef,
     MeasurementTransformId,
 )
-from scopecat.compiler.semantic.value_expressions import verify_table_value_expr
 from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
@@ -36,7 +33,7 @@ from scopecat.compiler.typed.program import (
 from scopecat.config.profiles import load_config_profile
 from scopecat.kernel.product_identity import product_use
 from scopecat.kernel.symbols import SymbolId
-from scopecat.kernel.value_types import Int, Scalar, Table, TableColumn
+from scopecat.kernel.value_types import Int, Scalar
 from scopecat.sdk.domain._bridge import (
     make_domain_batch_context,
     make_domain_compile_request,
@@ -70,24 +67,11 @@ _PROGRAM = quantum.program(
 
 
 def _linked_points():
-    point_type = Table(
-        columns=(TableColumn("program_length", Scalar(Int(minimum=0))),),
-        min_rows=3,
-        max_rows=3,
-    )
     point_domain = PointDomain(
-        root=point_rows(
-            verify_table_value_expr(
-                literal_rows(
-                    (
-                        {"program_length": 100},
-                        {"program_length": 100},
-                        {"program_length": 100},
-                    )
-                ),
-                bindings=RelationTypeBindings(),
-                expected_type=point_type,
-            )
+        root=point_axis_values(
+            "program_length",
+            Scalar(Int(minimum=0)),
+            (100, 100, 100),
         )
     )
     iq_shots = product_output(

@@ -13,7 +13,6 @@ from scopecat.compiler.relations.model import (
     SeriesExpr,
     as_scalar_expr,
     col,
-    grid,
     input_ref,
     literal_rows,
     point_col,
@@ -583,31 +582,6 @@ def test_semantic_graph_rejects_conflicting_point_column_types() -> None:
     assert _problem_codes(caught.value) == ["semantic_point_row_type_conflict"]
 
 
-def test_point_cross_internal_point_reference_does_not_raise_value_rate() -> None:
-    integer = Scalar(Int())
-    expected = Table(
-        columns=(TableColumn("axis", integer), TableColumn("copy", integer)),
-        min_rows=1,
-        max_rows=1,
-    )
-    expression = literal_rows([{"axis": 1}]).point_cross(grid(copy=point_col("axis")))
-    definition = ValueDef(
-        id=_value_id("internal-point"),
-        value_type=expected,
-        source=_plan_source(
-            expression,
-            expected_type=expected,
-            bindings=RelationTypeBindings(
-                point_row=RowType((TableColumn("unrelated", FLOAT),))
-            ),
-        ),
-    )
-
-    verified = verify_semantic_graph(SemanticGraphIR(value_defs=(definition,)))
-
-    assert verified.value_defs[definition.id] == definition
-
-
 def test_literal_source_captures_and_projects_by_value() -> None:
     literal = {"nested": [1]}
     source = LiteralValueSource(literal)
@@ -745,12 +719,10 @@ def test_row_region_binder_collision_is_rejected_before_graph_construction() -> 
     row_type = Table(columns=())
     with pytest.raises(RelationPlanVerificationError) as caught:
         verify_relation_plan(
-            literal_rows([])
-            .filter(
+            literal_rows([]).filter(
                 col("keep", row_scope_id=row_scope),
                 row_scope_id=row_scope,
-            )
-            .column("entity"),
+            ),
             bindings=RelationTypeBindings(
                 row_arguments={row_scope: RowType.from_table(row_type)}
             ),

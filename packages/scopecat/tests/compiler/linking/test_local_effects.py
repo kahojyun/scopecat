@@ -7,12 +7,13 @@ import pytest
 
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.relations.model import (
+    CellValue,
     RelationExpr,
     lit,
     literal_rows,
     point_col,
 )
-from scopecat.compiler.relations.point_domain import point_rows
+from scopecat.compiler.relations.point_domain import point_literal_rows
 from scopecat.compiler.relations.verification import (
     RelationPlanVerificationError,
     RelationTypeBindings,
@@ -45,7 +46,6 @@ from scopecat.execution.local.program import (
     OutputInput,
 )
 from scopecat.kernel.content_identity import content_fingerprint
-from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
@@ -55,7 +55,6 @@ from scopecat.kernel.state import PayloadRef
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import (
     Bool,
-    Entity,
     Float,
     Int,
     Payload,
@@ -65,7 +64,6 @@ from scopecat.kernel.value_types import (
     TableColumn,
 )
 from scopecat.kernel.value_types import Quantity as QuantityType
-from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import Quantity
 from tests.testkit.authoring import load_config
 from tests.testkit.local_materialization import (
@@ -142,15 +140,10 @@ def _mapping_size(*, payload: Mapping[object, object]) -> float:
 
 
 def _point_domain(
-    expression: RelationExpr,
+    rows: tuple[tuple[CellValue, ...], ...],
     value_type: Table,
-    *,
-    entity_columns: tuple[str, ...] = (),
 ) -> PointDomain:
-    return PointDomain(
-        root=point_rows(table_value_expr(expression, expected_type=value_type)),
-        entity_columns=entity_columns,
-    )
+    return PointDomain(root=point_literal_rows(value_type.columns, rows))
 
 
 def _point_bindings(value_type: Table) -> RelationTypeBindings:
@@ -185,7 +178,7 @@ def test_bound_state_preserves_primitive_field_types(
         id="primitive-state",
         kind="compiler_test",
         point_domain=_point_domain(
-            literal_rows([{}]),
+            ((),),
             Table(columns=(), min_rows=1, max_rows=1),
         ),
         resource_requirements=(
@@ -237,7 +230,7 @@ def test_effects_use_logical_point_and_content_addressed_payload_identity() -> N
         id="bound-identity",
         kind="compiler_test",
         point_domain=_point_domain(
-            literal_rows([{"value": 1.0}, {"value": 1.0}, {"value": 2.0}]),
+            ((1.0,), (1.0,), (2.0,)),
             point_type,
         ),
         compute_nodes=(
@@ -383,43 +376,6 @@ def test_point_domain_rejects_invalid_table_contract_before_binding(
     assert caught.value.code == "invalid_literal"
 
 
-def test_point_domain_rechecks_primary_key_after_config_entity_normalization() -> None:
-    point_type = Table(
-        columns=(TableColumn("subject", Scalar(Entity())),),
-        primary_key=("subject",),
-    )
-    program = typed_program(
-        id="normalized-entity-primary-key",
-        kind="compiler_test",
-        point_domain=_point_domain(
-            literal_rows(
-                [
-                    {"subject": "q0"},
-                    {
-                        "subject": EntityRef(
-                            id="q0",
-                            kind="logical_device",
-                        )
-                    },
-                ]
-            ),
-            point_type,
-            entity_columns=("subject",),
-        ),
-    )
-
-    with pytest.raises(CheckFailed) as failure:
-        materialize_local_execution(
-            link_program(program, validate_config_environment(load_config()))
-        )
-    problem = next(
-        problem
-        for problem in failure.value.problems
-        if problem.code == "module_point_value_type_mismatch"
-    )
-    assert "duplicates row 0" in problem.message
-
-
 def test_compute_inputs_are_normalized_before_binding() -> None:
     node_id = _operation_id("normalize-frequency")
     point_type = Table(
@@ -434,11 +390,9 @@ def test_compute_inputs_are_normalized_before_binding() -> None:
         id="normalized-compute-input",
         kind="compiler_test",
         point_domain=_point_domain(
-            literal_rows(
-                [
-                    {"frequency": Quantity(value=5000.0, unit="MHz")},
-                    {"frequency": Quantity(value=5.0, unit="GHz")},
-                ]
+            (
+                (Quantity(value=5000.0, unit="MHz"),),
+                (Quantity(value=5.0, unit="GHz"),),
             ),
             point_type,
         ),
@@ -501,21 +455,19 @@ def test_compute_mapping_inputs_preserve_key_types_and_values() -> None:
         id="mapping-fingerprint",
         kind="compiler_test",
         point_domain=_point_domain(
-            literal_rows(
-                [
-                    {
-                        "payload": PayloadValue(
-                            schema_id="mapping",
-                            payload={1: "a", "1": "b"},
-                        )
-                    },
-                    {
-                        "payload": PayloadValue(
-                            schema_id="mapping",
-                            payload={1: "z", "1": "b"},
-                        )
-                    },
-                ]
+            (
+                (
+                    PayloadValue(
+                        schema_id="mapping",
+                        payload={1: "a", "1": "b"},
+                    ),
+                ),
+                (
+                    PayloadValue(
+                        schema_id="mapping",
+                        payload={1: "z", "1": "b"},
+                    ),
+                ),
             ),
             point_type,
         ),
@@ -555,15 +507,13 @@ def test_opaque_point_value_does_not_participate_in_logical_identity() -> None:
         id="opaque-point",
         kind="compiler_test",
         point_domain=_point_domain(
-            literal_rows(
-                [
-                    {
-                        "payload": PayloadValue(
-                            schema_id="opaque",
-                            payload=object(),
-                        )
-                    }
-                ]
+            (
+                (
+                    PayloadValue(
+                        schema_id="opaque",
+                        payload=object(),
+                    ),
+                ),
             ),
             Table(
                 columns=(TableColumn("payload", Scalar(Payload("opaque"))),),

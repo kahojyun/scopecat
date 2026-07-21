@@ -1,170 +1,273 @@
 from __future__ import annotations
 
-from scopecat.compiler.relations.model import grid, linspace, literal_rows, point_col
-from scopecat.compiler.relations.point_domain import (
-    point_dependent_product,
-    point_rows,
+from typing import cast
+
+import pytest
+
+from scopecat.compiler.relations.evaluation import ParameterRelationData
+from scopecat.compiler.relations.model import (
+    CellValue,
+    ScalarExpr,
+    lit,
+    param,
+    point_col,
 )
+from scopecat.compiler.relations.point_domain import (
+    PointAxis,
+    point_axis_linear,
+    point_axis_values,
+    point_dependent_product,
+    point_literal_rows,
+    point_product,
+    point_zip,
+)
+from scopecat.compiler.relations.uses import RelationUse, relation_use
 from scopecat.compiler.relations.verification import RelationTypeBindings, RowType
-from scopecat.compiler.semantic.value_expressions import verify_table_value_expr
+from scopecat.compiler.semantic.value_expressions import (
+    ScalarValueExpr,
+    verify_scalar_value_expr,
+)
 from scopecat.compiler.typed.iteration import (
-    PointIterationDependent,
-    PointIterationLeaf,
     analyze_point_iteration_layout,
 )
-from scopecat.compiler.typed.point_domain import PointDomain, verify_point_domain
-from scopecat.kernel.value_types import Float, Int, Scalar, Table, TableColumn
+from scopecat.compiler.typed.point_domain import (
+    CompilerPointDomainExpr,
+    PointDomain,
+    VerifiedPointDomain,
+    materialize_point_domain,
+    verify_point_domain,
+)
+from scopecat.kernel.value_types import (
+    Int,
+    Scalar,
+    Table,
+    TableColumn,
+)
+from scopecat.kernel.value_types import (
+    Quantity as QuantityType,
+)
+from scopecat.records.parameter import Quantity
+
+_INT = Scalar(Int())
+_FREQUENCY = Scalar(QuantityType(unit="GHz"))
+_SPAN = Quantity(value=2.0, unit="GHz")
 
 
-def test_finite_grid_preserves_fast_and_slow_axis_strides() -> None:
-    table_type = Table(
-        (TableColumn("slow", Scalar(Int())), TableColumn("fast", Scalar(Int()))),
-        min_rows=6,
-        max_rows=6,
-    )
-    domain = PointDomain(
-        point_rows(
-            verify_table_value_expr(
-                grid(slow=[10, 20], fast=[1, 2, 3]),
-                bindings=RelationTypeBindings(),
-                expected_type=table_type,
-            )
+def _center(
+    expression: ScalarExpr,
+    *,
+    bindings: RelationTypeBindings | None = None,
+) -> RelationUse[ScalarValueExpr]:
+    return relation_use(
+        verify_scalar_value_expr(
+            expression,
+            bindings=bindings or RelationTypeBindings(),
+            expected_type=_FREQUENCY,
         )
     )
 
-    layout = analyze_point_iteration_layout(
-        verify_point_domain(domain, program_id="finite-grid")
+
+def _verify(
+    root: CompilerPointDomainExpr,
+    *,
+    program_id: str,
+) -> VerifiedPointDomain:
+    return verify_point_domain(PointDomain(root), program_id=program_id)
+
+
+def _values_axis(
+    axis_id: str,
+    value_type: Scalar,
+    values: tuple[CellValue, ...],
+) -> PointAxis[RelationUse[ScalarValueExpr]]:
+    return cast(
+        "PointAxis[RelationUse[ScalarValueExpr]]",
+        point_axis_values(axis_id, value_type, values),
     )
 
-    assert isinstance(layout.root, PointIterationLeaf)
+
+def test_explicit_axes_project_exact_product_strides_and_partitions() -> None:
+    verified = _verify(
+        point_product(
+            _values_axis("slow", _INT, (10, 20)),
+            _values_axis("fast", _INT, (1, 2, 3)),
+        ),
+        program_id="explicit-product",
+    )
+
+    layout = analyze_point_iteration_layout(verified)
+
+    assert layout.preferred_tile_size == 3
+    assert tuple(axis.id for axis in layout.axes) == ("slow", "fast")
     slow = layout.axis("slow")
     fast = layout.axis("fast")
-    assert slow is not None and slow.values == (10, 20) and slow.repeat_each == 3
-    assert fast is not None and fast.values == (1, 2, 3) and fast.repeat_each == 1
-
-
-def test_literal_linspace_is_an_exact_finite_axis() -> None:
-    table_type = Table(
-        (TableColumn("x", Scalar(Float())),),
-        min_rows=3,
-        max_rows=3,
-    )
-    domain = PointDomain(
-        point_rows(
-            verify_table_value_expr(
-                grid(x=linspace(0.0, 1.0, 3)),
-                bindings=RelationTypeBindings(),
-                expected_type=table_type,
-            )
-        )
-    )
-
-    layout = analyze_point_iteration_layout(
-        verify_point_domain(domain, program_id="finite-linspace")
-    )
-
-    axis = layout.axis("x")
-    assert axis is not None
-    assert axis.values == (0.0, 0.5, 1.0)
-
-
-def test_dependent_product_retains_outer_layout_and_inner_boundary() -> None:
-    left_type = Table(
-        (TableColumn("center", Scalar(Float())),),
-        min_rows=2,
-        max_rows=2,
-    )
-    right_type = Table(
-        (TableColumn("offset", Scalar(Float())),),
-        min_rows=2,
-        max_rows=2,
-    )
-    left = point_rows(
-        verify_table_value_expr(
-            literal_rows(({"center": 1.0}, {"center": 2.0})),
-            bindings=RelationTypeBindings(),
-            expected_type=left_type,
-        )
-    )
-    right = point_rows(
-        verify_table_value_expr(
-            grid(
-                offset=linspace(
-                    point_col("center"),
-                    point_col("center") + 1.0,
-                    2,
-                )
-            ),
-            bindings=RelationTypeBindings(point_row=RowType.from_table(left_type)),
-            expected_type=right_type,
-        )
-    )
-
-    layout = analyze_point_iteration_layout(
-        verify_point_domain(
-            PointDomain(point_dependent_product(left, right)),
-            program_id="dependent-layout",
-        )
-    )
-
-    assert isinstance(layout.root, PointIterationDependent)
-    assert isinstance(layout.root.left, PointIterationLeaf)
-    assert isinstance(layout.root.right, PointIterationLeaf)
-    assert layout.root.right.axis_ids == ()
-    assert layout.root.right.extent == 2
-    assert layout.root.extent == 4
-    center = layout.axis("center")
-    assert center is not None and center.repeat_each == 2
-
-
-def test_mixed_grid_retains_static_axis_around_opaque_values() -> None:
-    left_type = Table(
-        (TableColumn("center", Scalar(Float())),),
-        min_rows=2,
-        max_rows=2,
-    )
-    right_type = Table(
-        (
-            TableColumn("slow", Scalar(Float())),
-            TableColumn("fast", Scalar(Int())),
-        ),
-        min_rows=6,
-        max_rows=6,
-    )
-    left = point_rows(
-        verify_table_value_expr(
-            literal_rows(({"center": 1.0}, {"center": 2.0})),
-            bindings=RelationTypeBindings(),
-            expected_type=left_type,
-        )
-    )
-    right = point_rows(
-        verify_table_value_expr(
-            grid(
-                slow=linspace(
-                    point_col("center"),
-                    point_col("center") + 1.0,
-                    2,
-                ),
-                fast=[1, 2, 3],
-            ),
-            bindings=RelationTypeBindings(point_row=RowType.from_table(left_type)),
-            expected_type=right_type,
-        )
-    )
-
-    layout = analyze_point_iteration_layout(
-        verify_point_domain(
-            PointDomain(point_dependent_product(left, right)),
-            program_id="mixed-grid-layout",
-        )
-    )
-
-    assert isinstance(layout.root, PointIterationDependent)
-    assert isinstance(layout.root.right, PointIterationLeaf)
-    assert layout.root.right.extent == 6
-    assert layout.root.right.axis_ids == ("fast",)
-    fast = layout.axis("fast")
+    assert slow is not None
+    assert slow.values == (10, 20)
+    assert slow.repeat_each == 3
     assert fast is not None
     assert fast.values == (1, 2, 3)
     assert fast.repeat_each == 1
+    assert layout.partition(("slow",), range(6)) == ((0, 1, 2), (3, 4, 5))
+
+
+def test_literal_rows_project_each_coordinate_column_as_an_exact_axis() -> None:
+    rows_type = Table(
+        (
+            TableColumn("slow", _INT),
+            TableColumn("fast", _INT),
+        ),
+        min_rows=3,
+        max_rows=3,
+    )
+    verified = _verify(
+        point_literal_rows(
+            rows_type.columns,
+            (
+                (10, 1),
+                (10, 2),
+                (20, 1),
+            ),
+        ),
+        program_id="literal-rows",
+    )
+
+    layout = analyze_point_iteration_layout(verified)
+
+    assert layout.preferred_tile_size == 3
+    assert tuple(axis.id for axis in layout.axes) == ("slow", "fast")
+    slow = layout.axis("slow")
+    fast = layout.axis("fast")
+    assert slow is not None and slow.values == (10, 10, 20)
+    assert fast is not None and fast.values == (1, 2, 1)
+    assert slow.repeat_each == fast.repeat_each == 1
+    assert layout.partition(("slow",), range(3)) == ((0, 1), (2,))
+
+
+def test_literal_center_linear_axis_has_lazy_known_exact_values() -> None:
+    verified = _verify(
+        point_axis_linear(
+            "frequency",
+            _FREQUENCY,
+            _center(lit(Quantity(value=5.0, unit="GHz"))),
+            _SPAN,
+            3,
+        ),
+        program_id="literal-linear",
+    )
+
+    layout = analyze_point_iteration_layout(verified)
+
+    assert layout.preferred_tile_size == 3
+    assert tuple(axis.id for axis in layout.axes) == ("frequency",)
+    frequency = layout.axis("frequency")
+    assert frequency is not None
+    assert frequency.values_at(range(3)) == (
+        Quantity(value=4.0, unit="GHz"),
+        Quantity(value=5.0, unit="GHz"),
+        Quantity(value=6.0, unit="GHz"),
+    )
+    assert frequency.repeat_each == 1
+
+
+def test_parameter_center_linear_axis_uses_materialized_partition_fallback() -> None:
+    verified = _verify(
+        point_axis_linear(
+            "frequency",
+            _FREQUENCY,
+            _center(
+                param("center"),
+                bindings=RelationTypeBindings(parameters={"center": _FREQUENCY}),
+            ),
+            _SPAN,
+            3,
+        ),
+        program_id="parameter-linear",
+    )
+    layout = analyze_point_iteration_layout(verified)
+
+    assert layout.preferred_tile_size == 3
+    assert layout.axes == ()
+    assert layout.axis("frequency") is None
+    with pytest.raises(KeyError, match="materialized axis value"):
+        layout.partition(("frequency",), range(3))
+
+    materialized = materialize_point_domain(
+        verified,
+        ParameterRelationData(scalars={"center": Quantity(value=5.0, unit="GHz")}),
+    )
+    rows = {point.logical_ordinal: point.row for point in materialized.points}
+
+    assert layout.partition(("frequency",), range(3), rows=rows) == (
+        (0,),
+        (1,),
+        (2,),
+    )
+
+
+def test_zip_layout_and_partition_preserve_positional_axes() -> None:
+    verified = _verify(
+        point_zip(
+            _values_axis("left", _INT, (1, 1, 2)),
+            _values_axis("right", _INT, (10, 20, 20)),
+        ),
+        program_id="zip-layout",
+    )
+
+    layout = analyze_point_iteration_layout(verified)
+
+    assert layout.preferred_tile_size == 3
+    assert tuple(axis.id for axis in layout.axes) == ("left", "right")
+    assert layout.axis("left") is not None
+    assert layout.axis("right") is not None
+    assert layout.partition(("left",), range(3)) == ((0, 1), (2,))
+    assert layout.partition(("right",), range(3)) == ((0,), (1, 2))
+
+
+def test_dependent_layout_uses_outer_stride_and_materialized_inner_axis() -> None:
+    center_axis = _values_axis(
+        "center",
+        _FREQUENCY,
+        (
+            Quantity(value=5.0, unit="GHz"),
+            Quantity(value=7.0, unit="GHz"),
+        ),
+    )
+    center_row = RowType.from_table(
+        Table(
+            (TableColumn("center", _FREQUENCY),),
+            min_rows=2,
+            max_rows=2,
+        )
+    )
+    frequency_axis = point_axis_linear(
+        "frequency",
+        _FREQUENCY,
+        _center(
+            point_col("center"),
+            bindings=RelationTypeBindings(point_row=center_row),
+        ),
+        _SPAN,
+        2,
+    )
+    verified = _verify(
+        point_dependent_product(center_axis, frequency_axis),
+        program_id="dependent-layout",
+    )
+
+    layout = analyze_point_iteration_layout(verified)
+
+    assert layout.preferred_tile_size == 2
+    assert tuple(axis.id for axis in layout.axes) == ("center",)
+    center = layout.axis("center")
+    assert center is not None and center.repeat_each == 2
+    assert layout.axis("frequency") is None
+
+    materialized = materialize_point_domain(verified, ParameterRelationData())
+    rows = {point.logical_ordinal: point.row for point in materialized.points}
+
+    assert layout.partition(("center",), range(4)) == ((0, 1), (2, 3))
+    assert layout.partition(("frequency",), range(4), rows=rows) == (
+        (0,),
+        (1, 2),
+        (3,),
+    )

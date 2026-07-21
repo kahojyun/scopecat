@@ -14,10 +14,8 @@ from scopecat.authoring._point_domain_intents import (
 from scopecat.authoring._value_refs import (
     ValueRef,
     internal_lower_scalar_value_ref,
-    internal_lower_table_value_ref,
     internal_lower_value_ref,
-    internal_value_ref_bound_point_input_ids,
-    internal_value_ref_free_point_input_ids,
+    internal_value_ref_scalar_input_ids,
 )
 from scopecat.authoring.value_types import Table as TableType
 from scopecat.authoring.value_types import (
@@ -37,7 +35,6 @@ from scopecat.compiler.frontend.problems import (
     raise_frontend_problem,
 )
 from scopecat.compiler.frontend.value_binding import (
-    bind_relation_input_refs,
     bind_scalar_input_refs,
     bind_value_input_refs,
     input_cell,
@@ -56,17 +53,20 @@ from scopecat.compiler.relations.model import (
 )
 from scopecat.compiler.relations.point_domain import (
     POINT_UNIT,
+    PointAxis,
+    PointAxisLinear,
+    PointAxisValues,
     PointDependentProduct,
     PointDomainAnalysis,
     PointDomainExpr,
     PointDomainPath,
     PointProduct,
-    PointRelationRows,
+    PointRows,
     PointUnit,
     PointZip,
     analyze_point_domain,
 )
-from scopecat.compiler.relations.uses import relation_use
+from scopecat.compiler.relations.uses import RelationUse, relation_use
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
@@ -177,6 +177,8 @@ def validate_entity_inputs(
         if input_id not in inputs:
             continue
         value = inputs.get(input_id)
+        if isinstance(value, ValueRef):
+            continue
         try:
             if isinstance(value, str) and value:
                 resolve_entity(topology, value)
@@ -680,11 +682,16 @@ def point_domain_input_dependencies(
     def visit(node: PointDomainIntent) -> tuple[set[str], set[str]]:
         if isinstance(node, PointUnit):
             return set(), set()
-        if isinstance(node, PointRelationRows):
+        if isinstance(node, PointRows):
+            return set(), set()
+        if isinstance(node, PointAxis):
+            source = node.source
+            if isinstance(source, PointAxisValues):
+                return set(), set()
+            center = source.center
             return (
-                _nested_input_dependencies(node.rows, inputs=inputs)
-                - internal_value_ref_bound_point_input_ids(node.rows),
-                set(internal_value_ref_free_point_input_ids(node.rows)),
+                _nested_input_dependencies(center, inputs=inputs),
+                set(internal_value_ref_scalar_input_ids(center)),
             )
         if isinstance(node, PointProduct):
             children = tuple(visit(factor) for factor in node.factors)
@@ -734,7 +741,6 @@ def _nested_input_dependencies(
                 bind_value_input_refs(
                     lowered,
                     inputs,
-                    preserve_unbound_inputs=True,
                 )
             )
         )
@@ -776,14 +782,10 @@ def lower_point_domain(
     *,
     inputs: Mapping[str, object],
     type_bindings: RelationTypeBindings,
-    entity_input_ids: Sequence[str] = (),
 ) -> PointDomain:
-    """Bind and verify every relation leaf under its exact algebra role."""
+    """Bind and verify each linear-axis center in its exact point scope."""
 
-    analysis = analyze_point_domain(
-        point_domain,
-        leaf_value_type=_point_domain_leaf_value_type,
-    )
+    analysis = analyze_point_domain(point_domain)
     root = _lower_point_domain_node(
         point_domain,
         path=(),
@@ -792,16 +794,7 @@ def lower_point_domain(
         inputs=inputs,
         type_bindings=type_bindings,
     )
-    value_type = analysis.root.value_type
-    point_column_ids = {column.id for column in value_type.columns}
-    return PointDomain(
-        root=root,
-        entity_columns=tuple(
-            column_id
-            for column_id in dict.fromkeys(entity_input_ids)
-            if column_id in point_column_ids
-        ),
-    )
+    return PointDomain(root=root)
 
 
 def _lower_point_domain_node(
@@ -812,21 +805,40 @@ def _lower_point_domain_node(
     analysis: PointDomainAnalysis,
     inputs: Mapping[str, object],
     type_bindings: RelationTypeBindings,
-) -> PointDomainExpr[TableValueExpr]:
+) -> PointDomainExpr[RelationUse[ScalarValueExpr]]:
     if isinstance(node, PointUnit):
         return POINT_UNIT
-    if isinstance(node, PointRelationRows):
-        value_type = _point_domain_leaf_value_type(node.rows, path)
-        return PointRelationRows(
-            verify_value_expr(
-                bind_relation_input_refs(
-                    internal_lower_table_value_ref(node.rows),
+    if isinstance(node, PointRows):
+        return PointRows(
+            columns=tuple(node.columns),
+            rows=tuple(tuple(row) for row in node.rows),
+        )
+    if isinstance(node, PointAxis):
+        source = node.source
+        if isinstance(source, PointAxisValues):
+            return PointAxis(
+                id=node.id,
+                value_type=node.value_type,
+                source=PointAxisValues(values=tuple(source.values)),
+            )
+        center = relation_use(
+            verify_scalar_value_expr(
+                bind_scalar_input_refs(
+                    internal_lower_scalar_value_ref(source.center),
                     inputs,
                 ),
                 bindings=replace(type_bindings, point_row=ambient_row),
-                expected_type=value_type,
+                expected_type=node.value_type,
+            )
+        )
+        return PointAxis(
+            id=node.id,
+            value_type=node.value_type,
+            source=PointAxisLinear(
+                center=center,
+                span=source.span,
+                count=source.count,
             ),
-            relation_use_id=node.relation_use_id,
         )
     if isinstance(node, PointProduct):
         return PointProduct(
@@ -878,17 +890,6 @@ def _lower_point_domain_node(
         type_bindings=type_bindings,
     )
     return PointDependentProduct(left, right)
-
-
-def _point_domain_leaf_value_type(
-    value: ValueRef,
-    _path: PointDomainPath,
-) -> TableType:
-    value_type = value.value_type
-    if not isinstance(value_type, TableType):
-        msg = "point-domain relation leaf must be table-shaped"
-        raise TypeError(msg)
-    return value_type
 
 
 def _extend_point_row(parent: RowType | None, child: TableType) -> RowType:

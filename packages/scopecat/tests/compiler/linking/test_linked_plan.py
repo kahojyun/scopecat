@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
 from dataclasses import replace
 from typing import cast
 
@@ -18,34 +17,34 @@ from scopecat.compiler.relations.evaluation import (
     ParameterRelationData,
 )
 from scopecat.compiler.relations.model import (
-    RelationExpr,
-    grid,
+    CellValue,
+    ScalarExpr,
     input_ref,
-    lit,
-    literal_rows,
     param,
-    parameter_series,
     point_col,
-    table,
 )
 from scopecat.compiler.relations.point_domain import (
     POINT_UNIT,
+    PointAxis,
     PointDependentProduct,
     PointProduct,
-    PointRelationRows,
+    PointRows,
     PointUnit,
     PointZip,
+    point_axis_linear,
+    point_axis_values,
     point_dependent_product,
+    point_literal_rows,
     point_product,
-    point_rows,
     point_zip,
 )
+from scopecat.compiler.relations.uses import RelationUse, relation_use
 from scopecat.compiler.relations.verification import (
     ParameterLookupSignature,
     RelationTypeBindings,
     RowType,
 )
-from scopecat.compiler.semantic.value_expressions import TableValueExpr
+from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     AcquireSpec,
@@ -55,7 +54,10 @@ from scopecat.compiler.typed.program import (
     record_product,
     set_state_field,
 )
-from scopecat.compiler.typed.verification import seal_typed_program
+from scopecat.compiler.typed.verification import (
+    ProgramRelationConsumerKind,
+    seal_typed_program,
+)
 from scopecat.execution.local.program import CollectOperation
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
@@ -69,69 +71,116 @@ from scopecat.kernel.value_types import (
     Entity,
     Float,
     Scalar,
-    Series,
     String,
     Table,
     TableColumn,
 )
+from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.records.entity import EntityRef
+from scopecat.records.parameter import Quantity
 from tests.testkit.authoring import load_config
 from tests.testkit.local_materialization import (
     materialize_local_execution,
     operations_of_type,
 )
-from tests.testkit.relation_plans import scalar_value_expr, table_value_expr
+from tests.testkit.relation_plans import (
+    scalar_value_expr,
+)
 from tests.testkit.typed_program import instrument_acquisition, link_program
 
 _FLOAT = Scalar(Float())
+_FREQUENCY = Scalar(QuantityType(unit="GHz"))
+_SPAN = Quantity(value=2.0, unit="GHz")
 
 
-def _table(column: str, rows: int) -> Table:
+def _table(column: str, value_type: Scalar, rows: int) -> Table:
     return Table(
-        columns=(TableColumn(column, _FLOAT),),
+        columns=(TableColumn(column, value_type),),
         min_rows=rows,
         max_rows=rows,
     )
 
 
-def _rows(
-    column: str,
-    values: Sequence[float],
-) -> PointRelationRows[TableValueExpr]:
-    value_type = _table(column, len(values))
-    return point_rows(
-        table_value_expr(
-            literal_rows([{column: value} for value in values]),
-            expected_type=value_type,
-        )
+def _values_axis(
+    axis_id: str,
+    value_type: Scalar,
+    values: tuple[CellValue, ...],
+) -> PointAxis[RelationUse[ScalarValueExpr]]:
+    return cast(
+        "PointAxis[RelationUse[ScalarValueExpr]]",
+        point_axis_values(axis_id, value_type, values),
     )
 
 
-def _dependent_row(
-    column: str,
+def _linear_axis(
+    axis_id: str,
+    expression: ScalarExpr,
+    *,
+    bindings: RelationTypeBindings | None = None,
+    count: int = 2,
+) -> PointAxis[RelationUse[ScalarValueExpr]]:
+    return point_axis_linear(
+        axis_id,
+        _FREQUENCY,
+        relation_use(
+            scalar_value_expr(
+                expression,
+                bindings=bindings,
+                expected_type=_FREQUENCY,
+            )
+        ),
+        _SPAN,
+        count,
+    )
+
+
+def _dependent_axis(
+    axis_id: str,
     *,
     source: str,
-    offset: float,
-) -> PointRelationRows[TableValueExpr]:
-    return point_rows(
-        table_value_expr(
-            grid(**{column: point_col(source) + offset}),
-            bindings=RelationTypeBindings(
-                point_row=RowType.from_table(_table(source, 2))
-            ),
-            expected_type=_table(column, 1),
-        )
+    offset: Quantity,
+) -> PointAxis[RelationUse[ScalarValueExpr]]:
+    return _linear_axis(
+        axis_id,
+        point_col(source) + offset,
+        bindings=RelationTypeBindings(
+            point_row=RowType.from_table(_table(source, _FREQUENCY, 2))
+        ),
+    )
+
+
+def _entity_rows(
+    values: tuple[CellValue, ...],
+) -> PointRows:
+    return point_literal_rows(
+        (TableColumn("subject", Scalar(Entity())),),
+        tuple((value,) for value in values),
     )
 
 
 def _symbolic_program() -> CoreProgram:
     root = point_product(
-        _rows("a", (1.0, 2.0)),
+        _values_axis("a", _FLOAT, (1.0,)),
         point_dependent_product(
-            _rows("b", (10.0, 20.0)),
+            _values_axis(
+                "b",
+                _FREQUENCY,
+                (
+                    Quantity(value=5.0, unit="GHz"),
+                    Quantity(value=7.0, unit="GHz"),
+                ),
+            ),
             point_zip(
-                _dependent_row("c", source="b", offset=100.0),
-                _dependent_row("d", source="b", offset=1000.0),
+                _dependent_axis(
+                    "c",
+                    source="b",
+                    offset=Quantity(value=1.0, unit="GHz"),
+                ),
+                _dependent_axis(
+                    "d",
+                    source="b",
+                    offset=Quantity(value=2.0, unit="GHz"),
+                ),
             ),
         ),
     )
@@ -187,18 +236,24 @@ def test_link_retains_symbolic_backend_neutral_domain() -> None:
     second = linked.point_domain.root.factors[1]
     assert isinstance(second, PointDependentProduct)
     assert isinstance(second.right, PointZip)
-    assert linked.cardinality.minimum == 4
-    assert linked.cardinality.maximum == 4
-    assert linked.coordinate_ids == ("a", "b", "c", "d")
+    assert linked.cardinality == 4
+    assert tuple(column.id for column in linked.point_domain.coordinate_columns) == (
+        "a",
+        "b",
+        "c",
+        "d",
+    )
     assert linked.product_defs == program.product_defs
     assert linked.program.effects == program.effects
     assert linked.product_uses == program.product_uses
     assert linked.record_uses == program.record_uses
-    assert tuple(relation.path for relation in linked.point_domain.relation_leaves) == (
-        ("factors", 0),
-        ("factors", 1, "left"),
-        ("factors", 1, "right", "sources", 0),
-        ("factors", 1, "right", "sources", 1),
+    assert tuple(
+        consumer.location.path
+        for consumer in linked.verified_program.relation_consumers
+        if consumer.kind is ProgramRelationConsumerKind.POINT_AXIS_CENTER
+    ) == (
+        ("factors", 1, "right", "sources", 0, "source", "center"),
+        ("factors", 1, "right", "sources", 1, "source", "center"),
     )
 
 
@@ -212,10 +267,12 @@ def test_link_retains_unit_domain() -> None:
     linked = link_program(program, _environment())
 
     assert isinstance(linked.point_domain.root, PointUnit)
-    assert linked.cardinality.minimum == 1
-    assert linked.cardinality.maximum == 1
-    assert linked.point_domain.relation_leaves == ()
-    assert linked.coordinate_ids == ()
+    assert linked.cardinality == 1
+    assert all(
+        consumer.kind is not ProgramRelationConsumerKind.POINT_AXIS_CENTER
+        for consumer in linked.verified_program.relation_consumers
+    )
+    assert linked.point_domain.coordinate_columns == ()
 
 
 def test_raw_link_retains_immutable_metadata_and_accepted_environment() -> None:
@@ -290,13 +347,10 @@ def test_link_reports_environment_problems_without_target_selection() -> None:
         _environment(),
         problems=(environment_problem,),
     )
-    expression = grid(x=lit(1.0) + 2.0)
     program = CoreProgram(
         id="rejected-linked-plan",
         kind="compiler_test",
-        point_domain=PointDomain(
-            root=point_rows(table_value_expr(expression, expected_type=_table("x", 1)))
-        ),
+        point_domain=PointDomain(root=_values_axis("x", _FLOAT, (3.0,))),
     )
     with pytest.raises(CheckFailed) as caught:
         link_program(program, environment)
@@ -336,38 +390,17 @@ def test_link_aggregates_environment_and_program_seal_problems() -> None:
 
 
 @pytest.mark.parametrize(
-    ("expression", "bindings", "value_type"),
+    ("expression", "bindings"),
     (
         (
-            grid(value=param("definitely_missing")),
-            RelationTypeBindings(parameters={"definitely_missing": _FLOAT}),
-            _table("value", 1),
+            param("definitely_missing"),
+            RelationTypeBindings(parameters={"definitely_missing": _FREQUENCY}),
         ),
         (
-            grid(value=parameter_series("definitely_missing")),
-            RelationTypeBindings(
-                parameters={
-                    "definitely_missing": Series(
-                        _FLOAT,
-                        min_length=1,
-                        max_length=1,
-                    )
-                }
-            ),
-            _table("value", 1),
-        ),
-        (
-            table("definitely_missing"),
-            RelationTypeBindings(parameters={"definitely_missing": _table("value", 1)}),
-            _table("value", 1),
-        ),
-        (
-            grid(
-                value=param(
-                    "definitely_missing",
-                    key={"key": "selected"},
-                    column="value",
-                )
+            param(
+                "definitely_missing",
+                key={"key": "selected"},
+                column="value",
             ),
             RelationTypeBindings(
                 parameter_lookups=(
@@ -375,31 +408,23 @@ def test_link_aggregates_environment_and_program_seal_problems() -> None:
                         table_id="definitely_missing",
                         key_input_types=(("key", Scalar(String())),),
                         column_id="value",
-                        result_type=_FLOAT,
+                        result_type=_FREQUENCY,
                     ),
                 )
             ),
-            _table("value", 1),
         ),
     ),
-    ids=("scalar", "series", "table", "lookup"),
+    ids=("scalar-center", "lookup-center"),
 )
-def test_link_closes_every_used_parameter_import(
-    expression: RelationExpr,
+def test_link_closes_every_used_axis_center_parameter_import(
+    expression: ScalarExpr,
     bindings: RelationTypeBindings,
-    value_type: Table,
 ) -> None:
     program = CoreProgram(
         id="missing-parameter-link",
         kind="compiler_test",
         point_domain=PointDomain(
-            root=point_rows(
-                table_value_expr(
-                    expression,
-                    bindings=bindings,
-                    expected_type=value_type,
-                )
-            )
+            root=_linear_axis("value", expression, bindings=bindings)
         ),
     )
 
@@ -411,6 +436,7 @@ def test_link_closes_every_used_parameter_import(
     )
     assert caught.value.problems[0].phase is ProblemPhase.PLANNING
     assert caught.value.problems[0].category is ProblemCategory.NOT_FOUND
+    assert caught.value.problems[0].details["consumer_kind"] == "point_axis_center"
     assert caught.value.problems[0].details["parameter_id"] == "definitely_missing"
 
 
@@ -420,18 +446,16 @@ def test_link_checks_parameter_values_against_each_used_proof_contract() -> None
         id="parameter-contract-link",
         kind="compiler_test",
         point_domain=PointDomain(
-            root=point_rows(
-                table_value_expr(
-                    grid(value=param(parameter_id)),
-                    bindings=RelationTypeBindings(parameters={parameter_id: _FLOAT}),
-                    expected_type=_table("value", 1),
-                )
+            root=_linear_axis(
+                "value",
+                param(parameter_id),
+                bindings=RelationTypeBindings(parameters={parameter_id: _FREQUENCY}),
             )
         ),
     )
     environment = replace(
         _environment(),
-        parameters=ParameterRelationData(scalars={parameter_id: "not-a-float"}),
+        parameters=ParameterRelationData(scalars={parameter_id: "not-a-quantity"}),
     )
 
     with pytest.raises(CheckFailed) as caught:
@@ -440,7 +464,8 @@ def test_link_checks_parameter_values_against_each_used_proof_contract() -> None
     assert tuple(problem.code for problem in caught.value.problems) == (
         "linked_parameter_contract_mismatch",
     )
-    assert "expected float" in caught.value.problems[0].message
+    assert caught.value.problems[0].details["consumer_kind"] == "point_axis_center"
+    assert "expected quantity" in caught.value.problems[0].message
 
 
 def test_link_classifies_a_lookup_bound_to_the_wrong_parameter_shape() -> None:
@@ -449,33 +474,31 @@ def test_link_classifies_a_lookup_bound_to_the_wrong_parameter_shape() -> None:
         id="lookup-parameter-shape-link",
         kind="compiler_test",
         point_domain=PointDomain(
-            root=point_rows(
-                table_value_expr(
-                    grid(
-                        value=param(
-                            parameter_id,
-                            key={"key": "selected"},
-                            column="value",
-                        )
-                    ),
-                    bindings=RelationTypeBindings(
-                        parameter_lookups=(
-                            ParameterLookupSignature(
-                                table_id=parameter_id,
-                                key_input_types=(("key", Scalar(String())),),
-                                column_id="value",
-                                result_type=_FLOAT,
-                            ),
-                        )
-                    ),
-                    expected_type=_table("value", 1),
-                )
+            root=_linear_axis(
+                "value",
+                param(
+                    parameter_id,
+                    key={"key": "selected"},
+                    column="value",
+                ),
+                bindings=RelationTypeBindings(
+                    parameter_lookups=(
+                        ParameterLookupSignature(
+                            table_id=parameter_id,
+                            key_input_types=(("key", Scalar(String())),),
+                            column_id="value",
+                            result_type=_FREQUENCY,
+                        ),
+                    )
+                ),
             )
         ),
     )
     environment = replace(
         _environment(),
-        parameters=ParameterRelationData(scalars={parameter_id: 1.0}),
+        parameters=ParameterRelationData(
+            scalars={parameter_id: Quantity(value=1.0, unit="GHz")}
+        ),
     )
 
     with pytest.raises(CheckFailed) as caught:
@@ -484,6 +507,7 @@ def test_link_classifies_a_lookup_bound_to_the_wrong_parameter_shape() -> None:
     assert tuple(problem.code for problem in caught.value.problems) == (
         "linked_parameter_contract_mismatch",
     )
+    assert caught.value.problems[0].details["consumer_kind"] == "point_axis_center"
     assert "expected table parameter, got scalar" in caught.value.problems[0].message
 
 
@@ -525,31 +549,18 @@ def test_link_rejects_remaining_relation_input_imports() -> None:
     }
 
 
-def test_link_reports_every_missing_import_in_one_relation_consumer() -> None:
+def test_link_reports_every_missing_import_in_one_axis_center() -> None:
     missing_ids = ("missing-left", "missing-right")
-    value_type = Table(
-        columns=(
-            TableColumn("left", _FLOAT),
-            TableColumn("right", _FLOAT),
-        ),
-        min_rows=1,
-        max_rows=1,
-    )
     program = CoreProgram(
         id="multiple-missing-parameter-link",
         kind="compiler_test",
         point_domain=PointDomain(
-            root=point_rows(
-                table_value_expr(
-                    grid(
-                        left=param(missing_ids[0]),
-                        right=param(missing_ids[1]),
-                    ),
-                    bindings=RelationTypeBindings(
-                        parameters=dict.fromkeys(missing_ids, _FLOAT)
-                    ),
-                    expected_type=value_type,
-                )
+            root=_linear_axis(
+                "value",
+                param(missing_ids[0]) + param(missing_ids[1]),
+                bindings=RelationTypeBindings(
+                    parameters=dict.fromkeys(missing_ids, _FREQUENCY)
+                ),
             )
         ),
     )
@@ -564,11 +575,14 @@ def test_link_reports_every_missing_import_in_one_relation_consumer() -> None:
     assert {
         problem.details["parameter_id"] for problem in caught.value.problems
     } == set(missing_ids)
+    assert {problem.details["consumer_kind"] for problem in caught.value.problems} == {
+        "point_axis_center"
+    }
 
 
 def test_linked_points_retain_exact_proofs_and_only_materialize_the_domain() -> None:
     linked = link_program(_symbolic_program(), _environment())
-    materialized = materialize_linked_points(linked)
+    materialized = materialize_linked_points(linked, block_size=1)
 
     assert materialized.linked_plan is linked
     assert materialized.verified_program is linked.verified_program
@@ -582,26 +596,15 @@ def test_linked_points_retain_exact_proofs_and_only_materialize_the_domain() -> 
 
 
 def test_linked_points_normalize_entities_before_point_identity_is_sealed() -> None:
-    point_type = Table(
-        columns=(TableColumn("subject", Scalar(Entity())),),
-        min_rows=1,
-        max_rows=1,
-    )
     program = CoreProgram(
         id="linked-entity-points",
         kind="compiler_test",
-        point_domain=PointDomain(
-            root=point_rows(
-                table_value_expr(
-                    literal_rows([{"subject": "q0"}]),
-                    expected_type=point_type,
-                )
-            ),
-            entity_columns=("subject",),
-        ),
+        point_domain=PointDomain(root=_entity_rows(("q0",))),
     )
 
-    materialized = materialize_linked_points(link_program(program, _environment()))
+    linked = link_program(program, _environment())
+    assert linked.point_domain.entity_columns == ("subject",)
+    materialized = materialize_linked_points(linked)
 
     assert materialized.point_domain.points[0].row["subject"] == EntityRef(
         id="q0",
@@ -610,23 +613,10 @@ def test_linked_points_normalize_entities_before_point_identity_is_sealed() -> N
 
 
 def test_linked_points_reject_unknown_entities_at_the_planning_boundary() -> None:
-    point_type = Table(
-        columns=(TableColumn("subject", Scalar(Entity())),),
-        min_rows=1,
-        max_rows=1,
-    )
     program = CoreProgram(
         id="unknown-linked-entity-point",
         kind="compiler_test",
-        point_domain=PointDomain(
-            root=point_rows(
-                table_value_expr(
-                    literal_rows([{"subject": "missing"}]),
-                    expected_type=point_type,
-                )
-            ),
-            entity_columns=("subject",),
-        ),
+        point_domain=PointDomain(root=_entity_rows(("missing",))),
     )
 
     with pytest.raises(CheckFailed) as caught:
@@ -642,31 +632,11 @@ def test_linked_points_reject_unknown_entities_at_the_planning_boundary() -> Non
 
 
 def test_linked_points_preserve_entity_kind_mismatch_problem() -> None:
-    point_type = Table(
-        columns=(TableColumn("subject", Scalar(Entity())),),
-        min_rows=1,
-        max_rows=1,
-    )
     program = CoreProgram(
         id="wrong-kind-linked-entity-point",
         kind="compiler_test",
         point_domain=PointDomain(
-            root=point_rows(
-                table_value_expr(
-                    literal_rows(
-                        [
-                            {
-                                "subject": EntityRef(
-                                    id="q0",
-                                    kind="logical_coupler",
-                                )
-                            }
-                        ]
-                    ),
-                    expected_type=point_type,
-                )
-            ),
-            entity_columns=("subject",),
+            root=_entity_rows((EntityRef(id="q0", kind="logical_coupler"),)),
         ),
     )
 
@@ -683,35 +653,18 @@ def test_linked_points_preserve_entity_kind_mismatch_problem() -> None:
     assert problem.message == ("entity q0 has kind logical_device, not logical_coupler")
 
 
-def test_linked_points_aggregate_entity_and_normalized_value_problems() -> None:
-    point_type = Table(
-        columns=(TableColumn("subject", Scalar(Entity())),),
-        min_rows=3,
-        max_rows=3,
-        primary_key=("subject",),
-    )
+def test_linked_points_report_unknown_normalized_entities() -> None:
     program = CoreProgram(
         id="invalid-normalized-linked-entity-points",
         kind="compiler_test",
         point_domain=PointDomain(
-            root=point_rows(
-                table_value_expr(
-                    literal_rows(
-                        [
-                            {"subject": "q0"},
-                            {
-                                "subject": EntityRef(
-                                    id="q0",
-                                    kind="logical_device",
-                                )
-                            },
-                            {"subject": "missing"},
-                        ]
-                    ),
-                    expected_type=point_type,
-                )
+            root=_entity_rows(
+                (
+                    "q0",
+                    EntityRef(id="q0", kind="logical_device"),
+                    "missing",
+                ),
             ),
-            entity_columns=("subject",),
         ),
     )
 
@@ -719,6 +672,5 @@ def test_linked_points_aggregate_entity_and_normalized_value_problems() -> None:
         materialize_linked_points(link_program(program, _environment()))
 
     assert [problem.code for problem in caught.value.problems] == [
-        "unknown_authoring_entity",
-        "module_point_value_type_mismatch",
+        "unknown_authoring_entity"
     ]

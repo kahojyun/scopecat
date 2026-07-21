@@ -30,6 +30,7 @@ from scopecat.authoring._value_refs import (
 from scopecat.compiler.frontend.elaboration import SemanticExperimentIR
 from scopecat.compiler.frontend.semantic_elaboration import semantic_value_id
 from scopecat.compiler.relations.model import ScalarExpr, SeriesExpr
+from scopecat.compiler.relations.point_domain import is_point_coordinate_type
 from scopecat.compiler.semantic.dependencies import residual_value_ids
 from scopecat.compiler.semantic.model import (
     ImplementationCatalog,
@@ -45,7 +46,6 @@ from scopecat.compiler.semantic.verification import (
     verify_semantic_graph,
     verify_source_map,
 )
-from scopecat.compiler.typed.point_domain import is_point_coordinate_type
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
     ModelLocation,

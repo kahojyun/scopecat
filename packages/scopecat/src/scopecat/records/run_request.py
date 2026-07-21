@@ -91,24 +91,12 @@ class RunRequestBinaryValue(_RunRequestModel):
     right: RunRequestScalarValue
 
 
-class RunRequestCaseBranch(_RunRequestModel):
-    when: RunRequestScalarValue
-    then: RunRequestScalarValue
-
-
-class RunRequestCaseValue(_RunRequestModel):
-    kind: Literal["case"] = "case"
-    branches: list[RunRequestCaseBranch]
-    fallback: RunRequestScalarValue
-
-
 type RunRequestExpressionValue = Annotated[
     RunRequestAxisValue
     | RunRequestInputValue
     | RunRequestParameterValue
     | RunRequestParameterLookupValue
-    | RunRequestBinaryValue
-    | RunRequestCaseValue,
+    | RunRequestBinaryValue,
     Field(discriminator="kind"),
 ]
 
@@ -134,8 +122,6 @@ type RunRequestValue = Annotated[
 _RECURSIVE_REQUEST_MODELS = (
     RunRequestParameterLookupValue,
     RunRequestBinaryValue,
-    RunRequestCaseBranch,
-    RunRequestCaseValue,
 )
 for _model in _RECURSIVE_REQUEST_MODELS:
     _model.model_rebuild(

@@ -10,7 +10,6 @@ from scopecat.compiler.linking.linked import (
 from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.planning.authoring import resolve_experiment
 from scopecat.sdk.domain import (
-    DomainIterationLeaf,
     DomainPointRef,
     DomainProductAxisView,
     DomainProductContractView,
@@ -77,9 +76,8 @@ def test_domain_batch_context_materializes_only_selected_residual_inputs(
     )
     layout = request.iteration_layout
     assert layout is not None
-    assert isinstance(layout.root, DomainIterationLeaf)
-    assert layout.root.extent == 3
-    assert layout.root.axis_ids == ("count",)
+    assert layout.preferred_tile_size == 3
+    assert tuple(axis.id for axis in layout.axes) == ("count",)
     count_axis = request.point_axis("count")
     assert count_axis is not None
     assert count_axis.values == (1, 3, 5)

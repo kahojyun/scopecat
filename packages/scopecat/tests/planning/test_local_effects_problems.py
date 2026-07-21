@@ -1,13 +1,15 @@
-from collections.abc import Mapping
-
 import pytest
 
 from scopecat.compiler.relations.model import (
-    RelationExpr,
-    grid,
+    CellValue,
+    param,
     point_col,
-    table,
 )
+from scopecat.compiler.relations.point_domain import (
+    point_axis_linear,
+    point_axis_values,
+)
+from scopecat.compiler.relations.uses import relation_use
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
@@ -23,15 +25,14 @@ from scopecat.execution.local.program import CollectOperation
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import ProblemCategory, model_location
 from scopecat.kernel.resource_identity import logical_resource_port_id
+from scopecat.kernel.value_types import Float, Int, Scalar, String
 from scopecat.kernel.value_types import Quantity as QuantityType
-from scopecat.kernel.value_types import Scalar, String, ValueType
-from scopecat.kernel.value_types import Table as TableType
 from scopecat.records.parameter import Quantity
 from tests.testkit.local_materialization import operations_of_type
 from tests.testkit.materialized_effects import materialized_effects_contract
 from tests.testkit.parameter_fixtures import PARAMETER_TYPES, parameters
 from tests.testkit.relation_plans import (
-    point_domain as verified_point_domain,
+    scalar_value_expr,
 )
 from tests.testkit.relation_plans import (
     state_field as set_state_field,
@@ -53,15 +54,12 @@ _SOURCE_REQUIREMENTS = (
 
 
 def _point_domain(
-    expr: RelationExpr,
-    *,
-    parameter_types: Mapping[str, ValueType] | None = None,
+    column_id: str,
+    value_type: Scalar,
+    values: tuple[CellValue, ...],
 ) -> PointDomain:
-    return verified_point_domain(
-        expr,
-        bindings=RelationTypeBindings(
-            parameters=parameter_types or PARAMETER_TYPES,
-        ),
+    return PointDomain(
+        root=point_axis_values(column_id, value_type, values),
     )
 
 
@@ -92,7 +90,7 @@ def test_materialized_effects_rejects_record_output_shape_problems() -> None:
     spec = typed_program(
         id="bad-record-shape",
         kind="problem",
-        point_domain=_point_domain(grid(index=[0])),
+        point_domain=_point_domain("index", Scalar(Int()), (0,)),
         resource_requirements=_SOURCE_REQUIREMENTS,
         product_defs=[shaped_product, plain_product],
         instrument_acquisitions=acquisitions,
@@ -128,7 +126,7 @@ def test_materialized_effects_rejects_record_schema_problems_without_model_error
     spec = typed_program(
         id="invalid-record-schema",
         kind="problem",
-        point_domain=_point_domain(grid(index=[0])),
+        point_domain=_point_domain("index", Scalar(Int()), (0,)),
         resource_requirements=_SOURCE_REQUIREMENTS,
         product_defs=products,
         instrument_acquisitions=acquisitions,
@@ -153,7 +151,7 @@ def test_materialized_effects_rejects_coordinate_and_record_id_collision() -> No
     spec = typed_program(
         id="coordinate-record-collision",
         kind="problem",
-        point_domain=_point_domain(grid(signal=[1.0])),
+        point_domain=_point_domain("signal", Scalar(Float()), (1.0,)),
         resource_requirements=_SOURCE_REQUIREMENTS,
         product_defs=[product],
         instrument_acquisitions=[acquisition],
@@ -186,7 +184,7 @@ def test_materialized_effects_allows_provider_key_reuse_across_acquisitions() ->
     spec = typed_program(
         id="bad-record-products",
         kind="problem",
-        point_domain=_point_domain(grid(index=[0])),
+        point_domain=_point_domain("index", Scalar(Int()), (0,)),
         resource_requirements=_SOURCE_REQUIREMENTS,
         product_defs=products,
         instrument_acquisitions=acquisitions,
@@ -210,7 +208,7 @@ def test_materialized_effects_reports_demanded_product_without_a_local_producer(
     spec = typed_program(
         id="unsupported-record-source",
         kind="problem",
-        point_domain=_point_domain(grid(index=[0])),
+        point_domain=_point_domain("index", Scalar(Int()), (0,)),
         product_defs=[product],
         product_uses=[product_use],
         record_uses=[record_use],
@@ -276,7 +274,7 @@ def test_materialized_effects_rejects_conflicting_shared_record_axes(
     spec = typed_program(
         id="conflicting-record-axis",
         kind="problem",
-        point_domain=_point_domain(grid(index=[0])),
+        point_domain=_point_domain("index", Scalar(Int()), (0,)),
         resource_requirements=_SOURCE_REQUIREMENTS,
         product_defs=products,
         instrument_acquisitions=acquisitions,
@@ -298,18 +296,25 @@ def test_materialized_effects_rejects_conflicting_shared_record_axes(
 def test_materialized_effects_rejects_missing_point_parameters_before_evaluation() -> (
     None
 ):
+    center_type = Scalar(QuantityType(unit="GHz"))
+    center = relation_use(
+        scalar_value_expr(
+            param("missing_center"),
+            bindings=RelationTypeBindings(parameters={"missing_center": center_type}),
+            expected_type=center_type,
+        )
+    )
     spec = typed_program(
         id="missing-points",
         kind="problem",
-        point_domain=_point_domain(
-            table("missing_table"),
-            parameter_types={
-                **PARAMETER_TYPES,
-                "missing_table": TableType(
-                    columns=(),
-                    allow_extra_columns=True,
-                ),
-            },
+        point_domain=PointDomain(
+            point_axis_linear(
+                "frequency",
+                center_type,
+                center,
+                Quantity(value=0.2, unit="GHz"),
+                2,
+            )
         ),
     )
 
@@ -322,7 +327,7 @@ def test_materialized_effects_rejects_missing_point_parameters_before_evaluation
 
 
 def test_materialized_effects_reports_parameter_overlay_problems() -> None:
-    points = _point_domain(grid(device_id=["r0"]))
+    points = _point_domain("device_id", Scalar(String()), ("r0",))
     bindings = _point_bindings(points)
     spec = typed_program(
         id="bad-overlay",
@@ -373,7 +378,7 @@ def test_materialized_effects_reports_parameter_overlay_problems() -> None:
 
 
 def test_materialized_effects_reports_unknown_parameter_table_problems() -> None:
-    points = _point_domain(grid(device_id=["r0"]))
+    points = _point_domain("device_id", Scalar(String()), ("r0",))
     bindings = _point_bindings(points)
     spec = typed_program(
         id="missing-overlay-table",
@@ -404,7 +409,7 @@ def test_materialized_effects_reports_state_evaluation_and_conflict_problems() -
     conflict = typed_program(
         id="conflict-state",
         kind="problem",
-        point_domain=_point_domain(grid(index=[0])),
+        point_domain=_point_domain("index", Scalar(Int()), (0,)),
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=logical_resource_port_id("source"),

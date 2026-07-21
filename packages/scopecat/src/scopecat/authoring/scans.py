@@ -256,8 +256,10 @@ def _implicit_around_axis(
 
 
 def _scan_group(kind: Literal["cartesian", "zip"], scans: Sequence[Scan]) -> Scan:
-    if not scans:
-        msg = f"{kind} scan group requires at least one scan"
+    minimum = 2 if kind == "zip" else 1
+    if len(scans) < minimum:
+        count = "two" if minimum == 2 else "one"
+        msg = f"{kind} scan group requires at least {count} scans"
         raise ValueError(msg)
     return _ScanGroupIntent(kind=kind, scans=tuple(scans))
 

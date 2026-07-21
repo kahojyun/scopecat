@@ -16,10 +16,9 @@ from scopecat.adapters.filesystem.run_repository import FilesystemRunRepository
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.relations.model import (
     lit,
-    literal_rows,
     point_col,
 )
-from scopecat.compiler.relations.point_domain import point_product, point_rows
+from scopecat.compiler.relations.point_domain import point_axis_values, point_product
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
@@ -119,7 +118,6 @@ from tests.testkit.records import (
 )
 from tests.testkit.relation_plans import (
     scalar_value_expr,
-    table_value_expr,
     value_expr,
 )
 from tests.testkit.signal_instruments import (
@@ -1232,7 +1230,6 @@ def test_run_shares_identical_residual_point_compute(tmp_path: Path) -> None:
     )
     point_type = TableType(
         columns=(*slow_axis_type.columns, *fast_axis_type.columns),
-        allow_extra_columns=True,
     )
     product = observable_product("signal")
     acquisition = instrument_acquisition(
@@ -1246,28 +1243,18 @@ def test_run_shares_identical_residual_point_compute(tmp_path: Path) -> None:
         kind="cached_compute",
         point_domain=PointDomain(
             root=point_product(
-                point_rows(
-                    table_value_expr(
-                        literal_rows(
-                            [
-                                {"frequency": Quantity(value=4.9, unit="GHz")},
-                                {"frequency": Quantity(value=5.1, unit="GHz")},
-                            ]
-                        ),
-                        expected_type=slow_axis_type,
+                point_axis_values(
+                    "frequency",
+                    slow_axis_type.columns[0].value_type,
+                    (
+                        Quantity(value=4.9, unit="GHz"),
+                        Quantity(value=5.1, unit="GHz"),
                     ),
                 ),
-                point_rows(
-                    table_value_expr(
-                        literal_rows(
-                            [
-                                {"amplitude": "low"},
-                                {"amplitude": "medium"},
-                                {"amplitude": "high"},
-                            ]
-                        ),
-                        expected_type=fast_axis_type,
-                    ),
+                point_axis_values(
+                    "amplitude",
+                    fast_axis_type.columns[0].value_type,
+                    ("low", "medium", "high"),
                 ),
             ),
         ),

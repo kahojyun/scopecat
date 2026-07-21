@@ -118,11 +118,6 @@ class ColumnScalarExpr(ScalarExpr):
 
 
 @dataclass(frozen=True, slots=True)
-class OuterColumnScalarExpr(ScalarExpr):
-    name: str
-
-
-@dataclass(frozen=True, slots=True)
 class PointColumnScalarExpr(ScalarExpr):
     name: str
 
@@ -151,28 +146,14 @@ class BinaryScalarExpr(ScalarExpr):
     right: ScalarExpression
 
 
-@dataclass(frozen=True, slots=True)
-class CaseBranch:
-    condition: ScalarExpression
-    value: ScalarExpression
-
-
-@dataclass(frozen=True, slots=True)
-class CaseScalarExpr(ScalarExpr):
-    cases: list[CaseBranch]
-    fallback: ScalarExpression
-
-
 type ScalarExpression = (
     LiteralScalarExpr
     | ColumnScalarExpr
-    | OuterColumnScalarExpr
     | PointColumnScalarExpr
     | InputScalarExpr
     | ParameterScalarExpr
     | ParameterLookupScalarExpr
     | BinaryScalarExpr
-    | CaseScalarExpr
 )
 
 
@@ -186,23 +167,6 @@ class ValuesSeriesExpr(SeriesExpr):
 
 
 @dataclass(frozen=True, slots=True)
-class LinspaceSeriesExpr(SeriesExpr):
-    start: ScalarExpression
-    stop: ScalarExpression
-    count: int
-    unit: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class RangeSeriesExpr(SeriesExpr):
-    start: ScalarExpression
-    stop: ScalarExpression
-    step: ScalarExpression
-    unit: str | None = None
-    include_stop: bool = False
-
-
-@dataclass(frozen=True, slots=True)
 class InputSeriesExpr(SeriesExpr):
     name: str
 
@@ -213,12 +177,6 @@ class ParameterSeriesExpr(SeriesExpr):
 
 
 @dataclass(frozen=True, slots=True)
-class RelationColumnSeriesExpr(SeriesExpr):
-    source: RelationExpression
-    column: str
-
-
-@dataclass(frozen=True, slots=True)
 class RelationEntitiesSeriesExpr(SeriesExpr):
     source: RelationExpression
     columns: list[str]
@@ -226,49 +184,9 @@ class RelationEntitiesSeriesExpr(SeriesExpr):
 
 type SeriesExpression = (
     ValuesSeriesExpr
-    | LinspaceSeriesExpr
-    | RangeSeriesExpr
     | InputSeriesExpr
     | ParameterSeriesExpr
-    | RelationColumnSeriesExpr
     | RelationEntitiesSeriesExpr
-)
-
-
-class _GridColumn:
-    pass
-
-
-@dataclass(frozen=True, slots=True)
-class ScalarGridColumn(_GridColumn):
-    """One scalar-valued `grid` output column."""
-
-    scalar: ScalarExpression
-
-
-@dataclass(frozen=True, slots=True)
-class SeriesGridColumn(_GridColumn):
-    """One series-valued `grid` output column."""
-
-    series: SeriesExpression
-
-
-@dataclass(frozen=True, slots=True)
-class RelationGridColumn(_GridColumn):
-    """One relation-valued `grid` output column."""
-
-    relation: RelationExpression
-
-
-@dataclass(frozen=True, slots=True)
-class ValuesGridColumn(_GridColumn):
-    """One literal-values `grid` output column."""
-
-    values: list[CellValue]
-
-
-type GridColumn = (
-    ScalarGridColumn | SeriesGridColumn | RelationGridColumn | ValuesGridColumn
 )
 
 
@@ -293,35 +211,6 @@ class RelationExpr:
             row_scope_id=row_scope_id,
         )
 
-    def join(self, other: RelationExpr, *, on: Mapping[str, str]) -> JoinRelationExpr:
-        return JoinRelationExpr(
-            left=cast("RelationExpression", self),
-            right=cast("RelationExpression", other),
-            on=dict(on),
-        )
-
-    def cross(self, other: RelationExpr) -> CrossRelationExpr:
-        return CrossRelationExpr(
-            left=cast("RelationExpression", self),
-            right=cast("RelationExpression", other),
-        )
-
-    def lateral_cross(self, other: RelationExpr) -> LateralCrossRelationExpr:
-        """Cross with a right plan that may reference the current left row."""
-
-        return LateralCrossRelationExpr(
-            left=cast("RelationExpression", self),
-            right=cast("RelationExpression", other),
-        )
-
-    def point_cross(self, other: RelationExpr) -> PointCrossRelationExpr:
-        """Cross partial point rows while extending the right point scope."""
-
-        return PointCrossRelationExpr(
-            left=cast("RelationExpression", self),
-            right=cast("RelationExpression", other),
-        )
-
     def with_columns(
         self,
         *,
@@ -334,26 +223,6 @@ class RelationExpr:
                 name: as_scalar_expr(value) for name, value in columns.items()
             },
             row_scope_id=row_scope_id,
-        )
-
-    def sort(self, *columns: str) -> SortRelationExpr:
-        return SortRelationExpr(
-            source=cast("RelationExpression", self),
-            sort_columns=list(columns),
-        )
-
-    def limit(self, count: int) -> LimitRelationExpr:
-        return LimitRelationExpr(
-            source=cast("RelationExpression", self),
-            limit_count=count,
-        )
-
-    def column(self, column: str) -> RelationColumnSeriesExpr:
-        """Project one relation column as an ordered, duplicate-preserving series."""
-
-        return RelationColumnSeriesExpr(
-            source=cast("RelationExpression", self),
-            column=column,
         )
 
     def entities(self, *columns: str) -> RelationEntitiesSeriesExpr:
@@ -381,11 +250,6 @@ class InputRelationExpr(RelationExpr):
 
 
 @dataclass(frozen=True, slots=True)
-class GridRelationExpr(RelationExpr):
-    columns: dict[str, GridColumn]
-
-
-@dataclass(frozen=True, slots=True)
 class SelectRelationExpr(RelationExpr):
     source: RelationExpression
     select_columns: list[str]
@@ -399,78 +263,20 @@ class FilterRelationExpr(RelationExpr):
 
 
 @dataclass(frozen=True, slots=True)
-class JoinRelationExpr(RelationExpr):
-    left: RelationExpression
-    right: RelationExpression
-    on: dict[str, str]
-
-
-@dataclass(frozen=True, slots=True)
-class CrossRelationExpr(RelationExpr):
-    left: RelationExpression
-    right: RelationExpression
-
-
-@dataclass(frozen=True, slots=True)
-class LateralCrossRelationExpr(RelationExpr):
-    left: RelationExpression
-    right: RelationExpression
-
-
-@dataclass(frozen=True, slots=True)
-class PointCrossRelationExpr(RelationExpr):
-    left: RelationExpression
-    right: RelationExpression
-
-
-@dataclass(frozen=True, slots=True)
-class ZipRelationExpr(RelationExpr):
-    sources: list[RelationExpression]
-
-
-@dataclass(frozen=True, slots=True)
 class WithColumnsRelationExpr(RelationExpr):
     source: RelationExpression
     new_columns: dict[str, ScalarExpression]
     row_scope_id: RowScopeId | None = None
 
 
-@dataclass(frozen=True, slots=True)
-class SortRelationExpr(RelationExpr):
-    source: RelationExpression
-    sort_columns: list[str]
-
-
-@dataclass(frozen=True, slots=True)
-class LimitRelationExpr(RelationExpr):
-    source: RelationExpression
-    limit_count: int
-
-
 type RelationExpression = (
     LiteralRowsRelationExpr
     | TableRelationExpr
     | InputRelationExpr
-    | GridRelationExpr
     | SelectRelationExpr
     | FilterRelationExpr
-    | JoinRelationExpr
-    | CrossRelationExpr
-    | LateralCrossRelationExpr
-    | PointCrossRelationExpr
-    | ZipRelationExpr
     | WithColumnsRelationExpr
-    | SortRelationExpr
-    | LimitRelationExpr
 )
-
-
-def zip_relations(*sources: RelationExpr) -> ZipRelationExpr:
-    """Combine relation rows positionally without evaluating either source."""
-
-    return ZipRelationExpr(
-        sources=[cast("RelationExpression", source) for source in sources]
-    )
 
 
 def lit(value: CellValue) -> LiteralScalarExpr:
@@ -479,10 +285,6 @@ def lit(value: CellValue) -> LiteralScalarExpr:
 
 def col(name: str, *, row_scope_id: RowScopeId | None = None) -> ColumnScalarExpr:
     return ColumnScalarExpr(name=name, row_scope_id=row_scope_id)
-
-
-def outer(name: str) -> OuterColumnScalarExpr:
-    return OuterColumnScalarExpr(name=name)
 
 
 def point_col(name: str) -> PointColumnScalarExpr:
@@ -531,26 +333,6 @@ def param(
     )
 
 
-def when(condition: ScalarExpression, value: object) -> CaseScalarExpr:
-    return CaseScalarExpr(
-        cases=[CaseBranch(condition=condition, value=as_scalar_expr(value))],
-        fallback=lit(None),
-    )
-
-
-def case(
-    *branches: tuple[ScalarExpression, object],
-    fallback: object,
-) -> CaseScalarExpr:
-    return CaseScalarExpr(
-        cases=[
-            CaseBranch(condition=condition, value=as_scalar_expr(value))
-            for condition, value in branches
-        ],
-        fallback=as_scalar_expr(fallback),
-    )
-
-
 def as_scalar_expr(value: object) -> ScalarExpression:
     if isinstance(value, ScalarExpr):
         return cast("ScalarExpression", value)
@@ -573,79 +355,9 @@ def values(items: Sequence[object], *, unit: str | None = None) -> ValuesSeriesE
     )
 
 
-def linspace(
-    start: object,
-    stop: object,
-    count: int,
-    *,
-    unit: str | None = None,
-) -> LinspaceSeriesExpr:
-    return LinspaceSeriesExpr(
-        start=as_scalar_expr(_unit_literal(start, unit=unit)),
-        stop=as_scalar_expr(_unit_literal(stop, unit=unit)),
-        count=count,
-        unit=unit,
-    )
-
-
-def range_values(
-    start: object,
-    stop: object,
-    step: object,
-    *,
-    unit: str | None = None,
-    include_stop: bool = False,
-) -> RangeSeriesExpr:
-    return RangeSeriesExpr(
-        start=as_scalar_expr(_unit_literal(start, unit=unit)),
-        stop=as_scalar_expr(_unit_literal(stop, unit=unit)),
-        step=as_scalar_expr(_unit_literal(step, unit=unit)),
-        unit=unit,
-        include_stop=include_stop,
-    )
-
-
 def literal_rows(rows: Sequence[Mapping[str, CellValue]]) -> LiteralRowsRelationExpr:
     return LiteralRowsRelationExpr(rows=[dict(row) for row in rows])
 
 
 def table(table_id: str) -> TableRelationExpr:
     return TableRelationExpr(table_id=table_id)
-
-
-def grid(**columns: object) -> GridRelationExpr:
-    return GridRelationExpr(
-        columns={name: _grid_column(source) for name, source in columns.items()},
-    )
-
-
-def _grid_column(source: object) -> GridColumn:
-    if isinstance(source, _GridColumn):
-        return cast("GridColumn", source)
-    if isinstance(source, ScalarExpr):
-        return ScalarGridColumn(scalar=cast("ScalarExpression", source))
-    if isinstance(source, SeriesExpr):
-        return SeriesGridColumn(series=cast("SeriesExpression", source))
-    if isinstance(source, RelationExpr):
-        return RelationGridColumn(relation=cast("RelationExpression", source))
-    if isinstance(source, Sequence) and not isinstance(source, str | bytes):
-        source_items = source
-        column_values: list[CellValue] = []
-        for item in source_items:
-            if not is_cell_value(item):
-                msg = f"grid column contains unsupported values: {source!r}"
-                raise TypeError(msg)
-            column_values.append(item)
-        return ValuesGridColumn(values=column_values)
-    if is_cell_value(source):
-        return ValuesGridColumn(values=[source])
-    msg = f"unsupported grid column source: {source!r}"
-    raise TypeError(msg)
-
-
-def _unit_literal(value: object, *, unit: str | None) -> object:
-    if unit is None or isinstance(value, ScalarExpr | Quantity):
-        return value
-    if isinstance(value, int | float) and not isinstance(value, bool):
-        return Quantity(value=float(value), unit=unit)
-    return value

@@ -21,14 +21,11 @@ from scopecat.compiler.relations.evaluator import (
 )
 from scopecat.compiler.relations.model import (
     BinaryScalarExpr,
-    CaseBranch,
-    CaseScalarExpr,
     CellValue,
     ColumnScalarExpr,
     InputScalarExpr,
     LiteralRowsRelationExpr,
     LiteralScalarExpr,
-    OuterColumnScalarExpr,
     ParameterLookupScalarExpr,
     ParameterScalarExpr,
     PointColumnScalarExpr,
@@ -119,7 +116,7 @@ def specialize_scalar(
     match scalar:
         case LiteralScalarExpr():
             return KnownScalar(deepcopy(scalar.value))
-        case ColumnScalarExpr() | OuterColumnScalarExpr():
+        case ColumnScalarExpr():
             return _residual(deepcopy(scalar))
         case PointColumnScalarExpr():
             return _known_leaf(
@@ -141,12 +138,6 @@ def specialize_scalar(
             )
         case BinaryScalarExpr():
             return _specialize_binary(
-                scalar,
-                known=known,
-                parameter_cells=parameter_cells,
-            )
-        case CaseScalarExpr():
-            return _specialize_case(
                 scalar,
                 known=known,
                 parameter_cells=parameter_cells,
@@ -318,63 +309,6 @@ def _specialize_binary(
     )
 
 
-def _specialize_case(
-    expression: CaseScalarExpr,
-    *,
-    known: EvalContext,
-    parameter_cells: Sequence[ParameterCellBinding],
-) -> ScalarSpecialization:
-    residual_cases: list[CaseBranch] = []
-    for branch in expression.cases:
-        condition = specialize_scalar(
-            branch.condition,
-            known=known,
-            parameter_cells=parameter_cells,
-        )
-        if isinstance(condition, KnownScalar):
-            if condition.value is False:
-                continue
-            if condition.value is True:
-                value = specialize_scalar(
-                    branch.value,
-                    known=known,
-                    parameter_cells=parameter_cells,
-                )
-                if not residual_cases:
-                    return value
-                return _residual(
-                    CaseScalarExpr(
-                        cases=residual_cases,
-                        fallback=_expression(value),
-                    )
-                )
-        residual_cases.append(
-            CaseBranch(
-                condition=_expression(condition),
-                value=_expression(
-                    specialize_scalar(
-                        branch.value,
-                        known=known,
-                        parameter_cells=parameter_cells,
-                    )
-                ),
-            )
-        )
-    fallback = specialize_scalar(
-        expression.fallback,
-        known=known,
-        parameter_cells=parameter_cells,
-    )
-    if not residual_cases:
-        return fallback
-    return _residual(
-        CaseScalarExpr(
-            cases=residual_cases,
-            fallback=_expression(fallback),
-        )
-    )
-
-
 def residual_scalar_expression(result: ScalarSpecialization) -> ScalarExpression:
     """Return one specialization result as a pure scalar expression."""
 
@@ -394,7 +328,6 @@ def _binding_time(references: PlanReferences) -> BindingTime:
     kinds = {reference.kind for reference in references}
     if kinds & {
         PlanReferenceKind.CURRENT_COLUMN,
-        PlanReferenceKind.OUTER_COLUMN,
         PlanReferenceKind.POINT_COLUMN,
     }:
         return BindingTime.POINT
@@ -435,19 +368,12 @@ def _keys_equal(
     )
 
 
-def known_scalars_equal(left: KnownScalar, right: KnownScalar) -> bool:
-    """Compare known values with relation runtime scalar semantics."""
-
-    return runtime_values_equal(left.value, right.value)
-
-
 __all__ = [
     "BindingTime",
     "KnownScalar",
     "ParameterCellBinding",
     "ResidualScalar",
     "ScalarSpecialization",
-    "known_scalars_equal",
     "residual_scalar_expression",
     "specialize_relation",
     "specialize_scalar",

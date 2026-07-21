@@ -26,7 +26,6 @@ from scopecat.compiler.relations.model import (
     SeriesExpr,
     as_scalar_expr,
 )
-from scopecat.compiler.relations.point_domain import point_rows
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     verify_relation_plan,
@@ -42,7 +41,6 @@ from scopecat.compiler.semantic.value_expressions import (
     verify_table_value_expr,
     verify_value_expr,
 )
-from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import bind_each, set_state_field
 from scopecat.compiler.typed.state import (
     ForEachStateSpec,
@@ -96,25 +94,6 @@ def table_value_expr(
         expression,
         bindings=bindings or RelationTypeBindings(),
         expected_type=expected_type,
-    )
-
-
-def point_domain(
-    expression: RelationExpr,
-    *,
-    bindings: RelationTypeBindings | None = None,
-    expected_type: Table | None = None,
-    entity_columns: tuple[str, ...] = (),
-) -> PointDomain:
-    return PointDomain(
-        root=point_rows(
-            table_value_expr(
-                expression,
-                bindings=bindings,
-                expected_type=expected_type,
-            )
-        ),
-        entity_columns=entity_columns,
     )
 
 
@@ -231,7 +210,6 @@ def evaluate_relation(
     params: ParameterRelationData | None = None,
     *,
     row: Row | None = None,
-    outer_row: Row | None = None,
     point_row: Row | None = None,
     row_scopes: Mapping[RowScopeId, Row] | None = None,
     inputs: Mapping[str, object] | None = None,
@@ -247,7 +225,6 @@ def evaluate_relation(
         verified,
         params,
         row=row,
-        outer_row=outer_row,
         point_row=point_row,
         row_scopes=row_scopes,
         inputs=inputs,
@@ -279,7 +256,6 @@ def materialize_table_value(
     params: ParameterRelationData | None = None,
     *,
     row: Row | None = None,
-    outer_row: Row | None = None,
     point_row: Row | None = None,
     row_scopes: Mapping[RowScopeId, Row] | None = None,
     inputs: Mapping[str, object] | None = None,
@@ -288,7 +264,6 @@ def materialize_table_value(
         value.plan,
         params,
         row=row,
-        outer_row=outer_row,
         point_row=point_row,
         row_scopes=row_scopes,
         inputs=inputs,
@@ -303,7 +278,6 @@ __all__ = [
     "materialize_scalar_value",
     "materialize_series_value",
     "materialize_table_value",
-    "point_domain",
     "scalar_value_expr",
     "series_value_expr",
     "state_field",

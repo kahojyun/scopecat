@@ -11,17 +11,17 @@ from scopecat.compiler.relations.model import (
     LiteralRowsRelationExpr,
     ValuesSeriesExpr,
     lit,
-    literal_rows,
 )
 from scopecat.compiler.relations.point_domain import (
     POINT_UNIT,
+    PointAxis,
+    PointAxisLinear,
+    PointDependentProduct,
     PointDomainExpr,
     PointProduct,
-    PointRelationRows,
+    PointRows,
     PointUnit,
     PointZip,
-    iter_point_relation_rows,
-    point_dependent_product,
     point_product,
     point_zip,
 )
@@ -35,7 +35,6 @@ from scopecat.compiler.relations.specialization import (
     specialize_series,
 )
 from scopecat.compiler.relations.uses import RelationUse
-from scopecat.compiler.relations.verification import RelationTypeBindings
 from scopecat.compiler.semantic.compute_result import ComputeResultRef
 from scopecat.compiler.semantic.model import OperationId
 from scopecat.compiler.semantic.value_expressions import (
@@ -148,52 +147,39 @@ def _specialize_point_domain(
     parameter_cells: tuple[ParameterCellBinding, ...],
 ) -> PointDomain:
     def visit(
-        node: PointDomainExpr[TableValueExpr],
-    ) -> PointDomainExpr[TableValueExpr]:
+        node: PointDomainExpr[RelationUse[ScalarValueExpr]],
+    ) -> PointDomainExpr[RelationUse[ScalarValueExpr]]:
         if isinstance(node, PointUnit):
             return POINT_UNIT
-        if isinstance(node, PointRelationRows):
+        if isinstance(node, PointRows):
+            return node
+        if isinstance(node, PointAxis):
+            source = node.source
+            if not isinstance(source, PointAxisLinear):
+                return node
             value, _binding_time = specialize_value_expression(
-                node.rows,
+                source.center.value,
                 known=known,
                 parameter_cells=parameter_cells,
             )
-            if (
-                isinstance(value.plan.root, LiteralRowsRelationExpr)
-                and value.plan.root.rows == [{}]
-                and not value.value_type.columns
-            ):
-                return POINT_UNIT
-            return PointRelationRows(value, relation_use_id=node.relation_use_id)
+            return PointAxis(
+                node.id,
+                node.value_type,
+                PointAxisLinear(
+                    RelationUse(value, id=source.center.id),
+                    source.span,
+                    source.count,
+                ),
+            )
         if isinstance(node, PointProduct):
             return point_product(*(visit(factor) for factor in node.factors))
         if isinstance(node, PointZip):
             return point_zip(*(visit(source) for source in node.sources))
         left = visit(node.left)
         right = visit(node.right)
-        return (
-            point_product(left, right)
-            if _is_point_independent(right)
-            else point_dependent_product(left, right)
-        )
+        return PointDependentProduct(left, right)
 
-    specialized = replace(domain, root=visit(domain.root))
-    if specialized.value_type.max_rows != 0:
-        return specialized
-    empty_type = replace(specialized.value_type, min_rows=0, max_rows=0)
-    empty = verify_table_value_expr(
-        literal_rows([]),
-        bindings=RelationTypeBindings(),
-        expected_type=empty_type,
-    )
-    return replace(domain, root=PointRelationRows(empty))
-
-
-def _is_point_independent(root: PointDomainExpr[TableValueExpr]) -> bool:
-    return all(
-        leaf.rows.plan.external_row_interface.point is None
-        for _path, leaf in iter_point_relation_rows(root)
-    )
+    return replace(domain, root=visit(domain.root))
 
 
 def _live_compute_nodes(program: CoreProgram) -> tuple[TypedComputeNode, ...]:
@@ -372,7 +358,6 @@ def value_binding_time(value: ValueExpr) -> BindingTime:
     }
     if external_row_kinds & {
         PlanReferenceKind.CURRENT_COLUMN,
-        PlanReferenceKind.OUTER_COLUMN,
         PlanReferenceKind.POINT_COLUMN,
     }:
         return BindingTime.POINT

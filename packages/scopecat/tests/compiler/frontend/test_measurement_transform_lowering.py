@@ -105,7 +105,7 @@ def test_record_demand_closes_transform_inputs_and_prunes_dead_transform(
     )
 
     linked = link_program(program, resolved.environment)
-    assert linked.measurement_transforms == program.measurement_transforms
+    assert linked.program.measurement_transforms == program.measurement_transforms
 
 
 def test_hidden_transform_input_use_ids_are_stable_scoped_and_escaped(

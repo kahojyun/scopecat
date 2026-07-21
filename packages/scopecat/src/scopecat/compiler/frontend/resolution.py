@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import cast
 
@@ -10,6 +10,7 @@ from scopecat.authoring._intents import ParameterScanOverlayIntent
 from scopecat.authoring._parameter_contracts import merge_parameter_contracts
 from scopecat.authoring._point_domain_intents import (
     PointDomainIntent,
+    iter_point_domain_value_refs,
     point_domain_intent_free_point_dependencies,
     point_domain_intent_free_point_input_ids,
     point_domain_intent_output_types,
@@ -26,6 +27,11 @@ from scopecat.authoring._scan_intents import (
     scan_point_id,
 )
 from scopecat.authoring._validation import validate_invocation_scans
+from scopecat.authoring._value_refs import (
+    ValueRef,
+    internal_point_value_ref,
+    internal_value_ref_scalar_input_ids,
+)
 from scopecat.authoring.scans import Scan
 from scopecat.authoring.templates import ExperimentInvocation
 from scopecat.authoring.values import ModuleInput, module_input_is_valid
@@ -167,7 +173,12 @@ def compile_prepared_invocation(
         scans=scans,
     )
     validate_invocation_scans(scans)
-    request = _materialized_request(request_context, inputs=inputs, scans=scans)
+    request = _materialized_request(
+        request_context,
+        inputs=inputs,
+        scans=scans,
+        base_point_domain=compiled.point_domain,
+    )
     merged_inputs = {**compiled.inputs, **inputs}
     assembly = replace(
         compiled,
@@ -395,12 +406,17 @@ def _materialized_request(
     *,
     inputs: Mapping[str, object],
     scans: Sequence[Scan],
+    base_point_domain: PointDomainIntent,
 ) -> RunRequest:
     template_inputs = project_run_request_inputs(context.template_inputs)
     template_inputs.update(project_run_request_inputs(inputs))
+    projection_inputs = {
+        **_point_provider_inputs(base_point_domain, scans),
+        **inputs,
+    }
     request_scans = list(context.scans)
     for scan in scans:
-        request_scans.append(project_scan_record(scan, inputs=inputs))
+        request_scans.append(project_scan_record(scan, inputs=projection_inputs))
     return RunRequest.model_validate(
         {
             "id": context.id,
@@ -419,7 +435,6 @@ def apply_scans(
     *,
     inputs: Mapping[str, object],
 ) -> SemanticExperimentIR:
-    _validate_scans(scans)
     _validate_scan_target_types(assembly, scans)
     try:
         dependency_graph = verify_scan_dependencies(
@@ -447,8 +462,22 @@ def apply_scans(
         dependency_graph,
         inputs=inputs,
     )
+    consumed_point_input_ids = _consumed_point_input_ids(
+        assembly,
+        dependency_graph.scans,
+        inputs=inputs,
+    )
+    point_inputs = {
+        input_id: target
+        for input_id, target in _point_provider_inputs(
+            assembly.point_domain,
+            dependency_graph.scans,
+        ).items()
+        if input_id in consumed_point_input_ids and input_id not in assembly.inputs
+    }
     return replace(
         assembly,
+        inputs={**assembly.inputs, **point_inputs},
         point_domain=point_domain,
         parameter_contracts=merge_parameter_contracts(
             assembly.parameter_contracts,
@@ -466,17 +495,68 @@ def apply_scans(
     )
 
 
+def _scan_axis_inputs(scans: Sequence[Scan]) -> dict[str, ValueRef]:
+    """Map each scanned coordinate to its explicit point-value handle."""
+
+    return {
+        scan_point_id(leaf): internal_point_value_ref(
+            scan_point_id(leaf),
+            cast("Scalar", leaf.target.value_type),
+        )
+        for root in scans
+        for leaf in iter_scan_leaves(root)
+    }
+
+
+def _point_provider_inputs(
+    base_point_domain: PointDomainIntent,
+    scans: Sequence[Scan],
+) -> dict[str, ValueRef]:
+    """Map every base or scan coordinate to one explicit point-value handle."""
+
+    base_inputs = {
+        point_id: internal_point_value_ref(point_id, value_type)
+        for point_id, value_type in point_domain_intent_output_types(
+            base_point_domain
+        ).items()
+    }
+    return {**base_inputs, **_scan_axis_inputs(scans)}
+
+
+def _consumed_point_input_ids(
+    assembly: SemanticExperimentIR,
+    scans: Sequence[Scan],
+    *,
+    inputs: Mapping[str, object],
+) -> set[str]:
+    """Return point providers consumed through relation input syntax."""
+
+    consumed = {port.id for port in assembly.input_ports}
+    domains = (
+        assembly.point_domain,
+        *(lower_scan_point_domain(scan, inputs=inputs) for scan in scans),
+    )
+    consumed.update(
+        input_id
+        for domain in domains
+        for _path, center in iter_point_domain_value_refs(domain)
+        for input_id in internal_value_ref_scalar_input_ids(center)
+    )
+    return consumed
+
+
 def _ordered_point_domain(
     assembly: SemanticExperimentIR,
     graph: VerifiedScanDependencyGraph,
     *,
     inputs: Mapping[str, object],
 ) -> PointDomainIntent:
-    """Topologically compose scans and the base domain as peer factors."""
+    """Schedule every Cartesian region once, including the base-domain region."""
 
     dependency_edges = frozenset(
         (edge.producer_id, edge.consumer_id) for edge in graph.edges
     )
+    normalized_scans = _scan_product_factors(graph.scans, graph=graph)
     scan_factors = [
         _PointDomainFactor(
             domain=lower_scan_point_domain(
@@ -486,21 +566,16 @@ def _ordered_point_domain(
             ),
             axis_ids=frozenset(scan_point_id(leaf) for leaf in iter_scan_leaves(scan)),
         )
-        for scan in graph.scans
+        for scan in normalized_scans
     ]
     base_domain = assembly.point_domain
     base_types = point_domain_intent_output_types(base_domain)
     base_requirements = _point_domain_requirements(assembly, inputs=inputs)
-    scan_factor_by_axis = {
-        axis_id: factor_index
-        for factor_index, factor in enumerate(scan_factors)
-        for axis_id in factor.axis_ids
-    }
     provider_types = {
         **base_types,
         **{axis.id: axis.value_type for axis in graph.axes},
     }
-    requirement_providers: dict[str, int] = {}
+    scan_axis_ids = {axis_id for factor in scan_factors for axis_id in factor.axis_ids}
     requirement_problems: list[Problem] = []
     for dependency_id, required_type in sorted(base_requirements.items()):
         if dependency_id in base_types:
@@ -512,9 +587,8 @@ def _ordered_point_domain(
                 )
             )
             continue
-        provider_factor = scan_factor_by_axis.get(dependency_id)
         provider_type = provider_types.get(dependency_id)
-        if provider_factor is None or provider_type is None:
+        if dependency_id not in scan_axis_ids or provider_type is None:
             requirement_problems.append(
                 _problem(
                     "scan_dependency_missing",
@@ -543,53 +617,41 @@ def _ordered_point_domain(
                     "point_domain",
                 )
             )
-        requirement_providers[dependency_id] = provider_factor
     if requirement_problems:
         raise CheckFailed(requirement_problems)
 
-    factors = list(scan_factors)
+    # The base domain is the implicit first authored factor.  If it depends on a
+    # scan it simply remains blocked until that producer is ready; giving it the
+    # first stable ordinal preserves the old base-first behavior without first
+    # sorting scans separately and then sorting the combined graph again.
+    factors: list[_PointDomainFactor] = []
     base_factor: int | None = None
     if not isinstance(base_domain, PointUnit):
-        insertion_index = (
-            max(requirement_providers.values()) + 1 if requirement_providers else 0
-        )
-        factors.insert(
-            insertion_index,
+        base_factor = 0
+        factors.append(
             _PointDomainFactor(
                 domain=base_domain,
                 axis_ids=frozenset(base_types),
             ),
         )
-        base_factor = insertion_index
+    factors.extend(scan_factors)
     if not factors:
         return POINT_UNIT
 
-    factor_by_axis = {
-        axis_id: factor_index
-        for factor_index, factor in enumerate(factors)
-        for axis_id in factor.axis_ids
-    }
-    required_factors = {index: set[int]() for index in range(len(factors))}
-    for edge in graph.edges:
-        producer = factor_by_axis[edge.producer_id]
-        consumer = factor_by_axis[edge.consumer_id]
-        if producer != consumer:
-            required_factors[consumer].add(producer)
+    axis_sets = tuple(factor.axis_ids for factor in factors)
+    required_factors = _factor_dependencies(axis_sets, dependency_edges)
+    factor_by_axis = _factor_by_axis(axis_sets)
     for dependency_id in base_requirements:
         producer = factor_by_axis[dependency_id]
         if base_factor is not None and producer != base_factor:
             required_factors[base_factor].add(producer)
 
-    remaining = {
-        factor_index: set(required)
-        for factor_index, required in required_factors.items()
-    }
-    ordered: list[int] = []
-    while remaining:
-        ready = [
-            factor_index for factor_index, required in remaining.items() if not required
-        ]
-        if not ready:
+    ordered, blocked = _stable_factor_order(required_factors)
+    if blocked:
+        if base_factor is not None and _factor_is_in_cycle(
+            base_factor,
+            required_factors,
+        ):
             raise CheckFailed(
                 [
                     _problem(
@@ -599,11 +661,11 @@ def _ordered_point_domain(
                     )
                 ]
             )
-        next_factor = min(ready)
-        ordered.append(next_factor)
-        del remaining[next_factor]
-        for required in remaining.values():
-            required.discard(next_factor)
+        _raise_scan_composition_cycle(
+            axis_sets,
+            blocked,
+            graph=graph,
+        )
 
     domain: PointDomainIntent = POINT_UNIT
     for factor_index in ordered:
@@ -614,6 +676,149 @@ def _ordered_point_domain(
             else point_product(domain, factor.domain)
         )
     return domain
+
+
+def _scan_product_factors(
+    scans: Sequence[Scan],
+    *,
+    graph: VerifiedScanDependencyGraph,
+) -> tuple[Scan, ...]:
+    """Flatten one Cartesian region without scheduling its parent region."""
+
+    factors: list[Scan] = []
+    for scan in scans:
+        if isinstance(scan, ScanGroupIntent) and scan.kind == "cartesian":
+            factors.extend(_scan_product_factors(scan.scans, graph=graph))
+            continue
+        factors.append(_normalize_nested_scan(scan, graph=graph))
+    return tuple(factors)
+
+
+def _normalize_nested_scan(
+    scan: Scan,
+    *,
+    graph: VerifiedScanDependencyGraph,
+) -> Scan:
+    """Schedule Cartesian regions nested below an indivisible zip boundary."""
+
+    if not isinstance(scan, ScanGroupIntent):
+        return scan
+    if scan.kind == "zip":
+        return replace_scan_group(
+            scan,
+            tuple(_normalize_nested_scan(child, graph=graph) for child in scan.scans),
+        )
+
+    factors = _scan_product_factors(scan.scans, graph=graph)
+    axis_sets = tuple(_scan_axis_ids(factor) for factor in factors)
+    required = _factor_dependencies(
+        axis_sets,
+        ((edge.producer_id, edge.consumer_id) for edge in graph.edges),
+    )
+    ordered, blocked = _stable_factor_order(required)
+    if blocked:
+        _raise_scan_composition_cycle(axis_sets, blocked, graph=graph)
+    selected = tuple(factors[index] for index in ordered)
+    if len(selected) == 1:
+        return selected[0]
+    return replace_scan_group(scan, selected)
+
+
+def _scan_axis_ids(scan: Scan) -> frozenset[str]:
+    return frozenset(scan_point_id(leaf) for leaf in iter_scan_leaves(scan))
+
+
+def _factor_by_axis(
+    axis_sets: Sequence[frozenset[str]],
+) -> dict[str, int]:
+    return {
+        axis_id: factor_index
+        for factor_index, axis_ids in enumerate(axis_sets)
+        for axis_id in axis_ids
+    }
+
+
+def _factor_dependencies(
+    axis_sets: Sequence[frozenset[str]],
+    dependency_edges: Iterable[tuple[str, str]],
+) -> dict[int, set[int]]:
+    factor_by_axis = _factor_by_axis(axis_sets)
+    required = {index: set[int]() for index in range(len(axis_sets))}
+    for producer_id, consumer_id in dependency_edges:
+        producer = factor_by_axis.get(producer_id)
+        consumer = factor_by_axis.get(consumer_id)
+        if producer is not None and consumer is not None and producer != consumer:
+            required[consumer].add(producer)
+    return required
+
+
+def _stable_factor_order(
+    required_factors: Mapping[int, set[int]],
+) -> tuple[tuple[int, ...], frozenset[int]]:
+    remaining = {
+        factor_index: set(required)
+        for factor_index, required in required_factors.items()
+    }
+    ordered: list[int] = []
+    while remaining:
+        ready = [
+            factor_index for factor_index, required in remaining.items() if not required
+        ]
+        if not ready:
+            return tuple(ordered), frozenset(remaining)
+        next_factor = min(ready)
+        ordered.append(next_factor)
+        del remaining[next_factor]
+        for required in remaining.values():
+            required.discard(next_factor)
+    return tuple(ordered), frozenset()
+
+
+def _factor_is_in_cycle(
+    factor_index: int,
+    required_factors: Mapping[int, set[int]],
+) -> bool:
+    pending = list(required_factors[factor_index])
+    visited: set[int] = set()
+    while pending:
+        required = pending.pop()
+        if required == factor_index:
+            return True
+        if required in visited:
+            continue
+        visited.add(required)
+        pending.extend(required_factors[required])
+    return False
+
+
+def _raise_scan_composition_cycle(
+    axis_sets: Sequence[frozenset[str]],
+    blocked: frozenset[int],
+    *,
+    graph: VerifiedScanDependencyGraph,
+) -> None:
+    axes_by_id = {axis.id: axis for axis in graph.axes}
+    involved = sorted(
+        {
+            axis_id
+            for factor_index in blocked
+            for axis_id in axis_sets[factor_index]
+            if axis_id in axes_by_id
+        },
+        key=lambda item: (axes_by_id[item].declaration_ordinal, item),
+    )
+    first = involved[0]
+    raise CheckFailed(
+        [
+            _problem(
+                "scan_dependency_composition_cycle",
+                "scan groups cannot be ordered without splitting a positional "
+                "composition: " + ", ".join(involved),
+                "scans",
+                path=axes_by_id[first].path,
+            )
+        ]
+    )
 
 
 def _point_domain_requirements(
@@ -638,25 +843,6 @@ def _point_domain_requirements(
             value_type if isinstance(value_type, Scalar) else None,
         )
     return requirements
-
-
-def _validate_scans(scans: Sequence[Scan]) -> None:
-    axis_ids = [
-        scan_point_id(leaf) for scan in scans for leaf in iter_scan_leaves(scan)
-    ]
-    duplicates = sorted(
-        {axis_id for axis_id in axis_ids if axis_ids.count(axis_id) > 1}
-    )
-    if duplicates:
-        raise CheckFailed(
-            [
-                _problem(
-                    "scan_axis_duplicate",
-                    "duplicate scan axis: " + ", ".join(duplicates),
-                    "scans",
-                )
-            ]
-        )
 
 
 def _validate_scan_target_types(

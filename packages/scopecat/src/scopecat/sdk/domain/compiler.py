@@ -1,6 +1,6 @@
 """Pure, bounded domain lowering over typed residual experiment semantics.
 
-The SDK receives owned normal forms and a read-only exact/opaque iteration
+The SDK receives owned normal forms and a read-only exact iteration
 projection. ``claim_resources`` establishes safe barriers before compilation,
 ``compile`` chooses jobs and absorption claims without external effects, and
 ``prepare`` closes one selected job over its runtime context. Separating these
@@ -13,17 +13,33 @@ from collections.abc import Callable, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, field
 from itertools import pairwise
-from math import prod
 from typing import Protocol, cast
 
+from scopecat.compiler.relations.point_domain import point_axis_linear_value
 from scopecat.compiler.relations.scalar_eval import CellValue, eval_binary
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.resource_identity import ResourceClaim
+from scopecat.records.parameter import Quantity
 from scopecat.sdk.domain.context import DomainBatchContext
 from scopecat.sdk.domain.execution import PreparedDomainExecution
 from scopecat.sdk.domain.view import DomainCallView
 
 type DomainAffineNumber = int | float
+
+
+@dataclass(frozen=True, slots=True)
+class DomainPointLinearValues:
+    """A constant-space exact linear sequence for one known point axis."""
+
+    center: Quantity
+    span: Quantity
+    count: int
+
+    def __len__(self) -> int:
+        return self.count
+
+    def __getitem__(self, index: int) -> Quantity:
+        return point_axis_linear_value(self.center, self.span, self.count, index)
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,11 +77,12 @@ class DomainPointAxis:
     """Exact values of one finite point column in logical ordinal order."""
 
     id: str
-    values: tuple[object, ...]
+    values: tuple[object, ...] | DomainPointLinearValues
     repeat_each: int = 1
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "values", deepcopy(tuple(self.values)))
+        if not isinstance(self.values, DomainPointLinearValues):
+            object.__setattr__(self, "values", deepcopy(tuple(self.values)))
 
     def values_at(self, ordinals: Sequence[int]) -> tuple[object, ...]:
         """Select axis values without materializing domain input expressions."""
@@ -77,116 +94,22 @@ class DomainPointAxis:
 
 
 @dataclass(frozen=True, slots=True)
-class DomainIterationUnit:
-    """Exact-one identity in a projected iteration layout."""
-
-    @property
-    def extent(self) -> int:
-        return 1
-
-
-@dataclass(frozen=True, slots=True)
-class DomainIterationLeaf:
-    """One positional relation leaf providing zero or more point axes."""
-
-    axis_ids: tuple[str, ...]
-    extent: int | None
-
-    def __post_init__(self) -> None:
-        if self.extent is not None and self.extent < 0:
-            raise ValueError("domain iteration leaf extent must be nonnegative")
-        if len(self.axis_ids) != len(set(self.axis_ids)):
-            raise ValueError("domain iteration leaf axis ids must be unique")
-
-
-@dataclass(frozen=True, slots=True)
-class DomainIterationOpaque:
-    """A layout region whose structure is not safely projectable."""
-
-    extent: int | None
-
-    def __post_init__(self) -> None:
-        if self.extent is not None and self.extent < 0:
-            raise ValueError("domain opaque iteration extent must be nonnegative")
-
-
-@dataclass(frozen=True, slots=True)
-class DomainIterationDependent:
-    """Ordered product whose right layout is evaluated per left point."""
-
-    left: DomainIterationNode
-    right: DomainIterationNode
-    extent: int | None
-
-    def __post_init__(self) -> None:
-        if self.extent is not None and self.extent < 0:
-            raise ValueError("domain dependent iteration extent must be nonnegative")
-
-
-@dataclass(frozen=True, slots=True)
-class DomainIterationProduct:
-    """Ordered left-major Cartesian iteration; the last factor is fastest."""
-
-    factors: tuple[DomainIterationNode, ...]
-
-    def __post_init__(self) -> None:
-        if len(self.factors) < 2:
-            raise ValueError("domain iteration product requires at least two factors")
-
-    @property
-    def extent(self) -> int | None:
-        extents = tuple(factor.extent for factor in self.factors)
-        if any(item is None for item in extents):
-            return None
-        return prod(cast("tuple[int, ...]", extents))
-
-
-@dataclass(frozen=True, slots=True)
-class DomainIterationZip:
-    """Positional iteration of equally long sources."""
-
-    sources: tuple[DomainIterationNode, ...]
-    extent: int | None
-
-    def __post_init__(self) -> None:
-        if len(self.sources) < 2:
-            raise ValueError("domain iteration zip requires at least two sources")
-        if self.extent is not None and self.extent < 0:
-            raise ValueError("domain iteration zip extent must be nonnegative")
-
-
-type DomainIterationNode = (
-    DomainIterationUnit
-    | DomainIterationLeaf
-    | DomainIterationOpaque
-    | DomainIterationDependent
-    | DomainIterationProduct
-    | DomainIterationZip
-)
-
-
-@dataclass(frozen=True, slots=True)
 class DomainIterationLayout:
-    """SDK-owned exact/opaque projection of logical scan nesting and axes.
+    """SDK-owned known axes and preferred capacity-alignment size."""
 
-    Exact structure supports target-native fast/slow-axis lowering. Opaque
-    boundaries preserve soundness by requiring bounded concrete binding.
-    """
-
-    root: DomainIterationNode
     axes: tuple[DomainPointAxis, ...] = ()
+    preferred_tile_size: int | None = None
 
     def __post_init__(self) -> None:
         axes = tuple(self.axes)
         axis_ids = tuple(axis.id for axis in axes)
         if len(axis_ids) != len(set(axis_ids)):
             raise ValueError("domain point axis ids must be unique")
-        leaf_axis_ids = tuple(_iteration_axis_ids(self.root))
-        if leaf_axis_ids != axis_ids:
-            raise ValueError(
-                "domain iteration leaves must own projected axes in layout order"
-            )
+        if self.preferred_tile_size is not None and self.preferred_tile_size < 0:
+            raise ValueError("domain preferred tile size must be nonnegative")
         object.__setattr__(self, "axes", axes)
+        if self.preferred_tile_size == 0:
+            object.__setattr__(self, "preferred_tile_size", None)
 
     def point_axis(self, name: str) -> DomainPointAxis | None:
         return next((axis for axis in self.axes if axis.id == name), None)
@@ -198,10 +121,10 @@ class DomainIterationLayout:
     ) -> tuple[tuple[int, ...], ...] | None:
         """Partition selected ordinals by exact values of the requested axes.
 
-        ``None`` means at least one requested axis crosses an opaque layout
-        boundary. Empty support is one invariant coverage. Only adjacent equal
-        projections are joined, so effect and capacity boundaries supplied by
-        the caller remain authoritative.
+        ``None`` means at least one requested axis has dynamic values. Empty
+        support is one invariant coverage. Only adjacent equal projections are
+        joined, so caller-supplied effect and capacity boundaries remain
+        authoritative.
         """
 
         selected = tuple(ordinals)
@@ -232,40 +155,6 @@ class DomainIterationLayout:
                 start = offset
         partitions.append(selected[start:])
         return tuple(partitions)
-
-    @property
-    def preferred_tile_size(self) -> int | None:
-        """Return the complete innermost sweep size when it is exact."""
-
-        node = (
-            self.root.factors[-1]
-            if isinstance(self.root, DomainIterationProduct)
-            else self.root.right
-            if isinstance(self.root, DomainIterationDependent)
-            else self.root
-        )
-        extent = node.extent
-        return extent if extent not in {None, 0} else None
-
-
-def _iteration_axis_ids(node: DomainIterationNode) -> tuple[str, ...]:
-    if isinstance(node, DomainIterationLeaf):
-        return node.axis_ids
-    if isinstance(node, DomainIterationProduct):
-        return tuple(
-            axis_id
-            for factor in node.factors
-            for axis_id in _iteration_axis_ids(factor)
-        )
-    if isinstance(node, DomainIterationDependent):
-        return (*_iteration_axis_ids(node.left), *_iteration_axis_ids(node.right))
-    if isinstance(node, DomainIterationZip):
-        return tuple(
-            axis_id
-            for source in node.sources
-            for axis_id in _iteration_axis_ids(source)
-        )
-    return ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -796,17 +685,11 @@ __all__ = [
     "DomainCompiler",
     "DomainInput",
     "DomainInputBinder",
-    "DomainIterationDependent",
     "DomainIterationLayout",
-    "DomainIterationLeaf",
-    "DomainIterationNode",
-    "DomainIterationOpaque",
-    "DomainIterationProduct",
-    "DomainIterationUnit",
-    "DomainIterationZip",
     "DomainLiteral",
     "DomainPointAffine",
     "DomainPointAxis",
+    "DomainPointLinearValues",
     "DomainResolvedInputs",
     "compiled_jobs",
     "validate_domain_compilation",

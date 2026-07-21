@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import cast
 
 from scopecat.compiler.relations.analysis import PlanNode
@@ -213,7 +213,6 @@ class ParameterRelationData:
         self,
         *,
         row: Row | None = None,
-        outer_row: Row | None = None,
         point_row: Row | None = None,
         row_scopes: Mapping[RowScopeId, Row] | None = None,
         inputs: Mapping[str, object] | None = None,
@@ -221,7 +220,6 @@ class ParameterRelationData:
         return EvalContext(
             params=self,
             row=row,
-            outer_row=outer_row,
             point_row=point_row or {},
             row_scopes=dict(row_scopes or {}),
             inputs=dict(inputs or {}),
@@ -232,14 +230,12 @@ class ParameterRelationData:
 class EvalContext:
     """Closed bindings for one relation evaluation.
 
-    ``row`` is the current relation-row scope, ``outer_row`` is an explicit
-    lexical/lateral parent, and ``point_row`` is the experiment point.  They
-    never fall back to one another by name.
+    ``row`` is the current relation-row scope and ``point_row`` is the
+    experiment point. They never fall back to one another by name.
     """
 
     params: ParameterRelationData = field(default_factory=ParameterRelationData)
     row: Row | None = None
-    outer_row: Row | None = None
     point_row: Row = field(default_factory=dict)
     row_scopes: dict[RowScopeId, Row] = field(default_factory=dict)
     inputs: dict[str, object] = field(default_factory=dict)
@@ -287,53 +283,11 @@ def evaluate_relation_in_context(
     )
 
 
-def evaluate_relation_ordinals(
-    verified_plan: VerifiedRelationPlan[RelationExpr],
-    ctx: EvalContext,
-    ordinals: Sequence[int],
-    *,
-    max_points: int,
-) -> list[Row]:
-    """Evaluate a canonical finite ordinal selection under an explicit budget."""
-
-    selected = tuple(ordinals)
-    if type(max_points) is not int or max_points <= 0:
-        raise ValueError("relation ordinal budget must be a positive integer")
-    if len(selected) > max_points:
-        raise ValueError("relation ordinal selection exceeds the requested budget")
-    if selected != tuple(sorted(set(selected))) or any(
-        ordinal < 0 for ordinal in selected
-    ):
-        msg = "relation ordinals must be unique, non-negative, and canonical"
-        raise ValueError(msg)
-    from scopecat.compiler.relations.evaluator import (
-        evaluate_relation_expression_ordinals,
-    )
-
-    normalized = _prepare_context(verified_plan, ctx)
-    result = evaluate_relation_expression_ordinals(
-        verified_plan.root,
-        normalized,
-        selected,
-    )
-    certified = cast("Table", verified_plan.certified_type)
-    selected_type = replace(
-        certified,
-        min_rows=len(selected),
-        max_rows=len(selected),
-    )
-    return cast(
-        "list[Row]",
-        _normalize_materialized_result(selected_type, result),
-    )
-
-
 def evaluate_relation(
     verified_plan: VerifiedRelationPlan[RelationExpr],
     params: ParameterRelationData | None = None,
     *,
     row: Row | None = None,
-    outer_row: Row | None = None,
     point_row: Row | None = None,
     row_scopes: Mapping[RowScopeId, Row] | None = None,
     inputs: Mapping[str, object] | None = None,
@@ -343,7 +297,6 @@ def evaluate_relation(
         EvalContext(
             params=params or ParameterRelationData(),
             row=row,
-            outer_row=outer_row,
             point_row=point_row or {},
             row_scopes=dict(row_scopes or {}),
             inputs=dict(inputs or {}),
@@ -511,11 +464,6 @@ def _normalize_evaluation_context[NodeT: PlanNode](
         ctx.row,
         path=("rows", "current"),
     )
-    outer_row = _normalize_external_row(
-        row_interface.outer,
-        ctx.outer_row,
-        path=("rows", "outer"),
-    )
     row_scopes = {scope_id: dict(value) for scope_id, value in ctx.row_scopes.items()}
     for argument in row_interface.arguments:
         normalized_row = _normalize_external_row(
@@ -548,7 +496,6 @@ def _normalize_evaluation_context[NodeT: PlanNode](
             tables=tables_by_parameter,
         ),
         row=row,
-        outer_row=outer_row,
         point_row=point_row,
         row_scopes=row_scopes,
         inputs=inputs,
@@ -636,10 +583,6 @@ def _normalize_external_row(
 ) -> Row | None:
     if requirement is None:
         return dict(row) if row is not None else None
-    if requirement.requires_full_row:
-        if row is None:
-            raise ValueValidationError(path, "required row binding is missing")
-        return _normalize_full_row_role(requirement.row_type, row, path=path)
     return _normalize_row_role(
         requirement.row_type,
         row,
@@ -673,25 +616,6 @@ def _normalize_row_role(
         coerce_literal(contract, [row], path=path),
     )
     return cast("list[Row]", normalized)[0]
-
-
-def _normalize_full_row_role(
-    row_type: RowType,
-    row: Row,
-    *,
-    path: tuple[str, str],
-) -> Row:
-    contract = Table(
-        row_type.columns,
-        min_rows=1,
-        max_rows=1,
-        allow_extra_columns=row_type.allow_extra_columns,
-    )
-    normalized = cast(
-        "list[Row]",
-        _normalize_typed_value(contract, [row], path=path),
-    )
-    return normalized[0]
 
 
 def _referenced_row_columns(
