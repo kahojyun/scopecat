@@ -808,7 +808,6 @@ class _SemanticGraphBuilder:
             parameters=self._parameter_types,
             parameter_lookups=self._parameter_lookups,
             point_row=self._point_row,
-            current_row=row_type,
             row_arguments=(
                 {row_scope_id: row_type}
                 if row_scope_id is not None and row_type is not None
@@ -862,13 +861,12 @@ class _SemanticGraphBuilder:
         declared_owners: set[RowRegionId] = set()
         all_nominal_uses_are_declared = True
         for reference in free.references:
-            if (
-                reference.kind is not PlanReferenceKind.CURRENT_COLUMN
-                or reference.row_scope_id is None
-            ):
+            if reference.kind is not PlanReferenceKind.ROW_COLUMN:
                 all_nominal_uses_are_declared = False
                 continue
-            owner = self._region_by_row_argument.get(reference.row_scope_id)
+            owner = self._region_by_row_argument.get(
+                cast("RowScopeId", reference.row_scope_id)
+            )
             if owner is None:
                 all_nominal_uses_are_declared = False
             else:

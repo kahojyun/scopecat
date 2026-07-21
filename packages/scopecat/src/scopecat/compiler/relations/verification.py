@@ -138,7 +138,6 @@ class ExternalRowInterface:
     """The complete external lexical-row interface of one verified plan."""
 
     point: ExternalRowRequirement | None = None
-    current: ExternalRowRequirement | None = None
     arguments: tuple[NamedExternalRowRequirement, ...] = ()
 
     def __post_init__(self) -> None:
@@ -193,7 +192,6 @@ class RelationTypeBindings:
     parameters: Mapping[str, ValueType] = field(default_factory=_empty_value_bindings)
     parameter_lookups: tuple[ParameterLookupSignature, ...] = ()
     point_row: RowType | None = None
-    current_row: RowType | None = None
     row_arguments: Mapping[RowScopeId, RowType] = field(
         default_factory=_empty_row_bindings
     )
@@ -346,7 +344,6 @@ def verify_relation_plan[NodeT: PlanNode](
     try:
         verify_plan_scopes(
             root,
-            current_row_available=selected.current_row is not None,
             active_row_scopes=selected.row_arguments,
         )
     except RelationPlanScopeError as error:
@@ -386,20 +383,17 @@ def verify_relation_plan[NodeT: PlanNode](
 @dataclass(frozen=True, slots=True)
 class _Rows:
     point: RowType | None
-    current: RowType | None
     arguments: Mapping[RowScopeId, RowType]
 
-    def with_current(
+    def with_binder(
         self,
         row: RowType,
-        row_scope_id: RowScopeId | None = None,
+        row_scope_id: RowScopeId,
     ) -> _Rows:
         arguments = dict(self.arguments)
-        if row_scope_id is not None:
-            arguments[row_scope_id] = row
+        arguments[row_scope_id] = row
         return _Rows(
             self.point,
-            row,
             MappingProxyType(arguments),
         )
 
@@ -409,7 +403,6 @@ class _Verifier:
         self.bindings = bindings
         self.rows = _Rows(
             bindings.point_row,
-            bindings.current_row,
             bindings.row_arguments,
         )
         self.external_point_references: set[str] = set()
@@ -469,11 +462,7 @@ class _Verifier:
             case LiteralScalarExpr():
                 result = self.literal(scalar.value, path, expected)
             case ColumnScalarExpr():
-                selected = (
-                    rows.arguments.get(scalar.row_scope_id)
-                    if scalar.row_scope_id is not None
-                    else rows.current
-                )
+                selected = rows.arguments.get(scalar.row_scope_id)
                 result = self.row_column(selected, scalar.name, path)
             case PointColumnScalarExpr():
                 name = scalar.name
@@ -717,7 +706,7 @@ class _Verifier:
                     self.infer(
                         relation.condition,
                         (*path, "condition"),
-                        rows=rows.with_current(row, relation.row_scope_id),
+                        rows=rows.with_binder(row, relation.row_scope_id),
                     ),
                 )
                 self.require_bool(condition, (*path, "condition"))
@@ -742,7 +731,7 @@ class _Verifier:
                         self.infer(
                             expression,
                             (*path, "new_columns", name),
-                            rows=rows.with_current(current, relation.row_scope_id),
+                            rows=rows.with_binder(current, relation.row_scope_id),
                         ),
                     )
                     if any(column.id == name for column in columns):
@@ -1237,14 +1226,15 @@ def _external_row_interface(
     free_references: PlanReferences,
     bindings: RelationTypeBindings,
 ) -> ExternalRowInterface:
-    current: set[str] = set()
     arguments: dict[RowScopeId, set[str]] = {}
     for reference in free_references:
-        if reference.kind is PlanReferenceKind.CURRENT_COLUMN:
-            if reference.row_scope_id is None:
-                current.add(reference.id)
-            else:
-                arguments.setdefault(reference.row_scope_id, set()).add(reference.id)
+        if reference.kind is PlanReferenceKind.ROW_COLUMN:
+            row_scope_id = reference.row_scope_id
+            if row_scope_id is None:
+                raise AssertionError(
+                    "row-column reference is missing its nominal scope"
+                )
+            arguments.setdefault(row_scope_id, set()).add(reference.id)
 
     named = tuple(
         NamedExternalRowRequirement(
@@ -1263,7 +1253,6 @@ def _external_row_interface(
             bindings.point_row,
             verifier.external_point_references,
         ),
-        current=_external_row_requirement(bindings.current_row, current),
         arguments=named,
     )
 

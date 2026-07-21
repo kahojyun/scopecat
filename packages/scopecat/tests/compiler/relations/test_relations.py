@@ -8,6 +8,7 @@ from scopecat.compiler.relations.input_binding import (
 )
 from scopecat.compiler.relations.model import (
     LiteralScalarExpr,
+    RowScopeId,
     SelectRelationExpr,
     TableRelationExpr,
     WithColumnsRelationExpr,
@@ -23,6 +24,7 @@ from scopecat.compiler.relations.model import (
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
 )
+from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import (
     Bool,
     Record,
@@ -45,6 +47,10 @@ _STRING = Scalar(String())
 _FREQUENCY = Scalar(QuantityType(dimension="frequency"))
 
 
+def _scope(local_id: str) -> RowScopeId:
+    return RowScopeId(SymbolId(local_id=local_id))
+
+
 def _table_type(**columns: Scalar) -> Table:
     return Table(
         tuple(TableColumn(name, value_type) for name, value_type in columns.items())
@@ -65,6 +71,8 @@ def test_quantity_converts_and_combines_compatible_units() -> None:
 
 
 def test_literal_rows_filter_select() -> None:
+    filter_scope = _scope("literal-filter")
+    columns_scope = _scope("literal-columns")
     relation = (
         literal_rows(
             [
@@ -77,8 +85,15 @@ def test_literal_rows_filter_select() -> None:
                 for frequency in (5.0, 5.1, 5.2)
             ]
         )
-        .filter(col("device.enabled").eq(True))
-        .with_columns(detuning=col("frequency") - Quantity(value=100, unit="MHz"))
+        .filter(
+            col("device.enabled", row_scope_id=filter_scope).eq(True),
+            row_scope_id=filter_scope,
+        )
+        .with_columns(
+            row_scope_id=columns_scope,
+            detuning=col("frequency", row_scope_id=columns_scope)
+            - Quantity(value=100, unit="MHz"),
+        )
         .select("device.device_id", "frequency", "detuning")
     )
 
@@ -126,14 +141,20 @@ def test_parameter_data_drives_variable_key_lookup_and_joins() -> None:
         },
     )
 
+    filter_scope = _scope("parameter-filter")
+    columns_scope = _scope("parameter-columns")
     relation = (
         table("readout_devices")
-        .filter(col("enabled").eq(True))
+        .filter(
+            col("enabled", row_scope_id=filter_scope).eq(True),
+            row_scope_id=filter_scope,
+        )
         .with_columns(
+            row_scope_id=columns_scope,
             demod=param("readout.demod_frequency"),
             carrier=param(
                 "readout_devices",
-                key={"device_id": col("device_id")},
+                key={"device_id": col("device_id", row_scope_id=columns_scope)},
                 column="frequency",
             ),
         )
@@ -218,7 +239,11 @@ def test_series_and_table_inputs_are_typed_expressions() -> None:
         {"qubit": "q0", "frequency": Quantity(value=5.0, unit="GHz")},
         {"qubit": "q1", "frequency": Quantity(value=5.1, unit="GHz")},
     ]
-    relation = input_table("gate_rows").filter(col("qubit").eq("q1"))
+    filter_scope = _scope("input-filter")
+    relation = input_table("gate_rows").filter(
+        col("qubit", row_scope_id=filter_scope).eq("q1"),
+        row_scope_id=filter_scope,
+    )
     series = input_series("offsets")
 
     assert evaluate_relation(
@@ -284,7 +309,14 @@ def test_relation_variant_fields_preserve_empty_semantics() -> None:
     assert leaf.rows == []
     assert TableRelationExpr(table_id="").table_id == ""
     assert SelectRelationExpr(source=leaf, select_columns=[]).select_columns == []
-    assert WithColumnsRelationExpr(source=leaf, new_columns={}).new_columns == {}
+    assert (
+        WithColumnsRelationExpr(
+            source=leaf,
+            new_columns={},
+            row_scope_id=_scope("empty-columns"),
+        ).new_columns
+        == {}
+    )
 
 
 def test_relation_entities_series_has_explicit_ordering_rules() -> None:

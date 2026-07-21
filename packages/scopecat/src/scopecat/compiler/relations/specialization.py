@@ -327,7 +327,7 @@ def _residual(expression: ScalarExpression) -> ResidualScalar:
 def _binding_time(references: PlanReferences) -> BindingTime:
     kinds = {reference.kind for reference in references}
     if kinds & {
-        PlanReferenceKind.CURRENT_COLUMN,
+        PlanReferenceKind.ROW_COLUMN,
         PlanReferenceKind.POINT_COLUMN,
     }:
         return BindingTime.POINT

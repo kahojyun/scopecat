@@ -274,15 +274,11 @@ def test_evaluation_rejects_invalid_open_input_carrier() -> None:
         )
 
 
-@pytest.mark.parametrize("role", ["current", "point", "argument"])
+@pytest.mark.parametrize("role", ["point", "argument"])
 def test_evaluation_validates_used_row_roles(role: str) -> None:
     row_scope_id = _row_scope("external")
     row: Row = {"value": "not-an-int"}
-    if role == "current":
-        expression = col("value")
-        bindings = RelationTypeBindings(current_row=_int_row("value"))
-        ctx = ParameterRelationData().to_context(row=row)
-    elif role == "point":
+    if role == "point":
         expression = point_col("value")
         bindings = RelationTypeBindings(point_row=_int_row("value"))
         ctx = ParameterRelationData().to_context(point_row=row)

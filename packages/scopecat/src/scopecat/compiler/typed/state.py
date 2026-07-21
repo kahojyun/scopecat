@@ -77,7 +77,7 @@ class ForEachStateSpec(StateSpec):
 
     relation_use: RelationUse[TableValueExpr]
     state: tuple[StateSpecVariant, ...]
-    row_scope_id: RowScopeId | None = None
+    row_scope_id: RowScopeId
 
 
 type StateSpecVariant = SetStateSpec | ForEachStateSpec
@@ -138,7 +138,6 @@ def evaluate_state_spec(
     records: list[StateRecord] = []
     relation_ctx = EvalContext(
         params=ctx.params,
-        row=None,
         point_row=ctx.point_row,
         row_scopes=ctx.row_scopes,
         inputs=ctx.inputs,
@@ -153,11 +152,10 @@ def evaluate_state_spec(
     ):
         child_ctx = EvalContext(
             params=ctx.params,
-            row=row,
             point_row=ctx.point_row,
             row_scopes={
                 **ctx.row_scopes,
-                **({spec.row_scope_id: row} if spec.row_scope_id is not None else {}),
+                spec.row_scope_id: row,
             },
             inputs=ctx.inputs,
         )

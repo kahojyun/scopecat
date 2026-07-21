@@ -45,7 +45,7 @@ type PlanNode = ScalarExpr | SeriesExpr | RelationExpr
 class PlanReferenceKind(StrEnum):
     """Shape-preserving identity for an external plan reference."""
 
-    CURRENT_COLUMN = "current_column"
+    ROW_COLUMN = "row_column"
     POINT_COLUMN = "point_column"
     INPUT_SCALAR = "input.scalar"
     INPUT_SERIES = "input.series"
@@ -64,6 +64,9 @@ class PlanReference:
     def __post_init__(self) -> None:
         if not self.id:
             msg = "plan reference ids must be non-empty"
+            raise ValueError(msg)
+        if self.kind is PlanReferenceKind.ROW_COLUMN and self.row_scope_id is None:
+            msg = "row-column references require a nominal row scope"
             raise ValueError(msg)
 
 
@@ -256,12 +259,12 @@ class RelationPlanScopeError(ValueError):
 
     def __init__(self, reference: PlanReference) -> None:
         self.reference = reference
-        if reference.row_scope_id is not None:
-            scope = reference.row_scope_id.qualified_name
-        else:
-            scope = "<implicit-current-row>"
+        row_scope_id = reference.row_scope_id
+        if row_scope_id is None:
+            raise AssertionError("row reference is missing its nominal scope")
         super().__init__(
-            f"relation row reference {reference.id!r} has no active scope {scope!r}"
+            "relation row reference "
+            f"{reference.id!r} has no active scope {row_scope_id.qualified_name!r}"
         )
 
 
@@ -279,36 +282,22 @@ class RelationPlanBinderError(ValueError):
 def verify_plan_scopes(
     root: PlanNode,
     *,
-    current_row_available: bool = False,
     active_row_scopes: Collection[RowScopeId] = (),
 ) -> None:
     """Require every row reference to be closed by an explicit plan scope."""
 
-    active = frozenset(active_row_scopes)
-    _verify_row_binder_hygiene(root, external=active)
-    _verify_node_scopes(
-        root,
-        active=active,
-        current_row_available=current_row_available,
-    )
-
-
-def _verify_row_binder_hygiene(
-    root: PlanNode,
-    *,
-    external: frozenset[RowScopeId],
-) -> None:
-    for node in walk_plan(root):
-        if not isinstance(node, RelationExpr):
+    external = frozenset(active_row_scopes)
+    for node, active in _walk_lexical_plan(root, active=external):
+        if isinstance(node, ColumnScalarExpr):
+            reference = _row_reference(node)
+            if node.row_scope_id not in active:
+                raise RelationPlanScopeError(reference)
             continue
-        relation = cast("RelationExpression", node)
-        if not isinstance(relation, FilterRelationExpr | WithColumnsRelationExpr):
-            continue
-        row_scope_id = relation.row_scope_id
-        if row_scope_id is None:
-            continue
-        if row_scope_id in external:
-            raise RelationPlanBinderError(row_scope_id)
+        if (
+            isinstance(node, FilterRelationExpr | WithColumnsRelationExpr)
+            and node.row_scope_id in external
+        ):
+            raise RelationPlanBinderError(node.row_scope_id)
 
 
 def free_row_references(root: PlanNode) -> PlanReferences:
@@ -319,180 +308,64 @@ def free_row_references(root: PlanNode) -> PlanReferences:
     use must be supplied by an enclosing semantic region.
     """
 
-    references: set[PlanReference] = set()
-    _collect_free_row_references(
-        root,
-        active=frozenset(),
-        current_row_available=False,
-        references=references,
-    )
+    references = {
+        _row_reference(node)
+        for node, active in _walk_lexical_plan(root, active=frozenset())
+        if isinstance(node, ColumnScalarExpr) and node.row_scope_id not in active
+    }
     return PlanReferences(frozenset(references))
 
 
-def _collect_free_row_references(
+def _walk_lexical_plan(
     node: PlanNode,
     *,
     active: frozenset[RowScopeId],
-    current_row_available: bool,
-    references: set[PlanReference],
-) -> None:
+) -> Iterator[tuple[PlanNode, frozenset[RowScopeId]]]:
+    """Walk a plan with the exact nominal row scopes active at each node."""
+
+    yield node, active
     if isinstance(node, ScalarExpr):
-        scalar = cast("ScalarExpression", node)
-        if isinstance(scalar, ColumnScalarExpr):
-            reference = PlanReference(
-                PlanReferenceKind.CURRENT_COLUMN,
-                scalar.name,
-                row_scope_id=scalar.row_scope_id,
-            )
-            if (
-                scalar.row_scope_id is not None and scalar.row_scope_id not in active
-            ) or (scalar.row_scope_id is None and not current_row_available):
-                references.add(reference)
-        for child in iter_plan_children(scalar):
-            _collect_free_row_references(
+        for child in iter_plan_children(node):
+            yield from _walk_lexical_plan(
                 child,
                 active=active,
-                current_row_available=current_row_available,
-                references=references,
             )
         return
 
     if isinstance(node, SeriesExpr):
         for child in iter_plan_children(node):
-            _collect_free_row_references(
+            yield from _walk_lexical_plan(
                 child,
                 active=active,
-                current_row_available=current_row_available,
-                references=references,
             )
         return
 
     relation = cast("RelationExpression", node)
     if isinstance(relation, FilterRelationExpr):
-        _collect_free_row_references(
+        yield from _walk_lexical_plan(
             relation.source,
             active=active,
-            current_row_available=current_row_available,
-            references=references,
         )
-        nested = (
-            active | {relation.row_scope_id}
-            if relation.row_scope_id is not None
-            else active
-        )
-        _collect_free_row_references(
+        yield from _walk_lexical_plan(
             relation.condition,
-            active=frozenset(nested),
-            current_row_available=True,
-            references=references,
+            active=active | {relation.row_scope_id},
         )
         return
     if isinstance(relation, WithColumnsRelationExpr):
-        _collect_free_row_references(
+        yield from _walk_lexical_plan(
             relation.source,
             active=active,
-            current_row_available=current_row_available,
-            references=references,
-        )
-        nested = (
-            active | {relation.row_scope_id}
-            if relation.row_scope_id is not None
-            else active
         )
         for scalar in relation.new_columns.values():
-            _collect_free_row_references(
+            yield from _walk_lexical_plan(
                 scalar,
-                active=frozenset(nested),
-                current_row_available=True,
-                references=references,
+                active=active | {relation.row_scope_id},
             )
         return
     for child in iter_plan_children(relation):
-        _collect_free_row_references(
+        yield from _walk_lexical_plan(
             child,
             active=active,
-            current_row_available=current_row_available,
-            references=references,
-        )
-
-
-def _verify_node_scopes(
-    node: PlanNode,
-    *,
-    active: frozenset[RowScopeId],
-    current_row_available: bool,
-) -> None:
-    if isinstance(node, ScalarExpr):
-        scalar = cast("ScalarExpression", node)
-        if isinstance(scalar, ColumnScalarExpr):
-            reference = PlanReference(
-                PlanReferenceKind.CURRENT_COLUMN,
-                scalar.name,
-                row_scope_id=scalar.row_scope_id,
-            )
-            if scalar.row_scope_id is not None:
-                if scalar.row_scope_id not in active:
-                    raise RelationPlanScopeError(reference)
-            elif not current_row_available:
-                raise RelationPlanScopeError(reference)
-        for child in iter_plan_children(scalar):
-            _verify_node_scopes(
-                child,
-                active=active,
-                current_row_available=current_row_available,
-            )
-        return
-
-    if isinstance(node, SeriesExpr):
-        for child in iter_plan_children(node):
-            _verify_node_scopes(
-                child,
-                active=active,
-                current_row_available=current_row_available,
-            )
-        return
-
-    relation = cast("RelationExpression", node)
-    if isinstance(relation, FilterRelationExpr):
-        _verify_node_scopes(
-            relation.source,
-            active=active,
-            current_row_available=current_row_available,
-        )
-        nested = (
-            active | {relation.row_scope_id}
-            if relation.row_scope_id is not None
-            else active
-        )
-        _verify_node_scopes(
-            relation.condition,
-            active=frozenset(nested),
-            current_row_available=True,
-        )
-        return
-    if isinstance(relation, WithColumnsRelationExpr):
-        _verify_node_scopes(
-            relation.source,
-            active=active,
-            current_row_available=current_row_available,
-        )
-        nested = (
-            active | {relation.row_scope_id}
-            if relation.row_scope_id is not None
-            else active
-        )
-        for scalar in relation.new_columns.values():
-            _verify_node_scopes(
-                scalar,
-                active=frozenset(nested),
-                current_row_available=True,
-            )
-        return
-    for child in iter_plan_children(relation):
-        _verify_node_scopes(
-            child,
-            active=active,
-            current_row_available=current_row_available,
         )
 
 
@@ -504,90 +377,31 @@ def prefix_plan_row_scopes[NodeT: PlanNode](
 
     if not scope:
         return root
-    return cast("NodeT", _prefix_plan_row_scopes(root, scope))
-
-
-def _prefix_plan_row_scopes(
-    node: PlanNode,
-    scope: tuple[str, ...],
-) -> PlanNode:
-    if isinstance(node, ScalarExpr):
-        scalar = cast("ScalarExpression", node)
-        if isinstance(scalar, ColumnScalarExpr):
-            if scalar.row_scope_id is None:
-                return scalar
-            return replace(
-                scalar,
-                row_scope_id=scalar.row_scope_id.prefixed(*scope),
+    return rewrite_plan(
+        root,
+        lambda node: (
+            replace(node, row_scope_id=node.row_scope_id.prefixed(*scope))
+            if isinstance(
+                node,
+                ColumnScalarExpr | FilterRelationExpr | WithColumnsRelationExpr,
             )
-        if isinstance(scalar, ParameterLookupScalarExpr):
-            return replace(
-                scalar,
-                key={
-                    name: _prefix_plan_row_scopes(value, scope)
-                    for name, value in scalar.key.items()
-                },
-            )
-        if isinstance(scalar, BinaryScalarExpr):
-            return replace(
-                scalar,
-                left=_prefix_plan_row_scopes(scalar.left, scope),
-                right=_prefix_plan_row_scopes(scalar.right, scope),
-            )
-        return scalar
-
-    if isinstance(node, SeriesExpr):
-        series = cast("SeriesExpression", node)
-        if isinstance(series, RelationEntitiesSeriesExpr):
-            source = series.source
-        else:
-            return series
-        return replace(series, source=_prefix_plan_row_scopes(source, scope))
-
-    relation = cast("RelationExpression", node)
-    if isinstance(
-        relation, (LiteralRowsRelationExpr, TableRelationExpr, InputRelationExpr)
-    ):
-        return relation
-    if isinstance(relation, SelectRelationExpr):
-        return replace(
-            relation,
-            source=_prefix_plan_row_scopes(relation.source, scope),
-        )
-    if isinstance(relation, FilterRelationExpr):
-        return replace(
-            relation,
-            source=_prefix_plan_row_scopes(relation.source, scope),
-            condition=_prefix_plan_row_scopes(relation.condition, scope),
-            row_scope_id=(
-                relation.row_scope_id.prefixed(*scope)
-                if relation.row_scope_id is not None
-                else None
-            ),
-        )
-    return replace(
-        relation,
-        source=_prefix_plan_row_scopes(relation.source, scope),
-        new_columns={
-            name: _prefix_plan_row_scopes(value, scope)
-            for name, value in relation.new_columns.items()
-        },
-        row_scope_id=(
-            relation.row_scope_id.prefixed(*scope)
-            if relation.row_scope_id is not None
-            else None
+            else node
         ),
+    )
+
+
+def _row_reference(scalar: ColumnScalarExpr) -> PlanReference:
+    return PlanReference(
+        PlanReferenceKind.ROW_COLUMN,
+        scalar.name,
+        row_scope_id=scalar.row_scope_id,
     )
 
 
 def _scalar_reference(node: ScalarExpr) -> PlanReference | None:
     scalar = cast("ScalarExpression", node)
     if isinstance(scalar, ColumnScalarExpr):
-        return PlanReference(
-            PlanReferenceKind.CURRENT_COLUMN,
-            scalar.name,
-            row_scope_id=scalar.row_scope_id,
-        )
+        return _row_reference(scalar)
     if isinstance(scalar, PointColumnScalarExpr):
         return PlanReference(PlanReferenceKind.POINT_COLUMN, scalar.name)
     if isinstance(scalar, InputScalarExpr):

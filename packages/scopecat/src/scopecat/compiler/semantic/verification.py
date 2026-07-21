@@ -12,6 +12,7 @@ import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
+from typing import cast
 
 from scopecat.compiler.relations.analysis import (
     PlanReferenceKind,
@@ -1514,11 +1515,10 @@ def _verify_plan_source_region(
     expected_row = RowType.from_table(region.row_argument.value_type)
     bindings = source.verified_plan.bindings
     for reference in free:
-        if reference.kind is PlanReferenceKind.CURRENT_COLUMN:
-            if reference.row_scope_id is None:
-                actual = bindings.current_row
-            elif reference.row_scope_id == region.row_argument.id:
-                actual = bindings.row_arguments.get(reference.row_scope_id)
+        if reference.kind is PlanReferenceKind.ROW_COLUMN:
+            row_scope_id = cast("RowScopeId", reference.row_scope_id)
+            if row_scope_id == region.row_argument.id:
+                actual = bindings.row_arguments.get(row_scope_id)
             else:
                 actual = None
         else:

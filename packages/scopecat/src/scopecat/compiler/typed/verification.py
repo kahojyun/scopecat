@@ -658,7 +658,6 @@ def seal_typed_program(
 @dataclass(frozen=True, slots=True)
 class _PlanConsumerRole:
     point: RowType | None = None
-    current: RowType | None = None
     row_arguments: tuple[tuple[RowScopeId, RowType], ...] = ()
 
 
@@ -824,7 +823,6 @@ def _verify_plan_role[NodeT: PlanNode](
             bindings=replace(
                 plan.bindings,
                 point_row=role.point,
-                current_row=role.current,
                 row_arguments=dict(role.row_arguments),
             ),
             expected_type=plan.certified_type,
@@ -944,11 +942,9 @@ def _state_relation_consumers_with_roles(
     )
     row = RowType.from_table(relation.value_type)
     row_arguments = dict(role.row_arguments)
-    if state.row_scope_id is not None:
-        row_arguments[state.row_scope_id] = row
+    row_arguments[state.row_scope_id] = row
     child_role = _PlanConsumerRole(
         point=role.point,
-        current=row,
         row_arguments=tuple(row_arguments.items()),
     )
     for index, child in enumerate(state.state):

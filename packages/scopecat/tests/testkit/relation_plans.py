@@ -141,9 +141,9 @@ def state_field(
 def each_state(
     relation: RelationExpr,
     *state: StateSpecVariant,
+    row_scope_id: RowScopeId,
     bindings: RelationTypeBindings | None = None,
     expected_type: Table | None = None,
-    row_scope_id: RowScopeId | None = None,
 ) -> ForEachStateSpec:
     return bind_each(
         table_value_expr(
@@ -209,7 +209,6 @@ def evaluate_relation(
     expression: RelationExpr,
     params: ParameterRelationData | None = None,
     *,
-    row: Row | None = None,
     point_row: Row | None = None,
     row_scopes: Mapping[RowScopeId, Row] | None = None,
     inputs: Mapping[str, object] | None = None,
@@ -224,7 +223,6 @@ def evaluate_relation(
     return evaluate_selected_relation(
         verified,
         params,
-        row=row,
         point_row=point_row,
         row_scopes=row_scopes,
         inputs=inputs,
@@ -255,7 +253,6 @@ def materialize_table_value(
     value: TableValueExpr,
     params: ParameterRelationData | None = None,
     *,
-    row: Row | None = None,
     point_row: Row | None = None,
     row_scopes: Mapping[RowScopeId, Row] | None = None,
     inputs: Mapping[str, object] | None = None,
@@ -263,7 +260,6 @@ def materialize_table_value(
     return evaluate_selected_relation(
         value.plan,
         params,
-        row=row,
         point_row=point_row,
         row_scopes=row_scopes,
         inputs=inputs,

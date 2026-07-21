@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.relations.model import (
+    RowScopeId,
     col,
     literal_rows,
     point_col,
@@ -29,15 +29,13 @@ from scopecat.compiler.typed.state import (
 )
 from scopecat.compiler.typed.verification import verify_core_program
 from scopecat.kernel.errors import CheckFailed
-from scopecat.kernel.problems import model_location
 from scopecat.kernel.resource_identity import logical_resource_port_id
+from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Scalar, String, Table, TableColumn
-from tests.testkit.authoring import load_config
 from tests.testkit.relation_plans import (
     scalar_value_expr,
     table_value_expr,
 )
-from tests.testkit.typed_program import link_program
 
 _FLOAT = Scalar(Float())
 _STRING = Scalar(String())
@@ -55,50 +53,6 @@ def _empty_program(
         effects=state,
         resource_requirements=resource_requirements,
     )
-
-
-def _fictional_current_row_state() -> CoreProgram:
-    fictional_row = RowType((TableColumn("value", _FLOAT),))
-    value = scalar_value_expr(
-        col("value"),
-        bindings=RelationTypeBindings(current_row=fictional_row),
-        expected_type=_FLOAT,
-    )
-    state = set_state_field(
-        resource_port_id=logical_resource_port_id("source"),
-        capability_id="set_offset",
-        field_path="offset",
-        value=value,
-    )
-    return _empty_program(
-        state=(state,),
-        resource_requirements=(
-            LogicalResourceRequirement(
-                port_id=logical_resource_port_id("source"),
-                capabilities=("set_offset",),
-            ),
-        ),
-    )
-
-
-def test_program_verification_rejects_fictional_top_level_current_row() -> None:
-    with pytest.raises(CheckFailed) as caught:
-        verify_core_program(_fictional_current_row_state())
-
-    problem = caught.value.problems[0]
-    assert problem.code == "compiler_relation_proof_role_mismatch"
-    assert problem.location == model_location("state", 0, "value")
-
-
-def test_linking_cannot_bypass_program_proof_role_verification() -> None:
-    environment = validate_config_environment(load_config())
-
-    with pytest.raises(CheckFailed) as caught:
-        link_program(_fictional_current_row_state(), environment)
-
-    problem = caught.value.problems[0]
-    assert problem.code == "compiler_relation_proof_role_mismatch"
-    assert problem.phase.value == "planning"
 
 
 def test_program_verification_rechecks_resource_requirement_point_proof() -> None:
@@ -175,20 +129,21 @@ def test_program_verification_rejects_assignable_but_stale_point_proof() -> None
     assert caught.value.problems[0].code == "compiler_relation_proof_role_mismatch"
 
 
-def test_state_each_body_proof_accepts_its_real_current_row() -> None:
+def test_state_each_body_proof_accepts_its_lexical_row_scope() -> None:
     rows_type = Table(
         columns=(TableColumn("value", _FLOAT),),
         min_rows=1,
         max_rows=1,
     )
     row = RowType.from_table(rows_type)
+    row_scope = RowScopeId(SymbolId(local_id="state-each-row"))
     child = set_state_field(
         resource_port_id=logical_resource_port_id("source"),
         capability_id="set_offset",
         field_path="offset",
         value=scalar_value_expr(
-            col("value"),
-            bindings=RelationTypeBindings(current_row=row),
+            col("value", row_scope_id=row_scope),
+            bindings=RelationTypeBindings(row_arguments={row_scope: row}),
             expected_type=_FLOAT,
         ),
     )
@@ -198,6 +153,7 @@ def test_state_each_body_proof_accepts_its_real_current_row() -> None:
             expected_type=rows_type,
         ),
         child,
+        row_scope_id=row_scope,
     )
     assert isinstance(child, StateSpec)
     assert isinstance(child, SetStateSpec)

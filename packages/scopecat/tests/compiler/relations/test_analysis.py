@@ -8,10 +8,12 @@ from scopecat.compiler.relations.analysis import (
     iter_plan_children,
     plan_input_refs,
     plan_references,
+    prefix_plan_row_scopes,
     rewrite_plan,
     verify_plan_scopes,
 )
 from scopecat.compiler.relations.model import (
+    ColumnScalarExpr,
     InputScalarExpr,
     RowScopeId,
     col,
@@ -49,8 +51,13 @@ from scopecat.kernel.value_types import Bool, Float, Scalar, Series, Table, Tabl
 from tests.testkit.relation_plans import value_expr
 
 
+def _scope(local_id: str) -> RowScopeId:
+    return RowScopeId(SymbolId(local_id=local_id))
+
+
 def test_plan_input_refs_deduplicate_scalar_and_table_refs() -> None:
     plan = input_table("shared").with_columns(
+        row_scope_id=_scope("input-refs"),
         copied=input_ref("shared"),
     )
 
@@ -65,7 +72,9 @@ def test_free_row_references_exclude_plan_local_binders() -> None:
         row_scope_id=local_scope,
         copied=col("value", row_scope_id=local_scope),
     )
+    captured_scope = _scope("captured")
     captured = closed.with_columns(
+        row_scope_id=captured_scope,
         leaked=col("value", row_scope_id=foreign_scope),
     )
 
@@ -73,7 +82,7 @@ def test_free_row_references_exclude_plan_local_binders() -> None:
     assert free_row_references(captured).references == frozenset(
         {
             PlanReference(
-                PlanReferenceKind.CURRENT_COLUMN,
+                PlanReferenceKind.ROW_COLUMN,
                 "value",
                 row_scope_id=foreign_scope,
             )
@@ -87,8 +96,10 @@ def test_nominal_row_binders_cannot_shadow_an_enclosing_identity() -> None:
         col("value", row_scope_id=scope).gt(0),
         row_scope_id=scope,
     )
+    reused_scope = _scope("reused")
     reused = filtered.with_columns(
-        copied=col("value"),
+        row_scope_id=reused_scope,
+        copied=col("value", row_scope_id=reused_scope),
     )
 
     verify_plan_scopes(reused)
@@ -96,17 +107,41 @@ def test_nominal_row_binders_cannot_shadow_an_enclosing_identity() -> None:
         verify_plan_scopes(filtered, active_row_scopes=(scope,))
 
 
+def test_prefix_plan_row_scopes_alpha_renames_binders_and_uses_together() -> None:
+    scope = _scope("row")
+    plan = literal_rows([{"value": 1}]).with_columns(
+        row_scope_id=scope,
+        copied=col("value", row_scope_id=scope),
+    )
+
+    prefixed = prefix_plan_row_scopes(plan, "module", "use")
+
+    expected = scope.prefixed("module", "use")
+    assert prefixed.row_scope_id == expected
+    copied = prefixed.new_columns["copied"]
+    assert isinstance(copied, ColumnScalarExpr)
+    assert copied.row_scope_id == expected
+    assert plan.row_scope_id == scope
+    verify_plan_scopes(prefixed)
+
+
 def test_plan_walk_and_references_cover_every_nested_shape() -> None:
+    filter_scope = _scope("filter")
+    columns_scope = _scope("columns")
     lookup = param(
         "calibrations",
         key={
-            "local": col("local_id"),
+            "local": col("local_id", row_scope_id=columns_scope),
             "point": point_col("point_id"),
         },
         column="gain",
     )
-    filtered = input_table("rows").filter(input_ref("enabled"))
+    filtered = input_table("rows").filter(
+        input_ref("enabled"),
+        row_scope_id=filter_scope,
+    )
     plan = filtered.with_columns(
+        row_scope_id=columns_scope,
         start=input_ref("start"),
         gain=lookup,
         stop=param("stop"),
@@ -120,7 +155,11 @@ def test_plan_walk_and_references_cover_every_nested_shape() -> None:
     )
     assert plan_references(plan).references == frozenset(
         {
-            PlanReference(PlanReferenceKind.CURRENT_COLUMN, "local_id"),
+            PlanReference(
+                PlanReferenceKind.ROW_COLUMN,
+                "local_id",
+                row_scope_id=columns_scope,
+            ),
             PlanReference(PlanReferenceKind.POINT_COLUMN, "point_id"),
             PlanReference(PlanReferenceKind.INPUT_SCALAR, "enabled"),
             PlanReference(PlanReferenceKind.INPUT_SCALAR, "start"),
@@ -156,8 +195,14 @@ def test_compute_dependencies_project_shared_plan_references() -> None:
         parameters={"gain": Scalar(Float())},
         point_row=RowType((TableColumn("point_enabled", bool_type),)),
     )
+    filter_scope = _scope("compute-filter")
     plan = input_table("rows").filter(
-        input_ref("enabled").and_(point_col("point_enabled").and_(col("local_enabled")))
+        input_ref("enabled").and_(
+            point_col("point_enabled").and_(
+                col("local_enabled", row_scope_id=filter_scope)
+            )
+        ),
+        row_scope_id=filter_scope,
     )
     node = TypedComputeNode(
         id=operation_id,

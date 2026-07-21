@@ -51,18 +51,12 @@ def evaluate_scalar_expression(expression: ScalarExpr, ctx: EvalContext) -> Cell
             return scalar.value
         case ColumnScalarExpr():
             row_scope_id = scalar.row_scope_id
-            row = (
-                ctx.row_scopes.get(row_scope_id)
-                if row_scope_id is not None
-                else ctx.row
-            )
+            row = ctx.row_scopes.get(row_scope_id)
             if row is None:
-                scope_name = (
-                    row_scope_id.qualified_name
-                    if row_scope_id is not None
-                    else "<implicit-current-row>"
+                msg = (
+                    "row column references an inactive scope: "
+                    f"{row_scope_id.qualified_name!r}"
                 )
-                msg = f"row column references an inactive scope: {scope_name!r}"
                 raise ValueError(msg)
             return read_path(row, scalar.name)
         case PointColumnScalarExpr():
@@ -156,16 +150,13 @@ def _child_context(
     ctx: EvalContext,
     *,
     row: Row,
-    point_row: Row | None = None,
-    row_scope_id: RowScopeId | None = None,
+    row_scope_id: RowScopeId,
 ) -> EvalContext:
     row_scopes = dict(ctx.row_scopes)
-    if row_scope_id is not None:
-        row_scopes[row_scope_id] = row
+    row_scopes[row_scope_id] = row
     return EvalContext(
         params=ctx.params,
-        row=row,
-        point_row=ctx.point_row if point_row is None else point_row,
+        point_row=ctx.point_row,
         row_scopes=row_scopes,
         inputs=ctx.inputs,
     )

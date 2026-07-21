@@ -398,7 +398,7 @@ def set_state_field(
 def bind_each(
     relation: TableValueExpr,
     *state: StateSpecVariant,
-    row_scope_id: RowScopeId | None = None,
+    row_scope_id: RowScopeId,
 ) -> ForEachStateSpec:
     return ForEachStateSpec(
         relation_use=relation_use(relation),

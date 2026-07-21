@@ -357,7 +357,7 @@ def value_binding_time(value: ValueExpr) -> BindingTime:
         reference.kind for reference in value.plan.free_row_references.references
     }
     if external_row_kinds & {
-        PlanReferenceKind.CURRENT_COLUMN,
+        PlanReferenceKind.ROW_COLUMN,
         PlanReferenceKind.POINT_COLUMN,
     }:
         return BindingTime.POINT

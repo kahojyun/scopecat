@@ -570,10 +570,8 @@ def _verify_center_role(
 ) -> None:
     plan = value.plan
     row_interface = plan.external_row_interface
-    open_interface = (
-        row_interface.current is not None
-        or bool(row_interface.arguments)
-        or (row_interface.point is not None and ambient_row is None)
+    open_interface = bool(row_interface.arguments) or (
+        row_interface.point is not None and ambient_row is None
     )
     if open_interface:
         issues.append(
@@ -601,7 +599,6 @@ def _verify_center_role(
             bindings=replace(
                 plan.bindings,
                 point_row=ambient_row,
-                current_row=None,
                 row_arguments={},
             ),
             expected_type=expected_type,

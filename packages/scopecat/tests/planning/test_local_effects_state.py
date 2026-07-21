@@ -4,6 +4,7 @@ from dataclasses import replace
 
 from scopecat.compiler.relations.model import (
     CellValue,
+    RowScopeId,
     col,
     point_col,
     table,
@@ -17,6 +18,7 @@ from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import LogicalResourceRequirement
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.state import StateValue
+from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Int, Scalar
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Table as TableType
@@ -70,13 +72,14 @@ def _state_bindings(
     points: PointDomain,
     table_id: str,
     *,
+    row_scope_id: RowScopeId,
     lookup: bool = False,
 ) -> RelationTypeBindings:
     table_type = PARAMETER_TYPES[table_id]
     assert isinstance(table_type, TableType)
     return replace(
         _point_bindings(points, lookup=lookup),
-        current_row=RowType.from_table(table_type),
+        row_arguments={row_scope_id: RowType.from_table(table_type)},
     )
 
 
@@ -196,6 +199,7 @@ def test_materialized_effects_repeated_state_uses_outer_point_row() -> None:
         ),
     )
     point_bindings = _point_bindings(points)
+    row_scope = RowScopeId(SymbolId(local_id="drive-channel-row"))
     spec = typed_program(
         id="shared-lo-fixed-if-scan",
         kind="drive.shared_lo_scan",
@@ -208,14 +212,23 @@ def test_materialized_effects_repeated_state_uses_outer_point_row() -> None:
         ),
         state=[
             each_state(
-                table("drive_channels").filter(col("resource_id").eq("xy0")),
+                table("drive_channels").filter(
+                    col("resource_id", row_scope_id=row_scope).eq("xy0"),
+                    row_scope_id=row_scope,
+                ),
                 state_field(
                     "drive",
                     capability_id="drive",
                     field_path="carrier_frequency",
-                    value=point_col("lo_frequency") + col("fixed_if"),
-                    bindings=_state_bindings(points, "drive_channels"),
+                    value=point_col("lo_frequency")
+                    + col("fixed_if", row_scope_id=row_scope),
+                    bindings=_state_bindings(
+                        points,
+                        "drive_channels",
+                        row_scope_id=row_scope,
+                    ),
                 ),
+                row_scope_id=row_scope,
                 bindings=point_bindings,
             )
         ],

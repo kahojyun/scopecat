@@ -4,6 +4,7 @@ from scopecat.compiler.relations.evaluation import EvalContext, ParameterRelatio
 from scopecat.compiler.relations.model import (
     LiteralRowsRelationExpr,
     LiteralScalarExpr,
+    RowScopeId,
     ValuesSeriesExpr,
     col,
     param,
@@ -148,6 +149,7 @@ def test_value_specialization_folds_series_and_table_parameters() -> None:
         series={"values": [1, 2]},
         tables={"rows": [{"x": 3}, {"x": 4}]},
     )
+    row_scope = RowScopeId(SymbolId(local_id="filtered-row"))
 
     specialized_series, series_binding_time = specialize_value_expression(
         series_value_expr(
@@ -160,7 +162,10 @@ def test_value_specialization_folds_series_and_table_parameters() -> None:
     )
     specialized_table, table_binding_time = specialize_value_expression(
         table_value_expr(
-            table("rows").filter(col("x").gt(2)),
+            table("rows").filter(
+                col("x", row_scope_id=row_scope).gt(2),
+                row_scope_id=row_scope,
+            ),
             bindings=bindings,
             expected_type=table_type,
         ),

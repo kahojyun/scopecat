@@ -114,7 +114,7 @@ class LiteralScalarExpr(ScalarExpr):
 @dataclass(frozen=True, slots=True)
 class ColumnScalarExpr(ScalarExpr):
     name: str
-    row_scope_id: RowScopeId | None = None
+    row_scope_id: RowScopeId
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,7 +203,7 @@ class RelationExpr:
         self,
         condition: ScalarExpression,
         *,
-        row_scope_id: RowScopeId | None = None,
+        row_scope_id: RowScopeId,
     ) -> FilterRelationExpr:
         return FilterRelationExpr(
             source=cast("RelationExpression", self),
@@ -214,7 +214,7 @@ class RelationExpr:
     def with_columns(
         self,
         *,
-        row_scope_id: RowScopeId | None = None,
+        row_scope_id: RowScopeId,
         **columns: object,
     ) -> WithColumnsRelationExpr:
         return WithColumnsRelationExpr(
@@ -259,14 +259,14 @@ class SelectRelationExpr(RelationExpr):
 class FilterRelationExpr(RelationExpr):
     source: RelationExpression
     condition: ScalarExpression
-    row_scope_id: RowScopeId | None = None
+    row_scope_id: RowScopeId
 
 
 @dataclass(frozen=True, slots=True)
 class WithColumnsRelationExpr(RelationExpr):
     source: RelationExpression
     new_columns: dict[str, ScalarExpression]
-    row_scope_id: RowScopeId | None = None
+    row_scope_id: RowScopeId
 
 
 type RelationExpression = (
@@ -283,7 +283,7 @@ def lit(value: CellValue) -> LiteralScalarExpr:
     return LiteralScalarExpr(value=value)
 
 
-def col(name: str, *, row_scope_id: RowScopeId | None = None) -> ColumnScalarExpr:
+def col(name: str, *, row_scope_id: RowScopeId) -> ColumnScalarExpr:
     return ColumnScalarExpr(name=name, row_scope_id=row_scope_id)
 
 

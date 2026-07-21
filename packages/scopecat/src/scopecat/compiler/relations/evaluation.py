@@ -212,14 +212,12 @@ class ParameterRelationData:
     def to_context(
         self,
         *,
-        row: Row | None = None,
         point_row: Row | None = None,
         row_scopes: Mapping[RowScopeId, Row] | None = None,
         inputs: Mapping[str, object] | None = None,
     ) -> EvalContext:
         return EvalContext(
             params=self,
-            row=row,
             point_row=point_row or {},
             row_scopes=dict(row_scopes or {}),
             inputs=dict(inputs or {}),
@@ -230,12 +228,11 @@ class ParameterRelationData:
 class EvalContext:
     """Closed bindings for one relation evaluation.
 
-    ``row`` is the current relation-row scope and ``point_row`` is the
-    experiment point. They never fall back to one another by name.
+    Nominal ``row_scopes`` and the experiment ``point_row`` never fall back to
+    one another by name.
     """
 
     params: ParameterRelationData = field(default_factory=ParameterRelationData)
-    row: Row | None = None
     point_row: Row = field(default_factory=dict)
     row_scopes: dict[RowScopeId, Row] = field(default_factory=dict)
     inputs: dict[str, object] = field(default_factory=dict)
@@ -287,7 +284,6 @@ def evaluate_relation(
     verified_plan: VerifiedRelationPlan[RelationExpr],
     params: ParameterRelationData | None = None,
     *,
-    row: Row | None = None,
     point_row: Row | None = None,
     row_scopes: Mapping[RowScopeId, Row] | None = None,
     inputs: Mapping[str, object] | None = None,
@@ -296,7 +292,6 @@ def evaluate_relation(
         verified_plan,
         EvalContext(
             params=params or ParameterRelationData(),
-            row=row,
             point_row=point_row or {},
             row_scopes=dict(row_scopes or {}),
             inputs=dict(inputs or {}),
@@ -459,11 +454,6 @@ def _normalize_evaluation_context[NodeT: PlanNode](
             tables_by_parameter[imported.id] = cast("list[Row]", normalized)
 
     row_interface = verified_plan.external_row_interface
-    row = _normalize_external_row(
-        row_interface.current,
-        ctx.row,
-        path=("rows", "current"),
-    )
     row_scopes = {scope_id: dict(value) for scope_id, value in ctx.row_scopes.items()}
     for argument in row_interface.arguments:
         normalized_row = _normalize_external_row(
@@ -495,7 +485,6 @@ def _normalize_evaluation_context[NodeT: PlanNode](
             series=parameter_series,
             tables=tables_by_parameter,
         ),
-        row=row,
         point_row=point_row,
         row_scopes=row_scopes,
         inputs=inputs,

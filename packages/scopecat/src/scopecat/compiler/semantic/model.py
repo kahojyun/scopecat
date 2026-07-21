@@ -236,7 +236,6 @@ class PlanExpressionSource:
     _imports: tuple[TypedPlanImport, ...] = field(hash=False, repr=False)
     _row_signature: tuple[
         RowType | None,
-        RowType | None,
         tuple[tuple[RowScopeId, RowType], ...],
     ] = field(hash=False, repr=False)
     _verified_plan: VerifiedPlanExpression = field(
@@ -288,7 +287,6 @@ class PlanExpressionSource:
         self,
     ) -> tuple[
         RowType | None,
-        RowType | None,
         tuple[tuple[RowScopeId, RowType], ...],
     ]:
         return self._row_signature
@@ -301,7 +299,6 @@ class PlanExpressionSource:
 def _used_row_signature(
     verified_plan: VerifiedPlanExpression,
 ) -> tuple[
-    RowType | None,
     RowType | None,
     tuple[tuple[RowScopeId, RowType], ...],
 ]:
@@ -330,21 +327,11 @@ def _used_row_signature(
         )
     else:
         point = None
-    current = (
-        bindings.current_row
-        if any(
-            reference.kind is PlanReferenceKind.CURRENT_COLUMN
-            and reference.row_scope_id is None
-            for reference in free
-        )
-        else None
-    )
     nominal_ids = sorted(
         {
-            reference.row_scope_id
+            cast("RowScopeId", reference.row_scope_id)
             for reference in free
-            if reference.kind is PlanReferenceKind.CURRENT_COLUMN
-            and reference.row_scope_id is not None
+            if reference.kind is PlanReferenceKind.ROW_COLUMN
         },
         key=lambda item: item.qualified_name,
     )
@@ -352,7 +339,7 @@ def _used_row_signature(
         (row_scope_id, bindings.row_arguments[row_scope_id])
         for row_scope_id in nominal_ids
     )
-    return point, current, nominal
+    return point, nominal
 
 
 @dataclass(frozen=True, slots=True, init=False)

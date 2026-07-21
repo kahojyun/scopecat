@@ -267,7 +267,6 @@ def _state_values(
             point_index=point_index,
             ctx=EvalContext(
                 params=resolved.parameters,
-                row=point,
                 point_row=point,
             ),
             relation_plan=verified_program.relation_plan,
@@ -571,7 +570,7 @@ def test_same_name_inputs_pass_through_multiple_module_boundaries() -> None:
     assert (
         materialize_scalar_value(
             scalar.value,
-            EvalContext(row=points[1], point_row=points[1]),
+            EvalContext(point_row=points[1]),
         )
         == 0.5
     )
@@ -1233,7 +1232,7 @@ def test_state_target_entities_use_durable_scalar_and_series_shapes() -> None:
     records = evaluate_state_spec(
         state,
         point_index=0,
-        ctx=EvalContext(params=ParameterRelationData(), row={}),
+        ctx=EvalContext(params=ParameterRelationData()),
         relation_plan=verified_program.relation_plan,
         location=model_location("state", 0),
     )

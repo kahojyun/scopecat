@@ -215,7 +215,10 @@ def test_typed_imports_reject_reference_shape_mismatches(
 
 
 def test_unknown_import_reports_a_stable_code_and_nested_path() -> None:
-    root = literal_rows([{}]).with_columns(missing=input_ref("missing"))
+    root = literal_rows([{}]).with_columns(
+        row_scope_id=_scope("unknown-input-columns"),
+        missing=input_ref("missing"),
+    )
 
     with pytest.raises(RelationPlanVerificationError) as caught:
         verify_relation_plan(root)
@@ -224,13 +227,12 @@ def test_unknown_import_reports_a_stable_code_and_nested_path() -> None:
     assert caught.value.path == ("new_columns", "missing")
 
 
-def test_filter_uses_its_source_row_signature_not_the_ambient_current_row() -> None:
+def test_filter_uses_its_source_row_signature() -> None:
     source = Table(
         columns=(TableColumn("keep", BOOL),),
         min_rows=0,
         max_rows=2,
     )
-    ambient = RowType(columns=(TableColumn("keep", STRING),))
     local_scope = _scope("filter")
     root = input_table("rows").filter(
         col("keep", row_scope_id=local_scope),
@@ -241,7 +243,6 @@ def test_filter_uses_its_source_row_signature_not_the_ambient_current_row() -> N
         root,
         bindings=RelationTypeBindings(
             inputs={"rows": source},
-            current_row=ambient,
         ),
     )
 
@@ -294,24 +295,16 @@ def test_external_row_interface_projects_only_free_typed_column_reads() -> None:
         ),
         allow_extra_columns=True,
     )
-    current = RowType(
-        (
-            TableColumn("current", INT),
-            TableColumn("unused_current", STRING),
-        )
-    )
     argument = RowType((TableColumn("argument", INT),))
-    expression = (
-        point_col("point")
-        + col("current")
-        + col("argument", row_scope_id=EXTERNAL_SCOPE)
+    expression = point_col("point") + col(
+        "argument",
+        row_scope_id=EXTERNAL_SCOPE,
     )
 
     verified = verify_relation_plan(
         expression,
         bindings=RelationTypeBindings(
             point_row=point,
-            current_row=current,
             row_arguments={EXTERNAL_SCOPE: argument},
         ),
     )
@@ -320,10 +313,6 @@ def test_external_row_interface_projects_only_free_typed_column_reads() -> None:
     assert interface.point == ExternalRowRequirement(
         RowType((TableColumn("point", INT),), allow_extra_columns=True),
         ("point",),
-    )
-    assert interface.current == ExternalRowRequirement(
-        RowType((TableColumn("current", INT),)),
-        ("current",),
     )
     assert len(interface.arguments) == 1
     assert interface.arguments[0].row_scope_id == EXTERNAL_SCOPE
@@ -343,13 +332,13 @@ def test_external_row_interface_excludes_plan_local_row_binders() -> None:
     verified = verify_relation_plan(expression)
 
     assert verified.external_row_interface.point is None
-    assert verified.external_row_interface.current is None
     assert verified.external_row_interface.arguments == ()
 
 
 def test_external_row_interface_retains_nested_path_and_root_column_type() -> None:
+    scope = _scope("nested-path")
     device = Scalar(Record(fields=(RecordField("rank", INT),)))
-    current = RowType(
+    row = RowType(
         (
             TableColumn("device", device),
             TableColumn("unused", STRING),
@@ -358,20 +347,25 @@ def test_external_row_interface_retains_nested_path_and_root_column_type() -> No
     )
 
     verified = verify_relation_plan(
-        col("device.rank"),
-        bindings=RelationTypeBindings(current_row=current),
+        col("device.rank", row_scope_id=scope),
+        bindings=RelationTypeBindings(row_arguments={scope: row}),
     )
 
-    assert verified.external_row_interface.current == ExternalRowRequirement(
-        RowType(
-            (TableColumn("device", device),),
-            allow_extra_columns=True,
-        ),
-        ("device.rank",),
+    assert len(verified.external_row_interface.arguments) == 1
+    assert verified.external_row_interface.arguments[0].row_scope_id == scope
+    assert verified.external_row_interface.arguments[0].requirement == (
+        ExternalRowRequirement(
+            RowType(
+                (TableColumn("device", device),),
+                allow_extra_columns=True,
+            ),
+            ("device.rank",),
+        )
     )
 
 
 def test_exact_dotted_column_takes_precedence_over_record_traversal() -> None:
+    scope = _scope("exact-dotted")
     row = RowType(
         columns=(
             TableColumn("device.rank", INT),
@@ -387,8 +381,8 @@ def test_exact_dotted_column_takes_precedence_over_record_traversal() -> None:
     )
 
     verified = verify_relation_plan(
-        col("device.rank"),
-        bindings=RelationTypeBindings(current_row=row),
+        col("device.rank", row_scope_id=scope),
+        bindings=RelationTypeBindings(row_arguments={scope: row}),
     )
 
     assert verified.certified_type == INT

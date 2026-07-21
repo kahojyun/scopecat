@@ -7,6 +7,7 @@ from scopecat.compiler.relations.evaluation import (
 from scopecat.compiler.relations.evaluator import evaluate_scalar_expression
 from scopecat.compiler.relations.model import (
     LiteralRowsRelationExpr,
+    RowScopeId,
     TableRelationExpr,
     ValuesSeriesExpr,
     col,
@@ -25,6 +26,7 @@ from scopecat.compiler.relations.specialization import (
     specialize_scalar,
     specialize_series,
 )
+from scopecat.kernel.symbols import SymbolId
 
 
 def _parameters() -> ParameterRelationData:
@@ -40,6 +42,10 @@ def _parameters() -> ParameterRelationData:
     )
 
 
+def _scope(local_id: str) -> RowScopeId:
+    return RowScopeId(SymbolId(local_id=local_id))
+
+
 def test_specialization_materializes_configuration_static_series() -> None:
     result = specialize_series(
         parameter_series("offsets"),
@@ -50,7 +56,11 @@ def test_specialization_materializes_configuration_static_series() -> None:
 
 
 def test_specialization_materializes_closed_relation_pipeline() -> None:
-    expression = table("devices").filter(col("frequency").gt(param("gain")))
+    scope = _scope("specialize-filter")
+    expression = table("devices").filter(
+        col("frequency", row_scope_id=scope).gt(param("gain")),
+        row_scope_id=scope,
+    )
 
     result = specialize_relation(expression, known=EvalContext(params=_parameters()))
 

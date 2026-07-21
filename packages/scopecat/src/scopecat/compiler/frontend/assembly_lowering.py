@@ -414,7 +414,6 @@ def lower_state_region(
     row_type = RowType.from_table(region.row_argument.value_type)
     body_bindings = replace(
         type_bindings,
-        current_row=row_type,
         row_arguments={**type_bindings.row_arguments, region.row_argument.id: row_type},
     )
 
