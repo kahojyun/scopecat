@@ -42,6 +42,8 @@ from quantum_lab_demo.workflows.drag_beta_experiment import (
     drag_beta_template,
 )
 
+from .demo_lab_experiment_testkit import reject_program_input_binding
+
 
 def _entity_id(value: object) -> str:
     assert isinstance(value, sc.EntityRef)
@@ -116,13 +118,10 @@ def test_drag_beta_workspace_analysis_authors_typed_native_proposal(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def reject_input_binding(*_args: object, **_kwargs: object) -> object:
-        raise AssertionError("finite DRAG axes must not bind domain inputs")
-
     monkeypatch.setattr(
         LinkedPointMaterializer,
         "bind_domain_inputs",
-        reject_input_binding,
+        reject_program_input_binding,
     )
     compiler = quantum_lab_compiler()
     lab = quantum_lab(workspace=tmp_path, compiler=compiler)

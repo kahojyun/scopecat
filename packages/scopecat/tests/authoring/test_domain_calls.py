@@ -63,6 +63,50 @@ def test_domain_execution_rejects_unknown_or_missing_bindings() -> None:
         )
 
 
+def test_domain_compiler_inputs_are_a_distinct_typed_namespace() -> None:
+    value_type = sc.ScalarType(sc.IntType())
+    program = sc.domain_program(
+        "program",
+        dialect_id="test",
+        dialect_version="1",
+        body=object(),
+        inputs={"value": value_type},
+        compiler_inputs={"calibration_revision": value_type},
+    )
+    execution = sc.domain_execution(
+        program,
+        inputs={"value": 3},
+        compiler_inputs={"calibration_revision": 7},
+    )
+
+    semantic = elaborate_module(
+        sc.module_body(id="test.domain.compiler-inputs").domain(execution).build()
+    ).semantic_graph.domain_executions[0]
+
+    assert tuple(port.id for port in semantic.program.input_ports) == ("value",)
+    assert tuple(port.id for port in semantic.program.compiler_input_ports) == (
+        "calibration_revision",
+    )
+    assert tuple(name for name, _use in semantic.inputs) == ("value",)
+    assert tuple(name for name, _use in semantic.compiler_inputs) == (
+        "calibration_revision",
+    )
+
+
+def test_domain_program_rejects_overlapping_input_namespaces() -> None:
+    value_type = sc.ScalarType(sc.IntType())
+
+    with pytest.raises(ValueError, match="ids must be unique"):
+        sc.domain_program(
+            "program",
+            dialect_id="test",
+            dialect_version="1",
+            body=object(),
+            inputs={"value": value_type},
+            compiler_inputs={"value": value_type},
+        )
+
+
 def test_domain_execution_binds_declared_resource_roles_and_source_anchor() -> None:
     program = sc.domain_program(
         "controller-program",

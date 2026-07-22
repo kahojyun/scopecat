@@ -21,8 +21,8 @@ Inside `src/quantum_lab_demo/`:
 - `response_registry.py` and `trace.py`: fake-response selection and observable
   preparation evidence kept outside compiler policy.
 - `targets/`: fake target lowering and execution.
-- `virtual_lab/`: wiring, parameter schema, instrument providers, and explicit
-  `calibrations/` and `responses/` fixture packages.
+- `virtual_lab/`: wiring, typed parameter collections, instrument providers,
+  point-effective calibration lowering, and fake responses.
 
 Focused behavior checks live in `tests/unit/`.
 

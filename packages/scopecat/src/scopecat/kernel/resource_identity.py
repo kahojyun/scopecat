@@ -38,9 +38,8 @@ class LogicalResourcePortId:
 class ResourceClaim:
     """Exclusive physical identity with lifetime defined by its container.
 
-    A claim may protect a whole run, one coverage block, or one domain job. The
-    enclosing execution object, rather than the identity itself, owns that
-    lease duration.
+    A claim may protect a whole run or one coverage block. The enclosing
+    execution object, rather than the identity itself, owns that lease duration.
     """
 
     id: str

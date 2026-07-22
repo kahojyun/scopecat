@@ -103,6 +103,14 @@ def _batch_context(
         (tuple(range(len(linked_points.point_domain.points))),),
         lambda input_ids, ordinals, max_points: materializer.bind_domain_inputs(
             execution.id,
+            "program",
+            input_ids,
+            ordinals,
+            max_points=max_points,
+        ),
+        lambda input_ids, ordinals, max_points: materializer.bind_domain_inputs(
+            execution.id,
+            "compiler",
             input_ids,
             ordinals,
             max_points=max_points,

@@ -140,6 +140,14 @@ def _preparation_context(
         ((0, 1),),
         lambda input_ids, ordinals, max_points: materializer.bind_domain_inputs(
             execution_id,
+            "program",
+            input_ids,
+            ordinals,
+            max_points=max_points,
+        ),
+        lambda input_ids, ordinals, max_points: materializer.bind_domain_inputs(
+            execution_id,
+            "compiler",
             input_ids,
             ordinals,
             max_points=max_points,

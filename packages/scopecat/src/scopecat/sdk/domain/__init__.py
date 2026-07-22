@@ -2,6 +2,7 @@
 
 from scopecat.sdk.domain.compiler import (
     DomainCompilation,
+    DomainCompiledInputs,
     DomainCompiledJob,
     DomainCompiler,
     DomainCompileRequest,
@@ -20,8 +21,6 @@ from scopecat.sdk.domain.context import DomainBatchContext
 from scopecat.sdk.domain.execution import PreparedDomainExecution
 from scopecat.sdk.domain.job import (
     DomainInvocationSpec,
-    DomainResourceClaim,
-    DomainResourceKind,
     DomainResultValue,
     DomainTargetArtifactIdentity,
 )
@@ -73,6 +72,7 @@ __all__ = [
     "DomainCallView",
     "DomainCompilation",
     "DomainCompileRequest",
+    "DomainCompiledInputs",
     "DomainCompiledJob",
     "DomainCompiler",
     "DomainExecutionPointView",
@@ -104,8 +104,6 @@ __all__ = [
     "DomainReceiptIdentity",
     "DomainResolvedInputs",
     "DomainResourceBindingView",
-    "DomainResourceClaim",
-    "DomainResourceKind",
     "DomainResultBinding",
     "DomainResultBindingView",
     "DomainResultMapping",

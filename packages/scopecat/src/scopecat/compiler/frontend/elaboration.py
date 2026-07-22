@@ -442,7 +442,10 @@ def _elaborate_module_ir(
     domain_input_values = tuple(
         value
         for execution in lowered_executions
-        for _name, value in execution.input_bindings
+        for _name, value in (
+            *execution.input_bindings,
+            *execution.compiler_input_bindings,
+        )
         if isinstance(value, ValueRef)
     )
     value_dependencies = _module_value_dependencies(
@@ -665,7 +668,10 @@ def _module_value_roots(module: ModuleIR) -> tuple[object, ...]:
     values.extend(
         value
         for execution in module.body.domain_executions
-        for _name, value in execution.input_bindings
+        for _name, value in (
+            *execution.input_bindings,
+            *execution.compiler_input_bindings,
+        )
     )
     values.extend(
         value
@@ -925,6 +931,13 @@ def _resolve_domain_execution(
             )
             for name, value in execution.input_bindings
         ),
+        compiler_input_bindings=tuple(
+            (
+                name,
+                resolver.resolve(value) if isinstance(value, ValueRef) else value,
+            )
+            for name, value in execution.compiler_input_bindings
+        ),
     )
 
 
@@ -1003,7 +1016,10 @@ def _module_fragment_value_roots(
     add_semantic_roots(
         value
         for execution in fragment.domain_executions
-        for _name, value in execution.input_bindings
+        for _name, value in (
+            *execution.input_bindings,
+            *execution.compiler_input_bindings,
+        )
     )
     add_semantic_roots(
         axis.size for product in fragment.product_declarations for axis in product.axes
@@ -1206,6 +1222,15 @@ def _scope_domain_execution(
                 else value,
             )
             for name, value in execution.input_bindings
+        ),
+        compiler_input_bindings=tuple(
+            (
+                name,
+                _scope_value_ref(value, inputs, scope=scope, origin=origin)
+                if isinstance(value, ValueRef)
+                else value,
+            )
+            for name, value in execution.compiler_input_bindings
         ),
         result_bindings=tuple(
             (name, product_id.prefixed(*scope))

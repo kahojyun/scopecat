@@ -109,9 +109,12 @@ specialization; it does not introduce another compiler or configuration path.
 ## Domain Lowering
 
 An experiment definition is independent of the `ExperimentSystem` that runs
-it. Its domain compiler participates through three boundaries:
+it. The accepted system configuration statically selects one domain target and
+its complete physical footprint. The run claims that footprint once, while the
+compiler participates through three boundaries:
 
-1. `claim_resources` declares the target footprint used to form legal barriers.
+1. `target_id` and `supports` verify that the configured compiler can lower the
+   call for the selected target.
 2. `compile` performs pure, bounded lowering over symbolic inputs and exact
    logical coverage.
 3. `prepare` binds one selected job to runtime context and returns its
@@ -120,7 +123,14 @@ it. Its domain compiler participates through three boundaries:
 Compilation may absorb supported constants, finite axes, pure computation, and
 product transforms. Unsupported work remains residual host work. Lowering must
 preserve logical points, lexical parameters, effect barriers, and complete
-result correlation, and may claim only work actually absorbed by the target.
+result correlation.
+
+A domain program has two typed input namespaces. Program inputs are part of
+its runtime semantics and may remain residual until `prepare`. Compiler inputs
+configure lowering itself, are resolved from the same snapshot-plus-overlay
+parameter model, and must be fully captured by every compiled target artifact.
+This lets experiments scan compiler parameter collections without disguising
+them as a small set of program arguments or injecting mutable compiler state.
 
 A domain compiler may call a lower-level target compiler after inputs have been
 resolved and a program has been lowered to target IR. That is an internal
@@ -145,8 +155,9 @@ devices are explicit state or action effects. Selecting replacement hardware
 requires another accepted configuration and plan so the physical choice stays
 reproducible.
 
-Exact instrument, channel, and topology-group claims are derived only after
-entity binding. Their enclosing run, coverage block, or domain job defines the
+The configured domain target and its member instruments are leased for the whole
+run. Other exact instrument, channel, and topology-group claims are derived
+after entity binding, with their enclosing run or coverage block defining the
 lease lifetime. Compatibility that depends on values or simultaneous hardware
 operation belongs to the provider or domain compiler rather than generic
 channel-count rules.

@@ -293,6 +293,38 @@ def test_program_call_owns_domain_effect_shots_and_named_products() -> None:
     )
 
 
+def test_program_call_binds_compiler_collection_outside_program_arguments() -> None:
+    @authoring.program(id="test.quantum.compiler-collection")
+    def declaration(qubit: authoring.Qubit) -> authoring.QuantumFragment:
+        return authoring.measure(qubit, result="iq")
+
+    table_type = sc.TableType(
+        columns=(
+            sc.TableColumn("qubit", sc.ScalarType(sc.StringType())),
+            sc.TableColumn("gain", sc.ScalarType(sc.FloatType())),
+        ),
+        primary_key=("qubit",),
+    )
+    calibrations = sc.parameter("calibrations", table_type)
+    call = declaration("q0").with_compiler_inputs(calibrations=calibrations)
+    with_shots = call.with_shots(16)
+
+    assert call.arguments == (("qubit", "q0"),)
+    assert call.compiler_arguments == (("calibrations", calibrations),)
+    assert with_shots.compiler_arguments == call.compiler_arguments
+    assert with_shots.module_invocation.module is call.module_invocation.module
+    assert [port.id for port in call.module_invocation.module.input_ports] == [
+        "qubit",
+        "calibrations",
+        "__shots__",
+    ]
+    [execution] = call.module_invocation.module.domain_executions
+    assert tuple(port.id for port in execution.program.input_ports) == ("qubit",)
+    assert tuple(port.id for port in execution.program.compiler_input_ports) == (
+        "calibrations",
+    )
+
+
 def test_repeated_program_calls_require_explicit_instances() -> None:
     @authoring.program(id="test.quantum.repeated")
     def declaration(qubit: authoring.Qubit) -> authoring.QuantumFragment:

@@ -73,7 +73,8 @@ def make_domain_compile_request(
     execution_id: str,
     result_closure: DomainResultClosure,
     barrier_regions: tuple[tuple[int, ...], ...],
-    bind_inputs: DomainInputBinder,
+    bind_program_inputs: DomainInputBinder,
+    bind_compiler_inputs: DomainInputBinder,
 ) -> DomainCompileRequest:
     """Project one typed symbolic domain call for pure target compilation."""
 
@@ -81,7 +82,11 @@ def make_domain_compile_request(
         linked,
         execution_id,
         result_closure,
-    ).bind_coverage(barrier_regions, bind_inputs)
+    ).bind_coverage(
+        barrier_regions,
+        bind_program_inputs,
+        bind_compiler_inputs,
+    )
 
 
 def make_domain_compile_template(
@@ -102,10 +107,19 @@ def make_domain_compile_template(
         product_use_refs_by_id,
         transform_refs,
     ) = _project_domain_assets(linked)
-    inputs: list[DomainInput] = []
+    program_inputs: list[DomainInput] = []
     for port in typed_execution.program.input_ports:
         residual = typed_execution.inputs[port.id].value
-        inputs.append(
+        program_inputs.append(
+            DomainInput(
+                id=port.id,
+                normal_form=_domain_input_normal_form(residual.plan.root),
+            )
+        )
+    compiler_inputs: list[DomainInput] = []
+    for port in typed_execution.program.compiler_input_ports:
+        residual = typed_execution.compiler_inputs[port.id].value
+        compiler_inputs.append(
             DomainInput(
                 id=port.id,
                 normal_form=_domain_input_normal_form(residual.plan.root),
@@ -142,7 +156,8 @@ def make_domain_compile_template(
                 for role, resource_id in typed_execution.resources.items()
             ),
         ),
-        inputs=tuple(inputs),
+        program_inputs=tuple(program_inputs),
+        compiler_inputs=tuple(compiler_inputs),
         iteration_layout=_iteration_layout(linked),
     )
 
@@ -256,10 +271,10 @@ def make_domain_batch_context(
 ) -> DomainBatchContext:
     call = request.call
     absorbed_input_set = set(absorbed_input_ids)
-    residual_inputs = request.resolve_inputs(
+    residual_inputs = request.resolve_program_inputs(
         tuple(
             input_value.id
-            for input_value in request.inputs
+            for input_value in request.program_inputs
             if input_value.id not in absorbed_input_set
         ),
         point_ordinals,
@@ -392,6 +407,10 @@ def _domain_program_view(program: TypedDomainProgram) -> DomainProgramView:
         inputs=tuple(
             DomainInputPortView(port.id, port.value_type)
             for port in program.input_ports
+        ),
+        compiler_inputs=tuple(
+            DomainInputPortView(port.id, port.value_type)
+            for port in program.compiler_input_ports
         ),
         results=tuple(
             DomainResultPortView(port.id, port.contract)

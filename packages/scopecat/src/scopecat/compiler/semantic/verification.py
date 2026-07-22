@@ -503,6 +503,19 @@ def _verify_domain_execution(
                 "inputs",
             )
         )
+    expected_compiler_inputs = tuple(port.id for port in program.compiler_input_ports)
+    if (
+        tuple(name for name, _use in execution.compiler_inputs)
+        != expected_compiler_inputs
+    ):
+        problems.append(
+            _problem(
+                "semantic_domain_compiler_input_contract_mismatch",
+                "domain compiler inputs do not match the declared program ports",
+                *location,
+                "compiler_inputs",
+            )
+        )
     expected_results = tuple(port.id for port in program.result_ports)
     if tuple(name for name, _product in execution.results) != expected_results:
         problems.append(
@@ -572,6 +585,58 @@ def _verify_domain_execution(
                     f"domain execution input {name!r} is owned by a row region",
                     *location,
                     "inputs",
+                    name,
+                )
+            )
+    compiler_input_ports = {port.id: port for port in program.compiler_input_ports}
+    for name, use in execution.compiler_inputs:
+        definition = definitions.get(use.value_id)
+        if definition is None:
+            if use.value_id not in ambiguous_value_ids:
+                problems.append(
+                    _problem(
+                        "semantic_domain_compiler_input_dangling",
+                        f"domain compiler input {name!r} references unknown value "
+                        f"{use.value_id.qualified_name!r}",
+                        *location,
+                        "compiler_inputs",
+                        name,
+                        category=ProblemCategory.NOT_FOUND,
+                    )
+                )
+            continue
+        port = compiler_input_ports.get(name)
+        if port is not None and not is_assignable(
+            definition.value_type,
+            port.value_type,
+        ):
+            problems.append(
+                _problem(
+                    "semantic_domain_compiler_input_type_mismatch",
+                    f"domain compiler input {name!r} is not assignable to its "
+                    "declared port type",
+                    *location,
+                    "compiler_inputs",
+                    name,
+                )
+            )
+        if _value_is_residual(definition, definitions, operations):
+            problems.append(
+                _problem(
+                    "semantic_domain_compiler_input_stage_unavailable",
+                    f"domain compiler input {name!r} must be available at plan stage",
+                    *location,
+                    "compiler_inputs",
+                    name,
+                )
+            )
+        if definition.owner_region_id is not None:
+            problems.append(
+                _problem(
+                    "semantic_domain_compiler_input_region_invalid",
+                    f"domain compiler input {name!r} is owned by a row region",
+                    *location,
+                    "compiler_inputs",
                     name,
                 )
             )

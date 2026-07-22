@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from copy import deepcopy
 from dataclasses import dataclass, replace
+from typing import Literal
 
 from scopecat.authoring import ExperimentInvocation
 from scopecat.compiler.frontend.environment import (
@@ -53,6 +55,34 @@ class LocalEffectInspection:
     resource_order: tuple[str, ...]
     resource_claims: tuple[ResourceClaim, ...]
     preamble_operations: tuple[ComputeOperation, ...] = ()
+
+
+_BIND_DOMAIN_INPUTS = LinkedPointMaterializer.bind_domain_inputs
+
+
+def reject_program_input_binding(
+    materializer: LinkedPointMaterializer,
+    execution_id: str,
+    input_kind: Literal["program", "compiler"],
+    input_ids: Sequence[str],
+    ordinals: Sequence[int],
+    *,
+    max_points: int,
+    coverage: MaterializedLinkedPoints | None = None,
+) -> tuple[tuple[str, tuple[object, ...]], ...]:
+    """Assert program normal forms suffice while allowing compiler collections."""
+
+    if input_kind == "program":
+        raise AssertionError("finite point axes must not bind program inputs")
+    return _BIND_DOMAIN_INPUTS(
+        materializer,
+        execution_id,
+        input_kind,
+        input_ids,
+        ordinals,
+        max_points=max_points,
+        coverage=coverage,
+    )
 
 
 def load_experiment_config() -> ConfigProfileSnapshot:

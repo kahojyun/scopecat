@@ -32,6 +32,8 @@ from quantum_lab_demo.workflows.fake_x_count_bias import (
     fake_x_count_bias_template,
 )
 
+from .demo_lab_experiment_testkit import reject_program_input_binding
+
 
 class _SecondBatchUnknownRuntime(FakeListDomainRuntime):
     def __init__(self) -> None:
@@ -67,13 +69,10 @@ def test_resource_independent_domain_spans_bias_state_coverage(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def reject_input_binding(*_args: object, **_kwargs: object) -> object:
-        raise AssertionError("finite product axes must not bind domain inputs")
-
     monkeypatch.setattr(
         LinkedPointMaterializer,
         "bind_domain_inputs",
-        reject_input_binding,
+        reject_program_input_binding,
     )
     run, source, _compiler = _run_mixed_experiment(tmp_path)
     records = run.data().measurements().dataset.records

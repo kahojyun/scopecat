@@ -9,6 +9,7 @@ from scopecat.measurements.results import MeasurementArray
 from scopecat_quantum import authoring as q
 
 from quantum_lab_demo.lab import quantum_lab, quantum_lab_compiler
+from quantum_lab_demo.virtual_lab.parameters import quantum_calibration_parameters
 
 _SAMPLES = 8
 _SHOTS = 3
@@ -42,7 +43,11 @@ def _repeated_program(qubit: q.Qubit, rounds: int) -> q.QuantumFragment:
 
 @sc.scratch(id="test.repeated-result-contract.experiment", kind="repeated_readout")
 def _repeated_experiment() -> sc.ExperimentBody:
-    call = _repeated_program(qubit="q0", rounds=_ROUNDS).with_shots(_SHOTS)
+    call = (
+        _repeated_program(qubit="q0", rounds=_ROUNDS)
+        .with_compiler_inputs(calibrations=quantum_calibration_parameters())
+        .with_shots(_SHOTS)
+    )
     return sc.experiment(call).record_product(call.results.iq, record_id="iq")
 
 

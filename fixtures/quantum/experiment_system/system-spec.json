@@ -1,5 +1,5 @@
 {
-  "schema_version": "scopecat.system_spec.v2",
+  "schema_version": "scopecat.system_spec.v3",
   "id": "templates-system",
   "workspace_id": "templates",
   "primary_entity_id": "q0",
@@ -209,6 +209,14 @@
       }
     ]
   },
+  "domain_target": {
+    "id": "quantum-lab-demo.fake-list-mode.v1",
+    "instrument_ids": [
+      "drive-stack",
+      "readout-stack",
+      "coupler-stack"
+    ]
+  },
   "parameter_catalog": {
     "schema_version": "scopecat.parameter_catalog.v4",
     "id": "templates-parameter-definitions-catalog",
@@ -278,6 +286,55 @@
               "value_type": {
                 "type": "quantity",
                 "unit": "dBm"
+              }
+            },
+            {
+              "id": "x_duration",
+              "value_type": {
+                "type": "quantity",
+                "unit": "ns"
+              }
+            },
+            {
+              "id": "x_amplitude",
+              "value_type": {
+                "type": "quantity",
+                "unit": "arb"
+              }
+            },
+            {
+              "id": "quarter_turn_duration",
+              "value_type": {
+                "type": "quantity",
+                "unit": "ns"
+              }
+            },
+            {
+              "id": "quarter_turn_amplitude",
+              "value_type": {
+                "type": "quantity",
+                "unit": "arb"
+              }
+            },
+            {
+              "id": "quarter_turn_sigma",
+              "value_type": {
+                "type": "quantity",
+                "unit": "ns"
+              }
+            },
+            {
+              "id": "readout_duration",
+              "value_type": {
+                "type": "quantity",
+                "unit": "ns"
+              }
+            },
+            {
+              "id": "readout_amplitude",
+              "value_type": {
+                "type": "quantity",
+                "unit": "arb"
               }
             }
           ],

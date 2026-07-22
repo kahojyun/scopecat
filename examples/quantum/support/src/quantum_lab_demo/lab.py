@@ -6,7 +6,6 @@ from pathlib import Path
 
 import scopecat as sc
 from scopecat.records.config import ConfigProfileSnapshot
-from scopecat_quantum import CalibrationCatalog
 
 from quantum_lab_demo.compiler import QuantumLabCompiler
 from quantum_lab_demo.fixtures import (
@@ -20,9 +19,6 @@ from quantum_lab_demo.targets.fake_list_mode import (
     default_fake_list_target,
 )
 from quantum_lab_demo.trace import QuantumLabTrace
-from quantum_lab_demo.virtual_lab.calibrations import (
-    quantum_lab_calibration_catalog,
-)
 from quantum_lab_demo.virtual_lab.provider import QuantumLabVirtualProvider
 from quantum_lab_demo.virtual_lab.quantum_responses import (
     quantum_lab_response_registry,
@@ -37,7 +33,6 @@ def quantum_lab_compiler(
     *,
     target: FakeListTarget | None = None,
     runtime: FakeListDomainRuntime | None = None,
-    calibration_catalog: CalibrationCatalog | None = None,
     response_registry: QuantumLabResponseRegistry | None = None,
     trace: QuantumLabTrace | None = None,
 ) -> QuantumLabCompiler:
@@ -46,11 +41,6 @@ def quantum_lab_compiler(
     return QuantumLabCompiler(
         target=default_fake_list_target() if target is None else target,
         runtime=FakeListDomainRuntime() if runtime is None else runtime,
-        calibration_catalog=(
-            quantum_lab_calibration_catalog()
-            if calibration_catalog is None
-            else calibration_catalog
-        ),
         response_registry=(
             quantum_lab_response_registry()
             if response_registry is None

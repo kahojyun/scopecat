@@ -52,6 +52,7 @@ class DomainProgramView:
     dialect_version: str
     body: object = field(repr=False)
     inputs: tuple[DomainInputPortView, ...] = ()
+    compiler_inputs: tuple[DomainInputPortView, ...] = ()
     results: tuple[DomainResultPortView, ...] = ()
 
 

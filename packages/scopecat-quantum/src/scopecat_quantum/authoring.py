@@ -38,6 +38,8 @@ from scopecat.authoring import (
     ProductRef,
     QuantityType,
     ScalarType,
+    ValueRef,
+    ValueType,
     product_axis,
     shot_axis,
 )
@@ -357,6 +359,7 @@ class QuantumProgramCall:
     module_invocation: ModuleInvocation
     results: ProductOutputs
     arguments: tuple[tuple[str, ComputeInput], ...]
+    compiler_arguments: tuple[tuple[str, ValueRef], ...]
     shots: ComputeInput
 
     def with_shots(self, shots: ComputeInput, /) -> QuantumProgramCall:
@@ -367,7 +370,26 @@ class QuantumProgramCall:
             self.module_invocation.instance_id,
             module=self.module_invocation.module,
             inputs=dict(self.arguments),
+            compiler_inputs=dict(self.compiler_arguments),
             shots=shots,
+        )
+
+    def with_compiler_inputs(self, **inputs: ValueRef) -> QuantumProgramCall:
+        """Bind typed lowering-only values without changing the Program ABI."""
+
+        compiler_inputs = dict(inputs)
+        return _program_call(
+            self.program,
+            self.module_invocation.instance_id,
+            module=_program_call_module(
+                self.program,
+                compiler_input_types={
+                    name: value.value_type for name, value in compiler_inputs.items()
+                },
+            ),
+            inputs=dict(self.arguments),
+            compiler_inputs=compiler_inputs,
+            shots=self.shots,
         )
 
 
@@ -966,6 +988,7 @@ class ProgramDefinition(Program):
             self.id.rsplit(".", maxsplit=1)[-1],
             module=self._call_module,
             inputs=cast("Mapping[str, ComputeInput]", bound.arguments),
+            compiler_inputs={},
             shots=1,
         )
 
@@ -984,6 +1007,7 @@ class ProgramDefinition(Program):
             instance_id,
             module=self._call_module,
             inputs=cast("Mapping[str, ComputeInput]", bound.arguments),
+            compiler_inputs={},
             shots=1,
         )
 
@@ -2502,7 +2526,11 @@ def bind(
     )
 
 
-def _domain_program(declaration: Program) -> DomainProgramDef:
+def _domain_program(
+    declaration: Program,
+    *,
+    compiler_inputs: Mapping[str, ValueType] | None = None,
+) -> DomainProgramDef:
     """Project a unified declaration into core's domain program seam."""
 
     repeat_input_ids = {
@@ -2523,6 +2551,7 @@ def _domain_program(declaration: Program) -> DomainProgramDef:
             )
             for port in declaration.ports
         },
+        compiler_inputs=compiler_inputs,
         results={result.id: result for result in declaration.results},
     )
 
@@ -2532,6 +2561,7 @@ def _domain_execution(
     *,
     id: str | None = None,  # noqa: A002
     inputs: Mapping[ProgramPort, ComputeInput] | None = None,
+    compiler_inputs: Mapping[str, ComputeInput] | None = None,
     results: Mapping[MeasurementResult, ProductRef] | None = None,
 ) -> DomainExecution:
     """Bind one template's quantum program to core values and products."""
@@ -2544,10 +2574,16 @@ def _domain_execution(
         msg = "quantum domain execution requires a quantum program"
         raise TypeError(msg)
     declaration = program.body
-    expected_program = _domain_program(declaration)
+    expected_program = _domain_program(
+        declaration,
+        compiler_inputs={
+            port.id: port.value_type for port in program.compiler_input_ports
+        },
+    )
     if (
         program.id != expected_program.id
         or program.input_ports != expected_program.input_ports
+        or program.compiler_input_ports != expected_program.compiler_input_ports
         or program.result_ports != expected_program.result_ports
     ):
         msg = "quantum program domain ports do not match its Program body"
@@ -2558,11 +2594,19 @@ def _domain_execution(
     selected_results: Mapping[MeasurementResult, ProductRef] = (
         {} if results is None else results
     )
+    selected_compiler_inputs: Mapping[str, ComputeInput] = (
+        {} if compiler_inputs is None else compiler_inputs
+    )
     if set(selected_inputs) != set(declaration.ports):
         msg = "quantum domain execution inputs must bind every declared port"
         raise ValueError(msg)
     if set(selected_results) != set(declaration.results):
         msg = "quantum domain execution results must bind every declared result"
+        raise ValueError(msg)
+    if set(selected_compiler_inputs) != {
+        port.id for port in program.compiler_input_ports
+    }:
+        msg = "quantum compiler inputs must bind every declared port"
         raise ValueError(msg)
     normalized_inputs = {
         handle.id: (
@@ -2579,16 +2623,29 @@ def _domain_execution(
         program,
         id=id,
         inputs=normalized_inputs,
+        compiler_inputs=selected_compiler_inputs,
         results={handle.id: value for handle, value in selected_results.items()},
     )
 
 
-def _program_call_module(program: Program) -> ExperimentModule:
+def _program_call_module(
+    program: Program,
+    *,
+    compiler_input_types: Mapping[str, ValueType] | None = None,
+) -> ExperimentModule:
     """Build the reusable core module owned by one program definition."""
 
-    domain = _domain_program(program)
+    selected_compiler_input_types = compiler_input_types or {}
+    domain = _domain_program(
+        program,
+        compiler_inputs=selected_compiler_input_types,
+    )
     local_inputs = {
         port.id: core_input(port.id, port.value_type) for port in domain.input_ports
+    }
+    local_compiler_inputs = {
+        port.id: core_input(port.id, port.value_type)
+        for port in domain.compiler_input_ports
     }
     shots_input = core_input(
         _SHOTS_INPUT_ID,
@@ -2596,6 +2653,7 @@ def _program_call_module(program: Program) -> ExperimentModule:
     )
     builder = ModuleBuilder(id=f"{program.id}.call").inputs(
         *local_inputs.values(),
+        *local_compiler_inputs.values(),
         shots_input,
     )
     for result in program.results:
@@ -2624,6 +2682,7 @@ def _program_call_module(program: Program) -> ExperimentModule:
     execution = _domain_execution(
         domain,
         inputs={port: local_inputs[port.id] for port in program.ports},
+        compiler_inputs=local_compiler_inputs,
         results={result: builder.products[result.id] for result in program.results},
     )
     return builder.domain(execution).build()
@@ -2636,6 +2695,7 @@ def _program_call(
     *,
     module: ExperimentModule,
     inputs: Mapping[str, ComputeInput],
+    compiler_inputs: Mapping[str, ValueRef],
     shots: ComputeInput,
 ) -> QuantumProgramCall:
     """Instantiate one use of a definition's cached core module."""
@@ -2656,6 +2716,7 @@ def _program_call(
         instance_id,
         {
             **inputs,
+            **compiler_inputs,
             _SHOTS_INPUT_ID: shots,
         },
     )
@@ -2666,6 +2727,7 @@ def _program_call(
             {result.id: invocation.products[result.id] for result in program.results}
         ),
         arguments=tuple(inputs.items()),
+        compiler_arguments=tuple(compiler_inputs.items()),
         shots=shots,
     )
 

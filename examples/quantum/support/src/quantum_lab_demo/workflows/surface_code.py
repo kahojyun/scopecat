@@ -7,6 +7,8 @@ from typing import Annotated
 import scopecat as sc
 from scopecat_quantum import authoring as q
 
+from quantum_lab_demo.virtual_lab.parameters import quantum_calibration_parameters
+
 TOY_SURFACE_CODE_ROUND_TEMPLATE_ID = "quantum_lab_demo.workflows.toy_surface_code_round"
 
 _READOUT_DURATION = sc.Quantity(24, "ns")
@@ -92,16 +94,20 @@ def toy_surface_code_round_template(
 ) -> sc.ExperimentBody:
     """Run one fixed patch; ``rounds`` and ``shots`` scale its recursive result."""
 
-    call = toy_surface_code_round_program(
-        data_0=data_0,
-        data_1=data_1,
-        ancilla_0=ancilla_0,
-        ancilla_1=ancilla_1,
-        coupler_01=coupler_01,
-        coupler_23=coupler_23,
-        rounds=rounds,
-        cycle_time=cycle_time,
-    ).with_shots(shots)
+    call = (
+        toy_surface_code_round_program(
+            data_0=data_0,
+            data_1=data_1,
+            ancilla_0=ancilla_0,
+            ancilla_1=ancilla_1,
+            coupler_01=coupler_01,
+            coupler_23=coupler_23,
+            rounds=rounds,
+            cycle_time=cycle_time,
+        )
+        .with_compiler_inputs(calibrations=quantum_calibration_parameters())
+        .with_shots(shots)
+    )
     return sc.experiment(call).record_product(call.results.stabilizer_iq)
 
 

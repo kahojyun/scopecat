@@ -41,6 +41,34 @@
           "readout_power": {
             "value": -20.0,
             "unit": "dBm"
+          },
+          "x_duration": {
+            "value": 4.0,
+            "unit": "ns"
+          },
+          "x_amplitude": {
+            "value": 0.25,
+            "unit": "arb"
+          },
+          "quarter_turn_duration": {
+            "value": 16.0,
+            "unit": "ns"
+          },
+          "quarter_turn_amplitude": {
+            "value": 0.2,
+            "unit": "arb"
+          },
+          "quarter_turn_sigma": {
+            "value": 4.0,
+            "unit": "ns"
+          },
+          "readout_duration": {
+            "value": 8.0,
+            "unit": "ns"
+          },
+          "readout_amplitude": {
+            "value": 0.4,
+            "unit": "arb"
           }
         },
         {
@@ -71,6 +99,34 @@
           "readout_power": {
             "value": -21.0,
             "unit": "dBm"
+          },
+          "x_duration": {
+            "value": 4.0,
+            "unit": "ns"
+          },
+          "x_amplitude": {
+            "value": 0.25,
+            "unit": "arb"
+          },
+          "quarter_turn_duration": {
+            "value": 16.0,
+            "unit": "ns"
+          },
+          "quarter_turn_amplitude": {
+            "value": 0.2,
+            "unit": "arb"
+          },
+          "quarter_turn_sigma": {
+            "value": 4.0,
+            "unit": "ns"
+          },
+          "readout_duration": {
+            "value": 8.0,
+            "unit": "ns"
+          },
+          "readout_amplitude": {
+            "value": 0.4,
+            "unit": "arb"
           }
         },
         {
@@ -101,6 +157,34 @@
           "readout_power": {
             "value": -22.0,
             "unit": "dBm"
+          },
+          "x_duration": {
+            "value": 4.0,
+            "unit": "ns"
+          },
+          "x_amplitude": {
+            "value": 0.25,
+            "unit": "arb"
+          },
+          "quarter_turn_duration": {
+            "value": 16.0,
+            "unit": "ns"
+          },
+          "quarter_turn_amplitude": {
+            "value": 0.2,
+            "unit": "arb"
+          },
+          "quarter_turn_sigma": {
+            "value": 4.0,
+            "unit": "ns"
+          },
+          "readout_duration": {
+            "value": 8.0,
+            "unit": "ns"
+          },
+          "readout_amplitude": {
+            "value": 0.4,
+            "unit": "arb"
           }
         },
         {
@@ -131,6 +215,34 @@
           "readout_power": {
             "value": -22.5,
             "unit": "dBm"
+          },
+          "x_duration": {
+            "value": 4.0,
+            "unit": "ns"
+          },
+          "x_amplitude": {
+            "value": 0.25,
+            "unit": "arb"
+          },
+          "quarter_turn_duration": {
+            "value": 16.0,
+            "unit": "ns"
+          },
+          "quarter_turn_amplitude": {
+            "value": 0.2,
+            "unit": "arb"
+          },
+          "quarter_turn_sigma": {
+            "value": 4.0,
+            "unit": "ns"
+          },
+          "readout_duration": {
+            "value": 8.0,
+            "unit": "ns"
+          },
+          "readout_amplitude": {
+            "value": 0.4,
+            "unit": "arb"
           }
         }
       ],

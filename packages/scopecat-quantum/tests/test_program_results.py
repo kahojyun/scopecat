@@ -165,6 +165,14 @@ def _preparation(
         (point_ordinals,),
         lambda input_ids, ordinals, max_points: materializer.bind_domain_inputs(
             "domain",
+            "program",
+            input_ids,
+            ordinals,
+            max_points=max_points,
+        ),
+        lambda input_ids, ordinals, max_points: materializer.bind_domain_inputs(
+            "domain",
+            "compiler",
             input_ids,
             ordinals,
             max_points=max_points,

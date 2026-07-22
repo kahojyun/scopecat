@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from decimal import Decimal
 from pathlib import Path
 from typing import cast, override
 
@@ -46,8 +47,9 @@ from quantum_lab_demo.targets.fake_list_mode import (
     default_fake_list_target,
 )
 from quantum_lab_demo.trace import QuantumLabTrace
-from quantum_lab_demo.virtual_lab.calibrations import (
-    quantum_lab_calibration_catalog,
+from quantum_lab_demo.virtual_lab.parameters import (
+    QUBIT_PARAMETER_TABLE,
+    q0_parameter_key,
 )
 from quantum_lab_demo.virtual_lab.quantum_responses import (
     quantum_lab_response_registry,
@@ -77,6 +79,8 @@ from quantum_lab_demo.workflows.ramsey_phase_experiment import (
     ramsey_phase_program,
     ramsey_phase_template,
 )
+
+from .demo_lab_experiment_testkit import reject_program_input_binding
 
 
 class _UnknownFetchFakeListDomainRuntime(FakeListDomainRuntime):
@@ -128,7 +132,6 @@ class _ConfiguredTestCompiler(QuantumLabCompiler):
         super().__init__(
             target=default_fake_list_target(),
             runtime=FakeListDomainRuntime(),
-            calibration_catalog=quantum_lab_calibration_catalog(),
             response_registry=quantum_lab_response_registry(),
             trace=QuantumLabTrace(),
         )
@@ -316,13 +319,10 @@ def test_fake_x_count_compiler_absorbs_affine_point_input_without_binding(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def reject_input_binding(*_args: object, **_kwargs: object) -> object:
-        raise AssertionError("finite affine point axes must not bind domain inputs")
-
     monkeypatch.setattr(
         LinkedPointMaterializer,
         "bind_domain_inputs",
-        reject_input_binding,
+        reject_program_input_binding,
     )
     capture = fake_x_count_capture.instantiate(
         "capture",
@@ -352,13 +352,10 @@ def test_fake_x_count_compiler_projects_zipped_axis_without_binding(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def reject_input_binding(*_args: object, **_kwargs: object) -> object:
-        raise AssertionError("finite zipped axes must not bind domain inputs")
-
     monkeypatch.setattr(
         LinkedPointMaterializer,
         "bind_domain_inputs",
-        reject_input_binding,
+        reject_program_input_binding,
     )
     auxiliary = sc.coordinate("auxiliary", sc.ScalarType(sc.IntType()))
     capture = fake_x_count_capture.instantiate("capture", x_count=X_COUNT)
@@ -390,6 +387,43 @@ def test_fake_x_count_compiler_projects_zipped_axis_without_binding(
         (record.coordinates["x_count"], record.coordinates["auxiliary"])
         for record in run.data().measurements().dataset.records
     ] == [(0, 10), (1, 11), (2, 12)]
+
+
+def test_fake_x_count_scans_compiler_calibration_collection(tmp_path: Path) -> None:
+    duration = sc.coordinate(
+        "x_duration",
+        sc.ScalarType(sc.QuantityType(unit="ns")),
+    )
+    capture = fake_x_count_capture(x_count=1)
+
+    @sc.scratch(id="test.fake-x-count.compiler-scan", kind="fake_x_count")
+    def compiler_scan() -> sc.ExperimentBody:
+        return (
+            sc.experiment(capture)
+            .scan(
+                sc.param_axis(
+                    duration,
+                    sc.param_row(QUBIT_PARAMETER_TABLE, **q0_parameter_key()),
+                    "x_duration",
+                    (Quantity(4, "ns"), Quantity(6, "ns")),
+                )
+            )
+            .record_product(capture.products.probability_1)
+        )
+
+    compiler = quantum_lab_compiler()
+    run = (
+        quantum_lab(workspace=tmp_path, compiler=compiler)
+        .prepare(compiler_scan())
+        .run()
+    )
+    [preparation] = compiler.trace.preparations(x_count_program.id)
+
+    assert run.manifest.status == "completed"
+    assert tuple(entry.scheduled.duration_seconds for entry in preparation.entries) == (
+        Decimal("12e-9"),
+        Decimal("14e-9"),
+    )
 
 
 def test_two_ordered_domain_calls_share_target_and_produce_canonical_results(

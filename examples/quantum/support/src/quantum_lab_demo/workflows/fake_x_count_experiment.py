@@ -14,6 +14,8 @@ from scopecat_quantum import (
 )
 from scopecat_quantum import authoring as quantum
 
+from quantum_lab_demo.virtual_lab.parameters import quantum_calibration_parameters
+
 FAKE_X_COUNT_TEMPLATE_ID = "quantum_lab_demo.workflows.fake_x_count"
 FAKE_X_COUNT_EXPERIMENT_ID = "fake-x-count"
 FAKE_X_COUNT_SHOTS = 32
@@ -51,10 +53,14 @@ def fake_x_count_capture(
 ):
     """Capture and discriminate one fake X-count program call."""
 
-    call = x_count_program(
-        qubit="q0",
-        x_count=x_count,
-    ).with_shots(FAKE_X_COUNT_SHOTS)
+    call = (
+        x_count_program(
+            qubit="q0",
+            x_count=x_count,
+        )
+        .with_compiler_inputs(calibrations=quantum_calibration_parameters())
+        .with_shots(FAKE_X_COUNT_SHOTS)
+    )
     body = (
         sc.module_body()
         .use(call)

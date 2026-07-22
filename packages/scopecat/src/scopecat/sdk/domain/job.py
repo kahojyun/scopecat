@@ -9,11 +9,8 @@ from __future__ import annotations
 
 from collections.abc import Hashable
 from dataclasses import dataclass, field
-from typing import Literal
 
 from scopecat.records.measurement import MeasurementValue
-
-type DomainResourceKind = Literal["target", "instrument", "channel", "group"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,19 +62,3 @@ class DomainResultValue[ResultAddressT: Hashable]:
 
     result_address: ResultAddressT
     value: MeasurementValue
-
-
-@dataclass(frozen=True, slots=True)
-class DomainResourceClaim:
-    """Laboratory-visible exclusive resource used by a prepared target job."""
-
-    kind: DomainResourceKind
-    id: str
-
-    def __post_init__(self) -> None:
-        if self.kind not in {"target", "instrument", "channel", "group"}:
-            msg = f"unsupported domain resource kind {self.kind!r}"
-            raise ValueError(msg)
-        if not self.kind or not self.id:
-            msg = "domain resource claim kind and id must be non-empty"
-            raise ValueError(msg)

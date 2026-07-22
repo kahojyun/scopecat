@@ -7,14 +7,13 @@ import scopecat.sdk.domain as domain
 
 _NEW_ADAPTER_VALUES = {
     "DomainFetchRequest",
+    "DomainCompiledInputs",
     "DomainHostTransformBinding",
     "DomainHostTransformCall",
     "DomainHostTransformImplementation",
     "DomainInvocationSpec",
     "DomainMappedResult",
     "DomainMeasurementTransform",
-    "DomainResourceClaim",
-    "DomainResourceKind",
     "DomainResultValue",
     "DomainSubmitRequest",
     "DomainTargetArtifactIdentity",

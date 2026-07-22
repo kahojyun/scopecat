@@ -19,6 +19,8 @@ from scopecat_quantum import (
 )
 from scopecat_quantum import authoring as q
 
+from quantum_lab_demo.virtual_lab.parameters import quantum_calibration_parameters
+
 SINGLE_QUBIT_RB_TEMPLATE_ID = "quantum_lab_demo.workflows.single_qubit_rb"
 SINGLE_QUBIT_RB_SHOTS = 128
 DEFAULT_CLIFFORD_COUNTS = (4, 16, 64)
@@ -184,11 +186,15 @@ def single_qubit_rb_capture(
 ):
     """Compile and discriminate one RB point through the lab domain compiler."""
 
-    call = single_qubit_rb_program(
-        qubit=qubit,
-        length=clifford_count,
-        seed=seed,
-    ).with_shots(SINGLE_QUBIT_RB_SHOTS)
+    call = (
+        single_qubit_rb_program(
+            qubit=qubit,
+            length=clifford_count,
+            seed=seed,
+        )
+        .with_compiler_inputs(calibrations=quantum_calibration_parameters())
+        .with_shots(SINGLE_QUBIT_RB_SHOTS)
+    )
     body = (
         sc.module_body()
         .use(call)

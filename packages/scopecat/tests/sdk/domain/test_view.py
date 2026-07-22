@@ -73,6 +73,14 @@ def test_domain_batch_context_materializes_only_selected_residual_inputs(
         ((0, 1, 2),),
         lambda input_ids, ordinals, max_points: materializer.bind_domain_inputs(
             execution_id,
+            "program",
+            input_ids,
+            ordinals,
+            max_points=max_points,
+        ),
+        lambda input_ids, ordinals, max_points: materializer.bind_domain_inputs(
+            execution_id,
+            "compiler",
             input_ids,
             ordinals,
             max_points=max_points,

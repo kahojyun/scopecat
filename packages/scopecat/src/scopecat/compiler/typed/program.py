@@ -131,6 +131,7 @@ class TypedDomainProgram:
     dialect_version: str
     body: object = field(repr=False)
     input_ports: tuple[DomainInputPortDef, ...] = ()
+    compiler_input_ports: tuple[DomainInputPortDef, ...] = ()
     result_ports: tuple[DomainResultPortDef, ...] = ()
     resource_ports: tuple[DomainResourcePortDef, ...] = ()
 
@@ -167,6 +168,9 @@ class TypedDomainExecution:
     id: str
     program: TypedDomainProgram
     inputs: Mapping[str, ValueInput] = field(default_factory=_empty_value_inputs)
+    compiler_inputs: Mapping[str, ValueInput] = field(
+        default_factory=_empty_value_inputs
+    )
     results: tuple[TypedDomainResultBinding, ...] = ()
     resources: Mapping[str, LogicalResourcePortId] = field(
         default_factory=_empty_resource_inputs
@@ -177,6 +181,7 @@ class TypedDomainExecution:
             raise ValueError("typed domain execution id must be non-empty")
         selected_inputs: dict[str, ValueInput] = dict(self.inputs)
         object.__setattr__(self, "inputs", selected_inputs)
+        object.__setattr__(self, "compiler_inputs", dict(self.compiler_inputs))
         object.__setattr__(self, "resources", dict(self.resources))
 
 

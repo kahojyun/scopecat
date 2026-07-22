@@ -17,6 +17,7 @@ from quantum_lab_demo.virtual_lab.parameters import (
     DRAG_BETA_PARAMETER_COLUMN,
     q0_drag_beta_lookup,
     q0_drag_beta_row,
+    quantum_calibration_parameters,
 )
 from quantum_lab_demo.workflows.drag_beta_calibration import (
     drag_beta_program,
@@ -55,11 +56,15 @@ def drag_beta_capture(
 ):
     """Capture and discriminate one DRAG-beta program call."""
 
-    call = drag_beta_program(
-        qubit="q0",
-        amplification=amplification,
-        beta=beta,
-    ).with_shots(DRAG_BETA_SHOTS)
+    call = (
+        drag_beta_program(
+            qubit="q0",
+            amplification=amplification,
+            beta=beta,
+        )
+        .with_compiler_inputs(calibrations=quantum_calibration_parameters())
+        .with_shots(DRAG_BETA_SHOTS)
+    )
     body = (
         sc.module_body()
         .use(call)

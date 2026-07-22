@@ -334,6 +334,10 @@ class _SemanticGraphBuilder:
                 DomainInputPortDef(port.id, port.value_type)
                 for port in program.input_ports
             ),
+            compiler_input_ports=tuple(
+                DomainInputPortDef(port.id, port.value_type)
+                for port in program.compiler_input_ports
+            ),
             result_ports=tuple(
                 DomainResultPortDef(port.id, port.contract)
                 for port in program.result_ports
@@ -363,6 +367,20 @@ class _SemanticGraphBuilder:
                         ),
                     )
                     for name, value in execution.input_bindings
+                ),
+                compiler_inputs=tuple(
+                    (
+                        name,
+                        ValueUse(
+                            self._add_compute_input(
+                                value,
+                                operation_id=operation_id,
+                                declaration_id="domain_compiler",
+                                input_name=name,
+                            )
+                        ),
+                    )
+                    for name, value in execution.compiler_input_bindings
                 ),
                 results=execution.result_bindings,
                 resources=execution.resource_bindings,

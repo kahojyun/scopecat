@@ -9,6 +9,8 @@ import scopecat as sc
 from scopecat import Quantity, QuantityType, ScalarType
 from scopecat_quantum import authoring as q
 
+from quantum_lab_demo.virtual_lab.parameters import quantum_calibration_parameters
+
 RAMSEY_PHASE_TEMPLATE_ID = "quantum_lab_demo.workflows.ramsey_phase"
 RAMSEY_PHASE_EXPERIMENT_ID = "ramsey-phase-calibration"
 RAMSEY_PHASE_SHOTS = 1
@@ -89,10 +91,14 @@ def ramsey_phase_program(
 def ramsey_phase_template() -> sc.ExperimentBody:
     """Run one Ramsey phase sweep through the shared lab compiler."""
 
-    call = ramsey_phase_program(
-        qubit="q0",
-        phase=PHASE,
-    ).with_shots(RAMSEY_PHASE_SHOTS)
+    call = (
+        ramsey_phase_program(
+            qubit="q0",
+            phase=PHASE,
+        )
+        .with_compiler_inputs(calibrations=quantum_calibration_parameters())
+        .with_shots(RAMSEY_PHASE_SHOTS)
+    )
     return (
         sc.experiment(call)
         .scan(PHASE, DEFAULT_PHASES)

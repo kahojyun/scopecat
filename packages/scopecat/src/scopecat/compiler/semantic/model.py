@@ -406,6 +406,7 @@ class SemanticDomainProgram:
     dialect_version: str
     body: object = field(repr=False)
     input_ports: tuple[DomainInputPortDef, ...] = ()
+    compiler_input_ports: tuple[DomainInputPortDef, ...] = ()
     result_ports: tuple[DomainResultPortDef, ...] = ()
     resource_ports: tuple[DomainResourcePortDef, ...] = ()
 
@@ -414,6 +415,14 @@ class SemanticDomainProgram:
             raise ValueError("domain dialect identity must be non-empty")
         _require_unique_names(
             "domain input port", tuple((p.id, p) for p in self.input_ports)
+        )
+        _require_unique_names(
+            "domain compiler input port",
+            tuple((p.id, p) for p in self.compiler_input_ports),
+        )
+        _require_unique_names(
+            "domain input port",
+            tuple((p.id, p) for p in (*self.input_ports, *self.compiler_input_ports)),
         )
         _require_unique_names(
             "domain result port", tuple((p.id, p) for p in self.result_ports)
@@ -433,6 +442,7 @@ class SemanticDomainExecution:
     id: str
     program: SemanticDomainProgram
     inputs: tuple[tuple[str, ValueUse], ...] = ()
+    compiler_inputs: tuple[tuple[str, ValueUse], ...] = ()
     results: tuple[tuple[str, ProductId], ...] = ()
     resources: tuple[tuple[str, LogicalResourcePortId], ...] = ()
 
@@ -440,6 +450,7 @@ class SemanticDomainExecution:
         if not self.id:
             raise ValueError("semantic domain execution id must be non-empty")
         _require_unique_names("domain execution input", self.inputs)
+        _require_unique_names("domain execution compiler input", self.compiler_inputs)
         _require_unique_names("domain execution result", self.results)
         _require_unique_names("domain execution resource", self.resources)
 

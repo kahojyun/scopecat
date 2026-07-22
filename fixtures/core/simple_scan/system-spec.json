@@ -1,5 +1,5 @@
 {
-  "schema_version": "scopecat.system_spec.v2",
+  "schema_version": "scopecat.system_spec.v3",
   "id": "example-workspace-system",
   "workspace_id": "example-workspace",
   "primary_entity_id": "q0",
@@ -51,6 +51,10 @@
         "kind": "rf_source"
       }
     ]
+  },
+  "domain_target": {
+    "id": "tests.domain.target",
+    "instrument_ids": []
   },
   "parameter_catalog": {
     "schema_version": "scopecat.parameter_catalog.v4",

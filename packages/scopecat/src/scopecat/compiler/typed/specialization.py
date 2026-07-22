@@ -416,6 +416,14 @@ def _specialize_effect(
                 )
                 for name, value in effect.inputs.items()
             },
+            compiler_inputs={
+                name: specialize_value_input(
+                    value,
+                    known=known,
+                    parameter_cells=parameter_cells,
+                )
+                for name, value in effect.compiler_inputs.items()
+            },
         )
     if isinstance(effect, ActionSpec):
         return replace(

@@ -6,7 +6,7 @@ import hashlib
 import json
 from typing import Annotated, Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from scopecat.records._metadata import JsonMetadata
 from scopecat.records.entity import EntityRef
@@ -207,6 +207,27 @@ class RoutingGraph(BaseModel):
         return value
 
 
+class DomainTargetBinding(BaseModel):
+    """The one statically selected domain target in an accepted system."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1)
+    instrument_ids: list[Annotated[str, Field(min_length=1)]] = Field(
+        default_factory=list
+    )
+
+    @field_validator("instrument_ids")
+    @classmethod
+    def validate_instrument_ids(
+        cls,
+        value: list[str],
+    ) -> list[str]:
+        if len(value) != len(set(value)):
+            raise ValueError("domain target instrument ids must be unique")
+        return value
+
+
 class ConnectionResource(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -234,14 +255,28 @@ class SystemSpec(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.system_spec.v2"] = "scopecat.system_spec.v2"
+    schema_version: Literal["scopecat.system_spec.v3"] = "scopecat.system_spec.v3"
     id: str
     workspace_id: str
     primary_entity_id: str
     topology: Topology
     instrument_registry: InstrumentRegistry
     routing: RoutingGraph = Field(default_factory=RoutingGraph)
+    domain_target: DomainTargetBinding | None
     parameter_catalog: ParameterCatalog
+
+    @model_validator(mode="after")
+    def validate_domain_target_instruments(self) -> SystemSpec:
+        target = self.domain_target
+        if target is None:
+            return self
+        known_instrument_ids = {
+            instrument.id for instrument in self.instrument_registry.instruments
+        }
+        for instrument_id in target.instrument_ids:
+            if instrument_id not in known_instrument_ids:
+                raise ValueError(f"unknown domain target instrument: {instrument_id}")
+        return self
 
 
 class EnvironmentSpec(BaseModel):
@@ -289,6 +324,10 @@ class ConfigProfileSnapshot(BaseModel):
     @property
     def routing(self) -> RoutingGraph:
         return self.system.routing
+
+    @property
+    def domain_target(self) -> DomainTargetBinding | None:
+        return self.system.domain_target
 
     @property
     def parameter_catalog(self) -> ParameterCatalog:

@@ -18,9 +18,6 @@ from scopecat_quantum import (
 )
 
 from quantum_lab_demo import quantum_lab, quantum_lab_compiler
-from quantum_lab_demo.virtual_lab.calibrations.drag_beta import (
-    baseline_calibration_catalog,
-)
 from quantum_lab_demo.virtual_lab.parameters import (
     DRAG_BETA_PARAMETER_COLUMN,
     q0_drag_beta_lookup,
@@ -42,13 +39,9 @@ from quantum_lab_demo.workflows.drag_beta_experiment import (
     drag_beta_template,
 )
 
-_GOLDEN_BASELINE_BETA = Quantity(0.625, "ns")
-
 
 def _golden_point(tmp_path: Path):
-    compiler = quantum_lab_compiler(
-        calibration_catalog=baseline_calibration_catalog(_GOLDEN_BASELINE_BETA)
-    )
+    compiler = quantum_lab_compiler()
     lab = quantum_lab(workspace=tmp_path, compiler=compiler)
     scan = sc.cartesian(
         sc.param_axis(
@@ -74,7 +67,6 @@ def test_drag_beta_capture_binds_the_accepted_parameter_cell() -> None:
         amplification=AMPLIFICATION,
         beta=q0_drag_beta_lookup(),
     )
-
     assert capture.inputs["beta"] == q0_drag_beta_lookup()
 
 
@@ -178,7 +170,7 @@ def test_n3_golden_schedule_and_calibration_selection(tmp_path: Path) -> None:
     )
     assert all(isinstance(envelope, DRAG) for envelope in calibrated_envelopes)
     assert all(
-        envelope.beta == Quantity(0.625e-9, "s")
+        envelope.beta == Quantity(0.75e-9, "s")
         for envelope in calibrated_envelopes
         if isinstance(envelope, DRAG)
     )

@@ -3,23 +3,22 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import cast
 
-from scopecat.kernel.resource_identity import ResourceClaim
 from scopecat.sdk.domain import (
     CorrelatedDomainFetch,
     DomainBatchContext,
     DomainCallView,
     DomainCompilation,
+    DomainCompiledInputs,
     DomainCompiledJob,
     DomainCompileRequest,
     DomainExecutionView,
     DomainHostTransformBinding,
     DomainHostTransformImplementation,
     DomainMeasurementTransform,
-    DomainResolvedInputs,
     PreparedDomainExecution,
     compiled_jobs,
 )
@@ -70,6 +69,10 @@ from quantum_lab_demo.trace import (
     QuantumLabPreparationEvidence,
     QuantumLabTrace,
 )
+from quantum_lab_demo.virtual_lab.calibrations import (
+    calibration_catalog_from_qubit_parameters,
+)
+from quantum_lab_demo.virtual_lab.parameters import QUANTUM_CALIBRATIONS_INPUT
 
 _QUANTUM_LAB_COMPILER_ID = "quantum-lab-demo.compiler.v1"
 _QUANTUM_LAB_TARGET_COMPILER_ID = TargetCompilerId(
@@ -81,18 +84,19 @@ _QUANTUM_LAB_TARGET_COMPILER_ID = TargetCompilerId(
 class _QuantumLabArtifact:
     program: quantum.Program = field(repr=False)
     points: tuple[QuantumLabPointValues, ...]
+    calibrations: tuple[CalibrationCatalog, ...] = field(repr=False)
 
 
 class QuantumLabCompiler:
     """Own the demo lab's single domain-compilation boundary.
 
     Scopecat derives domain input normal forms from accepted experiment
-    semantics; parameter lookups within them reflect the accepted snapshot and
-    point-local overlays. ``compile`` resolves those forms through its request
-    into immutable artifact values, while this implementation never reaches
-    into mutable parameter state. It also owns the internal target lowering
-    stage; the injected response registry may select deterministic fake
-    behavior by Program identity, but never a different compiler.
+    semantics; program and compiler inputs both reflect the accepted snapshot
+    and point-local overlays. ``compile`` resolves them into immutable artifact
+    values, so this implementation never reaches into mutable parameter state.
+    It also owns the internal target lowering stage; the injected response
+    registry may select deterministic fake behavior by Program identity, but
+    never a different compiler.
     """
 
     def __init__(
@@ -100,13 +104,11 @@ class QuantumLabCompiler:
         *,
         target: FakeListTarget,
         runtime: FakeListDomainRuntime,
-        calibration_catalog: CalibrationCatalog,
         response_registry: QuantumLabResponseRegistry,
         trace: QuantumLabTrace,
     ) -> None:
         self._target = target
         self._runtime = runtime
-        self._calibration_catalog = calibration_catalog
         self._response_registry = response_registry
         self._trace = trace
         self._trace.register_runtime(runtime)
@@ -128,15 +130,12 @@ class QuantumLabCompiler:
     def trace(self) -> QuantumLabTrace:
         return self._trace
 
-    def claim_resources(
-        self,
-        call: DomainCallView,
-    ) -> tuple[ResourceClaim, ...] | None:
+    def supports(self, call: DomainCallView) -> bool:
         program = _supported_program(call)
         if program is None:
-            return None
+            return False
         _validate_call(call, program, self._host_implementations)
-        return (ResourceClaim(self._target.id.value, "target"),)
+        return True
 
     def compile(self, request: DomainCompileRequest) -> DomainCompilation | None:
         program = _supported_program(request.call)
@@ -168,14 +167,18 @@ class QuantumLabCompiler:
                 ),
                 lower_quantum_program_to_pulses(
                     quantum.bind(artifact.program, dict(point.values)).verified,
-                    self._calibration_catalog,
+                    calibrations,
                     output_id=PulseProgramId(
                         f"{artifact.program.id}.batch-{context.batch_ordinal}."
                         f"point-{point.ordinal}.pulses"
                     ),
                 ),
             )
-            for point in artifact.points
+            for point, calibrations in zip(
+                artifact.points,
+                artifact.calibrations,
+                strict=True,
+            )
         )
         shots = _shot_count(execution)
         batch = prepare_quantum_target_batch(
@@ -294,6 +297,9 @@ def _validate_call(
         result.id for result in program.results
     ):
         raise ValueError("quantum Program result ports changed before compilation")
+    compiler_input_ids = tuple(port.id for port in call.program.compiler_inputs)
+    if compiler_input_ids not in ((), (QUANTUM_CALIBRATIONS_INPUT,)):
+        raise ValueError("quantum compiler inputs must be the calibration collection")
     for result in program.results:
         binding = call.result(result.id)
         if binding.contract is not result:
@@ -330,17 +336,31 @@ def _shot_count(call: DomainCallView | DomainExecutionView) -> int:
 
 def _compile_artifact(
     program: quantum.Program,
-    inputs: DomainResolvedInputs,
+    inputs: DomainCompiledInputs,
 ) -> _QuantumLabArtifact:
+    program_inputs = inputs.program
+    calibrations = (
+        tuple(CalibrationCatalog() for _ordinal in inputs.ordinals)
+        if not inputs.compiler.columns
+        else tuple(
+            calibration_catalog_from_qubit_parameters(
+                cast("Sequence[Mapping[str, object]]", rows)
+            )
+            for rows in inputs.compiler.input(QUANTUM_CALIBRATIONS_INPUT)
+        )
+    )
     return _QuantumLabArtifact(
         program=program,
         points=tuple(
             QuantumLabPointValues(
                 ordinal=ordinal,
-                values=tuple((name, values[index]) for name, values in inputs.columns),
+                values=tuple(
+                    (name, values[index]) for name, values in program_inputs.columns
+                ),
             )
-            for index, ordinal in enumerate(inputs.ordinals)
+            for index, ordinal in enumerate(program_inputs.ordinals)
         ),
+        calibrations=calibrations,
     )
 
 

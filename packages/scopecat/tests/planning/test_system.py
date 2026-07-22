@@ -67,7 +67,10 @@ from scopecat.kernel.value_types import Scalar, String, Table, TableColumn
 from scopecat.measurements.semantics import MeasurementTransformSemanticContract
 from scopecat.planning.routing import ResourcePortManifest, RoutingView
 from scopecat.planning.system import ExperimentSystem
-from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.config import (
+    ConfigProfileSnapshot,
+    DomainTargetBinding,
+)
 from scopecat.records.parameter import (
     Quantity,
 )
@@ -85,7 +88,6 @@ from scopecat.sdk.domain.execution import (
 )
 from scopecat.sdk.domain.job import (
     DomainInvocationSpec,
-    DomainResourceClaim,
     DomainResultValue,
     DomainTargetArtifactIdentity,
 )
@@ -147,30 +149,23 @@ class _EffectProbeRuntime:
 @dataclass
 class _DomainCompiler:
     compiler_id: str
-    resource_claims: tuple[DomainResourceClaim, ...] = ()
     max_points_per_job: int = 100
     runtime: _EffectProbeRuntime = field(default_factory=_EffectProbeRuntime)
-    claim_calls: int = 0
+    support_calls: int = 0
     compile_calls: int = 0
     compile_requests: list[DomainCompileRequest] = field(default_factory=list)
     prepare_calls: int = 0
     prepared_inputs: list[tuple[object, ...]] = field(default_factory=list)
     events: list[str] | None = None
-    assign_target_by_execution: bool = False
 
-    def claim_resources(
-        self,
-        call: DomainCallView,
-    ) -> tuple[ResourceClaim, ...]:
-        self.claim_calls += 1
-        target_id = (
-            f"{self.compiler_id}.{call.id}.target"
-            if self.assign_target_by_execution
-            else f"{self.compiler_id}.target"
-        )
-        return tuple(
-            ResourceClaim(claim.id, claim.kind) for claim in self.resource_claims
-        ) or (ResourceClaim(target_id, "target"),)
+    @property
+    def target_id(self) -> str:
+        return "tests.domain.target"
+
+    def supports(self, call: DomainCallView) -> bool:
+        del call
+        self.support_calls += 1
+        return True
 
     def compile(
         self,
@@ -220,17 +215,12 @@ class _DomainCompiler:
                 for use_index, result_address in enumerate(addresses)
             ),
         )
-        target_id = (
-            f"{self.compiler_id}.{context.execution.id}.target"
-            if self.assign_target_by_execution
-            else f"{self.compiler_id}.target"
-        )
         invocation = DomainInvocationSpec(
             invocation_id=(
                 f"{self.compiler_id}.invocation.batch-{context.batch_ordinal}"
             ),
             target=DomainTargetArtifactIdentity(
-                target_id=target_id,
+                target_id=self.target_id,
                 compiler_id=self.compiler_id,
                 capability_fingerprint=f"{self.compiler_id}.capabilities",
                 artifact_id=(
@@ -260,16 +250,17 @@ class _BindingProbeCompiler:
     bound_ordinals: tuple[int, ...] = ()
     compile_request: DomainCompileRequest | None = field(default=None, init=False)
 
-    def claim_resources(
-        self,
-        call: DomainCallView,
-    ) -> tuple[ResourceClaim, ...] | None:
+    @property
+    def target_id(self) -> str:
+        return "tests.domain.target"
+
+    def supports(self, call: DomainCallView) -> bool:
         del call
-        return None
+        return False
 
     def compile(self, request: DomainCompileRequest) -> None:
         self.compile_request = request
-        self.bound_ordinals = request.resolve_inputs(
+        self.bound_ordinals = request.resolve_program_inputs(
             ("drive_frequency",), (1,), max_points=1
         ).ordinals
         return None
@@ -622,6 +613,21 @@ def _problem_codes(error: CheckFailed) -> set[str]:
     return {problem.code for problem in error.problems}
 
 
+def _config_with_domain_resources(
+    *instrument_ids: str,
+) -> ConfigProfileSnapshot:
+    config = load_config()
+    system = config.system.model_copy(
+        update={
+            "domain_target": DomainTargetBinding(
+                id="tests.domain.target",
+                instrument_ids=list(instrument_ids),
+            )
+        }
+    )
+    return config.model_copy(update={"system": system})
+
+
 def _track_bound_resource_ports(
     monkeypatch: pytest.MonkeyPatch,
 ) -> list[LogicalResourcePortId]:
@@ -761,9 +767,8 @@ def test_domain_only_resource_does_not_require_a_local_manifest(
     resource = compiler.compile_requests[0].call.resource("drive")
     assert resource.resource_port_id == "domain-drive"
     assert resource.capabilities == ("domain.drive",)
-    assert block.resource_claims == (
-        ResourceClaim("tests.domain-only-resource.target", "target"),
-    )
+    assert block.resource_claims == ()
+    assert plan.resource_claims == (ResourceClaim("tests.domain.target", "target"),)
 
 
 def test_mixed_target_builds_manifests_only_for_local_resources(
@@ -878,7 +883,7 @@ def test_unclaimed_local_state_does_not_fragment_domain_jobs() -> None:
     assert provider.describe_calls == 1
     assert provider.provide_calls == 0
     assert compiler.compile_calls == 1
-    assert compiler.claim_calls == 1
+    assert compiler.support_calls == 1
     assert compiler.prepare_calls == 0
     _assert_no_domain_effects(compiler)
 
@@ -906,19 +911,18 @@ def test_domain_and_local_state_retain_declared_effect_order() -> None:
 
 
 def test_local_acquisition_before_domain_is_ordered_per_point() -> None:
+    config = _config_with_domain_resources("source-0")
     linked = _linked_program(
         product_count=2,
         domain_product_count=1,
         acquisition_before_domain=True,
+        config=config,
     )
-    compiler = _DomainCompiler(
-        "tests.acquisition-before-domain",
-        resource_claims=(DomainResourceClaim("instrument", "source-0"),),
-    )
+    compiler = _DomainCompiler("tests.acquisition-before-domain")
     plan = ExperimentSystem(
         provider=_TrackingProvider(),
         domain_compiler=compiler,
-    ).compile(linked, config=load_config())
+    ).compile(linked, config=config)
 
     [block] = plan.coverage
 
@@ -940,18 +944,17 @@ def test_local_acquisition_before_domain_is_ordered_per_point() -> None:
 
 
 def test_domain_before_local_acquisition_is_ordered_per_point() -> None:
+    config = _config_with_domain_resources("source-0")
     linked = _linked_program(
         product_count=2,
         domain_product_count=1,
+        config=config,
     )
-    compiler = _DomainCompiler(
-        "tests.domain-before-acquisition",
-        resource_claims=(DomainResourceClaim("instrument", "source-0"),),
-    )
+    compiler = _DomainCompiler("tests.domain-before-acquisition")
     plan = ExperimentSystem(
         provider=_TrackingProvider(),
         domain_compiler=compiler,
-    ).compile(linked, config=load_config())
+    ).compile(linked, config=config)
 
     [block] = plan.coverage
 
@@ -999,16 +1002,14 @@ def test_unused_local_acquisition_does_not_fragment_domain_coverage() -> None:
 
 
 def test_conflicting_local_state_refines_domain_jobs_by_exact_coverage() -> None:
-    linked = _linked_program(state_mode="varying")
-    compiler = _DomainCompiler(
-        "tests.state-conflict",
-        resource_claims=(DomainResourceClaim("instrument", "source-0"),),
-    )
+    config = _config_with_domain_resources("source-0")
+    linked = _linked_program(state_mode="varying", config=config)
+    compiler = _DomainCompiler("tests.state-conflict")
 
     plan = ExperimentSystem(
         provider=_TrackingProvider(),
         domain_compiler=compiler,
-    ).compile(linked, config=load_config())
+    ).compile(linked, config=config)
 
     [block] = plan.coverage
     assert block.point_indices == (0, 1)
@@ -1018,7 +1019,7 @@ def test_conflicting_local_state_refines_domain_jobs_by_exact_coverage() -> None
         if isinstance(operation, RunDomainJob)
     ] == [(0,), (1,)]
     assert compiler.compile_calls == 2
-    assert compiler.claim_calls == 1
+    assert compiler.support_calls == 1
     assert [request.barrier_regions for request in compiler.compile_requests] == [
         ((0,),),
         ((1,),),
@@ -1104,34 +1105,36 @@ def test_ordered_domain_calls_share_one_target_resource_and_keep_job_identity() 
         if isinstance(operation, RunDomainJob)
     )
     assert len({job.id for job in jobs}) == 2
-    assert {claim for block in blocks for claim in block.resource_claims} == {
-        ResourceClaim("tests.multi-call.target", "target")
-    }
+    assert all(block.resource_claims == () for block in blocks)
+    assert plan.resource_claims == (ResourceClaim("tests.domain.target", "target"),)
     assert compiler.compile_calls == 2
     assert compiler.prepare_calls == 0
     _assert_no_domain_effects(compiler)
 
 
-def test_system_compiler_can_assign_domain_calls_to_distinct_targets() -> None:
+def test_system_rejects_a_compiler_for_a_different_target() -> None:
+    compiler = _DomainCompiler("tests.target-mismatch")
+    config = _config_with_domain_resources()
+    mismatched = DomainTargetBinding(id="other.target")
+    mismatched_config = config.model_copy(
+        update={
+            "system": config.system.model_copy(update={"domain_target": mismatched})
+        }
+    )
     linked = _linked_program(
         product_count=2,
         domain_product_count=2,
         domain_call_count=2,
-    )
-    compiler = _DomainCompiler(
-        "tests.multi-target",
-        assign_target_by_execution=True,
+        config=mismatched_config,
     )
 
-    plan = ExperimentSystem(domain_compiler=compiler).compile(
-        linked,
-        config=load_config(),
-    )
+    with pytest.raises(CheckFailed) as captured:
+        ExperimentSystem(domain_compiler=compiler).compile(
+            linked,
+            config=mismatched_config,
+        )
 
-    assert {claim for block in plan.coverage for claim in block.resource_claims} == {
-        ResourceClaim("tests.multi-target.domain-0.target", "target"),
-        ResourceClaim("tests.multi-target.domain-1.target", "target"),
-    }
+    assert _problem_codes(captured.value) == {"domain_target_mismatch"}
 
 
 def test_point_inventory_closes_before_first_streaming_domain_block(
@@ -1188,6 +1191,7 @@ def test_complete_point_materialization_does_not_evaluate_domain_inputs(
 
     materializer.bind_domain_inputs(
         "domain",
+        "program",
         ("drive_frequency",),
         (1,),
         max_points=1,

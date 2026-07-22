@@ -258,6 +258,7 @@ def lower_semantic_domain_graph(
             dialect_version=semantic_program.dialect_version,
             body=semantic_program.body,
             input_ports=semantic_program.input_ports,
+            compiler_input_ports=semantic_program.compiler_input_ports,
             result_ports=semantic_program.result_ports,
             resource_ports=semantic_program.resource_ports,
         )
@@ -276,6 +277,21 @@ def lower_semantic_domain_graph(
                     "verified domain execution inputs must lower to plan values"
                 )
             lowered_inputs[name] = lowered
+        lowered_compiler_inputs: dict[str, ValueInput] = {}
+        for name, use in execution.compiler_inputs:
+            lowered = _lower_semantic_input(
+                use.value_id,
+                definitions=graph.value_defs,
+                operations=operations,
+                residual_values=residual_values,
+                inputs=inputs,
+                type_bindings=type_bindings,
+            )
+            if not isinstance(lowered, ValueInput):
+                raise AssertionError(
+                    "verified domain compiler inputs must lower to plan values"
+                )
+            lowered_compiler_inputs[name] = lowered
         result_bindings: list[TypedDomainResultBinding] = []
         for result_id, product_id in execution.results:
             result_bindings.append(
@@ -290,6 +306,7 @@ def lower_semantic_domain_graph(
                 id=execution.id,
                 program=program,
                 inputs=lowered_inputs,
+                compiler_inputs=lowered_compiler_inputs,
                 results=tuple(result_bindings),
                 resources=dict(execution.resources),
             )

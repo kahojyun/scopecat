@@ -810,7 +810,10 @@ def _module_lexical_value_refs(module: ModuleIR) -> tuple[ValueRef, ...]:
     roots.extend(
         value
         for execution in module.body.domain_executions
-        for _name, value in execution.input_bindings
+        for _name, value in (
+            *execution.input_bindings,
+            *execution.compiler_input_bindings,
+        )
     )
     roots.extend(
         value

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field, replace
+from typing import Literal
 
 from scopecat.compiler.linking.linked import (
     LinkedPlan,
@@ -167,26 +168,11 @@ def _compile_system_program(
         )
         for execution_id, result_closure in domain_result_closures.items()
     }
-    domain_resource_claims: dict[str, tuple[ResourceClaim, ...]] = {}
-    if system.domain_compiler is not None:
-        for execution_id, template in domain_templates.items():
-            claims = system.domain_compiler.claim_resources(template.call)
-            if claims is None:
-                raise CheckFailed(
-                    [
-                        _planning_problem(
-                            "domain_compiler_missing",
-                            "the experiment system cannot compile domain call "
-                            f"{execution_id!r}",
-                            category=ProblemCategory.NOT_FOUND,
-                            details={"execution_id": execution_id},
-                        )
-                    ]
-                )
-            selected = tuple(claims)
-            if len(selected) != len(set(selected)):
-                raise ValueError("domain resource claims must be unique")
-            domain_resource_claims[execution_id] = selected
+    domain_footprint = _domain_target_footprint(
+        system,
+        config=config,
+        templates=domain_templates,
+    )
     domain_owned_product_use_ids = frozenset(
         use_id
         for result_closure in domain_result_closures.values()
@@ -248,11 +234,12 @@ def _compile_system_program(
     if preflight is not None and has_blocking_problems(preflight.problems):
         raise ProviderContractError(preflight.problems)
     host = _host_binding(preflight)
-    resource_claims = (
+    host_resource_claims = (
         ()
         if preflight is None
         else tuple(ResourceClaim(item) for item in preflight.instrument_order)
     )
+    resource_claims = _sorted_claims((*host_resource_claims, *domain_footprint))
     local_target = (
         prepare_local_target(
             linked,
@@ -280,7 +267,7 @@ def _compile_system_program(
             region=region,
             point_count=point_count,
             domain_templates=domain_templates,
-            domain_resource_claims=domain_resource_claims,
+            domain_footprint=domain_footprint,
             local_target=local_target,
             run_resource_claims=frozenset(resource_claims),
         )
@@ -317,6 +304,65 @@ def _host_binding(
     )
 
 
+def _domain_target_footprint(
+    system: ExperimentSystem,
+    *,
+    config: ConfigProfileSnapshot,
+    templates: dict[str, DomainCompileTemplate],
+) -> tuple[ResourceClaim, ...]:
+    if not templates or system.domain_compiler is None:
+        return ()
+    compiler = system.domain_compiler
+    target = config.domain_target
+    if target is None:
+        raise CheckFailed(
+            [
+                _planning_problem(
+                    "domain_target_missing",
+                    "the accepted system configuration has no domain target",
+                    category=ProblemCategory.NOT_FOUND,
+                )
+            ]
+        )
+    if compiler.target_id != target.id:
+        raise CheckFailed(
+            [
+                _planning_problem(
+                    "domain_target_mismatch",
+                    "the domain compiler target does not match the accepted system "
+                    "configuration",
+                    category=ProblemCategory.INVALID_INPUT,
+                    details={
+                        "compiler_target_id": compiler.target_id,
+                        "configured_target_id": target.id,
+                    },
+                )
+            ]
+        )
+    for execution_id, template in templates.items():
+        if not compiler.supports(template.call):
+            raise CheckFailed(
+                [
+                    _planning_problem(
+                        "domain_compiler_missing",
+                        "the experiment system cannot compile domain call "
+                        f"{execution_id!r}",
+                        category=ProblemCategory.NOT_FOUND,
+                        details={"execution_id": execution_id},
+                    )
+                ]
+            )
+    return _sorted_claims(
+        (
+            ResourceClaim(target.id, "target"),
+            *(
+                ResourceClaim(instrument_id, "instrument")
+                for instrument_id in target.instrument_ids
+            ),
+        )
+    )
+
+
 def _sorted_claims(claims: tuple[ResourceClaim, ...]) -> tuple[ResourceClaim, ...]:
     return tuple(sorted(set(claims), key=lambda claim: (claim.kind, claim.id)))
 
@@ -330,7 +376,7 @@ def _compile_coverage_region(
     region: tuple[int, ...],
     point_count: int,
     domain_templates: dict[str, DomainCompileTemplate],
-    domain_resource_claims: dict[str, tuple[ResourceClaim, ...]],
+    domain_footprint: tuple[ResourceClaim, ...],
     local_target: LocalTargetPlan | None,
     run_resource_claims: frozenset[ResourceClaim],
 ) -> tuple[RunCoverageBlock, ...]:
@@ -354,12 +400,13 @@ def _compile_coverage_region(
         else (region,)
     )
     input_cache: dict[
-        tuple[str, tuple[str, ...], tuple[int, ...]],
+        tuple[str, str, tuple[str, ...], tuple[int, ...]],
         tuple[tuple[str, tuple[object, ...]], ...],
     ] = {}
 
     def bind_domain_inputs(
         execution_id: str,
+        input_kind: Literal["program", "compiler"],
         input_ids: Sequence[str],
         ordinals: Sequence[int],
         max_points: int,
@@ -367,12 +414,13 @@ def _compile_coverage_region(
         selected_ordinals = tuple(ordinals)
         if len(selected_ordinals) > max_points:
             raise ValueError("domain input binding exceeds the requested budget")
-        key = (execution_id, tuple(input_ids), selected_ordinals)
+        key = (execution_id, input_kind, tuple(input_ids), selected_ordinals)
         cached = input_cache.get(key)
         if cached is not None:
             return cached
         bound = lazy_points.bind_domain_inputs(
             execution_id,
+            input_kind,
             input_ids,
             selected_ordinals,
             max_points=max_points,
@@ -381,9 +429,13 @@ def _compile_coverage_region(
         input_cache[key] = bound
         return bound
 
-    def input_binder(execution_id: str) -> DomainInputBinder:
+    def input_binder(
+        execution_id: str,
+        input_kind: Literal["program", "compiler"],
+    ) -> DomainInputBinder:
         return lambda input_ids, ordinals, max_points: bind_domain_inputs(
             execution_id,
+            input_kind,
             input_ids,
             ordinals,
             max_points,
@@ -398,13 +450,13 @@ def _compile_coverage_region(
                 barrier,
                 effect_index=effect_index,
                 local_effects=local_effects,
-                resource_claims=domain_resource_claims[execution.id],
+                resource_claims=domain_footprint,
             )
             for ordered in ordered_barriers:
                 refined_barriers = _domain_state_barriers(
                     ordered,
                     local_effects=local_effects,
-                    resource_claims=domain_resource_claims[execution.id],
+                    resource_claims=domain_footprint,
                 )
                 for refined in refined_barriers:
                     compiled = _compile_domain_execution(
@@ -412,8 +464,8 @@ def _compile_coverage_region(
                         domain_templates[execution.id],
                         refined,
                         coverage_ordinal=refined[0],
-                        bind_inputs=input_binder(execution.id),
-                        resource_claims=domain_resource_claims[execution.id],
+                        bind_program_inputs=input_binder(execution.id, "program"),
+                        bind_compiler_inputs=input_binder(execution.id, "compiler"),
                     )
                     if compiled is None:
                         raise CheckFailed(
@@ -509,16 +561,7 @@ def _coverage_blocks(
                 tuple(operations),
                 tuple(
                     claim
-                    for claim in _sorted_claims(
-                        (
-                            *local_claims,
-                            *(
-                                claim
-                                for job in block_jobs
-                                for claim in job.resource_claims
-                            ),
-                        )
-                    )
+                    for claim in _sorted_claims(local_claims)
                     if claim not in run_resource_claims
                 ),
             )
@@ -653,7 +696,6 @@ class _CompiledDomainExecution:
     compiler: DomainCompiler = field(repr=False, compare=False)
     compilation: DomainCompilation = field(repr=False)
     coverage_ordinal: int
-    resource_claims: tuple[ResourceClaim, ...]
 
 
 def _compile_domain_execution(
@@ -662,14 +704,15 @@ def _compile_domain_execution(
     barrier_region: tuple[int, ...],
     *,
     coverage_ordinal: int,
-    bind_inputs: DomainInputBinder,
-    resource_claims: tuple[ResourceClaim, ...],
+    bind_program_inputs: DomainInputBinder,
+    bind_compiler_inputs: DomainInputBinder,
 ) -> _CompiledDomainExecution | None:
     if compiler is None:
         return None
     request = template.bind_coverage(
         (barrier_region,),
-        bind_inputs,
+        bind_program_inputs,
+        bind_compiler_inputs,
     )
     compilation = compiler.compile(request)
     if compilation is None:
@@ -680,7 +723,6 @@ def _compile_domain_execution(
         compiler=compiler,
         compilation=compilation,
         coverage_ordinal=coverage_ordinal,
-        resource_claims=resource_claims,
     )
 
 
@@ -712,7 +754,6 @@ def _prepare_domain_jobs(
             RunDomainJob(
                 id=(f"{execution_id}:coverage-{domain.coverage_ordinal}:{compiled.id}"),
                 point_ordinals=compiled.point_ordinals,
-                resource_claims=domain.resource_claims,
                 _prepare=prepare,
             )
         )

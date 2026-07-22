@@ -1,10 +1,11 @@
 """Pure, bounded domain lowering over typed residual experiment semantics.
 
 The SDK receives owned normal forms and a read-only exact iteration
-projection. ``claim_resources`` establishes safe barriers before compilation,
-``compile`` chooses jobs and absorption claims without external effects, and
-``prepare`` closes one selected job over its runtime context. Separating these
-phases allows symbolic target specialization without acquiring live resources.
+projection. The accepted configuration selects and reserves one complete
+target footprint, ``compile`` chooses jobs and absorption claims without
+external effects, and ``prepare`` closes one selected job over its runtime
+context. Separating these phases allows symbolic target specialization without
+acquiring live resources.
 """
 
 from __future__ import annotations
@@ -18,7 +19,6 @@ from typing import Protocol, cast
 from scopecat.compiler.relations.point_domain import point_axis_linear_value
 from scopecat.compiler.relations.scalar_eval import CellValue, eval_binary
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
-from scopecat.kernel.resource_identity import ResourceClaim
 from scopecat.records.parameter import Quantity
 from scopecat.sdk.domain.context import DomainBatchContext
 from scopecat.sdk.domain.execution import PreparedDomainExecution
@@ -231,6 +231,22 @@ class DomainResolvedInputs:
         raise KeyError(name)
 
 
+@dataclass(frozen=True, slots=True)
+class DomainCompiledInputs:
+    """Program and compiler-only columns resolved for one target artifact."""
+
+    program: DomainResolvedInputs
+    compiler: DomainResolvedInputs
+
+    def __post_init__(self) -> None:
+        if self.program.ordinals != self.compiler.ordinals:
+            raise ValueError("compiled domain input point coverage must match")
+
+    @property
+    def ordinals(self) -> tuple[int, ...]:
+        return self.program.ordinals
+
+
 type DomainInputBinder = Callable[
     [Sequence[str], Sequence[int], int],
     tuple[tuple[str, tuple[object, ...]], ...],
@@ -242,19 +258,23 @@ class DomainCompileTemplate:
     """Static domain target projection shared by every coverage request."""
 
     call: DomainCallView
-    inputs: tuple[DomainInput, ...]
+    program_inputs: tuple[DomainInput, ...]
+    compiler_inputs: tuple[DomainInput, ...]
     iteration_layout: DomainIterationLayout | None = None
 
     def bind_coverage(
         self,
         barrier_regions: Sequence[Sequence[int]],
-        input_binder: DomainInputBinder,
+        program_input_binder: DomainInputBinder,
+        compiler_input_binder: DomainInputBinder,
     ) -> DomainCompileRequest:
         return DomainCompileRequest(
             call=self.call,
-            inputs=self.inputs,
+            program_inputs=self.program_inputs,
+            compiler_inputs=self.compiler_inputs,
             barrier_regions=tuple(tuple(region) for region in barrier_regions),
-            input_binder=input_binder,
+            program_input_binder=program_input_binder,
+            compiler_input_binder=compiler_input_binder,
             iteration_layout=self.iteration_layout,
         )
 
@@ -264,27 +284,33 @@ class DomainCompileRequest:
     """One symbolic point space and its bounded domain-call coverage.
 
     Barrier regions contain exact canonical ordinals and are authoritative:
-    target partitions may refine but never cross them. Inputs include every
-    typed domain port in order; the binder is a bounded fallback for values the
-    compiler elects to absorb but cannot close from normal forms.
+    target partitions may refine but never cross them. Program inputs may
+    remain residual at prepare time. Compiler inputs are always resolved into
+    target artifacts, so both use independent bounded binder namespaces.
     """
 
     call: DomainCallView
-    inputs: tuple[DomainInput, ...]
+    program_inputs: tuple[DomainInput, ...]
+    compiler_inputs: tuple[DomainInput, ...]
     barrier_regions: tuple[tuple[int, ...], ...]
-    input_binder: DomainInputBinder = field(repr=False, compare=False)
+    program_input_binder: DomainInputBinder = field(repr=False, compare=False)
+    compiler_input_binder: DomainInputBinder = field(repr=False, compare=False)
     iteration_layout: DomainIterationLayout | None = None
 
     def __post_init__(self) -> None:
-        inputs = tuple(self.inputs)
+        program_inputs = tuple(self.program_inputs)
+        compiler_inputs = tuple(self.compiler_inputs)
         regions = tuple(tuple(region) for region in self.barrier_regions)
-        input_ids = tuple(input_value.id for input_value in inputs)
-        if len(input_ids) != len(set(input_ids)):
-            raise ValueError("domain input ids must be unique")
-        expected_input_ids = tuple(port.id for port in self.call.program.inputs)
-        if input_ids != expected_input_ids:
-            msg = "domain inputs must follow the complete program input order"
-            raise ValueError(msg)
+        _validate_input_order(
+            "program",
+            program_inputs,
+            tuple(port.id for port in self.call.program.inputs),
+        )
+        _validate_input_order(
+            "compiler",
+            compiler_inputs,
+            tuple(port.id for port in self.call.program.compiler_inputs),
+        )
         selected_ordinals = tuple(ordinal for region in regions for ordinal in region)
         if any(
             following != preceding + 1
@@ -294,11 +320,18 @@ class DomainCompileRequest:
             raise ValueError(msg)
         if any(not region for region in regions):
             raise ValueError("domain barrier regions must be non-empty")
-        object.__setattr__(self, "inputs", inputs)
+        object.__setattr__(self, "program_inputs", program_inputs)
+        object.__setattr__(self, "compiler_inputs", compiler_inputs)
         object.__setattr__(self, "barrier_regions", regions)
 
-    def input(self, name: str) -> DomainInput:
-        for input_value in self.inputs:
+    def program_input(self, name: str) -> DomainInput:
+        for input_value in self.program_inputs:
+            if input_value.id == name:
+                return input_value
+        raise KeyError(name)
+
+    def compiler_input(self, name: str) -> DomainInput:
+        for input_value in self.compiler_inputs:
             if input_value.id == name:
                 return input_value
         raise KeyError(name)
@@ -346,18 +379,50 @@ class DomainCompileRequest:
             )
         )
 
-    def resolve_inputs(
+    def resolve_program_inputs(
         self,
         input_ids: Sequence[str],
         ordinals: Sequence[int],
         *,
         max_points: int,
     ) -> DomainResolvedInputs:
-        """Resolve a selected input set from normal forms or one binder call."""
+        return self._resolve_inputs(
+            self.program_inputs,
+            self.program_input_binder,
+            input_ids,
+            ordinals,
+            max_points=max_points,
+        )
+
+    def resolve_compiler_inputs(
+        self,
+        input_ids: Sequence[str],
+        ordinals: Sequence[int],
+        *,
+        max_points: int,
+    ) -> DomainResolvedInputs:
+        return self._resolve_inputs(
+            self.compiler_inputs,
+            self.compiler_input_binder,
+            input_ids,
+            ordinals,
+            max_points=max_points,
+        )
+
+    def _resolve_inputs(
+        self,
+        available_inputs: tuple[DomainInput, ...],
+        binder: DomainInputBinder,
+        input_ids: Sequence[str],
+        ordinals: Sequence[int],
+        *,
+        max_points: int,
+    ) -> DomainResolvedInputs:
+        """Resolve one input namespace from normal forms or its binder."""
 
         requested_input_ids = tuple(input_ids)
         requested_input_set = set(requested_input_ids)
-        known_input_ids = tuple(input_value.id for input_value in self.inputs)
+        known_input_ids = tuple(input_value.id for input_value in available_inputs)
         selected_input_ids = tuple(
             input_id for input_id in known_input_ids if input_id in requested_input_set
         )
@@ -377,8 +442,9 @@ class DomainCompileRequest:
             raise ValueError("domain input binding selects an unknown ordinal")
         resolved: dict[str, tuple[object, ...]] = {}
         unresolved: list[str] = []
+        by_id = {input_value.id: input_value for input_value in available_inputs}
         for input_id in selected_input_ids:
-            input_value = self.input(input_id)
+            input_value = by_id[input_id]
             if input_value.is_literal:
                 value = input_value.literal_value()
                 resolved[input_id] = tuple(deepcopy(value) for _ordinal in selected)
@@ -391,11 +457,7 @@ class DomainCompileRequest:
                 )
                 continue
             unresolved.append(input_id)
-        bound = (
-            self.input_binder(tuple(unresolved), selected, max_points)
-            if unresolved
-            else ()
-        )
+        bound = binder(tuple(unresolved), selected, max_points) if unresolved else ()
         if tuple(name for name, _values in bound) != tuple(unresolved):
             raise ValueError("domain input binder must return exactly selected inputs")
         if any(len(values) != len(selected) for _name, values in bound):
@@ -409,6 +471,18 @@ class DomainCompileRequest:
             ),
             binder_input_ids=tuple(unresolved),
         )
+
+
+def _validate_input_order(
+    kind: str,
+    inputs: tuple[DomainInput, ...],
+    expected_ids: tuple[str, ...],
+) -> None:
+    input_ids = tuple(input_value.id for input_value in inputs)
+    if len(input_ids) != len(set(input_ids)):
+        raise ValueError(f"domain {kind} input ids must be unique")
+    if input_ids != expected_ids:
+        raise ValueError(f"domain {kind} inputs must follow the complete port order")
 
 
 @dataclass(frozen=True, slots=True)
@@ -450,6 +524,7 @@ class DomainCompilation:
     absorbed_input_ids: tuple[str, ...] = ()
     absorbed_transform_ids: tuple[str, ...] = ()
     binder_input_ids: tuple[str, ...] = ()
+    compiler_input_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         jobs = tuple(self.jobs)
@@ -457,14 +532,18 @@ class DomainCompilation:
         absorbed_input_ids = tuple(self.absorbed_input_ids)
         absorbed_transform_ids = tuple(self.absorbed_transform_ids)
         binder_input_ids = tuple(self.binder_input_ids)
+        compiler_input_ids = tuple(self.compiler_input_ids)
         if len(job_ids) != len(set(job_ids)):
             raise ValueError("compiled domain job ids must be unique")
         if len(binder_input_ids) != len(set(binder_input_ids)):
             raise ValueError("compiled binder input ids must be unique")
+        if len(compiler_input_ids) != len(set(compiler_input_ids)):
+            raise ValueError("compiled compiler input ids must be unique")
         object.__setattr__(self, "jobs", jobs)
         object.__setattr__(self, "absorbed_input_ids", absorbed_input_ids)
         object.__setattr__(self, "absorbed_transform_ids", absorbed_transform_ids)
         object.__setattr__(self, "binder_input_ids", binder_input_ids)
+        object.__setattr__(self, "compiler_input_ids", compiler_input_ids)
 
 
 class DomainCompiler(Protocol):
@@ -476,15 +555,17 @@ class DomainCompiler(Protocol):
     through the request boundary rather than a mutable parameter registry,
     keeping check, preview, and run reproducible against the same semantics.
 
-    ``claim_resources`` and ``compile`` must not inspect live state or perform
-    effects. ``prepare`` may close target artifacts and runtime bindings for a
-    selected single-use job, but submission remains an interpreter effect.
+    The accepted system configuration selects one target and reserves its
+    complete physical footprint for the run. ``supports`` and ``compile`` must
+    not inspect live state or perform effects. ``prepare`` may close target
+    artifacts and runtime bindings for a selected single-use job, but
+    submission remains an interpreter effect.
     """
 
-    def claim_resources(
-        self,
-        call: DomainCallView,
-    ) -> tuple[ResourceClaim, ...] | None: ...
+    @property
+    def target_id(self) -> str: ...
+
+    def supports(self, call: DomainCallView) -> bool: ...
 
     def compile(self, request: DomainCompileRequest) -> DomainCompilation | None: ...
 
@@ -517,7 +598,7 @@ def validate_domain_compilation(
             msg = f"compiled domain job {job.id!r} crosses a barrier region"
             raise ValueError(msg)
     _validate_absorption(request, compilation)
-    known_input_ids = tuple(input_value.id for input_value in request.inputs)
+    known_input_ids = tuple(input_value.id for input_value in request.program_inputs)
     binder_input_set = set(compilation.binder_input_ids)
     if compilation.binder_input_ids != tuple(
         input_id for input_id in known_input_ids if input_id in binder_input_set
@@ -525,6 +606,11 @@ def validate_domain_compilation(
         raise ValueError("compiled binder inputs must be known and follow typed order")
     if binder_input_set - set(compilation.absorbed_input_ids):
         raise ValueError("domain compiler concretized a residual input with the binder")
+    known_compiler_input_ids = tuple(
+        input_value.id for input_value in request.compiler_inputs
+    )
+    if compilation.compiler_input_ids != known_compiler_input_ids:
+        raise ValueError("domain compiler must consume every compiler input in order")
 
 
 def _validate_absorption(
@@ -533,7 +619,7 @@ def _validate_absorption(
 ) -> None:
     _validate_absorbed_ids(
         kind="input",
-        canonical_ids=tuple(input_value.id for input_value in request.inputs),
+        canonical_ids=tuple(input_value.id for input_value in request.program_inputs),
         absorbed_ids=compilation.absorbed_input_ids,
     )
     transforms = request.call.measurement_transforms
@@ -627,7 +713,7 @@ def compiled_jobs(
     request: DomainCompileRequest,
     *,
     max_points: int,
-    compile_artifact: Callable[[DomainResolvedInputs], object] | None = None,
+    compile_artifact: Callable[[DomainCompiledInputs], object] | None = None,
     artifact_input_ids: Sequence[str] = (),
     absorbed_input_ids: Sequence[str] = (),
     absorbed_transform_ids: Sequence[str] = (),
@@ -638,7 +724,7 @@ def compiled_jobs(
     if len(artifact_input_ids) != len(set(artifact_input_ids)):
         raise ValueError("domain artifact input ids must be unique")
     absorbed_inputs = _canonical_absorbed_ids(
-        tuple(input_value.id for input_value in request.inputs),
+        tuple(input_value.id for input_value in request.program_inputs),
         (*absorbed_input_ids, *artifact_input_ids),
     )
     absorbed_transforms = _canonical_absorbed_ids(
@@ -647,13 +733,27 @@ def compiled_jobs(
     )
     jobs: list[DomainCompiledJob] = []
     binder_input_ids: set[str] = set()
+    compiler_input_ids = tuple(
+        input_value.id for input_value in request.compiler_inputs
+    )
+    if compiler_input_ids and compile_artifact is None:
+        raise ValueError("domain compiler inputs require an artifact compiler")
     for index, ordinals in enumerate(request.partition(max_points=max_points)):
-        resolved_inputs = request.resolve_inputs(
+        resolved_program_inputs = request.resolve_program_inputs(
             artifact_input_ids,
             ordinals,
             max_points=max_points,
         )
-        binder_input_ids.update(resolved_inputs.binder_input_ids)
+        resolved_compiler_inputs = request.resolve_compiler_inputs(
+            compiler_input_ids,
+            ordinals,
+            max_points=max_points,
+        )
+        binder_input_ids.update(resolved_program_inputs.binder_input_ids)
+        resolved_inputs = DomainCompiledInputs(
+            program=resolved_program_inputs,
+            compiler=resolved_compiler_inputs,
+        )
         jobs.append(
             DomainCompiledJob(
                 id=f"job-{index}",
@@ -675,9 +775,10 @@ def compiled_jobs(
         absorbed_transform_ids=absorbed_transforms,
         binder_input_ids=tuple(
             input_value.id
-            for input_value in request.inputs
+            for input_value in request.program_inputs
             if input_value.id in binder_input_ids
         ),
+        compiler_input_ids=compiler_input_ids,
     )
     validate_domain_compilation(request, compilation)
     return compilation
@@ -687,6 +788,7 @@ __all__ = [
     "DomainCompilation",
     "DomainCompileRequest",
     "DomainCompileTemplate",
+    "DomainCompiledInputs",
     "DomainCompiledJob",
     "DomainCompiler",
     "DomainInput",

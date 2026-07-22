@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import cast
+from typing import Literal, cast
 
 from scopecat.compiler.diagnostics import CompilerProblemError, compiler_problem
 from scopecat.compiler.entity_resolution import (
@@ -138,6 +138,7 @@ class LinkedPointMaterializer:
     def bind_domain_inputs(
         self,
         execution_id: str,
+        input_kind: Literal["program", "compiler"],
         input_ids: Sequence[str],
         ordinals: Sequence[int],
         *,
@@ -160,7 +161,10 @@ class LinkedPointMaterializer:
             for item in core_domain_executions(self.linked.program)
             if item.id == execution_id
         )
-        known_input_ids = tuple(execution.inputs)
+        available_inputs = (
+            execution.inputs if input_kind == "program" else execution.compiler_inputs
+        )
+        known_input_ids = tuple(available_inputs)
         selected_input_set = set(selected_input_ids)
         if not selected_input_ids:
             raise ValueError("domain input binding requires at least one input")
@@ -200,6 +204,7 @@ class LinkedPointMaterializer:
         for point in selected_points:
             input_values = self._domain_inputs(
                 execution,
+                input_kind,
                 point,
                 selected_input_ids,
                 parameters=coverage_parameters.get(point.logical_ordinal),
@@ -417,6 +422,7 @@ class LinkedPointMaterializer:
     def _domain_inputs(
         self,
         execution: TypedDomainExecution,
+        input_kind: Literal["program", "compiler"],
         point: MaterializedPoint,
         input_ids: tuple[str, ...],
         *,
@@ -432,6 +438,7 @@ class LinkedPointMaterializer:
         for input_name in input_ids:
             success, value = _materialize_domain_execution_input(
                 execution,
+                input_kind=input_kind,
                 input_name=input_name,
                 point=point,
                 verified_program=self.linked.verified_program,
@@ -450,6 +457,7 @@ class LinkedPointMaterializer:
 def _materialize_domain_execution_input(
     execution: TypedDomainExecution,
     *,
+    input_kind: Literal["program", "compiler"],
     input_name: str,
     point: MaterializedPoint,
     verified_program: VerifiedCoreProgram,
@@ -459,7 +467,11 @@ def _materialize_domain_execution_input(
     """Evaluate one selected domain input at one logical point."""
 
     context = EvalContext(params=parameters, point_row=point.row)
-    input_spec = execution.inputs[input_name]
+    input_spec = (
+        execution.inputs[input_name]
+        if input_kind == "program"
+        else execution.compiler_inputs[input_name]
+    )
     try:
         evaluated = _evaluate_domain_input(
             input_spec,
@@ -474,7 +486,7 @@ def _materialize_domain_execution_input(
                 execution.id,
                 "points",
                 point.logical_ordinal,
-                "inputs",
+                f"{input_kind}_inputs",
                 input_name,
             ),
         )

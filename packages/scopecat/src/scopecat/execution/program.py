@@ -39,7 +39,6 @@ class RunDomainJob:
 
     id: str
     point_ordinals: tuple[int, ...]
-    resource_claims: tuple[ResourceClaim, ...]
     _prepare: DomainExecutionPreparation | None = field(repr=False, compare=False)
 
     def prepare(self) -> PreparedDomainExecution:

@@ -7,6 +7,8 @@ from typing import Annotated
 import scopecat as sc
 from scopecat_quantum import authoring as q
 
+from quantum_lab_demo.virtual_lab.parameters import quantum_calibration_parameters
+
 QND_REPEATED_MEASUREMENT_TEMPLATE_ID = (
     "quantum_lab_demo.workflows.qnd_repeated_measurement"
 )
@@ -38,10 +40,14 @@ def qnd_repeated_measurement_template(
 ) -> sc.ExperimentBody:
     """Run repeated readout as a shot-by-round dense result."""
 
-    call = qnd_repeated_measurement_program(
-        qubit=qubit,
-        rounds=rounds,
-    ).with_shots(shots)
+    call = (
+        qnd_repeated_measurement_program(
+            qubit=qubit,
+            rounds=rounds,
+        )
+        .with_compiler_inputs(calibrations=quantum_calibration_parameters())
+        .with_shots(shots)
+    )
     return sc.experiment(call).record_product(call.results.qnd_iq)
 
 

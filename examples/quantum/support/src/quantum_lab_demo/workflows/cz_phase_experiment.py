@@ -16,6 +16,7 @@ from quantum_lab_demo.virtual_lab.parameters import (
     CZ_AMPLITUDE_PARAMETER_COLUMN,
     q0_q1_cz_amplitude_lookup,
     q0_q1_cz_row,
+    quantum_calibration_parameters,
 )
 from quantum_lab_demo.workflows.cz_phase_calibration import (
     cz_conditional_phase,
@@ -50,14 +51,18 @@ _DISCRIMINATOR = BinaryIqDiscriminator(
 
 @sc.module(id="quantum_lab_demo.workflows.cz_phase.capture")
 def cz_phase_capture():
-    call = cz_conditional_phase(
-        control="q0",
-        target="q1",
-        coupler="coupler-q0-q1",
-        control_state=CONTROL_STATE,
-        coupler_amplitude=q0_q1_cz_amplitude_lookup(),
-        analyzer_phase=ANALYZER_PHASE,
-    ).with_shots(CZ_PHASE_SHOTS)
+    call = (
+        cz_conditional_phase(
+            control="q0",
+            target="q1",
+            coupler="coupler-q0-q1",
+            control_state=CONTROL_STATE,
+            coupler_amplitude=q0_q1_cz_amplitude_lookup(),
+            analyzer_phase=ANALYZER_PHASE,
+        )
+        .with_compiler_inputs(calibrations=quantum_calibration_parameters())
+        .with_shots(CZ_PHASE_SHOTS)
+    )
     body = (
         sc.module_body()
         .use(call)

@@ -22,13 +22,12 @@ from quantum_lab_demo.workflows.drag_beta_calibration import (
     XM90_CALIBRATION_ID,
 )
 from quantum_lab_demo.workflows.production_drag_gate import (
-    TRUSTED_REFERENCE_BETA,
+    accepted_xm90_event_id,
     production_drag_capture,
     production_drag_program,
     production_drag_template,
     production_x90,
     production_x90_event_id,
-    trusted_xm90_event_id,
 )
 
 
@@ -48,19 +47,16 @@ def test_production_drag_gate_authors_config_lookup_into_program_input() -> None
     assert isinstance(program.body, quantum.Program)
     assert tuple(port.id for port in program.body.ports) == ("qubit", "drag_beta")
     assert tuple(port.id for port in program.input_ports) == ("qubit", "drag_beta")
-    call_inputs = {
-        binding.import_id: internal_lower_scalar_value_ref(binding.source)
-        for binding in call.input_bindings
-    }
-    assert call_inputs["qubit"] == LiteralScalarExpr(
+    call_inputs = {binding.import_id: binding.source for binding in call.input_bindings}
+    assert internal_lower_scalar_value_ref(call_inputs["qubit"]) == LiteralScalarExpr(
         value=EntityRef(id="q0", kind="logical_qubit")
     )
-    assert call_inputs["drag_beta"] == internal_lower_scalar_value_ref(
-        q0_drag_beta_lookup()
-    )
+    assert internal_lower_scalar_value_ref(
+        call_inputs["drag_beta"]
+    ) == internal_lower_scalar_value_ref(q0_drag_beta_lookup())
 
 
-def test_active_drag_beta_changes_only_production_compiled_segment(
+def test_active_drag_beta_changes_program_and_compiler_segments(
     tmp_path: Path,
 ) -> None:
     baseline_config = quantum_wiring_config_profile()
@@ -123,21 +119,21 @@ def test_active_drag_beta_changes_only_production_compiled_segment(
     )
     baseline_reference = baseline.event_samples(
         baseline_entry,
-        trusted_xm90_event_id(baseline_entry),
+        accepted_xm90_event_id(baseline_entry),
     )
     active_reference = active.event_samples(
         active_entry,
-        trusted_xm90_event_id(active_entry),
+        accepted_xm90_event_id(active_entry),
     )
     restored_reference = restored.event_samples(
         restored_entry,
-        trusted_xm90_event_id(restored_entry),
+        accepted_xm90_event_id(restored_entry),
     )
-    assert baseline.points[0].value("drag_beta") == TRUSTED_REFERENCE_BETA
+    assert baseline.points[0].value("drag_beta") == Quantity(0.5, "ns")
     assert active.points[0].value("drag_beta") == active_beta
     assert baseline_production != active_production
-    assert baseline_reference == active_reference
-    assert active_reference == restored_reference
+    assert baseline_reference != active_reference
+    assert baseline_reference == restored_reference
     assert restored.points[0].value("drag_beta") == baseline.points[0].value(
         "drag_beta"
     )
@@ -161,12 +157,12 @@ def test_active_drag_beta_changes_only_production_compiled_segment(
     assert production.candidate_id is None
     assert production.template_program_id.value == production_x90.id
 
-    [trusted] = tuple(
+    [accepted] = tuple(
         origin.provenance
         for origin in active_entry.event_origins
         if isinstance(origin.provenance, CircuitPulseEventProvenance)
     )
-    assert trusted.calibration_id == XM90_CALIBRATION_ID
+    assert accepted.calibration_id == XM90_CALIBRATION_ID
 
     assert baseline_run.manifest.status == active_run.manifest.status == "completed"
     baseline_records = baseline_run.data().measurements().dataset.records

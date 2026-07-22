@@ -22,8 +22,6 @@ _PULSE_AMPLITUDE = Quantity(0.2, "arb")
 _PULSE_SIGMA = Quantity(4, "ns")
 _READOUT_DURATION = Quantity(8, "ns")
 
-DEFAULT_BASELINE_BETA = Quantity(0.5, "ns")
-
 X90_CALIBRATION_ID = CalibrationId("drag-beta.baseline.x90.q0")
 XM90_CALIBRATION_ID = CalibrationId("drag-beta.baseline.xm90.q0")
 
@@ -95,7 +93,7 @@ def drag_beta_program(
     amplification: Annotated[int, IntType(minimum=1)],
     beta: Annotated[Quantity, ScalarType(QuantityType(unit="ns"))],
 ) -> q.QuantumFragment:
-    """Amplify coherent DRAG error between trusted X90 and Xm90 references.
+    """Amplify coherent DRAG error between accepted X90 and Xm90 references.
 
     Keeping beta and amplification as ports reuses one program across the scan;
     repeating the candidate pair makes the error population scale with ``N^2``.
@@ -122,7 +120,6 @@ def drag_beta_program(
 
 
 __all__ = [
-    "DEFAULT_BASELINE_BETA",
     "NEGATIVE_CANDIDATE_ID",
     "POSITIVE_CANDIDATE_ID",
     "X90_CALIBRATION_ID",

@@ -486,6 +486,37 @@ def _core_domain_problems(program: CoreProgram) -> tuple[Problem, ...]:
                     model_location(location.root, *location.path, "inputs"),
                 )
             )
+        compiler_input_ports = {port.id: port for port in declared.compiler_input_ports}
+        if tuple(execution.compiler_inputs) != tuple(compiler_input_ports):
+            problems.append(
+                _problem(
+                    "domain_compiler_input_contract_mismatch",
+                    "domain compiler inputs do not match the program port order",
+                    model_location(
+                        location.root,
+                        *location.path,
+                        "compiler_inputs",
+                    ),
+                )
+            )
+        for name, value in execution.compiler_inputs.items():
+            port = compiler_input_ports.get(name)
+            if port is not None and not is_assignable(
+                value.value_type,
+                port.value_type,
+            ):
+                problems.append(
+                    _problem(
+                        "domain_compiler_input_type_mismatch",
+                        f"domain compiler input {name!r} does not match its port type",
+                        model_location(
+                            location.root,
+                            *location.path,
+                            "compiler_inputs",
+                            name,
+                        ),
+                    )
+                )
         for name, value in execution.inputs.items():
             port = input_ports.get(name)
             if port is not None and not is_assignable(
@@ -774,6 +805,21 @@ def _program_relation_consumers_with_roles(
                         "domain_executions",
                         execution_index,
                         "inputs",
+                        input_name,
+                    ),
+                ),
+                point_role,
+            )
+        for input_name, input_value in execution.compiler_inputs.items():
+            yield (
+                _consumer(
+                    input_value.relation_use_id,
+                    ProgramRelationConsumerKind.DOMAIN_COMPILER_INPUT,
+                    input_value.value,
+                    model_location(
+                        "domain_executions",
+                        execution_index,
+                        "compiler_inputs",
                         input_name,
                     ),
                 ),

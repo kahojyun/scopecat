@@ -41,6 +41,8 @@ from quantum_lab_demo.workflows.cz_phase_experiment import (
     cz_phase_template,
 )
 
+from .demo_lab_experiment_testkit import reject_program_input_binding
+
 
 def _entity_id(value: object) -> str:
     assert isinstance(value, sc.EntityRef)
@@ -148,13 +150,10 @@ def test_cz_phase_workspace_run_fits_pi_and_authors_candidate_proposal(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def reject_input_binding(*_args: object, **_kwargs: object) -> object:
-        raise AssertionError("finite CZ axes must not bind domain inputs")
-
     monkeypatch.setattr(
         LinkedPointMaterializer,
         "bind_domain_inputs",
-        reject_input_binding,
+        reject_program_input_binding,
     )
     compiler = quantum_lab_compiler()
     lab = quantum_lab(workspace=tmp_path, compiler=compiler)
@@ -219,11 +218,8 @@ def test_cz_phase_capture_uses_one_quantum_program_without_payload_compute() -> 
         "coupler_amplitude",
         "analyzer_phase",
     )
-    call_inputs = {
-        binding.import_id: internal_lower_scalar_value_ref(binding.source)
-        for binding in call.input_bindings
-    }
-    assert call_inputs["coupler_amplitude"] == internal_lower_scalar_value_ref(
-        q0_q1_cz_amplitude_lookup()
-    )
+    call_inputs = {binding.import_id: binding.source for binding in call.input_bindings}
+    assert internal_lower_scalar_value_ref(
+        call_inputs["coupler_amplitude"]
+    ) == internal_lower_scalar_value_ref(q0_q1_cz_amplitude_lookup())
     assert body.operations == ()

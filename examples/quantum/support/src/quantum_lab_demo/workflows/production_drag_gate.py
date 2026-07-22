@@ -1,4 +1,4 @@
-"""Production X90 execution with config-bound DRAG and a fixed Xm90 reference."""
+"""Production X90 execution with config-bound program and calibration inputs."""
 
 from __future__ import annotations
 
@@ -18,9 +18,11 @@ from scopecat_quantum import (
 )
 from scopecat_quantum import authoring as quantum
 
-from quantum_lab_demo.virtual_lab.parameters import q0_drag_beta_lookup
+from quantum_lab_demo.virtual_lab.parameters import (
+    q0_drag_beta_lookup,
+    quantum_calibration_parameters,
+)
 from quantum_lab_demo.workflows.drag_beta_calibration import (
-    DEFAULT_BASELINE_BETA,
     XM90_CALIBRATION_ID,
     drag_gate_pulse,
     drag_readout_pulse,
@@ -29,8 +31,6 @@ from quantum_lab_demo.workflows.drag_beta_calibration import (
 PRODUCTION_DRAG_GATE_TEMPLATE_ID = "quantum_lab_demo.production.drag_x90"
 PRODUCTION_DRAG_GATE_EXPERIMENT_ID = "production-drag-x90"
 PRODUCTION_DRAG_GATE_SHOTS = 32
-TRUSTED_REFERENCE_BETA = DEFAULT_BASELINE_BETA
-
 _X90 = quantum.single_qubit_gate("x90")
 _XM90 = quantum.single_qubit_gate("xm90")
 
@@ -52,7 +52,7 @@ def production_drag_program(
     qubit: quantum.Qubit,
     drag_beta: Annotated[Quantity, QuantityType(unit="ns")],
 ) -> quantum.QuantumFragment:
-    """Declare a production X90 followed by one fixed trusted Xm90."""
+    """Declare a production X90 followed by one accepted Xm90 calibration."""
 
     capture = quantum.acquire(
         qubit,
@@ -75,10 +75,14 @@ _DISCRIMINATOR = BinaryIqDiscriminator(
 
 @sc.module(id="quantum_lab_demo.production.drag_x90.capture")
 def production_drag_capture():
-    call = production_drag_program(
-        qubit="q0",
-        drag_beta=q0_drag_beta_lookup(),
-    ).with_shots(PRODUCTION_DRAG_GATE_SHOTS)
+    call = (
+        production_drag_program(
+            qubit="q0",
+            drag_beta=q0_drag_beta_lookup(),
+        )
+        .with_compiler_inputs(calibrations=quantum_calibration_parameters())
+        .with_shots(PRODUCTION_DRAG_GATE_SHOTS)
+    )
     body = (
         sc.module_body()
         .use(call)
@@ -99,8 +103,8 @@ def production_drag_capture():
     kind=PRODUCTION_DRAG_GATE_EXPERIMENT_ID,
     label="Production DRAG X90",
     description=(
-        "Compile the active q0 DRAG beta into a production X90 while keeping "
-        "the trusted Xm90 reference calibration fixed."
+        "Compile the active q0 DRAG beta into both the production input and "
+        "the accepted Xm90 calibration collection."
     ),
 )
 def production_drag_template() -> sc.ExperimentBody:
@@ -112,11 +116,10 @@ def production_drag_template() -> sc.ExperimentBody:
 
 
 def production_x90_event_id(entry: PreparedQuantumTargetEntry) -> PulseEventId:
-    """Locate the config-bound production pulse without conflating it with trust.
+    """Locate the config-bound production pulse by implementation provenance.
 
-    Production and reference pulses intentionally use different provenance: a
-    calibration candidate should be judged against an independently accepted
-    reference so the same implementation error cannot silently affect both.
+    Production and accepted calibration pulses retain different provenance even
+    when both read the same point-effective parameter collection.
     """
 
     selected = tuple(
@@ -134,8 +137,8 @@ def production_x90_event_id(entry: PreparedQuantumTargetEntry) -> PulseEventId:
     return event_id
 
 
-def trusted_xm90_event_id(entry: PreparedQuantumTargetEntry) -> PulseEventId:
-    """Locate the accepted Xm90 pulse used as independent reference evidence."""
+def accepted_xm90_event_id(entry: PreparedQuantumTargetEntry) -> PulseEventId:
+    """Locate the accepted Xm90 pulse by calibration provenance."""
 
     selected = tuple(
         origin.address.event_id
@@ -144,7 +147,7 @@ def trusted_xm90_event_id(entry: PreparedQuantumTargetEntry) -> PulseEventId:
         and origin.provenance.calibration_id == XM90_CALIBRATION_ID
     )
     if len(selected) != 1:
-        msg = "production gate must lower one trusted Xm90 calibration"
+        msg = "production gate must lower one accepted Xm90 calibration"
         raise ValueError(msg)
     [event_id] = selected
     return event_id
@@ -154,11 +157,10 @@ __all__ = [
     "PRODUCTION_DRAG_GATE_EXPERIMENT_ID",
     "PRODUCTION_DRAG_GATE_SHOTS",
     "PRODUCTION_DRAG_GATE_TEMPLATE_ID",
-    "TRUSTED_REFERENCE_BETA",
+    "accepted_xm90_event_id",
     "production_drag_capture",
     "production_drag_program",
     "production_drag_template",
     "production_x90",
     "production_x90_event_id",
-    "trusted_xm90_event_id",
 ]

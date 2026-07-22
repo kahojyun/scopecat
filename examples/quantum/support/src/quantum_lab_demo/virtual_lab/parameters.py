@@ -12,13 +12,50 @@ from scopecat.records.entity import EntityRef
 
 QUBIT_PARAMETER_TABLE = "qubits"
 TWO_QUBIT_GATE_PARAMETER_TABLE = "two_qubit_gates"
+QUANTUM_CALIBRATIONS_INPUT = "calibrations"
 DRAG_BETA_PARAMETER_COLUMN = "drag_beta"
 CZ_AMPLITUDE_PARAMETER_COLUMN = "coupler_amplitude"
 
+_QUBIT_VALUE_TYPE = sc.ScalarType(sc.EntityType(entity_kind="logical_qubit"))
+_NS_VALUE_TYPE = sc.ScalarType(sc.QuantityType(unit="ns"))
+_ARB_VALUE_TYPE = sc.ScalarType(sc.QuantityType(unit="arb"))
+_QUBIT_PARAMETER_TABLE_TYPE = sc.TableType(
+    columns=(
+        sc.TableColumn("qubit", _QUBIT_VALUE_TYPE),
+        sc.TableColumn("rabi_pulse_length", _NS_VALUE_TYPE),
+        sc.TableColumn("rabi_drive_amplitude", _ARB_VALUE_TYPE),
+        sc.TableColumn("drag_beta", _NS_VALUE_TYPE),
+        sc.TableColumn("drive_frequency", sc.ScalarType(sc.QuantityType(unit="GHz"))),
+        sc.TableColumn(
+            "readout_frequency",
+            sc.ScalarType(sc.QuantityType(unit="GHz")),
+        ),
+        sc.TableColumn("readout_power", sc.ScalarType(sc.QuantityType(unit="dBm"))),
+        sc.TableColumn("x_duration", _NS_VALUE_TYPE),
+        sc.TableColumn("x_amplitude", _ARB_VALUE_TYPE),
+        sc.TableColumn("quarter_turn_duration", _NS_VALUE_TYPE),
+        sc.TableColumn("quarter_turn_amplitude", _ARB_VALUE_TYPE),
+        sc.TableColumn("quarter_turn_sigma", _NS_VALUE_TYPE),
+        sc.TableColumn("readout_duration", _NS_VALUE_TYPE),
+        sc.TableColumn("readout_amplitude", _ARB_VALUE_TYPE),
+    ),
+    primary_key=("qubit",),
+)
+_QUANTUM_CALIBRATION_PARAMETERS = sc.parameter(
+    QUBIT_PARAMETER_TABLE,
+    _QUBIT_PARAMETER_TABLE_TYPE,
+)
+
 _Q0 = EntityRef(id="q0", kind="logical_qubit")
 _Q1 = EntityRef(id="q1", kind="logical_qubit")
-_DRAG_BETA_VALUE_TYPE = sc.ScalarType(sc.QuantityType(unit="ns"))
+_DRAG_BETA_VALUE_TYPE = _NS_VALUE_TYPE
 _CZ_AMPLITUDE_VALUE_TYPE = sc.ScalarType(sc.QuantityType(unit="arb"))
+
+
+def quantum_calibration_parameters() -> sc.ValueRef:
+    """Expose accepted qubit calibration rows as one compiler dependency."""
+
+    return _QUANTUM_CALIBRATION_PARAMETERS
 
 
 def q0_parameter_key() -> dict[str, EntityRef]:
@@ -91,4 +128,5 @@ __all__ = [
     "q0_q1_cz_amplitude_lookup",
     "q0_q1_cz_parameter_key",
     "q0_q1_cz_row",
+    "quantum_calibration_parameters",
 ]

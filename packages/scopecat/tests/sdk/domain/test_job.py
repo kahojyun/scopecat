@@ -5,7 +5,6 @@ import pytest
 from scopecat.records.parameter import Quantity
 from scopecat.sdk.domain.job import (
     DomainInvocationSpec,
-    DomainResourceClaim,
     DomainResultValue,
     DomainTargetArtifactIdentity,
 )
@@ -36,14 +35,10 @@ def test_domain_invocation_spec_retains_only_lab_owned_declarations() -> None:
 
 def test_domain_job_values_validate_ingress() -> None:
     value = DomainResultValue("result-1", Quantity(value=1.0, unit="ratio"))
-    claim = DomainResourceClaim("target", "test.target")
 
     assert value.result_address == "result-1"
-    assert claim == DomainResourceClaim("target", "test.target")
 
     with pytest.raises(ValueError, match="non-empty"):
         DomainTargetArtifactIdentity("", "compiler", "cap", "artifact", "hash")
     with pytest.raises(ValueError, match="non-empty"):
         DomainInvocationSpec("", _target(), {}, payload=None)
-    with pytest.raises(ValueError, match="non-empty"):
-        DomainResourceClaim("target", "")

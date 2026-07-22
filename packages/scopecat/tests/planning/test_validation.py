@@ -24,6 +24,25 @@ def test_valid_example_has_no_blocking_problems() -> None:
     assert not has_blocking_problems(problems)
 
 
+def test_domain_target_instruments_must_be_registered() -> None:
+    config_data = load_config().model_dump(mode="json")
+    config_data["system"]["domain_target"]["instrument_ids"] = ["missing"]
+
+    with pytest.raises(ValidationError, match="unknown domain target instrument"):
+        ConfigProfileSnapshot.model_validate(config_data)
+
+
+def test_domain_target_instruments_must_be_unique() -> None:
+    config_data = load_config().model_dump(mode="json")
+    config_data["system"]["domain_target"]["instrument_ids"] = [
+        "source-0",
+        "source-0",
+    ]
+
+    with pytest.raises(ValidationError, match="instrument ids must be unique"):
+        ConfigProfileSnapshot.model_validate(config_data)
+
+
 def test_primary_entity_must_be_declared_in_topology() -> None:
     config_data = load_config().model_dump(mode="json")
     config_data["system"]["primary_entity_id"] = "missing"

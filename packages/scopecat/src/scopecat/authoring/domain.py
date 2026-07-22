@@ -64,13 +64,19 @@ class DomainResourcePort:
 
 @dataclass(frozen=True, slots=True)
 class DomainProgramDef:
-    """Opaque domain program declaration retained through target linking."""
+    """Opaque domain program declaration retained through target linking.
+
+    Program inputs describe runtime program semantics and may remain residual.
+    Compiler inputs only configure lowering and must be captured by the target
+    artifact, which keeps large parameter collections out of the program ABI.
+    """
 
     id: str
     dialect_id: str
     dialect_version: str
     body: object = field(repr=False)
     input_ports: tuple[DomainInputPort, ...] = ()
+    compiler_input_ports: tuple[DomainInputPort, ...] = ()
     result_ports: tuple[DomainResultPort, ...] = ()
     resource_ports: tuple[DomainResourcePort, ...] = ()
 
@@ -80,6 +86,14 @@ class DomainProgramDef:
                 "domain program, dialect, and dialect version ids must be non-empty"
             )
         _require_unique("domain input port", tuple(p.id for p in self.input_ports))
+        _require_unique(
+            "domain compiler input port",
+            tuple(p.id for p in self.compiler_input_ports),
+        )
+        _require_unique(
+            "domain input port",
+            tuple(p.id for p in (*self.input_ports, *self.compiler_input_ports)),
+        )
         _require_unique("domain result port", tuple(p.id for p in self.result_ports))
         _require_unique(
             "domain resource port", tuple(p.id for p in self.resource_ports)
@@ -101,6 +115,7 @@ class DomainExecution:
     id: str
     program: DomainProgramDef
     input_bindings: tuple[tuple[str, ComputeNodeInputValue], ...] = ()
+    compiler_input_bindings: tuple[tuple[str, ComputeNodeInputValue], ...] = ()
     result_bindings: tuple[tuple[str, ProductRef], ...] = ()
     resource_bindings: tuple[tuple[str, LogicalResourcePortId], ...] = ()
 
@@ -110,6 +125,10 @@ class DomainExecution:
         _require_unique(
             "domain execution input",
             tuple(k for k, _ in self.input_bindings),
+        )
+        _require_unique(
+            "domain execution compiler input",
+            tuple(k for k, _ in self.compiler_input_bindings),
         )
         _require_unique(
             "domain execution result",
@@ -124,6 +143,17 @@ class DomainExecution:
         if actual_inputs != expected_inputs:
             raise ValueError(
                 "domain execution input bindings must match program port "
+                "declaration order"
+            )
+        expected_compiler_inputs = tuple(
+            port.id for port in self.program.compiler_input_ports
+        )
+        actual_compiler_inputs = tuple(
+            name for name, _value in self.compiler_input_bindings
+        )
+        if actual_compiler_inputs != expected_compiler_inputs:
+            raise ValueError(
+                "domain execution compiler input bindings must match program port "
                 "declaration order"
             )
         expected_results = tuple(port.id for port in self.program.result_ports)
@@ -148,6 +178,14 @@ class DomainExecution:
                 for name, value in self.input_bindings
             ),
         )
+        object.__setattr__(
+            self,
+            "compiler_input_bindings",
+            tuple(
+                (name, _capture_domain_input(value))
+                for name, value in self.compiler_input_bindings
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,6 +195,7 @@ class LoweredDomainExecution:
     id: str
     program: DomainProgramDef
     input_bindings: tuple[tuple[str, ComputeNodeInputValue], ...] = ()
+    compiler_input_bindings: tuple[tuple[str, ComputeNodeInputValue], ...] = ()
     result_bindings: tuple[tuple[str, ProductId], ...] = ()
     resource_bindings: tuple[tuple[str, LogicalResourcePortId], ...] = ()
 
@@ -168,6 +207,7 @@ def lower_domain_execution(execution: DomainExecution) -> LoweredDomainExecution
         id=execution.id,
         program=execution.program,
         input_bindings=execution.input_bindings,
+        compiler_input_bindings=execution.compiler_input_bindings,
         result_bindings=tuple(
             (result_id, product.product_id)
             for result_id, product in execution.result_bindings
@@ -183,6 +223,7 @@ def domain_program(
     dialect_version: str,
     body: object,
     inputs: Mapping[str, ValueType] | None = None,
+    compiler_inputs: Mapping[str, ValueType] | None = None,
     results: Mapping[str, object | None] | None = None,
     resources: Mapping[str, tuple[str, ...]] | None = None,
 ) -> DomainProgramDef:
@@ -196,6 +237,10 @@ def domain_program(
         input_ports=tuple(
             DomainInputPort(port_id, value_type)
             for port_id, value_type in (inputs or {}).items()
+        ),
+        compiler_input_ports=tuple(
+            DomainInputPort(port_id, value_type)
+            for port_id, value_type in (compiler_inputs or {}).items()
         ),
         result_ports=tuple(
             DomainResultPort(port_id, contract)
@@ -213,18 +258,25 @@ def domain_execution(
     *,
     id: str | None = None,  # noqa: A002
     inputs: Mapping[str, ComputeNodeInputValue] | None = None,
+    compiler_inputs: Mapping[str, ComputeNodeInputValue] | None = None,
     results: Mapping[str, ProductRef] | None = None,
     resources: Mapping[str, str] | None = None,
 ) -> DomainExecution:
     """Bind one module call to typed values and composed products."""
 
     selected_inputs = inputs or {}
+    selected_compiler_inputs = compiler_inputs or {}
     selected_results = results or {}
     selected_resources = resources or {}
     _require_exact_keys(
         "domain execution inputs",
         selected_inputs,
         tuple(port.id for port in program.input_ports),
+    )
+    _require_exact_keys(
+        "domain execution compiler inputs",
+        selected_compiler_inputs,
+        tuple(port.id for port in program.compiler_input_ports),
     )
     _require_exact_keys(
         "domain execution resources",
@@ -241,6 +293,10 @@ def domain_execution(
         program=program,
         input_bindings=tuple(
             (port.id, selected_inputs[port.id]) for port in program.input_ports
+        ),
+        compiler_input_bindings=tuple(
+            (port.id, selected_compiler_inputs[port.id])
+            for port in program.compiler_input_ports
         ),
         result_bindings=tuple(
             (

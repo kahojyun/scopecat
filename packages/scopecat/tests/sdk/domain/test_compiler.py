@@ -14,6 +14,7 @@ from scopecat.measurements.semantics import (
 from scopecat.sdk.domain._bridge import _domain_input_normal_form
 from scopecat.sdk.domain.compiler import (
     DomainCompilation,
+    DomainCompiledInputs,
     DomainCompiledJob,
     DomainCompileRequest,
     DomainInput,
@@ -21,7 +22,6 @@ from scopecat.sdk.domain.compiler import (
     DomainLiteral,
     DomainPointAffine,
     DomainPointAxis,
-    DomainResolvedInputs,
     compiled_jobs,
     validate_domain_compilation,
 )
@@ -49,20 +49,22 @@ def _request() -> DomainCompileRequest:
     )
     return DomainCompileRequest(
         call=DomainCallView(id="call", program=program, results=()),
-        inputs=(
+        program_inputs=(
             DomainInput(
                 id="x",
                 normal_form=DomainPointAffine("x", 1, 0),
             ),
         ),
+        compiler_inputs=(),
         barrier_regions=((0, 1), (2,)),
-        input_binder=lambda input_ids, ordinals, _max_points: tuple(
+        program_input_binder=lambda input_ids, ordinals, _max_points: tuple(
             (
                 input_id,
                 tuple((1, 2, 3)[ordinal] for ordinal in ordinals),
             )
             for input_id in input_ids
         ),
+        compiler_input_binder=lambda _input_ids, _ordinals, _max_points: (),
     )
 
 
@@ -110,7 +112,7 @@ def test_compiler_controls_partition_within_barrier_regions() -> None:
     request = _request()
     lowered: list[tuple[int, ...]] = []
 
-    def compile_artifact(inputs: DomainResolvedInputs) -> object:
+    def compile_artifact(inputs: DomainCompiledInputs) -> object:
         lowered.append(inputs.ordinals)
         return f"artifact-{inputs.ordinals[0]}"
 
@@ -166,16 +168,16 @@ def test_partition_respects_barrier_clipping_before_axis_alignment() -> None:
 def test_compile_request_exposes_sdk_owned_input_normal_form() -> None:
     request = _request()
 
-    assert request.input("x").normal_form == DomainPointAffine("x", 1, 0)
-    assert not request.input("x").is_literal
+    assert request.program_input("x").normal_form == DomainPointAffine("x", 1, 0)
+    assert not request.program_input("x").is_literal
     with pytest.raises(ValueError, match="not a scalar literal"):
-        request.input("x").literal_value()
+        request.program_input("x").literal_value()
 
 
 def test_domain_residual_input_exposes_literal_normal_form() -> None:
     assert _domain_input_normal_form(lit(None)) == DomainLiteral(None)
     literal_input = replace(
-        _request().input("x"),
+        _request().program_input("x"),
         normal_form=DomainLiteral(None),
     )
 
@@ -296,17 +298,17 @@ def test_domain_input_resolution_uses_normal_forms_before_binder() -> None:
 
     request = replace(
         _request(),
-        inputs=(
+        program_inputs=(
             replace(
-                _request().input("x"),
+                _request().program_input("x"),
                 normal_form=DomainPointAffine("x", 2, 1),
             ),
         ),
         iteration_layout=_layout(DomainPointAxis("x", (0, 1, 2))),
-        input_binder=reject_binding,
+        program_input_binder=reject_binding,
     )
 
-    inputs = request.resolve_inputs(("x",), (0, 2), max_points=2)
+    inputs = request.resolve_program_inputs(("x",), (0, 2), max_points=2)
 
     assert inputs.input("x") == (1, 5)
     assert inputs.binder_input_ids == ()
@@ -315,13 +317,13 @@ def test_domain_input_resolution_uses_normal_forms_before_binder() -> None:
 def test_domain_compiler_resolves_only_selected_inputs_and_points() -> None:
     request = _request()
 
-    inputs = request.resolve_inputs(("x",), (1, 2), max_points=2)
+    inputs = request.resolve_program_inputs(("x",), (1, 2), max_points=2)
 
     assert inputs.ordinals == (1, 2)
     assert inputs.input("x") == (2, 3)
     assert inputs.binder_input_ids == ("x",)
     with pytest.raises(ValueError, match="exceeds"):
-        request.resolve_inputs(("x",), (0, 1), max_points=1)
+        request.resolve_program_inputs(("x",), (0, 1), max_points=1)
 
 
 def test_domain_input_binding_is_lazy() -> None:
@@ -338,17 +340,17 @@ def test_domain_input_binding_is_lazy() -> None:
 
     request = replace(
         _request(),
-        input_binder=bind_inputs,
+        program_input_binder=bind_inputs,
     )
 
     assert calls == []
-    request.resolve_inputs(("x",), (2,), max_points=1)
+    request.resolve_program_inputs(("x",), (2,), max_points=1)
     assert calls == [((2,), 1)]
 
 
 def test_domain_input_binding_does_not_expose_unselected_inputs() -> None:
     request = _request()
-    second_input = replace(request.inputs[0], id="y")
+    second_input = replace(request.program_inputs[0], id="y")
     selected_ids: list[tuple[str, ...]] = []
 
     def bind_inputs(
@@ -371,11 +373,11 @@ def test_domain_input_binding_does_not_expose_unselected_inputs() -> None:
                 ),
             ),
         ),
-        inputs=(*request.inputs, second_input),
-        input_binder=bind_inputs,
+        program_inputs=(*request.program_inputs, second_input),
+        program_input_binder=bind_inputs,
     )
 
-    inputs = request.resolve_inputs(("y",), (1,), max_points=1)
+    inputs = request.resolve_program_inputs(("y",), (1,), max_points=1)
 
     assert selected_ids == [("y",)]
     assert inputs.columns == (("y", (1,)),)
@@ -386,7 +388,7 @@ def test_domain_input_binding_does_not_expose_unselected_inputs() -> None:
 def test_domain_input_resolution_binds_only_inputs_without_normal_forms() -> None:
     request = _request()
     second_input = replace(
-        request.inputs[0],
+        request.program_inputs[0],
         id="y",
         normal_form=None,
     )
@@ -415,12 +417,12 @@ def test_domain_input_resolution_binds_only_inputs_without_normal_forms() -> Non
                 ),
             ),
         ),
-        inputs=(*request.inputs, second_input),
-        input_binder=bind_inputs,
+        program_inputs=(*request.program_inputs, second_input),
+        program_input_binder=bind_inputs,
         iteration_layout=_layout(DomainPointAxis("x", (1, 2, 3))),
     )
 
-    inputs = request.resolve_inputs(("x", "y"), (0, 2), max_points=2)
+    inputs = request.resolve_program_inputs(("x", "y"), (0, 2), max_points=2)
 
     assert selected_ids == [("y",)]
     assert inputs.columns == (("x", (1, 3)), ("y", (0, 20)))
@@ -440,6 +442,51 @@ def test_compiler_can_absorb_point_varying_inputs() -> None:
     assert compilation.binder_input_ids == ("x",)
 
 
+def test_compiled_jobs_resolve_every_compiler_input_separately() -> None:
+    request = _request()
+    compiler_port = DomainInputPortView("calibrations", Scalar(Int()))
+    compiler_binds: list[tuple[str, ...]] = []
+    lowered: list[tuple[object, ...]] = []
+
+    def bind_compiler_inputs(
+        input_ids: Sequence[str],
+        ordinals: Sequence[int],
+        _max_points: int,
+    ) -> tuple[tuple[str, tuple[object, ...]], ...]:
+        compiler_binds.append(tuple(input_ids))
+        return (("calibrations", tuple(10 + value for value in ordinals)),)
+
+    def compile_artifact(inputs: DomainCompiledInputs) -> object:
+        lowered.append(inputs.compiler.input("calibrations"))
+        return object()
+
+    request = replace(
+        request,
+        call=replace(
+            request.call,
+            program=replace(
+                request.call.program,
+                compiler_inputs=(compiler_port,),
+            ),
+        ),
+        compiler_inputs=(DomainInput("calibrations"),),
+        compiler_input_binder=bind_compiler_inputs,
+    )
+
+    compilation = compiled_jobs(
+        request,
+        max_points=2,
+        compile_artifact=compile_artifact,
+    )
+
+    assert compilation.compiler_input_ids == ("calibrations",)
+    assert compiler_binds == [("calibrations",), ("calibrations",)]
+    assert lowered == []
+    for job in compilation.jobs:
+        job.take_artifact()
+    assert lowered == [(10, 11), (12,)]
+
+
 def test_input_resolution_accepts_an_empty_selection() -> None:
     calls: list[tuple[str, ...]] = []
 
@@ -453,11 +500,11 @@ def test_input_resolution_accepts_an_empty_selection() -> None:
 
     request = replace(
         _request(),
-        inputs=(replace(_request().inputs[0], normal_form=None),),
-        input_binder=bind_inputs,
+        program_inputs=(replace(_request().program_inputs[0], normal_form=None),),
+        program_input_binder=bind_inputs,
     )
-    assert request.resolve_inputs((), (0, 1), max_points=2).columns == ()
-    selected = request.resolve_inputs(("x",), (0, 1), max_points=2)
+    assert request.resolve_program_inputs((), (0, 1), max_points=2).columns == ()
+    selected = request.resolve_program_inputs(("x",), (0, 1), max_points=2)
 
     assert selected.columns == (("x", (0, 1)),)
     assert selected.binder_input_ids == ("x",)
