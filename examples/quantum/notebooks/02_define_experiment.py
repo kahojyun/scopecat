@@ -3,10 +3,40 @@
 from __future__ import annotations
 
 # %%
+from typing import Annotated, cast
+
 import scopecat as sc
 from quantum_lab_demo import notebook_workspace, quantum_lab
-from quantum_lab_demo.experiments import READOUT_TEMPLATE
+from quantum_lab_demo.experiments.parameter_refs import qubit_param
 from quantum_lab_demo.experiments.points import READOUT_FREQUENCY
+from quantum_lab_demo.experiments.readout_modules import READOUT_MODULE
+
+_QUBIT = sc.ScalarType(sc.EntityType(entity_kind="logical_qubit"))
+
+
+# %%
+@sc.template(
+    id="notebook.readout_frequency",
+    kind="readout_frequency",
+    label="readout frequency",
+)
+def readout_frequency(
+    qubit: Annotated[sc.Input[str], _QUBIT],
+) -> sc.ExperimentBody:
+    """Scan the readout frequency and keep the raw IQ product."""
+
+    readout = READOUT_MODULE(qubit=qubit)
+    return (
+        sc.experiment(readout)
+        .scan(
+            READOUT_FREQUENCY,
+            center=qubit_param("readout_frequency", cast("sc.ValueRef", qubit)),
+            span=sc.Quantity(value=100.0, unit="MHz"),
+            points=5,
+        )
+        .record_product(readout.products.raw_iq, record_id="raw_iq")
+    )
+
 
 # %%
 workspace = notebook_workspace("02-define-experiment")
@@ -18,7 +48,7 @@ scan_points = 41
 scan_span = sc.Quantity(value=60.0, unit="MHz")
 
 preview = (
-    lab.prepare(READOUT_TEMPLATE)
+    lab.prepare(readout_frequency)
     .input("qubit", qubit)
     .scan(READOUT_FREQUENCY, span=scan_span, points=scan_points)
     .preview(

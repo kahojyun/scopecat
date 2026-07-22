@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from scopecat import Quantity
+from scopecat.authoring._value_refs import internal_lower_scalar_value_ref
+from scopecat.compiler.relations.model import LiteralScalarExpr
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import TableParameterValue
@@ -19,11 +21,10 @@ from quantum_lab_demo.reference_experiments.drag_beta_calibration import (
     XM90_CALIBRATION_ID,
 )
 from quantum_lab_demo.reference_experiments.production_drag_gate import (
-    PRODUCTION_DRAG_BETA_INPUT,
-    PRODUCTION_DRAG_GATE_TEMPLATE,
-    PRODUCTION_DRAG_PROGRAM,
     TRUSTED_REFERENCE_BETA,
-    production_drag_gate_program,
+    production_drag_capture,
+    production_drag_program,
+    production_drag_template,
     production_x90_event_id,
     trusted_xm90_event_id,
 )
@@ -37,16 +38,26 @@ def _entity_id(value: object) -> str:
 
 
 def test_production_drag_gate_authors_config_lookup_into_program_input() -> None:
-    declaration = production_drag_gate_program()
-    execution = PRODUCTION_DRAG_GATE_TEMPLATE.build().module.domain_executions[0]
-    assert execution is not None
+    declaration = production_drag_program
+    [call] = production_drag_capture.ir.body.instances
+    [execution] = call.module.body.domain_executions
     program = execution.program
 
-    assert declaration.inputs == (PRODUCTION_DRAG_BETA_INPUT,)
+    assert tuple(element.id for element in declaration.elements) == ("qubit",)
+    assert tuple(port.id for port in declaration.inputs) == ("drag_beta",)
     assert isinstance(program.body, quantum.Program)
-    assert program.body.inputs == (PRODUCTION_DRAG_BETA_INPUT,)
-    assert tuple(port.id for port in program.input_ports) == ("drag_beta",)
-    assert execution.input_bindings == (("drag_beta", q0_drag_beta_lookup()),)
+    assert tuple(port.id for port in program.body.ports) == ("qubit", "drag_beta")
+    assert tuple(port.id for port in program.input_ports) == ("qubit", "drag_beta")
+    call_inputs = {
+        binding.import_id: internal_lower_scalar_value_ref(binding.source)
+        for binding in call.input_bindings
+    }
+    assert call_inputs["qubit"] == LiteralScalarExpr(
+        value=EntityRef(id="q0", kind="logical_qubit")
+    )
+    assert call_inputs["drag_beta"] == internal_lower_scalar_value_ref(
+        q0_drag_beta_lookup()
+    )
 
 
 def test_active_drag_beta_changes_only_production_compiled_segment(
@@ -68,7 +79,7 @@ def test_active_drag_beta_changes_only_production_compiled_segment(
         expected_generation=0,
     )
     baseline_run = lab.prepare(
-        PRODUCTION_DRAG_GATE_TEMPLATE,
+        production_drag_template,
         config="active",
     ).run()
 
@@ -78,7 +89,7 @@ def test_active_drag_beta_changes_only_production_compiled_segment(
         expected_generation=baseline_activation.active_state.generation,
     )
     active_run = lab.prepare(
-        PRODUCTION_DRAG_GATE_TEMPLATE,
+        production_drag_template,
         config="active",
     ).run()
     rollback = lab.rollback(
@@ -86,12 +97,15 @@ def test_active_drag_beta_changes_only_production_compiled_segment(
         note="restore production DRAG baseline",
     )
     restored_run = lab.prepare(
-        PRODUCTION_DRAG_GATE_TEMPLATE,
+        production_drag_template,
         config="active",
     ).run()
 
-    baseline, active, restored = compiler.trace.preparations(PRODUCTION_DRAG_PROGRAM.id)
-    assert isinstance(compiler.trace.preparations(PRODUCTION_DRAG_PROGRAM.id), tuple)
+    baseline, active, restored = compiler.trace.preparations(production_drag_program.id)
+    assert isinstance(
+        compiler.trace.preparations(production_drag_program.id),
+        tuple,
+    )
     [baseline_entry] = baseline.entries
     [active_entry] = active.entries
     [restored_entry] = restored.entries

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from scopecat import IntType, Quantity, QuantityType, ScalarType
 from scopecat_quantum import (
     CalibrationCatalog,
@@ -21,22 +23,6 @@ from scopecat_quantum import (
 from scopecat_quantum import authoring as q
 
 CZ_CANDIDATE_ID = "cz.conditional-phase"
-CZ_AMPLITUDE_INPUT = q.input(
-    "coupler_amplitude",
-    ScalarType(QuantityType(unit="arb")),
-)
-CONTROL_STATE_INPUT = q.input(
-    "control_state",
-    ScalarType(IntType(minimum=0, maximum=1)),
-)
-ANALYZER_PHASE_INPUT = q.input(
-    "analyzer_phase",
-    ScalarType(QuantityType(unit="rad")),
-)
-
-_CONTROL = q.qubit("q0")
-_TARGET = q.qubit("q1")
-_COUPLER = q.coupler("coupler-q0-q1")
 _TARGET_ID = QubitId("q1")
 _X = q.single_qubit_gate("x")
 _X90 = q.single_qubit_gate("x90")
@@ -81,42 +67,47 @@ CZ_READOUT_PULSE_TEMPLATE = q.pulse_template(
 )
 
 
-def cz_conditional_phase_program() -> q.Program:
+@q.program(id="cz-conditional-phase")
+def cz_conditional_phase(
+    control: q.Qubit,
+    target: q.Qubit,
+    coupler: q.Coupler,
+    control_state: Annotated[int, IntType(minimum=0, maximum=1)],
+    coupler_amplitude: Annotated[Quantity, QuantityType(unit="arb")],
+    analyzer_phase: Annotated[Quantity, QuantityType(unit="rad")],
+) -> q.QuantumFragment:
     """Declare one conditional-phase Ramsey point in the unified DSL."""
 
     control_capture = q.acquire(
-        _CONTROL,
+        control,
         duration=_READOUT_DURATION,
         result="control_iq_shots",
     )
     target_capture = q.acquire(
-        _TARGET,
+        target,
         duration=_READOUT_DURATION,
         result="target_iq_shots",
     )
     candidate = q.implements(
-        _CZ(_CONTROL, _TARGET),
+        _CZ(control, target),
         CZ_FLUX_PULSE_TEMPLATE(
-            _COUPLER,
-            amplitude=CZ_AMPLITUDE_INPUT,
+            coupler,
+            amplitude=coupler_amplitude,
         ),
-        resources=(_COUPLER,),
+        resources=(coupler,),
         candidate=CZ_CANDIDATE_ID,
     )
-    return q.program(
-        "cz-conditional-phase",
-        q.sequence(
-            q.repeat(_X(_CONTROL), CONTROL_STATE_INPUT),
-            _X90(_TARGET),
-            candidate,
-            q.shift_phase(q.drive(_TARGET), ANALYZER_PHASE_INPUT),
-            _X90(_TARGET),
-            q.parallel(
-                CZ_READOUT_PULSE_TEMPLATE(_CONTROL),
-                control_capture,
-                CZ_READOUT_PULSE_TEMPLATE(_TARGET),
-                target_capture,
-            ),
+    return q.sequence(
+        q.repeat(_X(control), control_state),
+        _X90(target),
+        candidate,
+        q.shift_phase(q.drive(target), analyzer_phase),
+        _X90(target),
+        q.parallel(
+            CZ_READOUT_PULSE_TEMPLATE(control),
+            control_capture,
+            CZ_READOUT_PULSE_TEMPLATE(target),
+            target_capture,
         ),
     )
 
@@ -165,13 +156,10 @@ def _drive_template(
 
 
 __all__ = [
-    "ANALYZER_PHASE_INPUT",
-    "CONTROL_STATE_INPUT",
-    "CZ_AMPLITUDE_INPUT",
     "CZ_CANDIDATE_ID",
     "CZ_FLUX_PULSE_TEMPLATE",
     "CZ_READOUT_PULSE_TEMPLATE",
     "X90_TARGET_CALIBRATION_ID",
-    "cz_conditional_phase_program",
+    "cz_conditional_phase",
     "cz_phase_calibration_catalog",
 ]

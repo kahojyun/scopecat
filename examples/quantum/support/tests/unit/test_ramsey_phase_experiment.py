@@ -19,11 +19,10 @@ from quantum_lab_demo.reference_experiments.drag_beta_calibration import (
 )
 from quantum_lab_demo.reference_experiments.ramsey_phase_experiment import (
     PHASE,
-    PHASE_INPUT,
-    RAMSEY_PHASE_PROGRAM,
-    RAMSEY_PHASE_TEMPLATE,
     RAMSEY_X90_PULSE_TEMPLATE,
     X90_CANDIDATE_ID,
+    ramsey_phase_program,
+    ramsey_phase_template,
 )
 
 
@@ -32,22 +31,22 @@ def test_ramsey_program_runs_through_the_shared_compiler(tmp_path: Path) -> None
     lab = quantum_lab(workspace=tmp_path, compiler=compiler)
 
     run = (
-        lab.prepare(RAMSEY_PHASE_TEMPLATE)
+        lab.prepare(ramsey_phase_template)
         .scan(
             PHASE,
             (Quantity(0, "rad"),),
         )
         .run()
     )
-    [preparation] = compiler.trace.preparations(RAMSEY_PHASE_PROGRAM.id)
+    [preparation] = compiler.trace.preparations(ramsey_phase_program.id)
     [prepared] = preparation.entries
 
     assert run.manifest.status == "completed"
-    assert RAMSEY_PHASE_PROGRAM.inputs == (PHASE_INPUT,)
-    [result] = RAMSEY_PHASE_PROGRAM.results
+    assert [port.id for port in ramsey_phase_program.ports] == ["qubit", "phase"]
+    [result] = ramsey_phase_program.results
     assert isinstance(result, MeasurementResult)
     assert result.id == "iq_shots"
-    assert prepared.source_program_id.value == RAMSEY_PHASE_PROGRAM.id
+    assert prepared.source_program_id.value == ramsey_phase_program.id
     assert prepared.acquisition_origins[0].address.slot_id == (
         result.acquisition_slot_id
     )
@@ -75,11 +74,11 @@ def test_ramsey_phase_rotates_only_the_candidate_and_resets_between_points(
 ) -> None:
     compiler = quantum_lab_compiler()
     lab = quantum_lab(workspace=tmp_path, compiler=compiler)
-    lab.prepare(RAMSEY_PHASE_TEMPLATE).scan(
+    lab.prepare(ramsey_phase_template).scan(
         PHASE,
         (Quantity(0, "rad"), Quantity(math.pi / 2, "rad")),
     ).run()
-    [preparation] = compiler.trace.preparations(RAMSEY_PHASE_PROGRAM.id)
+    [preparation] = compiler.trace.preparations(ramsey_phase_program.id)
 
     artifact = preparation.artifact
     drive_waveforms = tuple(

@@ -22,7 +22,7 @@ from scopecat.kernel.problems import (
 )
 from scopecat.planning.authoring import resolve_experiment
 from scopecat.runs.service import check_experiment
-from tests.testkit.authoring import load_config, simple_template
+from tests.testkit.authoring import load_config, simple_template, template_fixture
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 
@@ -59,18 +59,19 @@ def test_template_unknown_inputs_are_reported_together_in_stable_order(
 
 def test_template_definition_reports_config_free_errors_together() -> None:
     count = sc.input("count", sc.ScalarType(sc.IntType()))
-    module = sc.module("test.invalid-template").inputs(count).build()
+    module = sc.module_body(id="test.invalid-template").inputs(count).build()
 
     with pytest.raises(CheckFailed) as error:
-        (
-            module.template("test.invalid-template", kind="invalid-template")
-            .inputs(
+        template_fixture(
+            module,
+            id="test.invalid-template",
+            kind="invalid-template",
+            inputs=(
                 sc.InputDescription(id="label"),
                 sc.InputDescription(id="label"),
                 sc.InputDescription(id="count", default="not-an-int"),
-            )
-            .record_product("missing")
-            .build()
+            ),
+            records=(sc.record_product("missing"),),
         )
 
     assert [problem.code for problem in error.value.problems] == [
@@ -85,13 +86,12 @@ def test_template_definition_reports_config_free_errors_together() -> None:
 
 def test_template_bind_rejects_known_input_errors_without_requiring_missing() -> None:
     count = sc.input("count", sc.ScalarType(sc.IntType()))
-    template = (
-        sc.module("test.early-bind")
-        .inputs(count)
-        .build()
-        .template("test.early-bind", kind="early-bind")
-        .input("required-later")
-        .build()
+    module = sc.module_body(id="test.early-bind").inputs(count).build()
+    template = template_fixture(
+        module,
+        id="test.early-bind",
+        kind="early-bind",
+        inputs=(sc.InputDescription(id="required-later"),),
     )
 
     # Missing values remain legal while an invocation is being assembled.
@@ -110,14 +110,17 @@ def test_template_bind_rejects_known_input_errors_without_requiring_missing() ->
 def test_template_build_validates_default_scan_shape() -> None:
     first = sc.point("first", sc.ScalarType(sc.FloatType()))
     second = sc.point("second", sc.ScalarType(sc.FloatType()))
+    module = sc.module_body(id="test.invalid-default-scans").build()
 
     with pytest.raises(CheckFailed) as error:
-        (
-            sc.module("test.invalid-default-scans")
-            .template("test.invalid-default-scans", kind="invalid-default-scans")
-            .scan(sc.zip(sc.axis(first, (1.0, 2.0)), sc.axis(second, (1.0,))))
-            .scan(first, (3.0,))
-            .build()
+        template_fixture(
+            module,
+            id="test.invalid-default-scans",
+            kind="invalid-default-scans",
+            scans=(
+                sc.zip(sc.axis(first, (1.0, 2.0)), sc.axis(second, (1.0,))),
+                sc.axis(first, (3.0,)),
+            ),
         )
 
     assert [problem.code for problem in error.value.problems] == [
@@ -127,15 +130,20 @@ def test_template_build_validates_default_scan_shape() -> None:
 
 
 def test_template_build_validates_product_and_record_selection_names() -> None:
-    module = sc.module("test.invalid-selections").product("signal", "phase").build()
+    module = (
+        sc.module_body(id="test.invalid-selections").product("signal", "phase").build()
+    )
 
     with pytest.raises(CheckFailed) as error:
-        (
-            module.template("test.invalid-selections", kind="invalid-selections")
-            .record_product("signal")
-            .record_product("signal", record_id="renamed")
-            .record_product("phase", record_id="renamed")
-            .build()
+        template_fixture(
+            module,
+            id="test.invalid-selections",
+            kind="invalid-selections",
+            records=(
+                sc.record_product("signal"),
+                sc.record_product("signal", record_id="renamed"),
+                sc.record_product("phase", record_id="renamed"),
+            ),
         )
 
     assert [problem.code for problem in error.value.problems] == [
@@ -178,7 +186,7 @@ def test_check_experiment_resolves_template_invocation_with_config_profile(
     )
 
     assert result.preview is not None
-    assert result.preview.experiment_id == "authored-simple-scan"
+    assert result.preview.experiment_id == simple_template().id
 
 
 def test_check_experiment_resolves_template_invocation_with_config_snapshot(
@@ -192,7 +200,7 @@ def test_check_experiment_resolves_template_invocation_with_config_snapshot(
     )
 
     assert result.preview is not None
-    assert result.preview.experiment_id == "authored-simple-scan"
+    assert result.preview.experiment_id == simple_template().id
 
 
 def _module_consuming_input() -> tuple[sc.ExperimentModule, sc.ValueRef]:
@@ -203,13 +211,19 @@ def _module_consuming_input() -> tuple[sc.ExperimentModule, sc.ValueRef]:
         inputs={"value": value},
         output_type=value.value_type,
     )
-    module = sc.module("test.consumed-input").inputs(value).computes(consume).build()
+    module = (
+        sc.module_body(id="test.consumed-input").inputs(value).computes(consume).build()
+    )
     return module, value
 
 
 def test_consumed_module_input_requires_binding_during_authoring_compile() -> None:
     module, _value = _module_consuming_input()
-    invocation = module.template("test.consumed-input", kind="input").build().bind()
+    invocation = template_fixture(
+        module,
+        id="test.consumed-input",
+        kind="input",
+    ).bind()
 
     with pytest.raises(CheckFailed) as error:
         compile_prepared_invocation(prepare_invocation(invocation))
@@ -222,8 +236,12 @@ def test_consumed_module_input_requires_binding_during_authoring_compile() -> No
 
 def test_unconsumed_module_input_does_not_require_binding(tmp_path: Path) -> None:
     value = sc.input("unused", sc.ScalarType(sc.FloatType()))
-    module = sc.module("test.unused-input").inputs(value).build()
-    invocation = module.template("test.unused-input", kind="input").build().bind()
+    module = sc.module_body(id="test.unused-input").inputs(value).build()
+    invocation = template_fixture(
+        module,
+        id="test.unused-input",
+        kind="input",
+    ).bind()
 
     resolve_experiment(invocation, config_profile=load_config())
 
@@ -231,14 +249,18 @@ def test_unconsumed_module_input_does_not_require_binding(tmp_path: Path) -> Non
 def test_unused_child_binding_does_not_consume_outer_input(tmp_path: Path) -> None:
     child_value = sc.input("child_value", sc.ScalarType(sc.FloatType()))
     outer_value = sc.input("outer_value", sc.ScalarType(sc.FloatType()))
-    child = sc.module("test.unused-child").inputs(child_value).build()
+    child = sc.module_body(id="test.unused-child").inputs(child_value).build()
     outer = (
-        sc.module("test.unused-child-root")
+        sc.module_body(id="test.unused-child-root")
         .inputs(outer_value)
         .use(child.instantiate("unused-child", child_value=outer_value))
         .build()
     )
-    invocation = outer.template("test.unused-child", kind="input").build().bind()
+    invocation = template_fixture(
+        outer,
+        id="test.unused-child",
+        kind="input",
+    ).bind()
 
     resolve_experiment(invocation, config_profile=load_config())
 
@@ -249,9 +271,11 @@ def test_unused_child_expression_binding_does_not_consume_outer_input(
     value_type = sc.ScalarType(sc.FloatType())
     child_value = sc.input("child_value", value_type)
     outer_value = sc.input("outer_value", value_type)
-    child = sc.module("test.unused-child-expression").inputs(child_value).build()
+    child = (
+        sc.module_body(id="test.unused-child-expression").inputs(child_value).build()
+    )
     outer = (
-        sc.module("test.unused-child-expression-root")
+        sc.module_body(id="test.unused-child-expression-root")
         .inputs(outer_value)
         .use(
             child.instantiate(
@@ -261,24 +285,28 @@ def test_unused_child_expression_binding_does_not_consume_outer_input(
         )
         .build()
     )
-    invocation = (
-        outer.template("test.unused-child-expression", kind="input").build().bind()
-    )
+    invocation = template_fixture(
+        outer,
+        id="test.unused-child-expression",
+        kind="input",
+    ).bind()
 
     resolve_experiment(invocation, config_profile=load_config())
 
 
 def test_scan_point_satisfies_consumed_module_input(tmp_path: Path) -> None:
     module, _value = _module_consuming_input()
-    invocation = (
-        module.template("test.point-input", kind="input")
-        .scan(
-            sc.point("value", sc.ScalarType(sc.FloatType())),
-            (1.0,),
-        )
-        .build()
-        .bind()
-    )
+    invocation = template_fixture(
+        module,
+        id="test.point-input",
+        kind="input",
+        scans=(
+            sc.axis(
+                sc.point("value", sc.ScalarType(sc.FloatType())),
+                (1.0,),
+            ),
+        ),
+    ).bind()
 
     resolve_experiment(invocation, config_profile=load_config())
 

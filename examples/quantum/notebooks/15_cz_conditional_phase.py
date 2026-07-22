@@ -17,12 +17,9 @@ from quantum_lab_demo.reference_experiments import (
     CZ_AMPLITUDE_SPAN,
     CZ_CANDIDATE_ID,
     CZ_FLUX_PULSE_TEMPLATE,
-    CZ_PHASE_TEMPLATE,
     analyze_cz_phase_run,
-    cz_conditional_phase_program,
-)
-from quantum_lab_demo.reference_experiments.cz_phase_experiment import (
-    CZ_PHASE_PROGRAM,
+    cz_conditional_phase,
+    cz_phase_template,
 )
 from quantum_lab_demo.virtual_lab import (
     CZ_AMPLITUDE_PARAMETER_COLUMN,
@@ -52,7 +49,7 @@ def _quantity_in_unit(value: object, unit: str) -> float:
 # -> shift_phase(target drive, analyzer phase)
 # -> accepted X90(target)
 # -> parallel readout pulses and acquisitions for both qubits.
-program = cz_conditional_phase_program()
+program = cz_conditional_phase
 authoring_summary = {
     "program": program.id,
     "inputs": tuple(value.id for value in program.inputs),
@@ -81,7 +78,7 @@ cz_parameter_scan = sc.param_axis(
     span=CZ_AMPLITUDE_SPAN,
     points=CZ_AMPLITUDE_POINTS,
 )
-prepared = lab.prepare(CZ_PHASE_TEMPLATE).scan(cz_parameter_scan)
+prepared = lab.prepare(cz_phase_template).scan(cz_parameter_scan)
 preview = prepared.preview()
 run = prepared.run(
     name="CZ conditional-phase Ramsey",
@@ -105,7 +102,7 @@ print(measurement_summary)
 # %%
 # The prepared proof retains the semantic CZ call and its physical coupler
 # event. The target artifact maps that event onto the fake coupler AWG channel.
-reference = compiler.trace.preparations(CZ_PHASE_PROGRAM.id)[-1]
+reference = compiler.trace.preparations(cz_conditional_phase.id)[-1]
 candidate_origins = tuple(
     origin.provenance
     for entry in reference.entries

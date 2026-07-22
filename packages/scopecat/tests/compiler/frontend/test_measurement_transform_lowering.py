@@ -5,7 +5,7 @@ from pathlib import Path
 import scopecat as sc
 from scopecat.compiler.typed.program import core_acquisitions
 from scopecat.planning.authoring import resolve_experiment
-from tests.testkit.authoring import load_config
+from tests.testkit.authoring import load_config, template_fixture
 from tests.testkit.typed_program import link_program
 
 
@@ -34,7 +34,7 @@ def test_record_demand_closes_transform_inputs_and_prunes_dead_transform(
     tmp_path: Path,
 ) -> None:
     module = (
-        sc.module("test.transform.lowering")
+        sc.module_body(id="test.transform.lowering")
         .resource("source", requires=("scalar_signal",))
         .product("raw", "middle", "derived", "dead")
         .measurement_transforms(
@@ -50,11 +50,14 @@ def test_record_demand_closes_transform_inputs_and_prunes_dead_transform(
         )
         .build()
     )
-    template = (
-        module.template("test.transform.lowering", kind="transform")
-        .record_product(module.products.derived, record_id="first-result")
-        .record_product(module.products.derived, record_id="second-result")
-        .build()
+    template = template_fixture(
+        module,
+        id="test.transform.lowering",
+        kind="transform",
+        records=(
+            sc.record_product(module.products.derived, record_id="first-result"),
+            sc.record_product(module.products.derived, record_id="second-result"),
+        ),
     )
 
     resolved = resolve_experiment(
@@ -112,7 +115,7 @@ def test_hidden_transform_input_use_ids_are_stable_scoped_and_escaped(
     tmp_path: Path,
 ) -> None:
     child = (
-        sc.module("test.transform.hidden-id.child")
+        sc.module_body(id="test.transform.hidden-id.child")
         .resource("source", requires=("scalar_signal",))
         .product("raw", "derived")
         .measurement_transforms(
@@ -133,12 +136,15 @@ def test_hidden_transform_input_use_ids_are_stable_scoped_and_escaped(
     )
     left = child.instantiate("left")
     right = child.instantiate("right")
-    root = sc.module("test.transform.hidden-id.root").use(left, right).build()
-    template = (
-        root.template("test.transform.hidden-id", kind="transform")
-        .record_product(left.products.derived, record_id="left")
-        .record_product(right.products.derived, record_id="right")
-        .build()
+    root = sc.module_body(id="test.transform.hidden-id.root").use(left, right).build()
+    template = template_fixture(
+        root,
+        id="test.transform.hidden-id",
+        kind="transform",
+        records=(
+            sc.record_product(left.products.derived, record_id="left"),
+            sc.record_product(right.products.derived, record_id="right"),
+        ),
     )
 
     def compile_input_use_ids() -> dict[str, str]:

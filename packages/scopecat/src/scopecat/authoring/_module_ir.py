@@ -395,19 +395,44 @@ class ModuleBodyIR:
             "module measurement transform",
             tuple(item.symbol_id for item in self.measurement_transforms),
         )
-        declared_products = {product.product_id for product in self.products}
+        local_product_origins = {
+            product.product_id: product.origin for product in self.products
+        }
+        projected_product_origins = {
+            product.symbol_id: product.target_origin
+            for instance in self.instances
+            for product in (
+                child.projected_by(instance.lookup)
+                for child in instance.module.interface.products
+            )
+        }
+        visible_product_origins = {
+            **projected_product_origins,
+            **local_product_origins,
+        }
         for transform in self.measurement_transforms:
-            for direction, bindings in (
-                ("input", transform.input_bindings),
-                ("output", transform.output_bindings),
+            for direction, bindings, origins, allowed_products in (
+                (
+                    "input",
+                    transform.input_bindings,
+                    transform.input_product_origins,
+                    visible_product_origins,
+                ),
+                (
+                    "output",
+                    transform.output_bindings,
+                    transform.output_product_origins,
+                    local_product_origins,
+                ),
             ):
-                for role, product_id in bindings:
-                    if product_id not in declared_products:
-                        raise ValueError(
-                            f"measurement transform {transform.id!r} {direction} "
-                            f"{role!r} references undeclared local product "
-                            f"{product_id.qualified_name!r}"
-                        )
+                _require_transform_products(
+                    transform,
+                    direction=direction,
+                    bindings=bindings,
+                    binding_origins=origins,
+                    local_product_origins=local_product_origins,
+                    allowed_product_origins=allowed_products,
+                )
 
     @property
     def bindings(self) -> tuple[ExperimentBindingIntent, ...]:
@@ -849,6 +874,44 @@ def _require_unique(label: str, values: tuple[object, ...]) -> None:
     if duplicates:
         msg = f"duplicate {label} ids: " + ", ".join(repr(item) for item in duplicates)
         raise ValueError(msg)
+
+
+def _require_transform_products(
+    transform: MeasurementTransform,
+    *,
+    direction: str,
+    bindings: tuple[tuple[str, ProductId], ...],
+    binding_origins: tuple[tuple[str, tuple[object, ...]], ...],
+    local_product_origins: Mapping[ProductId, tuple[object, ...]],
+    allowed_product_origins: Mapping[ProductId, tuple[object, ...]],
+) -> None:
+    origins_by_role = dict(binding_origins)
+    for role, selected_id in bindings:
+        if role not in origins_by_role:
+            if selected_id not in local_product_origins:
+                raise ValueError(
+                    f"measurement transform {transform.id!r} {direction} "
+                    f"{role!r} references undeclared local product "
+                    f"{selected_id.qualified_name!r}"
+                )
+            continue
+        expected_origin = allowed_product_origins.get(selected_id)
+        if expected_origin is None:
+            location = (
+                "outside this module"
+                if direction == "input"
+                else "outside this module's local products"
+            )
+            raise ValueError(
+                f"measurement transform {transform.id!r} {direction} {role!r} "
+                f"references product {selected_id.qualified_name!r} {location}"
+            )
+        if origins_by_role[role] != expected_origin:
+            raise ValueError(
+                f"measurement transform {transform.id!r} {direction} {role!r} "
+                f"references product {selected_id.qualified_name!r} from another "
+                "module instance"
+            )
 
 
 def _require_operation_implementations(module: ModuleIR) -> None:

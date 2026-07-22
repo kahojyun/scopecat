@@ -9,9 +9,9 @@ from quantum_lab_demo import (
     quantum_lab_compiler,
 )
 from quantum_lab_demo.reference_experiments import (
-    FAKE_X_COUNT_BIAS_TEMPLATE,
     FakeBiasVoltageProvider,
     fake_x_count_bias_config,
+    fake_x_count_bias_template,
 )
 
 # %%
@@ -29,7 +29,7 @@ lab = sc.open(
 
 # %%
 experiment = lab.prepare(
-    FAKE_X_COUNT_BIAS_TEMPLATE,
+    fake_x_count_bias_template,
 )
 preview = experiment.preview()
 completed_run = experiment.run(

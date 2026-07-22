@@ -10,6 +10,7 @@ from scopecat.compiler.linking.linked import (
     link_verified_program,
 )
 from scopecat.compiler.typed.domain_results import domain_result_closure
+from scopecat.compiler.typed.program import core_domain_executions
 from scopecat.kernel.errors import ProviderContractError
 from scopecat.planning.authoring import resolve_experiment
 from scopecat.records.parameter import Quantity
@@ -91,7 +92,7 @@ def _preparation_context(
         outputs={"summary": "summary"},
     )
     module = (
-        sc.module(f"test.sdk.preparation.{namespace}")
+        sc.module_body(id=f"test.sdk.preparation.{namespace}")
         .product("raw", "summary", unit="count", dtype="int64")
         .measurement_transforms(transform)
         .build()
@@ -101,22 +102,28 @@ def _preparation_context(
         inputs={"count": count},
         results={"raw": module.products["raw"]},
     )
-    template = (
-        module.domain(execution)
-        .template(
-            f"test.sdk.preparation.{namespace}",
-            kind="domain_preparation",
-        )
-        .scan(count, (1, 3))
-    )
+    module_call = module.domain(execution)()
+    body = sc.experiment(module_call).scan(count, (1, 3))
     if shared_product_uses:
-        selected = (
-            template.record_product("raw", record_id="raw-first")
-            .record_product("raw", record_id="raw-second")
-            .build()
+        body = body.record_product(
+            module_call.products.raw,
+            record_id="raw-first",
+        ).record_product(
+            module_call.products.raw,
+            record_id="raw-second",
         )
     else:
-        selected = template.record_product("raw").record_product("summary").build()
+        body = body.record_product(
+            module_call.products.raw,
+            record_id="raw",
+        ).record_product(
+            module_call.products.summary,
+            record_id="summary",
+        )
+    selected = sc.template(
+        id=f"test.sdk.preparation.{namespace}",
+        kind="domain_preparation",
+    )(lambda: body)
     resolved = resolve_experiment(
         selected.bind(),
         config_profile=load_config(),
@@ -124,14 +131,15 @@ def _preparation_context(
     linked = link_verified_program(resolved.verified_program, resolved.environment)
     materializer = LinkedPointMaterializer(linked)
     linked_points = materializer.materialize()
-    closure = domain_result_closure(linked.program, execution.id)
+    execution_id = core_domain_executions(linked.program)[0].id
+    closure = domain_result_closure(linked.program, execution_id)
     request = make_domain_compile_request(
         linked,
-        execution.id,
+        execution_id,
         closure,
         ((0, 1),),
         lambda input_ids, ordinals, max_points: materializer.bind_domain_inputs(
-            execution.id,
+            execution_id,
             input_ids,
             ordinals,
             max_points=max_points,

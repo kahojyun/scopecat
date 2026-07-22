@@ -12,8 +12,9 @@ for laboratory projects.
 
 Inside `src/quantum_lab_demo/`:
 
-- `experiments/`: reusable experiment shapes and analysis steps.
-- `reference_experiments/`: complete calibration and production examples.
+- `experiments/`: broader `@sc.module` and `@sc.template` shape coverage.
+- `reference_experiments/`: focused `@q.program`, module, template, scratch,
+  calibration, and production examples.
 - `lab.py`: the composition root for the configured demo environment.
 - `compiler.py`: the unified `QuantumLabCompiler` domain boundary.
 - `response_registry.py` and `trace.py`: fake-response selection and observable

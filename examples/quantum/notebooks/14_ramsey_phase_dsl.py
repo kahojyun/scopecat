@@ -12,10 +12,10 @@ from quantum_lab_demo import (
 )
 from quantum_lab_demo.reference_experiments import (
     PHASE,
-    RAMSEY_PHASE_PROGRAM,
-    RAMSEY_PHASE_TEMPLATE,
     RAMSEY_READOUT_PULSE_TEMPLATE,
     RAMSEY_X90_PULSE_TEMPLATE,
+    ramsey_phase_program,
+    ramsey_phase_template,
 )
 from scopecat import Quantity
 
@@ -33,9 +33,9 @@ from scopecat import Quantity
 phases = tuple(Quantity(value, "rad") for value in (0, math.pi / 2, math.pi))
 
 authoring_summary = {
-    "program": RAMSEY_PHASE_PROGRAM.id,
-    "inputs": tuple(port.id for port in RAMSEY_PHASE_PROGRAM.inputs),
-    "results": tuple(port.id for port in RAMSEY_PHASE_PROGRAM.results),
+    "program": ramsey_phase_program.id,
+    "inputs": tuple(port.id for port in ramsey_phase_program.inputs),
+    "results": tuple(port.id for port in ramsey_phase_program.results),
     "x90_template": RAMSEY_X90_PULSE_TEMPLATE.id,
     "readout_template": RAMSEY_READOUT_PULSE_TEMPLATE.id,
 }
@@ -51,14 +51,14 @@ assert system is not None
 compiler = system.domain_compiler
 assert isinstance(compiler, QuantumLabCompiler)
 run = (
-    lab.prepare(RAMSEY_PHASE_TEMPLATE)
+    lab.prepare(ramsey_phase_template)
     .scan(PHASE, phases)
     .run(
         name="Ramsey phase DSL",
         tags=("reference", "gate-pulse", "frame"),
     )
 )
-[preparation] = compiler.trace.preparations(RAMSEY_PHASE_PROGRAM.id)
+[preparation] = compiler.trace.preparations(ramsey_phase_program.id)
 artifact = preparation.artifact
 
 candidate_samples = tuple(

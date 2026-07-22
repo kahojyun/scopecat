@@ -25,9 +25,8 @@ from scopecat.sdk.instruments import (
 
 from quantum_lab_demo.reference_experiments.fake_x_count_experiment import (
     DEFAULT_X_COUNTS,
-    FAKE_X_COUNT_CAPTURE_MODULE,
     X_COUNT,
-    fake_x_count_domain_execution,
+    fake_x_count_capture,
 )
 from quantum_lab_demo.virtual_lab.wiring import quantum_wiring_config_profile
 
@@ -40,65 +39,59 @@ BIAS_VOLTAGE = sc.point(
     sc.ScalarType(sc.QuantityType(unit="V")),
 )
 
-FAKE_BIAS_SOURCE_MODULE = (
-    sc.module("quantum_lab_demo.reference.fake_x_count.bias_source")
-    .resource("bias", requires=(BIAS_CAPABILITY_ID,))
-    .bind_field(
-        "bias",
-        capability=BIAS_CAPABILITY_ID,
-        field="voltage",
-        value=BIAS_VOLTAGE,
-    )
-    .product(
-        "voltage_readback",
-        unit="V",
-    )
-    .acquire(
-        "read-voltage",
-        "voltage_readback",
-        resource="bias",
-        capability=BIAS_CAPABILITY_ID,
-        product_key="voltage",
-    )
-    .build()
-)
 
-_CAPTURE = FAKE_X_COUNT_CAPTURE_MODULE.instantiate("capture")
-_BIAS_SOURCE = FAKE_BIAS_SOURCE_MODULE.instantiate("bias_source")
-_DOMAIN_EXECUTION = fake_x_count_domain_execution(_CAPTURE.products.integrated_iq_shots)
-FAKE_X_COUNT_BIAS_TEMPLATE = (
-    sc.module("quantum_lab_demo.reference.fake_x_count.bias.root")
-    .use(_CAPTURE, _BIAS_SOURCE)
-    .domain(_DOMAIN_EXECUTION)
-    .template(
-        "quantum_lab_demo.reference.fake_x_count.bias",
-        kind="fake-x-count-bias",
-    )
-    .experiment_id("fake-x-count-bias")
-    .scan(
-        sc.cartesian(
-            sc.axis(BIAS_VOLTAGE, DEFAULT_BIAS_VOLTAGES, unit="V"),
-            sc.axis(X_COUNT, DEFAULT_X_COUNTS),
+@sc.module(id="quantum_lab_demo.reference.fake_x_count.bias_source")
+def fake_bias_source():
+    return (
+        sc.module_body()
+        .resource("bias", requires=(BIAS_CAPABILITY_ID,))
+        .bind_field(
+            "bias",
+            capability=BIAS_CAPABILITY_ID,
+            field="voltage",
+            value=BIAS_VOLTAGE,
+        )
+        .product(
+            "voltage_readback",
+            unit="V",
+        )
+        .acquire(
+            "read-voltage",
+            "voltage_readback",
+            resource="bias",
+            capability=BIAS_CAPABILITY_ID,
+            product_key="voltage",
         )
     )
-    .record_product(
-        _CAPTURE.products.probability_0,
-        record_id="probability_0",
-    )
-    .record_product(
-        _CAPTURE.products.probability_1,
-        record_id="probability_1",
-    )
-    .record_product(
-        _BIAS_SOURCE.products.voltage_readback,
-        record_id="bias_voltage_readback",
-    )
-    .label("Fake AWG X-count scan with DC bias")
-    .description(
+
+
+@sc.template(
+    id="quantum_lab_demo.reference.fake_x_count.bias",
+    kind="fake-x-count-bias",
+    label="Fake AWG X-count scan with DC bias",
+    description=(
         "Cross a point-local scalar voltage source with a programmable fake "
         "AWG list while retaining one logical measurement record per point."
-    )
+    ),
 )
+def fake_x_count_bias_template() -> sc.ExperimentBody:
+    capture = fake_x_count_capture(x_count=X_COUNT)
+    bias_source = fake_bias_source()
+    return (
+        sc.experiment(capture, bias_source)
+        .scan(
+            sc.cartesian(
+                sc.axis(BIAS_VOLTAGE, DEFAULT_BIAS_VOLTAGES, unit="V"),
+                sc.axis(X_COUNT, DEFAULT_X_COUNTS),
+            )
+        )
+        .record_product(capture.products.probability_0, record_id="probability_0")
+        .record_product(capture.products.probability_1, record_id="probability_1")
+        .record_product(
+            bias_source.products.voltage_readback,
+            record_id="bias_voltage_readback",
+        )
+    )
 
 
 class FakeBiasVoltageProvider:
@@ -223,8 +216,8 @@ __all__ = [
     "BIAS_SOURCE_ID",
     "BIAS_VOLTAGE",
     "DEFAULT_BIAS_VOLTAGES",
-    "FAKE_BIAS_SOURCE_MODULE",
-    "FAKE_X_COUNT_BIAS_TEMPLATE",
     "FakeBiasVoltageProvider",
+    "fake_bias_source",
     "fake_x_count_bias_config",
+    "fake_x_count_bias_template",
 ]

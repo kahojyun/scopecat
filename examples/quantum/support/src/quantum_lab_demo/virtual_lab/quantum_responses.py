@@ -11,11 +11,15 @@ from scopecat_quantum import (
     TargetAcquisitionAddress,
 )
 
-import quantum_lab_demo.reference_experiments.cz_phase_experiment as cz_phase
-import quantum_lab_demo.reference_experiments.drag_beta_experiment as drag_beta
+from quantum_lab_demo.reference_experiments.cz_phase_calibration import (
+    cz_conditional_phase,
+)
 from quantum_lab_demo.reference_experiments.cz_phase_response import (
     CzPhaseAcquisitionResponse,
     CzPhaseResponsePoint,
+)
+from quantum_lab_demo.reference_experiments.drag_beta_calibration import (
+    drag_beta_program,
 )
 from quantum_lab_demo.reference_experiments.drag_beta_response import (
     DragBetaAcquisitionResponse,
@@ -33,8 +37,8 @@ def quantum_lab_response_registry() -> QuantumLabResponseRegistry:
 
     return QuantumLabResponseRegistry(
         {
-            drag_beta.DRAG_BETA_PROGRAM.id: _drag_beta_response,
-            cz_phase.CZ_PHASE_PROGRAM.id: _cz_phase_response,
+            drag_beta_program.id: _drag_beta_response,
+            cz_conditional_phase.id: _cz_phase_response,
         }
     )
 

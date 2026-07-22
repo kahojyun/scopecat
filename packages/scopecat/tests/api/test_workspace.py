@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+from typing import Annotated, cast
 
 import pytest
 from pydantic import BaseModel, ConfigDict
@@ -37,6 +38,7 @@ READOUT_GAIN_POINT = sc.point(
     "readout_gain",
     sc.ScalarType(sc.FloatType()),
 )
+_SUBJECT = sc.ScalarType(sc.EntityType())
 
 
 class AnalysisArtifactPayload(BaseModel):
@@ -45,12 +47,18 @@ class AnalysisArtifactPayload(BaseModel):
     value: int
 
 
-def _workspace_readout_instance(instance_id: str) -> sc.ModuleInvocation:
-    subject = sc.input("subject", sc.ScalarType(sc.EntityType()))
-    module = (
-        sc.module("workspace.readout")
-        .inputs(subject)
-        .resource("source", requires=("set_frequency", "scalar_signal"))
+@sc.module(id="workspace.readout")
+def _workspace_readout_module(
+    subject: Annotated[sc.Input[sc.EntityRef | str], _SUBJECT],
+) -> sc.ModuleBuilder:
+    subject_ref = cast("sc.ValueRef", subject)
+    return (
+        sc.module_body()
+        .resource(
+            "source",
+            requires=("set_frequency", "scalar_signal"),
+            for_entities=(subject_ref,),
+        )
         .bind_field(
             "source",
             capability="set_frequency",
@@ -64,9 +72,55 @@ def _workspace_readout_instance(instance_id: str) -> sc.ModuleInvocation:
             resource="source",
             capability="scalar_signal",
         )
-        .build()
     )
-    return module.instantiate(instance_id, subject="q0")
+
+
+def _workspace_readout_instance(instance_id: str) -> sc.ModuleInvocation:
+    return _workspace_readout_module.instantiate(instance_id, subject="q0")
+
+
+@sc.module(id="workspace.scalar-signal")
+def _workspace_signal_module(
+    subject: Annotated[sc.Input[sc.EntityRef | str], _SUBJECT],
+) -> sc.ModuleBuilder:
+    subject_ref = cast("sc.ValueRef", subject)
+    return (
+        sc.module_body()
+        .resource(
+            "source",
+            requires=("set_frequency", "scalar_signal"),
+            for_entities=(subject_ref,),
+        )
+        .bind_field(
+            "source",
+            capability="set_frequency",
+            field="frequency",
+            value=DRIVE_FREQUENCY_POINT,
+        )
+        .product("signal", unit="ratio")
+        .acquire(
+            "read-signal",
+            "signal",
+            resource="source",
+            capability="scalar_signal",
+        )
+    )
+
+
+@sc.module(id="workspace.manual-signal")
+def _workspace_manual_signal_module() -> sc.ModuleBuilder:
+    return (
+        sc.module_body()
+        .resource("source", requires=("scalar_signal",))
+        .product("manual_signal", unit="ratio")
+        .acquire(
+            "read-manual-signal",
+            "manual_signal",
+            resource="source",
+            capability="scalar_signal",
+            product_key="manual_signal",
+        )
+    )
 
 
 def test_workspace_runs_and_reads_exploratory_data(tmp_path: Path) -> None:
@@ -244,36 +298,37 @@ def test_run_attachment_can_feed_analysis_inputs(tmp_path: Path) -> None:
     ]
 
 
-def test_workspace_experiment_wraps_existing_module_source(tmp_path: Path) -> None:
+def test_workspace_prepares_scratch_with_existing_module(tmp_path: Path) -> None:
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
     )
     readout = _workspace_readout_instance("readout")
-    experiment = (
-        lab.experiment("readout scan")
-        .use(readout)
-        .scan(
-            DRIVE_FREQUENCY_POINT,
-            [
-                Quantity(value=4.9, unit="GHz"),
-                Quantity(value=5.0, unit="GHz"),
-                Quantity(value=5.1, unit="GHz"),
-            ],
+
+    @sc.scratch(id="workspace.readout-scan", kind="readout-scan")
+    def experiment() -> sc.ExperimentBody:
+        return (
+            sc.experiment(readout)
+            .scan(
+                DRIVE_FREQUENCY_POINT,
+                [
+                    Quantity(value=4.9, unit="GHz"),
+                    Quantity(value=5.0, unit="GHz"),
+                    Quantity(value=5.1, unit="GHz"),
+                ],
+            )
+            .record_product(readout.products.signal, record_id="signal")
         )
-        .record_product(readout.products.signal, record_id="signal")
-    )
 
-    run = experiment.run()
+    run = lab.prepare(experiment()).run()
 
-    assert experiment.name == "readout scan"
     assert run.manifest.status == "completed"
+    assert run.request is not None
+    assert run.request.template_id == "workspace.readout-scan"
 
 
-def test_workspace_experiment_composes_module_source_with_authored_content(
-    tmp_path: Path,
-) -> None:
+def test_scratch_composes_modules(tmp_path: Path) -> None:
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
@@ -284,29 +339,28 @@ def test_workspace_experiment_composes_module_source_with_authored_content(
         ),
     )
     readout = _workspace_readout_instance("readout")
-    experiment = (
-        lab.experiment("readout scan")
-        .use(readout)
-        .scan(
-            DRIVE_FREQUENCY_POINT,
-            [
-                Quantity(value=4.9, unit="GHz"),
-                Quantity(value=5.0, unit="GHz"),
-                Quantity(value=5.1, unit="GHz"),
-            ],
-        )
-        .record_product(readout.products.signal, record_id="signal")
-        .resource("source", requires=("scalar_signal",))
-        .record(
-            "manual_signal",
-            resource="source",
-            capability="scalar_signal",
-            product_key="manual_signal",
-            unit="ratio",
-        )
-    )
+    manual = _workspace_manual_signal_module()
 
-    preview = experiment.preview()
+    @sc.scratch(id="workspace.composed-readout", kind="readout-scan")
+    def experiment() -> sc.ExperimentBody:
+        return (
+            sc.experiment(readout, manual)
+            .scan(
+                DRIVE_FREQUENCY_POINT,
+                [
+                    Quantity(value=4.9, unit="GHz"),
+                    Quantity(value=5.0, unit="GHz"),
+                    Quantity(value=5.1, unit="GHz"),
+                ],
+            )
+            .record_product(readout.products.signal, record_id="signal")
+            .record_product(
+                manual.products.manual_signal,
+                record_id="manual_signal",
+            )
+        )
+
+    preview = lab.prepare(experiment()).preview()
 
     assert preview.point_count == 3
     assert set(preview.primary_observables) == {"signal", "manual_signal"}
@@ -355,19 +409,16 @@ def test_prepared_experiment_check_returns_config_selection_problems(
 def test_prepared_experiment_check_returns_record_schema_problems(
     tmp_path: Path,
 ) -> None:
-    module = (
-        sc.module("test.invalid-record-unit")
-        .product("signal", unit="not-a-unit")
-        .build()
-    )
-    template = (
-        module.template(
-            "test.invalid-record-unit",
-            kind="invalid_record",
-        )
-        .record_product("signal")
-        .build()
-    )
+    @sc.module(id="test.invalid-record-unit")
+    def module() -> sc.ModuleBuilder:
+        return sc.module_body().product("signal", unit="not-a-unit")
+
+    @sc.template(id="test.invalid-record-unit", kind="invalid_record")
+    def template_definition() -> sc.ExperimentBody:
+        module_call = module()
+        return sc.experiment(module_call).record_product(module_call.products.signal)
+
+    template = template_definition
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
@@ -408,7 +459,7 @@ def test_prepared_experiment_check_returns_candidate_config_problems(
     ]
 
 
-def test_workspace_experiment_lowers_to_runnable_spec(
+def test_scratch_lowers_to_runnable_spec(
     tmp_path: Path,
 ) -> None:
     lab = sc.open(
@@ -416,29 +467,33 @@ def test_workspace_experiment_lowers_to_runnable_spec(
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
     )
-    experiment = (
-        lab.experiment("manual signal scan")
-        .entity("qubit", "q0")
-        .scan(
-            DRIVE_FREQUENCY_POINT,
-            [
-                Quantity(value=4.9, unit="GHz"),
-                Quantity(value=5.0, unit="GHz"),
-                Quantity(value=5.1, unit="GHz"),
-            ],
-        )
-        .resource("source", requires=("scalar_signal",))
-        .measure("signal", resource="source", capability="scalar_signal")
-    )
 
-    run = experiment.run()
+    @sc.scratch(id="workspace.manual-signal-scan", kind="manual-signal-scan")
+    def experiment(
+        *,
+        qubit: sc.EntityRef | str = "q0",
+    ) -> sc.ExperimentBody:
+        signal = _workspace_signal_module(subject=qubit)
+        return (
+            sc.experiment(signal)
+            .scan(
+                DRIVE_FREQUENCY_POINT,
+                [
+                    Quantity(value=4.9, unit="GHz"),
+                    Quantity(value=5.0, unit="GHz"),
+                    Quantity(value=5.1, unit="GHz"),
+                ],
+            )
+            .record_product(signal.products.signal, record_id="signal")
+        )
+
+    run = lab.prepare(experiment()).run()
 
     assert run.manifest.status == "completed"
     run_dir = tmp_path / "runs" / run.id
     persisted_request = read_model(run_dir / "run-request.json", RunRequest)
-    assert persisted_request.template_id == "scopecat.workspace.experiment"
-    assert persisted_request.template_inputs["name"] == "manual signal scan"
-    assert persisted_request.template_inputs["entity_inputs"] == {"qubit": "q0"}
+    assert persisted_request.template_id == "workspace.manual-signal-scan"
+    assert persisted_request.template_inputs == {}
     scan_axes = scan_axis_index(persisted_request.scans)
     drive_frequency_scan = scan_axes["drive_frequency"]
     assert isinstance(drive_frequency_scan, PointScanRecord)
@@ -524,19 +579,28 @@ def test_prepared_template_builder_preview_and_run_terminals(
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
     )
-    template = (
-        SIMPLE_MODULE.template("test.prepared_builder", kind="simple_scan")
-        .experiment_id("prepared-builder")
-        .input("subject")
-        .input("drive_frequency")
-        .scan(
-            DRIVE_FREQUENCY_POINT,
-            center=Quantity(value=5.0, unit="GHz"),
-            span=Quantity(value=200.0, unit="MHz"),
-            points=5,
+
+    @sc.template(id="test.prepared_builder", kind="simple_scan")
+    def template_definition(
+        subject: Annotated[
+            sc.Input[sc.EntityRef | str],
+            SIMPLE_MODULE.input_ports[0].value_type,
+        ],
+    ) -> sc.ExperimentBody:
+        module_call = SIMPLE_MODULE(subject=subject)
+        return (
+            sc.experiment(module_call)
+            .input("drive_frequency")
+            .scan(
+                DRIVE_FREQUENCY_POINT,
+                center=Quantity(value=5.0, unit="GHz"),
+                span=Quantity(value=200.0, unit="MHz"),
+                points=5,
+            )
+            .record_product(module_call.products.signal)
         )
-        .record_product("signal")
-    )
+
+    template = template_definition
 
     plan = (
         lab.prepare(template)
@@ -564,22 +628,25 @@ def test_prepared_template_builder_preview_and_run_terminals(
     assert drive_scan.center == Quantity(value=5.0, unit="GHz")
 
 
-def test_workspace_experiment_preview_and_run_terminals(tmp_path: Path) -> None:
+def test_scratch_uses_prepared_preview_and_run_terminals(tmp_path: Path) -> None:
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
     )
-    experiment = (
-        lab.experiment("terminal signal scan")
-        .entity("qubit", "q0")
-        .scan(DRIVE_FREQUENCY_POINT, span="200 MHz", points=3)
-        .resource("source", requires=("scalar_signal",))
-        .measure("signal", resource="source", capability="scalar_signal")
-    )
+    signal = _workspace_signal_module(subject="q0")
 
-    preview = experiment.preview()
-    run = experiment.run(name="terminal signal scan")
+    @sc.scratch(id="workspace.terminal-signal-scan", kind="signal-scan")
+    def experiment() -> sc.ExperimentBody:
+        return (
+            sc.experiment(signal)
+            .scan(DRIVE_FREQUENCY_POINT, span="200 MHz", points=3)
+            .record_product(signal.products.signal, record_id="signal")
+        )
+
+    prepared = lab.prepare(experiment())
+    preview = prepared.preview()
+    run = prepared.run(name="terminal signal scan")
 
     assert preview.point_count == 3
     assert run.manifest.status == "completed"
@@ -639,17 +706,22 @@ def test_invocation_scan_overrides_axis_inside_default_zip_group(
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
     )
-    template = (
-        SIMPLE_MODULE.template("test.default_zip_override", kind="default_zip_override")
-        .experiment_id("default-zip-override")
-        .input("subject")
-        .scan(
+
+    @sc.template(id="test.default_zip_override", kind="default_zip_override")
+    def template_definition(
+        subject: Annotated[
+            sc.Input[sc.EntityRef | str],
+            SIMPLE_MODULE.input_ports[0].value_type,
+        ],
+    ) -> sc.ExperimentBody:
+        return sc.experiment(SIMPLE_MODULE(subject=subject)).scan(
             sc.zip(
                 sc.axis(DRIVE_FREQUENCY_POINT, [4.9, 5.0], unit="GHz"),
                 sc.axis(PHASE_OFFSET_POINT, [0.0, 0.5], unit="rad"),
             )
         )
-    )
+
+    template = template_definition
 
     preview = (
         lab.prepare(template)
@@ -681,15 +753,24 @@ def test_implicit_around_override_of_values_default_uses_active_center(
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
     )
-    template = (
-        SIMPLE_MODULE.template(
-            "test.values_default_active_override",
-            kind="values_default_active_override",
-        )
-        .experiment_id("values-default-active-override")
-        .input("subject")
-        .scan(DRIVE_FREQUENCY_POINT, [4.9, 5.0], unit="GHz")
+
+    @sc.template(
+        id="test.values_default_active_override",
+        kind="values_default_active_override",
     )
+    def template_definition(
+        subject: Annotated[
+            sc.Input[sc.EntityRef | str],
+            SIMPLE_MODULE.input_ports[0].value_type,
+        ],
+    ) -> sc.ExperimentBody:
+        return sc.experiment(SIMPLE_MODULE(subject=subject)).scan(
+            DRIVE_FREQUENCY_POINT,
+            [4.9, 5.0],
+            unit="GHz",
+        )
+
+    template = template_definition
 
     preview = (
         lab.prepare(template)
@@ -713,12 +794,21 @@ def test_invocation_scan_group_rejects_mixed_default_override(
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
     )
-    template = (
-        SIMPLE_MODULE.template("test.mixed_scan_override", kind="mixed_scan_override")
-        .experiment_id("mixed-scan-override")
-        .input("subject")
-        .scan(DRIVE_FREQUENCY_POINT, [4.9, 5.0], unit="GHz")
-    )
+
+    @sc.template(id="test.mixed_scan_override", kind="mixed_scan_override")
+    def template_definition(
+        subject: Annotated[
+            sc.Input[sc.EntityRef | str],
+            SIMPLE_MODULE.input_ports[0].value_type,
+        ],
+    ) -> sc.ExperimentBody:
+        return sc.experiment(SIMPLE_MODULE(subject=subject)).scan(
+            DRIVE_FREQUENCY_POINT,
+            [4.9, 5.0],
+            unit="GHz",
+        )
+
+    template = template_definition
 
     with pytest.raises(CheckFailed) as error:
         (
@@ -736,7 +826,7 @@ def test_invocation_scan_group_rejects_mixed_default_override(
     assert error.value.problems[0].code == "scan_group_mixed_override"
 
 
-def test_workspace_experiment_supports_active_center_scan(
+def test_scratch_supports_active_center_scan(
     tmp_path: Path,
 ) -> None:
     lab = sc.open(
@@ -744,14 +834,17 @@ def test_workspace_experiment_supports_active_center_scan(
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
     )
-    experiment = (
-        lab.experiment("active centered scan")
-        .scan(DRIVE_FREQUENCY_POINT, span="200 MHz", points=3)
-        .resource("source", requires=("scalar_signal",))
-        .measure("signal", resource="source", capability="scalar_signal")
-    )
+    signal = _workspace_signal_module(subject="q0")
 
-    preview = experiment.preview()
+    @sc.scratch(id="workspace.active-centered-scan", kind="signal-scan")
+    def experiment() -> sc.ExperimentBody:
+        return (
+            sc.experiment(signal)
+            .scan(DRIVE_FREQUENCY_POINT, span="200 MHz", points=3)
+            .record_product(signal.products.signal, record_id="signal")
+        )
+
+    preview = lab.prepare(experiment()).preview()
 
     planned_frequencies = [
         point.coordinates["drive_frequency"] for point in preview.points
@@ -763,7 +856,7 @@ def test_workspace_experiment_supports_active_center_scan(
     ]
 
 
-def test_workspace_experiment_defines_complete_experiment(
+def test_scratch_defines_complete_experiment(
     tmp_path: Path,
 ) -> None:
     lab = sc.open(
@@ -771,21 +864,19 @@ def test_workspace_experiment_defines_complete_experiment(
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
     )
-    experiment = (
-        lab.experiment("complete scripted scan")
-        .resource("source", requires=("set_frequency", "scalar_signal"))
-        .scan(DRIVE_FREQUENCY_POINT, span="200 MHz", points=3)
-        .bind_field(
-            "source",
-            capability="set_frequency",
-            field="frequency",
-            value=DRIVE_FREQUENCY_POINT,
-        )
-        .record("signal", resource="source", capability="scalar_signal")
-    )
+    signal = _workspace_signal_module(subject="q0")
 
-    preview = experiment.preview()
-    run = experiment.run()
+    @sc.scratch(id="workspace.complete-scripted-scan", kind="signal-scan")
+    def experiment() -> sc.ExperimentBody:
+        return (
+            sc.experiment(signal)
+            .scan(DRIVE_FREQUENCY_POINT, span="200 MHz", points=3)
+            .record_product(signal.products.signal, record_id="signal")
+        )
+
+    prepared = lab.prepare(experiment())
+    preview = prepared.preview()
+    run = prepared.run()
 
     assert run.manifest.status == "completed"
     assert preview.point_count == 3
@@ -793,7 +884,7 @@ def test_workspace_experiment_defines_complete_experiment(
     assert [record.id for record in preview.records] == ["signal"]
 
 
-def test_workspace_module_can_be_composed(
+def test_scratch_can_compose_module(
     tmp_path: Path,
 ) -> None:
     lab = sc.open(
@@ -801,68 +892,72 @@ def test_workspace_module_can_be_composed(
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
     )
-    drive_frequency = sc.input(
-        "drive_frequency",
-        sc.ScalarType(sc.QuantityType()),
-    )
-    signal_scan = (
-        sc.module("workspace.signal_scan")
-        .inputs(drive_frequency)
-        .resource("source", requires=("set_frequency", "scalar_signal"))
-        .bind_field(
-            "source",
-            capability="set_frequency",
-            field="frequency",
-            value=drive_frequency,
+
+    @sc.module(id="workspace.signal-scan")
+    def signal_scan(
+        drive_frequency: Annotated[
+            sc.Input[Quantity],
+            sc.ScalarType(sc.QuantityType()),
+        ],
+    ) -> sc.ModuleBuilder:
+        return (
+            sc.module_body()
+            .resource("source", requires=("set_frequency", "scalar_signal"))
+            .bind_field(
+                "source",
+                capability="set_frequency",
+                field="frequency",
+                value=drive_frequency,
+            )
+            .product("signal")
+            .acquire(
+                "read-signal",
+                "signal",
+                resource="source",
+                capability="scalar_signal",
+            )
         )
-        .product("signal")
-        .acquire(
-            "read-signal",
-            "signal",
-            resource="source",
-            capability="scalar_signal",
-        )
-        .build()
-    )
-    signal_scan_instance = signal_scan.instantiate(
+
+    signal_scan_call = signal_scan.instantiate(
         "signal-scan",
         drive_frequency=DRIVE_FREQUENCY_POINT,
     )
 
-    run = (
-        lab.experiment("composed signal scan")
-        .use(signal_scan_instance)
-        .scan(DRIVE_FREQUENCY_POINT, span="200 MHz", points=3)
-        .record_product(signal_scan_instance.products.signal, record_id="signal")
-        .run()
-    )
+    @sc.scratch(id="workspace.composed-signal-scan", kind="signal-scan")
+    def experiment() -> sc.ExperimentBody:
+        return (
+            sc.experiment(signal_scan_call)
+            .scan(DRIVE_FREQUENCY_POINT, span="200 MHz", points=3)
+            .record_product(signal_scan_call.products.signal, record_id="signal")
+        )
+
+    run = lab.prepare(experiment()).run()
 
     assert run.manifest.status == "completed"
     assert run.request is not None
-    assert run.request.template_inputs["name"] == "composed signal scan"
+    assert run.request.template_id == "workspace.composed-signal-scan"
 
 
-def test_workspace_preserves_nominal_product_refs(tmp_path: Path) -> None:
-    lab = sc.open(tmp_path, config_profile=EXAMPLE_DIR / "config-profile.json")
-    definition = sc.module("workspace.nominal-product").product("signal").build()
+def test_scratch_preserves_nominal_product_refs() -> None:
+    @sc.module(id="workspace.nominal-product")
+    def definition() -> sc.ModuleBuilder:
+        return sc.module_body().product("signal")
+
     foreign = definition.instantiate("same")
     selected = definition.instantiate("same")
 
-    accepted = (
-        lab.experiment("accepted nominal product")
-        .use(selected)
-        .record_product(selected.products.signal)
-        .to_invocation()
-    )
-    assert accepted.template.record_selections[0].product_origin is not None
+    @sc.scratch(id="workspace.accepted-product", kind="nominal-product")
+    def accepted() -> sc.ExperimentBody:
+        return sc.experiment(selected).record_product(selected.products.signal)
+
+    assert accepted().template.record_selections[0].product_origin is not None
+
+    @sc.scratch(id="workspace.foreign-product", kind="nominal-product")
+    def invalid() -> sc.ExperimentBody:
+        return sc.experiment(selected).record_product(foreign.products.signal)
 
     with pytest.raises(CheckFailed) as error:
-        (
-            lab.experiment("foreign nominal product")
-            .use(selected)
-            .record_product(foreign.products.signal)
-            .to_invocation()
-        )
+        invalid()
 
     assert [problem.code for problem in error.value.problems] == [
         "module_product_foreign_instance"

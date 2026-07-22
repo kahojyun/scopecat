@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
+from scopecat.authoring._products import ProductRef
 from scopecat.kernel.product_identity import ProductId, product_id
 from scopecat.kernel.symbols import SymbolId
 from scopecat.measurements.semantics import MeasurementTransformSemanticContract
@@ -19,6 +20,17 @@ class MeasurementTransform:
     input_bindings: tuple[tuple[str, ProductId], ...] = ()
     output_bindings: tuple[tuple[str, ProductId], ...] = ()
     scope: tuple[str, ...] = ()
+    # Origins are authoring-only; compiler bindings remain plain ProductIds.
+    input_product_origins: tuple[tuple[str, tuple[object, ...]], ...] = field(
+        default=(),
+        repr=False,
+        compare=False,
+    )
+    output_product_origins: tuple[tuple[str, tuple[object, ...]], ...] = field(
+        default=(),
+        repr=False,
+        compare=False,
+    )
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -51,28 +63,40 @@ def measurement_transform(
     id: str,  # noqa: A002
     *,
     semantic: MeasurementTransformSemanticContract,
-    inputs: Mapping[str, str] | None = None,
-    outputs: Mapping[str, str],
+    inputs: Mapping[str, str | ProductRef] | None = None,
+    outputs: Mapping[str, str | ProductRef],
 ) -> MeasurementTransform:
-    """Declare one ordered pure transform over module-local product names."""
+    """Declare one ordered pure transform over products visible to a module."""
 
     selected_inputs = inputs or {}
     for label, bindings in (("inputs", selected_inputs), ("outputs", outputs)):
-        if any(not role or not product_name for role, product_name in bindings.items()):
+        if any(
+            not role or (isinstance(product, str) and not product)
+            for role, product in bindings.items()
+        ):
             msg = (
-                f"measurement transform {label} require non-empty role and "
-                "local product ids"
+                f"measurement transform {label} require non-empty role and product ids"
             )
             raise ValueError(msg)
     return MeasurementTransform(
         id=id,
         semantic=semantic,
         input_bindings=tuple(
-            (role, product_id(product_name))
-            for role, product_name in selected_inputs.items()
+            (role, _binding_product_id(product))
+            for role, product in selected_inputs.items()
         ),
         output_bindings=tuple(
-            (role, product_id(product_name)) for role, product_name in outputs.items()
+            (role, _binding_product_id(product)) for role, product in outputs.items()
+        ),
+        input_product_origins=tuple(
+            (role, product.origin)
+            for role, product in selected_inputs.items()
+            if isinstance(product, ProductRef)
+        ),
+        output_product_origins=tuple(
+            (role, product.origin)
+            for role, product in outputs.items()
+            if isinstance(product, ProductRef)
         ),
     )
 
@@ -80,3 +104,9 @@ def measurement_transform(
 def _require_unique(label: str, values: tuple[str, ...]) -> None:
     if len(values) != len(set(values)):
         raise ValueError(f"{label} roles must be unique")
+
+
+def _binding_product_id(product: str | ProductRef) -> ProductId:
+    return (
+        product.product_id if isinstance(product, ProductRef) else product_id(product)
+    )

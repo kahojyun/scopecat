@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Annotated, cast
+
 import scopecat as sc
 
 from quantum_lab_demo.experiments.compute import (
@@ -10,9 +12,7 @@ from quantum_lab_demo.experiments.compute import (
     render_rabi_waveforms,
     render_simultaneous_rabi_waveforms,
 )
-from quantum_lab_demo.experiments.ids import (
-    RABI_TEMPLATE_ID,
-)
+from quantum_lab_demo.experiments.ids import RABI_TEMPLATE_ID
 from quantum_lab_demo.experiments.parameter_refs import qubit_param
 from quantum_lab_demo.experiments.points import DRIVE_LENGTH
 
@@ -20,132 +20,128 @@ _QUBIT = sc.ScalarType(sc.EntityType(entity_kind="logical_qubit"))
 _QUBIT_SERIES = sc.SeriesType(_QUBIT)
 _QUANTITY = sc.ScalarType(sc.QuantityType())
 
-_RABI_QUBIT = sc.input("qubit", _QUBIT)
-_BUILD_RABI_SEQUENCE = sc.compute(
-    "build-rabi-gate-sequence",
-    fn=build_rabi_gate_sequence,
-    inputs={
-        "qubit": _RABI_QUBIT,
-        "length": DRIVE_LENGTH,
-        "amplitude": qubit_param("rabi_drive_amplitude", _RABI_QUBIT),
-        "frequency": qubit_param("drive_frequency", _RABI_QUBIT),
-    },
-    output_type=sc.ScalarType(sc.PayloadType("quantum_lab_demo.rabi.gate_sequence")),
-)
-_RENDER_RABI_WAVEFORMS = sc.compute(
-    "render-rabi-waveforms",
-    fn=render_rabi_waveforms,
-    output_type=sc.ScalarType(sc.PayloadType("pulse_program")),
-    inputs={
-        "program": _BUILD_RABI_SEQUENCE.output,
-    },
-)
 
-RABI_MODULE = (
-    sc.module(RABI_TEMPLATE_ID)
-    .inputs(_RABI_QUBIT)
-    .resource(
-        "drive",
-        requires=("play_pulse_program",),
-        for_entities=(_RABI_QUBIT,),
+@sc.module(id=RABI_TEMPLATE_ID)
+def RABI_MODULE(
+    qubit: Annotated[sc.Input[str], _QUBIT],
+):
+    qubit_ref = cast("sc.ValueRef", qubit)
+    build_sequence = sc.compute(
+        "build-rabi-gate-sequence",
+        fn=build_rabi_gate_sequence,
+        inputs={
+            "qubit": qubit_ref,
+            "length": DRIVE_LENGTH,
+            "amplitude": qubit_param("rabi_drive_amplitude", qubit_ref),
+            "frequency": qubit_param("drive_frequency", qubit_ref),
+        },
+        output_type=sc.ScalarType(
+            sc.PayloadType("quantum_lab_demo.rabi.gate_sequence")
+        ),
     )
-    .computes(_BUILD_RABI_SEQUENCE, _RENDER_RABI_WAVEFORMS)
-    .bind_field(
-        "drive",
-        capability="play_pulse_program",
-        field="program",
-        value=_RENDER_RABI_WAVEFORMS.output,
+    render_waveforms = sc.compute(
+        "render-rabi-waveforms",
+        fn=render_rabi_waveforms,
+        output_type=sc.ScalarType(sc.PayloadType("pulse_program")),
+        inputs={"program": build_sequence.output},
     )
-    .bind_field(
-        "drive",
-        capability="play_pulse_program",
-        field="length",
-        value=DRIVE_LENGTH,
+    return (
+        sc.module_body()
+        .resource(
+            "drive",
+            requires=("play_pulse_program",),
+            for_entities=(qubit_ref,),
+        )
+        .computes(build_sequence, render_waveforms)
+        .bind_field(
+            "drive",
+            capability="play_pulse_program",
+            field="program",
+            value=render_waveforms.output,
+        )
+        .bind_field(
+            "drive",
+            capability="play_pulse_program",
+            field="length",
+            value=DRIVE_LENGTH,
+        )
+        .bind_field(
+            "drive",
+            capability="play_pulse_program",
+            field="amplitude",
+            value=qubit_param("rabi_drive_amplitude", qubit_ref),
+        )
+        .bind_field(
+            "drive",
+            capability="play_pulse_program",
+            field="frequency",
+            value=qubit_param("drive_frequency", qubit_ref),
+        )
     )
-    .bind_field(
-        "drive",
-        capability="play_pulse_program",
-        field="amplitude",
-        value=qubit_param("rabi_drive_amplitude", _RABI_QUBIT),
-    )
-    .bind_field(
-        "drive",
-        capability="play_pulse_program",
-        field="frequency",
-        value=qubit_param("drive_frequency", _RABI_QUBIT),
-    )
-    .build()
-)
 
-_SIMULTANEOUS_QUBITS = sc.input("qubits", _QUBIT_SERIES)
-_SIMULTANEOUS_DRIVE_AMPLITUDE = sc.input("drive_amplitude", _QUANTITY)
-_SIMULTANEOUS_DRIVE_FREQUENCY = sc.input("drive_frequency", _QUANTITY)
-_BUILD_SIMULTANEOUS_RABI_SEQUENCE = sc.compute(
-    "build-simultaneous-rabi-gate-sequence",
-    fn=build_simultaneous_rabi_gate_sequence,
-    inputs={
-        "qubits": _SIMULTANEOUS_QUBITS,
-        "length": DRIVE_LENGTH,
-        "amplitude": _SIMULTANEOUS_DRIVE_AMPLITUDE,
-        "frequency": _SIMULTANEOUS_DRIVE_FREQUENCY,
-    },
-    output_type=sc.ScalarType(
-        sc.PayloadType("quantum_lab_demo.simultaneous_rabi.gate_sequence")
-    ),
-)
-_RENDER_SIMULTANEOUS_RABI_WAVEFORMS = sc.compute(
-    "render-simultaneous-rabi-waveforms",
-    fn=render_simultaneous_rabi_waveforms,
-    output_type=sc.ScalarType(sc.PayloadType("pulse_program")),
-    inputs={
-        "program": _BUILD_SIMULTANEOUS_RABI_SEQUENCE.output,
-    },
-)
 
-SIMULTANEOUS_RABI_MODULE = (
-    sc.module(
-        "quantum_lab_demo.experiments.rabi.simultaneous",
+@sc.module(id="quantum_lab_demo.experiments.rabi.simultaneous")
+def SIMULTANEOUS_RABI_MODULE(
+    qubits: Annotated[sc.Input[tuple[str, ...]], _QUBIT_SERIES],
+    drive_amplitude: Annotated[sc.Input[sc.Quantity], _QUANTITY],
+    drive_frequency: Annotated[sc.Input[sc.Quantity], _QUANTITY],
+):
+    qubits_ref = cast("sc.ValueRef", qubits)
+    drive_amplitude_ref = cast("sc.ValueRef", drive_amplitude)
+    drive_frequency_ref = cast("sc.ValueRef", drive_frequency)
+    build_sequence = sc.compute(
+        "build-simultaneous-rabi-gate-sequence",
+        fn=build_simultaneous_rabi_gate_sequence,
+        inputs={
+            "qubits": qubits_ref,
+            "length": DRIVE_LENGTH,
+            "amplitude": drive_amplitude_ref,
+            "frequency": drive_frequency_ref,
+        },
+        output_type=sc.ScalarType(
+            sc.PayloadType("quantum_lab_demo.simultaneous_rabi.gate_sequence")
+        ),
     )
-    .inputs(
-        _SIMULTANEOUS_QUBITS,
-        _SIMULTANEOUS_DRIVE_AMPLITUDE,
-        _SIMULTANEOUS_DRIVE_FREQUENCY,
+    render_waveforms = sc.compute(
+        "render-simultaneous-rabi-waveforms",
+        fn=render_simultaneous_rabi_waveforms,
+        output_type=sc.ScalarType(sc.PayloadType("pulse_program")),
+        inputs={"program": build_sequence.output},
     )
-    .resource(
-        "drive",
-        requires=("play_pulse_program",),
-        for_entities=(_SIMULTANEOUS_QUBITS,),
+    return (
+        sc.module_body()
+        .resource(
+            "drive",
+            requires=("play_pulse_program",),
+            for_entities=(qubits_ref,),
+        )
+        .computes(build_sequence, render_waveforms)
+        .bind_field(
+            "drive",
+            capability="play_pulse_program",
+            field="program",
+            value=render_waveforms.output,
+        )
+        .bind_field(
+            "drive",
+            capability="play_pulse_program",
+            field="length",
+            value=DRIVE_LENGTH,
+        )
+        .bind_field(
+            "drive",
+            capability="play_pulse_program",
+            field="amplitude",
+            value=drive_amplitude_ref,
+        )
+        .bind_field(
+            "drive",
+            capability="play_pulse_program",
+            field="frequency",
+            value=drive_frequency_ref,
+        )
     )
-    .computes(
-        _BUILD_SIMULTANEOUS_RABI_SEQUENCE,
-        _RENDER_SIMULTANEOUS_RABI_WAVEFORMS,
-    )
-    .bind_field(
-        "drive",
-        capability="play_pulse_program",
-        field="program",
-        value=_RENDER_SIMULTANEOUS_RABI_WAVEFORMS.output,
-    )
-    .bind_field(
-        "drive",
-        capability="play_pulse_program",
-        field="length",
-        value=DRIVE_LENGTH,
-    )
-    .bind_field(
-        "drive",
-        capability="play_pulse_program",
-        field="amplitude",
-        value=_SIMULTANEOUS_DRIVE_AMPLITUDE,
-    )
-    .bind_field(
-        "drive",
-        capability="play_pulse_program",
-        field="frequency",
-        value=_SIMULTANEOUS_DRIVE_FREQUENCY,
-    )
-    .build()
-)
+
 
 __all__ = [
     "RABI_MODULE",

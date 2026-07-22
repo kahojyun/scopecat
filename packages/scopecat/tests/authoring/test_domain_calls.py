@@ -14,7 +14,7 @@ from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.planning.authoring import resolve_experiment
-from tests.testkit.authoring import load_config
+from tests.testkit.authoring import load_config, template_fixture
 
 
 def _domain_module() -> tuple[sc.ExperimentModule, sc.DomainProgramDef, object]:
@@ -29,7 +29,7 @@ def _domain_module() -> tuple[sc.ExperimentModule, sc.DomainProgramDef, object]:
         results={"counts": {"kind": "counts"}},
     )
     module = (
-        sc.module("test.domain.child")
+        sc.module_body(id="test.domain.child")
         .inputs(sc.input("x_count", value_type))
         .product("counts", unit="count", dtype="int64")
         .build()
@@ -39,7 +39,7 @@ def _domain_module() -> tuple[sc.ExperimentModule, sc.DomainProgramDef, object]:
 
 def test_domain_execution_rejects_unknown_or_missing_bindings() -> None:
     value_type = sc.ScalarType(sc.IntType())
-    product_module = sc.module("test.domain.products").product("result").build()
+    product_module = sc.module_body(id="test.domain.products").product("result").build()
     program = sc.domain_program(
         "program",
         dialect_id="test",
@@ -73,7 +73,7 @@ def test_domain_execution_binds_declared_resource_roles_and_source_anchor() -> N
         resources={"controller": ("run-program",)},
     )
     builder = (
-        sc.module("test.domain.resources")
+        sc.module_body(id="test.domain.resources")
         .resource("controller", requires=("run-program",))
         .product("counts", unit="count", dtype="int64")
     )
@@ -103,7 +103,7 @@ def test_domain_resource_role_checks_module_capabilities() -> None:
         body=object(),
         resources={"controller": ("run-program",)},
     )
-    builder = sc.module("test.domain.bad-resource").resource("controller")
+    builder = sc.module_body(id="test.domain.bad-resource").resource("controller")
     execution = sc.domain_execution(
         program,
         resources={"controller": "controller"},
@@ -146,8 +146,8 @@ def test_domain_execution_must_bind_a_product_from_the_template_module() -> None
         body=object(),
         results={"result": None},
     )
-    local = sc.module("test.domain.local").product("result").build()
-    foreign = sc.module("test.domain.foreign").product("result").build()
+    local = sc.module_body(id="test.domain.local").product("result").build()
+    foreign = sc.module_body(id="test.domain.foreign").product("result").build()
     execution = sc.domain_execution(
         program,
         results={"result": foreign.products["result"]},
@@ -169,8 +169,10 @@ def test_module_preserves_ordered_domain_executions() -> None:
     )
     first = sc.domain_execution(program, id="first")
     second = sc.domain_execution(program, id="second")
-    module = sc.module("test.domain.single").domain(first).domain(second).build()
-    template = module.template("test.domain", kind="test").build()
+    module = (
+        sc.module_body(id="test.domain.single").domain(first).domain(second).build()
+    )
+    template = template_fixture(module, id="test.domain", kind="test")
 
     assert tuple(call.id for call in template.module.domain_executions) == (
         "first",
@@ -186,7 +188,7 @@ def test_composed_domain_effects_are_scoped_per_module_instance() -> None:
         body=object(),
         results={"result": None},
     )
-    base = sc.module("test.domain.reusable").product("result").build()
+    base = sc.module_body(id="test.domain.reusable").product("result").build()
     child = base.domain(
         sc.domain_execution(
             program,
@@ -196,7 +198,7 @@ def test_composed_domain_effects_are_scoped_per_module_instance() -> None:
     )
     right = child.instantiate("right")
     left = child.instantiate("left")
-    root = sc.module("test.domain.composed").use(right, left).build()
+    root = sc.module_body(id="test.domain.composed").use(right, left).build()
 
     assembly = elaborate_module(root)
 
@@ -225,7 +227,7 @@ def test_domain_execution_rejects_execute_stage_compute_input() -> None:
         results={"result": None},
     )
     base = (
-        sc.module("test.domain.execute-input")
+        sc.module_body(id="test.domain.execute-input")
         .computes(compute)
         .product("result")
         .build()
@@ -251,14 +253,17 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
     wrapper_x_count = sc.input("x_count", sc.ScalarType(sc.IntType(minimum=0)))
     inner = child.instantiate("inner", x_count=wrapper_x_count)
     wrapper = (
-        sc.module("test.domain.wrapper").inputs(wrapper_x_count).use(inner).build()
+        sc.module_body(id="test.domain.wrapper")
+        .inputs(wrapper_x_count)
+        .use(inner)
+        .build()
     )
     point_x_count = sc.point(
         "x_count",
         sc.ScalarType(sc.IntType(minimum=0)),
     )
     outer = wrapper.instantiate("outer", x_count=point_x_count)
-    root = sc.module("test.domain.root").use(outer).build()
+    root = sc.module_body(id="test.domain.root").use(outer).build()
     selected_product = outer.products["inner/counts"]
     execution = sc.domain_execution(
         program,
@@ -275,12 +280,15 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
         "outer/inner/counts"
     )
 
-    template = (
-        root.template("test.domain", kind="domain")
-        .scan(sc.axis(point_x_count, (1, 2)))
-        .record_product(selected_product, record_id="counts_first")
-        .record_product(selected_product, record_id="counts_second")
-        .build()
+    template = template_fixture(
+        root,
+        id="test.domain",
+        kind="domain",
+        scans=(sc.axis(point_x_count, (1, 2)),),
+        records=(
+            sc.record_product(selected_product, record_id="counts_first"),
+            sc.record_product(selected_product, record_id="counts_second"),
+        ),
     )
     resolved = resolve_experiment(
         template.bind(),
@@ -315,7 +323,7 @@ def test_domain_literal_input_namespace_does_not_collide_with_compute() -> None:
         results={"result": None},
     )
     base = (
-        sc.module("test.domain.literal-namespace")
+        sc.module_body(id="test.domain.literal-namespace")
         .computes(compute)
         .product("result")
         .build()

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Annotated, cast
+
 import scopecat as sc
 
 from quantum_lab_demo.experiments.compute import (
@@ -21,265 +23,273 @@ _QUBIT_SERIES = sc.SeriesType(_QUBIT)
 _QUANTITY = sc.ScalarType(sc.QuantityType())
 _POSITIVE_INT = sc.ScalarType(sc.IntType(minimum=1))
 
-READOUT_CAPTURE_MODULE = (
-    sc.module("quantum_lab_demo.experiments.readout.capture")
-    .resource(
-        "readout",
-        requires=("acquire_iq",),
-    )
-    .bind_field(
-        "readout",
-        capability="acquire_iq",
-        field="repetitions",
-        value=sc.parameter("repetitions", _QUANTITY),
-    )
-    .product("raw_iq", unit="ratio", dtype="complex128")
-    .product("probability_0", "probability_1", unit=None)
-    .product("state0_iq", unit="ratio", dtype="complex128")
-    .product("state1_iq", unit="ratio", dtype="complex128")
-    .product("state0_iq_stdev", unit=None)
-    .product("state1_iq_stdev", unit=None)
-    .acquire(
-        "read-capture",
-        "raw_iq",
-        "probability_0",
-        "probability_1",
-        "state0_iq",
-        "state1_iq",
-        "state0_iq_stdev",
-        "state1_iq_stdev",
-        resource="readout",
-        capability="acquire_iq",
-    )
-    .build()
-)
 
-_READOUT_QUBIT = sc.input("qubit", _QUBIT)
-_BUILD_READOUT_PROGRAM = sc.compute(
-    "build-readout-frequency-program",
-    fn=build_readout_program,
-    output_type=sc.ScalarType(sc.PayloadType("readout_program")),
-    inputs={
-        "qubit": _READOUT_QUBIT,
-        "frequency": READOUT_FREQUENCY,
-        "power": qubit_param("readout_power", _READOUT_QUBIT),
-    },
-)
+@sc.module(id="quantum_lab_demo.experiments.readout.capture")
+def READOUT_CAPTURE_MODULE():
+    return (
+        sc.module_body()
+        .resource(
+            "readout",
+            requires=("acquire_iq",),
+        )
+        .bind_field(
+            "readout",
+            capability="acquire_iq",
+            field="repetitions",
+            value=sc.parameter("repetitions", _QUANTITY),
+        )
+        .product("raw_iq", unit="ratio", dtype="complex128")
+        .product("probability_0", "probability_1", unit=None)
+        .product("state0_iq", unit="ratio", dtype="complex128")
+        .product("state1_iq", unit="ratio", dtype="complex128")
+        .product("state0_iq_stdev", unit=None)
+        .product("state1_iq_stdev", unit=None)
+        .acquire(
+            "read-capture",
+            "raw_iq",
+            "probability_0",
+            "probability_1",
+            "state0_iq",
+            "state1_iq",
+            "state0_iq_stdev",
+            "state1_iq_stdev",
+            resource="readout",
+            capability="acquire_iq",
+        )
+    )
 
-READOUT_MODULE = (
-    sc.module(READOUT_TEMPLATE_ID)
-    .inputs(_READOUT_QUBIT)
-    .resource(
-        "readout",
-        requires=("readout_pulse", "acquire_iq"),
-        for_entities=(_READOUT_QUBIT,),
-    )
-    .computes(_BUILD_READOUT_PROGRAM)
-    .bind_field(
-        "readout",
-        capability="readout_pulse",
-        field="program",
-        value=_BUILD_READOUT_PROGRAM.output,
-    )
-    .bind_field(
-        "readout",
-        capability="readout_pulse",
-        field="frequency",
-        value=READOUT_FREQUENCY,
-    )
-    .bind_field(
-        "readout",
-        capability="readout_pulse",
-        field="power",
-        value=qubit_param("readout_power", _READOUT_QUBIT),
-    )
-    .bind_field(
-        "readout",
-        capability="acquire_iq",
-        field="repetitions",
-        value=sc.parameter("repetitions", _QUANTITY),
-    )
-    .product("raw_iq", unit="ratio", dtype="complex128")
-    .product("state0_iq", unit="ratio", dtype="complex128")
-    .product("state1_iq", unit="ratio", dtype="complex128")
-    .product("state0_iq_stdev", unit=None)
-    .product("state1_iq_stdev", unit=None)
-    .acquire(
-        "read-iq",
-        "raw_iq",
-        "state0_iq",
-        "state1_iq",
-        "state0_iq_stdev",
-        "state1_iq_stdev",
-        resource="readout",
-        capability="acquire_iq",
-    )
-    .build()
-)
 
-_MULTIPLEXED_QUBITS = sc.input("qubits", _QUBIT_SERIES)
-_MULTIPLEXED_POWER = sc.input("readout_power", _QUANTITY)
-_BUILD_MULTIPLEXED_READOUT_PROGRAM = sc.compute(
-    "build-multiplexed-readout-program",
-    fn=build_multiplexed_readout_program,
-    output_type=sc.ScalarType(sc.PayloadType("readout_program")),
-    inputs={
-        "qubits": _MULTIPLEXED_QUBITS,
-        "frequency": READOUT_FREQUENCY,
-        "power": _MULTIPLEXED_POWER,
-    },
-)
+@sc.module(id=READOUT_TEMPLATE_ID)
+def READOUT_MODULE(
+    qubit: Annotated[sc.Input[str], _QUBIT],
+):
+    qubit_ref = cast("sc.ValueRef", qubit)
+    build_program = sc.compute(
+        "build-readout-frequency-program",
+        fn=build_readout_program,
+        output_type=sc.ScalarType(sc.PayloadType("readout_program")),
+        inputs={
+            "qubit": qubit_ref,
+            "frequency": READOUT_FREQUENCY,
+            "power": qubit_param("readout_power", qubit_ref),
+        },
+    )
+    return (
+        sc.module_body()
+        .resource(
+            "readout",
+            requires=("readout_pulse", "acquire_iq"),
+            for_entities=(qubit_ref,),
+        )
+        .computes(build_program)
+        .bind_field(
+            "readout",
+            capability="readout_pulse",
+            field="program",
+            value=build_program.output,
+        )
+        .bind_field(
+            "readout",
+            capability="readout_pulse",
+            field="frequency",
+            value=READOUT_FREQUENCY,
+        )
+        .bind_field(
+            "readout",
+            capability="readout_pulse",
+            field="power",
+            value=qubit_param("readout_power", qubit_ref),
+        )
+        .bind_field(
+            "readout",
+            capability="acquire_iq",
+            field="repetitions",
+            value=sc.parameter("repetitions", _QUANTITY),
+        )
+        .product("raw_iq", unit="ratio", dtype="complex128")
+        .product("state0_iq", unit="ratio", dtype="complex128")
+        .product("state1_iq", unit="ratio", dtype="complex128")
+        .product("state0_iq_stdev", unit=None)
+        .product("state1_iq_stdev", unit=None)
+        .acquire(
+            "read-iq",
+            "raw_iq",
+            "state0_iq",
+            "state1_iq",
+            "state0_iq_stdev",
+            "state1_iq_stdev",
+            resource="readout",
+            capability="acquire_iq",
+        )
+    )
 
-MULTIPLEXED_READOUT_PULSE_MODULE = (
-    sc.module(
-        "quantum_lab_demo.experiments.readout.multiplexed_pulse",
-    )
-    .inputs(_MULTIPLEXED_QUBITS, _MULTIPLEXED_POWER)
-    .resource(
-        "readout",
-        requires=("readout_pulse", "acquire_iq"),
-        for_entities=(_MULTIPLEXED_QUBITS,),
-    )
-    .computes(_BUILD_MULTIPLEXED_READOUT_PROGRAM)
-    .bind_field(
-        "readout",
-        capability="readout_pulse",
-        field="program",
-        value=_BUILD_MULTIPLEXED_READOUT_PROGRAM.output,
-    )
-    .bind_field(
-        "readout",
-        capability="readout_pulse",
-        field="frequency",
-        value=READOUT_FREQUENCY,
-    )
-    .bind_field(
-        "readout",
-        capability="readout_pulse",
-        field="power",
-        value=_MULTIPLEXED_POWER,
-    )
-    .bind_field(
-        "readout",
-        capability="acquire_iq",
-        field="repetitions",
-        value=sc.parameter("repetitions", _QUANTITY),
-    )
-    .product(
-        "multiplexed_iq",
-        unit="ratio",
-        dtype="complex128",
-        axes=(sc.entity_axis("qubit", _MULTIPLEXED_QUBITS),),
-    )
-    .acquire(
-        "read-multiplexed-iq",
-        "multiplexed_iq",
-        resource="readout",
-        capability="acquire_iq",
-    )
-    .build()
-)
 
-_QND_QUBIT = sc.input("qubit", _QUBIT)
-_QND_ROUNDS = sc.input("rounds", _POSITIVE_INT)
-_QND_SHOTS = sc.input("shots", _POSITIVE_INT)
-_BUILD_REPEATED_MEASUREMENT_PROGRAM = sc.compute(
-    "build-repeated-measurement-program",
-    fn=build_repeated_measurement_program,
-    output_type=sc.ScalarType(sc.PayloadType("readout_program")),
-    inputs={
-        "qubit": _QND_QUBIT,
-        "rounds": _QND_ROUNDS,
-        "shots": _QND_SHOTS,
-        "readout_frequency": qubit_param("readout_frequency", _QND_QUBIT),
-    },
-)
+@sc.module(id="quantum_lab_demo.experiments.readout.multiplexed_pulse")
+def MULTIPLEXED_READOUT_PULSE_MODULE(
+    qubits: Annotated[sc.Input[tuple[str, ...]], _QUBIT_SERIES],
+    readout_power: Annotated[sc.Input[sc.Quantity], _QUANTITY],
+):
+    qubits_ref = cast("sc.ValueRef", qubits)
+    readout_power_ref = cast("sc.ValueRef", readout_power)
+    build_program = sc.compute(
+        "build-multiplexed-readout-program",
+        fn=build_multiplexed_readout_program,
+        output_type=sc.ScalarType(sc.PayloadType("readout_program")),
+        inputs={
+            "qubits": qubits_ref,
+            "frequency": READOUT_FREQUENCY,
+            "power": readout_power_ref,
+        },
+    )
+    return (
+        sc.module_body()
+        .resource(
+            "readout",
+            requires=("readout_pulse", "acquire_iq"),
+            for_entities=(qubits_ref,),
+        )
+        .computes(build_program)
+        .bind_field(
+            "readout",
+            capability="readout_pulse",
+            field="program",
+            value=build_program.output,
+        )
+        .bind_field(
+            "readout",
+            capability="readout_pulse",
+            field="frequency",
+            value=READOUT_FREQUENCY,
+        )
+        .bind_field(
+            "readout",
+            capability="readout_pulse",
+            field="power",
+            value=readout_power_ref,
+        )
+        .bind_field(
+            "readout",
+            capability="acquire_iq",
+            field="repetitions",
+            value=sc.parameter("repetitions", _QUANTITY),
+        )
+        .product(
+            "multiplexed_iq",
+            unit="ratio",
+            dtype="complex128",
+            axes=(sc.entity_axis("qubit", qubits_ref),),
+        )
+        .acquire(
+            "read-multiplexed-iq",
+            "multiplexed_iq",
+            resource="readout",
+            capability="acquire_iq",
+        )
+    )
 
-QND_REPEATED_MEASUREMENT_MODULE = (
-    sc.module(
-        "quantum_lab_demo.experiments.readout.qnd_repeated_measurement",
-    )
-    .inputs(_QND_QUBIT, _QND_ROUNDS, _QND_SHOTS)
-    .resource(
-        "readout",
-        requires=("readout_pulse", "acquire_iq"),
-        for_entities=(_QND_QUBIT,),
-    )
-    .computes(_BUILD_REPEATED_MEASUREMENT_PROGRAM)
-    .bind_field(
-        "readout",
-        capability="readout_pulse",
-        field="program",
-        value=_BUILD_REPEATED_MEASUREMENT_PROGRAM.output,
-    )
-    .bind_field(
-        "readout",
-        capability="readout_pulse",
-        field="frequency",
-        value=qubit_param("readout_frequency", _QND_QUBIT),
-    )
-    .bind_field(
-        "readout",
-        capability="readout_pulse",
-        field="power",
-        value=qubit_param("readout_power", _QND_QUBIT),
-    )
-    .bind_field(
-        "readout",
-        capability="acquire_iq",
-        field="repetitions",
-        value=_QND_SHOTS * sc.Quantity(value=1.0, unit="count"),
-    )
-    .product(
-        "qnd_iq",
-        unit="ratio",
-        dtype="complex128",
-        axes=(
-            sc.product_axis("round", size=_QND_ROUNDS, kind="repeat"),
-            sc.shot_axis(_QND_SHOTS),
-        ),
-    )
-    .acquire(
-        "read-qnd-iq",
-        "qnd_iq",
-        resource="readout",
-        capability="acquire_iq",
-    )
-    .build()
-)
 
-_MULTIPLEXED_CAPTURE_QUBITS = sc.input("qubits", _QUBIT_SERIES)
+@sc.module(id="quantum_lab_demo.experiments.readout.qnd_repeated_measurement")
+def QND_REPEATED_MEASUREMENT_MODULE(
+    qubit: Annotated[sc.Input[str], _QUBIT],
+    rounds: Annotated[sc.Input[int], _POSITIVE_INT],
+    shots: Annotated[sc.Input[int], _POSITIVE_INT],
+):
+    qubit_ref = cast("sc.ValueRef", qubit)
+    rounds_ref = cast("sc.ValueRef", rounds)
+    shots_ref = cast("sc.ValueRef", shots)
+    build_program = sc.compute(
+        "build-repeated-measurement-program",
+        fn=build_repeated_measurement_program,
+        output_type=sc.ScalarType(sc.PayloadType("readout_program")),
+        inputs={
+            "qubit": qubit_ref,
+            "rounds": rounds_ref,
+            "shots": shots_ref,
+            "readout_frequency": qubit_param("readout_frequency", qubit_ref),
+        },
+    )
+    return (
+        sc.module_body()
+        .resource(
+            "readout",
+            requires=("readout_pulse", "acquire_iq"),
+            for_entities=(qubit_ref,),
+        )
+        .computes(build_program)
+        .bind_field(
+            "readout",
+            capability="readout_pulse",
+            field="program",
+            value=build_program.output,
+        )
+        .bind_field(
+            "readout",
+            capability="readout_pulse",
+            field="frequency",
+            value=qubit_param("readout_frequency", qubit_ref),
+        )
+        .bind_field(
+            "readout",
+            capability="readout_pulse",
+            field="power",
+            value=qubit_param("readout_power", qubit_ref),
+        )
+        .bind_field(
+            "readout",
+            capability="acquire_iq",
+            field="repetitions",
+            value=shots_ref * sc.Quantity(value=1.0, unit="count"),
+        )
+        .product(
+            "qnd_iq",
+            unit="ratio",
+            dtype="complex128",
+            axes=(
+                sc.product_axis("round", size=rounds_ref, kind="repeat"),
+                sc.shot_axis(shots_ref),
+            ),
+        )
+        .acquire(
+            "read-qnd-iq",
+            "qnd_iq",
+            resource="readout",
+            capability="acquire_iq",
+        )
+    )
 
-MULTIPLEXED_READOUT_MODULE = (
-    sc.module(
-        MULTIPLEXED_READOUT_TEMPLATE_ID,
+
+@sc.module(id=MULTIPLEXED_READOUT_TEMPLATE_ID)
+def MULTIPLEXED_READOUT_MODULE(
+    qubits: Annotated[sc.Input[tuple[str, ...]], _QUBIT_SERIES],
+):
+    qubits_ref = cast("sc.ValueRef", qubits)
+    return (
+        sc.module_body()
+        .resource(
+            "readout",
+            requires=("acquire_iq",),
+            for_entities=(qubits_ref,),
+        )
+        .bind_field(
+            "readout",
+            capability="acquire_iq",
+            field="repetitions",
+            value=sc.parameter("repetitions", _QUANTITY),
+        )
+        .product(
+            "multiplexed_iq",
+            unit="ratio",
+            dtype="complex128",
+            axes=(sc.entity_axis("qubit", qubits_ref),),
+        )
+        .acquire(
+            "read-multiplexed-iq",
+            "multiplexed_iq",
+            resource="readout",
+            capability="acquire_iq",
+        )
     )
-    .inputs(_MULTIPLEXED_CAPTURE_QUBITS)
-    .resource(
-        "readout",
-        requires=("acquire_iq",),
-        for_entities=(_MULTIPLEXED_CAPTURE_QUBITS,),
-    )
-    .bind_field(
-        "readout",
-        capability="acquire_iq",
-        field="repetitions",
-        value=sc.parameter("repetitions", _QUANTITY),
-    )
-    .product(
-        "multiplexed_iq",
-        unit="ratio",
-        dtype="complex128",
-        axes=(sc.entity_axis("qubit", _MULTIPLEXED_CAPTURE_QUBITS),),
-    )
-    .acquire(
-        "read-multiplexed-iq",
-        "multiplexed_iq",
-        resource="readout",
-        capability="acquire_iq",
-    )
-    .build()
-)
+
 
 __all__ = [
     "MULTIPLEXED_READOUT_MODULE",

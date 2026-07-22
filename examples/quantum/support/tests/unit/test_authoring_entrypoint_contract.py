@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, fields
 from pathlib import Path
-from typing import cast
+from typing import Annotated, cast
 
 import pytest
 import scopecat as sc
@@ -30,6 +30,7 @@ from scopecat.compiler.relations.point_domain import (
 _TEMPLATE_ID = "examples.quantum.x-repetition-iq"
 _EXPERIMENT_ID = "x-repetition-iq"
 _SCRATCH_NAME = "x repetition iq"
+_QUBIT = sc.ScalarType(sc.EntityType(entity_kind="logical_qubit"))
 _X_REPETITIONS = sc.point(
     "x_repetitions",
     sc.ScalarType(sc.IntType(minimum=0)),
@@ -39,53 +40,48 @@ _X_REPETITIONS = sc.point(
 @dataclass(frozen=True)
 class _EquivalentAuthoringPaths:
     template: sc.ExperimentInvocation
-    scratch: sc.Experiment
+    scratch: sc.ExperimentInvocation
 
 
 @pytest.fixture
-def equivalent_authoring_paths(tmp_path: Path) -> _EquivalentAuthoringPaths:
+def equivalent_authoring_paths() -> _EquivalentAuthoringPaths:
     """Describe one experiment through both supported user authoring paths."""
 
-    qubit = sc.input(
-        "qubit",
-        sc.ScalarType(sc.EntityType(entity_kind="logical_qubit")),
-    )
-    capture_module = (
-        sc.module("examples.quantum.contract.capture")
-        .inputs(qubit)
-        .product("integrated_iq", unit="arb")
-        .build()
-    )
-    capture = capture_module.instantiate("capture", qubit=qubit)
     scan_values = (0, 1, 2, 4)
 
-    template = (
-        sc.module("examples.quantum.contract.root")
-        .inputs(qubit)
-        .use(capture)
-        .template(_TEMPLATE_ID, kind=_EXPERIMENT_ID)
-        .experiment_id(_EXPERIMENT_ID)
-        .inputs(sc.InputDescription(id="qubit"))
-        .scan(_X_REPETITIONS, scan_values)
-        .record_product(
-            capture.products.integrated_iq,
-            record_id="integrated_iq",
+    @sc.module(id="examples.quantum.contract.capture")
+    def capture_module(
+        qubit: Annotated[sc.Input[str], _QUBIT],
+    ) -> sc.ModuleBuilder:
+        return sc.module_body().product("integrated_iq", unit="arb")
+
+    def experiment_body() -> sc.ExperimentBody:
+        capture = capture_module.instantiate("capture", qubit="q0")
+        return (
+            sc.experiment(capture)
+            .scan(_X_REPETITIONS, scan_values)
+            .record_product(
+                capture.products.integrated_iq,
+                record_id="integrated_iq",
+            )
         )
-        .build()
-        .bind(qubit="q0")
+
+    @sc.template(id=_TEMPLATE_ID, kind=_EXPERIMENT_ID)
+    def template_definition() -> sc.ExperimentBody:
+        return experiment_body()
+
+    @sc.scratch(
+        id="examples.quantum.x-repetition-iq.scratch",
+        kind=_EXPERIMENT_ID,
+        label=_SCRATCH_NAME,
     )
-    scratch = (
-        sc.open(tmp_path)
-        .experiment(_SCRATCH_NAME)
-        .entity("qubit", "q0", entity_kind="logical_qubit")
-        .use(capture)
-        .scan(_X_REPETITIONS, scan_values)
-        .record_product(
-            capture.products.integrated_iq,
-            record_id="integrated_iq",
-        )
+    def scratch_definition() -> sc.ExperimentBody:
+        return experiment_body()
+
+    return _EquivalentAuthoringPaths(
+        template=template_definition(),
+        scratch=scratch_definition(),
     )
-    return _EquivalentAuthoringPaths(template=template, scratch=scratch)
 
 
 def test_template_and_scratch_compile_to_equivalent_execution_semantics(
@@ -106,16 +102,13 @@ def test_template_and_scratch_compile_to_equivalent_execution_semantics(
 
     assert _execution_semantics(template) == _execution_semantics(scratch)
 
-    # These fields retain how the user entered the common compiler pipeline;
-    # they are provenance, not a second execution model.
     assert template.request.template_id == _TEMPLATE_ID
-    assert scratch.request.template_id == "scopecat.workspace.experiment"
-    assert scratch.request.template_inputs["name"] == _SCRATCH_NAME
+    assert scratch.request.template_id == "examples.quantum.x-repetition-iq.scratch"
 
 
 def _compile_through_workspace(
     workspace: sc.Workspace,
-    experiment: sc.ExperimentInvocation | sc.Experiment,
+    experiment: sc.ExperimentInvocation,
 ) -> CompiledInvocation:
     prepared_handle = workspace.prepare(experiment)
     prepared = prepared_handle._prepared_invocation
@@ -134,6 +127,7 @@ def _execution_semantics(compiled: CompiledInvocation) -> object:
             ),
         )
         for selected in fields(assembly)
+        if selected.name != "experiment_id"
     )
     normalized_request = compiled.request.model_dump(
         mode="python",

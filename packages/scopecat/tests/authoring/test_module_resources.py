@@ -19,7 +19,7 @@ from tests.testkit.materialized_effects import config_with_physical_resources
 def _resource_module() -> sc.ExperimentModule:
     frequency = sc.Quantity(value=5.0, unit="GHz")
     return (
-        sc.module("test.resources.child")
+        sc.module_body(id="test.resources.child")
         .resource("drive.v1", requires=("set.frequency",))
         .bind_field(
             "drive.v1",
@@ -52,7 +52,7 @@ def test_explicit_instances_own_independent_resource_ports() -> None:
     child = _resource_module()
     left = child.instantiate("left.arm")
     right = child.instantiate("right.arm")
-    root = sc.module("test.resources.root").use(left, right).build()
+    root = sc.module_body(id="test.resources.root").use(left, right).build()
 
     assembly = elaborate_module(root)
     verify_assembly_graph(assembly)
@@ -79,8 +79,14 @@ def test_explicit_instances_own_independent_resource_ports() -> None:
         logical_resource_port_id(SymbolId(scope=("left.arm",), local_id="drive.v1")),
         logical_resource_port_id(SymbolId(scope=("right.arm",), local_id="drive.v1")),
     ]
+    call = root()
+
+    @sc.template(id="test.resources.root", kind="resources")
+    def template_definition() -> sc.ExperimentBody:
+        return sc.experiment(call)
+
     resolved = resolve_experiment(
-        root.template("test.resources.root", kind="resources").build().bind(),
+        template_definition(),
         config_profile=load_config(),
     )
     assert [
@@ -107,7 +113,7 @@ def test_child_resource_port_can_bind_to_parent_resource_port() -> None:
         resource_bindings={"drive.v1": "shared"},
     )
     root = (
-        sc.module("test.resources.bound-root")
+        sc.module_body(id="test.resources.bound-root")
         .resource("shared", requires=("set.frequency",))
         .use(child)
         .build()
@@ -127,9 +133,9 @@ def test_child_resource_port_can_bind_to_parent_resource_port() -> None:
 
 def test_nested_instances_prefix_resource_references_once_per_level() -> None:
     inner = _resource_module().instantiate("inner")
-    wrapper = sc.module("test.resources.wrapper").use(inner).build()
+    wrapper = sc.module_body(id="test.resources.wrapper").use(inner).build()
     outer = wrapper.instantiate("outer")
-    root = sc.module("test.resources.nested-root").use(outer).build()
+    root = sc.module_body(id="test.resources.nested-root").use(outer).build()
 
     assembly = elaborate_module(root)
     verify_assembly_graph(assembly)
@@ -153,9 +159,9 @@ def test_resource_identity_distinguishes_slash_from_nested_scope() -> None:
     child = _resource_module()
     direct = child.instantiate("outer/inner")
     nested_child = child.instantiate("inner")
-    wrapper = sc.module("test.resources.wrapper").use(nested_child).build()
+    wrapper = sc.module_body(id="test.resources.wrapper").use(nested_child).build()
     nested = wrapper.instantiate("outer")
-    root = sc.module("test.resources.identity-root").use(direct, nested).build()
+    root = sc.module_body(id="test.resources.identity-root").use(direct, nested).build()
 
     assembly = elaborate_module(root)
     verify_assembly_graph(assembly)
@@ -182,7 +188,7 @@ def test_resource_identity_distinguishes_slash_from_nested_scope() -> None:
 def test_acquire_resource_references_are_checked_before_linking() -> None:
     with pytest.raises(CheckFailed) as error:
         (
-            sc.module("test.resources.missing-record-port")
+            sc.module_body(id="test.resources.missing-record-port")
             .product("exported")
             .acquire(
                 "read-exported",
@@ -200,7 +206,7 @@ def test_acquire_resource_references_are_checked_before_linking() -> None:
 
 def test_acquire_resource_capabilities_are_checked_before_linking() -> None:
     module = (
-        sc.module("test.resources.missing-record-capability")
+        sc.module_body(id="test.resources.missing-record-capability")
         .resource("readout", requires=("measure.iq",))
         .product("fixed", "exported")
         .acquire(
@@ -238,7 +244,7 @@ def test_state_resource_references_are_checked_before_linking() -> None:
     )
     with pytest.raises(CheckFailed) as error:
         (
-            sc.module("test.resources.missing-state-port")
+            sc.module_body(id="test.resources.missing-state-port")
             .inputs(rows)
             .bind_field(
                 "missing-binding",
@@ -268,7 +274,7 @@ def test_state_resource_capabilities_are_checked_before_linking() -> None:
         sc.TableType(columns=(sc.TableColumn("value", sc.ScalarType(sc.FloatType())),)),
     )
     module = (
-        sc.module("test.resources.missing-state-capability")
+        sc.module_body(id="test.resources.missing-state-capability")
         .inputs(rows)
         .resource("drive", requires=("set.frequency",))
         .bind_field(
@@ -302,7 +308,7 @@ def test_state_each_keeps_dotted_capability_and_field_ids_structured() -> None:
     )
     rows = sc.input("rows", rows_type)
     child = (
-        sc.module("test.resources.structured-state")
+        sc.module_body(id="test.resources.structured-state")
         .inputs(rows)
         .resource("source", requires=("set.offset",))
         .state_each(
@@ -318,12 +324,17 @@ def test_state_each_keeps_dotted_capability_and_field_ids_structured() -> None:
         "state.arm",
         rows=({"value": 1.0},),
     )
-    root = sc.module("test.resources.structured-state-root").use(instance).build()
+    root = (
+        sc.module_body(id="test.resources.structured-state-root").use(instance).build()
+    )
+    call = root()
+
+    @sc.template(id="test.resources.structured-state", kind="resources")
+    def template_definition() -> sc.ExperimentBody:
+        return sc.experiment(call)
 
     resolved = resolve_experiment(
-        root.template("test.resources.structured-state", kind="resources")
-        .build()
-        .bind(),
+        template_definition(),
         config_profile=config_with_physical_resources({"source-0": ("set.offset",)}),
     )
 

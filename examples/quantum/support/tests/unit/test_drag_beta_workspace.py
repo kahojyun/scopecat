@@ -24,17 +24,13 @@ from quantum_lab_demo.reference_experiments.drag_beta_analysis import (
     assess_drag_beta_fit,
     fit_drag_beta,
 )
-from quantum_lab_demo.reference_experiments.drag_beta_calibration import (
-    AMPLIFICATION_INPUT,
-    BETA_INPUT,
-    drag_beta_calibration_program,
-)
 from quantum_lab_demo.reference_experiments.drag_beta_experiment import (
+    AMPLIFICATION,
     DEFAULT_AMPLIFICATIONS,
     DEFAULT_BETAS,
-    DRAG_BETA_PROGRAM,
-    DRAG_BETA_TEMPLATE,
+    drag_beta_program,
     drag_beta_scratch_experiment,
+    drag_beta_template,
 )
 from quantum_lab_demo.reference_experiments.drag_beta_response import (
     synthetic_drag_beta_response,
@@ -43,6 +39,7 @@ from quantum_lab_demo.targets.fake_list_mode import default_fake_list_target
 from quantum_lab_demo.virtual_lab.parameters import (
     DRAG_BETA_PARAMETER_COLUMN,
     QUBIT_PARAMETER_TABLE,
+    q0_drag_beta_lookup,
 )
 
 
@@ -57,23 +54,34 @@ def _quantity_in_unit(value: object, unit: str) -> float:
 
 
 def test_drag_beta_authors_one_mixed_program_for_both_scan_axes() -> None:
-    declaration = drag_beta_calibration_program()
-    execution = DRAG_BETA_TEMPLATE.build().module.domain_executions[0]
-    assert execution is not None
+    declaration = drag_beta_program
+    call = declaration(
+        qubit="q0",
+        amplification=AMPLIFICATION,
+        beta=q0_drag_beta_lookup(),
+        shots=64,
+    )
+    [execution] = call.module_invocation.module.domain_executions
     program = execution.program
 
     assert declaration.id == "drag-beta-rough-calibration"
-    assert declaration.inputs == (AMPLIFICATION_INPUT, BETA_INPUT)
+    assert [port.id for port in declaration.ports] == [
+        "qubit",
+        "amplification",
+        "beta",
+    ]
     assert tuple(result.id for result in declaration.results) == ("iq_shots",)
     assert program.dialect_id == "scopecat.quantum.program"
     assert isinstance(program.body, quantum.Program)
     assert program.body.id == declaration.id
     assert tuple(port.id for port in program.input_ports) == (
+        "qubit",
         "amplification",
         "beta",
     )
     assert tuple(port.id for port in program.result_ports) == ("iq_shots",)
     assert tuple(name for name, _value in execution.input_bindings) == (
+        "qubit",
         "amplification",
         "beta",
     )
@@ -84,8 +92,8 @@ def test_drag_beta_template_and_scratch_share_the_2d_point_model(
     tmp_path: Path,
 ) -> None:
     lab = quantum_lab(workspace=tmp_path)
-    template_preview = lab.prepare(DRAG_BETA_TEMPLATE).preview()
-    scratch_preview = lab.prepare(drag_beta_scratch_experiment(lab)).preview()
+    template_preview = lab.prepare(drag_beta_template).preview()
+    scratch_preview = lab.prepare(drag_beta_scratch_experiment()).preview()
 
     assert template_preview.point_count == scratch_preview.point_count == 15
     assert (
@@ -119,7 +127,7 @@ def test_drag_beta_workspace_analysis_authors_typed_native_proposal(
     )
     compiler = quantum_lab_compiler()
     lab = quantum_lab(workspace=tmp_path, compiler=compiler)
-    experiment = lab.prepare(DRAG_BETA_TEMPLATE)
+    experiment = lab.prepare(drag_beta_template)
 
     run = experiment.run()
     records = run.data().measurements().dataset.records
@@ -137,8 +145,8 @@ def test_drag_beta_workspace_analysis_authors_typed_native_proposal(
 
     assert run.manifest.status == "completed"
     assert compiler.trace.physical_execution_count == 1
-    [evidence] = compiler.trace.preparations(DRAG_BETA_PROGRAM.id)
-    assert evidence.program_id == drag_beta_calibration_program().id
+    [evidence] = compiler.trace.preparations(drag_beta_program.id)
+    assert evidence.program_id == drag_beta_program.id
     assert len(evidence.points) == len(evidence.entries) == 15
     assert evidence.artifact_fingerprint.startswith("sha256:")
     assert len(records) == 15
@@ -192,7 +200,7 @@ def test_drag_beta_low_quality_fit_saves_evidence_without_a_proposal(
     compiler = quantum_lab_compiler()
     lab = quantum_lab(workspace=tmp_path)
     run = lab.prepare(
-        DRAG_BETA_TEMPLATE,
+        drag_beta_template,
         system=sc.ExperimentSystem(domain_compiler=compiler),
     ).run()
     original_fit = fit_drag_beta
@@ -297,7 +305,7 @@ def test_drag_beta_review_activate_active_replay_and_rollback(
     lab = quantum_lab(workspace=tmp_path)
     source_compiler = quantum_lab_compiler()
     source_run = lab.prepare(
-        DRAG_BETA_TEMPLATE,
+        drag_beta_template,
         system=sc.ExperimentSystem(domain_compiler=source_compiler),
     ).run()
     result = analyze_drag_beta_run(source_run)
@@ -344,7 +352,7 @@ def test_drag_beta_review_activate_active_replay_and_rollback(
     )
     active_compiler = quantum_lab_compiler()
     active_experiment = lab.prepare(
-        DRAG_BETA_TEMPLATE,
+        drag_beta_template,
         config="active",
         system=sc.ExperimentSystem(domain_compiler=active_compiler),
     )
@@ -380,7 +388,7 @@ def test_drag_beta_review_activate_active_replay_and_rollback(
         note="restore baseline after active-config provenance replay",
     )
     restored_preview = lab.prepare(
-        DRAG_BETA_TEMPLATE,
+        drag_beta_template,
         config="active",
         system=sc.ExperimentSystem(domain_compiler=quantum_lab_compiler()),
     ).preview()
@@ -404,7 +412,7 @@ def test_drag_beta_response_and_evidence_remain_batch_local(tmp_path: Path) -> N
     compiler = quantum_lab_compiler(target=target)
     lab = quantum_lab(workspace=tmp_path, compiler=compiler)
 
-    run = lab.prepare(DRAG_BETA_TEMPLATE).run()
+    run = lab.prepare(drag_beta_template).run()
     analysis = analyze_drag_beta_run(run)
 
     assert run.manifest.status == "completed"

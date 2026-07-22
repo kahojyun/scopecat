@@ -38,7 +38,7 @@ def test_cross_module_compute_edges_are_scoped_and_topologically_ordered() -> No
         output_type=payload_type,
     )
     child = (
-        sc.module("test.compiler.graph.child")
+        sc.module_body(id="test.compiler.graph.child")
         .inputs(child_input)
         .computes(consume)
         .build()
@@ -49,7 +49,7 @@ def test_cross_module_compute_edges_are_scoped_and_topologically_ordered() -> No
         output_type=payload_type,
     )
     parent = (
-        sc.module("test.compiler.graph.parent")
+        sc.module_body(id="test.compiler.graph.parent")
         .computes(produce)
         .use(
             child.instantiate("first-consumer", program=produce.output),
@@ -58,9 +58,10 @@ def test_cross_module_compute_edges_are_scoped_and_topologically_ordered() -> No
         .build()
     )
 
-    invocation = (
-        parent.template("test.compiler.graph", kind="compiler_graph").build().bind()
+    template = sc.template(id="test.compiler.graph", kind="compiler_graph")(
+        lambda: sc.experiment(parent())
     )
+    invocation = template.bind()
     compiled = compile_prepared_invocation(prepare_invocation(invocation))
     graph = compiled.assembly.graph.semantic_graph.graph
     definitions = {definition.id: definition for definition in graph.value_defs}
@@ -71,9 +72,9 @@ def test_cross_module_compute_edges_are_scoped_and_topologically_ordered() -> No
         "consume",
         "consume",
     ]
-    assert operations[0].id.scope == ()
-    assert operations[1].id.scope == ("first-consumer",)
-    assert operations[2].id.scope == ("second-consumer",)
+    assert operations[0].id.scope == ("parent",)
+    assert operations[1].id.scope == ("parent", "first-consumer")
+    assert operations[2].id.scope == ("parent", "second-consumer")
     for consumer in operations[1:]:
         use = dict(consumer.inputs)["program"]
         assert isinstance(use, ValueUse)

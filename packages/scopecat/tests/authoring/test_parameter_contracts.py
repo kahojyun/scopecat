@@ -12,7 +12,7 @@ from scopecat.records.parameter import (
     SeriesParameterValue,
     TableParameterValue,
 )
-from tests.testkit.authoring import load_config
+from tests.testkit.authoring import load_config, template_fixture
 from tests.testkit.materialized_effects import materialized_effects_contract
 
 
@@ -34,7 +34,7 @@ def _resolve_dependency(
         output_type=value.value_type,
     )
     module = (
-        sc.module("test.parameter-contract")
+        sc.module_body(id="test.parameter-contract")
         .inputs(*module_inputs)
         .computes(dependency)
         .build()
@@ -48,14 +48,11 @@ def _resolve_module(
     *,
     inputs: dict[str, sc.RuntimeInput] | None = None,
 ) -> None:
-    invocation = (
-        module.template(
-            "test.parameter-contract",
-            kind="parameter_contract",
-        )
-        .build()
-        .bind(**(inputs or {}))
-    )
+    invocation = template_fixture(
+        module,
+        id="test.parameter-contract",
+        kind="parameter_contract",
+    ).bind(**(inputs or {}))
     resolve_experiment(
         invocation,
         config_profile=config,
@@ -234,13 +231,13 @@ def test_parameter_contract_survives_nested_elaboration() -> None:
         output_type=frequency.value_type,
     )
     child = (
-        sc.module("test.parameter-contract-child")
+        sc.module_body(id="test.parameter-contract-child")
         .inputs(frequency)
         .computes(dependency)
         .build()
     )
     parent = (
-        sc.module("test.parameter-contract-parent")
+        sc.module_body(id="test.parameter-contract-parent")
         .use(
             child.instantiate(
                 "parameter-contract-child",
@@ -260,27 +257,26 @@ def test_parameter_contract_survives_nested_elaboration() -> None:
 
 
 def test_parameter_contract_survives_scan_lowering() -> None:
-    module = sc.module("test.parameter-contract-scan").build()
-    invocation = (
-        module.template(
-            "test.parameter-contract-scan",
-            kind="parameter_contract",
-        )
-        .scan(
-            sc.point(
-                "frequency",
-                sc.ScalarType(sc.QuantityType()),
+    module = sc.module_body(id="test.parameter-contract-scan").build()
+    invocation = template_fixture(
+        module,
+        id="test.parameter-contract-scan",
+        kind="parameter_contract",
+        scans=(
+            sc.axis(
+                sc.point(
+                    "frequency",
+                    sc.ScalarType(sc.QuantityType()),
+                ),
+                center=sc.parameter(
+                    "drive_frequency",
+                    sc.ScalarType(sc.QuantityType(unit="ns")),
+                ),
+                span=sc.Quantity(value=100, unit="MHz"),
+                points=3,
             ),
-            center=sc.parameter(
-                "drive_frequency",
-                sc.ScalarType(sc.QuantityType(unit="ns")),
-            ),
-            span=sc.Quantity(value=100, unit="MHz"),
-            points=3,
-        )
-        .build()
-        .bind()
-    )
+        ),
+    ).bind()
 
     with pytest.raises(CheckFailed) as error:
         resolve_experiment(
@@ -320,16 +316,13 @@ def test_parameter_scan_target_is_checked_against_catalog_column(
         column,
         values,
     )
-    module = sc.module("test.parameter-contract-scan-target").build()
-    invocation = (
-        module.template(
-            "test.parameter-contract-scan-target",
-            kind="parameter_contract",
-        )
-        .scan(scan)
-        .build()
-        .bind()
-    )
+    module = sc.module_body(id="test.parameter-contract-scan-target").build()
+    invocation = template_fixture(
+        module,
+        id="test.parameter-contract-scan-target",
+        kind="parameter_contract",
+        scans=(scan,),
+    ).bind()
 
     with pytest.raises(CheckFailed) as error:
         resolve_experiment(
@@ -357,16 +350,13 @@ def test_parameter_scan_retains_row_key_parameter_contracts() -> None:
         [5.0],
         unit="GHz",
     )
-    module = sc.module("test.parameter-contract-scan-key").build()
-    invocation = (
-        module.template(
-            "test.parameter-contract-scan-key",
-            kind="parameter_contract",
-        )
-        .scan(scan)
-        .build()
-        .bind()
-    )
+    module = sc.module_body(id="test.parameter-contract-scan-key").build()
+    invocation = template_fixture(
+        module,
+        id="test.parameter-contract-scan-key",
+        kind="parameter_contract",
+        scans=(scan,),
+    ).bind()
 
     with pytest.raises(CheckFailed) as error:
         resolve_experiment(
@@ -383,25 +373,21 @@ def test_parameter_around_scan_materializes_about_the_current_table_cell() -> No
         "scanned_frequency",
         sc.ScalarType(sc.QuantityType(unit="GHz")),
     )
-    invocation = (
-        sc.module("test.parameter-around-scan")
-        .build()
-        .template(
-            "test.parameter-around-scan",
-            kind="parameter_contract",
-        )
-        .scan(
+    module = sc.module_body(id="test.parameter-around-scan").build()
+    invocation = template_fixture(
+        module,
+        id="test.parameter-around-scan",
+        kind="parameter_contract",
+        scans=(
             sc.param_axis(
                 frequency,
                 sc.param_row("device_parameters", device="q0"),
                 "frequency",
                 span="200 MHz",
                 points=3,
-            )
-        )
-        .build()
-        .bind()
-    )
+            ),
+        ),
+    ).bind()
 
     resolved = resolve_experiment(invocation, config_profile=config)
     materialized = materialized_effects_contract(
@@ -499,16 +485,16 @@ def test_parameter_lookup_checks_primary_key_shape_and_typed_key_values() -> Non
         output_type=lookup.value_type,
     )
     module = (
-        sc.module("test.typed-parameter-key")
+        sc.module_body(id="test.typed-parameter-key")
         .inputs(typed_device)
         .computes(dependency)
         .build()
     )
-    invocation = (
-        module.template("test.typed-parameter-key", kind="parameter_contract")
-        .build()
-        .bind(device="q0")
-    )
+    invocation = template_fixture(
+        module,
+        id="test.typed-parameter-key",
+        kind="parameter_contract",
+    ).bind(device="q0")
     resolve_experiment(
         invocation,
         config_profile=config,

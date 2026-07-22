@@ -40,31 +40,30 @@ from quantum_lab_demo import (
     quantum_lab_compiler,
 )
 from quantum_lab_demo.experiments import READOUT_TEMPLATE
-from quantum_lab_demo.reference_experiments import (
-    FAKE_X_COUNT_CAPTURE_MODULE,
-    FAKE_X_COUNT_TEMPLATE,
-    X_COUNT,
-    fake_x_count_domain_execution,
-    fake_x_count_scratch_experiment,
+from quantum_lab_demo.reference_experiments.cz_phase_calibration import (
+    cz_conditional_phase,
 )
 from quantum_lab_demo.reference_experiments.cz_phase_experiment import (
-    CZ_PHASE_PROGRAM,
-    CZ_PHASE_TEMPLATE,
+    cz_phase_template,
 )
 from quantum_lab_demo.reference_experiments.drag_beta_experiment import (
-    DRAG_BETA_PROGRAM,
-    DRAG_BETA_TEMPLATE,
+    drag_beta_program,
+    drag_beta_template,
 )
 from quantum_lab_demo.reference_experiments.fake_x_count_experiment import (
-    X_COUNT_PROGRAM,
+    X_COUNT,
+    fake_x_count_capture,
+    fake_x_count_scratch_experiment,
+    fake_x_count_template,
+    x_count_program,
 )
 from quantum_lab_demo.reference_experiments.production_drag_gate import (
-    PRODUCTION_DRAG_GATE_TEMPLATE,
-    PRODUCTION_DRAG_PROGRAM,
+    production_drag_program,
+    production_drag_template,
 )
 from quantum_lab_demo.reference_experiments.ramsey_phase_experiment import (
-    RAMSEY_PHASE_PROGRAM,
-    RAMSEY_PHASE_TEMPLATE,
+    ramsey_phase_program,
+    ramsey_phase_template,
 )
 from quantum_lab_demo.targets.fake_list_mode import (
     FakeListDomainRuntime,
@@ -169,9 +168,9 @@ class _WrongResultCompiler(_ConfiguredTestCompiler):
 
 
 def test_fake_x_count_authors_direct_iq_and_derived_probabilities_separately() -> None:
-    body = FAKE_X_COUNT_CAPTURE_MODULE.ir.body
-    execution = FAKE_X_COUNT_TEMPLATE.build().module.domain_executions[0]
-    assert execution is not None
+    body = fake_x_count_capture.ir.body
+    [program_call] = body.instances
+    [execution] = program_call.module.body.domain_executions
     program = execution.program
     [transform] = body.measurement_transforms
 
@@ -179,9 +178,9 @@ def test_fake_x_count_authors_direct_iq_and_derived_probabilities_separately() -
     assert tuple(result_id for result_id, _product in execution.result_bindings) == (
         "iq_shots",
     )
-    assert execution.result_bindings[0][1].local_id == "integrated_iq_shots"
+    assert execution.result_bindings[0][1].local_id == "iq_shots"
     assert [(role, product.local_id) for role, product in transform.input_bindings] == [
-        ("iq_shots", "integrated_iq_shots")
+        ("iq_shots", "iq_shots")
     ]
     assert [
         (role, product.local_id) for role, product in transform.output_bindings
@@ -210,11 +209,11 @@ def test_one_quantum_lab_compiler_prepares_every_reference_program(
     runs = tuple(
         lab.prepare(template).run()
         for template in (
-            FAKE_X_COUNT_TEMPLATE,
-            DRAG_BETA_TEMPLATE,
-            PRODUCTION_DRAG_GATE_TEMPLATE,
-            RAMSEY_PHASE_TEMPLATE,
-            CZ_PHASE_TEMPLATE,
+            fake_x_count_template,
+            drag_beta_template,
+            production_drag_template,
+            ramsey_phase_template,
+            cz_phase_template,
         )
     )
 
@@ -222,11 +221,11 @@ def test_one_quantum_lab_compiler_prepares_every_reference_program(
     assert tuple(
         evidence.program_id for evidence in compiler.trace.all_preparations
     ) == (
-        X_COUNT_PROGRAM.id,
-        DRAG_BETA_PROGRAM.id,
-        PRODUCTION_DRAG_PROGRAM.id,
-        RAMSEY_PHASE_PROGRAM.id,
-        CZ_PHASE_PROGRAM.id,
+        x_count_program.id,
+        drag_beta_program.id,
+        production_drag_program.id,
+        ramsey_phase_program.id,
+        cz_conditional_phase.id,
     )
     assert tuple(
         len(evidence.points) for evidence in compiler.trace.all_preparations
@@ -263,11 +262,10 @@ def test_fake_x_count_authoring_paths_share_one_standard_domain_semantics(
         compiler = quantum_lab_compiler()
         lab = quantum_lab(workspace=tmp_path / authoring, compiler=compiler)
         experiment = (
-            lab.prepare(FAKE_X_COUNT_TEMPLATE)
+            lab.prepare(fake_x_count_template)
             if authoring == "template"
             else lab.prepare(
                 fake_x_count_scratch_experiment(
-                    lab,
                     x_counts=(0, 1, 2, 4),
                 ),
             )
@@ -280,7 +278,7 @@ def test_fake_x_count_authoring_paths_share_one_standard_domain_semantics(
 
         assert run.manifest.status == "completed"
         assert compiler.trace.physical_execution_count == 1
-        [evidence] = compiler.trace.preparations(X_COUNT_PROGRAM.id)
+        [evidence] = compiler.trace.preparations(x_count_program.id)
         assert tuple(point.value("x_count") for point in evidence.points) == (
             0,
             1,
@@ -327,25 +325,23 @@ def test_fake_x_count_compiler_absorbs_affine_point_input_without_binding(
         "bind_domain_inputs",
         reject_input_binding,
     )
-    capture = FAKE_X_COUNT_CAPTURE_MODULE.instantiate("capture")
-    template = (
-        sc.module("test.fake-x-count.affine")
-        .use(capture)
-        .domain(
-            fake_x_count_domain_execution(
-                capture.products.integrated_iq_shots,
-                x_count=2 * X_COUNT + 1,
-            )
-        )
-        .template("test.fake-x-count.affine", kind="fake_x_count")
-        .scan(X_COUNT, (0, 1, 2))
-        .record_product(capture.products.probability_1, record_id="probability_1")
-        .build()
+    capture = fake_x_count_capture.instantiate(
+        "capture",
+        x_count=2 * X_COUNT + 1,
     )
+
+    @sc.template(id="test.fake-x-count.affine", kind="fake_x_count")
+    def affine_template() -> sc.ExperimentBody:
+        return (
+            sc.experiment(capture)
+            .scan(X_COUNT, (0, 1, 2))
+            .record_product(capture.products.probability_1, record_id="probability_1")
+        )
+
     compiler = quantum_lab_compiler()
     lab = quantum_lab(workspace=tmp_path)
 
-    run = lab.prepare(template, system=_domain_only(compiler)).run()
+    run = lab.prepare(affine_template, system=_domain_only(compiler)).run()
     records = run.data().measurements().dataset.records
 
     assert run.manifest.status == "completed"
@@ -366,25 +362,28 @@ def test_fake_x_count_compiler_projects_zipped_axis_without_binding(
         reject_input_binding,
     )
     auxiliary = sc.point("auxiliary", sc.ScalarType(sc.IntType()))
-    capture = FAKE_X_COUNT_CAPTURE_MODULE.instantiate("capture")
-    template = (
-        sc.module("test.fake-x-count.zip")
-        .use(capture)
-        .domain(fake_x_count_domain_execution(capture.products.integrated_iq_shots))
-        .template("test.fake-x-count.zip", kind="fake_x_count")
-        .scan(
-            sc.zip(
-                sc.axis(X_COUNT, (0, 1, 2)),
-                sc.axis(auxiliary, (10, 11, 12)),
+    capture = fake_x_count_capture.instantiate("capture", x_count=X_COUNT)
+
+    @sc.template(id="test.fake-x-count.zip", kind="fake_x_count")
+    def zipped_template() -> sc.ExperimentBody:
+        return (
+            sc.experiment(capture)
+            .scan(
+                sc.zip(
+                    sc.axis(X_COUNT, (0, 1, 2)),
+                    sc.axis(auxiliary, (10, 11, 12)),
+                )
+            )
+            .record_product(
+                capture.products.probability_1,
+                record_id="probability_1",
             )
         )
-        .record_product(capture.products.probability_1, record_id="probability_1")
-        .build()
-    )
+
     compiler = quantum_lab_compiler()
     lab = quantum_lab(workspace=tmp_path)
 
-    run = lab.prepare(template, system=_domain_only(compiler)).run()
+    run = lab.prepare(zipped_template, system=_domain_only(compiler)).run()
 
     assert run.manifest.status == "completed"
     assert compiler.trace.physical_execution_count == 1
@@ -397,34 +396,23 @@ def test_fake_x_count_compiler_projects_zipped_axis_without_binding(
 def test_two_ordered_domain_calls_share_target_and_produce_canonical_results(
     tmp_path: Path,
 ) -> None:
-    first = FAKE_X_COUNT_CAPTURE_MODULE.instantiate("first")
-    second = FAKE_X_COUNT_CAPTURE_MODULE.instantiate("second")
-    template = (
-        sc.module("test.fake-x-count.two-calls")
-        .use(first, second)
-        .domain(
-            fake_x_count_domain_execution(
-                first.products.integrated_iq_shots,
-                id="first",
-            )
+    first = fake_x_count_capture.instantiate("first", x_count=X_COUNT)
+    second = fake_x_count_capture.instantiate("second", x_count=X_COUNT)
+
+    @sc.template(id="test.fake-x-count.two-calls", kind="fake_x_count")
+    def two_call_template() -> sc.ExperimentBody:
+        return (
+            sc.experiment(first, second)
+            .scan(X_COUNT, (0, 1, 2))
+            .record_product(first.products.probability_0, record_id="first-p0")
+            .record_product(second.products.probability_1, record_id="second-p1")
         )
-        .domain(
-            fake_x_count_domain_execution(
-                second.products.integrated_iq_shots,
-                id="second",
-            )
-        )
-        .template("test.fake-x-count.two-calls", kind="fake_x_count")
-        .scan(X_COUNT, (0, 1, 2))
-        .record_product(first.products.probability_0, record_id="first-p0")
-        .record_product(second.products.probability_1, record_id="second-p1")
-        .build()
-    )
+
     compiler = quantum_lab_compiler()
     lab = quantum_lab(workspace=tmp_path)
 
     run = lab.prepare(
-        template,
+        two_call_template,
         system=_domain_only(compiler),
     ).run()
     records = run.data().measurements().dataset.records
@@ -471,7 +459,7 @@ def test_compiler_boundary_normalizes_deferred_contract_defects_during_run(
 ) -> None:
     lab = quantum_lab(workspace=tmp_path)
     experiment = lab.prepare(
-        FAKE_X_COUNT_TEMPLATE,
+        fake_x_count_template,
         system=_domain_only(
             cast("DomainCompiler", compiler),
         ),
@@ -496,7 +484,7 @@ def test_indeterminate_submit_retains_durable_target_correlation_context(
     compiler = quantum_lab_compiler(runtime=_IndeterminateFakeListDomainRuntime())
     lab = quantum_lab(workspace=tmp_path)
     experiment = lab.prepare(
-        FAKE_X_COUNT_TEMPLATE,
+        fake_x_count_template,
         system=_domain_only(compiler),
     )
 
@@ -558,7 +546,7 @@ def test_later_domain_job_failure_preserves_points_from_earlier_jobs(
 
     with pytest.raises(RunIndeterminate):
         lab.prepare(
-            FAKE_X_COUNT_TEMPLATE,
+            fake_x_count_template,
             system=_domain_only(compiler),
         ).run(event_sink=events.append)
 
@@ -590,7 +578,7 @@ def test_unknown_fetch_terminalizes_as_indeterminate_with_known_job_context(
     compiler = quantum_lab_compiler(runtime=_UnknownFetchFakeListDomainRuntime())
     lab = quantum_lab(workspace=tmp_path)
     experiment = lab.prepare(
-        FAKE_X_COUNT_TEMPLATE,
+        fake_x_count_template,
         system=_domain_only(compiler),
     )
 
@@ -629,7 +617,7 @@ def test_uncertain_measurement_write_retains_durable_correlation(
     compiler = quantum_lab_compiler()
     lab = quantum_lab(workspace=tmp_path)
     experiment = lab.prepare(
-        FAKE_X_COUNT_TEMPLATE,
+        fake_x_count_template,
         system=_domain_only(compiler),
     )
 
@@ -665,7 +653,7 @@ def test_successful_recording_does_not_reload_committed_measurements(
     compiler = quantum_lab_compiler()
     lab = quantum_lab(workspace=tmp_path)
     experiment = lab.prepare(
-        FAKE_X_COUNT_TEMPLATE,
+        fake_x_count_template,
         system=_domain_only(compiler),
     )
 

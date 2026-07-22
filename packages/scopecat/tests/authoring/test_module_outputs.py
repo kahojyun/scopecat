@@ -53,7 +53,7 @@ def _producer_module() -> sc.ExperimentModule:
         output_type=payload_type,
     )
     return (
-        sc.module("test.outputs.producer")
+        sc.module_body(id="test.outputs.producer")
         .computes(produce)
         .export(payload=produce.output)
         .build()
@@ -69,7 +69,12 @@ def _consumer_module() -> sc.ExperimentModule:
         inputs={"payload": payload},
         output_type=payload_type,
     )
-    return sc.module("test.outputs.consumer").inputs(payload).computes(consume).build()
+    return (
+        sc.module_body(id="test.outputs.consumer")
+        .inputs(payload)
+        .computes(consume)
+        .build()
+    )
 
 
 def test_explicit_instances_export_hygienic_compute_values_to_siblings(
@@ -88,7 +93,7 @@ def test_explicit_instances_export_hygienic_compute_values_to_siblings(
         payload=second.outputs["payload"],
     )
     root = (
-        sc.module("test.outputs.siblings")
+        sc.module_body(id="test.outputs.siblings")
         .use(first, second, first_consumer, second_consumer)
         .build()
     )
@@ -122,24 +127,30 @@ def test_explicit_instances_export_hygienic_compute_values_to_siblings(
         SymbolId(scope=("second-producer",), local_id="produce")
     )
 
+    call = root()
+
+    @sc.template(id="test.outputs.siblings", kind="module_outputs")
+    def template_definition() -> sc.ExperimentBody:
+        return sc.experiment(call)
+
     resolved = resolve_experiment(
-        root.template("test.outputs.siblings", kind="module_outputs").build().bind(),
+        template_definition(),
         config_profile=load_config(),
     )
     linked_nodes = {node.id: node for node in resolved.experiment.compute_nodes}
     first_edge = linked_nodes[
-        OperationId(SymbolId(scope=("first-consumer",), local_id="consume"))
+        OperationId(SymbolId(scope=("siblings", "first-consumer"), local_id="consume"))
     ].inputs["payload"]
     second_edge = linked_nodes[
-        OperationId(SymbolId(scope=("second-consumer",), local_id="consume"))
+        OperationId(SymbolId(scope=("siblings", "second-consumer"), local_id="consume"))
     ].inputs["payload"]
     assert isinstance(first_edge, ComputeEdge)
     assert isinstance(second_edge, ComputeEdge)
     first_producer = linked_nodes[
-        OperationId(SymbolId(scope=("first-producer",), local_id="produce"))
+        OperationId(SymbolId(scope=("siblings", "first-producer"), local_id="produce"))
     ]
     second_producer = linked_nodes[
-        OperationId(SymbolId(scope=("second-producer",), local_id="produce"))
+        OperationId(SymbolId(scope=("siblings", "second-producer"), local_id="produce"))
     ]
     assert first_edge.value_id == first_producer.result.id
     assert first_edge.expected_type == first_producer.result.value_type
@@ -151,14 +162,14 @@ def test_exported_child_value_is_prefixed_when_parent_is_instantiated() -> None:
     producer = _producer_module()
     child_instance = producer.instantiate("child")
     wrapper = (
-        sc.module("test.outputs.wrapper")
+        sc.module_body(id="test.outputs.wrapper")
         .use(child_instance)
         .export(payload=child_instance.outputs.payload)
         .build()
     )
     outer = wrapper.instantiate("outer")
     sink = _consumer_module().instantiate("sink", payload=outer.outputs.payload)
-    root = sc.module("test.outputs.nested").use(outer, sink).build()
+    root = sc.module_body(id="test.outputs.nested").use(outer, sink).build()
 
     assembly = elaborate_module(root)
     sink_node = next(
@@ -184,7 +195,7 @@ def test_nested_compute_exports_preserve_exact_typed_result_values(
     producer = _producer_module()
     child = producer.instantiate("child")
     wrapper = (
-        sc.module("test.outputs.typed-result-wrapper")
+        sc.module_body(id="test.outputs.typed-result-wrapper")
         .use(child)
         .export(payload=child.outputs.payload)
         .build()
@@ -200,15 +211,19 @@ def test_nested_compute_exports_preserve_exact_typed_result_values(
         payload=second.outputs.payload,
     )
     root = (
-        sc.module("test.outputs.typed-result-root")
+        sc.module_body(id="test.outputs.typed-result-root")
         .use(first, second, first_sink, second_sink)
         .build()
     )
 
+    call = root()
+
+    @sc.template(id="test.outputs.typed-result", kind="module_outputs")
+    def template_definition() -> sc.ExperimentBody:
+        return sc.experiment(call)
+
     resolved = resolve_experiment(
-        root.template("test.outputs.typed-result", kind="module_outputs")
-        .build()
-        .bind(),
+        template_definition(),
         config_profile=load_config(),
     )
     nodes = {node.id: node for node in resolved.experiment.compute_nodes}
@@ -219,15 +234,26 @@ def test_nested_compute_exports_preserve_exact_typed_result_values(
         ("beta/outer", "second-sink"),
     ):
         producer_node = nodes[
-            OperationId(SymbolId(scope=(wrapper_scope, "child"), local_id="produce"))
+            OperationId(
+                SymbolId(
+                    scope=("typed-result-root", wrapper_scope, "child"),
+                    local_id="produce",
+                )
+            )
         ]
         sink_node = nodes[
-            OperationId(SymbolId(scope=(sink_scope,), local_id="consume"))
+            OperationId(
+                SymbolId(
+                    scope=("typed-result-root", sink_scope),
+                    local_id="consume",
+                )
+            )
         ]
         edge = sink_node.inputs["payload"]
         assert isinstance(edge, ComputeEdge)
         assert producer_node.result.value_type == expected_type
         assert producer_node.result.id.scope == (
+            "typed-result-root",
             wrapper_scope,
             "child",
             "produce",
@@ -242,7 +268,7 @@ def test_passthrough_and_expression_exports_bind_instance_inputs() -> None:
     value_type = sc.ScalarType(sc.FloatType())
     value = sc.input("value", value_type)
     module = (
-        sc.module("test.outputs.expressions")
+        sc.module_body(id="test.outputs.expressions")
         .inputs(value)
         .export(passthrough=value, shifted=value + 0.5)
         .build()
@@ -257,7 +283,7 @@ def test_passthrough_and_expression_exports_bind_instance_inputs() -> None:
         output_type=sc.ScalarType(sc.PayloadType("test.export-capture")),
     )
     consumer = (
-        sc.module("test.outputs.expression-consumer")
+        sc.module_body(id="test.outputs.expression-consumer")
         .inputs(passthrough_input, shifted_input)
         .computes(capture)
         .build()
@@ -267,7 +293,11 @@ def test_passthrough_and_expression_exports_bind_instance_inputs() -> None:
             shifted=invocation.outputs.shifted,
         )
     )
-    root = sc.module("test.outputs.expression-root").use(invocation, consumer).build()
+    root = (
+        sc.module_body(id="test.outputs.expression-root")
+        .use(invocation, consumer)
+        .build()
+    )
     flattened = elaborate_module(root)
     capture_node = next(
         operation
@@ -319,7 +349,7 @@ def test_passthrough_and_expression_exports_bind_instance_inputs() -> None:
 def test_invocation_validates_typed_and_literal_inputs_immediately() -> None:
     payload = sc.input("payload", _payload_type())
     count = sc.input("count", sc.ScalarType(sc.IntType(minimum=1)))
-    module = sc.module("test.outputs.validation").inputs(payload, count).build()
+    module = sc.module_body(id="test.outputs.validation").inputs(payload, count).build()
     incompatible = sc.input(
         "waveform",
         sc.ScalarType(sc.PayloadType("test.waveform")),
@@ -338,7 +368,7 @@ def test_invocation_validates_typed_and_literal_inputs_immediately() -> None:
 
 
 def test_module_products_remain_reusable_across_instances() -> None:
-    module = sc.module("test.outputs.product").product("signal").build()
+    module = sc.module_body(id="test.outputs.product").product("signal").build()
 
     child = module.instantiate("child")
 
@@ -349,7 +379,7 @@ def test_module_export_scalar_operations_resolve_during_elaboration() -> None:
     value_type = sc.ScalarType(sc.FloatType())
     value = sc.input("value", value_type)
     source = (
-        sc.module("test.outputs.expression-boundary")
+        sc.module_body(id="test.outputs.expression-boundary")
         .inputs(value)
         .export(value=value)
         .build()
@@ -371,14 +401,14 @@ def test_module_export_scalar_operations_resolve_during_elaboration() -> None:
         output_type=value_type,
     )
     consumer = (
-        sc.module("test.outputs.expression-boundary-consumer")
+        sc.module_body(id="test.outputs.expression-boundary-consumer")
         .inputs(consumed)
         .computes(capture)
         .build()
         .instantiate("consumer", consumed=shifted)
     )
     root = (
-        sc.module("test.outputs.expression-boundary-root")
+        sc.module_body(id="test.outputs.expression-boundary-root")
         .use(source_instance, consumer)
         .build()
     )
@@ -423,7 +453,7 @@ def test_module_build_rejects_undeclared_export_inputs() -> None:
     value = sc.input("value", sc.ScalarType(sc.FloatType()))
 
     with pytest.raises(CheckFailed) as error:
-        sc.module("test.outputs.undeclared-input").export(value=value).build()
+        sc.module_body(id="test.outputs.undeclared-input").export(value=value).build()
 
     assert [problem.code for problem in error.value.problems] == [
         "module_input_undeclared"
@@ -434,7 +464,7 @@ def test_duplicate_explicit_instance_ids_are_rejected() -> None:
     producer = _producer_module()
 
     with pytest.raises(ValueError, match="duplicate instance ids: 'duplicate'"):
-        sc.module("test.outputs.duplicate-instance").use(
+        sc.module_body(id="test.outputs.duplicate-instance").use(
             producer.instantiate("duplicate"),
             producer.instantiate("duplicate"),
         )
@@ -448,7 +478,7 @@ def test_output_refs_are_nominally_owned_by_the_used_instance() -> None:
         payload=foreign.outputs.payload,
     )
     with pytest.raises(CheckFailed) as error:
-        sc.module("test.outputs.nominal").use(selected, sink).build()
+        sc.module_body(id="test.outputs.nominal").use(selected, sink).build()
 
     assert [problem.code for problem in error.value.problems] == [
         "module_export_foreign_instance"
@@ -461,14 +491,14 @@ def test_output_roots_preserve_free_inputs_and_value_provenance() -> None:
     parameter = sc.parameter("output_parameter", value_type)
     point = sc.point("output_point", value_type)
     source = (
-        sc.module("test.outputs.roots")
+        sc.module_body(id="test.outputs.roots")
         .inputs(value)
         .export(value=value, parameter=parameter, point=point)
         .build()
     )
     source_instance = source.instantiate("source", value=value)
     wrapper = (
-        sc.module("test.outputs.roots.wrapper")
+        sc.module_body(id="test.outputs.roots.wrapper")
         .inputs(value)
         .use(source_instance)
         .export(value=source_instance.outputs.value)

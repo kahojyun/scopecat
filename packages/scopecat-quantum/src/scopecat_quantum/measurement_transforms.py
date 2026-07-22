@@ -7,7 +7,12 @@ from collections.abc import Mapping
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, model_validator
-from scopecat import MeasurementTransform, Quantity, measurement_transform
+from scopecat import (
+    MeasurementTransform,
+    ProductRef,
+    Quantity,
+    measurement_transform,
+)
 from scopecat.measurements.results import (
     ComplexQuantity,
     MeasurementArray,
@@ -82,9 +87,9 @@ class BinaryIqDiscriminator(BaseModel):
 def binary_iq_probability_transform(
     transform_id: str,
     *,
-    iq_shots: str,
-    probability_0: str,
-    probability_1: str,
+    iq_shots: str | ProductRef,
+    probability_0: str | ProductRef,
+    probability_1: str | ProductRef,
     discriminator: BinaryIqDiscriminator,
 ) -> MeasurementTransform:
     """Declare one authored point-local IQ-shot discrimination transform."""
@@ -97,11 +102,15 @@ def binary_iq_probability_transform(
         _PROBABILITY_0_ROLE: probability_0,
         _PROBABILITY_1_ROLE: probability_1,
     }
-    for role, product_id in product_bindings.items():
-        if not product_id:
+    for role, selected_product in product_bindings.items():
+        if isinstance(selected_product, str) and not selected_product:
             msg = f"binary IQ {role} product ids must be non-empty"
             raise ValueError(msg)
-    if len(set(product_bindings.values())) != len(product_bindings):
+    product_ids = tuple(
+        product.product_id if isinstance(product, ProductRef) else product
+        for product in product_bindings.values()
+    )
+    if len(set(product_ids)) != len(product_ids):
         msg = "binary IQ probability transform products must be distinct"
         raise ValueError(msg)
     return measurement_transform(

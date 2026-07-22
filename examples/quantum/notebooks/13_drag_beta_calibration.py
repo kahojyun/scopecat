@@ -13,15 +13,15 @@ from quantum_lab_demo.reference_experiments import (
     BETA,
     DRAG_BETA_POINTS,
     DRAG_BETA_SPAN,
-    DRAG_BETA_TEMPLATE,
-    PRODUCTION_DRAG_GATE_TEMPLATE,
     analyze_drag_beta_run,
+    drag_beta_template,
+    production_drag_template,
 )
 from quantum_lab_demo.reference_experiments.drag_beta_experiment import (
-    DRAG_BETA_PROGRAM,
+    drag_beta_program,
 )
 from quantum_lab_demo.reference_experiments.production_drag_gate import (
-    PRODUCTION_DRAG_PROGRAM,
+    production_drag_program,
     production_x90_event_id,
     trusted_xm90_event_id,
 )
@@ -54,7 +54,7 @@ parameter_scan = sc.param_axis(
     span=DRAG_BETA_SPAN,
     points=DRAG_BETA_POINTS,
 )
-experiment = lab.prepare(DRAG_BETA_TEMPLATE).scan(parameter_scan)
+experiment = lab.prepare(drag_beta_template).scan(parameter_scan)
 
 # %%
 preview = experiment.preview()
@@ -80,7 +80,7 @@ candidate_config = lab.resolve_config(config=candidate)
 # registry will then refuse to activate that proposal.
 candidate_preview = (
     lab.prepare(
-        DRAG_BETA_TEMPLATE,
+        drag_beta_template,
         config=candidate,
     )
     .scan(parameter_scan)
@@ -99,7 +99,7 @@ baseline_activation = lab.activate_config(
     entry_id=f"drag-beta-baseline-{completed_run.id}",
 )
 baseline_production_run = lab.prepare(
-    PRODUCTION_DRAG_GATE_TEMPLATE,
+    production_drag_template,
     config="active",
 ).run(
     name="Production X90 with baseline DRAG beta",
@@ -127,14 +127,14 @@ activation = lab.activate(
 # with the DUT and hide a correlated implementation error.
 active_preview = (
     lab.prepare(
-        DRAG_BETA_TEMPLATE,
+        drag_beta_template,
         config="active",
     )
     .scan(parameter_scan)
     .preview()
 )
 active_production_run = lab.prepare(
-    PRODUCTION_DRAG_GATE_TEMPLATE,
+    production_drag_template,
     config="active",
 ).run(
     name="Production X90 with accepted DRAG beta",
@@ -152,14 +152,14 @@ rollback = lab.rollback(
 )
 restored_preview = (
     lab.prepare(
-        DRAG_BETA_TEMPLATE,
+        drag_beta_template,
         config="active",
     )
     .scan(parameter_scan)
     .preview()
 )
 restored_production_run = lab.prepare(
-    PRODUCTION_DRAG_GATE_TEMPLATE,
+    production_drag_template,
     config="active",
 ).run(
     name="Production X90 after DRAG beta rollback",
@@ -183,7 +183,7 @@ def _quantity_in_unit(value: object, unit: str) -> float:
     return float(value.to(unit).value)
 
 
-[calibration_batch] = compiler.trace.preparations(DRAG_BETA_PROGRAM.id)
+[calibration_batch] = compiler.trace.preparations(drag_beta_program.id)
 compiler_beta_values = tuple(
     sorted(
         {
@@ -193,7 +193,7 @@ compiler_beta_values = tuple(
     )
 )
 baseline_gate, active_gate, restored_gate = compiler.trace.preparations(
-    PRODUCTION_DRAG_PROGRAM.id
+    production_drag_program.id
 )
 baseline_entry, active_entry, restored_entry = (
     batch.entries[0] for batch in (baseline_gate, active_gate, restored_gate)

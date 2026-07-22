@@ -12,6 +12,7 @@ from scopecat.authoring._intents import (
 from scopecat.authoring._module_handles import (
     ExperimentModule,
     ModuleBuilder,
+    ModuleCall,
     ModuleInvocation,
 )
 from scopecat.authoring._module_ir import (
@@ -142,11 +143,13 @@ def build_module_from_builder(
     )
 
 
-def module_use_invocation(selected: object) -> ModuleInvocation:
+def module_use_invocation(
+    selected: ModuleInvocation | ModuleCall | object,
+) -> ModuleInvocation:
     if isinstance(selected, ModuleInvocation):
         return selected
-    msg = (
-        "module composition requires an explicit ModuleInvocation; "
-        "use module.instantiate(instance_id, **inputs)"
-    )
+    invocation = getattr(selected, "module_invocation", None)
+    if isinstance(invocation, ModuleInvocation):
+        return invocation
+    msg = "module composition requires a ModuleInvocation or a domain module call"
     raise TypeError(msg)

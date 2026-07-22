@@ -16,7 +16,7 @@ from scopecat.records.config import (
 )
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import Quantity
-from tests.testkit.authoring import load_config
+from tests.testkit.authoring import load_config, template_fixture
 from tests.testkit.local_materialization import operations_of_type
 from tests.testkit.materialized_effects import materialized_effects_contract
 
@@ -158,7 +158,7 @@ def _bias_invocation() -> authoring.ExperimentInvocation:
     background_rows = bias_rows.filter(lambda row: row["entity"].ne(target))
     target_rows = bias_rows.filter(lambda row: row["entity"].eq(target))
     module = (
-        authoring.module("test.bias-shards.scan-target")
+        authoring.module_body(id="test.bias-shards.scan-target")
         .inputs(bias_rows, target, scan_bias)
         .resource(
             "bias",
@@ -185,18 +185,19 @@ def _bias_invocation() -> authoring.ExperimentInvocation:
     )
     target_point = authoring.point("target", _ENTITY)
     bias_point = authoring.point("scan_bias", _BIAS)
-    template = (
-        module.template("test.bias-shards.scan-target", kind="bias_scan")
-        .scan(
+    template = template_fixture(
+        module,
+        id="test.bias-shards.scan-target",
+        kind="bias_scan",
+        scans=(
             zip_scans(
                 axis(target_point, _TARGETS),
                 axis(
                     bias_point,
                     tuple(Quantity(value=value, unit="V") for value in _SCAN_BIAS),
                 ),
-            )
-        )
-        .build()
+            ),
+        ),
     )
     return template.bind(
         bias_rows=tuple(
@@ -295,7 +296,7 @@ def test_bias_shard_rejects_one_entity_owned_by_two_instruments() -> None:
 def test_multi_instrument_scope_is_not_implicitly_broadcast_to_an_action() -> None:
     bias_rows = authoring.input("bias_rows", _BIAS_ROWS)
     module = (
-        authoring.module("test.bias-shards.action")
+        authoring.module_body(id="test.bias-shards.action")
         .inputs(bias_rows)
         .resource(
             "bias",
@@ -310,20 +311,17 @@ def test_multi_instrument_scope_is_not_implicitly_broadcast_to_an_action() -> No
         )
         .build()
     )
-    invocation = (
-        module.template(
-            "test.bias-shards.action",
-            kind="bias_action",
-        )
-        .build()
-        .bind(
-            bias_rows=tuple(
-                {
-                    "entity": EntityRef(id=entity_id, kind="logical_device"),
-                    "background_bias": Quantity(value=0.0, unit="V"),
-                }
-                for entity_id in _ENTITIES
-            )
+    invocation = template_fixture(
+        module,
+        id="test.bias-shards.action",
+        kind="bias_action",
+    ).bind(
+        bias_rows=tuple(
+            {
+                "entity": EntityRef(id=entity_id, kind="logical_device"),
+                "background_bias": Quantity(value=0.0, unit="V"),
+            }
+            for entity_id in _ENTITIES
         )
     )
     config = _bias_config()

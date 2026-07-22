@@ -22,7 +22,7 @@ from scopecat_quantum.calibrations import (
     GateCalibrationKey,
 )
 from scopecat_quantum.circuits import Measure
-from scopecat_quantum.gates import GateCall
+from scopecat_quantum.gates import GateCall, GateParameterKind
 from scopecat_quantum.programs import (
     AuthoredPulseAcquisitionProvenance,
     AuthoredPulseEventProvenance,
@@ -40,12 +40,14 @@ from scopecat_quantum.programs import (
 from scopecat_quantum.pulses import (
     DRAG,
     Acquire,
+    AcquireSignal,
     Constant,
     DriveSignal,
     FluxSignal,
     Play,
     PulseProgram,
     PulseValidationError,
+    ReadoutSignal,
     ShiftPhase,
     iter_pulse_leaves,
     schedule,
@@ -79,7 +81,7 @@ def test_sequence_composes_baseline_gate_candidate_pulse_and_measurement() -> No
     beta = _beta_input()
     x90 = authoring.single_qubit_gate("x90")
     readout = authoring.measure(q0, result="raw_iq")
-    declaration = authoring.program(
+    declaration = authoring._close_program(
         "drag-calibration-point",
         authoring.sequence(
             x90(q0),
@@ -95,7 +97,7 @@ def test_sequence_composes_baseline_gate_candidate_pulse_and_measurement() -> No
     bound = authoring.bind(declaration, {"beta": Quantity(0.75, "ns")})
 
     assert declaration.inputs == (beta,)
-    assert declaration.results == (readout.result,)
+    assert tuple(declaration.results) == (readout.result,)
     assert isinstance(bound.program.body, QuantumSequence)
     assert [type(operation) for operation in bound.verified.operations] == [
         GateCall,
@@ -124,7 +126,7 @@ def test_repeated_candidate_materializes_unique_calls_with_bound_drag_beta() -> 
         _drag_play(q0, beta),
         candidate="x90.drag",
     )
-    declaration = authoring.program(
+    declaration = authoring._close_program(
         "repeated-drag-candidate",
         authoring.repeat(candidate, repetitions),
     )
@@ -158,7 +160,7 @@ def test_repeated_candidate_materializes_unique_calls_with_bound_drag_beta() -> 
 def test_gate_and_pulse_can_bind_in_parallel_before_final_signal_check() -> None:
     q0 = authoring.qubit("q0")
     x90 = authoring.single_qubit_gate("x90")
-    declaration = authoring.program(
+    declaration = authoring._close_program(
         "parallel-drive-conflict",
         authoring.parallel(
             x90(q0),
@@ -255,7 +257,7 @@ def test_two_qubit_gate_implementation_authorizes_and_lowers_coupler_pulse() -> 
     cz = authoring.two_qubit_gate("cz")
     with pytest.raises(TypeError, match="element 0 requires Coupler, got Qubit"):
         template(q0, amplitude=amplitude)
-    declaration = authoring.program(
+    declaration = authoring._close_program(
         "cz-candidate",
         authoring.implements(
             cz(q0, q1),
@@ -331,7 +333,7 @@ def test_drag_beta_requires_a_time_typed_input() -> None:
 def test_program_binding_requires_exact_typed_inputs() -> None:
     q0 = authoring.qubit("q0")
     beta = _beta_input()
-    declaration = authoring.program("drag", _drag_play(q0, beta))
+    declaration = authoring._close_program("drag", _drag_play(q0, beta))
 
     with pytest.raises(authoring.ProgramBindingError, match="missing 'beta'"):
         authoring.bind(declaration)
@@ -356,7 +358,7 @@ def test_domain_program_and_execution_expose_typed_ports() -> None:
         sc.ScalarType(sc.IntType()),
     )
     readout = authoring.measure(q0, result="raw_iq")
-    declaration = authoring.program(
+    declaration = authoring._close_program(
         "typed-drag-program",
         authoring.sequence(
             authoring.repeat(_drag_play(q0, beta), repetitions),
@@ -367,11 +369,13 @@ def test_domain_program_and_execution_expose_typed_ports() -> None:
     repetitions_point = sc.point("repetitions", repetitions_type)
     beta_point = sc.point("beta", beta_type)
     products = (
-        sc.module("test.quantum.typed-drag").product("integrated_iq_shots").build()
+        sc.module_body(id="test.quantum.typed-drag")
+        .product("integrated_iq_shots")
+        .build()
     )
 
-    domain_program = authoring.domain_program(declaration)
-    execution = authoring.domain_execution(
+    domain_program = authoring._domain_program(declaration)
+    execution = authoring._domain_execution(
         domain_program,
         inputs={beta: beta_point, repetitions: repetitions_point},
         results={readout.result: products.products["integrated_iq_shots"]},
@@ -400,7 +404,7 @@ def test_explicit_acquire_composes_with_readout_play_and_keeps_public_slot() -> 
         duration=Quantity(8, "ns"),
         result="iq_shots",
     )
-    declaration = authoring.program(
+    declaration = authoring._close_program(
         "explicit-readout",
         authoring.parallel(
             authoring.play(
@@ -422,7 +426,7 @@ def test_explicit_acquire_composes_with_readout_play_and_keeps_public_slot() -> 
     )
     scheduled = schedule(lowered.program)
 
-    assert declaration.results == (capture.result,)
+    assert tuple(declaration.results) == (capture.result,)
     assert capture.result.qubit is q0
     assert capture.result.acquisition_slot_id == AcquisitionSlotId("iq_shots")
     assert lowered.program.acquisition_slots[0].id == capture.result.acquisition_slot_id
@@ -446,12 +450,14 @@ def test_domain_execution_requires_the_exact_measurement_result_handle() -> None
         duration=Quantity(8, "ns"),
         result="iq_shots",
     )
-    declaration = authoring.program("explicit-acquire", capture)
-    domain_program = authoring.domain_program(declaration)
-    products = sc.module("test.quantum.explicit-acquire").product("iq_shots").build()
+    declaration = authoring._close_program("explicit-acquire", capture)
+    domain_program = authoring._domain_program(declaration)
+    products = (
+        sc.module_body(id="test.quantum.explicit-acquire").product("iq_shots").build()
+    )
 
     with pytest.raises(ValueError, match="bind every declared result"):
-        authoring.domain_execution(
+        authoring._domain_execution(
             domain_program,
             results={foreign.result: products.products["iq_shots"]},
         )
@@ -473,7 +479,7 @@ def test_explicit_acquire_results_cannot_repeat_or_redeclare_an_id() -> None:
     with pytest.raises(ValueError, match="physical acquisition results"):
         authoring.repeat(first, 2)
     with pytest.raises(ValueError, match="duplicate result ids"):
-        authoring.program(
+        authoring._close_program(
             "duplicate-acquisitions",
             authoring.sequence(first, second),
         )
@@ -504,7 +510,7 @@ def test_pulse_template_substitutes_qubit_and_outer_input_hygienically() -> None
         "ramsey_phase",
         sc.ScalarType(sc.QuantityType(unit="rad")),
     )
-    declaration = authoring.program(
+    declaration = authoring._close_program(
         "two-template-calls",
         authoring.sequence(
             template(q0, phase=outer_phase),
@@ -591,7 +597,7 @@ def test_shift_phase_accepts_symbolic_phase() -> None:
         "phase",
         sc.ScalarType(sc.QuantityType(unit="rad")),
     )
-    declaration = authoring.program(
+    declaration = authoring._close_program(
         "virtual-z",
         authoring.sequence(
             authoring.shift_phase(authoring.drive(q0), phase),
@@ -614,3 +620,104 @@ def test_shift_phase_accepts_symbolic_phase() -> None:
     assert isinstance(shift.instruction, ShiftPhase)
     assert shift.duration_seconds == 0
     assert shift.instruction.phase == Quantity(180, "deg").to("rad")
+
+
+def test_program_element_ports_bind_every_logical_owner() -> None:
+    formal_q0 = authoring.qubit("control")
+    formal_q1 = authoring.qubit("target")
+    formal_coupler = authoring.coupler("coupler")
+    fixed = authoring.qubit("fixed")
+    x = authoring.single_qubit_gate("x")
+    cz = authoring.two_qubit_gate("cz")
+    measure = authoring.measure(formal_q0, result="measure_iq")
+    capture = authoring.acquire(
+        formal_q1,
+        duration=Quantity(8, "ns"),
+        result="capture_iq",
+    )
+    envelope = authoring.constant(
+        duration=Quantity(8, "ns"),
+        amplitude=Quantity(0.1, "arb"),
+    )
+    declaration = authoring._close_program(
+        "formal-elements",
+        authoring.sequence(
+            x(formal_q0),
+            x(fixed),
+            measure,
+            authoring.play(authoring.drive(formal_q0), envelope),
+            authoring.play(authoring.readout(formal_q1), envelope),
+            capture,
+            authoring.implements(
+                cz(formal_q0, formal_q1),
+                authoring.play(authoring.flux(formal_coupler), envelope),
+                resources=(formal_coupler,),
+            ),
+        ),
+        elements=(formal_q0, formal_q1, formal_coupler),
+    )
+
+    bound = authoring.bind(
+        declaration,
+        {
+            "control": "q2",
+            "target": sc.entity_ref("q3", kind="logical_qubit"),
+            "coupler": "coupler-q2-q3",
+        },
+    )
+    gate, fixed_gate, measurement, drive, readout, acquisition, implemented = (
+        bound.verified.operations
+    )
+    assert isinstance(gate, GateCall)
+    assert gate.qubits == (QubitId("q2"),)
+    assert isinstance(fixed_gate, GateCall)
+    assert fixed_gate.qubits == (QubitId("fixed"),)
+    assert isinstance(measurement, Measure)
+    assert measurement.qubit == QubitId("q2")
+    assert isinstance(drive, PulseBlock)
+    [drive_leaf] = iter_pulse_leaves(drive.pulse_template.body)
+    assert isinstance(drive_leaf, Play)
+    assert drive_leaf.signal == DriveSignal(QubitId("q2"))
+    assert isinstance(readout, PulseBlock)
+    [readout_leaf] = iter_pulse_leaves(readout.pulse_template.body)
+    assert isinstance(readout_leaf, Play)
+    assert readout_leaf.signal == ReadoutSignal(QubitId("q3"))
+    assert isinstance(acquisition, PulseBlock)
+    [acquire_leaf] = iter_pulse_leaves(acquisition.pulse_template.body)
+    assert isinstance(acquire_leaf, Acquire)
+    assert acquire_leaf.signal == AcquireSignal(QubitId("q3"))
+    assert isinstance(implemented, ImplementedGate)
+    assert implemented.call.qubits == (QubitId("q2"), QubitId("q3"))
+    [flux_leaf] = iter_pulse_leaves(implemented.pulse_template.body)
+    assert isinstance(flux_leaf, Play)
+    assert flux_leaf.signal == FluxSignal(CouplerId("coupler-q2-q3"))
+
+    with pytest.raises(authoring.ProgramBindingError, match="logical_qubit"):
+        authoring.bind(
+            declaration,
+            {
+                "control": sc.entity_ref("c0", kind="logical_coupler"),
+                "target": "q3",
+                "coupler": "coupler-q2-q3",
+            },
+        )
+
+
+def test_program_rejects_unused_or_conflicting_formal_ports() -> None:
+    q0 = authoring.qubit("q0")
+    unused = authoring.qubit("unused")
+    measurement = authoring.measure(q0, result="iq")
+
+    with pytest.raises(ValueError, match="unused formal elements: 'unused'"):
+        authoring._close_program("unused", measurement, elements=(unused,))
+
+    count = authoring.scalar_input("q0", GateParameterKind.INTEGER)
+    with pytest.raises(ValueError, match="conflicting port ids: 'q0'"):
+        authoring._close_program(
+            "conflict",
+            authoring.sequence(
+                authoring.repeat(authoring.single_qubit_gate("x")(q0), count),
+                measurement,
+            ),
+            elements=(q0,),
+        )

@@ -8,6 +8,7 @@ from scopecat.compiler.linking.linked import (
     link_verified_program,
 )
 from scopecat.compiler.typed.domain_results import domain_result_closure
+from scopecat.compiler.typed.program import core_domain_executions
 from scopecat.planning.authoring import resolve_experiment
 from scopecat.sdk.domain import (
     DomainPointRef,
@@ -37,7 +38,7 @@ def test_domain_batch_context_materializes_only_selected_residual_inputs(
         results={"counts": ("counts", "v1")},
     )
     module = (
-        sc.module("test.domain.view")
+        sc.module_body(id="test.domain.view")
         .product("counts", unit="count", dtype="int64")
         .build()
     )
@@ -46,12 +47,14 @@ def test_domain_batch_context_materializes_only_selected_residual_inputs(
         inputs={"count": count},
         results={"counts": module.products["counts"]},
     )
-    template = (
-        module.domain(execution)
-        .template("test.domain.view", kind="domain_view")
+    module_call = module.domain(execution)()
+    experiment_body = (
+        sc.experiment(module_call)
         .scan(count, (1, 3, 5))
-        .record_product("counts")
-        .build()
+        .record_product(module_call.products.counts, record_id="counts")
+    )
+    template = sc.template(id="test.domain.view", kind="domain_view")(
+        lambda: experiment_body
     )
     resolved = resolve_experiment(
         template.bind(),
@@ -61,14 +64,15 @@ def test_domain_batch_context_materializes_only_selected_residual_inputs(
     materializer = LinkedPointMaterializer(linked)
     linked_points = materializer.materialize()
 
-    closure = domain_result_closure(linked.program, execution.id)
+    execution_id = core_domain_executions(linked.program)[0].id
+    closure = domain_result_closure(linked.program, execution_id)
     request = make_domain_compile_request(
         linked,
-        execution.id,
+        execution_id,
         closure,
         ((0, 1, 2),),
         lambda input_ids, ordinals, max_points: materializer.bind_domain_inputs(
-            execution.id,
+            execution_id,
             input_ids,
             ordinals,
             max_points=max_points,

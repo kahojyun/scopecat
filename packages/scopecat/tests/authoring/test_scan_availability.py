@@ -22,21 +22,21 @@ def _quantity_scan_parts() -> tuple[sc.ValueRef, sc.Compute]:
 
 def test_default_scan_center_rejects_external_operation() -> None:
     target, center = _quantity_scan_parts()
-    builder = (
-        sc.module("test.scan-stage.default")
-        .computes(center)
-        .build()
-        .template("test.scan-stage.default", kind="scan-stage")
-        .scan(
+    module = sc.module_body(id="test.scan-stage.default").computes(center).build()
+    call = module()
+
+    def template_definition() -> sc.ExperimentBody:
+        return sc.experiment(call).scan(
             target,
             center=center.output,
             span=sc.Quantity(value=0.1, unit="GHz"),
             points=3,
         )
-    )
 
     with pytest.raises(CheckFailed) as error:
-        builder.build()
+        sc.template(id="test.scan-stage.default", kind="scan-stage")(
+            template_definition
+        )
 
     problem = error.value.problems[0]
     assert problem.code == "value_requires_execution"
@@ -46,14 +46,14 @@ def test_default_scan_center_rejects_external_operation() -> None:
 
 def test_invocation_scan_center_rejects_external_operation() -> None:
     target, center = _quantity_scan_parts()
-    template = (
-        sc.module("test.scan-stage.invocation")
-        .computes(center)
-        .build()
-        .template("test.scan-stage.invocation", kind="scan-stage")
-        .build()
-    )
-    invocation = template.bind().scan(
+    module = sc.module_body(id="test.scan-stage.invocation").computes(center).build()
+    call = module()
+
+    @sc.template(id="test.scan-stage.invocation", kind="scan-stage")
+    def template_definition() -> sc.ExperimentBody:
+        return sc.experiment(call)
+
+    invocation = template_definition().scan(
         target,
         center=center.output,
         span=sc.Quantity(value=0.1, unit="GHz"),
@@ -76,22 +76,22 @@ def test_parameter_scan_key_rejects_external_operation() -> None:
         output_type=entity_type,
     )
     target = sc.point("gain", sc.ScalarType(sc.FloatType()))
+    module = sc.module_body(id="test.scan-stage.parameter-key").computes(key).build()
+    call = module()
     scan = sc.param_axis(
         target,
         sc.param_row("device-parameters", device=key.output),
         "gain",
         (0.5, 1.0),
     )
-    builder = (
-        sc.module("test.scan-stage.parameter-key")
-        .computes(key)
-        .build()
-        .template("test.scan-stage.parameter-key", kind="scan-stage")
-        .scan(scan)
-    )
+
+    def template_definition() -> sc.ExperimentBody:
+        return sc.experiment(call).scan(scan)
 
     with pytest.raises(CheckFailed) as error:
-        builder.build()
+        sc.template(id="test.scan-stage.parameter-key", kind="scan-stage")(
+            template_definition
+        )
 
     problem = error.value.problems[0]
     assert problem.code == "value_requires_execution"

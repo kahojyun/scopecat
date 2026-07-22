@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, TypeGuard, cast, override
+from typing import Protocol, TypeGuard, cast, override
 
 from scopecat.authoring._binding_intents import (
     ExperimentBindingIntent,
@@ -93,10 +93,6 @@ from scopecat.measurements.results import MeasurementDType
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import Quantity
 
-if TYPE_CHECKING:
-    from scopecat.authoring.templates import TemplateBuilder
-
-
 type StateLiteral = (
     Quantity | EntityRef | PayloadValue | str | int | float | bool | None
 )
@@ -104,6 +100,13 @@ type BindingInput = StateLiteral | ValueRef
 type StateRowValue = Callable[[TableRow], ValueRef]
 type StateScalarInput = BindingInput | StateRowValue
 type StateTargetInput = StateScalarInput | Sequence[StateLiteral]
+
+
+class ModuleCall(Protocol):
+    """A domain frontend that exposes one core module invocation."""
+
+    @property
+    def module_invocation(self) -> ModuleInvocation: ...
 
 
 def _empty_resource_bindings() -> FrozenMapping[
@@ -198,7 +201,7 @@ class ModuleBuilder:
 
     def use(
         self,
-        *modules: ModuleInvocation,
+        *modules: ModuleInvocation | ModuleCall,
     ) -> ModuleBuilder:
         from scopecat.authoring._module_construction import module_use_invocation
 
@@ -226,7 +229,7 @@ class ModuleBuilder:
             ),
         )
 
-    def sequence(self, *modules: ModuleInvocation) -> ModuleBuilder:
+    def sequence(self, *modules: ModuleInvocation | ModuleCall) -> ModuleBuilder:
         """Append child procedures in deterministic sequence."""
 
         return self.use(*modules)
@@ -671,25 +674,6 @@ class ModuleBuilder:
             metadata=metadata,
         )
 
-    def template(
-        self,
-        id: str,  # noqa: A002
-        *,
-        kind: str,
-        experiment_id: str | None = None,
-        label: str | None = None,
-        description: str | None = None,
-        metadata: Mapping[str, MetadataValue] | None = None,
-    ) -> TemplateBuilder:
-        return self.build().template(
-            id,
-            kind=kind,
-            experiment_id=experiment_id,
-            label=label,
-            description=description,
-            metadata=metadata,
-        )
-
 
 @dataclass(frozen=True, slots=True, repr=False)
 class ModuleInvocation:
@@ -913,6 +897,11 @@ class ExperimentModule:
             resource_bindings=resource_bindings or {},
         )
 
+    def __call__(self, **inputs: ModuleInput) -> ModuleInvocation:
+        """Create the ordinary single use of this closed definition."""
+
+        return self.instantiate(self.id.rsplit(".", maxsplit=1)[-1], inputs)
+
     def domain(self, execution: DomainExecution) -> ExperimentModule:
         """Return this module with one domain call appended to its procedure."""
 
@@ -1005,28 +994,6 @@ class ExperimentModule:
                 )
                 for port in ports
             }
-        )
-
-    def template(
-        self,
-        id: str,  # noqa: A002
-        *,
-        kind: str,
-        experiment_id: str | None = None,
-        label: str | None = None,
-        description: str | None = None,
-        metadata: Mapping[str, MetadataValue] | None = None,
-    ) -> TemplateBuilder:
-        from scopecat.authoring.templates import template_builder_from_module
-
-        return template_builder_from_module(
-            self,
-            id,
-            kind=kind,
-            experiment_id=experiment_id,
-            label=label,
-            description=description,
-            metadata=metadata,
         )
 
 

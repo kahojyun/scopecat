@@ -759,7 +759,7 @@ def test_parallel_gate_compute_accepts_arbitrary_table_cardinality(
         ),
     ),
 )
-def test_parallel_gate_table_drives_program_and_waveform_entity_order(
+def test_escape_hatch_preserves_collection_cardinality_and_order(
     tmp_path: Path,
     gates: tuple[dict[str, str], ...],
     expected_qubits: tuple[str, ...],

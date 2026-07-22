@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Annotated
+
 import scopecat as sc
-from scopecat import Quantity
+from scopecat import Quantity, QuantityType
 from scopecat_quantum import (
     BinaryIqDiscriminator,
     CircuitPulseEventProvenance,
@@ -29,94 +31,82 @@ PRODUCTION_DRAG_GATE_EXPERIMENT_ID = "production-drag-x90"
 PRODUCTION_DRAG_GATE_SHOTS = 32
 TRUSTED_REFERENCE_BETA = DEFAULT_BASELINE_BETA
 
-_BETA_VALUE_TYPE = sc.ScalarType(sc.QuantityType(unit="ns"))
-PRODUCTION_DRAG_BETA_INPUT = quantum.input("drag_beta", _BETA_VALUE_TYPE)
-
-_Q0 = quantum.qubit("q0")
 _X90 = quantum.single_qubit_gate("x90")
 _XM90 = quantum.single_qubit_gate("xm90")
 
 
-def production_drag_gate_program() -> quantum.Program:
+@quantum.program(id="production-drag-x90")
+def production_drag_program(
+    qubit: quantum.Qubit,
+    drag_beta: Annotated[Quantity, QuantityType(unit="ns")],
+) -> quantum.QuantumFragment:
     """Declare a production X90 followed by one fixed trusted Xm90."""
 
     production_x90 = quantum.implements(
-        _X90(_Q0),
+        _X90(qubit),
         DRAG_GATE_PULSE_TEMPLATE(
-            _Q0,
-            template_beta=PRODUCTION_DRAG_BETA_INPUT,
+            qubit,
+            template_beta=drag_beta,
             template_phase=Quantity(0, "rad"),
         ),
     )
     capture = quantum.acquire(
-        _Q0,
+        qubit,
         duration=Quantity(8, "ns"),
         result="iq_shots",
     )
-    return quantum.program(
-        "production-drag-x90",
-        quantum.sequence(
-            production_x90,
-            _XM90(_Q0),
-            quantum.parallel(DRAG_READOUT_PULSE_TEMPLATE(_Q0), capture),
-        ),
+    return quantum.sequence(
+        production_x90,
+        _XM90(qubit),
+        quantum.parallel(DRAG_READOUT_PULSE_TEMPLATE(qubit), capture),
     )
 
 
-PRODUCTION_DRAG_PROGRAM = production_drag_gate_program()
-[_IQ_SHOTS_RESULT] = PRODUCTION_DRAG_PROGRAM.results
-_PRODUCTION_DRAG_DOMAIN_PROGRAM = quantum.domain_program(PRODUCTION_DRAG_PROGRAM)
 _DISCRIMINATOR = BinaryIqDiscriminator(
     state_0_centroid=IqCentroid(real=-1.0, imag=0.0),
     state_1_centroid=IqCentroid(real=1.0, imag=0.0),
     tie_policy="state_0",
 )
-_PROBABILITY_TRANSFORM = binary_iq_probability_transform(
-    "binary-iq-probability",
-    iq_shots="integrated_iq_shots",
-    probability_0="probability_0",
-    probability_1="probability_1",
-    discriminator=_DISCRIMINATOR,
-)
 
-PRODUCTION_DRAG_GATE_CAPTURE_MODULE = (
-    sc.module("quantum_lab_demo.production.drag_x90.capture")
-    .product(
-        "integrated_iq_shots",
-        unit="ratio",
-        dtype="complex128",
-        axes=(sc.shot_axis(PRODUCTION_DRAG_GATE_SHOTS),),
-    )
-    .product("probability_0", "probability_1", unit="ratio")
-    .measurement_transforms(_PROBABILITY_TRANSFORM)
-    .build()
-)
 
-_TEMPLATE_CAPTURE = PRODUCTION_DRAG_GATE_CAPTURE_MODULE.instantiate("capture")
-_PRODUCTION_DRAG_EXECUTION = quantum.domain_execution(
-    _PRODUCTION_DRAG_DOMAIN_PROGRAM,
-    inputs={PRODUCTION_DRAG_BETA_INPUT: q0_drag_beta_lookup()},
-    results={
-        _IQ_SHOTS_RESULT: _TEMPLATE_CAPTURE.products.integrated_iq_shots,
-    },
-)
-PRODUCTION_DRAG_GATE_TEMPLATE = (
-    sc.module("quantum_lab_demo.production.drag_x90.root")
-    .use(_TEMPLATE_CAPTURE)
-    .domain(_PRODUCTION_DRAG_EXECUTION)
-    .template(
-        PRODUCTION_DRAG_GATE_TEMPLATE_ID,
-        kind=PRODUCTION_DRAG_GATE_EXPERIMENT_ID,
+@sc.module(id="quantum_lab_demo.production.drag_x90.capture")
+def production_drag_capture():
+    call = production_drag_program(
+        qubit="q0",
+        drag_beta=q0_drag_beta_lookup(),
+        shots=PRODUCTION_DRAG_GATE_SHOTS,
     )
-    .experiment_id(PRODUCTION_DRAG_GATE_EXPERIMENT_ID)
-    .record_product(_TEMPLATE_CAPTURE.products.probability_0, record_id="probability_0")
-    .record_product(_TEMPLATE_CAPTURE.products.probability_1, record_id="probability_1")
-    .label("Production DRAG X90")
-    .description(
+    body = (
+        sc.module_body()
+        .use(call)
+        .product("probability_0", "probability_1", unit="ratio")
+    )
+    transform = binary_iq_probability_transform(
+        "binary-iq-probability",
+        iq_shots=call.results.iq_shots,
+        probability_0=body.products.probability_0,
+        probability_1=body.products.probability_1,
+        discriminator=_DISCRIMINATOR,
+    )
+    return body.measurement_transforms(transform)
+
+
+@sc.template(
+    id=PRODUCTION_DRAG_GATE_TEMPLATE_ID,
+    kind=PRODUCTION_DRAG_GATE_EXPERIMENT_ID,
+    label="Production DRAG X90",
+    description=(
         "Compile the active q0 DRAG beta into a production X90 while keeping "
         "the trusted Xm90 reference calibration fixed."
-    )
+    ),
 )
+def production_drag_template() -> sc.ExperimentBody:
+    capture = production_drag_capture()
+    return (
+        sc.experiment(capture)
+        .record_product(capture.products.probability_0, record_id="probability_0")
+        .record_product(capture.products.probability_1, record_id="probability_1")
+    )
 
 
 def production_x90_event_id(entry: PreparedQuantumTargetEntry) -> PulseEventId:
@@ -159,15 +149,13 @@ def trusted_xm90_event_id(entry: PreparedQuantumTargetEntry) -> PulseEventId:
 
 
 __all__ = [
-    "PRODUCTION_DRAG_BETA_INPUT",
-    "PRODUCTION_DRAG_GATE_CAPTURE_MODULE",
     "PRODUCTION_DRAG_GATE_EXPERIMENT_ID",
     "PRODUCTION_DRAG_GATE_SHOTS",
-    "PRODUCTION_DRAG_GATE_TEMPLATE",
     "PRODUCTION_DRAG_GATE_TEMPLATE_ID",
-    "PRODUCTION_DRAG_PROGRAM",
     "TRUSTED_REFERENCE_BETA",
-    "production_drag_gate_program",
+    "production_drag_capture",
+    "production_drag_program",
+    "production_drag_template",
     "production_x90_event_id",
     "trusted_xm90_event_id",
 ]

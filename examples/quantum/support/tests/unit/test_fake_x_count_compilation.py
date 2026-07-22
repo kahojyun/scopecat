@@ -22,9 +22,9 @@ from scopecat.sdk.domain.runtime import (
 
 from quantum_lab_demo import QuantumLabCompiler, quantum_lab_compiler
 from quantum_lab_demo.reference_experiments import (
-    FAKE_X_COUNT_BIAS_TEMPLATE,
     FakeBiasVoltageProvider,
     fake_x_count_bias_config,
+    fake_x_count_bias_template,
 )
 from quantum_lab_demo.targets.fake_list_mode import (
     FakeListDomainRuntime,
@@ -125,7 +125,7 @@ def test_different_target_partitions_preserve_the_logical_dataset(
             ),
         )
 
-        run = lab.prepare(FAKE_X_COUNT_BIAS_TEMPLATE).run()
+        run = lab.prepare(fake_x_count_bias_template).run()
         records = run.data().measurements().dataset.records
         logical_datasets.append(
             content_fingerprint(
@@ -164,7 +164,7 @@ def test_later_batch_failure_has_one_domain_problem_and_partial_dataset(
     )
 
     with pytest.raises(RunIndeterminate) as captured:
-        lab.prepare(FAKE_X_COUNT_BIAS_TEMPLATE).run()
+        lab.prepare(fake_x_count_bias_template).run()
 
     codes = [problem.code for problem in captured.value.outcome.problems]
     [persisted] = lab.runs()
@@ -190,5 +190,5 @@ def _run_mixed_experiment(
             domain_compiler=compiler,
         ),
     )
-    run = lab.prepare(FAKE_X_COUNT_BIAS_TEMPLATE).run()
+    run = lab.prepare(fake_x_count_bias_template).run()
     return run, source, compiler

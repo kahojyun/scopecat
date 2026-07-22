@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
+from typing import Annotated
+
 import scopecat.authoring as authoring
-from scopecat.authoring import ExperimentTemplate, InputDescription
+from scopecat.authoring import ExperimentTemplate
+from scopecat.authoring._products import RecordSelection
+from scopecat.authoring._validation import validate_template_definition
+from scopecat.authoring.scans import Scan
+from scopecat.authoring.values import MetadataValue
 from scopecat.config.parameter_resolution import resolve_config_parameters
 from scopecat.config.profiles import load_config_profile
 from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import Quantity
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 
@@ -17,6 +25,40 @@ def parameters():
     return resolve_config_parameters(load_config()).data
 
 
+def template_fixture(
+    module: authoring.ExperimentModule,
+    *,
+    id: str,  # noqa: A002
+    kind: str,
+    inputs: Sequence[authoring.InputDescription] = (),
+    scans: Sequence[Scan] = (),
+    records: Sequence[RecordSelection] = (),
+    label: str | None = None,
+    description: str | None = None,
+    metadata: Mapping[str, MetadataValue] | None = None,
+) -> ExperimentTemplate:
+    """Build exact-root fixtures for low-level IR and compiler tests."""
+
+    template = ExperimentTemplate(
+        id=id,
+        kind=kind,
+        module=module,
+        record_selections=tuple(records),
+        inputs=tuple(inputs),
+        default_scans=tuple(scans),
+        label=label,
+        description=description,
+        metadata=metadata or {},
+    )
+    validate_template_definition(
+        module=template.module,
+        inputs=template.inputs,
+        default_scans=template.default_scans,
+        record_selections=template.record_selections,
+    )
+    return template
+
+
 _SIMPLE_SUBJECT = authoring.input(
     "subject",
     authoring.ScalarType(authoring.EntityType()),
@@ -26,7 +68,7 @@ DRIVE_FREQUENCY_POINT = authoring.point(
     authoring.ScalarType(authoring.QuantityType(unit="GHz")),
 )
 SIMPLE_MODULE = (
-    authoring.module("test.simple_scan", metadata={"assembled_by": "module"})
+    authoring.module_body(id="test.simple_scan", metadata={"assembled_by": "module"})
     .inputs(_SIMPLE_SUBJECT)
     .resource("source", requires=("set_frequency", "scalar_signal"))
     .bind_field(
@@ -47,24 +89,31 @@ SIMPLE_MODULE = (
 
 
 def simple_template() -> ExperimentTemplate:
-    return (
-        SIMPLE_MODULE.template("test.simple_scan", kind="simple_scan")
-        .experiment_id("authored-simple-scan")
-        .scan(
-            DRIVE_FREQUENCY_POINT,
-            center=authoring.parameter(
-                "drive_frequency",
-                authoring.ScalarType(authoring.QuantityType()),
-            ),
-            span=Quantity(value=200.0, unit="MHz"),
-            points=5,
+    def definition(
+        subject: Annotated[
+            authoring.Input[EntityRef | str],
+            _SIMPLE_SUBJECT.value_type,
+        ],
+    ) -> authoring.ExperimentBody:
+        module_call = SIMPLE_MODULE(subject=subject)
+        return (
+            authoring.experiment(module_call)
+            .scan(
+                DRIVE_FREQUENCY_POINT,
+                center=authoring.parameter(
+                    "drive_frequency",
+                    authoring.ScalarType(authoring.QuantityType()),
+                ),
+                span=Quantity(value=200.0, unit="MHz"),
+                points=5,
+            )
+            .record_product(module_call.products.signal, record_id="signal")
+            .input("drive_frequency")
         )
-        .label("Simple scan")
-        .record_product("signal")
-        .inputs(
-            InputDescription(id="subject"),
-            InputDescription(id="drive_frequency"),
-        )
-        .metadata(assembled_by="template")
-        .build()
-    )
+
+    return authoring.template(
+        id="test.simple_scan",
+        kind="simple_scan",
+        label="Simple scan",
+        metadata={"assembled_by": "template"},
+    )(definition)

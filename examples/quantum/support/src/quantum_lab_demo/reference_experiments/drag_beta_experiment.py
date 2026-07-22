@@ -1,14 +1,9 @@
-"""Public 2-D DRAG-beta authoring and Workspace execution.
-
-The experiment keeps one unified :class:`Program` declaration across the
-whole scan.  Every logical point binds both its pulse-level DRAG coefficient
-and its gate-level amplification count before the batch is compiled into one
-fake list-mode target artifact.
-"""
+"""Function-authored 2-D DRAG-beta calibration experiment."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Annotated
 
 import scopecat as sc
 from scopecat import Quantity
@@ -17,12 +12,9 @@ from scopecat_quantum import (
     IqCentroid,
     binary_iq_probability_transform,
 )
-from scopecat_quantum import authoring as quantum
 
 from quantum_lab_demo.reference_experiments.drag_beta_calibration import (
-    AMPLIFICATION_INPUT,
-    BETA_INPUT,
-    drag_beta_calibration_program,
+    drag_beta_program,
 )
 from quantum_lab_demo.virtual_lab.parameters import (
     DRAG_BETA_PARAMETER_COLUMN,
@@ -46,117 +38,52 @@ AMPLIFICATION = sc.point(
     sc.ScalarType(sc.IntType(minimum=1)),
 )
 
-DRAG_BETA_PROGRAM = drag_beta_calibration_program()
-[_IQ_SHOTS_RESULT] = DRAG_BETA_PROGRAM.results
-_DRAG_BETA_DOMAIN_PROGRAM = quantum.domain_program(DRAG_BETA_PROGRAM)
 _DRAG_BETA_DISCRIMINATOR = BinaryIqDiscriminator(
     state_0_centroid=IqCentroid(real=-1.0, imag=0.0),
     state_1_centroid=IqCentroid(real=1.0, imag=0.0),
     tie_policy="state_0",
 )
-_DRAG_BETA_TRANSFORM = binary_iq_probability_transform(
-    "binary-iq-probability",
-    iq_shots="integrated_iq_shots",
-    probability_0="probability_0",
-    probability_1="probability_1",
-    discriminator=_DRAG_BETA_DISCRIMINATOR,
-)
-
-DRAG_BETA_CAPTURE_MODULE = (
-    sc.module("quantum_lab_demo.reference.drag_beta.capture")
-    .product(
-        "integrated_iq_shots",
-        unit="ratio",
-        dtype="complex128",
-        axes=(sc.shot_axis(DRAG_BETA_SHOTS),),
-    )
-    .product("probability_0", "probability_1", unit="ratio")
-    .measurement_transforms(_DRAG_BETA_TRANSFORM)
-    .build()
-)
-
-_TEMPLATE_CAPTURE = DRAG_BETA_CAPTURE_MODULE.instantiate("capture")
-_DRAG_BETA_EXECUTION = quantum.domain_execution(
-    _DRAG_BETA_DOMAIN_PROGRAM,
-    inputs={
-        BETA_INPUT: q0_drag_beta_lookup(),
-        AMPLIFICATION_INPUT: AMPLIFICATION,
-    },
-    results={
-        _IQ_SHOTS_RESULT: _TEMPLATE_CAPTURE.products.integrated_iq_shots,
-    },
-)
-DRAG_BETA_TEMPLATE = (
-    sc.module("quantum_lab_demo.reference.drag_beta.root")
-    .use(_TEMPLATE_CAPTURE)
-    .domain(_DRAG_BETA_EXECUTION)
-    .template(
-        DRAG_BETA_TEMPLATE_ID,
-        kind=DRAG_BETA_EXPERIMENT_ID,
-    )
-    .experiment_id(DRAG_BETA_EXPERIMENT_ID)
-    .scan(
-        sc.cartesian(
-            sc.param_axis(
-                BETA,
-                q0_drag_beta_row(),
-                DRAG_BETA_PARAMETER_COLUMN,
-                span=DRAG_BETA_SPAN,
-                points=DRAG_BETA_POINTS,
-            ),
-            sc.axis(AMPLIFICATION, DEFAULT_AMPLIFICATIONS),
-        )
-    )
-    .record_product(
-        _TEMPLATE_CAPTURE.products.probability_0,
-        record_id="probability_0",
-    )
-    .record_product(
-        _TEMPLATE_CAPTURE.products.probability_1,
-        record_id="probability_1",
-    )
-    .label("DRAG beta rough calibration")
-    .description(
-        "Scan a pulse-level DRAG coefficient against a gate-level amplification "
-        "count in one mixed quantum program."
-    )
-)
 
 
-def drag_beta_scratch_experiment(
-    lab: sc.Workspace,
-    *,
-    betas: Sequence[Quantity] = DEFAULT_BETAS,
-    amplifications: Sequence[int] = DEFAULT_AMPLIFICATIONS,
-) -> sc.Experiment:
-    """Build the same 2-D semantics through the scratch Experiment UX."""
+@sc.module(id="quantum_lab_demo.reference.drag_beta.capture")
+def drag_beta_capture(
+    amplification: Annotated[sc.Input[int], sc.IntType(minimum=1)],
+    beta: Annotated[
+        sc.Input[Quantity],
+        sc.ScalarType(sc.QuantityType(unit="ns")),
+    ],
+):
+    """Capture and discriminate one DRAG-beta program call."""
 
-    capture = DRAG_BETA_CAPTURE_MODULE.instantiate("capture")
-    execution = quantum.domain_execution(
-        _DRAG_BETA_DOMAIN_PROGRAM,
-        inputs={
-            BETA_INPUT: q0_drag_beta_lookup(),
-            AMPLIFICATION_INPUT: AMPLIFICATION,
-        },
-        results={
-            _IQ_SHOTS_RESULT: capture.products.integrated_iq_shots,
-        },
+    call = drag_beta_program(
+        qubit="q0",
+        amplification=amplification,
+        beta=beta,
+        shots=DRAG_BETA_SHOTS,
+    )
+    body = (
+        sc.module_body()
+        .use(call)
+        .product("probability_0", "probability_1", unit="ratio")
+    )
+    transform = binary_iq_probability_transform(
+        "binary-iq-probability",
+        iq_shots=call.results.iq_shots,
+        probability_0=body.products.probability_0,
+        probability_1=body.products.probability_1,
+        discriminator=_DRAG_BETA_DISCRIMINATOR,
+    )
+    return body.measurement_transforms(transform)
+
+
+def _drag_beta_experiment_body(scan: sc.Scan) -> sc.ExperimentBody:
+    capture = drag_beta_capture(
+        amplification=AMPLIFICATION,
+        beta=q0_drag_beta_lookup(),
     )
     return (
-        lab.experiment("DRAG beta calibration scratch")
-        .use(capture)
-        .domain(execution)
-        .scan(
-            sc.cartesian(
-                sc.param_axis(
-                    BETA,
-                    q0_drag_beta_row(),
-                    DRAG_BETA_PARAMETER_COLUMN,
-                    tuple(betas),
-                ),
-                sc.axis(AMPLIFICATION, tuple(amplifications)),
-            )
-        )
+        sc.experiment(capture)
+        .scan(scan)
         .record_product(
             capture.products.probability_0,
             record_id="probability_0",
@@ -168,18 +95,65 @@ def drag_beta_scratch_experiment(
     )
 
 
+@sc.template(
+    id=DRAG_BETA_TEMPLATE_ID,
+    kind=DRAG_BETA_EXPERIMENT_ID,
+    label="DRAG beta rough calibration",
+)
+def drag_beta_template() -> sc.ExperimentBody:
+    """Scan pulse DRAG beta against gate amplification in one program."""
+
+    return _drag_beta_experiment_body(
+        sc.cartesian(
+            sc.param_axis(
+                BETA,
+                q0_drag_beta_row(),
+                DRAG_BETA_PARAMETER_COLUMN,
+                span=DRAG_BETA_SPAN,
+                points=DRAG_BETA_POINTS,
+            ),
+            sc.axis(AMPLIFICATION, DEFAULT_AMPLIFICATIONS),
+        )
+    )
+
+
+@sc.scratch(
+    id="quantum_lab_demo.reference.drag_beta.scratch",
+    kind=DRAG_BETA_EXPERIMENT_ID,
+    label="DRAG beta calibration scratch",
+)
+def drag_beta_scratch_experiment(
+    *,
+    betas: Sequence[Quantity] = DEFAULT_BETAS,
+    amplifications: Sequence[int] = DEFAULT_AMPLIFICATIONS,
+) -> sc.ExperimentBody:
+    """Build the same 2-D semantics without a reusable template."""
+
+    return _drag_beta_experiment_body(
+        sc.cartesian(
+            sc.param_axis(
+                BETA,
+                q0_drag_beta_row(),
+                DRAG_BETA_PARAMETER_COLUMN,
+                tuple(betas),
+            ),
+            sc.axis(AMPLIFICATION, tuple(amplifications)),
+        )
+    )
+
+
 __all__ = [
     "AMPLIFICATION",
     "BETA",
     "DEFAULT_AMPLIFICATIONS",
     "DEFAULT_BETAS",
-    "DRAG_BETA_CAPTURE_MODULE",
     "DRAG_BETA_EXPERIMENT_ID",
     "DRAG_BETA_POINTS",
-    "DRAG_BETA_PROGRAM",
     "DRAG_BETA_SHOTS",
     "DRAG_BETA_SPAN",
-    "DRAG_BETA_TEMPLATE",
     "DRAG_BETA_TEMPLATE_ID",
+    "drag_beta_capture",
+    "drag_beta_program",
     "drag_beta_scratch_experiment",
+    "drag_beta_template",
 ]

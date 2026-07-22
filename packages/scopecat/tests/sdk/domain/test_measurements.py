@@ -10,6 +10,7 @@ from scopecat.compiler.linking.linked import (
     link_verified_program,
 )
 from scopecat.compiler.typed.domain_results import domain_result_closure
+from scopecat.compiler.typed.program import core_domain_executions
 from scopecat.execution.points import RunPoint
 from scopecat.measurements.host_transforms import HostMeasurementTransformCall
 from scopecat.measurements.semantics import MeasurementTransformSemanticContract
@@ -57,7 +58,7 @@ def _context(tmp_path: Path, *, namespace: str) -> DomainBatchContext:
         outputs={"summary": "summary"},
     )
     module = (
-        sc.module(f"test.sdk.measurements.{namespace}")
+        sc.module_body(id=f"test.sdk.measurements.{namespace}")
         .product("raw", "summary", unit="count", dtype="int64")
         .measurement_transforms(transform)
         .build()
@@ -67,17 +68,17 @@ def _context(tmp_path: Path, *, namespace: str) -> DomainBatchContext:
         inputs={"count": count},
         results={"raw": module.products["raw"]},
     )
-    template = (
-        module.domain(execution)
-        .template(
-            f"test.sdk.measurements.{namespace}",
-            kind="domain_measurements",
-        )
+    module_call = module.domain(execution)()
+    body = (
+        sc.experiment(module_call)
         .scan(count, (1, 3))
-        .record_product("raw")
-        .record_product("summary")
-        .build()
+        .record_product(module_call.products.raw, record_id="raw")
+        .record_product(module_call.products.summary, record_id="summary")
     )
+    template = sc.template(
+        id=f"test.sdk.measurements.{namespace}",
+        kind="domain_measurements",
+    )(lambda: body)
     resolved = resolve_experiment(
         template.bind(),
         config_profile=load_config(),
@@ -85,14 +86,15 @@ def _context(tmp_path: Path, *, namespace: str) -> DomainBatchContext:
     linked = link_verified_program(resolved.verified_program, resolved.environment)
     materializer = LinkedPointMaterializer(linked)
     linked_points = materializer.materialize()
-    closure = domain_result_closure(linked.program, execution.id)
+    execution_id = core_domain_executions(linked.program)[0].id
+    closure = domain_result_closure(linked.program, execution_id)
     request = make_domain_compile_request(
         linked,
-        execution.id,
+        execution_id,
         closure,
         ((0, 1),),
         lambda input_ids, ordinals, max_points: materializer.bind_domain_inputs(
-            execution.id,
+            execution_id,
             input_ids,
             ordinals,
             max_points=max_points,

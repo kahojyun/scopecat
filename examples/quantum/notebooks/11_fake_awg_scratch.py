@@ -1,4 +1,4 @@
-"""Reference experiment: scratch Experiment on the same fake quantum target."""
+"""Reference experiment: scratch definition on the same fake quantum target."""
 
 from __future__ import annotations
 
@@ -19,7 +19,6 @@ assert isinstance(compiler, QuantumLabCompiler)
 # %%
 experiment = lab.prepare(
     fake_x_count_scratch_experiment(
-        lab,
         x_counts=(0, 1, 3, 5),
     ),
 )

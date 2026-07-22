@@ -19,7 +19,7 @@ def _x_count_declaration() -> tuple[
     x_count = authoring.scalar_input("x_count", GateParameterKind.INTEGER)
     x = authoring.single_qubit_gate("x")
     readout = authoring.measure(q0, result="raw_iq")
-    declaration = authoring.program(
+    declaration = authoring._close_program(
         "x-count",
         authoring.sequence(
             authoring.repeat(x(q0), x_count),
@@ -36,7 +36,7 @@ def test_symbolic_repeat_and_measurement_declare_typed_ports() -> None:
     assert declaration.inputs == (x_count,)
     assert x_count.id == "x_count"
     assert x_count.kind is GateParameterKind.INTEGER
-    assert declaration.results == (raw_iq,)
+    assert tuple(declaration.results) == (raw_iq,)
     assert raw_iq.id == "raw_iq"
     assert raw_iq.qubit.id == "q0"
     assert raw_iq.acquisition_kind is AcquisitionKind.INTEGRATED_IQ
@@ -48,7 +48,7 @@ def test_two_qubit_gate_declares_ordered_unique_operands() -> None:
     q1 = authoring.qubit("q1")
     cz = authoring.gate("cz", arity=2)
 
-    bound = authoring.bind(authoring.program("cz", cz(q0, q1)))
+    bound = authoring.bind(authoring._close_program("cz", cz(q0, q1)))
     [call] = bound.verified.operations
 
     assert isinstance(cz, authoring.TwoQubitGate)
@@ -65,7 +65,7 @@ def test_literal_zero_repeat_elides_dead_inputs_and_gate_definitions() -> None:
         "drive",
         parameters={"amplitude": GateParameterKind.NUMBER},
     )
-    declaration = authoring.program(
+    declaration = authoring._close_program(
         "dead-drive",
         authoring.repeat(drive(q0, amplitude=amplitude), 0),
     )
@@ -122,7 +122,7 @@ def test_implemented_gate_only_tightens_pulse_repeat_inputs() -> None:
         ),
         pulse_count,
     )
-    declaration = authoring.program(
+    declaration = authoring._close_program(
         "implemented-repeat-inputs",
         authoring.implements(custom(q0, value=gate_value), pulse),
     )
@@ -180,7 +180,7 @@ def test_gate_parameter_inputs_are_checked_and_angle_values_are_canonicalized() 
     with pytest.raises(TypeError, match="requires 'angle'"):
         rx(q0, theta=integer)
 
-    declaration = authoring.program("rx", rx(q0, theta=theta))
+    declaration = authoring._close_program("rx", rx(q0, theta=theta))
     bound = authoring.bind(declaration, {"theta": Quantity(180, "deg")})
     operation = bound.verified.operations[0]
 
@@ -208,7 +208,7 @@ def test_program_rejects_duplicate_result_ports() -> None:
     second = authoring.measure(q0, result="raw_iq")
 
     with pytest.raises(ValueError, match="duplicate result ids"):
-        authoring.program("duplicate-results", authoring.sequence(first, second))
+        authoring._close_program("duplicate-results", authoring.sequence(first, second))
 
 
 def test_program_rejects_conflicting_gate_definitions() -> None:
@@ -220,7 +220,7 @@ def test_program_rejects_conflicting_gate_definitions() -> None:
     )
 
     with pytest.raises(ValueError, match="conflicting definitions"):
-        authoring.program(
+        authoring._close_program(
             "conflicting-gates",
             authoring.sequence(first(q0), second(q0, value=1.0)),
         )
@@ -228,16 +228,20 @@ def test_program_rejects_conflicting_gate_definitions() -> None:
 
 def test_domain_execution_requires_exact_handle_bindings() -> None:
     declaration, x_count, raw_iq = _x_count_declaration()
-    program = authoring.domain_program(declaration)
-    products = sc.module("test.quantum.bindings").product("integrated_iq_shots").build()
+    program = authoring._domain_program(declaration)
+    products = (
+        sc.module_body(id="test.quantum.bindings")
+        .product("integrated_iq_shots")
+        .build()
+    )
 
-    with pytest.raises(ValueError, match="bind every declared input"):
-        authoring.domain_execution(
+    with pytest.raises(ValueError, match="bind every declared port"):
+        authoring._domain_execution(
             program,
             results={raw_iq: products.products["integrated_iq_shots"]},
         )
     with pytest.raises(ValueError, match="bind every declared result"):
-        authoring.domain_execution(
+        authoring._domain_execution(
             program,
             inputs={x_count: 1},
         )
@@ -251,14 +255,14 @@ def test_domain_execution_rejects_forged_ports_and_normalizes_number_literal() -
         parameters={"amplitude": GateParameterKind.NUMBER},
     )
     readout = authoring.measure(q0, result="iq")
-    declaration = authoring.program(
+    declaration = authoring._close_program(
         "number-input",
         authoring.sequence(drive(q0, amplitude=amplitude), readout),
     )
-    program = authoring.domain_program(declaration)
-    products = sc.module("test.quantum.number-input").product("iq").build()
+    program = authoring._domain_program(declaration)
+    products = sc.module_body(id="test.quantum.number-input").product("iq").build()
 
-    execution = authoring.domain_execution(
+    execution = authoring._domain_execution(
         program,
         inputs={amplitude: 1},
         results={readout.result: products.products["iq"]},
@@ -274,7 +278,7 @@ def test_domain_execution_rejects_forged_ports_and_normalizes_number_literal() -
         results={"iq": readout.result},
     )
     with pytest.raises(ValueError, match="ports do not match"):
-        authoring.domain_execution(
+        authoring._domain_execution(
             forged,
             inputs={amplitude: 1},
             results={readout.result: products.products["iq"]},

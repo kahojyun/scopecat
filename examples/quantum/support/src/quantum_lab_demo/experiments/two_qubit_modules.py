@@ -4,9 +4,15 @@ Executable two-qubit calibration examples belong in ``reference_experiments``
 and use the unified ``scopecat_quantum.authoring`` gate/pulse DSL. In
 particular, CZ conditional-phase calibration must not use the payload-shaped
 ``CZ_CHEVRON_MODULE`` below as its authoring surface.
+
+``PARALLEL_GATE_SET_MODULE`` is the escape hatch for a lab without a domain
+compiler. It enriches a table collection, passes the whole collection through
+``sc.compute``, and binds the resulting opaque payloads to instrument fields.
 """
 
 from __future__ import annotations
+
+from typing import Annotated, cast
 
 import scopecat as sc
 
@@ -37,123 +43,141 @@ _COUPLER = sc.ScalarType(sc.EntityType(entity_kind="logical_coupler"))
 _FLOAT = sc.ScalarType(sc.FloatType())
 _QUANTITY = sc.ScalarType(sc.QuantityType())
 
-_CZ_CONTROL_QUBIT = sc.input("control_qubit", _QUBIT)
-_CZ_PARTNER_QUBIT = sc.input("partner_qubit", _QUBIT)
-_CZ_COUPLER = sc.input("coupler", _COUPLER)
 
-
-def _cz_gate_param(column: str):
+def _cz_gate_param(
+    column: str,
+    *,
+    control_qubit: sc.ValueRef,
+    partner_qubit: sc.ValueRef,
+) -> sc.ValueRef:
     return two_qubit_gate_param(
         column,
-        control_qubit=_CZ_CONTROL_QUBIT,
-        partner_qubit=_CZ_PARTNER_QUBIT,
+        control_qubit=control_qubit,
+        partner_qubit=partner_qubit,
         value_type=_FLOAT if column == "sample_rate_hz" else _QUANTITY,
     )
 
 
-_BUILD_CZ_CHEVRON_PROGRAM = sc.compute(
-    "build-cz-chevron-program",
-    fn=build_cz_chevron_program,
-    output_type=sc.ScalarType(sc.PayloadType("gate_sequence")),
-    inputs={
-        "control_qubit": _CZ_CONTROL_QUBIT,
-        "partner_qubit": _CZ_PARTNER_QUBIT,
-        "coupler": _CZ_COUPLER,
-        "duration": COUPLER_DURATION,
-        "amplitude": COUPLER_AMPLITUDE,
-        "control_echo_amplitude": _cz_gate_param("control_echo_amplitude"),
-        "partner_echo_amplitude": _cz_gate_param("partner_echo_amplitude"),
-        "coupler_parking_flux": _cz_gate_param("coupler_parking_flux"),
-        "sample_rate_hz": _cz_gate_param("sample_rate_hz"),
-        "control_drive_frequency": qubit_param(
-            "drive_frequency",
-            _CZ_CONTROL_QUBIT,
-        ),
-        "partner_drive_frequency": qubit_param(
-            "drive_frequency",
-            _CZ_PARTNER_QUBIT,
-        ),
-    },
-)
-_RENDER_CZ_DRIVE_WAVEFORMS = sc.compute(
-    "render-cz-chevron-drive-waveforms",
-    fn=render_cz_drive_waveforms,
-    output_type=sc.ScalarType(sc.PayloadType("pulse_program")),
-    inputs={
-        "program": _BUILD_CZ_CHEVRON_PROGRAM.output,
-    },
-)
-_RENDER_CZ_COUPLER_WAVEFORMS = sc.compute(
-    "render-cz-chevron-coupler-waveforms",
-    fn=render_cz_coupler_waveforms,
-    output_type=sc.ScalarType(sc.PayloadType("pulse_program")),
-    inputs={
-        "program": _BUILD_CZ_CHEVRON_PROGRAM.output,
-    },
-)
+@sc.module(id="quantum_lab_demo.experiments.two_qubit.cz_chevron")
+def CZ_CHEVRON_MODULE(
+    control_qubit: Annotated[sc.Input[str], _QUBIT],
+    partner_qubit: Annotated[sc.Input[str], _QUBIT],
+    coupler: Annotated[sc.Input[str], _COUPLER],
+):
+    control_qubit_ref = cast("sc.ValueRef", control_qubit)
+    partner_qubit_ref = cast("sc.ValueRef", partner_qubit)
+    coupler_ref = cast("sc.ValueRef", coupler)
+    build_program = sc.compute(
+        "build-cz-chevron-program",
+        fn=build_cz_chevron_program,
+        output_type=sc.ScalarType(sc.PayloadType("gate_sequence")),
+        inputs={
+            "control_qubit": control_qubit_ref,
+            "partner_qubit": partner_qubit_ref,
+            "coupler": coupler_ref,
+            "duration": COUPLER_DURATION,
+            "amplitude": COUPLER_AMPLITUDE,
+            "control_echo_amplitude": _cz_gate_param(
+                "control_echo_amplitude",
+                control_qubit=control_qubit_ref,
+                partner_qubit=partner_qubit_ref,
+            ),
+            "partner_echo_amplitude": _cz_gate_param(
+                "partner_echo_amplitude",
+                control_qubit=control_qubit_ref,
+                partner_qubit=partner_qubit_ref,
+            ),
+            "coupler_parking_flux": _cz_gate_param(
+                "coupler_parking_flux",
+                control_qubit=control_qubit_ref,
+                partner_qubit=partner_qubit_ref,
+            ),
+            "sample_rate_hz": _cz_gate_param(
+                "sample_rate_hz",
+                control_qubit=control_qubit_ref,
+                partner_qubit=partner_qubit_ref,
+            ),
+            "control_drive_frequency": qubit_param(
+                "drive_frequency",
+                control_qubit_ref,
+            ),
+            "partner_drive_frequency": qubit_param(
+                "drive_frequency",
+                partner_qubit_ref,
+            ),
+        },
+    )
+    render_drive_waveforms = sc.compute(
+        "render-cz-chevron-drive-waveforms",
+        fn=render_cz_drive_waveforms,
+        output_type=sc.ScalarType(sc.PayloadType("pulse_program")),
+        inputs={"program": build_program.output},
+    )
+    render_coupler_waveforms = sc.compute(
+        "render-cz-chevron-coupler-waveforms",
+        fn=render_cz_coupler_waveforms,
+        output_type=sc.ScalarType(sc.PayloadType("pulse_program")),
+        inputs={"program": build_program.output},
+    )
+    return (
+        sc.module_body()
+        .resource(
+            "drive",
+            requires=("play_gate_sequence", "play_pulse_program"),
+            for_entities=(control_qubit_ref, partner_qubit_ref),
+        )
+        .resource(
+            "coupler",
+            requires=("play_coupler_pulse",),
+            for_entities=(coupler_ref,),
+        )
+        .computes(
+            build_program,
+            render_drive_waveforms,
+            render_coupler_waveforms,
+        )
+        .bind_field(
+            "drive",
+            capability="play_gate_sequence",
+            field="sequence",
+            value=build_program.output,
+        )
+        .bind_field(
+            "drive",
+            capability="play_pulse_program",
+            field="program",
+            value=render_drive_waveforms.output,
+        )
+        .bind_field(
+            "drive",
+            capability="play_pulse_program",
+            field="length",
+            value=COUPLER_DURATION,
+        )
+        .bind_field(
+            "drive",
+            capability="play_pulse_program",
+            field="amplitude",
+            value=_cz_gate_param(
+                "control_echo_amplitude",
+                control_qubit=control_qubit_ref,
+                partner_qubit=partner_qubit_ref,
+            ),
+        )
+        .bind_field(
+            "drive",
+            capability="play_pulse_program",
+            field="frequency",
+            value=qubit_param("drive_frequency", control_qubit_ref),
+        )
+        .bind_field(
+            "coupler",
+            capability="play_coupler_pulse",
+            field="program",
+            value=render_coupler_waveforms.output,
+        )
+    )
 
-CZ_CHEVRON_MODULE = (
-    sc.module(
-        "quantum_lab_demo.experiments.two_qubit.cz_chevron",
-    )
-    .inputs(
-        _CZ_CONTROL_QUBIT,
-        _CZ_PARTNER_QUBIT,
-        _CZ_COUPLER,
-    )
-    .resource(
-        "drive",
-        requires=("play_gate_sequence", "play_pulse_program"),
-        for_entities=(_CZ_CONTROL_QUBIT, _CZ_PARTNER_QUBIT),
-    )
-    .resource(
-        "coupler",
-        requires=("play_coupler_pulse",),
-        for_entities=(_CZ_COUPLER,),
-    )
-    .computes(
-        _BUILD_CZ_CHEVRON_PROGRAM,
-        _RENDER_CZ_DRIVE_WAVEFORMS,
-        _RENDER_CZ_COUPLER_WAVEFORMS,
-    )
-    .bind_field(
-        "drive",
-        capability="play_gate_sequence",
-        field="sequence",
-        value=_BUILD_CZ_CHEVRON_PROGRAM.output,
-    )
-    .bind_field(
-        "drive",
-        capability="play_pulse_program",
-        field="program",
-        value=_RENDER_CZ_DRIVE_WAVEFORMS.output,
-    )
-    .bind_field(
-        "drive",
-        capability="play_pulse_program",
-        field="length",
-        value=COUPLER_DURATION,
-    )
-    .bind_field(
-        "drive",
-        capability="play_pulse_program",
-        field="amplitude",
-        value=_cz_gate_param("control_echo_amplitude"),
-    )
-    .bind_field(
-        "drive",
-        capability="play_pulse_program",
-        field="frequency",
-        value=qubit_param("drive_frequency", _CZ_CONTROL_QUBIT),
-    )
-    .bind_field(
-        "coupler",
-        capability="play_coupler_pulse",
-        field="program",
-        value=_RENDER_CZ_COUPLER_WAVEFORMS.output,
-    )
-    .build()
-)
 
 PARALLEL_GATE_TABLE_TYPE = sc.TableType(
     columns=(
@@ -165,121 +189,123 @@ PARALLEL_GATE_TABLE_TYPE = sc.TableType(
     min_rows=1,
 )
 
-_PARALLEL_GATE_KEYS = sc.input("gates", PARALLEL_GATE_TABLE_TYPE)
-_PARALLEL_GATES = _PARALLEL_GATE_KEYS.with_columns(
-    lambda row: {
-        "coupler": sc.parameter_lookup(
-            TWO_QUBIT_GATE_PARAMETER_TABLE,
-            key={
-                "control_qubit": row["control_qubit"],
-                "partner_qubit": row["partner_qubit"],
-                "gate": row["gate"],
-            },
-            column="coupler",
-            value_type=_COUPLER,
-        ),
-        "coupler_parking_flux": sc.parameter_lookup(
-            TWO_QUBIT_GATE_PARAMETER_TABLE,
-            key={
-                "control_qubit": row["control_qubit"],
-                "partner_qubit": row["partner_qubit"],
-                "gate": row["gate"],
-            },
-            column="coupler_parking_flux",
-            value_type=_QUANTITY,
-        ),
-        "control_frequency": sc.parameter_lookup(
-            QUBIT_PARAMETER_TABLE,
-            key={"qubit": row["control_qubit"]},
-            column="drive_frequency",
-            value_type=_QUANTITY,
-        ),
-        "partner_frequency": sc.parameter_lookup(
-            QUBIT_PARAMETER_TABLE,
-            key={"qubit": row["partner_qubit"]},
-            column="drive_frequency",
-            value_type=_QUANTITY,
-        ),
-    }
-).select(
+PARALLEL_GATE_QUBITS = sc.input("gates", PARALLEL_GATE_TABLE_TYPE).entities(
     "control_qubit",
     "partner_qubit",
-    "coupler",
-    "coupler_parking_flux",
-    "control_frequency",
-    "partner_frequency",
-)
-PARALLEL_GATE_QUBITS = _PARALLEL_GATE_KEYS.entities(
-    "control_qubit",
-    "partner_qubit",
-)
-_PARALLEL_GATE_COUPLERS = _PARALLEL_GATES.entities("coupler")
-_BUILD_PARALLEL_GATE_SET_PROGRAM = sc.compute(
-    "build-parallel-gate-set-program",
-    fn=build_parallel_gate_set_program,
-    output_type=sc.ScalarType(sc.PayloadType("gate_sequence")),
-    inputs={
-        "gates": _PARALLEL_GATES,
-        "gate_duration": GATE_DURATION,
-    },
-)
-_RENDER_PARALLEL_GATE_DRIVE_WAVEFORMS = sc.compute(
-    "render-parallel-gate-drive-waveforms",
-    fn=render_parallel_gate_drive_waveforms,
-    output_type=sc.ScalarType(sc.PayloadType("pulse_program")),
-    inputs={
-        "program": _BUILD_PARALLEL_GATE_SET_PROGRAM.output,
-    },
-)
-_RENDER_PARALLEL_GATE_COUPLER_WAVEFORMS = sc.compute(
-    "render-parallel-gate-coupler-waveforms",
-    fn=render_parallel_gate_coupler_waveforms,
-    output_type=sc.ScalarType(sc.PayloadType("pulse_program")),
-    inputs={
-        "program": _BUILD_PARALLEL_GATE_SET_PROGRAM.output,
-    },
 )
 
-PARALLEL_GATE_SET_MODULE = (
-    sc.module(
-        "quantum_lab_demo.experiments.two_qubit.parallel_gate_set",
-    )
-    .inputs(_PARALLEL_GATE_KEYS)
-    .resource(
-        "drive",
-        requires=("play_gate_sequence", "play_pulse_program"),
-        for_entities=(PARALLEL_GATE_QUBITS,),
-    )
-    .resource(
+
+@sc.module(id="quantum_lab_demo.experiments.two_qubit.parallel_gate_set")
+def PARALLEL_GATE_SET_MODULE(
+    gates: Annotated[
+        sc.Input[tuple[dict[str, str], ...]],
+        PARALLEL_GATE_TABLE_TYPE,
+    ],
+):
+    gates_ref = cast("sc.ValueRef", gates)
+    resolved_gates = gates_ref.with_columns(
+        lambda row: {
+            "coupler": sc.parameter_lookup(
+                TWO_QUBIT_GATE_PARAMETER_TABLE,
+                key={
+                    "control_qubit": row["control_qubit"],
+                    "partner_qubit": row["partner_qubit"],
+                    "gate": row["gate"],
+                },
+                column="coupler",
+                value_type=_COUPLER,
+            ),
+            "coupler_parking_flux": sc.parameter_lookup(
+                TWO_QUBIT_GATE_PARAMETER_TABLE,
+                key={
+                    "control_qubit": row["control_qubit"],
+                    "partner_qubit": row["partner_qubit"],
+                    "gate": row["gate"],
+                },
+                column="coupler_parking_flux",
+                value_type=_QUANTITY,
+            ),
+            "control_frequency": sc.parameter_lookup(
+                QUBIT_PARAMETER_TABLE,
+                key={"qubit": row["control_qubit"]},
+                column="drive_frequency",
+                value_type=_QUANTITY,
+            ),
+            "partner_frequency": sc.parameter_lookup(
+                QUBIT_PARAMETER_TABLE,
+                key={"qubit": row["partner_qubit"]},
+                column="drive_frequency",
+                value_type=_QUANTITY,
+            ),
+        }
+    ).select(
+        "control_qubit",
+        "partner_qubit",
         "coupler",
-        requires=("play_coupler_pulse",),
-        for_entities=(_PARALLEL_GATE_COUPLERS,),
+        "coupler_parking_flux",
+        "control_frequency",
+        "partner_frequency",
     )
-    .computes(
-        _BUILD_PARALLEL_GATE_SET_PROGRAM,
-        _RENDER_PARALLEL_GATE_DRIVE_WAVEFORMS,
-        _RENDER_PARALLEL_GATE_COUPLER_WAVEFORMS,
+    qubits = gates_ref.entities("control_qubit", "partner_qubit")
+    couplers = resolved_gates.entities("coupler")
+    build_program = sc.compute(
+        "build-parallel-gate-set-program",
+        fn=build_parallel_gate_set_program,
+        output_type=sc.ScalarType(sc.PayloadType("gate_sequence")),
+        inputs={
+            "gates": resolved_gates,
+            "gate_duration": GATE_DURATION,
+        },
     )
-    .bind_field(
-        "drive",
-        capability="play_gate_sequence",
-        field="sequence",
-        value=_BUILD_PARALLEL_GATE_SET_PROGRAM.output,
+    render_drive_waveforms = sc.compute(
+        "render-parallel-gate-drive-waveforms",
+        fn=render_parallel_gate_drive_waveforms,
+        output_type=sc.ScalarType(sc.PayloadType("pulse_program")),
+        inputs={"program": build_program.output},
     )
-    .bind_field(
-        "drive",
-        capability="play_pulse_program",
-        field="program",
-        value=_RENDER_PARALLEL_GATE_DRIVE_WAVEFORMS.output,
+    render_coupler_waveforms = sc.compute(
+        "render-parallel-gate-coupler-waveforms",
+        fn=render_parallel_gate_coupler_waveforms,
+        output_type=sc.ScalarType(sc.PayloadType("pulse_program")),
+        inputs={"program": build_program.output},
     )
-    .bind_field(
-        "coupler",
-        capability="play_coupler_pulse",
-        field="program",
-        value=_RENDER_PARALLEL_GATE_COUPLER_WAVEFORMS.output,
+    return (
+        sc.module_body()
+        .resource(
+            "drive",
+            requires=("play_gate_sequence", "play_pulse_program"),
+            for_entities=(qubits,),
+        )
+        .resource(
+            "coupler",
+            requires=("play_coupler_pulse",),
+            for_entities=(couplers,),
+        )
+        .computes(
+            build_program,
+            render_drive_waveforms,
+            render_coupler_waveforms,
+        )
+        .bind_field(
+            "drive",
+            capability="play_gate_sequence",
+            field="sequence",
+            value=build_program.output,
+        )
+        .bind_field(
+            "drive",
+            capability="play_pulse_program",
+            field="program",
+            value=render_drive_waveforms.output,
+        )
+        .bind_field(
+            "coupler",
+            capability="play_coupler_pulse",
+            field="program",
+            value=render_coupler_waveforms.output,
+        )
     )
-    .build()
-)
+
 
 __all__ = [
     "CZ_CHEVRON_MODULE",

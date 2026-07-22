@@ -57,7 +57,7 @@ def _domain_scenario(
         outputs={"summary": "summary"},
     )
     module = (
-        sc.module(f"test.sdk.context.{namespace}")
+        sc.module_body(id=f"test.sdk.context.{namespace}")
         .product("raw", "summary", unit="count", dtype="int64")
         .measurement_transforms(transform)
         .build()
@@ -67,14 +67,15 @@ def _domain_scenario(
         inputs={"count": count},
         results={"raw": module.products["raw"]},
     )
-    template_builder = (
-        module.domain(execution)
-        .template(f"test.sdk.context.{namespace}", kind="domain_context")
-        .scan(count, (1, 3, 5))
-    )
+    module_call = module.domain(execution)()
+    body = sc.experiment(module_call).scan(count, (1, 3, 5))
     if record_raw:
-        template_builder = template_builder.record_product("raw")
-    template = template_builder.record_product("summary").build()
+        body = body.record_product(module_call.products.raw, record_id="raw")
+    body = body.record_product(module_call.products.summary, record_id="summary")
+    template = sc.template(
+        id=f"test.sdk.context.{namespace}",
+        kind="domain_context",
+    )(lambda: body)
     resolved = resolve_experiment(
         template.bind(),
         config_profile=load_config(),

@@ -16,7 +16,7 @@ from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.workflow_fixtures import load_invocation
 
 SIMPLE_FREQUENCY_SCAN = (
-    authoring.module("test.session.simple_frequency_scan")
+    authoring.module_body(id="test.session.simple_frequency_scan")
     .resource("source", requires=("set_frequency", "scalar_signal"))
     .bind_field(
         "source",
@@ -40,30 +40,32 @@ def simple_frequency_scan(*, subject: str) -> ExperimentInvocation:
 
 
 def simple_frequency_scan_template() -> ExperimentTemplate:
-    return (
-        SIMPLE_FREQUENCY_SCAN.template(
-            "test.session.simple_frequency_scan",
-            kind="simple_frequency_scan",
+    def definition() -> authoring.ExperimentBody:
+        module_call = SIMPLE_FREQUENCY_SCAN()
+        return (
+            authoring.experiment(module_call)
+            .input("subject")
+            .scan(
+                DRIVE_FREQUENCY_POINT,
+                center=authoring.parameter(
+                    "drive_frequency",
+                    authoring.ScalarType(authoring.QuantityType()),
+                ),
+                span=Quantity(value=200.0, unit="MHz"),
+                points=3,
+            )
+            .record_product(module_call.products.signal, record_id="signal")
         )
-        .experiment_id("session-test-frequency-scan")
-        .scan(
-            DRIVE_FREQUENCY_POINT,
-            center=authoring.parameter(
-                "drive_frequency",
-                authoring.ScalarType(authoring.QuantityType()),
-            ),
-            span=Quantity(value=200.0, unit="MHz"),
-            points=3,
-        )
-        .label("Session test frequency scan")
-        .category("session-test")
-        .record_product("signal")
-        .build()
-    )
+
+    return authoring.template(
+        id="test.session.simple_frequency_scan",
+        kind="simple_frequency_scan",
+        label="Session test frequency scan",
+    )(definition)
 
 
 def test_workspace_runs_experiment_spec(tmp_path: Path) -> None:
-    assert simple_frequency_scan_template().category == "session-test"
+    assert simple_frequency_scan_template().label == "Session test frequency scan"
     lab = sc.open(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",

@@ -141,7 +141,7 @@ def test_seal_closes_logical_state_and_acquire_resources_and_capabilities() -> N
 
 def test_capability_less_authored_port_rejects_state_and_acquire_at_assembly() -> None:
     module = (
-        sc.module("test.resource-identity.capability-less")
+        sc.module_body(id="test.resource-identity.capability-less")
         .resource("drive")
         .bind_field(
             "drive",

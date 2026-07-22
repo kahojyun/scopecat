@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Annotated
+
 import scopecat as sc
 from scopecat.compiler.frontend.invocation import prepare_invocation
 from scopecat.compiler.frontend.resolution import compile_prepared_invocation
@@ -47,8 +49,18 @@ def test_parameter_scan_request_materializes_typed_input_keys() -> None:
         "frequency",
         sc.ScalarType(sc.QuantityType(unit="GHz")),
     )
-    module = sc.module("test.request_keys").inputs(subject).build()
-    template = module.template("test.request_keys", kind="request_keys").build()
+    module = sc.module_body(id="test.request_keys").inputs(subject).build()
+
+    @sc.template(id="test.request_keys", kind="request_keys")
+    def template_definition(
+        subject: Annotated[
+            sc.Input[sc.EntityRef | str],
+            sc.ScalarType(sc.EntityType()),
+        ],
+    ) -> sc.ExperimentBody:
+        return sc.experiment(module(subject=subject))
+
+    template = template_definition
     invocation = template.bind(subject="q0").scan(
         sc.param_axis(
             frequency,
@@ -73,11 +85,18 @@ def test_parameter_around_scan_request_preserves_implicit_center_intent() -> Non
         "frequency",
         sc.ScalarType(sc.QuantityType(unit="GHz")),
     )
-    module = sc.module("test.request_parameter_around").inputs(subject).build()
-    template = module.template(
-        "test.request_parameter_around",
-        kind="request_keys",
-    ).build()
+    module = sc.module_body(id="test.request_parameter_around").inputs(subject).build()
+
+    @sc.template(id="test.request_parameter_around", kind="request_keys")
+    def template_definition(
+        subject: Annotated[
+            sc.Input[sc.EntityRef | str],
+            sc.ScalarType(sc.EntityType()),
+        ],
+    ) -> sc.ExperimentBody:
+        return sc.experiment(module(subject=subject))
+
+    template = template_definition
     invocation = template.bind(subject="q0").scan(
         sc.param_axis(
             frequency,
@@ -103,24 +122,26 @@ def test_dependent_default_scan_projects_its_input_as_an_axis() -> None:
     frequency = sc.ScalarType(sc.QuantityType(unit="GHz"))
     first = sc.point("first", frequency)
     second = sc.point("second", frequency)
-    template = (
-        sc.module("test.request_axis_dependency")
-        .build()
-        .template(
-            "test.request_axis_dependency",
-            kind="request_axis_dependency",
-        )
-        .experiment_id("request-axis-dependency")
-        .scan(
-            second,
-            center=sc.input("first", frequency),
-            span="2 GHz",
-            points=2,
-        )
-        .scan(first, [4.9, 5.1], unit="GHz")
-        .input("first")
-        .build()
+    module = sc.module_body(id="test.request_axis_dependency").build()
+
+    @sc.template(
+        id="test.request_axis_dependency",
+        kind="request_axis_dependency",
     )
+    def template_definition() -> sc.ExperimentBody:
+        return (
+            sc.experiment(module())
+            .scan(
+                second,
+                center=sc.input("first", frequency),
+                span="2 GHz",
+                points=2,
+            )
+            .scan(first, [4.9, 5.1], unit="GHz")
+            .input("first")
+        )
+
+    template = template_definition
 
     compiled = compile_prepared_invocation(prepare_invocation(template.bind()))
 

@@ -140,7 +140,7 @@ class QuantumLabCompiler:
         if program is None:
             return None
         _validate_call(request.call, program, self._host_implementations)
-        input_ids = tuple(input_value.id for input_value in program.inputs)
+        input_ids = tuple(port.id for port in program.ports)
         return compiled_jobs(
             request,
             max_points=self._target.max_list_entries,
@@ -280,7 +280,7 @@ def _validate_call(
     implementations: tuple[DomainHostTransformImplementation, ...],
 ) -> None:
     if tuple(port.id for port in call.program.inputs) != tuple(
-        input_value.id for input_value in program.inputs
+        port.id for port in program.ports
     ):
         raise ValueError("quantum Program input ports changed before compilation")
     if tuple(port.id for port in call.program.results) != tuple(

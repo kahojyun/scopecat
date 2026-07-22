@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Annotated, cast
+
 import scopecat as sc
 
 from quantum_lab_demo.experiments.compute import (
@@ -14,115 +16,109 @@ _QUBIT_SERIES = sc.SeriesType(sc.ScalarType(sc.EntityType(entity_kind="logical_q
 _COUPLER_SERIES = sc.SeriesType(
     sc.ScalarType(sc.EntityType(entity_kind="logical_coupler"))
 )
-_PATCH_QUBITS = sc.input("patch_qubits", _QUBIT_SERIES)
-_DATA_QUBITS = sc.input("data_qubits", _QUBIT_SERIES)
-_ANCILLA_QUBITS = sc.input("ancilla_qubits", _QUBIT_SERIES)
-_COUPLERS = sc.input("couplers", _COUPLER_SERIES)
-_ROUNDS = sc.input("rounds", sc.ScalarType(sc.IntType(minimum=1)))
-_CYCLE_TIME = sc.input("cycle_time", sc.ScalarType(sc.QuantityType()))
-_BUILD_SURFACE_CODE_ROUND_PROGRAM = sc.compute(
-    "build-surface-code-round-program",
-    fn=build_surface_code_round_program,
-    output_type=sc.ScalarType(sc.PayloadType("gate_sequence")),
-    inputs={
-        "patch_qubits": _PATCH_QUBITS,
-        "data_qubits": _DATA_QUBITS,
-        "ancilla_qubits": _ANCILLA_QUBITS,
-        "couplers": _COUPLERS,
-        "rounds": _ROUNDS,
-        "cycle_time": _CYCLE_TIME,
-    },
-)
-_RENDER_SURFACE_CODE_DRIVE_WAVEFORMS = sc.compute(
-    "render-surface-code-drive-waveforms",
-    fn=render_surface_code_drive_waveforms,
-    output_type=sc.ScalarType(sc.PayloadType("pulse_program")),
-    inputs={
-        "program": _BUILD_SURFACE_CODE_ROUND_PROGRAM.output,
-    },
-)
-_RENDER_SURFACE_CODE_COUPLER_WAVEFORMS = sc.compute(
-    "render-surface-code-coupler-waveforms",
-    fn=render_surface_code_coupler_waveforms,
-    output_type=sc.ScalarType(sc.PayloadType("pulse_program")),
-    inputs={
-        "program": _BUILD_SURFACE_CODE_ROUND_PROGRAM.output,
-    },
-)
+_POSITIVE_INT = sc.ScalarType(sc.IntType(minimum=1))
+_QUANTITY = sc.ScalarType(sc.QuantityType())
 
-TOY_SURFACE_CODE_ROUND_MODULE = (
-    sc.module(
-        "quantum_lab_demo.experiments.surface_code.toy_round",
+
+@sc.module(id="quantum_lab_demo.experiments.surface_code.toy_round")
+def TOY_SURFACE_CODE_ROUND_MODULE(
+    patch_qubits: Annotated[sc.Input[tuple[str, ...]], _QUBIT_SERIES],
+    data_qubits: Annotated[sc.Input[tuple[str, ...]], _QUBIT_SERIES],
+    ancilla_qubits: Annotated[sc.Input[tuple[str, ...]], _QUBIT_SERIES],
+    couplers: Annotated[sc.Input[tuple[str, ...]], _COUPLER_SERIES],
+    rounds: Annotated[sc.Input[int], _POSITIVE_INT],
+    cycle_time: Annotated[sc.Input[sc.Quantity], _QUANTITY],
+):
+    patch_qubits_ref = cast("sc.ValueRef", patch_qubits)
+    data_qubits_ref = cast("sc.ValueRef", data_qubits)
+    ancilla_qubits_ref = cast("sc.ValueRef", ancilla_qubits)
+    couplers_ref = cast("sc.ValueRef", couplers)
+    rounds_ref = cast("sc.ValueRef", rounds)
+    cycle_time_ref = cast("sc.ValueRef", cycle_time)
+    build_program = sc.compute(
+        "build-surface-code-round-program",
+        fn=build_surface_code_round_program,
+        output_type=sc.ScalarType(sc.PayloadType("gate_sequence")),
+        inputs={
+            "patch_qubits": patch_qubits_ref,
+            "data_qubits": data_qubits_ref,
+            "ancilla_qubits": ancilla_qubits_ref,
+            "couplers": couplers_ref,
+            "rounds": rounds_ref,
+            "cycle_time": cycle_time_ref,
+        },
     )
-    .inputs(
-        _PATCH_QUBITS,
-        _DATA_QUBITS,
-        _ANCILLA_QUBITS,
-        _COUPLERS,
-        _ROUNDS,
-        _CYCLE_TIME,
+    render_drive_waveforms = sc.compute(
+        "render-surface-code-drive-waveforms",
+        fn=render_surface_code_drive_waveforms,
+        output_type=sc.ScalarType(sc.PayloadType("pulse_program")),
+        inputs={"program": build_program.output},
     )
-    .resource(
-        "drive",
-        requires=("play_gate_sequence", "play_pulse_program"),
-        for_entities=(_PATCH_QUBITS,),
+    render_coupler_waveforms = sc.compute(
+        "render-surface-code-coupler-waveforms",
+        fn=render_surface_code_coupler_waveforms,
+        output_type=sc.ScalarType(sc.PayloadType("pulse_program")),
+        inputs={"program": build_program.output},
     )
-    .resource(
-        "coupler",
-        requires=("play_coupler_pulse",),
-        for_entities=(_COUPLERS,),
+    return (
+        sc.module_body()
+        .resource(
+            "drive",
+            requires=("play_gate_sequence", "play_pulse_program"),
+            for_entities=(patch_qubits_ref,),
+        )
+        .resource(
+            "coupler",
+            requires=("play_coupler_pulse",),
+            for_entities=(couplers_ref,),
+        )
+        .resource(
+            "readout",
+            requires=("acquire_iq",),
+            for_entities=(patch_qubits_ref,),
+        )
+        .computes(build_program, render_drive_waveforms, render_coupler_waveforms)
+        .bind_field(
+            "drive",
+            capability="play_gate_sequence",
+            field="sequence",
+            value=build_program.output,
+        )
+        .bind_field(
+            "drive",
+            capability="play_pulse_program",
+            field="program",
+            value=render_drive_waveforms.output,
+        )
+        .bind_field(
+            "coupler",
+            capability="play_coupler_pulse",
+            field="program",
+            value=render_coupler_waveforms.output,
+        )
+        .bind_field(
+            "readout",
+            capability="acquire_iq",
+            field="repetitions",
+            value=rounds_ref * sc.Quantity(value=1.0, unit="count"),
+        )
+        .product(
+            "stabilizer_iq",
+            unit="ratio",
+            dtype="complex128",
+            axes=(
+                sc.product_axis("round", size=rounds_ref, kind="repeat"),
+                sc.entity_axis("qubit", patch_qubits_ref),
+            ),
+        )
+        .acquire(
+            "read-stabilizer-iq",
+            "stabilizer_iq",
+            resource="readout",
+            capability="acquire_iq",
+        )
     )
-    .resource(
-        "readout",
-        requires=("acquire_iq",),
-        for_entities=(_PATCH_QUBITS,),
-    )
-    .computes(
-        _BUILD_SURFACE_CODE_ROUND_PROGRAM,
-        _RENDER_SURFACE_CODE_DRIVE_WAVEFORMS,
-        _RENDER_SURFACE_CODE_COUPLER_WAVEFORMS,
-    )
-    .bind_field(
-        "drive",
-        capability="play_gate_sequence",
-        field="sequence",
-        value=_BUILD_SURFACE_CODE_ROUND_PROGRAM.output,
-    )
-    .bind_field(
-        "drive",
-        capability="play_pulse_program",
-        field="program",
-        value=_RENDER_SURFACE_CODE_DRIVE_WAVEFORMS.output,
-    )
-    .bind_field(
-        "coupler",
-        capability="play_coupler_pulse",
-        field="program",
-        value=_RENDER_SURFACE_CODE_COUPLER_WAVEFORMS.output,
-    )
-    .bind_field(
-        "readout",
-        capability="acquire_iq",
-        field="repetitions",
-        value=_ROUNDS * sc.Quantity(value=1.0, unit="count"),
-    )
-    .product(
-        "stabilizer_iq",
-        unit="ratio",
-        dtype="complex128",
-        axes=(
-            sc.product_axis("round", size=_ROUNDS, kind="repeat"),
-            sc.entity_axis("qubit", _PATCH_QUBITS),
-        ),
-    )
-    .acquire(
-        "read-stabilizer-iq",
-        "stabilizer_iq",
-        resource="readout",
-        capability="acquire_iq",
-    )
-    .build()
-)
+
 
 __all__ = [
     "TOY_SURFACE_CODE_ROUND_MODULE",

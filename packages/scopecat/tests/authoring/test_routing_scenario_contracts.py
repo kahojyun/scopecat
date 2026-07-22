@@ -5,6 +5,7 @@ from collections.abc import Mapping, Sequence
 import pytest
 
 import scopecat.authoring as authoring
+from scopecat.authoring.scans import axis
 from scopecat.execution.local.program import (
     ApplyStateOperation,
     CollectOperation,
@@ -20,7 +21,7 @@ from scopecat.records.config import (
 )
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import Quantity
-from tests.testkit.authoring import load_config
+from tests.testkit.authoring import load_config, template_fixture
 from tests.testkit.local_materialization import operations_of_type
 from tests.testkit.materialized_effects import (
     materialized_effects_contract,
@@ -132,7 +133,7 @@ def test_entity_resource_selection_is_deterministic_across_instruments() -> None
         authoring.ScalarType(authoring.EntityType(entity_kind="logical_device")),
     )
     module = (
-        authoring.module("test.resource-binding-scenarios.entity-shards")
+        authoring.module_body(id="test.resource-binding-scenarios.entity-shards")
         .inputs(qubit)
         .resource(
             "drive",
@@ -147,23 +148,22 @@ def test_entity_resource_selection_is_deterministic_across_instruments() -> None
         )
         .build()
     )
-    invocation = (
-        module.template(
-            "test.resource-binding-scenarios.entity-shards",
-            kind="resource_binding_contract",
-        )
-        .scan(
-            authoring.point(
-                "qubit",
-                authoring.ScalarType(
-                    authoring.EntityType(entity_kind="logical_device")
+    invocation = template_fixture(
+        module,
+        id="test.resource-binding-scenarios.entity-shards",
+        kind="resource_binding_contract",
+        scans=(
+            axis(
+                authoring.point(
+                    "qubit",
+                    authoring.ScalarType(
+                        authoring.EntityType(entity_kind="logical_device")
+                    ),
                 ),
+                ("q1", "q0", "q1"),
             ),
-            ("q1", "q0", "q1"),
-        )
-        .build()
-        .bind()
-    )
+        ),
+    ).bind()
 
     resolved = resolve_experiment(invocation, config_profile=config)
     preview = materialized_effects_contract(
@@ -232,7 +232,7 @@ def test_acquisition_selects_point_local_instruments_and_channels(
         authoring.ScalarType(authoring.EntityType(entity_kind="logical_device")),
     )
     module = (
-        authoring.module("test.resource-binding-scenarios.channel-selection")
+        authoring.module_body(id="test.resource-binding-scenarios.channel-selection")
         .inputs(qubit)
         .resource(
             "digitizer",
@@ -248,24 +248,23 @@ def test_acquisition_selects_point_local_instruments_and_channels(
         )
         .build()
     )
-    invocation = (
-        module.template(
-            "test.resource-binding-scenarios.channel-selection",
-            kind="resource_binding_contract",
-        )
-        .scan(
-            authoring.point(
-                "qubit",
-                authoring.ScalarType(
-                    authoring.EntityType(entity_kind="logical_device")
+    invocation = template_fixture(
+        module,
+        id="test.resource-binding-scenarios.channel-selection",
+        kind="resource_binding_contract",
+        scans=(
+            axis(
+                authoring.point(
+                    "qubit",
+                    authoring.ScalarType(
+                        authoring.EntityType(entity_kind="logical_device")
+                    ),
                 ),
+                ("q0", "q1", "q0"),
             ),
-            ("q0", "q1", "q0"),
-        )
-        .record_product("iq")
-        .build()
-        .bind()
-    )
+        ),
+        records=(authoring.record_product("iq"),),
+    ).bind()
 
     resolved = resolve_experiment(invocation, config_profile=config)
     preview = materialized_effects_contract(
@@ -330,7 +329,7 @@ def test_action_selects_point_local_instruments_and_channels() -> None:
         authoring.ScalarType(authoring.EntityType(entity_kind="logical_device")),
     )
     module = (
-        authoring.module("test.resource-binding-scenarios.action-selection")
+        authoring.module_body(id="test.resource-binding-scenarios.action-selection")
         .inputs(qubit)
         .resource(
             "switch",
@@ -345,23 +344,22 @@ def test_action_selects_point_local_instruments_and_channels() -> None:
         )
         .build()
     )
-    invocation = (
-        module.template(
-            "test.resource-binding-scenarios.action-selection",
-            kind="resource_binding_contract",
-        )
-        .scan(
-            authoring.point(
-                "qubit",
-                authoring.ScalarType(
-                    authoring.EntityType(entity_kind="logical_device")
+    invocation = template_fixture(
+        module,
+        id="test.resource-binding-scenarios.action-selection",
+        kind="resource_binding_contract",
+        scans=(
+            axis(
+                authoring.point(
+                    "qubit",
+                    authoring.ScalarType(
+                        authoring.EntityType(entity_kind="logical_device")
+                    ),
                 ),
+                ("q0", "q1", "q0"),
             ),
-            ("q0", "q1", "q0"),
-        )
-        .build()
-        .bind()
-    )
+        ),
+    ).bind()
 
     resolved = resolve_experiment(invocation, config_profile=config)
     preview = materialized_effects_contract(
@@ -419,7 +417,7 @@ def test_readout_source_and_digitizer_are_explicit_independent_ports() -> None:
         authoring.ScalarType(authoring.EntityType(entity_kind="logical_device")),
     )
     module = (
-        authoring.module("test.resource-binding-scenarios.split-readout")
+        authoring.module_body(id="test.resource-binding-scenarios.split-readout")
         .inputs(qubit)
         .resource(
             "readout_source",
@@ -449,15 +447,12 @@ def test_readout_source_and_digitizer_are_explicit_independent_ports() -> None:
         )
         .build()
     )
-    invocation = (
-        module.template(
-            "test.resource-binding-scenarios.split-readout",
-            kind="resource_binding_contract",
-        )
-        .record_product("iq")
-        .build()
-        .bind(qubit="q0")
-    )
+    invocation = template_fixture(
+        module,
+        id="test.resource-binding-scenarios.split-readout",
+        kind="resource_binding_contract",
+        records=(authoring.record_product("iq"),),
+    ).bind(qubit="q0")
 
     resolved = resolve_experiment(invocation, config_profile=config)
     preview = materialized_effects_contract(
@@ -503,7 +498,7 @@ def test_switch_path_action_keeps_the_analyzer_binding_fixed() -> None:
         authoring.ScalarType(authoring.StringType()),
     )
     module = (
-        authoring.module("test.resource-binding-scenarios.switch-matrix")
+        authoring.module_body(id="test.resource-binding-scenarios.switch-matrix")
         .resource("switch", requires=("switch.connect",))
         .resource("analyzer", requires=("trace.acquire",))
         .action(
@@ -523,16 +518,13 @@ def test_switch_path_action_keeps_the_analyzer_binding_fixed() -> None:
         )
         .build()
     )
-    invocation = (
-        module.template(
-            "test.resource-binding-scenarios.switch-matrix",
-            kind="resource_binding_contract",
-        )
-        .scan(path, ("dut-a", "dut-b"))
-        .record_product("trace")
-        .build()
-        .bind()
-    )
+    invocation = template_fixture(
+        module,
+        id="test.resource-binding-scenarios.switch-matrix",
+        kind="resource_binding_contract",
+        scans=(axis(path, ("dut-a", "dut-b")),),
+        records=(authoring.record_product("trace"),),
+    ).bind()
 
     resolved = resolve_experiment(invocation, config_profile=config)
     preview = materialized_effects_contract(

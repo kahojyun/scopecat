@@ -34,10 +34,13 @@ def test_user_facing_facades_expose_entry_points() -> None:
     assert callable(sc.model_location)
     assert sc.Run is sc.RunHandle
     assert callable(sc.module)
-    assert callable(sc.ModuleBuilder.template)
+    assert callable(sc.template)
+    assert callable(sc.scratch)
+    assert sc.ModuleDefinition
+    assert sc.TemplateDefinition
+    assert sc.ScratchDefinition
     assert callable(sc.ModuleBuilder.bind_field)
-    assert callable(sc.ExperimentModule.template)
-    assert callable(sc.Experiment.bind_field)
+    assert callable(sc.ExperimentBody.record_product)
     assert sc.ModuleOutputs
     assert sc.ProductOutputs
     assert sc.ProductRef
@@ -90,7 +93,9 @@ def test_typed_values_are_the_public_module_wiring_surface() -> None:
         output_type=program_type,
     )
 
-    module = sc.module("test.typed_values").inputs(qubits).computes(build).build()
+    module = (
+        sc.module_body(id="test.typed_values").inputs(qubits).computes(build).build()
+    )
 
     assert isinstance(module, sc.ExperimentModule)
     assert build.output.value_type == program_type
@@ -116,24 +121,20 @@ def test_typed_values_are_the_public_module_wiring_surface() -> None:
 
 
 def test_template_inputs_reject_non_finite_numbers() -> None:
-    template = (
-        sc.module("test.closed-runtime-input")
-        .template("test.closed-runtime-input", kind="closed-runtime-input")
-        .input("subject")
-        .build()
-    )
+    template = sc.template(
+        id="test.closed-runtime-input",
+        kind="closed-runtime-input",
+    )(lambda: sc.experiment().input("subject"))
 
     with pytest.raises(TypeError, match="closed runtime data"):
         template.bind(subject=float("nan"))
 
 
 def test_public_invocations_capture_immutable_input_snapshots() -> None:
-    template = (
-        sc.module("test.immutable-runtime-input")
-        .template("test.immutable-runtime-input", kind="immutable-runtime-input")
-        .input("settings")
-        .build()
-    )
+    template = sc.template(
+        id="test.immutable-runtime-input",
+        kind="immutable-runtime-input",
+    )(lambda: sc.experiment().input("settings"))
     labels = ["q0"]
     settings = cast("sc.RuntimeInput", {"labels": labels})
 
@@ -159,7 +160,7 @@ def test_public_invocations_capture_immutable_input_snapshots() -> None:
         "payload",
         sc.ScalarType(sc.PayloadType("test.payload")),
     )
-    module = sc.module("test.immutable-module-input").inputs(payload).build()
+    module = sc.module_body(id="test.immutable-module-input").inputs(payload).build()
     items = [1]
     module_invocation = module.instantiate(
         "immutable-input",
@@ -219,13 +220,11 @@ def test_scans_reject_non_finite_durable_values_at_capture() -> None:
         )
 
 
-def test_workspace_terminals_are_prepare_or_scratch_only() -> None:
+def test_workspace_terminals_require_a_prepared_invocation() -> None:
     assert callable(sc.Workspace.prepare)
-    assert callable(sc.Workspace.experiment)
+    assert not hasattr(sc.Workspace, "experiment")
+    assert not hasattr(sc, "Experiment")
 
     assert callable(sc.PreparedExperiment.run)
     assert callable(sc.PreparedExperiment.preview)
     assert callable(sc.PreparedExperiment.check)
-    assert callable(sc.Experiment.run)
-    assert callable(sc.Experiment.preview)
-    assert callable(sc.Experiment.check)

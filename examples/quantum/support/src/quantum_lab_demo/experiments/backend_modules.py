@@ -2,67 +2,71 @@
 
 from __future__ import annotations
 
+from typing import Annotated, cast
+
 import scopecat as sc
 
 from quantum_lab_demo.experiments.compute import build_backend_batch_job
 
-_LOGICAL_POINTS = sc.input(
-    "logical_points",
-    sc.ScalarType(sc.IntType(minimum=1)),
-)
-_SEED = sc.input("seed", sc.ScalarType(sc.IntType(minimum=0)))
-_BUILD_BACKEND_BATCH_JOB = sc.compute(
-    "build-backend-batch-job",
-    fn=build_backend_batch_job,
-    output_type=sc.ScalarType(sc.PayloadType("backend_job")),
-    inputs={
-        "logical_points": _LOGICAL_POINTS,
-        "seed": _SEED,
-    },
-)
+_LOGICAL_POINTS_TYPE = sc.ScalarType(sc.IntType(minimum=1))
+_SEED_TYPE = sc.ScalarType(sc.IntType(minimum=0))
 
-BACKEND_BATCH_MODULE = (
-    sc.module(
-        "quantum_lab_demo.experiments.backend.batch",
+
+@sc.module(id="quantum_lab_demo.experiments.backend.batch")
+def BACKEND_BATCH_MODULE(
+    logical_points: Annotated[sc.Input[int], _LOGICAL_POINTS_TYPE],
+    seed: Annotated[sc.Input[int], _SEED_TYPE],
+):
+    logical_points_ref = cast("sc.ValueRef", logical_points)
+    seed_ref = cast("sc.ValueRef", seed)
+    build_job = sc.compute(
+        "build-backend-batch-job",
+        fn=build_backend_batch_job,
+        output_type=sc.ScalarType(sc.PayloadType("backend_job")),
+        inputs={
+            "logical_points": logical_points_ref,
+            "seed": seed_ref,
+        },
     )
-    .inputs(_LOGICAL_POINTS, _SEED)
-    .resource(
-        "readout",
-        requires=("submit_backend_batch", "acquire_iq"),
-    )
-    .computes(_BUILD_BACKEND_BATCH_JOB)
-    .bind_field(
-        "readout",
-        capability="submit_backend_batch",
-        field="job",
-        value=_BUILD_BACKEND_BATCH_JOB.output,
-    )
-    .bind_field(
-        "readout",
-        capability="acquire_iq",
-        field="repetitions",
-        value=_LOGICAL_POINTS * sc.Quantity(value=1.0, unit="count"),
-    )
-    .product(
-        "backend_probabilities",
-        unit="ratio",
-        axes=(
-            sc.product_axis(
-                "backend_point",
-                size=_LOGICAL_POINTS,
-                kind="backend_point",
-                unit="count",
+    return (
+        sc.module_body()
+        .resource(
+            "readout",
+            requires=("submit_backend_batch", "acquire_iq"),
+        )
+        .computes(build_job)
+        .bind_field(
+            "readout",
+            capability="submit_backend_batch",
+            field="job",
+            value=build_job.output,
+        )
+        .bind_field(
+            "readout",
+            capability="acquire_iq",
+            field="repetitions",
+            value=logical_points_ref * sc.Quantity(value=1.0, unit="count"),
+        )
+        .product(
+            "backend_probabilities",
+            unit="ratio",
+            axes=(
+                sc.product_axis(
+                    "backend_point",
+                    size=logical_points_ref,
+                    kind="backend_point",
+                    unit="count",
+                ),
             ),
-        ),
+        )
+        .acquire(
+            "read-backend-probabilities",
+            "backend_probabilities",
+            resource="readout",
+            capability="acquire_iq",
+        )
     )
-    .acquire(
-        "read-backend-probabilities",
-        "backend_probabilities",
-        resource="readout",
-        capability="acquire_iq",
-    )
-    .build()
-)
+
 
 __all__ = [
     "BACKEND_BATCH_MODULE",

@@ -101,13 +101,13 @@ def test_flattened_ir_rejects_export_edges_hidden_in_root_inputs() -> None:
     value_type = sc.ScalarType(sc.FloatType())
     value = sc.input("value", value_type)
     producer = (
-        sc.module("test.value-export.root-input-producer")
+        sc.module_body(id="test.value-export.root-input-producer")
         .inputs(value)
         .export(value=value)
         .build()
         .instantiate("producer", value=1.0)
     )
-    root = sc.module("test.value-export.root-input").build()
+    root = sc.module_body(id="test.value-export.root-input").build()
 
     with pytest.raises(ValueError, match="unresolved module export 'value'"):
         elaborate_module(root, hidden=producer.outputs.value)

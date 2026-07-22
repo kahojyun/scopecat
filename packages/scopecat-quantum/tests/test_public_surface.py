@@ -17,12 +17,14 @@ def test_authoring_exposes_one_program_entry_path() -> None:
 
     assert {
         "Program",
+        "ProgramDefinition",
+        "ProgramResults",
+        "QuantumProgramCall",
         "BoundProgram",
         "program",
         "bind",
-        "domain_program",
-        "domain_execution",
     } <= names
+    assert {"domain_program", "domain_execution", "program_call"}.isdisjoint(names)
 
 
 def test_public_surface_exports_only_real_unique_attributes() -> None:

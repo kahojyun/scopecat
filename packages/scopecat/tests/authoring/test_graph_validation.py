@@ -38,11 +38,11 @@ from scopecat.kernel.problems import ProblemPhase, model_location
 from scopecat.kernel.value_types import Float, Payload, Scalar, TableColumn
 from scopecat.planning.authoring import resolve_experiment
 from scopecat.records.entity import EntityRef
-from tests.testkit.authoring import load_config
+from tests.testkit.authoring import load_config, template_fixture
 
 
 def _resolve(module: sc.ExperimentModule) -> None:
-    invocation = module.template("test.graph", kind="graph").build().bind()
+    invocation = template_fixture(module, id="test.graph", kind="graph").bind()
     resolve_experiment(
         invocation,
         config_profile=load_config(),
@@ -77,7 +77,7 @@ def test_compute_graph_is_verified_before_parameter_contracts() -> None:
         output_type=sc.ScalarType(sc.FloatType()),
     )
     with pytest.raises(CheckFailed) as error:
-        sc.module("test.graph.order").computes(consumer).build()
+        sc.module_body(id="test.graph.order").computes(consumer).build()
 
     assert error.value.problems[0].code == "module_compute_foreign_definition"
 
@@ -90,7 +90,7 @@ def test_state_rejects_an_unregistered_compute_output() -> None:
     )
     with pytest.raises(CheckFailed) as error:
         (
-            sc.module("test.graph.state-missing")
+            sc.module_body(id="test.graph.state-missing")
             .resource("drive", requires=("play_waveforms",))
             .bind_field(
                 "drive",
@@ -111,7 +111,7 @@ def test_state_rejects_a_non_payload_compute_output() -> None:
         output_type=sc.ScalarType(sc.FloatType()),
     )
     module = (
-        sc.module("test.graph.state-type")
+        sc.module_body(id="test.graph.state-type")
         .resource("drive", requires=("set_gain",))
         .computes(compute_value)
         .bind_field(
@@ -137,7 +137,7 @@ def test_compile_rejects_a_table_shaped_plan_state_binding() -> None:
         sc.TableType(columns=(sc.TableColumn("value", sc.ScalarType(sc.FloatType())),)),
     )
     module = (
-        sc.module("test.graph.table-state-binding")
+        sc.module_body(id="test.graph.table-state-binding")
         .inputs(rows)
         .resource("drive", requires=("set_gain",))
         .bind_field(
@@ -148,11 +148,11 @@ def test_compile_rejects_a_table_shaped_plan_state_binding() -> None:
         )
         .build()
     )
-    invocation = (
-        module.template("test.graph.table-state-binding", kind="graph")
-        .build()
-        .bind(rows=({"value": 1.0},))
-    )
+    invocation = template_fixture(
+        module,
+        id="test.graph.table-state-binding",
+        kind="graph",
+    ).bind(rows=({"value": 1.0},))
 
     with pytest.raises(CheckFailed) as error:
         compile_prepared_invocation(prepare_invocation(invocation))
@@ -170,7 +170,7 @@ def test_compile_rejects_a_table_shaped_plan_action_field() -> None:
         sc.TableType(columns=(sc.TableColumn("value", sc.ScalarType(sc.FloatType())),)),
     )
     module = (
-        sc.module("test.graph.table-action-field")
+        sc.module_body(id="test.graph.table-action-field")
         .inputs(rows)
         .resource("drive", requires=("set_gain",))
         .action(
@@ -181,11 +181,11 @@ def test_compile_rejects_a_table_shaped_plan_action_field() -> None:
         )
         .build()
     )
-    invocation = (
-        module.template("test.graph.table-action-field", kind="graph")
-        .build()
-        .bind(rows=({"value": 1.0},))
-    )
+    invocation = template_fixture(
+        module,
+        id="test.graph.table-action-field",
+        kind="graph",
+    ).bind(rows=({"value": 1.0},))
 
     with pytest.raises(CheckFailed) as error:
         compile_prepared_invocation(prepare_invocation(invocation))
@@ -203,7 +203,7 @@ def test_compile_rejects_a_table_shaped_plan_row_region_value() -> None:
         sc.TableType(columns=(sc.TableColumn("value", sc.ScalarType(sc.FloatType())),)),
     )
     module = (
-        sc.module("test.graph.table-row-region-value")
+        sc.module_body(id="test.graph.table-row-region-value")
         .inputs(rows)
         .resource("drive", requires=("set_gain",))
         .state_each(
@@ -215,11 +215,11 @@ def test_compile_rejects_a_table_shaped_plan_row_region_value() -> None:
         )
         .build()
     )
-    invocation = (
-        module.template("test.graph.table-row-region-value", kind="graph")
-        .build()
-        .bind(rows=({"value": 1.0},))
-    )
+    invocation = template_fixture(
+        module,
+        id="test.graph.table-row-region-value",
+        kind="graph",
+    ).bind(rows=({"value": 1.0},))
 
     with pytest.raises(CheckFailed) as error:
         compile_prepared_invocation(prepare_invocation(invocation))
@@ -243,7 +243,7 @@ def test_static_record_schema_is_checked_before_parameter_catalog() -> None:
     )
     duplicate_axis = sc.product_axis("sample", size=2)
     module = (
-        sc.module("test.graph.record-schema")
+        sc.module_body(id="test.graph.record-schema")
         .computes(consume)
         .product("signal", axes=(duplicate_axis, duplicate_axis))
         .build()
@@ -262,7 +262,7 @@ def test_resource_selector_rejects_external_operation_value() -> None:
     entity_type = sc.ScalarType(sc.EntityType())
     subject = sc.input("subject", entity_type)
     child = (
-        sc.module("test.stage.resource-child")
+        sc.module_body(id="test.stage.resource-child")
         .inputs(subject)
         .resource("drive", for_entities=(subject,))
         .build()
@@ -273,7 +273,7 @@ def test_resource_selector_rejects_external_operation_value() -> None:
         output_type=entity_type,
     )
     parent = (
-        sc.module("test.stage.resource-parent")
+        sc.module_body(id="test.stage.resource-parent")
         .computes(produce_subject)
         .use(
             child.instantiate(
@@ -308,7 +308,7 @@ def test_product_axis_rejects_external_operation_value() -> None:
         output_type=sc.ScalarType(sc.IntType()),
     )
     module = (
-        sc.module("test.stage.record-execute")
+        sc.module_body(id="test.stage.record-execute")
         .computes(size)
         .product("signal", axes=(sc.product_axis("sample", size=size.output),))
         .build()
@@ -327,16 +327,16 @@ def test_product_axis_rejects_external_operation_value() -> None:
 def test_product_axis_rejects_point_dependent_value() -> None:
     size = sc.point("axis-size", sc.ScalarType(sc.IntType(minimum=1)))
     module = (
-        sc.module("test.stage.record-point")
+        sc.module_body(id="test.stage.record-point")
         .product("signal", axes=(sc.product_axis("sample", size=size),))
         .build()
     )
-    invocation = (
-        module.template("test.stage.record-point", kind="graph")
-        .scan(size, (2, 3))
-        .build()
-        .bind()
-    )
+    invocation = template_fixture(
+        module,
+        id="test.stage.record-point",
+        kind="graph",
+        scans=(sc.axis(size, (2, 3)),),
+    ).bind()
 
     with pytest.raises(CheckFailed) as error:
         resolve_experiment(
@@ -362,7 +362,7 @@ def test_state_target_rejects_external_operation_value() -> None:
         output_type=sc.ScalarType(sc.EntityType()),
     )
     module = (
-        sc.module("test.stage.state-target")
+        sc.module_body(id="test.stage.state-target")
         .resource("drive", requires=("set_gain",))
         .computes(target_entity)
         .state_each(
@@ -398,9 +398,15 @@ def test_direct_compute_edge_is_topologically_ordered() -> None:
         inputs={"value": producer.output},
         output_type=value_type,
     )
-    module = sc.module("test.graph.direct-edge").computes(consumer, producer).build()
+    module = (
+        sc.module_body(id="test.graph.direct-edge").computes(consumer, producer).build()
+    )
 
-    invocation = module.template("test.graph.direct-edge", kind="graph").build().bind()
+    invocation = template_fixture(
+        module,
+        id="test.graph.direct-edge",
+        kind="graph",
+    ).bind()
     compiled = compile_prepared_invocation(prepare_invocation(invocation))
 
     assert [
@@ -414,12 +420,12 @@ def test_direct_compute_edge_is_topologically_ordered() -> None:
 
 def test_compile_carries_verified_source_and_normalized_compiler_inputs() -> None:
     subject = sc.input("subject", sc.ScalarType(sc.EntityType()))
-    module = sc.module("test.graph.verified-source").inputs(subject).build()
-    invocation = (
-        module.template("test.graph.verified-source", kind="graph")
-        .build()
-        .bind(subject="q0")
-    )
+    module = sc.module_body(id="test.graph.verified-source").inputs(subject).build()
+    invocation = template_fixture(
+        module,
+        id="test.graph.verified-source",
+        kind="graph",
+    ).bind(subject="q0")
 
     compiled = compile_prepared_invocation(prepare_invocation(invocation))
 
@@ -463,8 +469,12 @@ def test_compile_verifies_the_final_assembly_once(
         "scopecat.compiler.frontend.graph_validation.verify_source_map",
         counted_source_map,
     )
-    module = sc.module("test.graph.single-proof").build()
-    invocation = module.template("test.graph.single-proof", kind="graph").build().bind()
+    module = sc.module_body(id="test.graph.single-proof").build()
+    invocation = template_fixture(
+        module,
+        id="test.graph.single-proof",
+        kind="graph",
+    ).bind()
 
     compiled = compile_prepared_invocation(prepare_invocation(invocation))
     resolved = resolve_compiled_invocation(
@@ -533,7 +543,7 @@ def test_execute_scalar_expression_becomes_semantic_operation_graph() -> None:
         output_type=value_type,
     )
     child = (
-        sc.module("test.graph.execute-expression-child")
+        sc.module_body(id="test.graph.execute-expression-child")
         .inputs(child_value)
         .computes(consumer)
         .build()
@@ -544,15 +554,17 @@ def test_execute_scalar_expression_becomes_semantic_operation_graph() -> None:
         output_type=value_type,
     )
     parent = (
-        sc.module("test.graph.execute-expression-parent")
+        sc.module_body(id="test.graph.execute-expression-parent")
         .computes(producer)
         .use(child.instantiate("expression-child", value=producer.output))
         .build()
     )
 
-    invocation = (
-        parent.template("test.graph.execute-expression", kind="graph").build().bind()
-    )
+    invocation = template_fixture(
+        parent,
+        id="test.graph.execute-expression",
+        kind="graph",
+    ).bind()
     compiled = compile_prepared_invocation(prepare_invocation(invocation))
     graph = compiled.assembly.source.semantic_graph
     definitions = {definition.id: definition for definition in graph.value_defs}
@@ -596,11 +608,15 @@ def test_execute_core_operation_defers_local_implementation_selection() -> None:
         output_type=value_type,
     )
     module = (
-        sc.module("test.graph.core-implementation").computes(produce, consume).build()
+        sc.module_body(id="test.graph.core-implementation")
+        .computes(produce, consume)
+        .build()
     )
-    invocation = (
-        module.template("test.graph.core-implementation", kind="graph").build().bind()
-    )
+    invocation = template_fixture(
+        module,
+        id="test.graph.core-implementation",
+        kind="graph",
+    ).bind()
     compiled = compile_prepared_invocation(prepare_invocation(invocation))
     scalar_operation = next(
         operation

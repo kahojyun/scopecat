@@ -72,28 +72,86 @@ def test_module_requires_transform_products_and_unique_ids() -> None:
 
     with pytest.raises(ValueError, match="undeclared local product 'raw'"):
         (
-            sc.module("test.transform.missing")
+            sc.module_body(id="test.transform.missing")
             .product("derived")
             .measurement_transforms(transform)
             .build()
         )
     with pytest.raises(ValueError, match="ids must be unique"):
         (
-            sc.module("test.transform.duplicate")
+            sc.module_body(id="test.transform.duplicate")
             .product("raw", "derived")
             .measurement_transforms(transform, transform)
         )
 
 
+def test_transform_reads_visible_child_product_and_writes_local_product() -> None:
+    child = sc.module_body(id="test.transform.source").product("raw").build()
+    nested = child.instantiate("nested")
+    builder = sc.module_body(id="test.transform.parent").use(nested).product("derived")
+    transform = sc.measurement_transform(
+        "derive",
+        semantic=_semantic(),
+        inputs={"source": nested.products.raw},
+        outputs={"result": builder.products.derived},
+    )
+    module = builder.measurement_transforms(transform).build()
+
+    [lowered] = elaborate_module(module).semantic_graph.measurement_transforms
+    assert tuple(
+        (role, product_id.qualified_name) for role, product_id in lowered.inputs
+    ) == (("source", "nested/raw"),)
+    assert tuple(
+        (role, product_id.qualified_name) for role, product_id in lowered.outputs
+    ) == (("result", "derived"),)
+
+
+def test_transform_rejects_projected_or_foreign_product_references() -> None:
+    child = sc.module_body(id="test.transform.source").product("raw").build()
+    nested = child.instantiate("nested")
+
+    with pytest.raises(ValueError, match="outside this module's local products"):
+        (
+            sc.module_body(id="test.transform.projected-output")
+            .use(nested)
+            .measurement_transforms(
+                sc.measurement_transform(
+                    "replace-child",
+                    semantic=_semantic(),
+                    outputs={"result": nested.products.raw},
+                )
+            )
+            .build()
+        )
+
+    current = child.instantiate("nested")
+    foreign = child.instantiate("nested")
+    with pytest.raises(ValueError, match="from another module instance"):
+        (
+            sc.module_body(id="test.transform.foreign-input")
+            .use(current)
+            .product("derived")
+            .measurement_transforms(
+                sc.measurement_transform(
+                    "derive",
+                    semantic=_semantic(),
+                    inputs={"source": foreign.products.raw},
+                    outputs={"result": "derived"},
+                )
+            )
+            .build()
+        )
+
+
 def test_nested_measurement_transform_is_hygienically_scoped() -> None:
     child = (
-        sc.module("test.transform.child")
+        sc.module_body(id="test.transform.child")
         .product("raw", "derived")
         .measurement_transforms(_transform("derive", source="raw", output="derived"))
         .build()
     )
     nested = child.instantiate("nested")
-    root = sc.module("test.transform.root").use(nested).build()
+    root = sc.module_body(id="test.transform.root").use(nested).build()
 
     graph = elaborate_module(root).semantic_graph
     [transform] = graph.measurement_transforms
@@ -110,7 +168,7 @@ def test_semantic_transform_graph_is_canonical_topological_order() -> None:
     first = _transform("first", source="raw", output="middle")
     second = _transform("second", source="middle", output="derived")
     module = (
-        sc.module("test.transform.order")
+        sc.module_body(id="test.transform.order")
         .product("raw", "middle", "derived")
         .measurement_transforms(second, first)
         .build()
@@ -124,7 +182,7 @@ def test_semantic_transform_graph_is_canonical_topological_order() -> None:
 
 def test_semantic_transform_cycle_is_rejected() -> None:
     module = (
-        sc.module("test.transform.cycle")
+        sc.module_body(id="test.transform.cycle")
         .product("left", "right")
         .measurement_transforms(
             _transform("left-from-right", source="right", output="left"),
@@ -149,7 +207,7 @@ def test_domain_and_transform_cannot_own_the_same_product() -> None:
         results={"raw": None},
     )
     module = (
-        sc.module("test.transform.owner")
+        sc.module_body(id="test.transform.owner")
         .product("source", "raw")
         .measurement_transforms(_transform("derive", source="source", output="raw"))
         .build()

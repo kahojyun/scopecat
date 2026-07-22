@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Annotated, cast
+
 import scopecat as sc
 
 from quantum_lab_demo.virtual_lab.parameters import (
@@ -22,67 +24,75 @@ _SYSTEM_COUPLER_PARAMETERS = sc.parameter(
     ),
 )
 
-_FLUX_COUPLER = sc.input("coupler", _COUPLER)
-_FLUX_BIAS = sc.input("flux_bias", _QUANTITY)
-FLUX_BACKGROUND_MODULE = (
-    sc.module(
-        "quantum_lab_demo.experiments.background.flux",
-    )
-    .inputs(_FLUX_COUPLER, _FLUX_BIAS)
-    .resource(
-        "coupler_bias",
-        requires=("set_flux_bias",),
-        for_entities=(_FLUX_COUPLER,),
-    )
-    .bind_field(
-        "coupler_bias",
-        capability="set_flux_bias",
-        field="offset",
-        value=_FLUX_BIAS,
-    )
-    .build()
-)
 
-_BACKGROUND_COUPLERS = sc.input("background_couplers", _COUPLER_SERIES)
-_SPECTATOR_FLUX_BIAS = sc.input("spectator_flux_bias", _QUANTITY)
-SPECTATOR_FLUX_BACKGROUND_MODULE = (
-    sc.module(
-        "quantum_lab_demo.experiments.background.spectator_flux",
+@sc.module(id="quantum_lab_demo.experiments.background.flux")
+def FLUX_BACKGROUND_MODULE(
+    coupler: Annotated[sc.Input[str], _COUPLER],
+    flux_bias: Annotated[sc.Input[sc.Quantity], _QUANTITY],
+):
+    coupler_ref = cast("sc.ValueRef", coupler)
+    flux_bias_ref = cast("sc.ValueRef", flux_bias)
+    return (
+        sc.module_body()
+        .resource(
+            "coupler_bias",
+            requires=("set_flux_bias",),
+            for_entities=(coupler_ref,),
+        )
+        .bind_field(
+            "coupler_bias",
+            capability="set_flux_bias",
+            field="offset",
+            value=flux_bias_ref,
+        )
     )
-    .inputs(_BACKGROUND_COUPLERS, _SPECTATOR_FLUX_BIAS)
-    .resource(
-        "spectator_bias",
-        requires=("set_flux_bias",),
-        for_entities=(_BACKGROUND_COUPLERS,),
-    )
-    .bind_field(
-        "spectator_bias",
-        capability="set_flux_bias",
-        field="offset",
-        value=_SPECTATOR_FLUX_BIAS,
-    )
-    .build()
-)
 
-SYSTEM_COUPLER_PARKING_BACKGROUND_MODULE = (
-    sc.module(
-        "quantum_lab_demo.experiments.background.system_coupler_parking",
+
+@sc.module(id="quantum_lab_demo.experiments.background.spectator_flux")
+def SPECTATOR_FLUX_BACKGROUND_MODULE(
+    background_couplers: Annotated[
+        sc.Input[tuple[str, ...]],
+        _COUPLER_SERIES,
+    ],
+    spectator_flux_bias: Annotated[sc.Input[sc.Quantity], _QUANTITY],
+):
+    couplers_ref = cast("sc.ValueRef", background_couplers)
+    flux_bias_ref = cast("sc.ValueRef", spectator_flux_bias)
+    return (
+        sc.module_body()
+        .resource(
+            "spectator_bias",
+            requires=("set_flux_bias",),
+            for_entities=(couplers_ref,),
+        )
+        .bind_field(
+            "spectator_bias",
+            capability="set_flux_bias",
+            field="offset",
+            value=flux_bias_ref,
+        )
     )
-    .resource(
-        "coupler_bias",
-        requires=("set_flux_bias",),
-        for_entities=(_SYSTEM_COUPLER_PARAMETERS.entities("coupler"),),
+
+
+@sc.module(id="quantum_lab_demo.experiments.background.system_coupler_parking")
+def SYSTEM_COUPLER_PARKING_BACKGROUND_MODULE():
+    return (
+        sc.module_body()
+        .resource(
+            "coupler_bias",
+            requires=("set_flux_bias",),
+            for_entities=(_SYSTEM_COUPLER_PARAMETERS.entities("coupler"),),
+        )
+        .state_each(
+            _SYSTEM_COUPLER_PARAMETERS,
+            resource_port="coupler_bias",
+            capability="set_flux_bias",
+            field="offset",
+            value=lambda row: row["coupler_parking_flux"],
+            target_entities=(lambda row: row["coupler"],),
+        )
     )
-    .state_each(
-        _SYSTEM_COUPLER_PARAMETERS,
-        resource_port="coupler_bias",
-        capability="set_flux_bias",
-        field="offset",
-        value=lambda row: row["coupler_parking_flux"],
-        target_entities=(lambda row: row["coupler"],),
-    )
-    .build()
-)
+
 
 __all__ = [
     "FLUX_BACKGROUND_MODULE",

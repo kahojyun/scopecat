@@ -5,7 +5,7 @@ from __future__ import annotations
 # %%
 from quantum_lab_demo import QuantumLabCompiler, notebook_workspace, quantum_lab
 from quantum_lab_demo.reference_experiments import (
-    FAKE_X_COUNT_TEMPLATE,
+    fake_x_count_template,
 )
 
 # %%
@@ -17,7 +17,7 @@ compiler = system.domain_compiler
 assert isinstance(compiler, QuantumLabCompiler)
 
 # %%
-experiment = lab.prepare(FAKE_X_COUNT_TEMPLATE)
+experiment = lab.prepare(fake_x_count_template)
 preview = experiment.preview()
 completed_run = experiment.run(
     name="fake AWG X-count template",

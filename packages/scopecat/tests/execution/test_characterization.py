@@ -167,7 +167,7 @@ def test_workspace_run_schedules_parent_compute_before_child_consumer(
         output_type=pulse_program_type,
     )
     child = (
-        sc.module("tests.compute_schedule.child")
+        sc.module_body(id="tests.compute_schedule.child")
         .inputs(program, state_rows)
         .resource("source", requires=("play_program",))
         .computes(consume_program)
@@ -191,7 +191,7 @@ def test_workspace_run_schedules_parent_compute_before_child_consumer(
         output_type=source_program_type,
     )
     parent = (
-        sc.module("tests.compute_schedule.parent")
+        sc.module_body(id="tests.compute_schedule.parent")
         .computes(produce_program)
         .use(
             child.instantiate(
@@ -202,11 +202,10 @@ def test_workspace_run_schedules_parent_compute_before_child_consumer(
         )
         .build()
     )
-    template = (
-        parent.template("tests.compute_schedule", kind="characterization")
-        .experiment_id("compute-schedule")
-        .build()
-    )
+    template = sc.template(
+        id="tests.compute_schedule",
+        kind="characterization",
+    )(lambda: sc.experiment(parent()))
     driver = SignalInstrumentDriver()
     lab = sc.open(
         tmp_path,

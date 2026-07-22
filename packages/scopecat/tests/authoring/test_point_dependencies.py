@@ -27,16 +27,19 @@ def _point_module(
         inputs={"value": point},
         output_type=point.value_type,
     )
-    return sc.module(module_id).computes(consume).build()
+    return sc.module_body(id=module_id).computes(consume).build()
 
 
 def _resolve(module: sc.ExperimentModule, *, scan: sc.Scan | None = None) -> None:
-    builder = module.template("test.point-dependency", kind="point_dependency")
-    if scan is not None:
-        builder = builder.scan(scan)
-    invocation = builder.build().bind()
+    call = module()
+
+    @sc.template(id="test.point-dependency", kind="point_dependency")
+    def template_definition() -> sc.ExperimentBody:
+        body = sc.experiment(call)
+        return body if scan is None else body.scan(scan)
+
     resolve_experiment(
-        invocation,
+        template_definition(),
         config_profile=load_config(),
     )
 
@@ -87,11 +90,14 @@ def test_nested_module_preserves_bound_point_dependency() -> None:
         output_type=child_frequency.value_type,
     )
     child = (
-        sc.module("test.point-child").inputs(child_frequency).computes(consume).build()
+        sc.module_body(id="test.point-child")
+        .inputs(child_frequency)
+        .computes(consume)
+        .build()
     )
     parent_frequency = sc.point("frequency", _FREQUENCY_TYPE)
     parent = (
-        sc.module("test.point-parent")
+        sc.module_body(id="test.point-parent")
         .use(child.instantiate("point-child", frequency=parent_frequency))
         .build()
     )

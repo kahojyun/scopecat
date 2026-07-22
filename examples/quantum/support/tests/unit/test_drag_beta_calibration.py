@@ -14,25 +14,24 @@ from scopecat_quantum import (
     CircuitPulseEventProvenance,
     ImplementedGatePulseEventProvenance,
     Play,
+    program_port_type,
 )
 
 from quantum_lab_demo import quantum_lab, quantum_lab_compiler
 from quantum_lab_demo.reference_experiments.drag_beta_calibration import (
-    AMPLIFICATION_INPUT,
-    BETA_INPUT,
     DRAG_GATE_PULSE_TEMPLATE,
     NEGATIVE_CANDIDATE_ID,
     POSITIVE_CANDIDATE_ID,
     X90_CALIBRATION_ID,
     XM90_CALIBRATION_ID,
     baseline_calibration_catalog,
-    drag_beta_calibration_program,
 )
 from quantum_lab_demo.reference_experiments.drag_beta_experiment import (
     AMPLIFICATION,
     BETA,
-    DRAG_BETA_PROGRAM,
-    DRAG_BETA_TEMPLATE,
+    drag_beta_capture,
+    drag_beta_program,
+    drag_beta_template,
 )
 from quantum_lab_demo.virtual_lab.parameters import (
     DRAG_BETA_PARAMETER_COLUMN,
@@ -57,29 +56,33 @@ def _golden_point(tmp_path: Path):
         ),
         sc.axis(AMPLIFICATION, (3,)),
     )
-    lab.prepare(DRAG_BETA_TEMPLATE).scan(scan).run()
-    [preparation] = compiler.trace.preparations(DRAG_BETA_PROGRAM.id)
+    lab.prepare(drag_beta_template).scan(scan).run()
+    [preparation] = compiler.trace.preparations(drag_beta_program.id)
     [prepared] = preparation.entries
-    return drag_beta_calibration_program(), prepared, preparation.artifact
+    return drag_beta_program, prepared, preparation.artifact
 
 
 def _nanoseconds(seconds: Decimal) -> Decimal:
     return seconds * Decimal(1_000_000_000)
 
 
-def test_drag_beta_template_binds_the_accepted_parameter_cell() -> None:
-    execution = DRAG_BETA_TEMPLATE.build().module.domain_executions[0]
+def test_drag_beta_capture_binds_the_accepted_parameter_cell() -> None:
+    capture = drag_beta_capture(
+        amplification=AMPLIFICATION,
+        beta=q0_drag_beta_lookup(),
+    )
 
-    assert execution is not None
-    assert dict(execution.input_bindings)["beta"] == q0_drag_beta_lookup()
+    assert capture.inputs["beta"] == q0_drag_beta_lookup()
 
 
 def test_n3_golden_schedule_and_calibration_selection(tmp_path: Path) -> None:
     declaration, prepared, _artifact = _golden_point(tmp_path)
 
-    assert declaration.inputs == (AMPLIFICATION_INPUT, BETA_INPUT)
-    assert BETA_INPUT.value_type == ScalarType(QuantityType(unit="ns"))
-    assert AMPLIFICATION_INPUT.value_type == ScalarType(IntType(minimum=1))
+    assert [port.id for port in declaration.inputs] == ["amplification", "beta"]
+    assert program_port_type(declaration.inputs[0]) == ScalarType(IntType(minimum=1))
+    assert program_port_type(declaration.inputs[1]) == ScalarType(
+        QuantityType(unit="ns")
+    )
     assert len(prepared.scheduled.events) == 10
     assert prepared.scheduled.duration_seconds == Decimal("136e-9")
 

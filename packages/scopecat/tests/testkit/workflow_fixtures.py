@@ -4,10 +4,13 @@ from pathlib import Path
 
 from scopecat.authoring import (
     ExperimentInvocation,
+    InputDescription,
     QuantityType,
     ScalarType,
     parameter,
+    record_product,
 )
+from scopecat.authoring.scans import axis
 from scopecat.compiler.frontend.invocation import (
     PreparedInvocation,
     prepare_invocation,
@@ -32,7 +35,11 @@ from scopecat.runs.access import (
     artifact_storage_ref,
     dataset_storage_ref,
 )
-from tests.testkit.authoring import DRIVE_FREQUENCY_POINT, SIMPLE_MODULE
+from tests.testkit.authoring import (
+    DRIVE_FREQUENCY_POINT,
+    SIMPLE_MODULE,
+    template_fixture,
+)
 from tests.testkit.paths import CORE_FIXTURE_DIR as WORKFLOW_FIXTURE_DIR
 
 
@@ -50,22 +57,27 @@ def load_experiment() -> CoreProgram:
 
 
 def load_invocation() -> ExperimentInvocation:
-    return (
-        SIMPLE_MODULE.template("test.workflow_scan", kind="simple_scan")
-        .experiment_id("simple-scan")
-        .scan(
-            DRIVE_FREQUENCY_POINT,
-            center=parameter(
-                "drive_frequency",
-                ScalarType(QuantityType()),
+    return template_fixture(
+        SIMPLE_MODULE,
+        id="test.workflow_scan",
+        kind="simple_scan",
+        inputs=(
+            InputDescription(id="subject"),
+            InputDescription(id="drive_frequency"),
+        ),
+        scans=(
+            axis(
+                DRIVE_FREQUENCY_POINT,
+                center=parameter(
+                    "drive_frequency",
+                    ScalarType(QuantityType()),
+                ),
+                span=Quantity(value=200.0, unit="MHz"),
+                points=3,
             ),
-            span=Quantity(value=200.0, unit="MHz"),
-            points=3,
-        )
-        .record_product("signal")
-        .build()
-        .bind(subject="q0")
-    )
+        ),
+        records=(record_product(SIMPLE_MODULE.products.signal),),
+    ).bind(subject="q0")
 
 
 def load_prepared_invocation() -> PreparedInvocation:

@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 import scopecat as sc
 from scopecat import Quantity
+from scopecat.authoring._value_refs import internal_lower_scalar_value_ref
 from scopecat.compiler.linking.linked import LinkedPointMaterializer
 from scopecat.records.parameter import TableParameterValue
 from scopecat_quantum import (
@@ -22,20 +23,16 @@ from quantum_lab_demo.reference_experiments.cz_phase_analysis import (
     analyze_cz_phase_run,
 )
 from quantum_lab_demo.reference_experiments.cz_phase_calibration import (
-    ANALYZER_PHASE_INPUT,
-    CONTROL_STATE_INPUT,
-    CZ_AMPLITUDE_INPUT,
     CZ_CANDIDATE_ID,
     CZ_FLUX_PULSE_TEMPLATE,
-    cz_conditional_phase_program,
+    cz_conditional_phase,
 )
 from quantum_lab_demo.reference_experiments.cz_phase_experiment import (
     ANALYZER_PHASE,
     CONTROL_STATE,
     CZ_AMPLITUDE,
-    CZ_PHASE_CAPTURE_MODULE,
-    CZ_PHASE_PROGRAM,
-    CZ_PHASE_TEMPLATE,
+    cz_phase_capture,
+    cz_phase_template,
 )
 from quantum_lab_demo.virtual_lab.parameters import (
     CZ_AMPLITUDE_PARAMETER_COLUMN,
@@ -68,8 +65,8 @@ def _compiled_cz_point(
         sc.axis(CONTROL_STATE, (control_state,)),
         sc.axis(ANALYZER_PHASE, (analyzer_phase,)),
     )
-    lab.prepare(CZ_PHASE_TEMPLATE).scan(scan).run()
-    [preparation] = compiler.trace.preparations(CZ_PHASE_PROGRAM.id)
+    lab.prepare(cz_phase_template).scan(scan).run()
+    [preparation] = compiler.trace.preparations(cz_conditional_phase.id)
     [prepared] = preparation.entries
     [artifact_entry] = preparation.artifact.entries
     return prepared, artifact_entry
@@ -78,18 +75,23 @@ def _compiled_cz_point(
 def test_cz_phase_program_keeps_two_qubit_gate_and_coupler_pulse_provenance(
     tmp_path: Path,
 ) -> None:
-    declaration = cz_conditional_phase_program()
+    declaration = cz_conditional_phase
     prepared, _artifact_entry = _compiled_cz_point(
         tmp_path,
         control_state=1,
         analyzer_phase=Quantity(math.pi / 2.0, "rad"),
     )
 
-    assert set(declaration.inputs) == {
-        CZ_AMPLITUDE_INPUT,
-        CONTROL_STATE_INPUT,
-        ANALYZER_PHASE_INPUT,
-    }
+    assert tuple(element.id for element in declaration.elements) == (
+        "control",
+        "target",
+        "coupler",
+    )
+    assert tuple(port.id for port in declaration.inputs) == (
+        "control_state",
+        "coupler_amplitude",
+        "analyzer_phase",
+    )
     assert tuple(result.id for result in declaration.results) == (
         "control_iq_shots",
         "target_iq_shots",
@@ -156,7 +158,7 @@ def test_cz_phase_workspace_run_fits_pi_and_authors_candidate_proposal(
     )
     compiler = quantum_lab_compiler()
     lab = quantum_lab(workspace=tmp_path, compiler=compiler)
-    prepared = lab.prepare(CZ_PHASE_TEMPLATE)
+    prepared = lab.prepare(cz_phase_template)
 
     preview = prepared.preview()
     run = prepared.run()
@@ -171,8 +173,8 @@ def test_cz_phase_workspace_run_fits_pi_and_authors_candidate_proposal(
     )
     assert run.manifest.status == "completed"
     assert compiler.trace.physical_execution_count == 1
-    [evidence] = compiler.trace.preparations(CZ_PHASE_PROGRAM.id)
-    assert evidence.program_id == cz_conditional_phase_program().id
+    [evidence] = compiler.trace.preparations(cz_conditional_phase.id)
+    assert evidence.program_id == cz_conditional_phase.id
     assert len(evidence.points) == len(evidence.entries) == 24
     assert evidence.artifact_fingerprint.startswith("sha256:")
     assert len(records) == 24
@@ -202,20 +204,26 @@ def test_cz_phase_workspace_run_fits_pi_and_authors_candidate_proposal(
 
 
 def test_cz_phase_capture_uses_one_quantum_program_without_payload_compute() -> None:
-    body = CZ_PHASE_CAPTURE_MODULE.ir.body
-    execution = CZ_PHASE_TEMPLATE.build().module.domain_executions[0]
-    assert execution is not None
+    body = cz_phase_capture.ir.body
+    [call] = body.instances
+    [execution] = call.module.body.domain_executions
     program = execution.program
 
     assert program.dialect_id == quantum.QUANTUM_PROGRAM_DIALECT_ID
     assert isinstance(program.body, quantum.Program)
     assert tuple(name for name, _value in execution.input_bindings) == (
+        "control",
+        "target",
+        "coupler",
         "control_state",
         "coupler_amplitude",
         "analyzer_phase",
     )
-    assert (
-        dict(execution.input_bindings)["coupler_amplitude"]
-        == q0_q1_cz_amplitude_lookup()
+    call_inputs = {
+        binding.import_id: internal_lower_scalar_value_ref(binding.source)
+        for binding in call.input_bindings
+    }
+    assert call_inputs["coupler_amplitude"] == internal_lower_scalar_value_ref(
+        q0_q1_cz_amplitude_lookup()
     )
     assert body.operations == ()

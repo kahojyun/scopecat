@@ -108,6 +108,7 @@ from tests.testkit.authoring import (
     SIMPLE_MODULE,
     load_config,
     simple_template,
+    template_fixture,
 )
 from tests.testkit.authoring import (
     parameters as _parameters,
@@ -229,7 +230,6 @@ def _template_invocation(
     *modules: ExperimentModule,
     id: str,  # noqa: A002
     kind: str,
-    experiment_id: str | None = None,
     inputs: Mapping[str, authoring.RuntimeInput] | None = None,
     metadata: Mapping[str, authoring.MetadataValue] | None = None,
 ) -> authoring.ExperimentInvocation:
@@ -251,22 +251,27 @@ def _template_invocation(
         for module in modules
     )
     root_module = (
-        authoring.module(f"{id}.root")
+        authoring.module_body(id=f"{id}.root")
         .inputs(*root_inputs.values())
         .use(*instances)
         .build()
     )
-    template = root_module.template(id, kind=kind)
+    records: list[authoring.RecordSelection] = []
     for instance in instances:
         for product in instance.products.values():
-            template = template.record_product(
-                product,
-                record_id=product.local_id,
+            records.append(
+                authoring.record_product(
+                    product,
+                    record_id=product.local_id,
+                )
             )
-    if experiment_id is not None:
-        template = template.experiment_id(experiment_id)
-    if metadata is not None:
-        template = template.metadata(**metadata)
+    template = template_fixture(
+        root_module,
+        id=id,
+        kind=kind,
+        records=records,
+        metadata=metadata,
+    )
     return template.bind(**dict(inputs or {}))
 
 
@@ -278,7 +283,7 @@ def test_module_invocation_resolves_roles_scans_bindings_and_metadata() -> None:
 
     assert resolved.template_id == "test.simple_scan"
     experiment = resolved.experiment
-    assert experiment.id == "authored-simple-scan"
+    assert experiment.id == "test.simple_scan"
     assert experiment.kind == "simple_scan"
     assert experiment.metadata == {"assembled_by": "template"}
     preview = materialized_effects_contract(
@@ -306,7 +311,7 @@ def test_template_selects_module_products_as_records() -> None:
         authoring.ScalarType(authoring.EntityType()),
     )
     module = (
-        authoring.module("test.product_module")
+        authoring.module_body(id="test.product_module")
         .inputs(subject)
         .resource("source", requires=("set_frequency", "scalar_signal"))
         .product("signal", unit="ratio")
@@ -318,18 +323,19 @@ def test_template_selects_module_products_as_records() -> None:
         )
         .build()
     )
-    without_selection = (
-        module.template("test.product_unselected", kind="product_test")
-        .experiment_id("product-unselected")
-        .scan(DRIVE_FREQUENCY_POINT, [4.9, 5.0, 5.1], unit="GHz")
-        .build()
+    scan = sc.axis(DRIVE_FREQUENCY_POINT, [4.9, 5.0, 5.1], unit="GHz")
+    without_selection = template_fixture(
+        module,
+        id="test.product_unselected",
+        kind="product_test",
+        scans=(scan,),
     )
-    with_selection = (
-        module.template("test.product_selected", kind="product_test")
-        .experiment_id("product-selected")
-        .scan(DRIVE_FREQUENCY_POINT, [4.9, 5.0, 5.1], unit="GHz")
-        .record_product("signal")
-        .build()
+    with_selection = template_fixture(
+        module,
+        id="test.product_selected",
+        kind="product_test",
+        scans=(scan,),
+        records=(authoring.record_product(module.products.signal),),
     )
 
     unselected = resolve_experiment(
@@ -387,7 +393,7 @@ def test_compute_inputs_keep_template_input_provenance() -> None:
         },
     )
     module = (
-        authoring.module("test.compute_provenance")
+        authoring.module_body(id="test.compute_provenance")
         .inputs(qubit, pulse_length)
         .resource("drive", requires=("play_pulse_program",))
         .computes(build)
@@ -399,14 +405,16 @@ def test_compute_inputs_keep_template_input_provenance() -> None:
         )
         .build()
     )
-    template = (
-        module.template("test.compute_provenance", kind="compute_provenance")
-        .experiment_id("compute-provenance")
-        .input(
-            "pulse_length",
-            default=Quantity(value=20.0, unit="ns"),
-        )
-        .build()
+    template = template_fixture(
+        module,
+        id="test.compute_provenance",
+        kind="compute_provenance",
+        inputs=(
+            authoring.InputDescription(
+                "pulse_length",
+                default=Quantity(value=20.0, unit="ns"),
+            ),
+        ),
     )
     compiled = compile_prepared_invocation(
         prepare_invocation(template.bind(qubit="q0"))
@@ -461,7 +469,7 @@ def test_template_can_scan_any_entity_input() -> None:
         authoring.ScalarType(authoring.EntityType()),
     )
     module = (
-        authoring.module("test.entity_scan_module")
+        authoring.module_body(id="test.entity_scan_module")
         .inputs(qubit)
         .resource("source", requires=("scalar_signal",))
         .product("signal", unit="ratio")
@@ -473,15 +481,17 @@ def test_template_can_scan_any_entity_input() -> None:
         )
         .build()
     )
-    template = (
-        module.template("test.entity_scan", kind="entity_scan")
-        .experiment_id("entity-scan")
-        .scan(
-            sc.point("qubit", authoring.ScalarType(authoring.EntityType())),
-            [EntityRef(id="q0", kind="logical_device")],
-        )
-        .record_product("signal")
-        .build()
+    template = template_fixture(
+        module,
+        id="test.entity_scan",
+        kind="entity_scan",
+        scans=(
+            sc.axis(
+                sc.point("qubit", authoring.ScalarType(authoring.EntityType())),
+                [EntityRef(id="q0", kind="logical_device")],
+            ),
+        ),
+        records=(authoring.record_product(module.products.signal),),
     )
 
     resolved = resolve_experiment(
@@ -590,7 +600,7 @@ def test_entity_scan_selects_resource_entities_per_point() -> None:
         authoring.ScalarType(authoring.EntityType()),
     )
     module = (
-        authoring.module("test.entity_scan_selection")
+        authoring.module_body(id="test.entity_scan_selection")
         .inputs(qubit)
         .resource(
             "drive",
@@ -612,18 +622,20 @@ def test_entity_scan_selects_resource_entities_per_point() -> None:
         )
         .build()
     )
-    template = (
-        module.template("test.entity_scan_selection", kind="entity_scan_selection")
-        .experiment_id("entity-scan-selection")
-        .scan(
-            sc.point("qubit", authoring.ScalarType(authoring.EntityType())),
-            [
-                EntityRef(id="q0", kind="logical_device"),
-                EntityRef(id="q1", kind="logical_device"),
-            ],
-        )
-        .record_product("signal")
-        .build()
+    template = template_fixture(
+        module,
+        id="test.entity_scan_selection",
+        kind="entity_scan_selection",
+        scans=(
+            sc.axis(
+                sc.point("qubit", authoring.ScalarType(authoring.EntityType())),
+                [
+                    EntityRef(id="q0", kind="logical_device"),
+                    EntityRef(id="q1", kind="logical_device"),
+                ],
+            ),
+        ),
+        records=(authoring.record_product(module.products.signal),),
     )
 
     resolved = resolve_experiment(
@@ -767,7 +779,7 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
         authoring.ScalarType(authoring.EntityType(entity_kind="logical_device")),
     )
     module = (
-        authoring.module("test.runtime_entity_scan")
+        authoring.module_body(id="test.runtime_entity_scan")
         .inputs(qubit)
         .resource(
             "drive",
@@ -794,11 +806,11 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
         )
         .build()
     )
-    template = (
-        module.template("test.runtime_entity_scan", kind="runtime_entity_scan")
-        .experiment_id("runtime-entity-scan")
-        .record_product("signal")
-        .build()
+    template = template_fixture(
+        module,
+        id="test.runtime_entity_scan",
+        kind="runtime_entity_scan",
+        records=(authoring.record_product(module.products.signal),),
     )
 
     resolved = resolve_experiment(
@@ -901,7 +913,7 @@ def test_runtime_entity_scan_can_drive_dependent_default_scan() -> None:
         authoring.ScalarType(authoring.EntityType(entity_kind="logical_device")),
     )
     module = (
-        authoring.module("test.runtime_entity_dependent_points")
+        authoring.module_body(id="test.runtime_entity_dependent_points")
         .inputs(qubit)
         .resource("source", requires=("scalar_signal",))
         .product("signal", unit="ratio")
@@ -913,25 +925,24 @@ def test_runtime_entity_scan_can_drive_dependent_default_scan() -> None:
         )
         .build()
     )
-    template = (
-        module.template(
-            "test.runtime_entity_dependent_points",
-            kind="runtime_entity_dependent_points",
-        )
-        .experiment_id("runtime-entity-dependent-points")
-        .scan(
-            sc.point("drive_length", _QUANTITY_VALUE),
-            center=sc.parameter_lookup(
-                "sample_qubits",
-                key={"qubit": qubit},
-                column="rabi_length",
-                value_type=_QUANTITY_VALUE,
+    template = template_fixture(
+        module,
+        id="test.runtime_entity_dependent_points",
+        kind="runtime_entity_dependent_points",
+        scans=(
+            sc.axis(
+                sc.point("drive_length", _QUANTITY_VALUE),
+                center=sc.parameter_lookup(
+                    "sample_qubits",
+                    key={"qubit": qubit},
+                    column="rabi_length",
+                    value_type=_QUANTITY_VALUE,
+                ),
+                span=Quantity(value=20.0, unit="ns"),
+                points=3,
             ),
-            span=Quantity(value=20.0, unit="ns"),
-            points=3,
-        )
-        .record_product("signal")
-        .build()
+        ),
+        records=(authoring.record_product(module.products.signal),),
     )
 
     resolved = resolve_experiment(
@@ -971,7 +982,7 @@ def test_entity_series_input_can_define_product_axis() -> None:
         authoring.SeriesType(authoring.ScalarType(authoring.EntityType())),
     )
     module = (
-        authoring.module("test.entity_series_axis_module")
+        authoring.module_body(id="test.entity_series_axis_module")
         .inputs(qubits)
         .resource("source", requires=("scalar_signal",))
         .product(
@@ -987,11 +998,11 @@ def test_entity_series_input_can_define_product_axis() -> None:
         )
         .build()
     )
-    template = (
-        module.template("test.entity_series_axis", kind="entity_series_axis")
-        .experiment_id("entity-series-axis")
-        .record_product("iq")
-        .build()
+    template = template_fixture(
+        module,
+        id="test.entity_series_axis",
+        kind="entity_series_axis",
+        records=(authoring.record_product(module.products.iq),),
     )
 
     resolved = resolve_experiment(
@@ -1032,7 +1043,7 @@ def test_entity_series_input_can_define_product_axis() -> None:
 
 def test_non_entity_string_series_defines_categorical_product_axis() -> None:
     module = (
-        authoring.module("test.categorical_axis")
+        authoring.module_body(id="test.categorical_axis")
         .resource("source", requires=("scalar_signal",))
         .product(
             "iq",
@@ -1058,10 +1069,11 @@ def test_non_entity_string_series_defines_categorical_product_axis() -> None:
         )
         .build()
     )
-    template = (
-        module.template("test.categorical_axis", kind="categorical_axis")
-        .record_product("iq")
-        .build()
+    template = template_fixture(
+        module,
+        id="test.categorical_axis",
+        kind="categorical_axis",
+        records=(authoring.record_product(module.products.iq),),
     )
 
     resolved = resolve_experiment(
@@ -1134,7 +1146,7 @@ def test_entity_series_selection_keeps_one_point_and_ordered_product_axis() -> N
         authoring.SeriesType(authoring.ScalarType(authoring.EntityType())),
     )
     module = (
-        authoring.module("test.entity_series_selection")
+        authoring.module_body(id="test.entity_series_selection")
         .inputs(qubits)
         .resource(
             "readout",
@@ -1154,11 +1166,11 @@ def test_entity_series_selection_keeps_one_point_and_ordered_product_axis() -> N
         )
         .build()
     )
-    template = (
-        module.template("test.entity_series_selection", kind="entity_series_selection")
-        .experiment_id("entity-series-selection")
-        .record_product("iq")
-        .build()
+    template = template_fixture(
+        module,
+        id="test.entity_series_selection",
+        kind="entity_series_selection",
+        records=(authoring.record_product(module.products.iq),),
     )
 
     resolved = resolve_experiment(
@@ -1283,12 +1295,12 @@ def test_link_assembly_validates_parameter_contracts_owned_by_point_source() -> 
 
 def test_explicit_instances_keep_same_named_resource_ports_isolated() -> None:
     pulse = (
-        authoring.module("test.shared_resource.pulse")
+        authoring.module_body(id="test.shared_resource.pulse")
         .resource("source", requires=("set_frequency",))
         .build()
     )
     records = (
-        authoring.module("test.shared_resource.records")
+        authoring.module_body(id="test.shared_resource.records")
         .resource("source", requires=("acquire_signal",))
         .product("signal", unit="ratio")
         .acquire(
@@ -1300,7 +1312,7 @@ def test_explicit_instances_keep_same_named_resource_ports_isolated() -> None:
         .build()
     )
     root = (
-        authoring.module("test.shared_resource.root")
+        authoring.module_body(id="test.shared_resource.root")
         .use(
             pulse.instantiate("pulse"),
             records.instantiate("records"),
@@ -1322,7 +1334,7 @@ def test_explicit_instances_keep_same_named_resource_ports_isolated() -> None:
 def test_module_construction_rejects_duplicate_resource_ids() -> None:
     with pytest.raises(ValueError, match="duplicate module resource ids"):
         (
-            authoring.module("test.shared_resource.duplicate")
+            authoring.module_body(id="test.shared_resource.duplicate")
             .resource("source", requires=("set_frequency",))
             .resource("source", requires=("acquire_signal",))
             .build()
@@ -1367,7 +1379,7 @@ def test_elaboration_invocation_literals_bind_local_inputs() -> None:
         authoring.ScalarType(authoring.QuantityType()),
     )
     child = (
-        authoring.module("test.invocation_defaults.child")
+        authoring.module_body(id="test.invocation_defaults.child")
         .inputs(drive_frequency)
         .resource("source", requires=("set_frequency",))
         .bind_field(
@@ -1379,7 +1391,7 @@ def test_elaboration_invocation_literals_bind_local_inputs() -> None:
         .build()
     )
     parent = (
-        authoring.module("test.invocation_defaults.parent")
+        authoring.module_body(id="test.invocation_defaults.parent")
         .use(
             child.instantiate(
                 "defaults-child",
@@ -1402,7 +1414,7 @@ def test_elaboration_invocation_literals_bind_local_inputs() -> None:
 
 
 def test_module_invocation_rejects_undeclared_inputs() -> None:
-    child = authoring.module("test.invocation_unknown_input.child").build()
+    child = authoring.module_body(id="test.invocation_unknown_input.child").build()
 
     with pytest.raises(ValueError, match="received undeclared inputs: 'frequency'"):
         child.instantiate(
@@ -1417,7 +1429,7 @@ def test_elaboration_invocation_expressions_bind_local_inputs() -> None:
         authoring.ScalarType(authoring.QuantityType()),
     )
     child = (
-        authoring.module("test.invocation_override.child")
+        authoring.module_body(id="test.invocation_override.child")
         .inputs(drive_frequency)
         .resource("source", requires=("set_frequency",))
         .bind_field(
@@ -1429,7 +1441,7 @@ def test_elaboration_invocation_expressions_bind_local_inputs() -> None:
         .build()
     )
     parent = (
-        authoring.module("test.invocation_expression.parent")
+        authoring.module_body(id="test.invocation_expression.parent")
         .use(
             child.instantiate(
                 "expression-child",
@@ -1462,7 +1474,7 @@ def test_elaboration_defers_nested_expression_and_literal_bindings() -> None:
     unused_parameter = authoring.input("unused_parameter", value_type)
     unused_point = authoring.input("unused_point", value_type)
     child = (
-        authoring.module("test.invocation_deferred.child")
+        authoring.module_body(id="test.invocation_deferred.child")
         .inputs(child_value, unused_parameter, unused_point)
         .resource("source", requires=("set_offset",))
         .bind_field(
@@ -1478,7 +1490,7 @@ def test_elaboration_defers_nested_expression_and_literal_bindings() -> None:
         value_type,
     )
     parent = (
-        authoring.module("test.invocation_deferred.parent")
+        authoring.module_body(id="test.invocation_deferred.parent")
         .inputs(parent_value)
         .use(
             child.instantiate(
@@ -1494,7 +1506,7 @@ def test_elaboration_defers_nested_expression_and_literal_bindings() -> None:
         .build()
     )
     root = (
-        authoring.module("test.invocation_deferred.root")
+        authoring.module_body(id="test.invocation_deferred.root")
         .use(parent.instantiate("deferred-parent", parent_value=1.5))
         .build()
     )
@@ -1517,7 +1529,7 @@ def test_module_provenance_follows_only_reachable_input_bindings() -> None:
     used_point_input = authoring.input("used_point", value_type)
     unused_point_input = authoring.input("unused_point", value_type)
     module = (
-        authoring.module("test.reachable-input-provenance")
+        authoring.module_body(id="test.reachable-input-provenance")
         .inputs(
             used_parameter_input,
             unused_parameter_input,
@@ -1605,7 +1617,7 @@ def test_elaboration_invocation_input_refs_bind_to_parent_inputs() -> None:
         authoring.ScalarType(authoring.QuantityType()),
     )
     child = (
-        authoring.module("test.invocation_parent_input.child")
+        authoring.module_body(id="test.invocation_parent_input.child")
         .inputs(drive_frequency)
         .resource("source", requires=("set_frequency",))
         .bind_field(
@@ -1617,7 +1629,7 @@ def test_elaboration_invocation_input_refs_bind_to_parent_inputs() -> None:
         .build()
     )
     parent = (
-        authoring.module("test.invocation_parent_input.parent")
+        authoring.module_body(id="test.invocation_parent_input.parent")
         .inputs(outer_frequency)
         .use(
             child.instantiate(
@@ -1643,7 +1655,7 @@ def test_elaboration_does_not_merge_sibling_invocation_inputs() -> None:
         authoring.ScalarType(authoring.QuantityType()),
     )
     first = (
-        authoring.module("test.invocation_sibling.first")
+        authoring.module_body(id="test.invocation_sibling.first")
         .inputs(first_frequency)
         .resource("source", requires=("set_frequency",))
         .bind_field(
@@ -1659,7 +1671,7 @@ def test_elaboration_does_not_merge_sibling_invocation_inputs() -> None:
         authoring.ScalarType(authoring.QuantityType()),
     )
     second = (
-        authoring.module("test.invocation_sibling.second")
+        authoring.module_body(id="test.invocation_sibling.second")
         .inputs(second_frequency)
         .resource("detector", requires=("set_frequency",))
         .bind_field(
@@ -1672,7 +1684,7 @@ def test_elaboration_does_not_merge_sibling_invocation_inputs() -> None:
     )
 
     module = (
-        authoring.module("test.invocation_sibling.parent")
+        authoring.module_body(id="test.invocation_sibling.parent")
         .use(
             first.instantiate(
                 "first",
@@ -1711,7 +1723,7 @@ def test_elaboration_localizes_invocation_entity_inputs() -> None:
         authoring.ScalarType(authoring.QuantityType()),
     )
     child = (
-        authoring.module("test.invocation_entity.child")
+        authoring.module_body(id="test.invocation_entity.child")
         .inputs(qubit, drive_frequency)
         .resource(
             "drive",
@@ -1727,7 +1739,7 @@ def test_elaboration_localizes_invocation_entity_inputs() -> None:
         .build()
     )
     parent = (
-        authoring.module("test.invocation_entity.parent")
+        authoring.module_body(id="test.invocation_entity.parent")
         .use(
             child.instantiate(
                 "entity-child",
@@ -1836,7 +1848,6 @@ def test_product_declaration_uses_axes() -> None:
         _template_invocation(
             module,
             id="test.record_axes",
-            experiment_id="record-axes-scan",
             kind="simple_scan",
         ).scan(
             DRIVE_FREQUENCY_POINT,
@@ -1863,8 +1874,7 @@ def test_module_invocation_resolves_multiple_entity_inputs() -> None:
     resolved = resolve_experiment(
         _template_invocation(
             module,
-            id="test.multi_entity",
-            experiment_id="authored-multi-entity",
+            id="authored-multi-entity",
             kind="multi_entity",
             inputs={"device": "q0", "drive_channel": "drive-q0"},
         ),
@@ -1931,7 +1941,7 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
         authoring.ScalarType(authoring.EntityType()),
     )
     module = (
-        authoring.module("test.entity_selected_resource")
+        authoring.module_body(id="test.entity_selected_resource")
         .inputs(qubit)
         .resource(
             "drive",
@@ -1951,11 +1961,10 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
     )
 
     resolved = resolve_experiment(
-        (
-            module.template(
-                "test.entity_selected_resource",
-                kind="entity_selected_resource",
-            ).experiment_id("entity-selected-resource")
+        template_fixture(
+            module,
+            id="test.entity_selected_resource",
+            kind="entity_selected_resource",
         ).bind(qubit="q1"),
         config_profile=config,
     )
@@ -1978,7 +1987,7 @@ def test_explicit_config_source_survives_experiment_resolution() -> None:
         content_hash=config_content_hash(config),
     )
     module = (
-        authoring.module("test.explicit-config-source")
+        authoring.module_body(id="test.explicit-config-source")
         .resource("drive", requires=("drive.frequency",))
         .bind_field(
             "drive",
@@ -1990,7 +1999,11 @@ def test_explicit_config_source_survives_experiment_resolution() -> None:
     )
 
     resolved = resolve_experiment_with_config(
-        module.template("test.explicit-config-source", kind="config-source").bind(),
+        template_fixture(
+            module,
+            id="test.explicit-config-source",
+            kind="config-source",
+        ).bind(),
         config=config,
         config_source=source,
     )
@@ -2070,7 +2083,7 @@ def test_module_can_materialize_background_state_from_parameter_table() -> None:
         ),
     )
     background = (
-        authoring.module("test.background_flux")
+        authoring.module_body(id="test.background_flux")
         .resource("flux", requires=("set_offset",))
         .state_each(
             flux_bias,
@@ -2083,10 +2096,10 @@ def test_module_can_materialize_background_state_from_parameter_table() -> None:
     )
 
     resolved = resolve_experiment(
-        (
-            background.template(
-                "test.background_flux", kind="background_flux"
-            ).experiment_id("background-flux")
+        template_fixture(
+            background,
+            id="test.background_flux",
+            kind="background_flux",
         ).bind(),
         config_profile=config,
     )

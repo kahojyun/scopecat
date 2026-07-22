@@ -8,6 +8,7 @@ import scopecat.authoring as authoring
 from scopecat.authoring._value_refs import (
     internal_value_ref_from_expression,
 )
+from scopecat.authoring.scans import axis
 from scopecat.compiler.frontend.elaboration import elaborate_module
 from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
 from scopecat.compiler.frontend.resolution import ResolvedExperiment
@@ -57,7 +58,7 @@ from scopecat.kernel.symbols import SymbolId
 from scopecat.planning.authoring import resolve_experiment
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import Quantity
-from tests.testkit.authoring import load_config
+from tests.testkit.authoring import load_config, template_fixture
 from tests.testkit.local_materialization import (
     materialize_local_execution,
     operations_of_type,
@@ -72,7 +73,7 @@ from tests.testkit.relation_plans import (
 
 def test_action_lowers_as_a_distinct_point_effect() -> None:
     module = (
-        authoring.module("test.action")
+        authoring.module_body(id="test.action")
         .resource("source", requires=("set_frequency",))
         .action(
             "trigger",
@@ -82,7 +83,7 @@ def test_action_lowers_as_a_distinct_point_effect() -> None:
         )
         .build()
     )
-    template = module.template("test.action", kind="action").build()
+    template = template_fixture(module, id="test.action", kind="action")
     resolved = resolve_experiment(
         template.bind(),
         config_profile=load_config(),
@@ -103,7 +104,7 @@ def test_module_procedure_preserves_effect_order_across_effect_kinds() -> None:
         body=object(),
     )
     module = (
-        authoring.module("test.effect-order")
+        authoring.module_body(id="test.effect-order")
         .resource("source", requires=("set_frequency",))
         .action(
             "arm",
@@ -125,7 +126,11 @@ def test_module_procedure_preserves_effect_order_across_effect_kinds() -> None:
         .build()
     )
     resolved = resolve_experiment(
-        module.template("test.effect-order", kind="effect-order").bind(),
+        template_fixture(
+            module,
+            id="test.effect-order",
+            kind="effect-order",
+        ).bind(),
         config_profile=load_config(),
     )
 
@@ -139,14 +144,14 @@ def test_module_procedure_preserves_effect_order_across_effect_kinds() -> None:
 
 def test_child_procedure_is_inlined_at_its_module_occurrence() -> None:
     child = (
-        authoring.module("test.effect-order.child")
+        authoring.module_body(id="test.effect-order.child")
         .resource("source", requires=("set_frequency",))
         .action("child", resource="source", capability="set_frequency")
         .build()
         .instantiate("nested")
     )
     parent = (
-        authoring.module("test.effect-order.parent")
+        authoring.module_body(id="test.effect-order.parent")
         .resource("source", requires=("set_frequency",))
         .action("before", resource="source", capability="set_frequency")
         .use(child)
@@ -288,7 +293,7 @@ def test_collections_cross_module_resource_entity_axis_with_provenance() -> None
         output_type=authoring.ScalarType(authoring.PayloadType("prepared")),
     )
     child = (
-        authoring.module("test.collections.child")
+        authoring.module_body(id="test.collections.child")
         .inputs(gates, offsets)
         .resource(
             "source",
@@ -316,16 +321,21 @@ def test_collections_cross_module_resource_entity_axis_with_provenance() -> None
         offsets=offset_values,
     )
     parent = (
-        authoring.module("test.collections.parent")
+        authoring.module_body(id="test.collections.parent")
         .inputs(gate_rows, offset_values)
         .use(child_instance)
         .build()
     )
-    template = (
-        parent.template("test.collections", kind="collections")
-        .experiment_id("collections")
-        .record_product(child_instance.products.signal, record_id="signal")
-        .build()
+    template = template_fixture(
+        parent,
+        id="test.collections",
+        kind="collections",
+        records=(
+            authoring.record_product(
+                child_instance.products.signal,
+                record_id="signal",
+            ),
+        ),
     )
 
     config = load_config()
@@ -403,7 +413,7 @@ def test_resource_entity_series_rejects_non_entity_members_during_authoring() ->
     )
     with pytest.raises(TypeError, match="must be entity-shaped"):
         (
-            authoring.module("test.invalid_resource_entities")
+            authoring.module_body(id="test.invalid_resource_entities")
             .inputs(items)
             .resource(
                 "source",
@@ -418,7 +428,7 @@ def test_resource_entity_series_rejects_non_entity_members_during_authoring() ->
     )
     with pytest.raises(TypeError, match="must be entity-shaped"):
         (
-            authoring.module("test.invalid_resource_entity_table")
+            authoring.module_body(id="test.invalid_resource_entity_table")
             .inputs(table_source)
             .resource(
                 "source",
@@ -450,13 +460,13 @@ def test_declared_shapes_disambiguate_empty_table_and_series_of_records() -> Non
         output_type=authoring.ScalarType(authoring.PayloadType("inspection")),
     )
     child = (
-        authoring.module("test.collection_literals.child")
+        authoring.module_body(id="test.collection_literals.child")
         .inputs(rows, items)
         .computes(inspect)
         .build()
     )
     parent = (
-        authoring.module("test.collection_literals.parent")
+        authoring.module_body(id="test.collection_literals.parent")
         .use(
             child.instantiate(
                 "literal-child",
@@ -466,10 +476,10 @@ def test_declared_shapes_disambiguate_empty_table_and_series_of_records() -> Non
         )
         .build()
     )
-    template = (
-        parent.template("test.collection_literals", kind="collection_literals")
-        .experiment_id("collection-literals")
-        .build()
+    template = template_fixture(
+        parent,
+        id="test.collection_literals",
+        kind="collection_literals",
     )
 
     resolved = resolve_experiment(
@@ -512,13 +522,13 @@ def test_same_name_inputs_pass_through_multiple_module_boundaries() -> None:
         output_type=authoring.ScalarType(authoring.PayloadType("inspection")),
     )
     leaf = (
-        authoring.module("test.same_name.leaf")
+        authoring.module_body(id="test.same_name.leaf")
         .inputs(value, items, rows)
         .computes(inspect)
         .build()
     )
     middle = (
-        authoring.module("test.same_name.middle")
+        authoring.module_body(id="test.same_name.middle")
         .inputs(value, items, rows)
         .use(
             leaf.instantiate(
@@ -531,7 +541,7 @@ def test_same_name_inputs_pass_through_multiple_module_boundaries() -> None:
         .build()
     )
     outer = (
-        authoring.module("test.same_name.outer")
+        authoring.module_body(id="test.same_name.outer")
         .inputs(value, items, rows)
         .use(
             middle.instantiate(
@@ -543,10 +553,16 @@ def test_same_name_inputs_pass_through_multiple_module_boundaries() -> None:
         )
         .build()
     )
-    template = (
-        outer.template("test.same_name", kind="same_name")
-        .scan(authoring.point("value", scalar_type), (0.25, 0.5))
-        .build()
+    template = template_fixture(
+        outer,
+        id="test.same_name",
+        kind="same_name",
+        scans=(
+            axis(
+                authoring.point("value", scalar_type),
+                (0.25, 0.5),
+            ),
+        ),
     )
 
     resolved = resolve_experiment(
@@ -597,19 +613,23 @@ def test_nested_module_requires_explicit_input_forwarding() -> None:
         "value",
         authoring.ScalarType(authoring.FloatType()),
     )
-    child = authoring.module("test.nested_port.child").inputs(value).build()
+    child = authoring.module_body(id="test.nested_port.child").inputs(value).build()
 
     with pytest.raises(ValueError, match="must connect all inputs"):
         child.instantiate("child")
 
     outer_value = authoring.input("outer_value", value.value_type)
     root = (
-        authoring.module("test.nested_port.root")
+        authoring.module_body(id="test.nested_port.root")
         .inputs(outer_value)
         .use(child.instantiate("child", value=outer_value))
         .build()
     )
-    template = root.template("test.nested_port", kind="nested_port").build()
+    template = template_fixture(
+        root,
+        id="test.nested_port",
+        kind="nested_port",
+    )
 
     resolve_experiment(
         template.bind(outer_value=1),
@@ -622,17 +642,22 @@ def test_scan_points_are_coerced_by_same_named_scalar_input_type() -> None:
         "value",
         authoring.ScalarType(authoring.FloatType()),
     )
-    module = authoring.module("test.scan_coercion").inputs(scanned_value).build()
-    template = (
-        module.template("test.scan_coercion", kind="scan_coercion")
-        .scan(
-            authoring.point(
-                "value",
-                authoring.ScalarType(authoring.FloatType()),
+    module = (
+        authoring.module_body(id="test.scan_coercion").inputs(scanned_value).build()
+    )
+    template = template_fixture(
+        module,
+        id="test.scan_coercion",
+        kind="scan_coercion",
+        scans=(
+            axis(
+                authoring.point(
+                    "value",
+                    authoring.ScalarType(authoring.FloatType()),
+                ),
+                (1,),
             ),
-            (1,),
-        )
-        .build()
+        ),
     )
 
     resolved = resolve_experiment(
@@ -653,18 +678,21 @@ def test_scan_points_reject_same_named_scalar_input_constraint_violation() -> No
         "count",
         authoring.ScalarType(authoring.IntType(minimum=1)),
     )
-    module = authoring.module("test.scan_constraint").inputs(count).build()
+    module = authoring.module_body(id="test.scan_constraint").inputs(count).build()
     with pytest.raises(authoring.ValueValidationError) as error:
-        (
-            module.template("test.scan_constraint", kind="scan_constraint")
-            .scan(
-                authoring.point(
-                    "count",
-                    authoring.ScalarType(authoring.IntType(minimum=1)),
+        template_fixture(
+            module,
+            id="test.scan_constraint",
+            kind="scan_constraint",
+            scans=(
+                axis(
+                    authoring.point(
+                        "count",
+                        authoring.ScalarType(authoring.IntType(minimum=1)),
+                    ),
+                    (0,),
                 ),
-                (0,),
-            )
-            .build()
+            ),
         )
 
     assert error.value.path == ("scan", "values", 0)
@@ -673,7 +701,7 @@ def test_scan_points_reject_same_named_scalar_input_constraint_violation() -> No
 
 def test_module_invocation_rejects_collection_shape_mismatch() -> None:
     rows = authoring.input("rows", _gate_table_type())
-    child = authoring.module("test.collection_shape.child").inputs(rows).build()
+    child = authoring.module_body(id="test.collection_shape.child").inputs(rows).build()
     items = authoring.input(
         "items",
         authoring.SeriesType(_entity_scalar()),
@@ -690,7 +718,9 @@ def test_module_invocation_rejects_same_shape_atom_mismatch() -> None:
         "entities",
         authoring.SeriesType(_entity_scalar()),
     )
-    child = authoring.module("test.collection_atom.child").inputs(entities).build()
+    child = (
+        authoring.module_body(id="test.collection_atom.child").inputs(entities).build()
+    )
     numbers = authoring.input(
         "numbers",
         authoring.SeriesType(authoring.ScalarType(authoring.FloatType())),
@@ -708,7 +738,7 @@ def test_module_invocation_rejects_quantity_unit_and_table_schema_mismatch() -> 
         authoring.ScalarType(authoring.QuantityType(unit="GHz")),
     )
     quantity_child = (
-        authoring.module("test.quantity_type.child").inputs(frequency).build()
+        authoring.module_body(id="test.quantity_type.child").inputs(frequency).build()
     )
     duration = authoring.input(
         "duration",
@@ -730,7 +760,9 @@ def test_module_invocation_rejects_quantity_unit_and_table_schema_mismatch() -> 
         )
     )
     gates = authoring.input("gates", _gate_table_type())
-    table_child = authoring.module("test.table_type.child").inputs(gates).build()
+    table_child = (
+        authoring.module_body(id="test.table_type.child").inputs(gates).build()
+    )
     rows = authoring.input("rows", float_gate_table)
     with pytest.raises(
         authoring.ValueValidationError,
@@ -749,14 +781,14 @@ def test_compute_output_is_a_typed_child_input_edge() -> None:
         output_type=authoring.ScalarType(authoring.PayloadType("consumed")),
     )
     child = (
-        authoring.module("test.compute_edge.child")
+        authoring.module_body(id="test.compute_edge.child")
         .inputs(program)
         .computes(consume)
         .build()
     )
     middle_program = authoring.input("program", pulse)
     middle = (
-        authoring.module("test.compute_edge.middle")
+        authoring.module_body(id="test.compute_edge.middle")
         .inputs(middle_program)
         .use(child.instantiate("compute-child", program=middle_program))
         .build()
@@ -767,7 +799,7 @@ def test_compute_output_is_a_typed_child_input_edge() -> None:
         output_type=pulse,
     )
     parent = (
-        authoring.module("test.compute_edge.parent")
+        authoring.module_body(id="test.compute_edge.parent")
         .computes(produce)
         .use(middle.instantiate("compute-middle", program=produce.output))
         .build()
@@ -792,7 +824,11 @@ def test_compute_output_is_a_typed_child_input_edge() -> None:
         SymbolId(local_id="produce")
     )
     resolved = resolve_experiment(
-        parent.template("test.compute_edge", kind="compute_edge").build().bind(),
+        template_fixture(
+            parent,
+            id="test.compute_edge",
+            kind="compute_edge",
+        ).bind(),
         config_profile=load_config(),
     )
     linked_consumer = next(
@@ -817,7 +853,7 @@ def test_compute_output_is_a_typed_child_input_edge() -> None:
         authoring.ScalarType(authoring.PayloadType("waveform")),
     )
     incompatible_child = (
-        authoring.module("test.compute_edge.incompatible")
+        authoring.module_body(id="test.compute_edge.incompatible")
         .inputs(incompatible_program)
         .build()
     )
@@ -843,7 +879,7 @@ def test_series_compute_output_is_a_first_class_typed_value() -> None:
         output_type=authoring.ScalarType(authoring.PayloadType("consumed-series")),
     )
     child = (
-        authoring.module("test.compute_series.child")
+        authoring.module_body(id="test.compute_series.child")
         .inputs(values)
         .computes(consume)
         .build()
@@ -854,14 +890,18 @@ def test_series_compute_output_is_a_first_class_typed_value() -> None:
         output_type=float_series,
     )
     parent = (
-        authoring.module("test.compute_series.parent")
+        authoring.module_body(id="test.compute_series.parent")
         .computes(produce)
         .use(child.instantiate("series-child", values=produce.output))
         .build()
     )
 
     resolved = resolve_experiment(
-        parent.template("test.compute_series", kind="compute_series").build().bind(),
+        template_fixture(
+            parent,
+            id="test.compute_series",
+            kind="compute_series",
+        ).bind(),
         config_profile=load_config(),
     )
     produce = next(
@@ -886,12 +926,10 @@ def test_explicit_null_is_validated_as_a_value_not_treated_as_unbound() -> None:
         "label",
         authoring.ScalarType(authoring.StringType()),
     )
-    required = (
-        authoring.module("test.null.required")
-        .inputs(required_label)
-        .build()
-        .template("test.null.required", kind="null")
-        .build()
+    required = template_fixture(
+        authoring.module_body(id="test.null.required").inputs(required_label).build(),
+        id="test.null.required",
+        kind="null",
     )
 
     with pytest.raises(CheckFailed) as error:
@@ -915,13 +953,13 @@ def test_explicit_null_is_validated_as_a_value_not_treated_as_unbound() -> None:
         inputs={"label": label},
         output_type=authoring.ScalarType(authoring.PayloadType("inspection")),
     )
-    nullable = (
-        authoring.module("test.null.nullable")
+    nullable = template_fixture(
+        authoring.module_body(id="test.null.nullable")
         .inputs(label)
         .computes(inspect)
-        .build()
-        .template("test.null.nullable", kind="null")
-        .build()
+        .build(),
+        id="test.null.nullable",
+        kind="null",
     )
     resolved = resolve_experiment(
         nullable.bind(label=None),
@@ -944,7 +982,7 @@ def test_table_input_drives_child_state_with_outer_scanned_input() -> None:
         authoring.ScalarType(authoring.FloatType()),
     )
     child = (
-        authoring.module("test.collection_state.child")
+        authoring.module_body(id="test.collection_state.child")
         .inputs(rows, bias)
         .resource("source", requires=("set_offset",))
         .state_each(
@@ -962,7 +1000,7 @@ def test_table_input_drives_child_state_with_outer_scanned_input() -> None:
         authoring.ScalarType(authoring.FloatType()),
     )
     parent = (
-        authoring.module("test.collection_state.parent")
+        authoring.module_body(id="test.collection_state.parent")
         .inputs(outer_rows, point_bias)
         .use(
             child.instantiate(
@@ -973,17 +1011,19 @@ def test_table_input_drives_child_state_with_outer_scanned_input() -> None:
         )
         .build()
     )
-    template = (
-        parent.template("test.collection_state", kind="collection_state")
-        .experiment_id("collection-state")
-        .scan(
-            authoring.point(
-                "point_bias",
-                authoring.ScalarType(authoring.FloatType()),
+    template = template_fixture(
+        parent,
+        id="test.collection_state",
+        kind="collection_state",
+        scans=(
+            axis(
+                authoring.point(
+                    "point_bias",
+                    authoring.ScalarType(authoring.FloatType()),
+                ),
+                (0.25, 0.5),
             ),
-            (0.25, 0.5),
-        )
-        .build()
+        ),
     )
 
     resolved = resolve_experiment(
@@ -1024,7 +1064,7 @@ def test_state_each_rejects_a_row_value_captured_by_another_binder() -> None:
         return value
 
     module = (
-        authoring.module("test.collection_state.foreign-row-capture")
+        authoring.module_body(id="test.collection_state.foreign-row-capture")
         .resource("source", requires=("set_offset",))
         .state_each(
             first,
@@ -1083,7 +1123,7 @@ def test_state_each_rejects_body_values_outside_consumer_contracts(
     code: str,
 ) -> None:
     module = (
-        authoring.module("test.collection_state.invalid-body")
+        authoring.module_body(id="test.collection_state.invalid-body")
         .resource("source", requires=("set_offset",))
         .state_each(
             _literal_table([{}]),
@@ -1109,7 +1149,7 @@ def test_module_instances_alpha_rename_state_row_scopes() -> None:
         base=authoring.ScalarType(authoring.FloatType()),
     )
     child = (
-        authoring.module("test.collection_state.alpha-child")
+        authoring.module_body(id="test.collection_state.alpha-child")
         .resource("source", requires=("set_offset",))
         .state_each(
             rows,
@@ -1121,7 +1161,7 @@ def test_module_instances_alpha_rename_state_row_scopes() -> None:
         .build()
     )
     root = (
-        authoring.module("test.collection_state.alpha-root")
+        authoring.module_body(id="test.collection_state.alpha-root")
         .use(child.instantiate("left"), child.instantiate("right"))
         .build()
     )
@@ -1151,7 +1191,7 @@ def test_module_instances_alpha_rename_state_row_scopes() -> None:
 def test_state_regions_and_lowered_state_preserve_authored_order() -> None:
     rows = _literal_table([{}])
     module = (
-        authoring.module("test.collection_state.order")
+        authoring.module_body(id="test.collection_state.order")
         .resource("source", requires=("set_offset",))
         .state_each(
             rows,
@@ -1176,10 +1216,11 @@ def test_state_regions_and_lowered_state_preserve_authored_order() -> None:
         "second",
     ]
 
-    template = module.template(
-        "test.collection_state.order",
+    template = template_fixture(
+        module,
+        id="test.collection_state.order",
         kind="collection_state",
-    ).build()
+    )
     resolved = resolve_experiment(
         template.bind(),
         config_profile=load_config(),
@@ -1198,7 +1239,7 @@ def test_state_target_entities_use_durable_scalar_and_series_shapes() -> None:
     entity_series = authoring.SeriesType(_entity_scalar())
     qubits = authoring.input("qubits", entity_series)
     module = (
-        authoring.module("test.collection_state.targets")
+        authoring.module_body(id="test.collection_state.targets")
         .inputs(qubits)
         .resource("source", requires=("set_frequency",))
         .state_each(
@@ -1214,10 +1255,11 @@ def test_state_target_entities_use_durable_scalar_and_series_shapes() -> None:
         )
         .build()
     )
-    template = module.template(
-        "test.collection_state.targets",
+    template = template_fixture(
+        module,
+        id="test.collection_state.targets",
         kind="collection_state",
-    ).build()
+    )
     resolved = resolve_experiment(
         template.bind(qubits=("q0",)),
         config_profile=load_config(),
@@ -1249,7 +1291,7 @@ def test_state_each_preserves_compute_result_refs_across_module_inputs() -> None
         output_type=authoring.ScalarType(authoring.PayloadType("pulse_program")),
     )
     child = (
-        authoring.module("test.collection_state.compute_payload_child")
+        authoring.module_body(id="test.collection_state.compute_payload_child")
         .resource("source", requires=("play_waveforms",))
         .computes(build_program)
         .state_each(
@@ -1265,14 +1307,15 @@ def test_state_each_preserves_compute_result_refs_across_module_inputs() -> None
         .build()
     )
     parent = (
-        authoring.module("test.collection_state.compute_payload_parent")
+        authoring.module_body(id="test.collection_state.compute_payload_parent")
         .use(child.instantiate("payload-child"))
         .build()
     )
-    template = parent.template(
-        "test.collection_state.compute_payload",
+    template = template_fixture(
+        parent,
+        id="test.collection_state.compute_payload",
         kind="collection_state",
-    ).build()
+    )
 
     resolved = resolve_experiment(
         template.bind(),
@@ -1299,7 +1342,7 @@ def test_state_each_resolves_inputs_nested_inside_a_relation() -> None:
     state_rows = _state_rows_type()
     rows = authoring.input("rows", state_rows)
     child = (
-        authoring.module("test.collection_state.relation_child")
+        authoring.module_body(id="test.collection_state.relation_child")
         .inputs(rows)
         .resource("source", requires=("set_offset",))
         .state_each(
@@ -1316,7 +1359,7 @@ def test_state_each_resolves_inputs_nested_inside_a_relation() -> None:
         authoring.ScalarType(authoring.FloatType()),
     )
     parent = (
-        authoring.module("test.collection_state.relation_parent")
+        authoring.module_body(id="test.collection_state.relation_parent")
         .inputs(bias)
         .use(
             child.instantiate(
@@ -1330,16 +1373,19 @@ def test_state_each_resolves_inputs_nested_inside_a_relation() -> None:
         )
         .build()
     )
-    template = (
-        parent.template("test.collection_state.relation", kind="collection_state")
-        .scan(
-            authoring.point(
-                "bias",
-                authoring.ScalarType(authoring.FloatType()),
+    template = template_fixture(
+        parent,
+        id="test.collection_state.relation",
+        kind="collection_state",
+        scans=(
+            axis(
+                authoring.point(
+                    "bias",
+                    authoring.ScalarType(authoring.FloatType()),
+                ),
+                (0.25, 0.5),
             ),
-            (0.25, 0.5),
-        )
-        .build()
+        ),
     )
 
     resolved = resolve_experiment(
@@ -1365,7 +1411,7 @@ def test_state_each_preserves_outer_scope_across_two_module_boundaries() -> None
         ),
     )
     writer = (
-        authoring.module("test.collection_state.writer")
+        authoring.module_body(id="test.collection_state.writer")
         .inputs(writer_rows)
         .resource("source", requires=("set_offset",))
         .state_each(
@@ -1383,7 +1429,7 @@ def test_state_each_preserves_outer_scope_across_two_module_boundaries() -> None
         authoring.ScalarType(authoring.FloatType()),
     )
     middle = (
-        authoring.module("test.collection_state.middle")
+        authoring.module_body(id="test.collection_state.middle")
         .inputs(middle_rows, middle_bias)
         .use(
             writer.instantiate(
@@ -1401,7 +1447,7 @@ def test_state_each_preserves_outer_scope_across_two_module_boundaries() -> None
         authoring.ScalarType(authoring.FloatType()),
     )
     parent = (
-        authoring.module("test.collection_state.outer")
+        authoring.module_body(id="test.collection_state.outer")
         .inputs(outer_rows, outer_bias)
         .use(
             middle.instantiate(
@@ -1412,16 +1458,19 @@ def test_state_each_preserves_outer_scope_across_two_module_boundaries() -> None
         )
         .build()
     )
-    template = (
-        parent.template("test.collection_state.nested", kind="collection_state")
-        .scan(
-            authoring.point(
-                "point_bias",
-                authoring.ScalarType(authoring.FloatType()),
+    template = template_fixture(
+        parent,
+        id="test.collection_state.nested",
+        kind="collection_state",
+        scans=(
+            axis(
+                authoring.point(
+                    "point_bias",
+                    authoring.ScalarType(authoring.FloatType()),
+                ),
+                (0.25, 0.5),
             ),
-            (0.25, 0.5),
-        )
-        .build()
+        ),
     )
 
     resolved = resolve_experiment(
@@ -1441,7 +1490,7 @@ def test_state_each_rejects_unguarded_optional_column_access() -> None:
     rows_type = _state_rows_type()
     rows = authoring.input("rows", rows_type)
     module = (
-        authoring.module("test.collection_state.optional_column")
+        authoring.module_body(id="test.collection_state.optional_column")
         .inputs(rows)
         .resource("source", requires=("set_offset",))
         .state_each(
@@ -1453,10 +1502,11 @@ def test_state_each_rejects_unguarded_optional_column_access() -> None:
         )
         .build()
     )
-    template = module.template(
-        "test.collection_state.optional_column",
+    template = template_fixture(
+        module,
+        id="test.collection_state.optional_column",
         kind="collection_state",
-    ).build()
+    )
 
     with pytest.raises(CheckFailed) as caught:
         resolve_experiment(
@@ -1471,7 +1521,7 @@ def test_state_each_rejects_unguarded_optional_column_access() -> None:
 
 def test_state_each_validates_resource_port_capability() -> None:
     module = (
-        authoring.module("test.collection_state.capability")
+        authoring.module_body(id="test.collection_state.capability")
         .resource("source", requires=("set_frequency",))
         .state_each(
             _literal_table(
@@ -1485,10 +1535,11 @@ def test_state_each_validates_resource_port_capability() -> None:
         )
         .build()
     )
-    template = module.template(
-        "test.collection_state.capability",
+    template = template_fixture(
+        module,
+        id="test.collection_state.capability",
         kind="collection_state",
-    ).build()
+    )
 
     with pytest.raises(CheckFailed) as error:
         resolve_experiment(

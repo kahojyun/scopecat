@@ -12,10 +12,7 @@ from scopecat.authoring._frozen_values import (
     freeze_runtime_input,
     freeze_runtime_inputs,
 )
-from scopecat.authoring._validation import (
-    validate_template_bound_inputs,
-    validate_template_definition,
-)
+from scopecat.authoring._validation import validate_template_bound_inputs
 from scopecat.authoring._value_refs import ValueRef
 from scopecat.authoring.scans import (
     Scan,
@@ -34,7 +31,6 @@ from scopecat.records.parameter import Quantity
 
 if TYPE_CHECKING:
     from scopecat.authoring._products import (
-        ProductRef,
         RecordSelection,
     )
     from scopecat.authoring.assembly import ExperimentModule
@@ -84,8 +80,6 @@ class ExperimentTemplate:
     id: str
     kind: str
     module: TemplateModule
-    experiment_id: str | None = None
-    category: str | None = None
     record_selections: tuple[TemplateRecordSelection, ...] = ()
     inputs: tuple[InputDescription, ...] = ()
     default_scans: tuple[Scan, ...] = ()
@@ -113,6 +107,11 @@ class ExperimentTemplate:
             template=self,
             inputs=cast("Mapping[str, RuntimeInput]", freeze_runtime_inputs(inputs)),
         )
+
+    def __call__(self, **inputs: RuntimeInput) -> ExperimentInvocation:
+        """Bind this closed template through normal Python call syntax."""
+
+        return self.bind(**inputs)
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -155,183 +154,6 @@ class ExperimentInvocation:
             points=points,
         )
         return replace(self, scans=(*self.scans, selected))
-
-
-@dataclass(frozen=True, slots=True, repr=False)
-class TemplateBuilder:
-    """Fluent builder for reusable experiment shapes.
-
-    Templates sit above modules because scans and product selection are part
-    of an experiment shape, not a reusable component. Keeping those choices
-    here lets the same module participate in multiple calibrated workflows.
-    """
-
-    id: str
-    kind: str
-    module: TemplateModule
-    _category: str | None = None
-    _experiment_id: str | None = None
-    record_selections: tuple[TemplateRecordSelection, ...] = ()
-    _inputs: tuple[InputDescription, ...] = ()
-    _default_scans: tuple[Scan, ...] = ()
-    _label: str | None = None
-    _description: str | None = None
-    _metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
-
-    def __post_init__(self) -> None:
-        if not self.id:
-            msg = "experiment template id must be non-empty"
-            raise ValueError(msg)
-        if not self.kind:
-            msg = "experiment template kind must be non-empty"
-            raise ValueError(msg)
-
-    def bind(self, **inputs: RuntimeInput) -> ExperimentInvocation:
-        return self.build().bind(**inputs)
-
-    def build(self) -> ExperimentTemplate:
-        template = ExperimentTemplate(
-            id=self.id,
-            kind=self.kind,
-            module=self.module,
-            experiment_id=self._experiment_id,
-            category=self._category,
-            record_selections=self.record_selections,
-            inputs=self._inputs,
-            default_scans=self._default_scans,
-            label=self._label,
-            description=self._description,
-            metadata=freeze_json_mapping(self._metadata),
-        )
-        validate_template_definition(
-            module=template.module,
-            inputs=template.inputs,
-            default_scans=template.default_scans,
-            record_selections=template.record_selections,
-        )
-        return template
-
-    def experiment_id(self, experiment_id: str) -> TemplateBuilder:
-        return replace(self, _experiment_id=experiment_id)
-
-    def scan(
-        self,
-        target: ValueRef | Scan,
-        values: Sequence[ScanValue] = (),
-        *,
-        unit: str | None = None,
-        center: ScanCenter | None = None,
-        span: Quantity | str | None = None,
-        points: int | None = None,
-    ) -> TemplateBuilder:
-        return replace(
-            self,
-            _default_scans=(
-                *self._default_scans,
-                build_scan(
-                    target,
-                    values,
-                    unit=unit,
-                    center=center,
-                    span=span,
-                    points=points,
-                ),
-            ),
-        )
-
-    def input(
-        self,
-        id: str,  # noqa: A002
-        *,
-        default: RuntimeInput | _InputDefaultMissing = _INPUT_DEFAULT_MISSING,
-        label: str | None = None,
-        description: str | None = None,
-        metadata: Mapping[str, MetadataValue] | None = None,
-    ) -> TemplateBuilder:
-        inputs = (
-            *self._inputs,
-            InputDescription(
-                id=id,
-                default=default,
-                label=label,
-                description=description,
-                metadata=freeze_json_mapping(metadata or {}),
-            ),
-        )
-        return replace(self, _inputs=inputs)
-
-    def inputs(self, *inputs: InputDescription) -> TemplateBuilder:
-        return replace(self, _inputs=(*self._inputs, *inputs))
-
-    def record_product(
-        self,
-        *products: str | ProductRef,
-        record_id: str | None = None,
-        metadata: Mapping[str, MetadataValue] | None = None,
-    ) -> TemplateBuilder:
-        if record_id is not None and len(products) != 1:
-            msg = "record_id can only be used with one product"
-            raise ValueError(msg)
-        from scopecat.authoring._products import record_product
-
-        return replace(
-            self,
-            record_selections=(
-                *self.record_selections,
-                *(
-                    record_product(
-                        product,
-                        record_id=record_id,
-                        metadata=metadata,
-                    )
-                    for product in products
-                ),
-            ),
-        )
-
-    def records(self, *selections: RecordSelection) -> TemplateBuilder:
-        """Append explicit product-use record projections to this template."""
-
-        return replace(
-            self,
-            record_selections=(*self.record_selections, *selections),
-        )
-
-    def label(self, label: str | None) -> TemplateBuilder:
-        return replace(self, _label=label)
-
-    def description(self, description: str | None) -> TemplateBuilder:
-        return replace(self, _description=description)
-
-    def category(self, category: str | None) -> TemplateBuilder:
-        return replace(self, _category=category)
-
-    def metadata(self, **metadata: MetadataValue) -> TemplateBuilder:
-        return replace(
-            self,
-            _metadata=freeze_json_mapping({**self._metadata, **metadata}),
-        )
-
-
-def template_builder_from_module(
-    module: TemplateModule,
-    id: str,  # noqa: A002
-    *,
-    kind: str,
-    experiment_id: str | None = None,
-    label: str | None = None,
-    description: str | None = None,
-    metadata: Mapping[str, MetadataValue] | None = None,
-) -> TemplateBuilder:
-    return TemplateBuilder(
-        id=id,
-        kind=kind,
-        module=module,
-        _experiment_id=experiment_id,
-        _label=label,
-        _description=description,
-        _metadata=freeze_json_mapping(metadata or {}),
-    )
 
 
 def _validate_runtime_inputs(inputs: Mapping[str, RuntimeInput]) -> None:

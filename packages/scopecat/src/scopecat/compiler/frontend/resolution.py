@@ -226,7 +226,7 @@ def _compile_invocation_template(
             )
         )
     return merge_semantic_experiments(
-        experiment_id=template.experiment_id or template.id,
+        experiment_id=template.id,
         kind=template.kind or template.id,
         fragments=fragments,
         metadata=template.metadata,

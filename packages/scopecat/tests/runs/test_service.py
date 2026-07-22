@@ -47,7 +47,7 @@ def test_check_and_start_run_use_separate_paths(
     assert result.preview is not None
     assert result.preview.points[0].point_index == 0
     assert result.preview.point_count == 3
-    assert result.preview.experiment_id == "simple-scan"
+    assert result.preview.experiment_id == "test.workflow_scan"
     assert provider_run.status == "completed"
     assert {dataset.id for dataset in provider_run.datasets} == {"raw-measurements"}
 
