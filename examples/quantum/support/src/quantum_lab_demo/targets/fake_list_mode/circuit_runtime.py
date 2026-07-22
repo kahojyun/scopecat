@@ -41,6 +41,11 @@ from scopecat_quantum import (
     AcquisitionKind,
     PulseEventId,
     PulseProgramId,
+    ResultCollection,
+    TargetResultAddress,
+    result_collection_axes,
+    target_result_acquisition_addresses,
+    target_result_entry_id,
 )
 from scopecat_quantum.program_results import (
     CompiledQuantumTarget,
@@ -72,22 +77,24 @@ class CorrelatedFakeListFrame:
     """One raw fake frame related to exact quantum and SDK identities."""
 
     frame: FakeDigitizerFrame
-    mapped_result: DomainMappedResult[TargetAcquisitionAddress] = field(repr=False)
+    mapped_result: DomainMappedResult[TargetResultAddress] = field(repr=False)
     acquisition_origin: _FakeListAcquisitionOrigin = field(repr=False)
 
     def __init__(
         self,
         frame: FakeDigitizerFrame,
-        mapped_result: DomainMappedResult[TargetAcquisitionAddress],
+        mapped_result: DomainMappedResult[TargetResultAddress],
         acquisition_origin: _FakeListAcquisitionOrigin,
     ) -> None:
-        if mapped_result.result_address != frame.address:
+        if frame.address not in target_result_acquisition_addresses(
+            mapped_result.result_address
+        ):
             msg = "fake frame address does not identify its logical result"
             raise ValueError(msg)
         if acquisition_origin.address != frame.address:
             msg = "fake frame address does not identify its quantum acquisition"
             raise ValueError(msg)
-        if mapped_result.result_address.entry_id != frame.entry_id:
+        if target_result_entry_id(mapped_result.result_address) != frame.entry_id:
             msg = "fake frame entry does not own its logical result"
             raise ValueError(msg)
         object.__setattr__(self, "frame", frame)
@@ -124,7 +131,7 @@ class CorrelatedFakeListRun:
     frames: tuple[CorrelatedFakeListFrame, ...]
     _by_output_shot: Mapping[
         tuple[int, int, int],
-        CorrelatedFakeListFrame,
+        tuple[CorrelatedFakeListFrame, ...],
     ] = field(repr=False, compare=False, hash=False)
     _by_address_shot: Mapping[
         tuple[TargetAcquisitionAddress, int],
@@ -153,11 +160,12 @@ class CorrelatedFakeListRun:
             (
                 result.point,
                 result.product_uses,
-                result.result_address,
+                address,
                 shot_index,
             )
             for result in mapping.results
             for shot_index in range(compiled.repetitions)
+            for address in target_result_acquisition_addresses(result.result_address)
         )
         actual_order = tuple(
             (
@@ -175,10 +183,22 @@ class CorrelatedFakeListRun:
             )
             raise ValueError(msg)
 
+        frames_by_result_shot = {
+            (id(result), shot_index): tuple(
+                item
+                for item in selected_frames
+                if item.mapped_result is result and item.shot_index == shot_index
+            )
+            for result in mapping.results
+            for shot_index in range(compiled.repetitions)
+        }
         by_output_shot = {
-            (id(item.point), id(product_use), item.shot_index): item
-            for item in selected_frames
-            for product_use in item.product_uses
+            (id(result.point), id(product_use), shot_index): frames_by_result_shot[
+                (id(result), shot_index)
+            ]
+            for result in mapping.results
+            for product_use in result.product_uses
+            for shot_index in range(compiled.repetitions)
         }
         expected_output_shots = {
             (id(result.point), id(product_use), shot_index)
@@ -208,7 +228,9 @@ class CorrelatedFakeListRun:
             if raw_by_address_shot[(item.address, item.shot_index)] is not item.frame:
                 msg = "correlated fake frames must retain exact target frames"
                 raise ValueError(msg)
-            if mapping.result_for_address(item.address) is not item.mapped_result:
+            if item.address not in target_result_acquisition_addresses(
+                item.mapped_result.result_address
+            ):
                 msg = "correlated fake frame does not retain its mapping result"
                 raise ValueError(msg)
             if (
@@ -246,12 +268,14 @@ class CorrelatedFakeListRun:
 
         return self.target_run.frames
 
-    def frame_for_output(
+    def frames_for_output_shot(
         self,
         point: DomainPointRef,
         product_use: DomainProductUseRef,
         shot_index: int,
-    ) -> CorrelatedFakeListFrame:
+    ) -> tuple[CorrelatedFakeListFrame, ...]:
+        """Return one shot's frames in recursive result-axis order."""
+
         _require_shot_index(shot_index)
         try:
             return self._by_output_shot[(id(point), id(product_use), shot_index)]
@@ -268,7 +292,6 @@ class CorrelatedFakeListRun:
         shot_index: int,
     ) -> CorrelatedFakeListFrame:
         _require_shot_index(shot_index)
-        self.mapping.domain_mapping.result_for_address(address)
         try:
             return self._by_address_shot[(address, shot_index)]
         except KeyError as error:
@@ -284,7 +307,6 @@ class CorrelatedFakeListRun:
     ) -> tuple[CorrelatedFakeListFrame, ...]:
         """Return physical frames once, independent of logical fan-out."""
 
-        self.mapping.domain_mapping.result_for_address(address)
         return tuple(
             self.frame_for_address(address, shot_index)
             for shot_index in range(self.repetitions)
@@ -295,10 +317,24 @@ class CorrelatedFakeListRun:
         point: DomainPointRef,
         product_use: DomainProductUseRef,
     ) -> tuple[CorrelatedFakeListFrame, ...]:
-        self.mapping.domain_mapping.result_for(point, product_use)
+        mapped = self.mapping.domain_mapping.result_for(point, product_use)
         return tuple(
-            self.frame_for_output(point, product_use, shot_index)
+            self.frame_for_address(address, shot_index)
             for shot_index in range(self.repetitions)
+            for address in target_result_acquisition_addresses(mapped.result_address)
+        )
+
+    def frames_for_result_address(
+        self,
+        result_address: TargetResultAddress,
+    ) -> tuple[CorrelatedFakeListFrame, ...]:
+        """Return all shots for one logical result in recursive axis order."""
+
+        self.mapping.domain_mapping.result_for_address(result_address)
+        return tuple(
+            self.frame_for_address(address, shot_index)
+            for shot_index in range(self.repetitions)
+            for address in target_result_acquisition_addresses(result_address)
         )
 
 
@@ -313,7 +349,7 @@ class FakeMeasurementRealizationKind(StrEnum):
 class FakeMeasurementRealizationBinding:
     """Composable edge assigning one result address to one value policy."""
 
-    result_address: TargetAcquisitionAddress
+    result_address: TargetResultAddress
     kind: FakeMeasurementRealizationKind
 
 
@@ -321,36 +357,55 @@ class FakeMeasurementRealizationBinding:
 class SelectedFakeMeasurementOutput:
     """One result-specific policy bound to public mapping inventory."""
 
-    result: DomainMappedResult[TargetAcquisitionAddress] = field(repr=False)
-    acquisition_origin: _FakeListAcquisitionOrigin = field(repr=False)
-    acquisition_window: FakeAcquisitionWindow = field(repr=False)
+    result: DomainMappedResult[TargetResultAddress] = field(repr=False)
+    acquisition_origins: tuple[_FakeListAcquisitionOrigin, ...] = field(repr=False)
+    acquisition_windows: tuple[FakeAcquisitionWindow, ...] = field(repr=False)
     kind: FakeMeasurementRealizationKind
 
     def __init__(
         self,
-        result: DomainMappedResult[TargetAcquisitionAddress],
-        acquisition_origin: _FakeListAcquisitionOrigin,
-        acquisition_window: FakeAcquisitionWindow,
+        result: DomainMappedResult[TargetResultAddress],
+        acquisition_origins: tuple[_FakeListAcquisitionOrigin, ...],
+        acquisition_windows: tuple[FakeAcquisitionWindow, ...],
         kind: FakeMeasurementRealizationKind,
     ) -> None:
-        if acquisition_origin.address != result.result_address:
-            msg = "selected fake output origin must identify its logical result"
+        addresses = target_result_acquisition_addresses(result.result_address)
+        if tuple(origin.address for origin in acquisition_origins) != addresses:
+            msg = "selected fake output origins must cover its physical result tree"
             raise ValueError(msg)
-        if acquisition_window.slot_id != result.result_address.slot_id:
-            msg = "selected fake output window must identify its logical result"
+        if tuple(window.slot_id for window in acquisition_windows) != tuple(
+            address.slot_id for address in addresses
+        ):
+            msg = "selected fake output windows must cover its physical result tree"
             raise ValueError(msg)
         expected_acquisition_kind = _acquisition_kind_for_realization(kind)
-        if acquisition_window.kind is not expected_acquisition_kind:
-            msg = "selected fake output window does not implement its value policy"
+        if any(
+            window.kind is not expected_acquisition_kind
+            for window in acquisition_windows
+        ):
+            msg = "selected fake output windows do not implement its value policy"
             raise ValueError(msg)
         object.__setattr__(self, "result", result)
-        object.__setattr__(self, "acquisition_origin", acquisition_origin)
-        object.__setattr__(self, "acquisition_window", acquisition_window)
+        object.__setattr__(self, "acquisition_origins", acquisition_origins)
+        object.__setattr__(self, "acquisition_windows", acquisition_windows)
         object.__setattr__(self, "kind", kind)
 
     @property
-    def result_address(self) -> TargetAcquisitionAddress:
+    def result_address(self) -> TargetResultAddress:
         return self.result.result_address
+
+    def window_for_address(
+        self,
+        address: TargetAcquisitionAddress,
+    ) -> FakeAcquisitionWindow:
+        for origin, window in zip(
+            self.acquisition_origins,
+            self.acquisition_windows,
+            strict=True,
+        ):
+            if origin.address == address:
+                return window
+        raise KeyError(address)
 
     @property
     def point(self) -> DomainPointRef:
@@ -369,7 +424,7 @@ class SelectedFakeMeasurementRealization:
     target: FakeListTarget = field(repr=False)
     outputs: tuple[SelectedFakeMeasurementOutput, ...]
     _by_address: Mapping[
-        TargetAcquisitionAddress,
+        TargetResultAddress,
         SelectedFakeMeasurementOutput,
     ] = field(repr=False, compare=False, hash=False)
 
@@ -419,7 +474,7 @@ class SelectedFakeMeasurementRealization:
 
     def output_for_address(
         self,
-        result_address: TargetAcquisitionAddress,
+        result_address: TargetResultAddress,
     ) -> SelectedFakeMeasurementOutput:
         try:
             return self._by_address[result_address]
@@ -434,17 +489,17 @@ class RealizedFakeMeasurementRun:
 
     selection: SelectedFakeMeasurementRealization = field(repr=False)
     correlated_run: CorrelatedFakeListRun = field(repr=False)
-    result_values: tuple[DomainResultValue[TargetAcquisitionAddress], ...]
+    result_values: tuple[DomainResultValue[TargetResultAddress], ...]
     _by_address: Mapping[
-        TargetAcquisitionAddress,
-        DomainResultValue[TargetAcquisitionAddress],
+        TargetResultAddress,
+        DomainResultValue[TargetResultAddress],
     ] = field(repr=False, compare=False)
 
     def __init__(
         self,
         selection: SelectedFakeMeasurementRealization,
         correlated_run: CorrelatedFakeListRun,
-        result_values: tuple[DomainResultValue[TargetAcquisitionAddress], ...],
+        result_values: tuple[DomainResultValue[TargetResultAddress], ...],
     ) -> None:
         selected_values = tuple(result_values)
         if selection.compiled_target is not correlated_run.compiled_target:
@@ -479,7 +534,7 @@ class RealizedFakeMeasurementRun:
         self,
         point: DomainPointRef,
         product_use: DomainProductUseRef,
-    ) -> DomainResultValue[TargetAcquisitionAddress]:
+    ) -> DomainResultValue[TargetResultAddress]:
         mapped = self.mapping.domain_mapping.result_for(point, product_use)
         return self._by_address[mapped.result_address]
 
@@ -495,7 +550,7 @@ class RealizedFakeMeasurementRun:
 
 
 def integrated_iq_shots(
-    result_address: TargetAcquisitionAddress,
+    result_address: TargetResultAddress,
 ) -> FakeMeasurementRealizationBinding:
     """Declare an integrated-IQ shot-array policy for one mapped result."""
 
@@ -506,7 +561,7 @@ def integrated_iq_shots(
 
 
 def raw_trace_shots(
-    result_address: TargetAcquisitionAddress,
+    result_address: TargetResultAddress,
 ) -> FakeMeasurementRealizationBinding:
     """Declare a shot-by-sample raw-trace policy for one mapped result."""
 
@@ -557,8 +612,9 @@ def correlate_fake_list_run(
         msg = "fake-list run contains duplicate acquisition-address shots"
         raise ValueError(msg)
     expected_keys = {
-        (result.result_address, shot_index)
+        (address, shot_index)
         for result in mapping.results
+        for address in target_result_acquisition_addresses(result.result_address)
         for shot_index in range(compiled.repetitions)
     }
     if set(raw_by_address_shot) != expected_keys:
@@ -570,14 +626,13 @@ def correlate_fake_list_run(
 
     correlated_frames = tuple(
         CorrelatedFakeListFrame(
-            frame=raw_by_address_shot[(result.result_address, shot_index)],
+            frame=raw_by_address_shot[(address, shot_index)],
             mapped_result=result,
-            acquisition_origin=target_mapping.batch.acquisition_origin_for(
-                result.result_address
-            ),
+            acquisition_origin=target_mapping.batch.acquisition_origin_for(address),
         )
         for result in mapping.results
         for shot_index in range(compiled.repetitions)
+        for address in target_result_acquisition_addresses(result.result_address)
     )
     return CorrelatedFakeListRun(
         compiled_target,
@@ -606,10 +661,12 @@ def realize_fake_measurements(
         msg = "fake measurement realization requires the selected compiled target"
         raise ValueError(msg)
 
-    candidates: list[DomainResultValue[TargetAcquisitionAddress]] = []
+    candidates: list[DomainResultValue[TargetResultAddress]] = []
     problems: list[Problem] = []
     for result_index, selected_output in enumerate(selection.outputs):
-        frames = correlated_run.frames_for_address(selected_output.result_address)
+        frames = correlated_run.frames_for_result_address(
+            selected_output.result_address
+        )
         if selected_output.kind is FakeMeasurementRealizationKind.INTEGRATED_IQ_SHOTS:
             value = _realize_integrated_iq_value(
                 selected_output,
@@ -657,19 +714,21 @@ def _realize_integrated_iq_value(
     result = selected_output.result
     details = _realization_identity_details(result)
     path = ("results", result_index)
-    complex_values: list[complex] = []
-    for shot_index, frame in enumerate(frames):
-        frame_path = (*path, "frames", shot_index)
-        if frame.shot_index != shot_index:
+    addresses = target_result_acquisition_addresses(result.result_address)
+    values_by_frame: dict[tuple[int, TargetAcquisitionAddress], ComplexQuantity] = {}
+    for frame_index, frame in enumerate(frames):
+        expected_shot = frame_index // len(addresses)
+        frame_path = (*path, "frames", frame_index)
+        if frame.shot_index != expected_shot:
             problems.append(
                 _realization_problem(
                     "fake_integrated_iq_shot_identity_mismatch",
                     "fake integrated-IQ frames must retain contiguous shot "
-                    f"identity; expected {shot_index}, got {frame.shot_index}",
+                    f"identity; expected {expected_shot}, got {frame.shot_index}",
                     path=(*frame_path, "shot_index"),
                     details={
                         **details,
-                        "expected": shot_index,
+                        "expected": expected_shot,
                         "actual": frame.shot_index,
                     },
                 )
@@ -689,20 +748,31 @@ def _realize_integrated_iq_value(
                 )
             )
             continue
-        complex_values.append(cast("complex", frame.frame.value))
+        value = cast("complex", frame.frame.value)
+        values_by_frame[(frame.shot_index, frame.address)] = ComplexQuantity(
+            real=value.real,
+            imag=value.imag,
+            unit=_FAKE_RESPONSE_UNIT,
+        )
     if len(problems) != initial_problem_count:
         return None
+    shot_count = len(frames) // len(addresses)
     return MeasurementArray(
         dtype="complex128",
         unit=_FAKE_RESPONSE_UNIT,
-        shape=[len(frames)],
+        shape=[
+            shot_count,
+            *(size for _axis_id, size in result_collection_axes(result.result_address)),
+        ],
         values=[
-            ComplexQuantity(
-                real=value.real,
-                imag=value.imag,
-                unit=_FAKE_RESPONSE_UNIT,
+            _result_collection_values(
+                result.result_address,
+                {
+                    address: values_by_frame[(shot_index, address)]
+                    for address in addresses
+                },
             )
-            for value in complex_values
+            for shot_index in range(shot_count)
         ],
     )
 
@@ -718,20 +788,23 @@ def _realize_raw_trace_value(
     result = selected_output.result
     details = _realization_identity_details(result)
     path = ("results", result_index)
-    window = selected_output.acquisition_window
-    trace_values: list[list[ComplexQuantity]] = []
-    for shot_index, frame in enumerate(frames):
-        frame_path = (*path, "frames", shot_index)
-        if frame.shot_index != shot_index:
+    addresses = target_result_acquisition_addresses(result.result_address)
+    values_by_frame: dict[
+        tuple[int, TargetAcquisitionAddress], list[ComplexQuantity]
+    ] = {}
+    for frame_index, frame in enumerate(frames):
+        expected_shot = frame_index // len(addresses)
+        frame_path = (*path, "frames", frame_index)
+        if frame.shot_index != expected_shot:
             problems.append(
                 _raw_trace_realization_problem(
                     "fake_raw_trace_shot_identity_mismatch",
                     "fake raw-trace frames must retain contiguous shot identity; "
-                    f"expected {shot_index}, got {frame.shot_index}",
+                    f"expected {expected_shot}, got {frame.shot_index}",
                     path=(*frame_path, "shot_index"),
                     details={
                         **details,
-                        "expected": shot_index,
+                        "expected": expected_shot,
                         "actual": frame.shot_index,
                     },
                 )
@@ -752,6 +825,7 @@ def _realize_raw_trace_value(
             )
             continue
         raw_value = cast("tuple[complex, ...]", frame.frame.value)
+        window = selected_output.window_for_address(frame.address)
         if len(raw_value) != window.sample_count:
             problems.append(
                 _raw_trace_realization_problem(
@@ -767,24 +841,48 @@ def _realize_raw_trace_value(
                 )
             )
             continue
-        trace_values.append(
-            [
-                ComplexQuantity(
-                    real=sample.real,
-                    imag=sample.imag,
-                    unit=_FAKE_RESPONSE_UNIT,
-                )
-                for sample in raw_value
-            ]
-        )
+        values_by_frame[(frame.shot_index, frame.address)] = [
+            ComplexQuantity(
+                real=sample.real,
+                imag=sample.imag,
+                unit=_FAKE_RESPONSE_UNIT,
+            )
+            for sample in raw_value
+        ]
     if len(problems) != initial_problem_count:
         return None
+    shot_count = len(frames) // len(addresses)
+    sample_count = selected_output.acquisition_windows[0].sample_count
     return MeasurementArray(
         dtype="complex128",
         unit=_FAKE_RESPONSE_UNIT,
-        shape=[len(frames), window.sample_count],
-        values=list[object](trace_values),
+        shape=[
+            shot_count,
+            *(size for _axis_id, size in result_collection_axes(result.result_address)),
+            sample_count,
+        ],
+        values=[
+            _result_collection_values(
+                result.result_address,
+                {
+                    address: values_by_frame[(shot_index, address)]
+                    for address in addresses
+                },
+            )
+            for shot_index in range(shot_count)
+        ],
     )
+
+
+def _result_collection_values(
+    address: TargetResultAddress,
+    values_by_address: Mapping[TargetAcquisitionAddress, object],
+) -> object:
+    if not isinstance(address, ResultCollection):
+        return values_by_address[address]
+    return [
+        _result_collection_values(item, values_by_address) for item in address.items
+    ]
 
 
 @dataclass(frozen=True, slots=True)
@@ -813,9 +911,14 @@ def _select_fake_measurement_outputs(
     mapping = compiled_target.mapping.domain_mapping
     compiled = compiled_target.compiled
     artifact = compiled.artifact
-    expected_addresses = {result.result_address for result in mapping.results}
+    expected_result_addresses = {result.result_address for result in mapping.results}
+    expected_acquisition_addresses = {
+        address
+        for result in mapping.results
+        for address in target_result_acquisition_addresses(result.result_address)
+    }
     binding_by_address: dict[
-        TargetAcquisitionAddress,
+        TargetResultAddress,
         FakeMeasurementRealizationBinding,
     ] = {}
     problems: list[Problem] = []
@@ -870,7 +973,7 @@ def _select_fake_measurement_outputs(
             )
             continue
         binding_by_address[address] = binding
-        if address not in expected_addresses:
+        if address not in expected_result_addresses:
             problems.append(
                 _binding_selection_problem(
                     "fake_measurement_realization_binding_unknown",
@@ -895,19 +998,19 @@ def _select_fake_measurement_outputs(
 
     prepared = _prepared_acquisitions(compiled_target)
     artifact_acquisitions = _artifact_acquisitions(compiled_target)
-    if set(prepared) != expected_addresses:
+    if set(prepared) != expected_acquisition_addresses:
         problems.append(
             _artifact_selection_problem(
                 "fake_measurement_prepared_acquisition_coverage_mismatch",
                 "prepared acquisition inventory does not cover the result mapping",
                 path=("prepared_acquisitions",),
                 details={
-                    "expected_count": len(expected_addresses),
+                    "expected_count": len(expected_acquisition_addresses),
                     "actual_count": len(prepared),
                 },
             )
         )
-    if set(artifact_acquisitions) != expected_addresses:
+    if set(artifact_acquisitions) != expected_acquisition_addresses:
         problems.append(
             _artifact_selection_problem(
                 "fake_measurement_artifact_acquisition_coverage_mismatch",
@@ -915,7 +1018,7 @@ def _select_fake_measurement_outputs(
                 "result mapping",
                 path=("artifact", "acquisitions"),
                 details={
-                    "expected_count": len(expected_addresses),
+                    "expected_count": len(expected_acquisition_addresses),
                     "actual_count": len(artifact_acquisitions),
                 },
             )
@@ -926,21 +1029,32 @@ def _select_fake_measurement_outputs(
     selected_outputs: list[SelectedFakeMeasurementOutput] = []
     for result_index, result in enumerate(mapping.results):
         initial_problem_count = len(problems)
-        address = result.result_address
-        binding = binding_by_address[address]
-        prepared_acquisition = prepared[address]
-        artifact_acquisition = artifact_acquisitions[address]
-        problems.extend(
-            _artifact_acquisition_problems(
-                result,
-                prepared=prepared_acquisition,
-                compiled=artifact_acquisition,
-                target=target,
-                result_index=result_index,
-            )
+        result_address = result.result_address
+        addresses = target_result_acquisition_addresses(result_address)
+        binding = binding_by_address[result_address]
+        selected_prepared = tuple(prepared[address] for address in addresses)
+        selected_artifacts = tuple(
+            artifact_acquisitions[address] for address in addresses
         )
+        for prepared_acquisition, artifact_acquisition in zip(
+            selected_prepared,
+            selected_artifacts,
+            strict=True,
+        ):
+            problems.extend(
+                _artifact_acquisition_problems(
+                    result,
+                    prepared=prepared_acquisition,
+                    compiled=artifact_acquisition,
+                    target=target,
+                    result_index=result_index,
+                )
+            )
         expected_kind = _acquisition_kind_for_realization(binding.kind)
-        if prepared_acquisition.kind is not expected_kind:
+        mismatched_kinds = tuple(
+            item.kind for item in selected_prepared if item.kind is not expected_kind
+        )
+        if mismatched_kinds:
             code = (
                 "fake_integrated_iq_acquisition_kind_mismatch"
                 if binding.kind is FakeMeasurementRealizationKind.INTEGRATED_IQ_SHOTS
@@ -951,12 +1065,12 @@ def _select_fake_measurement_outputs(
                     binding.kind,
                     code,
                     f"selected {binding.kind.value!r} policy cannot accept "
-                    f"acquisition kind {prepared_acquisition.kind.value!r}",
+                    f"acquisition kinds {[kind.value for kind in mismatched_kinds]!r}",
                     path=("results", result_index, "acquisition", "kind"),
                     details={
                         **_realization_identity_details(result),
                         "expected": expected_kind.value,
-                        "actual": prepared_acquisition.kind.value,
+                        "actual": [kind.value for kind in mismatched_kinds],
                     },
                 )
             )
@@ -965,7 +1079,9 @@ def _select_fake_measurement_outputs(
                 result,
                 binding.kind,
                 repetitions=compiled_target.compiled.repetitions,
-                sample_count=artifact_acquisition.window.sample_count,
+                sample_counts=tuple(
+                    item.window.sample_count for item in selected_artifacts
+                ),
                 result_index=result_index,
             )
         )
@@ -973,8 +1089,11 @@ def _select_fake_measurement_outputs(
             selected_outputs.append(
                 SelectedFakeMeasurementOutput(
                     result,
-                    compiled_target.mapping.batch.acquisition_origin_for(address),
-                    artifact_acquisition.window,
+                    tuple(
+                        compiled_target.mapping.batch.acquisition_origin_for(address)
+                        for address in addresses
+                    ),
+                    tuple(item.window for item in selected_artifacts),
                     binding.kind,
                 )
             )
@@ -1039,7 +1158,7 @@ def _artifact_acquisitions(
 
 
 def _artifact_acquisition_problems(
-    result: DomainMappedResult[TargetAcquisitionAddress],
+    result: DomainMappedResult[TargetResultAddress],
     *,
     prepared: _PreparedAcquisition,
     compiled: _ArtifactAcquisition,
@@ -1092,11 +1211,11 @@ def _artifact_acquisition_problems(
 
 
 def _product_policy_problems(
-    result: DomainMappedResult[TargetAcquisitionAddress],
+    result: DomainMappedResult[TargetResultAddress],
     kind: FakeMeasurementRealizationKind,
     *,
     repetitions: int,
-    sample_count: int,
+    sample_counts: tuple[int, ...],
     result_index: int,
 ) -> list[Problem]:
     product = _mapped_result_product(result)
@@ -1135,8 +1254,11 @@ def _product_policy_problems(
             )
         )
 
+    collection_axes = result_collection_axes(result.result_address)
     expected_axis_count = (
-        1 if kind is FakeMeasurementRealizationKind.INTEGRATED_IQ_SHOTS else 2
+        1
+        + len(collection_axes)
+        + (0 if kind is FakeMeasurementRealizationKind.INTEGRATED_IQ_SHOTS else 1)
     )
     if len(product.axes) != expected_axis_count:
         problems.append(
@@ -1185,10 +1307,31 @@ def _product_policy_problems(
                 },
             )
         )
+    for offset, ((axis_id, axis_size), product_axis) in enumerate(
+        zip(collection_axes, product.axes[1:], strict=False),
+        start=1,
+    ):
+        if product_axis.id == axis_id and product_axis.size == axis_size:
+            continue
+        problems.append(
+            _policy_selection_problem(
+                kind,
+                f"{prefix}_collection_axis_mismatch",
+                f"fake {label} result tree requires axis {axis_id!r} "
+                f"of size {axis_size}",
+                path=(*path, "axes", offset),
+                details={
+                    **details,
+                    "expected": f"{axis_id}/{axis_size}",
+                    "actual": f"{product_axis.id}/{product_axis.size}",
+                },
+            )
+        )
     if kind is FakeMeasurementRealizationKind.INTEGRATED_IQ_SHOTS:
         return problems
 
-    sample_axis = product.axes[1]
+    sample_axis_index = 1 + len(collection_axes)
+    sample_axis = product.axes[sample_axis_index]
     if (
         sample_axis.id != "sample"
         or sample_axis.kind != "sample"
@@ -1198,7 +1341,7 @@ def _product_policy_problems(
             _raw_trace_selection_problem(
                 "fake_raw_trace_sample_axis_mismatch",
                 "fake raw-trace realization requires canonical sample/count second",
-                path=(*path, "axes", 1),
+                path=(*path, "axes", sample_axis_index),
                 details={
                     **details,
                     "expected": "sample/sample/count",
@@ -1206,16 +1349,29 @@ def _product_policy_problems(
                 },
             )
         )
-    if sample_axis.size != sample_count:
+    expected_sample_count = sample_counts[0]
+    if any(sample_count != expected_sample_count for sample_count in sample_counts[1:]):
+        problems.append(
+            _raw_trace_selection_problem(
+                "fake_raw_trace_collection_sample_count_mismatch",
+                "raw-trace acquisitions in one result tree require one sample count",
+                path=(*path, "axes", sample_axis_index, "size"),
+                details={
+                    **details,
+                    "actual": list(sample_counts),
+                },
+            )
+        )
+    if sample_axis.size != expected_sample_count:
         problems.append(
             _raw_trace_selection_problem(
                 "fake_raw_trace_sample_count_mismatch",
                 "product sample axis size does not match the compiled acquisition "
-                f"window: {sample_axis.size} != {sample_count}",
-                path=(*path, "axes", 1, "size"),
+                f"window: {sample_axis.size} != {expected_sample_count}",
+                path=(*path, "axes", sample_axis_index, "size"),
                 details={
                     **details,
-                    "expected": sample_count,
+                    "expected": expected_sample_count,
                     "actual": sample_axis.size,
                 },
             )
@@ -1264,7 +1420,7 @@ def _require_shot_index(value: object) -> None:
 
 
 def _mapped_result_product(
-    result: DomainMappedResult[TargetAcquisitionAddress],
+    result: DomainMappedResult[TargetResultAddress],
 ) -> DomainProductContractView:
     product_uses = result.product_uses
     if not product_uses:
@@ -1276,7 +1432,7 @@ def _mapped_result_product(
 
 
 def _realization_identity_details(
-    result: DomainMappedResult[TargetAcquisitionAddress],
+    result: DomainMappedResult[TargetResultAddress],
 ) -> dict[str, object]:
     product = _mapped_result_product(result)
     return {

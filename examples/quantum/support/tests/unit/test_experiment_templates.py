@@ -36,7 +36,6 @@ from quantum_lab_demo.experiments import (
     READOUT_TEMPLATE_ID,
     SIMULTANEOUS_RABI_TEMPLATE_ID,
     SPECTATOR_CZ_TEMPLATE_ID,
-    SQG_RB_TEMPLATE_ID,
     SYSTEM_BACKGROUND_RABI_TEMPLATE_ID,
     TOY_SURFACE_CODE_ROUND_TEMPLATE_ID,
 )
@@ -46,7 +45,6 @@ from quantum_lab_demo.experiments.payloads import (
     CzChevronProgram,
     ParallelGateSetProgram,
     RenderedWaveformBundle,
-    SurfaceCodeRoundProgram,
 )
 from quantum_lab_demo.experiments.points import (
     CLIFFORD_COUNT,
@@ -70,11 +68,16 @@ from quantum_lab_demo.experiments.templates import (
     READOUT_TEMPLATE,
     SIMULTANEOUS_RABI_TEMPLATE,
     SPECTATOR_CZ_TEMPLATE,
-    SQG_RB_TEMPLATE,
     SYSTEM_BACKGROUND_RABI_TEMPLATE,
     TOY_SURFACE_CODE_ROUND_TEMPLATE,
 )
 from quantum_lab_demo.lab import quantum_lab
+from quantum_lab_demo.reference_experiments.single_qubit_rb import (
+    CLIFFORD_LENGTH,
+    RB_SEED,
+    SINGLE_QUBIT_RB_TEMPLATE_ID,
+    single_qubit_rb_template,
+)
 
 from .demo_lab_experiment_testkit import (
     LocalEffectInspection,
@@ -94,7 +97,7 @@ def test_template_constants_cover_experiment_system() -> None:
         READOUT_TEMPLATE,
         MULTIPLEXED_READOUT_TEMPLATE,
         MULTIPLEXED_READOUT_CALIBRATION_TEMPLATE,
-        SQG_RB_TEMPLATE,
+        single_qubit_rb_template,
         CZ_RB_TEMPLATE,
         CZ_CHEVRON_TEMPLATE,
         SPECTATOR_CZ_TEMPLATE,
@@ -111,7 +114,7 @@ def test_template_constants_cover_experiment_system() -> None:
         READOUT_TEMPLATE_ID,
         MULTIPLEXED_READOUT_TEMPLATE_ID,
         MULTIPLEXED_READOUT_CALIBRATION_TEMPLATE_ID,
-        SQG_RB_TEMPLATE_ID,
+        SINGLE_QUBIT_RB_TEMPLATE_ID,
         CZ_RB_TEMPLATE_ID,
         CZ_CHEVRON_TEMPLATE_ID,
         SPECTATOR_CZ_TEMPLATE_ID,
@@ -171,13 +174,12 @@ def test_template_constants_cover_experiment_system() -> None:
             "multiplexed_readout_calibration",
         ),
         (
-            "sqg_rb",
-            SQG_RB_TEMPLATE.bind(qubit="q0", seed=11).scan(
-                CLIFFORD_COUNT,
-                [4, 8],
-            ),
-            SQG_RB_TEMPLATE_ID,
-            "sqg_rb",
+            "single_qubit_rb",
+            single_qubit_rb_template.bind()
+            .scan(CLIFFORD_LENGTH, [4, 8])
+            .scan(RB_SEED, [11]),
+            SINGLE_QUBIT_RB_TEMPLATE_ID,
+            "single_qubit_rb",
         ),
         (
             "cz_rb",
@@ -817,27 +819,18 @@ def test_escape_hatch_preserves_collection_cardinality_and_order(
 
 def test_toy_surface_code_round_uses_round_and_entity_axes(tmp_path: Path) -> None:
     config = load_experiment_config()
-    invocation = TOY_SURFACE_CODE_ROUND_TEMPLATE.bind(rounds=2)
+    invocation = TOY_SURFACE_CODE_ROUND_TEMPLATE.bind(rounds=2, shots=3)
     projection, points = _measurement_projection(tmp_path, invocation, config)
 
-    payloads = _run_observed_payloads(tmp_path, invocation)
-    surface_program = next(
-        payload.payload
-        for payload in payloads
-        if isinstance(payload.payload, SurfaceCodeRoundProgram)
-    )
     observable = next(
         record for record in projection.records if record.id == "stabilizer_iq"
     )
 
-    assert isinstance(surface_program, SurfaceCodeRoundProgram)
-    assert surface_program.patch_qubits == ("q0", "q1", "q2", "q3")
-    assert len(surface_program.schedule) == 4
-    assert observable.dims == ("point", "round", "qubit")
-    assert (len(points), *observable.shape[1:]) == (1, 2, 4)
+    assert observable.dims == ("point", "shot", "round", "qubit")
+    assert (len(points), *observable.shape[1:]) == (1, 3, 2, 4)
 
 
-def test_qnd_repeated_measurement_keeps_dense_round_shot_array(
+def test_qnd_repeated_measurement_keeps_dense_shot_round_array(
     tmp_path: Path,
 ) -> None:
     projection, points = _measurement_projection(
@@ -852,8 +845,8 @@ def test_qnd_repeated_measurement_keeps_dense_round_shot_array(
     observable = next(record for record in projection.records if record.id == "qnd_iq")
 
     assert len(points) == 1
-    assert observable.dims == ("point", "round", "shot")
-    assert (len(points), *observable.shape[1:]) == (1, 3, 5)
+    assert observable.dims == ("point", "shot", "round")
+    assert (len(points), *observable.shape[1:]) == (1, 5, 3)
 
 
 def test_backend_batch_keeps_logical_backend_points_inside_payload_and_record(
@@ -886,7 +879,7 @@ def test_backend_batch_keeps_logical_backend_points_inside_payload_and_record(
 
 def test_scan_values_are_checked_against_the_typed_point() -> None:
     with pytest.raises(ValueValidationError) as error:
-        SQG_RB_TEMPLATE.bind(qubit="q0").scan(CLIFFORD_COUNT, [0])
+        single_qubit_rb_template.bind().scan(CLIFFORD_LENGTH, [0])
 
     assert error.value.path == ("scan", "values", 0)
     assert error.value.reason == "value must be at least 1"

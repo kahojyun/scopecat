@@ -16,7 +16,6 @@ from quantum_lab_demo.experiments import (
     QND_REPEATED_MEASUREMENT_TEMPLATE,
     RABI_TEMPLATE,
     READOUT_TEMPLATE,
-    SQG_RB_TEMPLATE,
     TOY_SURFACE_CODE_ROUND_TEMPLATE,
 )
 from quantum_lab_demo.experiments.points import (
@@ -26,6 +25,11 @@ from quantum_lab_demo.experiments.points import (
 )
 from quantum_lab_demo.experiments.readout_responses import settings_from_config
 from quantum_lab_demo.lab import quantum_lab
+from quantum_lab_demo.reference_experiments.single_qubit_rb import (
+    CLIFFORD_LENGTH,
+    RB_SEED,
+    single_qubit_rb_template,
+)
 
 from .demo_lab_test_paths import (
     EXPERIMENT_FIXTURE_DIR,
@@ -51,24 +55,23 @@ def test_readout_settings_come_from_the_typed_qubit_table() -> None:
 
 
 @pytest.mark.parametrize(
-    ("invocation", "expected_coordinate_id", "expected_measurements"),
+    ("invocation", "expected_coordinate_ids", "expected_measurements"),
     [
         (
             RABI_TEMPLATE.bind(qubit="q0"),
-            "drive_length",
+            ("drive_length",),
             5,
         ),
         (
             READOUT_TEMPLATE.bind(qubit="q0"),
-            "readout_frequency",
+            ("readout_frequency",),
             5,
         ),
         (
-            SQG_RB_TEMPLATE.bind(qubit="q0", seed=11).scan(
-                CLIFFORD_COUNT,
-                [4, 8],
-            ),
-            "clifford_count",
+            single_qubit_rb_template.bind()
+            .scan(CLIFFORD_LENGTH, [4, 8])
+            .scan(RB_SEED, [11]),
+            ("clifford_length", "rb_seed"),
             2,
         ),
         (
@@ -77,7 +80,7 @@ def test_readout_settings_come_from_the_typed_qubit_table() -> None:
                 partner_qubit="q1",
                 seed=17,
             ).scan(CLIFFORD_COUNT, [2, 4]),
-            "clifford_count",
+            ("clifford_count",),
             2,
         ),
     ],
@@ -85,16 +88,16 @@ def test_readout_settings_come_from_the_typed_qubit_table() -> None:
 def test_experiment_system_run_provider_python_api(
     tmp_path: Path,
     invocation: ExperimentInvocation,
-    expected_coordinate_id: str,
+    expected_coordinate_ids: tuple[str, ...],
     expected_measurements: int,
 ) -> None:
     run = _lab(tmp_path).prepare(invocation).run()
     measurements = run.data().measurements()
 
     assert run.manifest.status == "completed"
-    assert measurements.dataset.dataset_schema.primary_coordinates == [
-        expected_coordinate_id
-    ]
+    assert measurements.dataset.dataset_schema.primary_coordinates == list(
+        expected_coordinate_ids
+    )
     assert len(measurements.dataset.records) == expected_measurements
 
 
@@ -159,12 +162,12 @@ def test_cz_chevron_emits_scoped_compute_lifecycle_summaries(
                 shots=3,
             ),
             "qnd_iq",
-            [1, 2, 3],
+            [1, 3, 2],
         ),
         (
-            TOY_SURFACE_CODE_ROUND_TEMPLATE.bind(rounds=2),
+            TOY_SURFACE_CODE_ROUND_TEMPLATE.bind(rounds=2, shots=3),
             "stabilizer_iq",
-            [1, 2, 4],
+            [1, 3, 2, 4],
         ),
         (
             BACKEND_BATCH_TEMPLATE.bind(

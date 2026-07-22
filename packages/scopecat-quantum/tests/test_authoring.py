@@ -7,6 +7,7 @@ from scopecat import Quantity
 from scopecat_quantum import authoring
 from scopecat_quantum._ids import AcquisitionSlotId, QubitId
 from scopecat_quantum.acquisitions import AcquisitionKind
+from scopecat_quantum.circuits import Measure
 from scopecat_quantum.gates import GateCall, GateParameterKind
 
 
@@ -73,7 +74,7 @@ def test_literal_zero_repeat_elides_dead_inputs_and_gate_definitions() -> None:
     bound = authoring.bind(declaration)
 
     assert declaration.inputs == ()
-    assert declaration.gate_definitions == ()
+    assert bound.gate_definitions == ()
     assert bound.verified.operations == ()
 
 
@@ -159,14 +160,79 @@ def test_repeat_rejects_invalid_literal_counts(count: int) -> None:
         authoring.repeat(x(q0), count)
 
 
-def test_repeat_rejects_non_integer_input_and_measurement_results() -> None:
+def test_repeat_rejects_non_integer_input_and_unnamed_result_axis() -> None:
     q0 = authoring.qubit("q0")
     angle = authoring.scalar_input("theta", GateParameterKind.ANGLE)
 
     with pytest.raises(TypeError, match="integer kind"):
         authoring.repeat(authoring.single_qubit_gate("x")(q0), angle)
-    with pytest.raises(ValueError, match="measurement results"):
+    with pytest.raises(ValueError, match="require an axis"):
         authoring.repeat(authoring.measure(q0, result="raw_iq"), 2)
+
+
+def test_result_repeat_declares_one_axis_and_unique_physical_slots() -> None:
+    q0 = authoring.qubit("q0")
+    rounds = authoring.scalar_input("rounds", GateParameterKind.INTEGER)
+    declaration = authoring._close_program(
+        "repeated-readout",
+        authoring.repeat(
+            authoring.measure(q0, result="raw_iq"),
+            rounds,
+            axis="round",
+        ),
+    )
+
+    [result] = declaration.results
+    bound = authoring.bind(declaration, {"rounds": 3})
+    measurements = tuple(
+        operation
+        for operation in bound.verified.operations
+        if isinstance(operation, Measure)
+    )
+
+    assert tuple((axis.id, axis.size, axis.kind) for axis in result.contract.axes) == (
+        ("round", rounds, "repeat"),
+    )
+    assert tuple(
+        operation.acquisition_slot_id.local_id for operation in measurements
+    ) == (
+        "raw_iq",
+        "raw_iq",
+        "raw_iq",
+    )
+    assert len({operation.acquisition_slot_id for operation in measurements}) == 3
+    with pytest.raises(authoring.ProgramBindingError, match=r"bindings\.rounds"):
+        authoring.bind(declaration, {"rounds": 0})
+
+
+def test_nested_repeat_and_parallel_results_share_the_composition_tree() -> None:
+    q0 = authoring.qubit("q0")
+    q1 = authoring.qubit("q1")
+    one_round = authoring.parallel(
+        authoring.measure(q0, result="stabilizer_iq"),
+        authoring.measure(q1, result="stabilizer_iq"),
+        axis="qubit",
+        axis_kind="entity",
+    )
+    declaration = authoring._close_program(
+        "stabilizer-rounds",
+        authoring.repeat(one_round, 2, axis="round"),
+    )
+
+    [result] = declaration.results
+    bound = authoring.bind(declaration)
+
+    assert tuple((axis.id, axis.size, axis.kind) for axis in result.contract.axes) == (
+        ("round", 2, "repeat"),
+        ("qubit", 2, "entity"),
+    )
+    measurements = tuple(
+        operation
+        for operation in bound.verified.operations
+        if isinstance(operation, Measure)
+    )
+    assert len(measurements) == 4
+    assert len({operation.acquisition_slot_id for operation in measurements}) == 4
 
 
 def test_gate_parameter_inputs_are_checked_and_angle_values_are_canonicalized() -> None:

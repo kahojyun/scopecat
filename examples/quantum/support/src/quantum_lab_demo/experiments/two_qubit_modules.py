@@ -203,7 +203,7 @@ def PARALLEL_GATE_SET_MODULE(
     ],
 ):
     gates_ref = cast("sc.ValueRef", gates)
-    resolved_gates = gates_ref.with_columns(
+    gate_collection = gates_ref.with_columns(
         lambda row: {
             "coupler": sc.parameter_lookup(
                 TWO_QUBIT_GATE_PARAMETER_TABLE,
@@ -247,13 +247,14 @@ def PARALLEL_GATE_SET_MODULE(
         "partner_frequency",
     )
     qubits = gates_ref.entities("control_qubit", "partner_qubit")
-    couplers = resolved_gates.entities("coupler")
+    couplers = gate_collection.entities("coupler")
     build_program = sc.compute(
         "build-parallel-gate-set-program",
         fn=build_parallel_gate_set_program,
         output_type=sc.ScalarType(sc.PayloadType("gate_sequence")),
         inputs={
-            "gates": resolved_gates,
+            # The table remains one compute input; it is not expanded into points.
+            "gates": gate_collection,
             "gate_duration": GATE_DURATION,
         },
     )

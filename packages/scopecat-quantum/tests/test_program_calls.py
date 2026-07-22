@@ -8,7 +8,7 @@ import scopecat as sc
 
 from scopecat_quantum import authoring
 from scopecat_quantum.acquisitions import AcquisitionKind
-from scopecat_quantum.gates import GateParameterKind
+from scopecat_quantum.gates import GateCall, GateParameterKind
 from scopecat_quantum.measurement_transforms import (
     BinaryIqDiscriminator,
     IqCentroid,
@@ -83,6 +83,90 @@ def test_program_decorator_preserves_signature_order_and_rejects_unused_ports() 
             unused: int,
         ) -> authoring.QuantumFragment:
             return authoring.measure(qubit, result="iq")
+
+
+def test_fragment_decorator_expands_from_point_bound_inputs() -> None:
+    x = authoring.single_qubit_gate("x")
+    y = authoring.single_qubit_gate("y")
+    elaborations: list[tuple[int, int]] = []
+
+    @authoring.fragment(id="test.quantum.seeded-sequence")
+    def seeded_sequence(
+        qubit: authoring.Qubit,
+        length: Annotated[int, sc.IntType(minimum=1)],
+        seed: Annotated[int, sc.IntType(minimum=0)],
+    ) -> authoring.QuantumFragment:
+        elaborations.append((length, seed))
+        return authoring.sequence(
+            *(
+                x(qubit) if (seed + index) % 2 == 0 else y(qubit)
+                for index in range(length)
+            )
+        )
+
+    @authoring.program(id="test.quantum.seeded-program")
+    def seeded_program(
+        qubit: authoring.Qubit,
+        length: Annotated[int, sc.IntType(minimum=1)],
+        seed: Annotated[int, sc.IntType(minimum=0)],
+    ) -> authoring.QuantumFragment:
+        return authoring.sequence(
+            seeded_sequence(qubit, length, seed),
+            authoring.measure(qubit, result="iq"),
+        )
+
+    assert elaborations == []
+    assert [port.id for port in seeded_program.ports] == ["qubit", "length", "seed"]
+    assert inspect.signature(seeded_sequence) == inspect.signature(
+        seeded_sequence.__wrapped__
+    )
+
+    bound = authoring.bind(
+        seeded_program,
+        {"qubit": "q0", "length": 3, "seed": 1},
+    )
+
+    assert elaborations == [(3, 1)]
+    calls = tuple(
+        operation
+        for operation in bound.verified.operations
+        if isinstance(operation, GateCall)
+    )
+    assert [call.gate_id.value for call in calls] == ["y", "x", "y"]
+    assert [definition.id.value for definition in bound.gate_definitions] == ["x", "y"]
+    assert all(
+        "fragment[test.quantum.seeded-sequence]" in call.id.value for call in calls
+    )
+
+
+def test_fragment_expansion_rejects_results_and_cycles() -> None:
+    @authoring.fragment(id="test.quantum.hidden-result")
+    def hidden_result(qubit: authoring.Qubit) -> authoring.QuantumFragment:
+        return authoring.measure(qubit, result="hidden")
+
+    @authoring.program
+    def invalid_result(qubit: authoring.Qubit) -> authoring.QuantumFragment:
+        return authoring.sequence(
+            hidden_result(qubit),
+            authoring.measure(qubit, result="visible"),
+        )
+
+    with pytest.raises(ValueError, match="cannot produce results"):
+        authoring.bind(invalid_result, {"qubit": "q0"})
+
+    @authoring.fragment(id="test.quantum.recursive")
+    def recursive(qubit: authoring.Qubit) -> authoring.QuantumFragment:
+        return recursive(qubit)
+
+    @authoring.program
+    def invalid_cycle(qubit: authoring.Qubit) -> authoring.QuantumFragment:
+        return authoring.sequence(
+            recursive(qubit),
+            authoring.measure(qubit, result="iq"),
+        )
+
+    with pytest.raises(authoring.ProgramBindingError, match="expansion cycle"):
+        authoring.bind(invalid_cycle, {"qubit": "q0"})
 
 
 def test_program_decorator_rejects_mismatched_and_reserved_ports() -> None:
@@ -219,14 +303,45 @@ def test_parent_transform_consumes_program_call_result() -> None:
     }
 
 
-def test_program_call_rejects_unmodeled_raw_trace_shape() -> None:
+def test_program_call_derives_raw_trace_product_from_result_contract() -> None:
     q0 = authoring.qubit("q0")
     raw = authoring.measure(
         q0,
         result="trace",
-        acquisition_kind=AcquisitionKind.RAW_TRACE,
+        contract=authoring.raw_trace_result(16),
     )
     declaration = authoring._close_program("test.quantum.raw", raw)
 
-    with pytest.raises(NotImplementedError, match="integrated-IQ"):
-        declaration(shots=8)
+    call = declaration(shots=8)
+    [product] = call.module_invocation.module.product_declarations
+
+    assert raw.result.contract.acquisition_kind is AcquisitionKind.RAW_TRACE
+    assert raw.result.contract.acquisition_shape == ("sample",)
+    assert product.dtype == "complex128"
+    assert product.unit == "ratio"
+    assert [(axis.id, axis.kind, axis.unit) for axis in product.axes] == [
+        ("shot", "shot", "count"),
+        ("sample", "sample", "count"),
+    ]
+    assert product.axes[1].size == 16
+
+
+def test_result_axis_size_is_a_declared_program_input() -> None:
+    @authoring.program
+    def trace(
+        qubit: authoring.Qubit,
+        samples: Annotated[int, sc.IntType(minimum=1)],
+    ) -> authoring.QuantumFragment:
+        return authoring.measure(
+            qubit,
+            result="trace",
+            contract=authoring.raw_trace_result(samples),
+        )
+
+    assert [port.id for port in trace.ports] == ["qubit", "samples"]
+    call = trace("q0", 16, shots=8)
+    assert [port.id for port in call.module_invocation.module.input_ports] == [
+        "qubit",
+        "samples",
+        "__shots__",
+    ]

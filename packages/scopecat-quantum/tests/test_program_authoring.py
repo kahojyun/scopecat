@@ -463,7 +463,7 @@ def test_domain_execution_requires_the_exact_measurement_result_handle() -> None
         )
 
 
-def test_explicit_acquire_results_cannot_repeat_or_redeclare_an_id() -> None:
+def test_explicit_acquire_results_require_an_axis_or_a_unique_id() -> None:
     q0 = authoring.qubit("q0")
     first = authoring.acquire(
         q0,
@@ -476,7 +476,7 @@ def test_explicit_acquire_results_cannot_repeat_or_redeclare_an_id() -> None:
         result="iq_shots",
     )
 
-    with pytest.raises(ValueError, match="physical acquisition results"):
+    with pytest.raises(ValueError, match="require an axis"):
         authoring.repeat(first, 2)
     with pytest.raises(ValueError, match="duplicate result ids"):
         authoring._close_program(

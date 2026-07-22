@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import cast
 
@@ -23,22 +25,23 @@ from scopecat.sdk.domain import (
 )
 from scopecat_quantum import (
     AcquisitionKind,
-    AcquisitionSlotId,
     CalibrationCatalog,
     CompiledQuantumTarget,
     PreparedQuantumTargetEntry,
     PulseProgramId,
-    QuantumTargetAcquisitionUseBinding,
     QuantumTargetEntryPointBinding,
-    TargetAcquisitionAddress,
+    QuantumTargetResultUseBinding,
+    ResultCollection,
     TargetCompileEntryId,
     TargetCompilerId,
+    TargetResultAddress,
     binary_iq_probability_host_implementation,
     compile_target,
     lower_quantum_program_to_pulses,
     prepare_quantum_target_batch,
     prepare_quantum_target_entry,
     seal_quantum_target_result_mapping,
+    target_result_acquisition_addresses,
 )
 from scopecat_quantum import authoring as quantum
 
@@ -190,11 +193,15 @@ class QuantumLabCompiler:
                 for entry, point in zip(entries, context.points, strict=True)
             ),
             tuple(
-                QuantumTargetAcquisitionUseBinding(
-                    _result_address(entry, result.acquisition_slot_id),
+                QuantumTargetResultUseBinding(
+                    _result_address(entry, result, point_values),
                     product_use,
                 )
-                for entry in entries
+                for entry, point_values in zip(
+                    entries,
+                    artifact.points,
+                    strict=True,
+                )
                 for result in artifact.program.results
                 for product_use in execution.result(result.id).product_uses
             ),
@@ -313,10 +320,8 @@ def _shot_count(call: DomainCallView | DomainExecutionView) -> int:
     counts: list[int] = []
     for result in call.results:
         axes = result.product.axes
-        if len(axes) != 1 or axes[0].kind != "shot":
-            raise ValueError(
-                "quantum lab result products require exactly one shot axis"
-            )
+        if not axes or axes[0].kind != "shot":
+            raise ValueError("quantum lab result products require a leading shot axis")
         counts.append(axes[0].size)
     if not counts or len(set(counts)) != 1:
         raise ValueError("quantum lab result products require one shared shot count")
@@ -341,25 +346,64 @@ def _compile_artifact(
 
 def _result_address(
     entry: PreparedQuantumTargetEntry,
-    slot_id: AcquisitionSlotId,
-) -> TargetAcquisitionAddress:
-    selected = tuple(
-        address for address in entry.acquisition_addresses if address.slot_id == slot_id
+    result: quantum.MeasurementResult,
+    point: QuantumLabPointValues,
+) -> TargetResultAddress:
+    addresses = tuple(
+        address
+        for address in entry.acquisition_addresses
+        if address.slot_id.local_id == result.id
     )
-    if len(selected) != 1:
-        raise ValueError("each quantum result requires one target acquisition")
-    return selected[0]
+    values = dict(point.values)
+    axes = tuple(
+        (axis.id, _result_axis_size(axis, values))
+        for axis in result.contract.axes
+        if axis.id not in result.contract.acquisition_shape
+    )
+    expected_count = math.prod(size for _axis_id, size in axes)
+    if len(addresses) != expected_count:
+        raise ValueError("quantum result axes do not cover its target acquisitions")
+    if not axes:
+        [address] = addresses
+        return address
+
+    next_address = iter(addresses)
+
+    def collect(axis_index: int) -> TargetResultAddress:
+        if axis_index == len(axes):
+            return next(next_address)
+        axis_id, size = axes[axis_index]
+        return ResultCollection(
+            axis_id,
+            tuple(collect(axis_index + 1) for _index in range(size)),
+        )
+
+    return collect(0)
+
+
+def _result_axis_size(
+    axis: quantum.QuantumResultAxis,
+    values: Mapping[str, object],
+) -> int:
+    selected = axis.size if isinstance(axis.size, int) else values[axis.size.id]
+    if not isinstance(selected, int) or isinstance(selected, bool) or selected <= 0:
+        raise AssertionError(
+            "verified quantum result axes resolve to positive integers"
+        )
+    return selected
 
 
 def _realization_binding(
-    address: TargetAcquisitionAddress,
+    address: TargetResultAddress,
     program: quantum.Program,
 ) -> FakeMeasurementRealizationBinding:
-    result = next(
-        result
-        for result in program.results
-        if result.acquisition_slot_id == address.slot_id
-    )
+    result_ids = {
+        item.slot_id.local_id for item in target_result_acquisition_addresses(address)
+    }
+    if len(result_ids) != 1:
+        raise ValueError("one quantum result tree must retain one logical result id")
+    [result_id] = result_ids
+    result = next(result for result in program.results if result.id == result_id)
     if result.acquisition_kind is AcquisitionKind.INTEGRATED_IQ:
         return integrated_iq_shots(address)
     return raw_trace_shots(address)

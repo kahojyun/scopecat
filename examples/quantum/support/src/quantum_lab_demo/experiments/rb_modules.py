@@ -8,75 +8,15 @@ import scopecat as sc
 
 from quantum_lab_demo.experiments.compute import (
     build_cz_rb_sequence,
-    build_sqg_rb_sequence,
     render_cz_rb_coupler_pulse,
-    render_sqg_rb_pulse_program,
 )
-from quantum_lab_demo.experiments.ids import CZ_RB_TEMPLATE_ID, SQG_RB_TEMPLATE_ID
+from quantum_lab_demo.experiments.ids import CZ_RB_TEMPLATE_ID
 from quantum_lab_demo.experiments.points import CLIFFORD_COUNT
 
 _QUBIT = sc.ScalarType(sc.EntityType(entity_kind="logical_qubit"))
 _COUPLER = sc.ScalarType(sc.EntityType(entity_kind="logical_coupler"))
 _NON_NEGATIVE_INT = sc.ScalarType(sc.IntType(minimum=0))
 _NON_EMPTY_STRING = sc.ScalarType(sc.StringType(min_length=1))
-
-
-@sc.module(id=SQG_RB_TEMPLATE_ID)
-def SQG_RB_MODULE(
-    qubit: Annotated[sc.Input[str], _QUBIT],
-    seed: Annotated[sc.Input[int], _NON_NEGATIVE_INT],
-):
-    qubit_ref = cast("sc.ValueRef", qubit)
-    seed_ref = cast("sc.ValueRef", seed)
-    build_sequence = sc.compute(
-        "build-sqg-rb-sequence",
-        fn=build_sqg_rb_sequence,
-        output_type=sc.ScalarType(sc.PayloadType("gate_sequence")),
-        inputs={
-            "qubit": qubit_ref,
-            "clifford_count": CLIFFORD_COUNT,
-            "seed": seed_ref,
-        },
-    )
-    render_pulse_program = sc.compute(
-        "render-sqg-rb-pulse-program",
-        fn=render_sqg_rb_pulse_program,
-        output_type=sc.ScalarType(sc.PayloadType("pulse_program")),
-        inputs={"sequence": build_sequence.output},
-    )
-    return (
-        sc.module_body()
-        .resource(
-            "drive",
-            requires=("play_gate_sequence", "play_pulse_program"),
-            for_entities=(qubit_ref,),
-        )
-        .computes(build_sequence, render_pulse_program)
-        .bind_field(
-            "drive",
-            capability="play_gate_sequence",
-            field="sequence",
-            value=build_sequence.output,
-        )
-        .bind_field(
-            "drive",
-            capability="play_pulse_program",
-            field="program",
-            value=render_pulse_program.output,
-        )
-        .bind_field(
-            "drive",
-            capability="play_gate_sequence",
-            field="clifford_count",
-            value=CLIFFORD_COUNT * sc.Quantity(value=1.0, unit="count"),
-        )
-        .bind_field(
-            "drive",
-            capability="play_gate_sequence",
-            field="seed",
-            value=seed_ref,
-        )
-    )
 
 
 @sc.module(id=CZ_RB_TEMPLATE_ID)
@@ -153,5 +93,4 @@ def CZ_RB_MODULE(
 
 __all__ = [
     "CZ_RB_MODULE",
-    "SQG_RB_MODULE",
 ]

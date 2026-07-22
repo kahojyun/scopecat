@@ -89,8 +89,8 @@ from scopecat_quantum import (
     PulseProgramId,
     QuantumProgramId,
     QuantumProgramIR,
-    QuantumTargetAcquisitionUseBinding,
     QuantumTargetEntryPointBinding,
+    QuantumTargetResultUseBinding,
     QubitId,
     ReadoutSignal,
     TargetCompileEntryId,
@@ -376,7 +376,7 @@ def _scenario(
             )
         ),
         tuple(
-            QuantumTargetAcquisitionUseBinding(
+            QuantumTargetResultUseBinding(
                 entry.acquisition_addresses[0],
                 iq_use,
             )

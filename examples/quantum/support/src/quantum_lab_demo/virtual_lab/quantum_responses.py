@@ -25,6 +25,13 @@ from quantum_lab_demo.reference_experiments.drag_beta_response import (
     DragBetaAcquisitionResponse,
     DragBetaResponsePoint,
 )
+from quantum_lab_demo.reference_experiments.single_qubit_rb import (
+    single_qubit_rb_program,
+)
+from quantum_lab_demo.reference_experiments.single_qubit_rb_response import (
+    SingleQubitRbAcquisitionResponse,
+    SingleQubitRbResponsePoint,
+)
 from quantum_lab_demo.response_registry import (
     QuantumLabResponseRegistry,
     QuantumLabResponseRequest,
@@ -39,6 +46,7 @@ def quantum_lab_response_registry() -> QuantumLabResponseRegistry:
         {
             drag_beta_program.id: _drag_beta_response,
             cz_conditional_phase.id: _cz_phase_response,
+            single_qubit_rb_program.id: _single_qubit_rb_response,
         }
     )
 
@@ -78,6 +86,23 @@ def _cz_phase_response(
                 amplitude=cast("Quantity", point.value("coupler_amplitude")),
                 control_state=cast("int", point.value("control_state")),
                 analyzer_phase=cast("Quantity", point.value("analyzer_phase")),
+            )
+            for entry, point in zip(request.entries, request.points, strict=True)
+        ),
+        shots=request.shots,
+    )
+
+
+def _single_qubit_rb_response(
+    request: QuantumLabResponseRequest,
+) -> FakeAcquisitionResponse:
+    [result] = request.program.results
+    return SingleQubitRbAcquisitionResponse(
+        points=tuple(
+            SingleQubitRbResponsePoint(
+                address=_result_address(entry, result.acquisition_slot_id),
+                length=cast("int", point.value("length")),
+                seed=cast("int", point.value("seed")),
             )
             for entry, point in zip(request.entries, request.points, strict=True)
         ),

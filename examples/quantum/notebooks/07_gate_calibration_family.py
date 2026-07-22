@@ -177,8 +177,21 @@ spectator_cz_preview = (
 )
 
 # %%
+parallel_gate_collection = (
+    {
+        "control_qubit": "q0",
+        "partner_qubit": "q1",
+        "gate": "cz",
+    },
+    {
+        "control_qubit": "q2",
+        "partner_qubit": "q3",
+        "gate": "cz",
+    },
+)
 parallel_gate_preview = (
     lab.prepare(PARALLEL_GATE_SET_TEMPLATE)
+    .input("gates", parallel_gate_collection)
     .scan(GATE_DURATION, [28], unit="ns")
     .preview(
         name="gate family parallel gate set",
@@ -206,6 +219,7 @@ gate_family_summary = {
     "runtime_scan_points": runtime_parameter_scan_preview.point_count,
     "runtime_scan_coordinates": list(runtime_parameter_scan_preview.coordinate_ids),
     "spectator_cz_points": spectator_cz_preview.point_count,
+    "parallel_gate_collection_size": len(parallel_gate_collection),
     "parallel_gate_points": parallel_gate_preview.point_count,
 }
 print(gate_family_summary)

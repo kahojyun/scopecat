@@ -22,8 +22,6 @@ from quantum_lab_demo.experiments.payloads import (
     RandomizedBenchmarkingSequence,
     ReadoutPulseProgram,
     RenderedWaveformBundle,
-    RepeatedMeasurementProgram,
-    SurfaceCodeRoundProgram,
 )
 from quantum_lab_demo.virtual_lab.parameters import (
     QUBIT_PARAMETER_TABLE,
@@ -79,37 +77,6 @@ def build_multiplexed_readout_program(
         frequency=frequency,
         power=power,
         compiler_id="quantum_lab_demo.experiments.multiplexed_readout_program.v1",
-    )
-
-
-def build_sqg_rb_sequence(
-    *,
-    qubit: str | sc.EntityRef,
-    clifford_count: int,
-    seed: int,
-) -> RandomizedBenchmarkingSequence:
-    qubit_id = _required_str(qubit, "qubit")
-    return RandomizedBenchmarkingSequence(
-        qubits=(qubit_id,),
-        coupler=None,
-        clifford_count=_required_int(clifford_count, "clifford_count"),
-        seed=seed,
-        interleaved_gate=None,
-        compiler_id="quantum_lab_demo.experiments.sqg_rb_sequence.v1",
-    )
-
-
-def render_sqg_rb_pulse_program(
-    *,
-    sequence: RandomizedBenchmarkingSequence,
-) -> RandomizedBenchmarkingPulseBundle:
-    count = max(8, sequence.clifford_count * 4)
-    rng = np.random.default_rng(sequence.seed)
-    samples = rng.normal(size=count) + 1j * rng.normal(size=count)
-    return RandomizedBenchmarkingPulseBundle(
-        source_program_id=sequence.compiler_id,
-        entity_ids=sequence.qubits,
-        samples=np.asarray(0.04 * samples, dtype=np.complex128),
     )
 
 
@@ -408,94 +375,6 @@ def render_parallel_gate_coupler_waveforms(
     )
 
 
-def build_surface_code_round_program(
-    *,
-    patch_qubits: Sequence[str | sc.EntityRef],
-    data_qubits: Sequence[str | sc.EntityRef],
-    ancilla_qubits: Sequence[str | sc.EntityRef],
-    couplers: Sequence[str | sc.EntityRef],
-    rounds: int,
-    cycle_time: sc.Quantity,
-) -> SurfaceCodeRoundProgram:
-    data = _entity_ids(data_qubits)
-    ancilla = _entity_ids(ancilla_qubits)
-    coupler_ids = _entity_ids(couplers)
-    schedule = tuple(
-        f"round-{round_index}:{ancilla_id}->" + ",".join(data)
-        for round_index in range(_required_int(rounds, "rounds"))
-        for ancilla_id in ancilla
-    )
-    return SurfaceCodeRoundProgram(
-        patch_qubits=_entity_ids(patch_qubits),
-        data_qubits=data,
-        ancilla_qubits=ancilla,
-        couplers=coupler_ids,
-        rounds=_required_int(rounds, "rounds"),
-        cycle_time=cycle_time,
-        schedule=schedule,
-        compiler_id="quantum_lab_demo.experiments.surface_code_round.v1",
-    )
-
-
-def render_surface_code_drive_waveforms(
-    *,
-    program: SurfaceCodeRoundProgram,
-) -> RenderedWaveformBundle:
-    samples = np.vstack(
-        [
-            _render_drag_like_envelope(
-                program.cycle_time,
-                sc.Quantity(value=0.04, unit="arb"),
-            )
-            for _ in program.patch_qubits
-        ]
-    )
-    return RenderedWaveformBundle(
-        source_program_id=program.compiler_id,
-        entity_ids=program.patch_qubits,
-        sample_rate_hz=1.0e9,
-        samples=np.asarray(samples, dtype=np.complex128),
-    )
-
-
-def render_surface_code_coupler_waveforms(
-    *,
-    program: SurfaceCodeRoundProgram,
-) -> RenderedWaveformBundle:
-    count = max(8, round(program.cycle_time.value))
-    samples = np.vstack(
-        [
-            np.asarray(
-                0.03 * np.sin(np.linspace(0.0, np.pi, count, dtype=np.float64)) + 0.0j,
-                dtype=np.complex128,
-            )
-            for _ in program.couplers
-        ]
-    )
-    return RenderedWaveformBundle(
-        source_program_id=program.compiler_id,
-        entity_ids=program.couplers,
-        sample_rate_hz=1.0e9,
-        samples=np.asarray(samples, dtype=np.complex128),
-    )
-
-
-def build_repeated_measurement_program(
-    *,
-    qubit: str | sc.EntityRef,
-    rounds: int,
-    shots: int,
-    readout_frequency: sc.Quantity,
-) -> RepeatedMeasurementProgram:
-    return RepeatedMeasurementProgram(
-        qubit=_required_str(qubit, "qubit"),
-        rounds=_required_int(rounds, "rounds"),
-        shots=_required_int(shots, "shots"),
-        readout_frequency=readout_frequency,
-        compiler_id="quantum_lab_demo.experiments.repeated_measurement.v1",
-    )
-
-
 def build_backend_batch_job(
     *,
     logical_points: int,
@@ -582,10 +461,7 @@ __all__ = [
     "build_parallel_gate_set_program",
     "build_rabi_gate_sequence",
     "build_readout_program",
-    "build_repeated_measurement_program",
     "build_simultaneous_rabi_gate_sequence",
-    "build_sqg_rb_sequence",
-    "build_surface_code_round_program",
     "render_cz_coupler_waveforms",
     "render_cz_drive_waveforms",
     "render_cz_rb_coupler_pulse",
@@ -593,7 +469,4 @@ __all__ = [
     "render_parallel_gate_drive_waveforms",
     "render_rabi_waveforms",
     "render_simultaneous_rabi_waveforms",
-    "render_sqg_rb_pulse_program",
-    "render_surface_code_coupler_waveforms",
-    "render_surface_code_drive_waveforms",
 ]

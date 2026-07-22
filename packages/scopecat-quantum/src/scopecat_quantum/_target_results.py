@@ -23,22 +23,24 @@ from scopecat.sdk.domain import (
 from scopecat_quantum._ids import TargetCompileEntryId
 from scopecat_quantum.targets import (
     CompiledTargetArtifact,
-    TargetAcquisitionAddress,
     TargetArtifact,
     TargetCompileRequest,
+    TargetResultAddress,
+    target_result_acquisition_addresses,
+    target_result_entry_id,
 )
 
 type TargetResultFamily = Literal["circuit", "quantum"]
 type TargetEntryPoint = tuple[TargetCompileEntryId, DomainPointRef]
-type TargetAcquisitionUse = tuple[TargetAcquisitionAddress, DomainProductUseRef]
+type TargetResultUse = tuple[TargetResultAddress, DomainProductUseRef]
 
 
 def map_target_results(
     preparation: DomainPreparationBuilder,
     request: TargetCompileRequest,
     entry_points: Sequence[TargetEntryPoint],
-    acquisition_uses: Sequence[TargetAcquisitionUse],
-) -> DomainResultMapping[TargetAcquisitionAddress]:
+    result_uses: Sequence[TargetResultUse],
+) -> DomainResultMapping[TargetResultAddress]:
     """Map one sealed target request inventory to exact logical outputs."""
 
     point_by_entry = dict(entry_points)
@@ -51,22 +53,26 @@ def map_target_results(
         results=tuple(
             DomainResultBinding(
                 result_address=address,
-                point=point_by_entry[address.entry_id],
+                point=point_by_entry[target_result_entry_id(address)],
                 product_use=product_use,
             )
-            for address, product_use in acquisition_uses
+            for address, product_use in result_uses
         ),
     )
 
 
 def validate_target_result_mapping(
     request: TargetCompileRequest,
-    domain_mapping: DomainResultMapping[TargetAcquisitionAddress],
+    domain_mapping: DomainResultMapping[TargetResultAddress],
 ) -> None:
     """Bind independently produced SDK mapping evidence to one request."""
 
     expected_addresses = request.acquisition_addresses
-    mapped_addresses = tuple(result.result_address for result in domain_mapping.results)
+    mapped_addresses = tuple(
+        address
+        for result in domain_mapping.results
+        for address in target_result_acquisition_addresses(result.result_address)
+    )
     if len(mapped_addresses) != len(expected_addresses) or set(mapped_addresses) != set(
         expected_addresses
     ):

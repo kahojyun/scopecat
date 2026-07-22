@@ -32,8 +32,8 @@ from scopecat_quantum._target_results import (
 from scopecat_quantum.program_targets import PreparedQuantumTargetBatch
 from scopecat_quantum.targets import (
     CompiledTargetArtifact,
-    TargetAcquisitionAddress,
     TargetArtifact,
+    TargetResultAddress,
 )
 
 
@@ -46,10 +46,10 @@ class QuantumTargetEntryPointBinding:
 
 
 @dataclass(frozen=True, slots=True)
-class QuantumTargetAcquisitionUseBinding:
-    """Adapter edge from one qualified acquisition to one logical product use."""
+class QuantumTargetResultUseBinding:
+    """Adapter edge from one physical result tree to one logical product use."""
 
-    address: TargetAcquisitionAddress
+    address: TargetResultAddress
     product_use: DomainProductUseRef
 
 
@@ -58,7 +58,7 @@ class QuantumTargetResultMapping:
     """Sealed exact mapping from one prepared mixed-program batch to outputs."""
 
     batch: PreparedQuantumTargetBatch
-    domain_mapping: DomainResultMapping[TargetAcquisitionAddress]
+    domain_mapping: DomainResultMapping[TargetResultAddress]
 
     def __post_init__(self) -> None:
         validate_target_result_mapping(self.batch.request, self.domain_mapping)
@@ -79,19 +79,19 @@ def seal_quantum_target_result_mapping(
     preparation: DomainPreparationBuilder,
     batch: PreparedQuantumTargetBatch,
     entry_bindings: Sequence[QuantumTargetEntryPointBinding],
-    acquisition_bindings: Sequence[QuantumTargetAcquisitionUseBinding],
+    result_bindings: Sequence[QuantumTargetResultUseBinding],
 ) -> QuantumTargetResultMapping:
     """Close exact target entry/result coverage against logical outputs."""
 
     selected_entry_bindings = tuple(entry_bindings)
-    selected_acquisition_bindings = tuple(acquisition_bindings)
+    selected_result_bindings = tuple(result_bindings)
     domain_mapping = map_target_results(
         preparation,
         batch.request,
         tuple((binding.entry_id, binding.point) for binding in selected_entry_bindings),
         tuple(
             (binding.address, binding.product_use)
-            for binding in selected_acquisition_bindings
+            for binding in selected_result_bindings
         ),
     )
     return QuantumTargetResultMapping(batch, domain_mapping)

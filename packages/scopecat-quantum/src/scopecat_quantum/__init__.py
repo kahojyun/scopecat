@@ -27,6 +27,7 @@ from scopecat_quantum import (
     program_targets,
     programs,
     pulses,
+    result_collections,
     targets,
 )
 from scopecat_quantum._ids import (
@@ -47,6 +48,7 @@ from scopecat_quantum._ids import (
 )
 from scopecat_quantum.acquisitions import AcquisitionKind
 from scopecat_quantum.authoring import (
+    INTEGRATED_IQ_RESULT,
     QUANTUM_PROGRAM_DIALECT_ID,
     QUANTUM_PROGRAM_DIALECT_VERSION,
     Acquisition,
@@ -55,6 +57,7 @@ from scopecat_quantum.authoring import (
     CircuitFragment,
     CircuitInput,
     Coupler,
+    FragmentDefinition,
     Gate,
     Measurement,
     MeasurementResult,
@@ -73,6 +76,8 @@ from scopecat_quantum.authoring import (
     QuantumInput,
     QuantumProgramCall,
     QuantumQuantity,
+    QuantumResultAxis,
+    QuantumResultContract,
     Qubit,
     RepeatCount,
     SingleQubitGate,
@@ -86,10 +91,12 @@ from scopecat_quantum.authoring import (
     drag,
     drive,
     flux,
+    fragment,
     gate,
     gaussian,
     implements,
     input,  # noqa: A004
+    integrated_iq_result,
     measure,
     parallel,
     play,
@@ -97,6 +104,7 @@ from scopecat_quantum.authoring import (
     program_port_type,
     pulse_template,
     qubit,
+    raw_trace_result,
     readout,
     repeat,
     scalar_input,
@@ -168,9 +176,9 @@ from scopecat_quantum.measurement_transforms import (
 )
 from scopecat_quantum.program_results import (
     CompiledQuantumTarget,
-    QuantumTargetAcquisitionUseBinding,
     QuantumTargetEntryPointBinding,
     QuantumTargetResultMapping,
+    QuantumTargetResultUseBinding,
     seal_quantum_target_result_mapping,
 )
 from scopecat_quantum.program_targets import (
@@ -232,6 +240,11 @@ from scopecat_quantum.pulses import (
 )
 from scopecat_quantum.pulses import Parallel as PulseParallel
 from scopecat_quantum.pulses import Sequence as PulseSequence
+from scopecat_quantum.result_collections import (
+    ResultCollection,
+    iter_result_leaves,
+    result_collection_axes,
+)
 from scopecat_quantum.targets import (
     CompiledTargetArtifact,
     TargetAcquisitionAddress,
@@ -244,11 +257,15 @@ from scopecat_quantum.targets import (
     TargetCompileRequest,
     TargetDescription,
     TargetEventAddress,
+    TargetResultAddress,
     compile_target,
+    target_result_acquisition_addresses,
+    target_result_entry_id,
 )
 
 __all__ = [
     "DRAG",
+    "INTEGRATED_IQ_RESULT",
     "QUANTUM_PROGRAM_DIALECT_ID",
     "QUANTUM_PROGRAM_DIALECT_VERSION",
     "Acquire",
@@ -298,6 +315,7 @@ __all__ = [
     "Delay",
     "DriveSignal",
     "FluxSignal",
+    "FragmentDefinition",
     "FrameSignal",
     "Gate",
     "GateArgument",
@@ -368,16 +386,19 @@ __all__ = [
     "QuantumPulseAcquisitionProvenance",
     "QuantumPulseEventProvenance",
     "QuantumQuantity",
+    "QuantumResultAxis",
+    "QuantumResultContract",
     "QuantumSequence",
     "QuantumTargetAcquisitionOrigin",
-    "QuantumTargetAcquisitionUseBinding",
     "QuantumTargetEntryPointBinding",
     "QuantumTargetEventOrigin",
     "QuantumTargetResultMapping",
+    "QuantumTargetResultUseBinding",
     "Qubit",
     "QubitId",
     "ReadoutSignal",
     "RepeatCount",
+    "ResultCollection",
     "ScheduledPulseEvent",
     "ScheduledPulseProgram",
     "ShiftPhase",
@@ -396,6 +417,7 @@ __all__ = [
     "TargetDescription",
     "TargetEventAddress",
     "TargetId",
+    "TargetResultAddress",
     "TwoQubitGate",
     "VerifiedCircuitProgram",
     "VerifiedQuantumProgram",
@@ -416,14 +438,17 @@ __all__ = [
     "drag",
     "drive",
     "flux",
+    "fragment",
     "gate",
     "gates",
     "gaussian",
     "implements",
     "input",
+    "integrated_iq_result",
     "iter_circuit_operations",
     "iter_pulse_leaves",
     "iter_quantum_operations",
+    "iter_result_leaves",
     "lower_circuit_to_pulses",
     "lower_quantum_program_to_pulses",
     "measure",
@@ -441,8 +466,11 @@ __all__ = [
     "pulse_template",
     "pulses",
     "qubit",
+    "raw_trace_result",
     "readout",
     "repeat",
+    "result_collection_axes",
+    "result_collections",
     "scalar_input",
     "schedule",
     "seal_quantum_target_result_mapping",
@@ -450,6 +478,8 @@ __all__ = [
     "sequence",
     "shift_phase",
     "single_qubit_gate",
+    "target_result_acquisition_addresses",
+    "target_result_entry_id",
     "targets",
     "two_qubit_gate",
     "verify_circuit_program",

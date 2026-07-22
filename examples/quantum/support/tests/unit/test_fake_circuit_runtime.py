@@ -109,9 +109,9 @@ from scopecat_quantum import (
     QuantumProgramIR,
     QuantumSequence,
     QuantumTargetAcquisitionOrigin,
-    QuantumTargetAcquisitionUseBinding,
     QuantumTargetEntryPointBinding,
     QuantumTargetResultMapping,
+    QuantumTargetResultUseBinding,
     QubitId,
     ReadoutSignal,
     TargetAcquisitionAddress,
@@ -120,11 +120,14 @@ from scopecat_quantum import (
     TargetCompileRequest,
     TargetCompilerId,
     TargetId,
+    TargetResultAddress,
     compile_target,
     lower_quantum_program_to_pulses,
     prepare_quantum_target_batch,
     prepare_quantum_target_entry,
     seal_quantum_target_result_mapping,
+    target_result_acquisition_addresses,
+    target_result_entry_id,
     verify_quantum_program,
 )
 
@@ -157,6 +160,15 @@ from .demo_lab_experiment_testkit import link_program
 _REPO_ROOT = Path(__file__).resolve().parents[5]
 Q0 = QubitId("q0")
 SHARED_SLOT = AcquisitionSlotId("result", scope=("circuit-local",))
+
+
+def _only_acquisition_address(
+    address: TargetResultAddress,
+) -> TargetAcquisitionAddress:
+    [selected] = target_result_acquisition_addresses(address)
+    return selected
+
+
 MIXED_IQ_SLOT = AcquisitionSlotId("iq-result", scope=("circuit-local",))
 MIXED_TRACE_SLOT = AcquisitionSlotId("trace-result", scope=("circuit-local",))
 _DOMAIN_DIALECT_ID = "test.quantum.fake-list-runtime"
@@ -683,7 +695,7 @@ def _scenario(
             )
         ),
         tuple(
-            QuantumTargetAcquisitionUseBinding(
+            QuantumTargetResultUseBinding(
                 entry.acquisition_addresses[0],
                 product_use,
             )
@@ -767,7 +779,7 @@ def _mixed_scenario(
             )
         ),
         tuple(
-            QuantumTargetAcquisitionUseBinding(
+            QuantumTargetResultUseBinding(
                 address,
                 iq_use if address.slot_id == MIXED_IQ_SLOT else trace_use,
             )
@@ -791,7 +803,7 @@ def _mixed_bindings(
     return tuple(
         (
             integrated_iq_shots(result.result_address)
-            if result.result_address.slot_id == MIXED_IQ_SLOT
+            if _only_acquisition_address(result.result_address).slot_id == MIXED_IQ_SLOT
             else raw_trace_shots(result.result_address)
         )
         for result in scenario.mapping.domain_mapping.results
@@ -827,7 +839,7 @@ def _prepared_mixed_execution(
 
 
 type _ClosedMixedInvocation = ClosedDomainInvocation[
-    TargetAcquisitionAddress,
+    TargetResultAddress,
     SelectedFakeMeasurementRealization,
 ]
 
@@ -889,7 +901,7 @@ def test_three_point_fake_quantum_run_correlates_target_and_logical_order() -> N
     mapping = scenario.mapping.domain_mapping
     for point_index, point in enumerate(points):
         mapped_result = mapping.result_for(point, product_use)
-        address = mapped_result.result_address
+        address = _only_acquisition_address(mapped_result.result_address)
         origin = scenario.mapping.batch.acquisition_origin_for(address)
         assert address.entry_id == TargetCompileEntryId(f"entry-{point_index}")
         assert origin.source_program_id == QuantumProgramId("shared-readout-program")
@@ -902,10 +914,8 @@ def test_three_point_fake_quantum_run_correlates_target_and_logical_order() -> N
         )
         assert tuple(frame.shot_index for frame in output_frames) == (0, 1)
         for shot_index, frame in enumerate(output_frames):
-            assert frame is correlated.frame_for_output(
-                point,
-                product_use,
-                shot_index,
+            assert (frame,) == correlated.frames_for_output_shot(
+                point, product_use, shot_index
             )
             assert frame is correlated.frame_for_address(address, shot_index)
             assert frame.mapped_result is mapped_result
@@ -953,7 +963,7 @@ def test_mixed_quantum_program_reuses_fake_selection_and_correlation() -> None:
             )
         ),
         tuple(
-            QuantumTargetAcquisitionUseBinding(
+            QuantumTargetResultUseBinding(
                 entry.acquisition_addresses[0],
                 product_use,
             )
@@ -979,7 +989,8 @@ def test_mixed_quantum_program_reuses_fake_selection_and_correlation() -> None:
     assert selection.compiled_target is compiled_target
     assert tuple(result.point for result in mapping.domain_mapping.results) == points
     assert tuple(
-        result.result_address.entry_id for result in mapping.domain_mapping.results
+        target_result_entry_id(result.result_address)
+        for result in mapping.domain_mapping.results
     ) == tuple(
         TargetCompileEntryId(f"mixed-program-entry-{index}") for index in range(3)
     )
@@ -1031,19 +1042,19 @@ def test_one_physical_fake_result_fans_out_to_every_product_use() -> None:
     for point in points:
         result = mapping.result_for(point, uses[0])
         assert all(mapping.result_for(point, use) is result for use in uses)
-        physical_frames = correlated.frames_for_address(result.result_address)
+        physical_frames = correlated.frames_for_result_address(result.result_address)
         assert all(
             correlated.frames_for_output(point, use) == physical_frames for use in uses
         )
         for shot_index, frame in enumerate(physical_frames):
             assert frame.product_uses == uses
             assert all(
-                correlated.frame_for_output(
+                correlated.frames_for_output_shot(
                     point,
                     use,
                     shot_index,
                 )
-                is frame
+                == (frame,)
                 for use in uses
             )
 
@@ -1060,7 +1071,7 @@ def test_one_physical_fake_result_fans_out_to_every_product_use() -> None:
         assert all(realized.value_for_output(point, use) is value for use in uses)
         assert all(
             realized.frames_for_output(point, use)
-            == correlated.frames_for_address(value.result_address)
+            == correlated.frames_for_result_address(value.result_address)
             for use in uses
         )
 
@@ -1118,7 +1129,7 @@ def test_integrated_iq_shot_realization_accepts_exact_product_contract() -> None
         realized.result_values,
         strict=True,
     ):
-        frames = correlated.frames_for_address(
+        frames = correlated.frames_for_result_address(
             output.result_address,
         )
         assert all(
@@ -1284,7 +1295,7 @@ def test_raw_trace_realization_accepts_exact_shot_sample_contract() -> None:
         realized.result_values,
         strict=True,
     ):
-        frames = correlated.frames_for_address(
+        frames = correlated.frames_for_result_address(
             output.result_address,
         )
         assert all(
@@ -1354,7 +1365,9 @@ def test_raw_trace_realization_preserves_generated_shot_sample_cardinality(
             len(cast("list[ComplexQuantity]", samples)) == sample_count
             for samples in value.values
         )
-        frames = realized.correlated_run.frames_for_address(output.result_address)
+        frames = realized.correlated_run.frames_for_result_address(
+            output.result_address
+        )
         assert tuple(frame.shot_index for frame in frames) == tuple(range(repetitions))
         assert all(
             realized.frames_for_output(output.point, product_use) == frames
@@ -1650,7 +1663,9 @@ def test_mixed_iq_and_raw_trace_policies_share_one_batch_execution() -> None:
         strict=True,
     ):
         selected_output = selection.output_for_address(output.result_address)
-        frames = realized.correlated_run.frames_for_address(output.result_address)
+        frames = realized.correlated_run.frames_for_result_address(
+            output.result_address
+        )
         assert all(
             realized.frames_for_output(output.point, product_use) == frames
             for product_use in output.product_uses

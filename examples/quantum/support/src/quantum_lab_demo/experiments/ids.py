@@ -9,7 +9,6 @@ SYSTEM_BACKGROUND_RABI_TEMPLATE_ID = (
     "quantum_lab_demo.experiments.system_background_rabi"
 )
 READOUT_TEMPLATE_ID = "quantum_lab_demo.experiments.readout_frequency"
-SQG_RB_TEMPLATE_ID = "quantum_lab_demo.experiments.sqg_rb"
 CZ_RB_TEMPLATE_ID = "quantum_lab_demo.experiments.cz_rb"
 CZ_CHEVRON_TEMPLATE_ID = "quantum_lab_demo.experiments.cz_chevron"
 MULTIPLEXED_READOUT_TEMPLATE_ID = "quantum_lab_demo.experiments.multiplexed_readout"
@@ -39,7 +38,6 @@ __all__ = [
     "READOUT_TEMPLATE_ID",
     "SIMULTANEOUS_RABI_TEMPLATE_ID",
     "SPECTATOR_CZ_TEMPLATE_ID",
-    "SQG_RB_TEMPLATE_ID",
     "SYSTEM_BACKGROUND_RABI_TEMPLATE_ID",
     "TOY_SURFACE_CODE_ROUND_TEMPLATE_ID",
 ]

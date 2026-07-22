@@ -47,9 +47,19 @@ from quantum_lab_demo.reference_experiments.ramsey_phase_experiment import (
     ramsey_phase_program,
     ramsey_phase_template,
 )
+from quantum_lab_demo.reference_experiments.single_qubit_rb import (
+    CLIFFORD_LENGTH,
+    RB_SEED,
+    SINGLE_QUBIT_RB_TEMPLATE_ID,
+    randomized_clifford_sequence,
+    single_qubit_rb_program,
+    single_qubit_rb_scratch,
+    single_qubit_rb_template,
+)
 
 __all__ = [
     "BETA",
+    "CLIFFORD_LENGTH",
     "CZ_AMPLITUDE",
     "CZ_AMPLITUDE_POINTS",
     "CZ_AMPLITUDE_SPAN",
@@ -60,6 +70,8 @@ __all__ = [
     "PHASE",
     "RAMSEY_READOUT_PULSE_TEMPLATE",
     "RAMSEY_X90_PULSE_TEMPLATE",
+    "RB_SEED",
+    "SINGLE_QUBIT_RB_TEMPLATE_ID",
     "X_COUNT",
     "FakeBiasVoltageProvider",
     "analyze_cz_phase_run",
@@ -77,5 +89,9 @@ __all__ = [
     "production_drag_template",
     "ramsey_phase_program",
     "ramsey_phase_template",
+    "randomized_clifford_sequence",
+    "single_qubit_rb_program",
+    "single_qubit_rb_scratch",
+    "single_qubit_rb_template",
     "x_count_program",
 ]

@@ -25,7 +25,6 @@ from quantum_lab_demo.experiments.ids import (
     READOUT_TEMPLATE_ID,
     SIMULTANEOUS_RABI_TEMPLATE_ID,
     SPECTATOR_CZ_TEMPLATE_ID,
-    SQG_RB_TEMPLATE_ID,
     SYSTEM_BACKGROUND_RABI_TEMPLATE_ID,
     TOY_SURFACE_CODE_ROUND_TEMPLATE_ID,
 )
@@ -38,21 +37,19 @@ from quantum_lab_demo.experiments.points import (
     GATE_DURATION,
     READOUT_FREQUENCY,
 )
+from quantum_lab_demo.experiments.qnd import QND_REPEATED_MEASUREMENT_TEMPLATE
 from quantum_lab_demo.experiments.rabi_modules import (
     RABI_MODULE,
     SIMULTANEOUS_RABI_MODULE,
 )
-from quantum_lab_demo.experiments.rb_modules import CZ_RB_MODULE, SQG_RB_MODULE
+from quantum_lab_demo.experiments.rb_modules import CZ_RB_MODULE
 from quantum_lab_demo.experiments.readout_modules import (
     MULTIPLEXED_READOUT_MODULE,
     MULTIPLEXED_READOUT_PULSE_MODULE,
-    QND_REPEATED_MEASUREMENT_MODULE,
     READOUT_CAPTURE_MODULE,
     READOUT_MODULE,
 )
-from quantum_lab_demo.experiments.surface_code_modules import (
-    TOY_SURFACE_CODE_ROUND_MODULE,
-)
+from quantum_lab_demo.experiments.surface_code import TOY_SURFACE_CODE_ROUND_TEMPLATE
 from quantum_lab_demo.experiments.two_qubit_modules import (
     CZ_CHEVRON_MODULE,
     PARALLEL_GATE_QUBITS,
@@ -83,7 +80,6 @@ _FLUX_BIAS_DEFAULT = sc.Quantity(value=0.06, unit="arb")
 _CENTER_FREQUENCY_DEFAULT = sc.Quantity(value=6.6, unit="GHz")
 _READOUT_POWER_DEFAULT = sc.Quantity(value=-20.5, unit="dBm")
 _SPECTATOR_FLUX_BIAS_DEFAULT = sc.Quantity(value=0.025, unit="arb")
-_CYCLE_TIME_DEFAULT = sc.Quantity(value=32.0, unit="ns")
 _PARALLEL_GATES_DEFAULT = (
     {
         "control_qubit": "q0",
@@ -288,24 +284,6 @@ def MULTIPLEXED_READOUT_CALIBRATION_TEMPLATE(
     )
 
 
-@sc.template(id=SQG_RB_TEMPLATE_ID, kind="sqg_rb", label="SQG RB")
-def SQG_RB_TEMPLATE(
-    qubit: Annotated[sc.Input[str], _QUBIT],
-    seed: Annotated[sc.Input[int], _NON_NEGATIVE_INT] = 0,
-) -> sc.ExperimentBody:
-    """Build a experiment-system single-qubit randomized benchmarking scan."""
-
-    rb = SQG_RB_MODULE(qubit=qubit, seed=seed)
-    capture = READOUT_CAPTURE_MODULE()
-    return (
-        sc.experiment(rb, capture)
-        .scan(CLIFFORD_COUNT, (4, 8, 16))
-        .record_product(capture.products.probability_0, record_id="probability_0")
-        .record_product(capture.products.probability_1, record_id="probability_1")
-        .record_product(capture.products.raw_iq, record_id="raw_iq")
-    )
-
-
 @sc.template(id=CZ_RB_TEMPLATE_ID, kind="cz_rb", label="CZ RB")
 def CZ_RB_TEMPLATE(
     control_qubit: Annotated[sc.Input[str], _QUBIT],
@@ -428,71 +406,6 @@ def PARALLEL_GATE_SET_TEMPLATE(
 
 
 @sc.template(
-    id=TOY_SURFACE_CODE_ROUND_TEMPLATE_ID,
-    kind="toy_surface_code_round",
-    label="toy surface-code round",
-    description=(
-        "Build a small stabilizer-round schedule with drive, coupler, and "
-        "round-by-entity readout output."
-    ),
-)
-def TOY_SURFACE_CODE_ROUND_TEMPLATE(
-    patch_qubits: Annotated[sc.Input[tuple[str, ...]], _QUBIT_SERIES] = (
-        "q0",
-        "q1",
-        "q2",
-        "q3",
-    ),
-    data_qubits: Annotated[sc.Input[tuple[str, ...]], _QUBIT_SERIES] = ("q0", "q1"),
-    ancilla_qubits: Annotated[sc.Input[tuple[str, ...]], _QUBIT_SERIES] = (
-        "q2",
-        "q3",
-    ),
-    couplers: Annotated[sc.Input[tuple[str, ...]], _COUPLER_SERIES] = (
-        "coupler-q0-q1",
-        "coupler-q2-q3",
-    ),
-    rounds: Annotated[sc.Input[int], _POSITIVE_INT] = 3,
-    cycle_time: Annotated[sc.Input[sc.Quantity], _QUANTITY] = _CYCLE_TIME_DEFAULT,
-) -> sc.ExperimentBody:
-    toy_round = TOY_SURFACE_CODE_ROUND_MODULE(
-        patch_qubits=patch_qubits,
-        data_qubits=data_qubits,
-        ancilla_qubits=ancilla_qubits,
-        couplers=couplers,
-        rounds=rounds,
-        cycle_time=cycle_time,
-    )
-    return sc.experiment(toy_round).record_product(
-        toy_round.products.stabilizer_iq,
-        record_id="stabilizer_iq",
-    )
-
-
-@sc.template(
-    id=QND_REPEATED_MEASUREMENT_TEMPLATE_ID,
-    kind="qnd_repeated_measurement",
-    label="QND repeated measurement",
-)
-def QND_REPEATED_MEASUREMENT_TEMPLATE(
-    qubit: Annotated[sc.Input[str], _QUBIT],
-    rounds: Annotated[sc.Input[int], _POSITIVE_INT] = 4,
-    shots: Annotated[sc.Input[int], _POSITIVE_INT] = 16,
-) -> sc.ExperimentBody:
-    """Build a repeated readout returning one dense round-by-shot array."""
-
-    readout = QND_REPEATED_MEASUREMENT_MODULE(
-        qubit=qubit,
-        rounds=rounds,
-        shots=shots,
-    )
-    return sc.experiment(readout).record_product(
-        readout.products.qnd_iq,
-        record_id="qnd_iq",
-    )
-
-
-@sc.template(
     id=BACKEND_BATCH_TEMPLATE_ID,
     kind="backend_batch_out_of_order",
     label="backend batch out-of-order",
@@ -537,8 +450,6 @@ __all__ = [
     "SIMULTANEOUS_RABI_TEMPLATE_ID",
     "SPECTATOR_CZ_TEMPLATE",
     "SPECTATOR_CZ_TEMPLATE_ID",
-    "SQG_RB_TEMPLATE",
-    "SQG_RB_TEMPLATE_ID",
     "SYSTEM_BACKGROUND_RABI_TEMPLATE",
     "SYSTEM_BACKGROUND_RABI_TEMPLATE_ID",
     "TOY_SURFACE_CODE_ROUND_TEMPLATE",

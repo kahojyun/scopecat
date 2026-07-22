@@ -76,9 +76,10 @@ workflow you are building:
 | Learn reusable experiment definitions | `reference_experiments/fake_x_count_experiment.py` |
 | Browse broader shape coverage | `support/src/quantum_lab_demo/experiments/` |
 | Try one-off scans and product selection | `@sc.scratch` and `Workspace.prepare(...)` |
+| Generate a point-dependent gate sequence | `reference_experiments/single_qubit_rb.py` uses `@q.fragment`; Clifford length and seed remain ordinary scan axes. |
 | Change laboratory policy, parameters, calibration, or wiring | `support/src/quantum_lab_demo/virtual_lab/` |
 | Compose the lab or adapt quantum programs to a target | `support/src/quantum_lab_demo/lab.py`, `compiler.py`, and `targets/` |
-| Pass a collection without a domain compiler | `PARALLEL_GATE_SET_MODULE` shows the `TableType` → `sc.compute` → opaque payload escape hatch. |
+| Pass a collection without a domain compiler | The `parallel_gate_collection` cell in notebook 07 passes one tuple of rows into `PARALLEL_GATE_SET_MODULE`; the module keeps that `TableType` value intact through `sc.compute` and opaque payload rendering. |
 | Develop analysis and configuration proposals | notebooks 04–06 and the reusable analysis code under `support/` |
 
 The support package is one copyable way to organize repeated lab code, not a

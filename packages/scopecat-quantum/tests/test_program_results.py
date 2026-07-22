@@ -55,9 +55,9 @@ from scopecat_quantum.acquisitions import AcquisitionKind
 from scopecat_quantum.calibrations import CalibrationCatalog
 from scopecat_quantum.program_results import (
     CompiledQuantumTarget,
-    QuantumTargetAcquisitionUseBinding,
     QuantumTargetEntryPointBinding,
     QuantumTargetResultMapping,
+    QuantumTargetResultUseBinding,
     seal_quantum_target_result_mapping,
 )
 from scopecat_quantum.program_targets import (
@@ -82,11 +82,15 @@ from scopecat_quantum.pulses import (
     ReadoutSignal,
 )
 from scopecat_quantum.pulses import Parallel as PulseParallel
+from scopecat_quantum.pulses import Sequence as PulseSequence
+from scopecat_quantum.result_collections import ResultCollection
 from scopecat_quantum.targets import (
     CompiledTargetArtifact,
     TargetAcquisitionAddress,
     TargetCompileRequest,
     compile_target,
+    target_result_acquisition_addresses,
+    target_result_entry_id,
 )
 
 Q0 = QubitId("q0")
@@ -233,6 +237,59 @@ def _batch() -> PreparedQuantumTargetBatch:
     )
 
 
+def _prepared_repeated(entry_id: str, source_program_id: str):
+    slots = tuple(
+        AcquisitionSlot(
+            id=AcquisitionSlotId(f"result-{index}"),
+            kind=AcquisitionKind.INTEGRATED_IQ,
+            signal=AcquireSignal(Q0),
+        )
+        for index in range(2)
+    )
+    duration = Quantity(4, "ns")
+    template = PulseProgram(
+        id=PulseProgramId(f"{source_program_id}-template"),
+        body=PulseSequence(
+            tuple(
+                PulseParallel(
+                    (
+                        Play(
+                            id=PulseEventId("readout", scope=(str(index),)),
+                            signal=ReadoutSignal(Q0),
+                            envelope=Constant(
+                                duration=duration,
+                                amplitude=Quantity(0.2, "arb"),
+                            ),
+                        ),
+                        Acquire(
+                            id=PulseEventId("acquire", scope=(str(index),)),
+                            signal=slot.signal,
+                            slot_id=slot.id,
+                            duration=duration,
+                        ),
+                    )
+                )
+                for index, slot in enumerate(slots)
+            )
+        ),
+        acquisition_slots=slots,
+    )
+    source = QuantumProgramIR(
+        id=QuantumProgramId(source_program_id),
+        body=PulseBlock(
+            id=CircuitOperationId("repeated-readout"),
+            pulse_template=template,
+            acquisition_slot_bindings=tuple((slot.id, slot.id) for slot in slots),
+        ),
+    )
+    lowered = lower_quantum_program_to_pulses(
+        verify_quantum_program(source, ()),
+        CalibrationCatalog(),
+        output_id=PulseProgramId(f"{source_program_id}-pulses"),
+    )
+    return prepare_quantum_target_entry(TargetCompileEntryId(entry_id), lowered)
+
+
 def _valid_inputs():
     preparation = _preparation()
     batch = _batch()
@@ -242,11 +299,11 @@ def _valid_inputs():
         QuantumTargetEntryPointBinding(batch.entries[0].id, points[1]),
         QuantumTargetEntryPointBinding(batch.entries[1].id, points[0]),
     )
-    acquisition_bindings = tuple(
-        QuantumTargetAcquisitionUseBinding(address, product_use)
+    result_bindings = tuple(
+        QuantumTargetResultUseBinding(address, product_use)
         for address in batch.acquisition_addresses
     )
-    return preparation, batch, entry_bindings, acquisition_bindings
+    return preparation, batch, entry_bindings, result_bindings
 
 
 @dataclass(frozen=True, slots=True)
@@ -292,20 +349,21 @@ def _compile(
 
 
 def test_mapping_preserves_logical_order_and_mixed_source_origins() -> None:
-    preparation, batch, entry_bindings, acquisition_bindings = _valid_inputs()
+    preparation, batch, entry_bindings, result_bindings = _valid_inputs()
 
     mapping = seal_quantum_target_result_mapping(
         preparation,
         batch,
         entry_bindings,
-        acquisition_bindings,
+        result_bindings,
     )
 
     assert mapping.batch is batch
     assert isinstance(mapping.domain_mapping, DomainResultMapping)
     assert mapping.domain_mapping.context is preparation.context
     assert tuple(
-        result.result_address.entry_id for result in mapping.domain_mapping.results
+        target_result_entry_id(result.result_address)
+        for result in mapping.domain_mapping.results
     ) == (
         batch.entries[1].id,
         batch.entries[0].id,
@@ -318,24 +376,70 @@ def test_mapping_preserves_logical_order_and_mixed_source_origins() -> None:
         QuantumProgramId("mixed-source-a"),
     )
     for result in mapping.domain_mapping.results:
-        origin = mapping.batch.acquisition_origin_for(result.result_address)
+        [address] = target_result_acquisition_addresses(result.result_address)
+        origin = mapping.batch.acquisition_origin_for(address)
         assert isinstance(
             origin.provenance,
             AuthoredPulseAcquisitionProvenance,
         )
         assert (
             origin.source_program_id
-            == mapping.batch.entry_for(result.result_address.entry_id).source_program_id
+            == mapping.batch.entry_for(
+                target_result_entry_id(result.result_address)
+            ).source_program_id
         )
 
 
+def test_mapping_groups_one_logical_result_over_a_recursive_physical_axis() -> None:
+    preparation = _preparation()
+    entries = (
+        _prepared_repeated("entry-b", "repeated-source-b"),
+        _prepared_repeated("entry-a", "repeated-source-a"),
+    )
+    batch = prepare_quantum_target_batch(
+        entries,
+        target_id=TargetId("target"),
+        compiler_id=TargetCompilerId("compiler.v1"),
+        capability_fingerprint="capabilities:v1",
+        repetitions=3,
+    )
+    points = preparation.context.points
+    product_use = preparation.context.direct_product_uses[0]
+
+    mapping = seal_quantum_target_result_mapping(
+        preparation,
+        batch,
+        (
+            QuantumTargetEntryPointBinding(entries[0].id, points[1]),
+            QuantumTargetEntryPointBinding(entries[1].id, points[0]),
+        ),
+        tuple(
+            QuantumTargetResultUseBinding(
+                ResultCollection("round", entry.acquisition_addresses),
+                product_use,
+            )
+            for entry in entries
+        ),
+    )
+
+    assert tuple(
+        target_result_entry_id(result.result_address)
+        for result in mapping.domain_mapping.results
+    ) == (entries[1].id, entries[0].id)
+    assert tuple(
+        address
+        for result in mapping.domain_mapping.results
+        for address in target_result_acquisition_addresses(result.result_address)
+    ) == (*entries[1].acquisition_addresses, *entries[0].acquisition_addresses)
+
+
 def test_mapping_accepts_adapter_owned_batch_reordering() -> None:
-    preparation, batch, entry_bindings, acquisition_bindings = _valid_inputs()
+    preparation, batch, entry_bindings, result_bindings = _valid_inputs()
     mapping = seal_quantum_target_result_mapping(
         preparation,
         batch,
         entry_bindings,
-        acquisition_bindings,
+        result_bindings,
     )
     reversed_batch = prepare_quantum_target_batch(
         tuple(reversed(batch.entries)),
@@ -353,7 +457,7 @@ def test_mapping_accepts_adapter_owned_batch_reordering() -> None:
 
 @pytest.mark.parametrize("change", ("missing", "duplicate", "foreign"))
 def test_entry_mapping_requires_exact_coverage(change: str) -> None:
-    preparation, batch, entry_bindings, acquisition_bindings = _valid_inputs()
+    preparation, batch, entry_bindings, result_bindings = _valid_inputs()
     selected = entry_bindings
     if change == "missing":
         selected = selected[:-1]
@@ -370,14 +474,14 @@ def test_entry_mapping_requires_exact_coverage(change: str) -> None:
             preparation,
             batch,
             selected,
-            acquisition_bindings,
+            result_bindings,
         )
 
 
 @pytest.mark.parametrize("change", ("missing", "duplicate", "foreign"))
-def test_acquisition_mapping_requires_exact_qualified_addresses(change: str) -> None:
-    preparation, batch, entry_bindings, acquisition_bindings = _valid_inputs()
-    selected = acquisition_bindings
+def test_result_mapping_requires_exact_qualified_addresses(change: str) -> None:
+    preparation, batch, entry_bindings, result_bindings = _valid_inputs()
+    selected = result_bindings
     if change == "missing":
         selected = selected[:-1]
     elif change == "duplicate":
@@ -410,12 +514,12 @@ def test_acquisition_mapping_requires_exact_qualified_addresses(change: str) -> 
 
 
 def test_compiled_target_binding_retains_exact_request_and_source_order() -> None:
-    preparation, batch, entry_bindings, acquisition_bindings = _valid_inputs()
+    preparation, batch, entry_bindings, result_bindings = _valid_inputs()
     mapping = seal_quantum_target_result_mapping(
         preparation,
         batch,
         entry_bindings,
-        acquisition_bindings,
+        result_bindings,
     )
     compiled = _compile(batch.request)
 
@@ -434,12 +538,12 @@ def test_compiled_target_binding_retains_exact_request_and_source_order() -> Non
 
 
 def test_compiled_target_binding_rejects_another_request() -> None:
-    preparation, batch, entry_bindings, acquisition_bindings = _valid_inputs()
+    preparation, batch, entry_bindings, result_bindings = _valid_inputs()
     mapping = seal_quantum_target_result_mapping(
         preparation,
         batch,
         entry_bindings,
-        acquisition_bindings,
+        result_bindings,
     )
     with pytest.raises(ValueError, match="exactly match the mapped quantum batch"):
         CompiledQuantumTarget(

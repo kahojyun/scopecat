@@ -57,6 +57,7 @@ def test_notebook_style_examples_execute_user_workflows(
             "parking_flux",
         ],
         "spectator_cz_points": 1,
+        "parallel_gate_collection_size": 2,
         "parallel_gate_points": 1,
     }
     assert readout_family["readout_family_summary"] == {
@@ -210,7 +211,6 @@ def test_notebook_style_examples_execute_user_workflows(
         "program": "cz-conditional-phase",
         "inputs": ("control_state", "coupler_amplitude", "analyzer_phase"),
         "results": ("control_iq_shots", "target_iq_shots"),
-        "gate_arities": {"x": 1, "x90": 1, "cz": 2},
         "cz_template": "cz-phase.coupler-flux",
     }
     assert cz_summary["parameter_scan"] == {

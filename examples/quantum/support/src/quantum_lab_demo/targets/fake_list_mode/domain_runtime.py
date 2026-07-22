@@ -30,6 +30,10 @@ from scopecat.sdk.domain import (
     DomainSubmitRequest,
     DomainTargetArtifactIdentity,
 )
+from scopecat_quantum import (
+    TargetAcquisitionAddress,
+    TargetResultAddress,
+)
 
 from quantum_lab_demo.targets.fake_list_mode.circuit_runtime import (
     RealizedFakeMeasurementRun,
@@ -90,13 +94,10 @@ def fake_measurement_invocation_spec(
             artifact_fingerprint=compiled.artifact_fingerprint,
         ),
         target_intent={
-            "schema": "quantum_lab_demo.fake_measurement_invocation.v2",
+            "schema": "quantum_lab_demo.fake_measurement_invocation.v3",
             "realizations": [
                 {
-                    "entry_id": output.result_address.entry_id.value,
-                    "slot_id": acquisition_slot_identity_payload(
-                        output.result_address.slot_id
-                    ),
+                    "result_address": _result_address_intent(output.result_address),
                     "kind": output.kind.value,
                 }
                 for output in selection.outputs
@@ -105,6 +106,18 @@ def fake_measurement_invocation_spec(
         },
         payload=selection,
     )
+
+
+def _result_address_intent(address: TargetResultAddress) -> object:
+    if isinstance(address, TargetAcquisitionAddress):
+        return {
+            "entry_id": address.entry_id.value,
+            "slot_id": acquisition_slot_identity_payload(address.slot_id),
+        }
+    return {
+        "axis_id": address.axis_id,
+        "items": [_result_address_intent(item) for item in address.items],
+    }
 
 
 class FakeListDomainRuntime:

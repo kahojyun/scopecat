@@ -54,10 +54,6 @@ authoring_summary = {
     "program": program.id,
     "inputs": tuple(value.id for value in program.inputs),
     "results": tuple(value.id for value in program.results),
-    "gate_arities": {
-        definition.id.value: definition.qubit_arity
-        for definition in program.gate_definitions
-    },
     "cz_template": CZ_FLUX_PULSE_TEMPLATE.id,
 }
 print(authoring_summary)

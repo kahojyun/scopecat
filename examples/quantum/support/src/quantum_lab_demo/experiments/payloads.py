@@ -103,27 +103,6 @@ class ParallelGateSetProgram:
 
 
 @dataclass(frozen=True)
-class SurfaceCodeRoundProgram:
-    patch_qubits: tuple[str, ...]
-    data_qubits: tuple[str, ...]
-    ancilla_qubits: tuple[str, ...]
-    couplers: tuple[str, ...]
-    rounds: int
-    cycle_time: sc.Quantity
-    schedule: tuple[str, ...]
-    compiler_id: str
-
-
-@dataclass(frozen=True)
-class RepeatedMeasurementProgram:
-    qubit: str
-    rounds: int
-    shots: int
-    readout_frequency: sc.Quantity
-    compiler_id: str
-
-
-@dataclass(frozen=True)
 class BackendBatchJob:
     logical_points: int
     submitted_point_uids: tuple[str, ...]
@@ -145,6 +124,4 @@ __all__ = [
     "RandomizedBenchmarkingSequence",
     "ReadoutPulseProgram",
     "RenderedWaveformBundle",
-    "RepeatedMeasurementProgram",
-    "SurfaceCodeRoundProgram",
 ]
