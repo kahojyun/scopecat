@@ -12,15 +12,14 @@ from scopecat_quantum import (
     CircuitPulseEventProvenance,
     GateId,
     ImplementedGatePulseEventProvenance,
+    QubitId,
 )
 from scopecat_quantum import authoring as quantum
 
 from quantum_lab_demo import quantum_lab, quantum_lab_compiler
 from quantum_lab_demo.virtual_lab.parameters import q0_drag_beta_lookup
+from quantum_lab_demo.virtual_lab.pulse_profile import xm90_pulse_recipe
 from quantum_lab_demo.virtual_lab.wiring import quantum_wiring_config_profile
-from quantum_lab_demo.workflows.drag_beta_calibration import (
-    XM90_CALIBRATION_ID,
-)
 from quantum_lab_demo.workflows.production_drag_gate import (
     accepted_xm90_event_id,
     production_drag_capture,
@@ -162,7 +161,9 @@ def test_active_drag_beta_changes_program_and_compiler_segments(
         for origin in active_entry.event_origins
         if isinstance(origin.provenance, CircuitPulseEventProvenance)
     )
-    assert accepted.calibration_id == XM90_CALIBRATION_ID
+    assert accepted.implementation_id == xm90_pulse_recipe.implementation_id(
+        (QubitId("q0"),)
+    )
 
     assert baseline_run.manifest.status == active_run.manifest.status == "completed"
     baseline_records = baseline_run.data().measurements().dataset.records

@@ -4,7 +4,7 @@ Circuit IR contains logical operands, typed gate calls, measurement
 declarations, and sequence or parallel composition. It contains no physical
 channels, waveforms, sample rates, products, or record policy. A measurement
 is an acquisition declaration with its own result slot, not a unitary gate.
-Physical meaning enters only through later calibration and target passes.
+Physical meaning enters only through later implementation and target passes.
 """
 
 from __future__ import annotations
@@ -94,11 +94,11 @@ class CircuitVerificationError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class VerifiedCircuitProgram:
-    """Circuit and catalog facts safe for later domain lowering.
+    """Circuit facts safe for later domain lowering.
 
     ``operations`` is flattened in circuit order. Arguments of verified gate
     calls are canonicalized into their definition order, so downstream
-    calibration matching does not depend on authoring argument order.
+    implementation binding does not depend on authoring argument order.
     """
 
     program: CircuitProgram
@@ -400,7 +400,7 @@ def _canonical_gate_argument(
     parameter: GateParameterDefinition,
     argument: GateArgument,
 ) -> GateArgument:
-    """Normalize equivalent values before exact calibration matching."""
+    """Normalize equivalent values before exact implementation binding."""
 
     if parameter.kind is not GateParameterKind.ANGLE:
         return argument

@@ -7,6 +7,7 @@ from typing import Annotated
 
 import scopecat as sc
 from quantum_lab_demo import notebook_workspace, quantum_lab
+from quantum_lab_demo.virtual_lab.parameters import qubit_parameters
 from quantum_lab_demo.workflows.ramsey_phase_experiment import (
     DEFAULT_PHASES,
     PHASE,
@@ -49,7 +50,11 @@ def ramsey_phase_program(
 
 @sc.template
 def ramsey_phase_template() -> sc.ExperimentBody:
-    call = ramsey_phase_program(qubit="q0", phase=PHASE).with_shots(1)
+    call = (
+        ramsey_phase_program(qubit="q0", phase=PHASE)
+        .with_compiler_inputs(qubits=qubit_parameters())
+        .with_shots(1)
+    )
     return (
         sc.experiment(call)
         .scan(PHASE, DEFAULT_PHASES)

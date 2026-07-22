@@ -18,8 +18,6 @@ from scopecat_quantum import (
     AcquisitionKind,
     AcquisitionSlot,
     AcquisitionSlotId,
-    CalibrationCatalog,
-    CalibrationId,
     CircuitId,
     CircuitOperationId,
     CircuitProgram,
@@ -28,20 +26,19 @@ from scopecat_quantum import (
     Constant,
     Delay,
     DriveSignal,
-    GateCalibration,
-    GateCalibrationCatalog,
-    GateCalibrationKey,
     GateCall,
     GateDefinition,
     GateId,
+    GatePulseImplementation,
+    GatePulseImplementationKey,
     Gaussian,
     Measure,
-    MeasurementCalibration,
-    MeasurementCalibrationCatalog,
-    MeasurementCalibrationKey,
+    MeasurementPulseImplementation,
+    MeasurementPulseImplementationKey,
     Play,
     PreparedQuantumTargetEntry,
     PulseEventId,
+    PulseImplementationId,
     PulseParallel,
     PulseProgram,
     PulseProgramId,
@@ -50,6 +47,7 @@ from scopecat_quantum import (
     QuantumProgramIR,
     QubitId,
     ReadoutSignal,
+    ResolvedPulseImplementations,
     ScheduledPulseProgram,
     ShiftPhase,
     TargetArtifact,
@@ -59,13 +57,13 @@ from scopecat_quantum import (
     TargetCompileRequest,
     TargetCompilerId,
     TargetId,
+    bind_pulse_implementations,
     compile_target,
     lower_circuit_to_pulses,
     lower_quantum_program_to_pulses,
     prepare_quantum_target_batch,
     prepare_quantum_target_entry,
     schedule,
-    select_calibrations,
     verify_circuit_program,
     verify_quantum_program,
 )
@@ -298,7 +296,7 @@ def _prepared_measurement_entry(
     qubit: QubitId,
     acquisition_kind: AcquisitionKind,
     acquisition_slot_id: AcquisitionSlotId,
-) -> tuple[PreparedQuantumTargetEntry, Measure, MeasurementCalibration]:
+) -> tuple[PreparedQuantumTargetEntry, Measure, MeasurementPulseImplementation]:
     measurement = Measure(
         id=CircuitOperationId("measure"),
         qubit=qubit,
@@ -332,9 +330,9 @@ def _prepared_measurement_entry(
         ),
         acquisition_slots=(template_slot,),
     )
-    calibration = MeasurementCalibration(
-        id=CalibrationId(f"readout-{qubit.value}-{acquisition_kind.value}"),
-        key=MeasurementCalibrationKey.from_measurement(measurement),
+    implementation = MeasurementPulseImplementation(
+        id=PulseImplementationId(f"readout-{qubit.value}-{acquisition_kind.value}"),
+        key=MeasurementPulseImplementationKey.from_measurement(measurement),
         pulse_template=template,
     )
     verified = verify_quantum_program(
@@ -346,8 +344,8 @@ def _prepared_measurement_entry(
     )
     lowered = lower_quantum_program_to_pulses(
         verified,
-        CalibrationCatalog(
-            measurements=MeasurementCalibrationCatalog((calibration,)),
+        ResolvedPulseImplementations(
+            measurements=(implementation,),
         ),
         output_id=PulseProgramId(f"{entry_id}-pulses"),
     )
@@ -357,7 +355,7 @@ def _prepared_measurement_entry(
             lowered,
         ),
         measurement,
-        calibration,
+        implementation,
     )
 
 
@@ -601,17 +599,15 @@ def test_calibrated_gate_circuit_reaches_fake_list_target() -> None:
             Constant(Quantity(4, "ns"), Quantity(0.25, "arb")),
         ),
     )
-    selection = select_calibrations(
+    selection = bind_pulse_implementations(
         circuit,
-        CalibrationCatalog(
-            gates=GateCalibrationCatalog(
-                (
-                    GateCalibration(
-                        CalibrationId("x-q0"),
-                        GateCalibrationKey.from_call(first),
-                        template,
-                    ),
-                )
+        ResolvedPulseImplementations(
+            gates=(
+                GatePulseImplementation(
+                    PulseImplementationId("x-q0"),
+                    GatePulseImplementationKey.from_call(first),
+                    template,
+                ),
             )
         ),
     )
@@ -681,26 +677,22 @@ def test_calibrated_measurement_reaches_fake_awg_and_digitizer() -> None:
         ),
         acquisition_slots=(template_slot,),
     )
-    selection = select_calibrations(
+    selection = bind_pulse_implementations(
         circuit,
-        CalibrationCatalog(
-            gates=GateCalibrationCatalog(
-                (
-                    GateCalibration(
-                        CalibrationId("x-q0"),
-                        GateCalibrationKey.from_call(gate_call),
-                        gate_template,
-                    ),
-                )
+        ResolvedPulseImplementations(
+            gates=(
+                GatePulseImplementation(
+                    PulseImplementationId("x-q0"),
+                    GatePulseImplementationKey.from_call(gate_call),
+                    gate_template,
+                ),
             ),
-            measurements=MeasurementCalibrationCatalog(
-                (
-                    MeasurementCalibration(
-                        CalibrationId("readout-q0"),
-                        MeasurementCalibrationKey.from_measurement(measurement),
-                        measurement_template,
-                    ),
-                )
+            measurements=(
+                MeasurementPulseImplementation(
+                    PulseImplementationId("readout-q0"),
+                    MeasurementPulseImplementationKey.from_measurement(measurement),
+                    measurement_template,
+                ),
             ),
         ),
     )
@@ -758,14 +750,14 @@ def test_prepared_quantum_batch_resolves_reused_slots_from_runtime_frames() -> N
         "result",
         scope=("circuit-local",),
     )
-    iq_entry, iq_measurement, iq_calibration = _prepared_measurement_entry(
+    iq_entry, iq_measurement, iq_implementation = _prepared_measurement_entry(
         entry_id="iq-entry",
         program_id="iq-program",
         qubit=Q0,
         acquisition_kind=AcquisitionKind.INTEGRATED_IQ,
         acquisition_slot_id=shared_slot_id,
     )
-    trace_entry, trace_measurement, trace_calibration = _prepared_measurement_entry(
+    trace_entry, trace_measurement, trace_implementation = _prepared_measurement_entry(
         entry_id="trace-entry",
         program_id="trace-program",
         qubit=Q1,
@@ -802,23 +794,23 @@ def test_prepared_quantum_batch_resolves_reused_slots_from_runtime_frames() -> N
         iq_entry.id: (
             iq_entry.source_program_id,
             iq_measurement,
-            iq_calibration,
+            iq_implementation,
         ),
         trace_entry.id: (
             trace_entry.source_program_id,
             trace_measurement,
-            trace_calibration,
+            trace_implementation,
         ),
     }
     for frame in run.frames:
         origin = batch.acquisition_origin_for(frame.address)
-        source_program_id, measurement, calibration = expected[frame.entry_id]
+        source_program_id, measurement, implementation = expected[frame.entry_id]
         assert origin.address == frame.address
         assert origin.source_program_id == source_program_id
         assert isinstance(origin.provenance, CircuitPulseAcquisitionProvenance)
         assert origin.provenance.measurement_id == measurement.id
         assert origin.provenance.acquisition_slot_id == measurement.acquisition_slot_id
-        assert origin.provenance.calibration_id == calibration.id
+        assert origin.provenance.implementation_id == implementation.id
         assert frame.slot_id == shared_slot_id
         assert frame.kind is measurement.acquisition_kind
         if frame.kind is AcquisitionKind.INTEGRATED_IQ:

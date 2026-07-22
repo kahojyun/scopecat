@@ -16,7 +16,7 @@ from quantum_lab_demo.virtual_lab.parameters import (
     CZ_AMPLITUDE_PARAMETER_COLUMN,
     q0_q1_cz_amplitude_lookup,
     q0_q1_cz_row,
-    quantum_calibration_parameters,
+    qubit_parameters,
 )
 from quantum_lab_demo.workflows.cz_phase_calibration import (
     cz_conditional_phase,
@@ -60,7 +60,7 @@ def cz_phase_capture():
             coupler_amplitude=q0_q1_cz_amplitude_lookup(),
             analyzer_phase=ANALYZER_PHASE,
         )
-        .with_compiler_inputs(calibrations=quantum_calibration_parameters())
+        .with_compiler_inputs(qubits=qubit_parameters())
         .with_shots(CZ_PHASE_SHOTS)
     )
     body = (

@@ -17,10 +17,11 @@ from quantum_lab_demo.targets.fake_list_mode import (
 
 @dataclass(frozen=True, slots=True)
 class QuantumLabPointValues:
-    """One fully resolved program-input row for a logical point."""
+    """Resolved program and compiler inputs for one logical point."""
 
     ordinal: int
     values: tuple[tuple[str, object], ...]
+    compiler_parameter_fingerprint: str
 
     def value(self, name: str) -> object:
         for input_name, value in self.values:

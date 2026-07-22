@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import cast
 
@@ -24,12 +24,13 @@ from scopecat.sdk.domain import (
 )
 from scopecat_quantum import (
     AcquisitionKind,
-    CalibrationCatalog,
     CompiledQuantumTarget,
     PreparedQuantumTargetEntry,
     PulseProgramId,
+    PulseRecipeProfile,
     QuantumTargetEntryPointBinding,
     QuantumTargetResultUseBinding,
+    ResolvedPulseImplementations,
     ResultCollection,
     TargetCompileEntryId,
     TargetCompilerId,
@@ -69,10 +70,8 @@ from quantum_lab_demo.trace import (
     QuantumLabPreparationEvidence,
     QuantumLabTrace,
 )
-from quantum_lab_demo.virtual_lab.calibrations import (
-    calibration_catalog_from_qubit_parameters,
-)
-from quantum_lab_demo.virtual_lab.parameters import QUANTUM_CALIBRATIONS_INPUT
+from quantum_lab_demo.virtual_lab.compiler_parameters import QuantumCompilerParameters
+from quantum_lab_demo.virtual_lab.parameters import QUBIT_PARAMETER_TABLE
 
 _QUANTUM_LAB_COMPILER_ID = "quantum-lab-demo.compiler.v1"
 _QUANTUM_LAB_TARGET_COMPILER_ID = TargetCompilerId(
@@ -84,7 +83,7 @@ _QUANTUM_LAB_TARGET_COMPILER_ID = TargetCompilerId(
 class _QuantumLabArtifact:
     program: quantum.Program = field(repr=False)
     points: tuple[QuantumLabPointValues, ...]
-    calibrations: tuple[CalibrationCatalog, ...] = field(repr=False)
+    implementations: tuple[ResolvedPulseImplementations, ...] = field(repr=False)
 
 
 class QuantumLabCompiler:
@@ -93,10 +92,11 @@ class QuantumLabCompiler:
     Scopecat derives domain input normal forms from accepted experiment
     semantics; program and compiler inputs both reflect the accepted snapshot
     and point-local overlays. ``compile`` resolves them into immutable artifact
-    values, so this implementation never reaches into mutable parameter state.
-    It also owns the internal target lowering stage; the injected response
-    registry may select deterministic fake behavior by Program identity, but
-    never a different compiler.
+    values through an injected static pulse recipe profile, so this
+    implementation never reaches into mutable parameter state. It also owns the
+    internal target lowering stage; the injected response registry may select
+    deterministic fake behavior by Program identity, but never a different
+    compiler.
     """
 
     def __init__(
@@ -106,11 +106,13 @@ class QuantumLabCompiler:
         runtime: FakeListDomainRuntime,
         response_registry: QuantumLabResponseRegistry,
         trace: QuantumLabTrace,
+        pulse_profile: PulseRecipeProfile[QuantumCompilerParameters],
     ) -> None:
         self._target = target
         self._runtime = runtime
         self._response_registry = response_registry
         self._trace = trace
+        self._pulse_profile = pulse_profile
         self._trace.register_runtime(runtime)
         self._target_compiler = FakeListTargetCompiler(
             _QUANTUM_LAB_TARGET_COMPILER_ID,
@@ -147,7 +149,11 @@ class QuantumLabCompiler:
             request,
             max_points=self._target.max_list_entries,
             artifact_input_ids=input_ids,
-            compile_artifact=lambda inputs: _compile_artifact(program, inputs),
+            compile_artifact=lambda inputs: _compile_artifact(
+                program,
+                inputs,
+                self._pulse_profile,
+            ),
         )
 
     def prepare(
@@ -167,16 +173,16 @@ class QuantumLabCompiler:
                 ),
                 lower_quantum_program_to_pulses(
                     quantum.bind(artifact.program, dict(point.values)).verified,
-                    calibrations,
+                    implementations,
                     output_id=PulseProgramId(
                         f"{artifact.program.id}.batch-{context.batch_ordinal}."
                         f"point-{point.ordinal}.pulses"
                     ),
                 ),
             )
-            for point, calibrations in zip(
+            for point, implementations in zip(
                 artifact.points,
-                artifact.calibrations,
+                artifact.implementations,
                 strict=True,
             )
         )
@@ -298,8 +304,8 @@ def _validate_call(
     ):
         raise ValueError("quantum Program result ports changed before compilation")
     compiler_input_ids = tuple(port.id for port in call.program.compiler_inputs)
-    if compiler_input_ids not in ((), (QUANTUM_CALIBRATIONS_INPUT,)):
-        raise ValueError("quantum compiler inputs must be the calibration collection")
+    if compiler_input_ids not in ((), (QUBIT_PARAMETER_TABLE,)):
+        raise ValueError("quantum compiler inputs must be the qubits collection")
     for result in program.results:
         binding = call.result(result.id)
         if binding.contract is not result:
@@ -337,30 +343,38 @@ def _shot_count(call: DomainCallView | DomainExecutionView) -> int:
 def _compile_artifact(
     program: quantum.Program,
     inputs: DomainCompiledInputs,
+    pulse_profile: PulseRecipeProfile[QuantumCompilerParameters],
 ) -> _QuantumLabArtifact:
     program_inputs = inputs.program
-    calibrations = (
-        tuple(CalibrationCatalog() for _ordinal in inputs.ordinals)
+    compiler_parameters = (
+        tuple(QuantumCompilerParameters() for _ordinal in inputs.ordinals)
         if not inputs.compiler.columns
-        else tuple(
-            calibration_catalog_from_qubit_parameters(
-                cast("Sequence[Mapping[str, object]]", rows)
-            )
-            for rows in inputs.compiler.input(QUANTUM_CALIBRATIONS_INPUT)
+        else inputs.compiler.decode_collection(
+            QUBIT_PARAMETER_TABLE,
+            QuantumCompilerParameters.from_qubit_rows,
         )
+    )
+    points = tuple(
+        QuantumLabPointValues(
+            ordinal=ordinal,
+            values=tuple(
+                (name, values[index]) for name, values in program_inputs.columns
+            ),
+            compiler_parameter_fingerprint=compiler_parameters[index].fingerprint,
+        )
+        for index, ordinal in enumerate(program_inputs.ordinals)
+    )
+    implementations = tuple(
+        pulse_profile.materialize(
+            parameters,
+            quantum.bind(program, dict(point.values)).verified.unresolved_circuit,
+        )
+        for point, parameters in zip(points, compiler_parameters, strict=True)
     )
     return _QuantumLabArtifact(
         program=program,
-        points=tuple(
-            QuantumLabPointValues(
-                ordinal=ordinal,
-                values=tuple(
-                    (name, values[index]) for name, values in program_inputs.columns
-                ),
-            )
-            for index, ordinal in enumerate(program_inputs.ordinals)
-        ),
-        calibrations=calibrations,
+        points=points,
+        implementations=implementations,
     )
 
 

@@ -14,16 +14,18 @@ from scopecat_quantum import (
     IqCentroid,
     PreparedQuantumTargetEntry,
     PulseEventId,
+    QubitId,
     binary_iq_probability_transform,
 )
 from scopecat_quantum import authoring as quantum
+from scopecat_quantum.standard_gates import X90, XM90
 
 from quantum_lab_demo.virtual_lab.parameters import (
     q0_drag_beta_lookup,
-    quantum_calibration_parameters,
+    qubit_parameters,
 )
+from quantum_lab_demo.virtual_lab.pulse_profile import xm90_pulse_recipe
 from quantum_lab_demo.workflows.drag_beta_calibration import (
-    XM90_CALIBRATION_ID,
     drag_gate_pulse,
     drag_readout_pulse,
 )
@@ -31,11 +33,9 @@ from quantum_lab_demo.workflows.drag_beta_calibration import (
 PRODUCTION_DRAG_GATE_TEMPLATE_ID = "quantum_lab_demo.production.drag_x90"
 PRODUCTION_DRAG_GATE_EXPERIMENT_ID = "production-drag-x90"
 PRODUCTION_DRAG_GATE_SHOTS = 32
-_X90 = quantum.single_qubit_gate("x90")
-_XM90 = quantum.single_qubit_gate("xm90")
 
 
-@quantum.implementation(of=_X90, id="production-drag-x90.implementation")
+@quantum.implementation(of=X90, id="production-drag-x90.implementation")
 def production_x90(
     qubit: quantum.Qubit,
     drag_beta: Annotated[Quantity, QuantityType(unit="ns")],
@@ -61,7 +61,7 @@ def production_drag_program(
     )
     return quantum.sequence(
         production_x90(qubit, drag_beta=drag_beta),
-        _XM90(qubit),
+        XM90(qubit),
         quantum.parallel(drag_readout_pulse(qubit), capture),
     )
 
@@ -80,7 +80,7 @@ def production_drag_capture():
             qubit="q0",
             drag_beta=q0_drag_beta_lookup(),
         )
-        .with_compiler_inputs(calibrations=quantum_calibration_parameters())
+        .with_compiler_inputs(qubits=qubit_parameters())
         .with_shots(PRODUCTION_DRAG_GATE_SHOTS)
     )
     body = (
@@ -144,7 +144,8 @@ def accepted_xm90_event_id(entry: PreparedQuantumTargetEntry) -> PulseEventId:
         origin.address.event_id
         for origin in entry.event_origins
         if isinstance(origin.provenance, CircuitPulseEventProvenance)
-        and origin.provenance.calibration_id == XM90_CALIBRATION_ID
+        and origin.provenance.implementation_id
+        == xm90_pulse_recipe.implementation_id((QubitId("q0"),))
     )
     if len(selected) != 1:
         msg = "production gate must lower one accepted Xm90 calibration"

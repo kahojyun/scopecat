@@ -187,6 +187,23 @@ def iter_pulse_leaves(instruction: PulseInstruction) -> Iterator[PulseLeaf]:
                 yield from iter_pulse_leaves(child)
 
 
+def pulse_leaf_owners(
+    instruction: PulseInstruction,
+) -> tuple[QubitId | CouplerId, ...]:
+    """Return logical signal owners without exposing authoring internals."""
+
+    owners: list[QubitId | CouplerId] = []
+    for leaf in iter_pulse_leaves(instruction):
+        signals: tuple[LogicalSignal, ...] = (
+            leaf.signals if isinstance(leaf, Barrier) else (leaf.signal,)
+        )
+        owners.extend(
+            signal.owner if isinstance(signal, FluxSignal) else signal.qubit
+            for signal in signals
+        )
+    return tuple(owners)
+
+
 @dataclass(frozen=True, slots=True)
 class PulseProgram:
     """Relative pulse authoring IR; never a target-compiler input."""

@@ -6,24 +6,16 @@ import math
 from typing import Annotated
 
 from scopecat import IntType, Quantity, QuantityType, ScalarType
-from scopecat_quantum import (
-    CalibrationId,
-)
 from scopecat_quantum import authoring as q
+from scopecat_quantum.standard_gates import X90, XM90
 
 POSITIVE_CANDIDATE_ID = "x90.drag.plus"
 NEGATIVE_CANDIDATE_ID = "x90.drag.minus"
-
-_X90 = q.single_qubit_gate("x90")
-_XM90 = q.single_qubit_gate("xm90")
 
 _PULSE_DURATION = Quantity(16, "ns")
 _PULSE_AMPLITUDE = Quantity(0.2, "arb")
 _PULSE_SIGMA = Quantity(4, "ns")
 _READOUT_DURATION = Quantity(8, "ns")
-
-X90_CALIBRATION_ID = CalibrationId("drag-beta.baseline.x90.q0")
-XM90_CALIBRATION_ID = CalibrationId("drag-beta.baseline.xm90.q0")
 
 
 @q.pulse_template(id="drag-beta.gate-pulse")
@@ -56,7 +48,7 @@ def drag_readout_pulse(qubit: q.Qubit) -> q.QuantumFragment:
 
 
 @q.implementation(
-    of=_X90,
+    of=X90,
     candidate=POSITIVE_CANDIDATE_ID,
     id="drag-beta.x90-candidate",
 )
@@ -72,7 +64,7 @@ def candidate_x90(
 
 
 @q.implementation(
-    of=_XM90,
+    of=XM90,
     candidate=NEGATIVE_CANDIDATE_ID,
     id="drag-beta.xm90-candidate",
 )
@@ -109,9 +101,9 @@ def drag_beta_program(
         result="iq_shots",
     )
     return q.sequence(
-        _X90(qubit),
+        X90(qubit),
         q.repeat(candidate_pair, amplification),
-        _XM90(qubit),
+        XM90(qubit),
         q.parallel(
             drag_readout_pulse(qubit),
             capture,
@@ -122,8 +114,6 @@ def drag_beta_program(
 __all__ = [
     "NEGATIVE_CANDIDATE_ID",
     "POSITIVE_CANDIDATE_ID",
-    "X90_CALIBRATION_ID",
-    "XM90_CALIBRATION_ID",
     "candidate_x90",
     "candidate_xm90",
     "drag_beta_program",

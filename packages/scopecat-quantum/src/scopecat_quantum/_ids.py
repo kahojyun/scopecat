@@ -131,8 +131,8 @@ class AcquisitionSlotId(_StructuralId):
 
 
 @dataclass(frozen=True, slots=True)
-class CalibrationId(_NominalId):
-    """Identity of one calibration declaration."""
+class PulseImplementationId(_NominalId):
+    """Stable identity of one compiler-owned pulse implementation recipe."""
 
 
 @dataclass(frozen=True, slots=True)

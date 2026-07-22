@@ -6,6 +6,7 @@ from pathlib import Path
 
 import scopecat as sc
 from scopecat.records.config import ConfigProfileSnapshot
+from scopecat_quantum import PulseRecipeProfile
 
 from quantum_lab_demo.compiler import QuantumLabCompiler
 from quantum_lab_demo.fixtures import (
@@ -19,7 +20,9 @@ from quantum_lab_demo.targets.fake_list_mode import (
     default_fake_list_target,
 )
 from quantum_lab_demo.trace import QuantumLabTrace
+from quantum_lab_demo.virtual_lab.compiler_parameters import QuantumCompilerParameters
 from quantum_lab_demo.virtual_lab.provider import QuantumLabVirtualProvider
+from quantum_lab_demo.virtual_lab.pulse_profile import QUANTUM_PULSE_PROFILE
 from quantum_lab_demo.virtual_lab.quantum_responses import (
     quantum_lab_response_registry,
 )
@@ -35,6 +38,7 @@ def quantum_lab_compiler(
     runtime: FakeListDomainRuntime | None = None,
     response_registry: QuantumLabResponseRegistry | None = None,
     trace: QuantumLabTrace | None = None,
+    pulse_profile: PulseRecipeProfile[QuantumCompilerParameters] | None = None,
 ) -> QuantumLabCompiler:
     """Compose the demo lab's one domain compiler from lab-owned policy."""
 
@@ -47,6 +51,9 @@ def quantum_lab_compiler(
             else response_registry
         ),
         trace=QuantumLabTrace() if trace is None else trace,
+        pulse_profile=(
+            QUANTUM_PULSE_PROFILE if pulse_profile is None else pulse_profile
+        ),
     )
 
 

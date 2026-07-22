@@ -72,18 +72,16 @@ from scopecat_quantum import (
     AcquisitionSlot,
     AcquisitionSlotId,
     BinaryIqDiscriminator,
-    CalibrationCatalog,
-    CalibrationId,
     CircuitOperationId,
     CompiledQuantumTarget,
     Constant,
     IqCentroid,
     Measure,
-    MeasurementCalibration,
-    MeasurementCalibrationCatalog,
-    MeasurementCalibrationKey,
+    MeasurementPulseImplementation,
+    MeasurementPulseImplementationKey,
     Play,
     PulseEventId,
+    PulseImplementationId,
     PulseParallel,
     PulseProgram,
     PulseProgramId,
@@ -93,6 +91,7 @@ from scopecat_quantum import (
     QuantumTargetResultUseBinding,
     QubitId,
     ReadoutSignal,
+    ResolvedPulseImplementations,
     TargetCompileEntryId,
     TargetCompilerId,
     binary_iq_probability_host_implementation,
@@ -281,15 +280,15 @@ def _lowered_measurement_program():
         ),
         acquisition_slots=(template_slot,),
     )
-    calibration = MeasurementCalibration(
-        id=CalibrationId("binary-iq-readout-q0"),
-        key=MeasurementCalibrationKey.from_measurement(measurement),
+    implementation = MeasurementPulseImplementation(
+        id=PulseImplementationId("binary-iq-readout-q0"),
+        key=MeasurementPulseImplementationKey.from_measurement(measurement),
         pulse_template=template,
     )
     return lower_quantum_program_to_pulses(
         program,
-        CalibrationCatalog(
-            measurements=MeasurementCalibrationCatalog((calibration,)),
+        ResolvedPulseImplementations(
+            measurements=(implementation,),
         ),
         output_id=PulseProgramId("binary-iq-readout-pulses"),
     )

@@ -2,7 +2,7 @@
 
 Gate, measurement, and pulse statements share one composition, binding, and
 domain-integration surface. Pure logical programs remain a verified subset and
-project to Circuit IR internally when calibration or target passes require it.
+project to Circuit IR internally when implementation or target passes require it.
 """
 
 from __future__ import annotations
@@ -1546,6 +1546,62 @@ def _close_pulse_template(
     )
 
 
+def materialize_pulse_recipe_body(
+    id: str,  # noqa: A002
+    body: QuantumFragment,
+    /,
+    *,
+    measurement: tuple[QubitId, AcquisitionKind] | None = None,
+) -> PulseProgram:
+    """Close one concrete recipe body with framework-owned local identities."""
+
+    expanded = _expand_fragment_calls(body, {})
+    facts = _summarize_fragment(expanded)
+    if not facts.pulse_only:
+        msg = "pulse recipe bodies must contain only pulse statements"
+        raise TypeError(msg)
+    if facts.inputs:
+        rendered = ", ".join(repr(value.id) for value in facts.inputs)
+        msg = f"pulse recipe captures unbound inputs: {rendered}"
+        raise ValueError(msg)
+
+    slots: tuple[AcquisitionSlot, ...] = ()
+    if measurement is None:
+        if facts.results:
+            msg = "gate pulse recipes cannot acquire results"
+            raise ValueError(msg)
+    else:
+        qubit_id, acquisition_kind = measurement
+        if len(facts.results) != 1:
+            msg = "measurement pulse recipes must acquire exactly one result"
+            raise ValueError(msg)
+        result = facts.results[0]
+        if result.qubit.ir_id != qubit_id:
+            msg = "measurement pulse recipe result must belong to its mapped qubit"
+            raise ValueError(msg)
+        if result.acquisition_kind is not acquisition_kind:
+            msg = "measurement pulse recipe result kind must match its declaration"
+            raise ValueError(msg)
+        slots = (
+            AcquisitionSlot(
+                id=result.acquisition_slot_id,
+                kind=acquisition_kind,
+                signal=AcquireSignal(qubit_id),
+            ),
+        )
+
+    return PulseProgram(
+        id=PulseProgramId(id),
+        body=_bind_pulse_fragment(
+            expanded,
+            {},
+            element_bindings={},
+            path=(),
+        ),
+        acquisition_slots=slots,
+    )
+
+
 def constant(
     *,
     duration: QuantumQuantity,
@@ -3012,6 +3068,16 @@ def _bind_pulse_fragment(
     path: tuple[str, ...],
     acquisition_slot_id: AcquisitionSlotId | None = None,
 ) -> PulseInstruction:
+    if isinstance(fragment, _ExpandedFragment):
+        return _bind_pulse_fragment(
+            fragment.body,
+            bindings,
+            element_bindings=element_bindings,
+            path=(*path, f"fragment[{fragment.definition_id}]"),
+            acquisition_slot_id=acquisition_slot_id,
+        )
+    if isinstance(fragment, _FragmentCall):
+        raise AssertionError("quantum fragment calls must expand before binding")
     if isinstance(fragment, _PlayFragment):
         return Play(
             id=PulseEventId("play", scope=path),

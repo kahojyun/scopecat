@@ -13,8 +13,9 @@ from scopecat_quantum import (
     binary_iq_probability_transform,
 )
 from scopecat_quantum import authoring as quantum
+from scopecat_quantum.standard_gates import X
 
-from quantum_lab_demo.virtual_lab.parameters import quantum_calibration_parameters
+from quantum_lab_demo.virtual_lab.parameters import qubit_parameters
 
 FAKE_X_COUNT_TEMPLATE_ID = "quantum_lab_demo.workflows.fake_x_count"
 FAKE_X_COUNT_EXPERIMENT_ID = "fake-x-count"
@@ -26,7 +27,6 @@ X_COUNT = sc.coordinate(
     sc.ScalarType(sc.IntType(minimum=0)),
 )
 
-_X_GATE = quantum.single_qubit_gate("x")
 _X_COUNT_DISCRIMINATOR = BinaryIqDiscriminator(
     state_0_centroid=IqCentroid(real=-1.0, imag=0.0),
     state_1_centroid=IqCentroid(real=1.0, imag=0.0),
@@ -42,7 +42,7 @@ def x_count_program(
     """Repeat X on one logical qubit, then acquire integrated IQ shots."""
 
     return quantum.sequence(
-        quantum.repeat(_X_GATE(qubit), x_count),
+        quantum.repeat(X(qubit), x_count),
         quantum.measure(qubit, result="iq_shots"),
     )
 
@@ -58,7 +58,7 @@ def fake_x_count_capture(
             qubit="q0",
             x_count=x_count,
         )
-        .with_compiler_inputs(calibrations=quantum_calibration_parameters())
+        .with_compiler_inputs(qubits=qubit_parameters())
         .with_shots(FAKE_X_COUNT_SHOTS)
     )
     body = (

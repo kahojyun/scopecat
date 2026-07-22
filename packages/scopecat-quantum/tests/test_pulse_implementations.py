@@ -7,29 +7,16 @@ from scopecat import Quantity
 
 from scopecat_quantum._ids import (
     AcquisitionSlotId,
-    CalibrationId,
     CircuitId,
     CircuitOperationId,
+    CouplerId,
     GateId,
     PulseEventId,
+    PulseImplementationId,
     PulseProgramId,
     QubitId,
 )
 from scopecat_quantum.acquisitions import AcquisitionKind
-from scopecat_quantum.calibrations import (
-    CalibrationCatalog,
-    CalibrationSelectionError,
-    CalibrationSelectionIssue,
-    CalibrationSelectionIssueCode,
-    GateCalibration,
-    GateCalibrationArgument,
-    GateCalibrationCatalog,
-    GateCalibrationKey,
-    MeasurementCalibration,
-    MeasurementCalibrationCatalog,
-    MeasurementCalibrationKey,
-    select_calibrations,
-)
 from scopecat_quantum.circuits import (
     CircuitProgram,
     Measure,
@@ -45,6 +32,18 @@ from scopecat_quantum.gates import (
     GateParameterDefinition,
     GateParameterKind,
 )
+from scopecat_quantum.pulse_implementations import (
+    GatePulseImplementation,
+    GatePulseImplementationArgument,
+    GatePulseImplementationKey,
+    MeasurementPulseImplementation,
+    MeasurementPulseImplementationKey,
+    PulseImplementationBindingError,
+    PulseImplementationBindingIssue,
+    PulseImplementationBindingIssueCode,
+    ResolvedPulseImplementations,
+    bind_pulse_implementations,
+)
 from scopecat_quantum.pulses import (
     Acquire,
     AcquireSignal,
@@ -52,6 +51,7 @@ from scopecat_quantum.pulses import (
     Constant,
     Delay,
     DriveSignal,
+    FluxSignal,
     Play,
     PulseProgram,
     ReadoutSignal,
@@ -81,6 +81,7 @@ ROTATE = GateDefinition(
 )
 Q0 = QubitId("q0")
 Q1 = QubitId("q1")
+C01 = CouplerId("c01")
 
 
 def _pulse_template() -> PulseProgram:
@@ -147,58 +148,88 @@ def _verified(*calls: GateCall) -> VerifiedCircuitProgram:
     )
 
 
-def _calibration(
-    calibration_id: str,
+def _implementation(
+    implementation_id: str,
     call: GateCall,
     *,
     pulse_template: PulseProgram | None = None,
-) -> GateCalibration:
-    return GateCalibration(
-        id=CalibrationId(calibration_id),
-        key=GateCalibrationKey.from_call(call),
+) -> GatePulseImplementation:
+    return GatePulseImplementation(
+        id=PulseImplementationId(implementation_id),
+        key=GatePulseImplementationKey.from_call(call),
         pulse_template=pulse_template or _pulse_template(),
     )
 
 
-def _catalog(*calibrations: GateCalibration) -> CalibrationCatalog:
-    return CalibrationCatalog(gates=GateCalibrationCatalog(calibrations))
+def _implementations(
+    *implementations: GatePulseImplementation,
+) -> ResolvedPulseImplementations:
+    return ResolvedPulseImplementations(gates=implementations)
 
 
-def test_exact_calibration_key_contains_call_data_not_gate_definition() -> None:
+def test_exact_implementation_key_contains_call_data_not_gate_definition() -> None:
     call = _call("x-q0")
 
-    key = GateCalibrationKey.from_call(call)
+    key = GatePulseImplementationKey.from_call(call)
 
-    assert key == GateCalibrationKey(
+    assert key == GatePulseImplementationKey(
         gate_id=GateId("x"),
         operands=(Q0,),
-        arguments=(GateCalibrationArgument(id="angle", value=Quantity(0.5, "rad")),),
+        arguments=(
+            GatePulseImplementationArgument(id="angle", value=Quantity(0.5, "rad")),
+        ),
     )
 
 
-def test_selection_has_exact_gate_call_coverage() -> None:
+def test_bindings_have_exact_gate_call_coverage() -> None:
     first = _call("first")
     second = _call("second")
     pulse = _pulse_template()
 
-    selection = select_calibrations(
+    bindings = bind_pulse_implementations(
         _verified(first, second),
-        _catalog(_calibration("x-q0", first, pulse_template=pulse)),
+        _implementations(_implementation("x-q0", first, pulse_template=pulse)),
     )
 
-    assert selection.operation_ids == (first.id, second.id)
-    assert selection.gates.gate_call_ids == (first.id, second.id)
-    assert tuple(binding.call_id for binding in selection.gates.bindings) == (
+    assert bindings.operation_ids == (first.id, second.id)
+    assert bindings.gates.gate_call_ids == (first.id, second.id)
+    assert tuple(binding.call_id for binding in bindings.gates.bindings) == (
         first.id,
         second.id,
     )
-    assert selection.gates.binding_for(first.id).pulse_template is pulse
-    assert selection.binding_for(first.id).pulse_template is pulse
+    assert bindings.gates.binding_for(first.id).pulse_template is pulse
+    assert bindings.binding_for(first.id).pulse_template is pulse
 
 
-def test_named_argument_order_does_not_change_calibration_selection() -> None:
-    catalog_call = GateCall(
-        id=CircuitOperationId("catalog-call"),
+def test_binding_distinguishes_one_recipe_resolved_with_different_values() -> None:
+    call = _call("x")
+    first = _implementation("x-q0", call)
+    second = _implementation(
+        "x-q0",
+        call,
+        pulse_template=PulseProgram(
+            id=first.pulse_template.id,
+            body=Delay(
+                id=PulseEventId("delay"),
+                signal=DriveSignal(Q0),
+                duration=Quantity(21, "ns"),
+            ),
+        ),
+    )
+
+    [binding] = bind_pulse_implementations(
+        _verified(call),
+        _implementations(first),
+    ).bindings
+
+    assert first.id == second.id
+    assert first.fingerprint != second.fingerprint
+    assert binding.implementation_fingerprint == first.fingerprint
+
+
+def test_named_argument_order_does_not_change_implementation_bindings() -> None:
+    implementation_call = GateCall(
+        id=CircuitOperationId("implementation-call"),
         gate_id=ROTATE.id,
         qubits=(Q0,),
         arguments=(
@@ -216,21 +247,21 @@ def test_named_argument_order_does_not_change_calibration_selection() -> None:
         ),
     )
 
-    selection = select_calibrations(
+    bindings = bind_pulse_implementations(
         _verified(program_call),
-        _catalog(_calibration("rotate", catalog_call)),
+        _implementations(_implementation("rotate", implementation_call)),
     )
 
-    assert selection.gates.gate_call_ids == (program_call.id,)
-    assert selection.gates.bindings[0].key.arguments == (
-        GateCalibrationArgument(id="angle", value=Quantity(0.5, "rad")),
-        GateCalibrationArgument(id="phase", value=Quantity(0.25, "rad")),
+    assert bindings.gates.gate_call_ids == (program_call.id,)
+    assert bindings.gates.bindings[0].key.arguments == (
+        GatePulseImplementationArgument(id="angle", value=Quantity(0.5, "rad")),
+        GatePulseImplementationArgument(id="phase", value=Quantity(0.25, "rad")),
     )
 
 
-def test_equivalent_angle_units_have_one_exact_calibration_key() -> None:
-    catalog_call = GateCall(
-        id=CircuitOperationId("catalog-call"),
+def test_equivalent_angle_units_have_one_exact_implementation_key() -> None:
+    implementation_call = GateCall(
+        id=CircuitOperationId("implementation-call"),
         gate_id=X.id,
         qubits=(Q0,),
         arguments=(GateArgument(id="angle", value=Quantity(180, "deg")),),
@@ -241,33 +272,35 @@ def test_equivalent_angle_units_have_one_exact_calibration_key() -> None:
         qubits=(Q0,),
         arguments=(GateArgument(id="angle", value=Quantity(math.pi, "rad")),),
     )
-    calibration = _calibration("x-180", catalog_call)
+    implementation = _implementation("x-180", implementation_call)
 
-    selection = select_calibrations(
+    bindings = bind_pulse_implementations(
         _verified(program_call),
-        _catalog(calibration),
+        _implementations(implementation),
     )
 
-    assert selection.gates.bindings[0].key == calibration.key
-    assert calibration.key.arguments[0].value == Quantity(
+    assert bindings.gates.bindings[0].key == implementation.key
+    assert implementation.key.arguments[0].value == Quantity(
         3.14159265359,
         "rad",
     )
 
 
-def test_calibration_key_rejects_duplicate_named_arguments() -> None:
+def test_implementation_key_rejects_duplicate_named_arguments() -> None:
     with pytest.raises(ValueError, match="argument ids must be unique"):
-        GateCalibrationKey(
+        GatePulseImplementationKey(
             gate_id=ROTATE.id,
             operands=(Q0,),
             arguments=(
-                GateCalibrationArgument(id="angle", value=Quantity(0.5, "rad")),
-                GateCalibrationArgument(id="angle", value=Quantity(0.25, "rad")),
+                GatePulseImplementationArgument(id="angle", value=Quantity(0.5, "rad")),
+                GatePulseImplementationArgument(
+                    id="angle", value=Quantity(0.25, "rad")
+                ),
             ),
         )
 
 
-def test_measurement_without_calibration_prevents_aggregate_selection() -> None:
+def test_measurement_without_implementation_prevents_aggregate_binding() -> None:
     call = _call("gate")
     measurement = Measure(
         id=CircuitOperationId("measure"),
@@ -283,89 +316,59 @@ def test_measurement_without_calibration_prevents_aggregate_selection() -> None:
         gate_definitions=(X,),
     )
 
-    with pytest.raises(CalibrationSelectionError) as raised:
-        select_calibrations(program, _catalog(_calibration("gate", call)))
+    with pytest.raises(PulseImplementationBindingError) as raised:
+        bind_pulse_implementations(
+            program, _implementations(_implementation("gate", call))
+        )
 
     assert len(raised.value.issues) == 1
     issue = raised.value.issues[0]
-    assert issue.code is CalibrationSelectionIssueCode.MISSING
+    assert issue.code is PulseImplementationBindingIssueCode.MISSING
     assert issue.operation_id == measurement.id
-    assert issue.matching_calibration_ids == ()
-    assert issue.message == "operation 'measure' has no exact calibration"
-    assert issue.key == MeasurementCalibrationKey(
+    assert issue.message == "operation 'measure' has no exact pulse implementation"
+    assert issue.key == MeasurementPulseImplementationKey(
         qubit=Q0,
         acquisition_kind=AcquisitionKind.INTEGRATED_IQ,
     )
 
 
-def test_ambiguous_measurement_calibrations_are_order_independent() -> None:
+def test_resolved_measurement_implementation_keys_must_be_unique() -> None:
     measurement = Measure(
         id=CircuitOperationId("measure"),
         qubit=Q0,
         acquisition_slot_id=AcquisitionSlotId("result"),
         acquisition_kind=AcquisitionKind.INTEGRATED_IQ,
     )
-    program = verify_circuit_program(
-        CircuitProgram(CircuitId("measurement"), measurement),
-        gate_definitions=(),
-    )
-    key = MeasurementCalibrationKey.from_measurement(measurement)
+    key = MeasurementPulseImplementationKey.from_measurement(measurement)
     template = _measurement_template()
     entries = (
-        MeasurementCalibration(CalibrationId("readout-z"), key, template),
-        MeasurementCalibration(CalibrationId("readout-a"), key, template),
+        MeasurementPulseImplementation(
+            PulseImplementationId("readout-z"), key, template
+        ),
+        MeasurementPulseImplementation(
+            PulseImplementationId("readout-a"), key, template
+        ),
     )
 
-    errors: list[CalibrationSelectionError] = []
     for ordered_entries in (entries, tuple(reversed(entries))):
-        with pytest.raises(CalibrationSelectionError) as raised:
-            select_calibrations(
-                program,
-                CalibrationCatalog(
-                    measurements=MeasurementCalibrationCatalog(ordered_entries)
-                ),
-            )
-        errors.append(raised.value)
+        with pytest.raises(ValueError, match=r"measurement.*keys must be unique"):
+            ResolvedPulseImplementations(measurements=ordered_entries)
 
-    assert errors[0].issues == errors[1].issues
-    assert errors[0].issues[0].code is CalibrationSelectionIssueCode.AMBIGUOUS
-    assert errors[0].issues[0].operation_id == measurement.id
-    assert errors[0].issues[0].matching_calibration_ids == (
-        CalibrationId("readout-a"),
-        CalibrationId("readout-z"),
+
+def test_missing_implementations_are_aggregated_deterministically() -> None:
+    first = _call("z-missing", gate_id=X.id)
+    second = _call("a-missing", gate_id=Y.id)
+
+    with pytest.raises(PulseImplementationBindingError) as raised:
+        bind_pulse_implementations(_verified(first, second), _implementations())
+
+    assert tuple(issue.operation_id for issue in raised.value.issues) == (
+        second.id,
+        first.id,
     )
-
-
-def test_missing_and_ambiguous_calibrations_are_aggregated_order_independently() -> (
-    None
-):
-    missing = _call("missing", gate_id=X.id)
-    ambiguous = _call("ambiguous", gate_id=Y.id)
-    first_match = _calibration("y-a", ambiguous)
-    second_match = _calibration("y-b", ambiguous)
-    program = _verified(missing, ambiguous)
-
-    with pytest.raises(CalibrationSelectionError) as forward:
-        select_calibrations(
-            program,
-            _catalog(first_match, second_match),
-        )
-    with pytest.raises(CalibrationSelectionError) as reversed_order:
-        select_calibrations(
-            program,
-            _catalog(second_match, first_match),
-        )
-
-    assert forward.value.issues == reversed_order.value.issues
-    issues_by_operation = {issue.operation_id: issue for issue in forward.value.issues}
-    assert issues_by_operation[missing.id].code is CalibrationSelectionIssueCode.MISSING
-    assert (
-        issues_by_operation[ambiguous.id].code
-        is CalibrationSelectionIssueCode.AMBIGUOUS
-    )
-    assert issues_by_operation[ambiguous.id].matching_calibration_ids == (
-        CalibrationId("y-a"),
-        CalibrationId("y-b"),
+    assert all(
+        issue.code is PulseImplementationBindingIssueCode.MISSING
+        for issue in raised.value.issues
     )
 
 
@@ -377,24 +380,24 @@ def test_missing_and_ambiguous_calibrations_are_aggregated_order_independently()
         _call("different-gate", gate_id=Y.id),
     ],
 )
-def test_selection_never_falls_back_from_an_exact_key(other_call: GateCall) -> None:
-    catalog_call = _call("catalog-call")
+def test_binding_never_falls_back_from_an_exact_key(other_call: GateCall) -> None:
+    implementation_call = _call("implementation-call")
 
-    with pytest.raises(CalibrationSelectionError) as raised:
-        select_calibrations(
+    with pytest.raises(PulseImplementationBindingError) as raised:
+        bind_pulse_implementations(
             _verified(other_call),
-            _catalog(_calibration("catalog", catalog_call)),
+            _implementations(_implementation("reference", implementation_call)),
         )
 
-    assert raised.value.issues[0].code is CalibrationSelectionIssueCode.MISSING
+    assert raised.value.issues[0].code is PulseImplementationBindingIssueCode.MISSING
 
 
-def test_catalog_identity_is_unique_even_when_keys_differ() -> None:
-    with pytest.raises(ValueError, match="calibration ids must be unique"):
-        GateCalibrationCatalog(
-            (
-                _calibration("duplicate", _call("first")),
-                _calibration("duplicate", _call("second", gate_id=Y.id)),
+def test_resolved_implementation_ids_are_unique_across_keys() -> None:
+    with pytest.raises(ValueError, match="implementation ids must be unique"):
+        ResolvedPulseImplementations(
+            gates=(
+                _implementation("duplicate", _call("first")),
+                _implementation("duplicate", _call("second", gate_id=Y.id)),
             )
         )
 
@@ -409,59 +412,42 @@ def test_catalog_identity_is_unique_even_when_keys_differ() -> None:
         Quantity(1, "V"),
     ],
 )
-def test_calibration_argument_rejects_invalid_values(
+def test_implementation_argument_rejects_invalid_values(
     value: GateArgumentValue,
 ) -> None:
-    with pytest.raises(ValueError, match="finite gate argument value"):
-        GateCalibrationArgument(id="angle", value=value)
+    with pytest.raises(ValueError, match="must be finite"):
+        GatePulseImplementationArgument(id="angle", value=value)
 
 
-def test_calibration_argument_accepts_arbitrarily_large_integers() -> None:
-    argument = GateCalibrationArgument(id="count", value=10**1000)
+def test_implementation_argument_accepts_arbitrarily_large_integers() -> None:
+    argument = GatePulseImplementationArgument(id="count", value=10**1000)
 
     assert argument.value == 10**1000
 
 
 @pytest.mark.parametrize("operands", [(), (Q0, Q0)])
-def test_calibration_key_requires_nonempty_unique_operands(
+def test_implementation_key_requires_nonempty_unique_operands(
     operands: tuple[QubitId, ...],
 ) -> None:
     with pytest.raises(ValueError, match="operand"):
-        GateCalibrationKey(gate_id=X.id, operands=operands)
+        GatePulseImplementationKey(gate_id=X.id, operands=operands)
 
 
 def test_issue_enforces_value_invariants() -> None:
     call = _call("call")
-    key = GateCalibrationKey.from_call(call)
+    key = GatePulseImplementationKey.from_call(call)
     with pytest.raises(ValueError, match="message must be non-empty"):
-        CalibrationSelectionIssue(
-            code=CalibrationSelectionIssueCode.MISSING,
+        PulseImplementationBindingIssue(
+            code=PulseImplementationBindingIssueCode.MISSING,
             operation_id=call.id,
             key=key,
-            matching_calibration_ids=(),
             message=" ",
         )
-    with pytest.raises(ValueError, match="cannot contain matching ids"):
-        CalibrationSelectionIssue(
-            code=CalibrationSelectionIssueCode.MISSING,
-            operation_id=call.id,
-            key=key,
-            matching_calibration_ids=(CalibrationId("unexpected"),),
-            message="missing",
-        )
-    with pytest.raises(ValueError, match="at least two matching ids"):
-        CalibrationSelectionIssue(
-            code=CalibrationSelectionIssueCode.AMBIGUOUS,
-            operation_id=call.id,
-            key=key,
-            matching_calibration_ids=(CalibrationId("only-one"),),
-            message="ambiguous",
-        )
 
 
-def test_gate_calibrations_cannot_produce_acquisition_results() -> None:
+def test_gate_implementations_cannot_produce_acquisition_results() -> None:
     call = _call("call")
-    key = GateCalibrationKey.from_call(call)
+    key = GatePulseImplementationKey.from_call(call)
     acquire_signal = AcquireSignal(Q0)
     slot = AcquisitionSlot(
         id=AcquisitionSlotId("readout"),
@@ -493,14 +479,16 @@ def test_gate_calibrations_cannot_produce_acquisition_results() -> None:
 
     for pulse_template in (declared_slot_program, acquire_program):
         with pytest.raises(ValueError, match="cannot declare acquisition slots"):
-            GateCalibration(
-                id=CalibrationId("calibration"),
+            GatePulseImplementation(
+                id=PulseImplementationId("implementation"),
                 key=key,
                 pulse_template=pulse_template,
             )
 
 
-def test_gate_calibration_rejects_duplicate_template_event_identities_early() -> None:
+def test_gate_implementation_rejects_duplicate_template_event_identities_early() -> (
+    None
+):
     call = _call("call")
     duplicate = PulseEventId("delay", scope=("relative",))
     pulse_template = PulseProgram(
@@ -514,8 +502,36 @@ def test_gate_calibration_rejects_duplicate_template_event_identities_early() ->
     )
 
     with pytest.raises(ValueError, match="template event ids must be unique"):
-        GateCalibration(
-            id=CalibrationId("calibration"),
-            key=GateCalibrationKey.from_call(call),
+        GatePulseImplementation(
+            id=PulseImplementationId("implementation"),
+            key=GatePulseImplementationKey.from_call(call),
             pulse_template=pulse_template,
         )
+
+
+def test_gate_implementation_coupler_resources_authorize_signal_owners() -> None:
+    call = _call("call")
+    pulse_template = PulseProgram(
+        id=PulseProgramId("coupler-flux"),
+        body=Delay(
+            id=PulseEventId("flux"),
+            signal=FluxSignal(C01),
+            duration=Quantity(20, "ns"),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="unauthorized signal owners"):
+        GatePulseImplementation(
+            id=PulseImplementationId("missing-resource"),
+            key=GatePulseImplementationKey.from_call(call),
+            pulse_template=pulse_template,
+        )
+
+    implementation = GatePulseImplementation(
+        id=PulseImplementationId("with-resource"),
+        key=GatePulseImplementationKey.from_call(call),
+        pulse_template=pulse_template,
+        resources=(C01,),
+    )
+
+    assert implementation.resources == (C01,)

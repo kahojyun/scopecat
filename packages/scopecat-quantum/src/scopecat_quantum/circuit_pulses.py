@@ -1,14 +1,14 @@
-"""Checked, hygienic lowering from calibrated circuits to pulse authoring IR.
+"""Checked, hygienic lowering from logical circuits to pulse authoring IR.
 
 Lowering maps circuit composition homomorphically and keeps circuit,
-operation, calibration, template-event, and acquisition provenance in a
+operation, implementation, template-event, and acquisition provenance in a
 sidecar rather than coupling Pulse IR back to Circuit IR. Template-relative
 event identities are structurally prefixed for each occurrence, while a
 measurement template's local acquisition slot is replaced by the exact slot
 declared by the circuit.
 
 This proof deliberately stops before scheduling. Disjoint circuit qubits do
-not prove that selected calibrations avoid a shared logical signal, so time
+not prove that selected implementations avoid a shared logical signal, so time
 normalization, acquisition closure, and overlap checks remain the independent
 scheduler's responsibility.
 """
@@ -22,17 +22,11 @@ from enum import StrEnum
 
 from scopecat_quantum._ids import (
     AcquisitionSlotId,
-    CalibrationId,
     CircuitId,
     CircuitOperationId,
     PulseEventId,
+    PulseImplementationId,
     PulseProgramId,
-)
-from scopecat_quantum.calibrations import (
-    CalibrationBinding,
-    CalibrationSelection,
-    GateCalibrationBinding,
-    GateCalibrationKey,
 )
 from scopecat_quantum.circuits import (
     CircuitIssuePathItem,
@@ -45,9 +39,15 @@ from scopecat_quantum.circuits import (
     Sequence as CircuitSequence,
 )
 from scopecat_quantum.gates import GateCall
-from scopecat_quantum.measurement_calibrations import (
-    MeasurementCalibrationBinding,
-    MeasurementCalibrationKey,
+from scopecat_quantum.measurement_implementations import (
+    MeasurementPulseImplementationBinding,
+    MeasurementPulseImplementationKey,
+)
+from scopecat_quantum.pulse_implementations import (
+    GatePulseImplementationBinding,
+    GatePulseImplementationKey,
+    PulseImplementationBinding,
+    PulseImplementationBindings,
 )
 from scopecat_quantum.pulses import (
     Acquire,
@@ -66,8 +66,8 @@ from scopecat_quantum.pulses import (
 class CircuitPulseLoweringIssueCode(StrEnum):
     """Stable kinds of circuit-to-pulse lowering failure."""
 
-    SELECTION_CIRCUIT_MISMATCH = "circuit_pulse_selection_circuit_mismatch"
-    SELECTION_COVERAGE_MISMATCH = "circuit_pulse_selection_coverage_mismatch"
+    BINDINGS_CIRCUIT_MISMATCH = "circuit_pulse_bindings_circuit_mismatch"
+    BINDINGS_COVERAGE_MISMATCH = "circuit_pulse_bindings_coverage_mismatch"
     BINDING_KEY_MISMATCH = "circuit_pulse_binding_key_mismatch"
     TEMPLATE_STRUCTURE_INVALID = "circuit_pulse_template_structure_invalid"
     TEMPLATE_PROGRAM_ID_INVALID = "circuit_pulse_template_program_id_invalid"
@@ -85,7 +85,7 @@ class CircuitPulseLoweringIssue:
     message: str
     path: tuple[CircuitIssuePathItem, ...] = ()
     operation_id: CircuitOperationId | None = None
-    calibration_id: CalibrationId | None = None
+    implementation_id: PulseImplementationId | None = None
     template_event_id: PulseEventId | None = None
 
 
@@ -111,11 +111,12 @@ class CircuitPulseLoweringError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class GatePulseInstantiation:
-    """One selected calibration template instantiated for one gate call."""
+    """One resolved implementation instantiated for one gate call."""
 
     call_id: CircuitOperationId
-    key: GateCalibrationKey
-    calibration_id: CalibrationId
+    key: GatePulseImplementationKey
+    implementation_id: PulseImplementationId
+    implementation_fingerprint: str
     template_program_id: PulseProgramId
     event_ids: tuple[PulseEventId, ...]
 
@@ -128,8 +129,9 @@ class MeasurementPulseInstantiation:
     """One selected readout template instantiated for one measurement."""
 
     measurement_id: CircuitOperationId
-    key: MeasurementCalibrationKey
-    calibration_id: CalibrationId
+    key: MeasurementPulseImplementationKey
+    implementation_id: PulseImplementationId
+    implementation_fingerprint: str
     template_program_id: PulseProgramId
     template_acquisition_slot_id: AcquisitionSlotId
     acquisition_slot_id: AcquisitionSlotId
@@ -149,7 +151,8 @@ class CircuitPulseEventProvenance:
 
     event_id: PulseEventId
     operation_id: CircuitOperationId
-    calibration_id: CalibrationId
+    implementation_id: PulseImplementationId
+    implementation_fingerprint: str
     template_program_id: PulseProgramId
     template_event_id: PulseEventId
     template_path: tuple[int, ...]
@@ -164,7 +167,8 @@ class CircuitPulseAcquisitionProvenance:
 
     acquisition_slot_id: AcquisitionSlotId
     measurement_id: CircuitOperationId
-    calibration_id: CalibrationId
+    implementation_id: PulseImplementationId
+    implementation_fingerprint: str
     template_program_id: PulseProgramId
     template_acquisition_slot_id: AcquisitionSlotId
     acquire_event_id: PulseEventId
@@ -172,9 +176,9 @@ class CircuitPulseAcquisitionProvenance:
 
 @dataclass(frozen=True, slots=True)
 class LoweredCircuitPulseProgram:
-    """Hygienic calibrated-circuit pulse instantiation.
+    """Hygienic logical-circuit pulse instantiation.
 
-    The lowering factory owns selection congruence, structural composition,
+    The lowering factory owns binding congruence, structural composition,
     event hygiene, and provenance coverage. This value deliberately does not
     cover pulse timing or logical-signal non-overlap;
     :func:`scopecat_quantum.schedule` remains the independent refinement for
@@ -233,37 +237,37 @@ class LoweredCircuitPulseProgram:
 
 def lower_circuit_to_pulses(
     program: VerifiedCircuitProgram,
-    selection: CalibrationSelection,
+    bindings: PulseImplementationBindings,
     *,
     output_id: PulseProgramId,
 ) -> LoweredCircuitPulseProgram:
-    """Instantiate every calibrated gate and measurement homomorphically."""
+    """Instantiate every resolved gate and measurement homomorphically."""
 
     issues: list[CircuitPulseLoweringIssue] = []
     source_circuit_id = program.program.id
-    if selection.circuit_id != source_circuit_id:
+    if bindings.circuit_id != source_circuit_id:
         issues.append(
             CircuitPulseLoweringIssue(
-                code=CircuitPulseLoweringIssueCode.SELECTION_CIRCUIT_MISMATCH,
+                code=CircuitPulseLoweringIssueCode.BINDINGS_CIRCUIT_MISMATCH,
                 message=(
-                    f"calibration selection belongs to circuit "
-                    f"{selection.circuit_id.value!r}, not "
+                    f"pulse implementation bindings belong to circuit "
+                    f"{bindings.circuit_id.value!r}, not "
                     f"{source_circuit_id.value!r}"
                 ),
-                path=("selection", "circuit_id"),
+                path=("bindings", "circuit_id"),
             )
         )
 
     expected_operation_ids = tuple(operation.id for operation in program.operations)
-    if selection.operation_ids != expected_operation_ids:
+    if bindings.operation_ids != expected_operation_ids:
         issues.append(
             CircuitPulseLoweringIssue(
-                code=CircuitPulseLoweringIssueCode.SELECTION_COVERAGE_MISMATCH,
+                code=CircuitPulseLoweringIssueCode.BINDINGS_COVERAGE_MISMATCH,
                 message=(
-                    "calibration selection does not exactly cover every verified "
+                    "pulse implementation bindings do not cover every verified "
                     "circuit operation in order"
                 ),
-                path=("selection", "operation_ids"),
+                path=("bindings", "operation_ids"),
             )
         )
 
@@ -277,10 +281,10 @@ def lower_circuit_to_pulses(
     bindings_by_operation = {
         (
             binding.call_id
-            if isinstance(binding, GateCalibrationBinding)
+            if isinstance(binding, GatePulseImplementationBinding)
             else binding.measurement_id
         ): binding
-        for binding in selection.bindings
+        for binding in bindings.bindings
     }
 
     for operation in program.operations:
@@ -288,28 +292,29 @@ def lower_circuit_to_pulses(
         if binding is None:
             continue
         expected_key = (
-            GateCalibrationKey.from_call(operation)
+            GatePulseImplementationKey.from_call(operation)
             if isinstance(operation, GateCall)
-            else MeasurementCalibrationKey.from_measurement(operation)
+            else MeasurementPulseImplementationKey.from_measurement(operation)
         )
         binding_kind_matches = (
             isinstance(operation, GateCall)
-            and isinstance(binding, GateCalibrationBinding)
+            and isinstance(binding, GatePulseImplementationBinding)
         ) or (
             isinstance(operation, Measure)
-            and isinstance(binding, MeasurementCalibrationBinding)
+            and isinstance(binding, MeasurementPulseImplementationBinding)
         )
         if not binding_kind_matches or binding.key != expected_key:
             issues.append(
                 CircuitPulseLoweringIssue(
                     code=CircuitPulseLoweringIssueCode.BINDING_KEY_MISMATCH,
                     message=(
-                        f"calibration binding for operation {operation.id.value!r} "
+                        f"pulse implementation binding for operation "
+                        f"{operation.id.value!r} "
                         "does not match its canonical typed key"
                     ),
                     path=operation_paths.get(operation.id, ("body",)),
                     operation_id=operation.id,
-                    calibration_id=binding.calibration_id,
+                    implementation_id=binding.implementation_id,
                 )
             )
 
@@ -368,7 +373,7 @@ def _lower_circuit_node(
     node: CircuitNode,
     *,
     source_circuit_id: CircuitId,
-    bindings_by_operation: dict[CircuitOperationId, CalibrationBinding],
+    bindings_by_operation: dict[CircuitOperationId, PulseImplementationBinding],
     instantiations: list[CircuitPulseInstantiation],
     provenance: list[CircuitPulseEventProvenance],
     acquisition_slots: list[AcquisitionSlot],
@@ -376,7 +381,7 @@ def _lower_circuit_node(
 ) -> PulseInstruction:
     if isinstance(node, GateCall):
         binding = bindings_by_operation[node.id]
-        assert isinstance(binding, GateCalibrationBinding)  # noqa: S101
+        assert isinstance(binding, GatePulseImplementationBinding)  # noqa: S101
         prefix = (
             "circuits",
             source_circuit_id.value,
@@ -390,7 +395,8 @@ def _lower_circuit_node(
             prefix=prefix,
             template_path=(),
             operation_id=node.id,
-            calibration_id=binding.calibration_id,
+            implementation_id=binding.implementation_id,
+            implementation_fingerprint=binding.implementation_fingerprint,
             template_program_id=binding.pulse_template.id,
             slot_substitution=None,
             event_ids=event_ids,
@@ -402,7 +408,8 @@ def _lower_circuit_node(
             GatePulseInstantiation(
                 call_id=node.id,
                 key=binding.key,
-                calibration_id=binding.calibration_id,
+                implementation_id=binding.implementation_id,
+                implementation_fingerprint=binding.implementation_fingerprint,
                 template_program_id=binding.pulse_template.id,
                 event_ids=tuple(event_ids),
             )
@@ -410,7 +417,7 @@ def _lower_circuit_node(
         return lowered
     if isinstance(node, Measure):
         binding = bindings_by_operation[node.id]
-        assert isinstance(binding, MeasurementCalibrationBinding)  # noqa: S101
+        assert isinstance(binding, MeasurementPulseImplementationBinding)  # noqa: S101
         template_slot = binding.pulse_template.acquisition_slots[0]
         output_slot = replace(template_slot, id=node.acquisition_slot_id)
         prefix = (
@@ -426,7 +433,8 @@ def _lower_circuit_node(
             prefix=prefix,
             template_path=(),
             operation_id=node.id,
-            calibration_id=binding.calibration_id,
+            implementation_id=binding.implementation_id,
+            implementation_fingerprint=binding.implementation_fingerprint,
             template_program_id=binding.pulse_template.id,
             slot_substitution=(template_slot.id, node.acquisition_slot_id),
             event_ids=event_ids,
@@ -441,7 +449,8 @@ def _lower_circuit_node(
             MeasurementPulseInstantiation(
                 measurement_id=node.id,
                 key=binding.key,
-                calibration_id=binding.calibration_id,
+                implementation_id=binding.implementation_id,
+                implementation_fingerprint=binding.implementation_fingerprint,
                 template_program_id=binding.pulse_template.id,
                 template_acquisition_slot_id=template_slot.id,
                 acquisition_slot_id=node.acquisition_slot_id,
@@ -454,7 +463,8 @@ def _lower_circuit_node(
             CircuitPulseAcquisitionProvenance(
                 acquisition_slot_id=node.acquisition_slot_id,
                 measurement_id=node.id,
-                calibration_id=binding.calibration_id,
+                implementation_id=binding.implementation_id,
+                implementation_fingerprint=binding.implementation_fingerprint,
                 template_program_id=binding.pulse_template.id,
                 template_acquisition_slot_id=template_slot.id,
                 acquire_event_id=acquire_event_id,
@@ -498,7 +508,8 @@ def _instantiate_template_instruction(
     prefix: tuple[str, ...],
     template_path: tuple[int, ...],
     operation_id: CircuitOperationId,
-    calibration_id: CalibrationId,
+    implementation_id: PulseImplementationId,
+    implementation_fingerprint: str,
     template_program_id: PulseProgramId,
     slot_substitution: tuple[AcquisitionSlotId, AcquisitionSlotId] | None,
     event_ids: list[PulseEventId],
@@ -513,7 +524,8 @@ def _instantiate_template_instruction(
                     prefix=prefix,
                     template_path=(*template_path, index),
                     operation_id=operation_id,
-                    calibration_id=calibration_id,
+                    implementation_id=implementation_id,
+                    implementation_fingerprint=implementation_fingerprint,
                     template_program_id=template_program_id,
                     slot_substitution=slot_substitution,
                     event_ids=event_ids,
@@ -531,7 +543,8 @@ def _instantiate_template_instruction(
                     prefix=prefix,
                     template_path=(*template_path, index),
                     operation_id=operation_id,
-                    calibration_id=calibration_id,
+                    implementation_id=implementation_id,
+                    implementation_fingerprint=implementation_fingerprint,
                     template_program_id=template_program_id,
                     slot_substitution=slot_substitution,
                     event_ids=event_ids,
@@ -559,7 +572,8 @@ def _instantiate_template_instruction(
         CircuitPulseEventProvenance(
             event_id=event_id,
             operation_id=operation_id,
-            calibration_id=calibration_id,
+            implementation_id=implementation_id,
+            implementation_fingerprint=implementation_fingerprint,
             template_program_id=template_program_id,
             template_event_id=template_event_id,
             template_path=template_path,
@@ -575,8 +589,8 @@ def _issue_sort_key(
         (0, item) if isinstance(item, int) else (1, item) for item in issue.path
     )
     operation_id = issue.operation_id.value if issue.operation_id is not None else ""
-    calibration_id = (
-        issue.calibration_id.value if issue.calibration_id is not None else ""
+    implementation_id = (
+        issue.implementation_id.value if issue.implementation_id is not None else ""
     )
     template_event_id = (
         (0, (), "")
@@ -591,7 +605,7 @@ def _issue_sort_key(
         path,
         issue.code.value,
         operation_id,
-        calibration_id,
+        implementation_id,
         template_event_id,
         issue.message,
     )

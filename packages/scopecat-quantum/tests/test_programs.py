@@ -12,30 +12,28 @@ from scopecat_quantum import (
     AcquisitionKind,
     AcquisitionSlot,
     AcquisitionSlotId,
-    CalibrationCatalog,
-    CalibrationId,
     CircuitOperationId,
     Constant,
     Delay,
     DriveSignal,
-    GateCalibration,
-    GateCalibrationCatalog,
-    GateCalibrationKey,
     GateCall,
     GateDefinition,
     GateId,
+    GatePulseImplementation,
+    GatePulseImplementationKey,
     Measure,
-    MeasurementCalibration,
-    MeasurementCalibrationCatalog,
-    MeasurementCalibrationKey,
+    MeasurementPulseImplementation,
+    MeasurementPulseImplementationKey,
     Play,
     PulseEventId,
+    PulseImplementationId,
     PulseParallel,
     PulseProgram,
     PulseProgramId,
     QuantumProgramId,
     QubitId,
     ReadoutSignal,
+    ResolvedPulseImplementations,
     schedule,
 )
 from scopecat_quantum.programs import (
@@ -130,25 +128,23 @@ def _measurement_template() -> PulseProgram:
     )
 
 
-def _catalog(reference: GateCall, measurement: Measure) -> CalibrationCatalog:
-    return CalibrationCatalog(
-        gates=GateCalibrationCatalog(
-            (
-                GateCalibration(
-                    id=CalibrationId("x90-q0"),
-                    key=GateCalibrationKey.from_call(reference),
-                    pulse_template=_gate_template(),
-                ),
-            )
+def _implementations(
+    reference: GateCall, measurement: Measure
+) -> ResolvedPulseImplementations:
+    return ResolvedPulseImplementations(
+        gates=(
+            GatePulseImplementation(
+                id=PulseImplementationId("x90-q0"),
+                key=GatePulseImplementationKey.from_call(reference),
+                pulse_template=_gate_template(),
+            ),
         ),
-        measurements=MeasurementCalibrationCatalog(
-            (
-                MeasurementCalibration(
-                    id=CalibrationId("readout-q0"),
-                    key=MeasurementCalibrationKey.from_measurement(measurement),
-                    pulse_template=_measurement_template(),
-                ),
-            )
+        measurements=(
+            MeasurementPulseImplementation(
+                id=PulseImplementationId("readout-q0"),
+                key=MeasurementPulseImplementationKey.from_measurement(measurement),
+                pulse_template=_measurement_template(),
+            ),
         ),
     )
 
@@ -175,7 +171,7 @@ def test_mixed_program_refines_only_unimplemented_operations() -> None:
     verified = verify_quantum_program(source, (X90,))
     lowered = lower_quantum_program_to_pulses(
         verified,
-        _catalog(reference, measurement),
+        _implementations(reference, measurement),
         output_id=PulseProgramId("drag-sweep-point-pulses"),
     )
 
@@ -184,13 +180,13 @@ def test_mixed_program_refines_only_unimplemented_operations() -> None:
         candidate_call.id,
         measurement.id,
     )
-    assert lowered.calibration_selection.operation_ids == (
+    assert lowered.implementation_bindings.operation_ids == (
         reference.id,
         measurement.id,
     )
     assert schedule(lowered.program).duration_seconds == Decimal("40e-9")
     assert tuple(type(item) for item in lowered.event_provenance) == (
-        # The reference and measurement retain calibrated circuit provenance.
+        # The logical reference and measurement retain implementation provenance.
         type(lowered.event_provenance[0]),
         ImplementedGatePulseEventProvenance,
         type(lowered.event_provenance[0]),
@@ -229,11 +225,11 @@ def test_authored_pulse_block_can_own_an_acquisition() -> None:
 
     lowered = lower_quantum_program_to_pulses(
         verified,
-        CalibrationCatalog(),
+        ResolvedPulseImplementations(),
         output_id=PulseProgramId("inline-pulse-lowered"),
     )
 
-    assert lowered.calibration_selection.operation_ids == ()
+    assert lowered.implementation_bindings.operation_ids == ()
     assert all(
         isinstance(item, AuthoredPulseEventProvenance)
         for item in lowered.event_provenance
@@ -269,7 +265,7 @@ def test_authored_pulse_block_can_bind_a_template_slot_to_a_public_slot() -> Non
 
     lowered = lower_quantum_program_to_pulses(
         verified,
-        CalibrationCatalog(),
+        ResolvedPulseImplementations(),
         output_id=PulseProgramId("explicit-readout-lowered"),
     )
 

@@ -8,8 +8,9 @@ from typing import Annotated
 import scopecat as sc
 from scopecat import Quantity, QuantityType, ScalarType
 from scopecat_quantum import authoring as q
+from scopecat_quantum.standard_gates import X90
 
-from quantum_lab_demo.virtual_lab.parameters import quantum_calibration_parameters
+from quantum_lab_demo.virtual_lab.parameters import qubit_parameters
 
 RAMSEY_PHASE_TEMPLATE_ID = "quantum_lab_demo.workflows.ramsey_phase"
 RAMSEY_PHASE_EXPERIMENT_ID = "ramsey-phase-calibration"
@@ -19,8 +20,6 @@ PHASE = sc.coordinate("phase", ScalarType(QuantityType(unit="rad")))
 DEFAULT_PHASES = tuple(
     Quantity(value, "rad") for value in (0.0, math.pi / 2.0, math.pi)
 )
-
-_X90 = q.single_qubit_gate("x90")
 
 X90_CANDIDATE_ID = "x90.ramsey-phase"
 
@@ -32,7 +31,7 @@ _READOUT_AMPLITUDE = Quantity(0.35, "arb")
 
 
 @q.implementation(
-    of=_X90,
+    of=X90,
     candidate=X90_CANDIDATE_ID,
     id="ramsey-phase.x90-candidate",
 )
@@ -72,7 +71,7 @@ def ramsey_phase_program(
         result="iq_shots",
     )
     return q.sequence(
-        _X90(qubit),
+        X90(qubit),
         q.delay(q.drive(qubit), _RAMSEY_DELAY),
         q.shift_phase(q.drive(qubit), phase),
         ramsey_x90_candidate(qubit),
@@ -96,7 +95,7 @@ def ramsey_phase_template() -> sc.ExperimentBody:
             qubit="q0",
             phase=PHASE,
         )
-        .with_compiler_inputs(calibrations=quantum_calibration_parameters())
+        .with_compiler_inputs(qubits=qubit_parameters())
         .with_shots(RAMSEY_PHASE_SHOTS)
     )
     return (

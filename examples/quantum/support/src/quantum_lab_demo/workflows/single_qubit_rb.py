@@ -18,8 +18,9 @@ from scopecat_quantum import (
     binary_iq_probability_transform,
 )
 from scopecat_quantum import authoring as q
+from scopecat_quantum.standard_gates import X90, XM90, Y90, YM90
 
-from quantum_lab_demo.virtual_lab.parameters import quantum_calibration_parameters
+from quantum_lab_demo.virtual_lab.parameters import qubit_parameters
 
 SINGLE_QUBIT_RB_TEMPLATE_ID = "quantum_lab_demo.workflows.single_qubit_rb"
 SINGLE_QUBIT_RB_SHOTS = 128
@@ -32,15 +33,11 @@ CLIFFORD_LENGTH = sc.coordinate(
 )
 RB_SEED = sc.coordinate("rb_seed", sc.ScalarType(sc.IntType(minimum=0)))
 
-_X90 = q.single_qubit_gate("x90")
-_XM90 = q.single_qubit_gate("xm90")
-_Y90 = q.single_qubit_gate("y90")
-_YM90 = q.single_qubit_gate("ym90")
 _PRIMITIVE_GATES = {
-    "x90": _X90,
-    "xm90": _XM90,
-    "y90": _Y90,
-    "ym90": _YM90,
+    "x90": X90,
+    "xm90": XM90,
+    "y90": Y90,
+    "ym90": YM90,
 }
 
 type _Rotation = tuple[
@@ -153,7 +150,7 @@ def randomized_clifford_sequence(
 
     gate_ids = _rb_gate_ids(length, seed)
     if not gate_ids:
-        return q.repeat(_X90(qubit), 0)
+        return q.repeat(X90(qubit), 0)
     return q.sequence(*(_PRIMITIVE_GATES[gate_id](qubit) for gate_id in gate_ids))
 
 
@@ -192,7 +189,7 @@ def single_qubit_rb_capture(
             length=clifford_count,
             seed=seed,
         )
-        .with_compiler_inputs(calibrations=quantum_calibration_parameters())
+        .with_compiler_inputs(qubits=qubit_parameters())
         .with_shots(SINGLE_QUBIT_RB_SHOTS)
     )
     body = (

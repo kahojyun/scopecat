@@ -14,6 +14,7 @@ from scopecat_quantum import (
     FluxSignal,
     ImplementedGatePulseEventProvenance,
     Play,
+    QubitId,
 )
 from scopecat_quantum import authoring as quantum
 
@@ -23,6 +24,10 @@ from quantum_lab_demo.virtual_lab.parameters import (
     TWO_QUBIT_GATE_PARAMETER_TABLE,
     q0_q1_cz_amplitude_lookup,
     q0_q1_cz_row,
+)
+from quantum_lab_demo.virtual_lab.pulse_profile import (
+    x90_pulse_recipe,
+    x_pulse_recipe,
 )
 from quantum_lab_demo.workflows.cz_phase_analysis import (
     CZ_PHASE_PROPOSAL_ID,
@@ -118,10 +123,10 @@ def test_cz_phase_program_keeps_two_qubit_gate_and_coupler_pulse_provenance(
         for provenance in prepared.lowered.event_provenance
         if isinstance(provenance, CircuitPulseEventProvenance)
     )
-    assert tuple(value.calibration_id.value for value in calibrated) == (
-        "fake-x-count-x-q0",
-        "cz-phase.baseline.x90.q1",
-        "cz-phase.baseline.x90.q1",
+    assert tuple(value.implementation_id.value for value in calibrated) == (
+        x_pulse_recipe.implementation_id((QubitId("q0"),)).value,
+        x90_pulse_recipe.implementation_id((QubitId("q1"),)).value,
+        x90_pulse_recipe.implementation_id((QubitId("q1"),)).value,
     )
 
 

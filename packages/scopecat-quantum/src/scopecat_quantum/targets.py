@@ -239,8 +239,8 @@ class TargetCompiler[ArtifactT: TargetArtifact](Protocol):
     """Lower scheduled quantum target IR into one target artifact.
 
     The request contains already prepared and scheduled target entries; this
-    protocol does not own domain routing, input resolution, or calibration
-    selection. When used in an ``ExperimentSystem`` integration, it is an
+    protocol does not own domain routing, input resolution, or pulse
+    implementation binding. When used in an ``ExperimentSystem`` integration, it is an
     internal stage invoked by the domain compiler rather than a second system
     compiler.
     """

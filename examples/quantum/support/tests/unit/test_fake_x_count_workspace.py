@@ -51,6 +51,7 @@ from quantum_lab_demo.virtual_lab.parameters import (
     QUBIT_PARAMETER_TABLE,
     q0_parameter_key,
 )
+from quantum_lab_demo.virtual_lab.pulse_profile import QUANTUM_PULSE_PROFILE
 from quantum_lab_demo.virtual_lab.quantum_responses import (
     quantum_lab_response_registry,
 )
@@ -134,6 +135,7 @@ class _ConfiguredTestCompiler(QuantumLabCompiler):
             runtime=FakeListDomainRuntime(),
             response_registry=quantum_lab_response_registry(),
             trace=QuantumLabTrace(),
+            pulse_profile=QUANTUM_PULSE_PROFILE,
         )
 
 
@@ -389,7 +391,7 @@ def test_fake_x_count_compiler_projects_zipped_axis_without_binding(
     ] == [(0, 10), (1, 11), (2, 12)]
 
 
-def test_fake_x_count_scans_compiler_calibration_collection(tmp_path: Path) -> None:
+def test_fake_x_count_scans_compiler_qubit_collection(tmp_path: Path) -> None:
     duration = sc.coordinate(
         "x_duration",
         sc.ScalarType(sc.QuantityType(unit="ns")),

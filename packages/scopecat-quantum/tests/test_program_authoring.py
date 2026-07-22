@@ -10,17 +10,11 @@ from scopecat import Quantity
 from scopecat_quantum import authoring
 from scopecat_quantum._ids import (
     AcquisitionSlotId,
-    CalibrationId,
     CouplerId,
     PulseEventId,
+    PulseImplementationId,
     PulseProgramId,
     QubitId,
-)
-from scopecat_quantum.calibrations import (
-    CalibrationCatalog,
-    GateCalibration,
-    GateCalibrationCatalog,
-    GateCalibrationKey,
 )
 from scopecat_quantum.circuits import Measure
 from scopecat_quantum.gates import GateCall, GateParameterKind
@@ -37,6 +31,11 @@ from scopecat_quantum.programs import (
 )
 from scopecat_quantum.programs import (
     Sequence as QuantumSequence,
+)
+from scopecat_quantum.pulse_implementations import (
+    GatePulseImplementation,
+    GatePulseImplementationKey,
+    ResolvedPulseImplementations,
 )
 from scopecat_quantum.pulses import (
     DRAG,
@@ -188,7 +187,7 @@ def test_gate_and_pulse_can_bind_in_parallel_before_final_signal_check() -> None
         for operation in bound.verified.operations
         if isinstance(operation, GateCall)
     )
-    calibration_template = PulseProgram(
+    implementation_template = PulseProgram(
         id=PulseProgramId("x90-q0-template"),
         body=Play(
             id=PulseEventId("drive"),
@@ -199,21 +198,19 @@ def test_gate_and_pulse_can_bind_in_parallel_before_final_signal_check() -> None
             ),
         ),
     )
-    catalog = CalibrationCatalog(
-        gates=GateCalibrationCatalog(
-            (
-                GateCalibration(
-                    id=CalibrationId("x90-q0"),
-                    key=GateCalibrationKey.from_call(gate_call),
-                    pulse_template=calibration_template,
-                ),
-            )
+    implementations = ResolvedPulseImplementations(
+        gates=(
+            GatePulseImplementation(
+                id=PulseImplementationId("x90-q0"),
+                key=GatePulseImplementationKey.from_call(gate_call),
+                pulse_template=implementation_template,
+            ),
         )
     )
 
     lowered = lower_quantum_program_to_pulses(
         bound.verified,
-        catalog,
+        implementations,
         output_id=PulseProgramId("parallel-drive-conflict-pulses"),
     )
 
@@ -286,7 +283,7 @@ def test_two_qubit_gate_implementation_authorizes_and_lowers_coupler_pulse() -> 
 
     lowered = lower_quantum_program_to_pulses(
         bound.verified,
-        CalibrationCatalog(),
+        ResolvedPulseImplementations(),
         output_id=PulseProgramId("cz-candidate-pulses"),
     )
     [leaf] = iter_pulse_leaves(lowered.program.body)
@@ -459,7 +456,7 @@ def test_explicit_acquire_composes_with_readout_play_and_keeps_public_slot() -> 
     bound = authoring.bind(declaration)
     lowered = lower_quantum_program_to_pulses(
         bound.verified,
-        CalibrationCatalog(),
+        ResolvedPulseImplementations(),
         output_id=PulseProgramId("explicit-readout-pulses"),
     )
     scheduled = schedule(lowered.program)
@@ -574,7 +571,7 @@ def test_pulse_template_substitutes_qubit_and_outer_input_hygienically() -> None
     }
     lowered = lower_quantum_program_to_pulses(
         bound.verified,
-        CalibrationCatalog(),
+        ResolvedPulseImplementations(),
         output_id=PulseProgramId("two-template-calls-pulses"),
     )
     assert len({leaf.id for leaf in iter_pulse_leaves(lowered.program.body)}) == 4
@@ -645,7 +642,7 @@ def test_shift_phase_accepts_symbolic_phase() -> None:
     bound = authoring.bind(declaration, {"phase": Quantity(180, "deg")})
     lowered = lower_quantum_program_to_pulses(
         bound.verified,
-        CalibrationCatalog(),
+        ResolvedPulseImplementations(),
         output_id=PulseProgramId("virtual-z-pulses"),
     )
     [shift, _play] = schedule(lowered.program).events

@@ -58,7 +58,9 @@ The support package separates code by why it exists:
 |---|---|
 | `quantum_lab_demo.workflows` | Recommended, user-copyable vertical workflows. Import a specific workflow module rather than a package-wide barrel. |
 | `quantum_lab_demo.scenarios` | Integration boundaries that intentionally depart from normal domain authoring. |
-| `quantum_lab_demo.virtual_lab.calibrations` | Convert each point-effective compiler parameter table into an immutable calibration catalog. |
+| `scopecat_quantum.standard_gates` | Opt-in conventional hardware-independent gate semantics. |
+| `quantum_lab_demo.virtual_lab.compiler_parameters` | Materialize typed point-effective compiler values from parameter collections. |
+| `quantum_lab_demo.virtual_lab.pulse_profile` | Declare compiler-owned recipes and map them over those values. |
 | `quantum_lab_demo.virtual_lab.responses` | Deterministic response generation used by the fake laboratory. |
 | `quantum_lab_demo.targets` | Target compiler/runtime adapters. |
 
@@ -73,10 +75,17 @@ parameters, and other varying values remain ordinary scan axes. Within that
 point, `q.sequence`, `q.parallel`, and `q.repeat` form one recursive program;
 result axes follow the same tree.
 
-The demo calls `with_compiler_inputs(calibrations=...)` separately from those
+The demo calls `with_compiler_inputs(qubits=...)` separately from those
 program arguments. Its complete typed `qubits` table comes from the accepted
-snapshot plus point overlays, so calibration fields can be scanned without
+snapshot plus point overlays, so control and readout fields can be scanned without
 becoming Program ports or mutable compiler state.
+
+The lab adapter materializes that collection into a typed point snapshot. A
+static `PulseRecipeProfile` joins the bound program's actual gate and
+measurement operations to matching rows; the compiler only invokes its generic
+materializer. Pulse provenance records both the stable recipe ID and the
+resolved template fingerprint; parameter tables never contain `PulseProgram`
+objects.
 
 | Scale or boundary | Required capability | Minimal coverage |
 |---|---|---|

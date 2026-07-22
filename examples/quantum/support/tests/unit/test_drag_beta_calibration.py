@@ -14,6 +14,7 @@ from scopecat_quantum import (
     CircuitPulseEventProvenance,
     ImplementedGatePulseEventProvenance,
     Play,
+    QubitId,
     program_port_type,
 )
 
@@ -23,11 +24,13 @@ from quantum_lab_demo.virtual_lab.parameters import (
     q0_drag_beta_lookup,
     q0_drag_beta_row,
 )
+from quantum_lab_demo.virtual_lab.pulse_profile import (
+    x90_pulse_recipe,
+    xm90_pulse_recipe,
+)
 from quantum_lab_demo.workflows.drag_beta_calibration import (
     NEGATIVE_CANDIDATE_ID,
     POSITIVE_CANDIDATE_ID,
-    X90_CALIBRATION_ID,
-    XM90_CALIBRATION_ID,
     candidate_x90,
     candidate_xm90,
 )
@@ -62,6 +65,10 @@ def _nanoseconds(seconds: Decimal) -> Decimal:
     return seconds * Decimal(1_000_000_000)
 
 
+_X90_IMPLEMENTATION_ID = x90_pulse_recipe.implementation_id((QubitId("q0"),))
+_XM90_IMPLEMENTATION_ID = xm90_pulse_recipe.implementation_id((QubitId("q0"),))
+
+
 def test_drag_beta_capture_binds_the_accepted_parameter_cell() -> None:
     capture = drag_beta_capture(
         amplification=AMPLIFICATION,
@@ -70,7 +77,7 @@ def test_drag_beta_capture_binds_the_accepted_parameter_cell() -> None:
     assert capture.inputs["beta"] == q0_drag_beta_lookup()
 
 
-def test_n3_golden_schedule_and_calibration_selection(tmp_path: Path) -> None:
+def test_n3_golden_schedule_and_implementation_bindings(tmp_path: Path) -> None:
     declaration, prepared, _artifact = _golden_point(tmp_path)
 
     assert [port.id for port in declaration.inputs] == ["amplification", "beta"]
@@ -131,11 +138,11 @@ def test_n3_golden_schedule_and_calibration_selection(tmp_path: Path) -> None:
     ) == pytest.approx((0.0, math.pi) * 3)
     assert all(envelope.beta == Quantity(0.75e-9, "s") for envelope in drag_envelopes)
 
-    selected = prepared.lowered.calibration_selection
+    selected = prepared.lowered.implementation_bindings
     assert len(selected.operation_ids) == 2
-    assert tuple(binding.calibration_id for binding in selected.gates.bindings) == (
-        X90_CALIBRATION_ID,
-        XM90_CALIBRATION_ID,
+    assert tuple(binding.implementation_id for binding in selected.gates.bindings) == (
+        _X90_IMPLEMENTATION_ID,
+        _XM90_IMPLEMENTATION_ID,
     )
     assert selected.measurements.bindings == ()
     assert all(
@@ -148,16 +155,16 @@ def test_n3_golden_schedule_and_calibration_selection(tmp_path: Path) -> None:
         for provenance in prepared.lowered.event_provenance
         if isinstance(provenance, CircuitPulseEventProvenance)
     )
-    starts_by_calibration = {
-        calibration_id: tuple(
+    starts_by_implementation = {
+        implementation_id: tuple(
             _nanoseconds(scheduled_by_id[provenance.event_id].start_seconds)
             for provenance in calibrated_origins
-            if provenance.calibration_id == calibration_id
+            if provenance.implementation_id == implementation_id
         )
-        for calibration_id in (X90_CALIBRATION_ID, XM90_CALIBRATION_ID)
+        for implementation_id in (_X90_IMPLEMENTATION_ID, _XM90_IMPLEMENTATION_ID)
     }
-    assert starts_by_calibration[X90_CALIBRATION_ID] == (Decimal(0),)
-    assert starts_by_calibration[XM90_CALIBRATION_ID] == (Decimal(112),)
+    assert starts_by_implementation[_X90_IMPLEMENTATION_ID] == (Decimal(0),)
+    assert starts_by_implementation[_XM90_IMPLEMENTATION_ID] == (Decimal(112),)
     calibrated_plays = tuple(
         scheduled_by_id[provenance.event_id].instruction
         for provenance in calibrated_origins

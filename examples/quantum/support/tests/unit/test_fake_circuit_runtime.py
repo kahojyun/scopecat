@@ -82,8 +82,6 @@ from scopecat_quantum import (
     AcquisitionSlot,
     AcquisitionSlotId,
     AuthoredPulseAcquisitionProvenance,
-    CalibrationCatalog,
-    CalibrationId,
     CircuitOperationId,
     CircuitPulseAcquisitionProvenance,
     CompiledQuantumTarget,
@@ -96,12 +94,12 @@ from scopecat_quantum import (
     ImplementedGate,
     ImplementedGatePulseEventProvenance,
     Measure,
-    MeasurementCalibration,
-    MeasurementCalibrationCatalog,
-    MeasurementCalibrationKey,
+    MeasurementPulseImplementation,
+    MeasurementPulseImplementationKey,
     Play,
     PulseBlock,
     PulseEventId,
+    PulseImplementationId,
     PulseParallel,
     PulseProgram,
     PulseProgramId,
@@ -114,6 +112,7 @@ from scopecat_quantum import (
     QuantumTargetResultUseBinding,
     QubitId,
     ReadoutSignal,
+    ResolvedPulseImplementations,
     TargetAcquisitionAddress,
     TargetArtifactId,
     TargetCompileEntryId,
@@ -494,15 +493,15 @@ def _lowered_measurement_program(
         ),
         acquisition_slots=(template_slot,),
     )
-    calibration = MeasurementCalibration(
-        id=CalibrationId("readout-q0"),
-        key=MeasurementCalibrationKey.from_measurement(measurement),
+    implementation = MeasurementPulseImplementation(
+        id=PulseImplementationId("readout-q0"),
+        key=MeasurementPulseImplementationKey.from_measurement(measurement),
         pulse_template=template,
     )
     return lower_quantum_program_to_pulses(
         program,
-        CalibrationCatalog(
-            measurements=MeasurementCalibrationCatalog((calibration,)),
+        ResolvedPulseImplementations(
+            measurements=(implementation,),
         ),
         output_id=PulseProgramId("shared-readout-pulses"),
     )
@@ -529,11 +528,11 @@ def _lowered_mixed_measurement_program(*, sample_count: int):
         (),
     )
 
-    def calibration(
+    def implementation(
         measurement: Measure,
         *,
         suffix: str,
-    ) -> MeasurementCalibration:
+    ) -> MeasurementPulseImplementation:
         template_slot = AcquisitionSlot(
             id=AcquisitionSlotId(f"template-{suffix}"),
             kind=measurement.acquisition_kind,
@@ -561,20 +560,18 @@ def _lowered_mixed_measurement_program(*, sample_count: int):
             ),
             acquisition_slots=(template_slot,),
         )
-        return MeasurementCalibration(
-            id=CalibrationId(f"readout-q0-{suffix}"),
-            key=MeasurementCalibrationKey.from_measurement(measurement),
+        return MeasurementPulseImplementation(
+            id=PulseImplementationId(f"readout-q0-{suffix}"),
+            key=MeasurementPulseImplementationKey.from_measurement(measurement),
             pulse_template=template,
         )
 
     return lower_quantum_program_to_pulses(
         program,
-        CalibrationCatalog(
-            measurements=MeasurementCalibrationCatalog(
-                (
-                    calibration(iq_measurement, suffix="iq"),
-                    calibration(trace_measurement, suffix="trace"),
-                )
+        ResolvedPulseImplementations(
+            measurements=(
+                implementation(iq_measurement, suffix="iq"),
+                implementation(trace_measurement, suffix="trace"),
             ),
         ),
         output_id=PulseProgramId("mixed-readout-pulses"),
@@ -637,7 +634,7 @@ def _prepared_mixed_quantum_entry(
     )
     lowered = lower_quantum_program_to_pulses(
         verify_quantum_program(source, (gate,)),
-        CalibrationCatalog(),
+        ResolvedPulseImplementations(),
         output_id=PulseProgramId("mixed-gate-pulse-program-pulses"),
     )
     return prepare_quantum_target_entry(entry_id, lowered)

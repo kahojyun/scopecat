@@ -22,6 +22,7 @@ from scopecat.sdk.domain.compiler import (
     DomainLiteral,
     DomainPointAffine,
     DomainPointAxis,
+    DomainResolvedInputs,
     compiled_jobs,
     validate_domain_compilation,
 )
@@ -183,6 +184,20 @@ def test_domain_residual_input_exposes_literal_normal_form() -> None:
 
     assert literal_input.is_literal
     assert literal_input.literal_value() is None
+
+
+def test_resolved_inputs_decode_each_collection_into_a_typed_value() -> None:
+    inputs = DomainResolvedInputs(
+        ordinals=(2, 4),
+        columns=(("rows", (({"value": 1},), ({"value": 2}, {"value": 3}))),),
+    )
+
+    def decode(rows: Sequence[dict[str, int]]) -> tuple[int, ...]:
+        return tuple(row["value"] for row in rows)
+
+    decoded = inputs.decode_collection("rows", decode)
+
+    assert decoded == ((1,), (2, 3))
 
 
 @pytest.mark.parametrize(

@@ -11,12 +11,11 @@ from scopecat_quantum import (
     CircuitPulseEventProvenance,
     ImplementedGatePulseEventProvenance,
     MeasurementResult,
+    QubitId,
 )
 
 from quantum_lab_demo import quantum_lab, quantum_lab_compiler
-from quantum_lab_demo.workflows.drag_beta_calibration import (
-    X90_CALIBRATION_ID,
-)
+from quantum_lab_demo.virtual_lab.pulse_profile import x90_pulse_recipe
 from quantum_lab_demo.workflows.ramsey_phase_experiment import (
     PHASE,
     X90_CANDIDATE_ID,
@@ -59,7 +58,9 @@ def test_ramsey_program_runs_through_the_shared_compiler(tmp_path: Path) -> None
     [accepted_x90] = tuple(
         item for item in provenance if isinstance(item, CircuitPulseEventProvenance)
     )
-    assert accepted_x90.calibration_id == X90_CALIBRATION_ID
+    assert accepted_x90.implementation_id == x90_pulse_recipe.implementation_id(
+        (QubitId("q0"),)
+    )
     assert any(
         isinstance(item, ImplementedGatePulseEventProvenance)
         and item.candidate_id == X90_CANDIDATE_ID

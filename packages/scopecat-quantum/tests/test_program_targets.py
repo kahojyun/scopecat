@@ -5,10 +5,10 @@ from scopecat import Quantity
 
 from scopecat_quantum._ids import (
     AcquisitionSlotId,
-    CalibrationId,
     CircuitOperationId,
     GateId,
     PulseEventId,
+    PulseImplementationId,
     PulseProgramId,
     QuantumProgramId,
     QubitId,
@@ -17,22 +17,15 @@ from scopecat_quantum._ids import (
     TargetId,
 )
 from scopecat_quantum.acquisitions import AcquisitionKind
-from scopecat_quantum.calibrations import (
-    CalibrationCatalog,
-    GateCalibration,
-    GateCalibrationCatalog,
-    GateCalibrationKey,
-)
 from scopecat_quantum.circuit_pulses import (
     CircuitPulseAcquisitionProvenance,
     CircuitPulseEventProvenance,
 )
 from scopecat_quantum.circuits import Measure
 from scopecat_quantum.gates import GateCall, GateDefinition
-from scopecat_quantum.measurement_calibrations import (
-    MeasurementCalibration,
-    MeasurementCalibrationCatalog,
-    MeasurementCalibrationKey,
+from scopecat_quantum.measurement_implementations import (
+    MeasurementPulseImplementation,
+    MeasurementPulseImplementationKey,
 )
 from scopecat_quantum.program_targets import (
     PreparedQuantumTargetBatch,
@@ -53,6 +46,11 @@ from scopecat_quantum.programs import (
     Sequence,
     lower_quantum_program_to_pulses,
     verify_quantum_program,
+)
+from scopecat_quantum.pulse_implementations import (
+    GatePulseImplementation,
+    GatePulseImplementationKey,
+    ResolvedPulseImplementations,
 )
 from scopecat_quantum.pulses import (
     Acquire,
@@ -144,32 +142,28 @@ def _lowered_mixed_program() -> LoweredQuantumPulseProgram:
         body=Sequence((gate, inline, measurement)),
     )
     verified = verify_quantum_program(source, (X90,))
-    catalog = CalibrationCatalog(
-        gates=GateCalibrationCatalog(
-            (
-                GateCalibration(
-                    id=CalibrationId("x90-q0"),
-                    key=GateCalibrationKey.from_call(gate),
-                    pulse_template=_gate_template(),
-                ),
-            )
+    implementations = ResolvedPulseImplementations(
+        gates=(
+            GatePulseImplementation(
+                id=PulseImplementationId("x90-q0"),
+                key=GatePulseImplementationKey.from_call(gate),
+                pulse_template=_gate_template(),
+            ),
         ),
-        measurements=MeasurementCalibrationCatalog(
-            (
-                MeasurementCalibration(
-                    id=CalibrationId("readout-q0"),
-                    key=MeasurementCalibrationKey.from_measurement(measurement),
-                    pulse_template=_readout_template(
-                        Q0,
-                        program_id="measurement-template",
-                    ),
+        measurements=(
+            MeasurementPulseImplementation(
+                id=PulseImplementationId("readout-q0"),
+                key=MeasurementPulseImplementationKey.from_measurement(measurement),
+                pulse_template=_readout_template(
+                    Q0,
+                    program_id="measurement-template",
                 ),
-            )
+            ),
         ),
     )
     return lower_quantum_program_to_pulses(
         verified,
-        catalog,
+        implementations,
         output_id=PulseProgramId("mixed-program-pulses"),
     )
 
@@ -248,7 +242,7 @@ def test_preparation_accepts_an_explicit_gate_implementation_origin() -> None:
     )
     lowered = lower_quantum_program_to_pulses(
         verify_quantum_program(source, (X90,)),
-        CalibrationCatalog(),
+        ResolvedPulseImplementations(),
         output_id=PulseProgramId("implemented-gate-pulses"),
     )
 

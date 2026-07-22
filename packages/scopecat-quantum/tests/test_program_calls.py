@@ -305,23 +305,23 @@ def test_program_call_binds_compiler_collection_outside_program_arguments() -> N
         ),
         primary_key=("qubit",),
     )
-    calibrations = sc.parameter("calibrations", table_type)
-    call = declaration("q0").with_compiler_inputs(calibrations=calibrations)
+    qubits = sc.parameter("qubits", table_type)
+    call = declaration("q0").with_compiler_inputs(qubits=qubits)
     with_shots = call.with_shots(16)
 
     assert call.arguments == (("qubit", "q0"),)
-    assert call.compiler_arguments == (("calibrations", calibrations),)
+    assert call.compiler_arguments == (("qubits", qubits),)
     assert with_shots.compiler_arguments == call.compiler_arguments
     assert with_shots.module_invocation.module is call.module_invocation.module
     assert [port.id for port in call.module_invocation.module.input_ports] == [
         "qubit",
-        "calibrations",
+        "qubits",
         "__shots__",
     ]
     [execution] = call.module_invocation.module.domain_executions
     assert tuple(port.id for port in execution.program.input_ports) == ("qubit",)
     assert tuple(port.id for port in execution.program.compiler_input_ports) == (
-        "calibrations",
+        "qubits",
     )
 
 

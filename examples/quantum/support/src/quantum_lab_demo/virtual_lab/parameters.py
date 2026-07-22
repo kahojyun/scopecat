@@ -12,7 +12,6 @@ from scopecat.records.entity import EntityRef
 
 QUBIT_PARAMETER_TABLE = "qubits"
 TWO_QUBIT_GATE_PARAMETER_TABLE = "two_qubit_gates"
-QUANTUM_CALIBRATIONS_INPUT = "calibrations"
 DRAG_BETA_PARAMETER_COLUMN = "drag_beta"
 CZ_AMPLITUDE_PARAMETER_COLUMN = "coupler_amplitude"
 
@@ -41,7 +40,7 @@ _QUBIT_PARAMETER_TABLE_TYPE = sc.TableType(
     ),
     primary_key=("qubit",),
 )
-_QUANTUM_CALIBRATION_PARAMETERS = sc.parameter(
+_QUBIT_PARAMETERS = sc.parameter(
     QUBIT_PARAMETER_TABLE,
     _QUBIT_PARAMETER_TABLE_TYPE,
 )
@@ -52,10 +51,10 @@ _DRAG_BETA_VALUE_TYPE = _NS_VALUE_TYPE
 _CZ_AMPLITUDE_VALUE_TYPE = sc.ScalarType(sc.QuantityType(unit="arb"))
 
 
-def quantum_calibration_parameters() -> sc.ValueRef:
-    """Expose accepted qubit calibration rows as one compiler dependency."""
+def qubit_parameters() -> sc.ValueRef:
+    """Expose the accepted qubit table as one compiler-only collection."""
 
-    return _QUANTUM_CALIBRATION_PARAMETERS
+    return _QUBIT_PARAMETERS
 
 
 def q0_parameter_key() -> dict[str, EntityRef]:
@@ -128,5 +127,5 @@ __all__ = [
     "q0_q1_cz_amplitude_lookup",
     "q0_q1_cz_parameter_key",
     "q0_q1_cz_row",
-    "quantum_calibration_parameters",
+    "qubit_parameters",
 ]

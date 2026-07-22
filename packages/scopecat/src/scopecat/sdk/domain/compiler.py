@@ -230,6 +230,22 @@ class DomainResolvedInputs:
                 return values
         raise KeyError(name)
 
+    def decode_collection[ItemT, CollectionT](
+        self,
+        name: str,
+        decode: Callable[[Sequence[ItemT]], CollectionT],
+    ) -> tuple[CollectionT, ...]:
+        """Decode one collection-valued input independently at every point.
+
+        Collection values cross the generic domain boundary as ``object``;
+        keeping that cast here lets domain compilers retain typed parameter
+        models without repeating transport details.
+        """
+
+        return tuple(
+            decode(cast("Sequence[ItemT]", value)) for value in self.input(name)
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class DomainCompiledInputs:

@@ -3,8 +3,8 @@
 The source tree in this module is deliberately heterogeneous: logical gate and
 measurement operations may be composed with authored pulse blocks, while an
 ``ImplementedGate`` retains both a gate's semantic identity and a local pulse
-implementation.  Refinement resolves only the still-abstract operations from a
-calibration catalog, then produces the existing canonical pulse authoring IR.
+implementation. Refinement binds only the still-abstract operations to resolved
+pulse implementations, then produces the canonical pulse authoring IR.
 
 Target compilers never consume this IR.  They continue to accept only scheduled
 pulse programs, so unifying the source DSL does not weaken the target boundary.
@@ -26,12 +26,6 @@ from scopecat_quantum._ids import (
     PulseProgramId,
     QuantumProgramId,
 )
-from scopecat_quantum.calibrations import (
-    CalibrationCatalog,
-    CalibrationSelection,
-    GateCalibrationBinding,
-    select_calibrations,
-)
 from scopecat_quantum.circuit_pulses import (
     CircuitPulseAcquisitionProvenance,
     CircuitPulseEventProvenance,
@@ -45,7 +39,15 @@ from scopecat_quantum.circuits import (
 from scopecat_quantum.circuits import Parallel as CircuitParallel
 from scopecat_quantum.circuits import Sequence as CircuitSequence
 from scopecat_quantum.gates import GateCall, GateDefinition
-from scopecat_quantum.measurement_calibrations import MeasurementCalibrationBinding
+from scopecat_quantum.measurement_implementations import (
+    MeasurementPulseImplementationBinding,
+)
+from scopecat_quantum.pulse_implementations import (
+    GatePulseImplementationBinding,
+    PulseImplementationBindings,
+    ResolvedPulseImplementations,
+    bind_pulse_implementations,
+)
 from scopecat_quantum.pulses import (
     Acquire,
     AcquisitionSlot,
@@ -515,12 +517,12 @@ class LoweredQuantumPulseProgram:
     """Pulse refinement with mixed-source event and result provenance.
 
     :func:`lower_quantum_program_to_pulses` owns total provenance coverage and
-    calibration congruence for instances of this internal lowering snapshot.
+    implementation congruence for instances of this internal lowering snapshot.
     """
 
     source_program_id: QuantumProgramId
     program: PulseProgram
-    calibration_selection: CalibrationSelection
+    implementation_bindings: PulseImplementationBindings
     event_provenance: tuple[QuantumPulseEventProvenance, ...]
     acquisition_provenance: tuple[QuantumPulseAcquisitionProvenance, ...]
 
@@ -573,20 +575,23 @@ class _InstantiatedTemplate:
 
 def lower_quantum_program_to_pulses(
     program: VerifiedQuantumProgram,
-    catalog: CalibrationCatalog,
+    implementations: ResolvedPulseImplementations,
     *,
     output_id: PulseProgramId,
 ) -> LoweredQuantumPulseProgram:
     """Resolve abstract leaves and lower one mixed program to pulse IR."""
 
-    selection = select_calibrations(program.unresolved_circuit, catalog)
+    bindings = bind_pulse_implementations(
+        program.unresolved_circuit,
+        implementations,
+    )
     event_provenance: list[QuantumPulseEventProvenance] = []
     acquisition_provenance: list[QuantumPulseAcquisitionProvenance] = []
     acquisition_slots: list[AcquisitionSlot] = []
     body = _lower_node(
         program.program.body,
         source_program_id=program.program.id,
-        selection=selection,
+        bindings=bindings,
         event_provenance=event_provenance,
         acquisition_slots=acquisition_slots,
         acquisition_provenance=acquisition_provenance,
@@ -598,7 +603,7 @@ def lower_quantum_program_to_pulses(
             body=body,
             acquisition_slots=tuple(acquisition_slots),
         ),
-        calibration_selection=selection,
+        implementation_bindings=bindings,
         event_provenance=tuple(event_provenance),
         acquisition_provenance=tuple(acquisition_provenance),
     )
@@ -608,7 +613,7 @@ def _lower_node(
     node: QuantumNode,
     *,
     source_program_id: QuantumProgramId,
-    selection: CalibrationSelection,
+    bindings: PulseImplementationBindings,
     event_provenance: list[QuantumPulseEventProvenance],
     acquisition_slots: list[AcquisitionSlot],
     acquisition_provenance: list[QuantumPulseAcquisitionProvenance],
@@ -619,7 +624,7 @@ def _lower_node(
                 _lower_node(
                     child,
                     source_program_id=source_program_id,
-                    selection=selection,
+                    bindings=bindings,
                     event_provenance=event_provenance,
                     acquisition_slots=acquisition_slots,
                     acquisition_provenance=acquisition_provenance,
@@ -633,7 +638,7 @@ def _lower_node(
                 _lower_node(
                     child,
                     source_program_id=source_program_id,
-                    selection=selection,
+                    bindings=bindings,
                     event_provenance=event_provenance,
                     acquisition_slots=acquisition_slots,
                     acquisition_provenance=acquisition_provenance,
@@ -704,15 +709,16 @@ def _lower_node(
         )
         return instantiated.body
 
-    binding = selection.binding_for(node.id)
+    binding = bindings.binding_for(node.id)
     if isinstance(node, GateCall):
-        assert isinstance(binding, GateCalibrationBinding)  # noqa: S101
+        assert isinstance(binding, GatePulseImplementationBinding)  # noqa: S101
         instantiated = _instantiate_template(binding.pulse_template, prefix=prefix)
         event_provenance.extend(
             CircuitPulseEventProvenance(
                 event_id=event.event_id,
                 operation_id=node.id,
-                calibration_id=binding.calibration_id,
+                implementation_id=binding.implementation_id,
+                implementation_fingerprint=binding.implementation_fingerprint,
                 template_program_id=binding.pulse_template.id,
                 template_event_id=event.template_event_id,
                 template_path=event.template_path,
@@ -722,7 +728,7 @@ def _lower_node(
         return instantiated.body
 
     assert isinstance(node, Measure)  # noqa: S101
-    assert isinstance(binding, MeasurementCalibrationBinding)  # noqa: S101
+    assert isinstance(binding, MeasurementPulseImplementationBinding)  # noqa: S101
     template_slot = binding.pulse_template.acquisition_slots[0]
     instantiated = _instantiate_template(
         binding.pulse_template,
@@ -735,7 +741,8 @@ def _lower_node(
         CircuitPulseEventProvenance(
             event_id=event.event_id,
             operation_id=node.id,
-            calibration_id=binding.calibration_id,
+            implementation_id=binding.implementation_id,
+            implementation_fingerprint=binding.implementation_fingerprint,
             template_program_id=binding.pulse_template.id,
             template_event_id=event.template_event_id,
             template_path=event.template_path,
@@ -751,7 +758,8 @@ def _lower_node(
         CircuitPulseAcquisitionProvenance(
             acquisition_slot_id=node.acquisition_slot_id,
             measurement_id=node.id,
-            calibration_id=binding.calibration_id,
+            implementation_id=binding.implementation_id,
+            implementation_fingerprint=binding.implementation_fingerprint,
             template_program_id=binding.pulse_template.id,
             template_acquisition_slot_id=template_slot.id,
             acquire_event_id=acquire_events[0].event_id,

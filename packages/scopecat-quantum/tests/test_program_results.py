@@ -52,7 +52,6 @@ from scopecat_quantum._ids import (
     TargetId,
 )
 from scopecat_quantum.acquisitions import AcquisitionKind
-from scopecat_quantum.calibrations import CalibrationCatalog
 from scopecat_quantum.program_results import (
     CompiledQuantumTarget,
     QuantumTargetEntryPointBinding,
@@ -72,6 +71,7 @@ from scopecat_quantum.programs import (
     lower_quantum_program_to_pulses,
     verify_quantum_program,
 )
+from scopecat_quantum.pulse_implementations import ResolvedPulseImplementations
 from scopecat_quantum.pulses import (
     Acquire,
     AcquireSignal,
@@ -225,7 +225,7 @@ def _prepared(entry_id: str, source_program_id: str):
     )
     lowered = lower_quantum_program_to_pulses(
         verify_quantum_program(source, ()),
-        CalibrationCatalog(),
+        ResolvedPulseImplementations(),
         output_id=PulseProgramId(f"{source_program_id}-pulses"),
     )
     return prepare_quantum_target_entry(TargetCompileEntryId(entry_id), lowered)
@@ -292,7 +292,7 @@ def _prepared_repeated(entry_id: str, source_program_id: str):
     )
     lowered = lower_quantum_program_to_pulses(
         verify_quantum_program(source, ()),
-        CalibrationCatalog(),
+        ResolvedPulseImplementations(),
         output_id=PulseProgramId(f"{source_program_id}-pulses"),
     )
     return prepare_quantum_target_entry(TargetCompileEntryId(entry_id), lowered)

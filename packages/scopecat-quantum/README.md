@@ -2,9 +2,9 @@
 
 Hardware-independent quantum building blocks for Scopecat.
 
-This package provides logical gates, circuits, pulses, calibration selection,
+This package provides logical gates, circuits, pulses, implementation binding,
 and the checked boundary to a target compiler. Laboratory-specific templates,
-calibration values, wiring, hardware artifacts, runtimes, and response models
+parameter values, wiring, hardware artifacts, runtimes, and response models
 stay in the package that integrates Scopecat with the laboratory.
 
 The `scopecat_quantum.authoring` facade creates opaque handles for one unified
@@ -44,8 +44,8 @@ parameter to that signature.
 An explicit implementation keeps the logical gate identity while substituting
 a local pulse implementation. Giving it a `candidate` ID records calibration
 lifecycle identity; omitting that ID represents a selected production
-implementation. Only unresolved logical gates are selected from the
-calibration catalog:
+implementation. Only unresolved logical gates are bound to the
+point-effective resolved pulse implementations:
 
 ```python
 from typing import Annotated
@@ -85,6 +85,52 @@ def x90_drag_point(
 
 call = x90_drag_point(qubit="q0", beta=Quantity(0.75, "ns"))
 ```
+
+Compiler-owned defaults use an explicit recipe profile instead. A recipe is a
+pure pulse builder for one typed parameter row; the profile owns collection
+traversal and derives implementation keys and stable IDs:
+
+```python
+from scopecat_quantum import (
+    PulseRecipeProfile,
+    gate_pulse_recipe,
+    map_qubit_pulse_recipes,
+)
+from scopecat_quantum import authoring
+from my_lab import QuantumCompilerParameters, QubitPulseParameters
+
+
+@gate_pulse_recipe(of=x90, id="x90.drag")
+def x90_recipe(
+    row: QubitPulseParameters,
+    target: authoring.Qubit,
+) -> authoring.QuantumFragment:
+    return authoring.play(
+        authoring.drive(target),
+        authoring.drag(
+            duration=row.duration,
+            amplitude=row.amplitude,
+            sigma=row.sigma,
+            beta=row.beta,
+        ),
+    )
+
+
+pulse_profile = PulseRecipeProfile[QuantumCompilerParameters](
+    map_qubit_pulse_recipes(
+        rows=lambda parameters: parameters.qubits,
+        qubit=lambda row: row.qubit,
+        gates=(x90_recipe,),
+    )
+)
+```
+
+The compiler passes the point-bound circuit to the profile. The profile joins
+only its actual operations to matching rows and forwards canonical gate-call
+arguments into recipe functions. Changing a scanned row changes the resolved
+template fingerprint without changing its recipe-derived implementation ID.
+Profiles are ordinary immutable configuration; decorators return recipe values
+and never mutate global state.
 
 Two-qubit gates use the same surface. Couplers are typed implementation
 resources, not extra gate operands. The implementation call carries the two

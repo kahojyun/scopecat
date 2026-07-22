@@ -10,12 +10,12 @@ from scopecat import Quantity
 
 from scopecat_quantum._ids import (
     AcquisitionSlotId,
-    CalibrationId,
     CircuitId,
     CircuitOperationId,
     CouplerId,
     GateId,
     PulseEventId,
+    PulseImplementationId,
     PulseProgramId,
     QuantumProgramId,
     QubitId,
@@ -57,7 +57,7 @@ _STRUCTURAL_ID_PARTS = st.tuples(
 @given(_NONEMPTY_IDS)
 def test_quantum_identities_are_nominal_and_nonempty(value: str) -> None:
     identity_types = (
-        CalibrationId,
+        PulseImplementationId,
         CircuitId,
         CircuitOperationId,
         CouplerId,

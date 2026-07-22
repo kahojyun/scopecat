@@ -5,25 +5,18 @@ from __future__ import annotations
 from typing import Annotated
 
 from scopecat import IntType, Quantity, QuantityType
-from scopecat_quantum import (
-    CalibrationId,
-)
 from scopecat_quantum import authoring as q
+from scopecat_quantum.standard_gates import CZ, X90, X
 
 CZ_CANDIDATE_ID = "cz.conditional-phase"
-_X = q.single_qubit_gate("x")
-_X90 = q.single_qubit_gate("x90")
-_CZ = q.two_qubit_gate("cz")
 
 _CZ_DURATION = Quantity(32, "ns")
 _READOUT_DURATION = Quantity(24, "ns")
 _READOUT_AMPLITUDE = Quantity(0.35, "arb")
 
-X90_TARGET_CALIBRATION_ID = CalibrationId("cz-phase.baseline.x90.q1")
-
 
 @q.implementation(
-    of=_CZ,
+    of=CZ,
     candidate=CZ_CANDIDATE_ID,
     id="cz-phase.coupler-flux",
 )
@@ -83,11 +76,11 @@ def cz_conditional_phase(
         amplitude=coupler_amplitude,
     )
     return q.sequence(
-        q.repeat(_X(control), control_state),
-        _X90(target),
+        q.repeat(X(control), control_state),
+        X90(target),
         candidate,
         q.shift_phase(q.drive(target), analyzer_phase),
-        _X90(target),
+        X90(target),
         q.parallel(
             cz_readout_pulse(control),
             control_capture,
@@ -99,7 +92,6 @@ def cz_conditional_phase(
 
 __all__ = [
     "CZ_CANDIDATE_ID",
-    "X90_TARGET_CALIBRATION_ID",
     "cz_conditional_phase",
     "cz_flux_candidate",
     "cz_readout_pulse",

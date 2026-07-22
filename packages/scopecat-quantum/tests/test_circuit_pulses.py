@@ -16,8 +16,6 @@ from scopecat_quantum import (
     AcquisitionSlot,
     AcquisitionSlotId,
     Barrier,
-    CalibrationCatalog,
-    CalibrationId,
     CircuitId,
     CircuitNode,
     CircuitOperationId,
@@ -27,23 +25,24 @@ from scopecat_quantum import (
     CircuitPulseLoweringIssueCode,
     CircuitSequence,
     Constant,
+    CouplerId,
     Delay,
     DriveSignal,
-    GateCalibration,
-    GateCalibrationCatalog,
-    GateCalibrationKey,
+    FluxSignal,
     GateCall,
     GateDefinition,
     GateId,
+    GatePulseImplementation,
+    GatePulseImplementationKey,
     GatePulseInstantiation,
     LoweredCircuitPulseProgram,
     Measure,
-    MeasurementCalibration,
-    MeasurementCalibrationCatalog,
-    MeasurementCalibrationKey,
+    MeasurementPulseImplementation,
+    MeasurementPulseImplementationKey,
     MeasurementPulseInstantiation,
     Play,
     PulseEventId,
+    PulseImplementationId,
     PulseInstruction,
     PulseParallel,
     PulseProgram,
@@ -52,10 +51,11 @@ from scopecat_quantum import (
     PulseValidationError,
     QubitId,
     ReadoutSignal,
+    ResolvedPulseImplementations,
     VerifiedCircuitProgram,
+    bind_pulse_implementations,
     lower_circuit_to_pulses,
     schedule,
-    select_calibrations,
     verify_circuit_program,
 )
 
@@ -197,15 +197,18 @@ def _build_pulse_shape(
     return PulseParallel(children)
 
 
-def _calibration(
-    calibration_id: str,
+def _implementation(
+    implementation_id: str,
     call: GateCall,
     template: PulseProgram,
-) -> GateCalibration:
-    return GateCalibration(
-        id=CalibrationId(calibration_id),
-        key=GateCalibrationKey.from_call(call),
+    *,
+    resources: tuple[CouplerId, ...] = (),
+) -> GatePulseImplementation:
+    return GatePulseImplementation(
+        id=PulseImplementationId(implementation_id),
+        key=GatePulseImplementationKey.from_call(call),
         pulse_template=template,
+        resources=resources,
     )
 
 
@@ -246,29 +249,29 @@ def _measurement_template(
     )
 
 
-def _measurement_calibration(
-    calibration_id: str,
+def _measurement_implementation(
+    implementation_id: str,
     measurement: Measure,
     template: PulseProgram,
-) -> MeasurementCalibration:
-    return MeasurementCalibration(
-        id=CalibrationId(calibration_id),
-        key=MeasurementCalibrationKey.from_measurement(measurement),
+) -> MeasurementPulseImplementation:
+    return MeasurementPulseImplementation(
+        id=PulseImplementationId(implementation_id),
+        key=MeasurementPulseImplementationKey.from_measurement(measurement),
         pulse_template=template,
     )
 
 
 def _lower(
     program: VerifiedCircuitProgram,
-    calibrations: tuple[GateCalibration, ...],
+    implementations: tuple[GatePulseImplementation, ...],
     *,
     output_id: str = "lowered",
 ) -> LoweredCircuitPulseProgram:
     return lower_circuit_to_pulses(
         program,
-        select_calibrations(
+        bind_pulse_implementations(
             program,
-            CalibrationCatalog(gates=GateCalibrationCatalog(calibrations)),
+            ResolvedPulseImplementations(gates=implementations),
         ),
         output_id=PulseProgramId(output_id),
     )
@@ -288,16 +291,16 @@ def test_reused_template_is_hygienic_and_provenance_is_a_bijection(
         *(1 for _ in range(template_event_count)),
         relative_scope=("template/relative",),
     )
-    calibration = _calibration("x-q0", calls[0], template)
+    implementation = _implementation("x-q0", calls[0], template)
     verified = _verified(CircuitSequence(calls))
 
-    first = _lower(verified, (calibration,))
-    second = _lower(verified, (calibration,))
+    first = _lower(verified, (implementation,))
+    second = _lower(verified, (implementation,))
 
     expected_event_count = call_count * template_event_count
     event_ids = tuple(item.event_id for item in first.event_provenance)
     assert first == second
-    assert calibration.pulse_template is template
+    assert implementation.pulse_template is template
     assert len(event_ids) == expected_event_count
     assert len(set(event_ids)) == expected_event_count
     assert (
@@ -344,11 +347,11 @@ def test_structural_scope_prevents_delimiter_collisions_across_circuits() -> Non
     second_call = _call("b/c")
     first = _lower(
         _verified(first_call, circuit_id="a/b"),
-        (_calibration("first", first_call, template),),
+        (_implementation("first", first_call, template),),
     )
     second = _lower(
         _verified(second_call, circuit_id="a"),
-        (_calibration("second", second_call, template),),
+        (_implementation("second", second_call, template),),
     )
 
     first_id = first.event_provenance[0].event_id
@@ -384,14 +387,14 @@ def test_circuit_composition_maps_homomorphically_to_pulse_composition(
     first = _call("first", Q0)
     second = _call("second", Q1)
     third = _call("third", Q2)
-    calibrations = (
-        _calibration("q0", first, _template(Q0, first_duration, program_id="q0")),
-        _calibration(
+    implementations = (
+        _implementation("q0", first, _template(Q0, first_duration, program_id="q0")),
+        _implementation(
             "q1",
             second,
             _template(Q1, second_duration, program_id="q1"),
         ),
-        _calibration(
+        _implementation(
             "q2",
             third,
             _template(Q2, third_duration, program_id="q2"),
@@ -404,8 +407,8 @@ def test_circuit_composition_maps_homomorphically_to_pulse_composition(
         CircuitSequence((first, CircuitSequence((second, third))))
     )
 
-    left = _lower(left_associated, calibrations, output_id="sequence")
-    right = _lower(right_associated, calibrations, output_id="sequence")
+    left = _lower(left_associated, implementations, output_id="sequence")
+    right = _lower(right_associated, implementations, output_id="sequence")
 
     assert isinstance(left.program.body, PulseSequence)
     assert isinstance(left.program.body.instructions[0], PulseSequence)
@@ -413,12 +416,12 @@ def test_circuit_composition_maps_homomorphically_to_pulse_composition(
 
     forward = _lower(
         _verified(CircuitParallel((first, second))),
-        calibrations,
+        implementations,
         output_id="parallel",
     )
     reversed_order = _lower(
         _verified(CircuitParallel((second, first))),
-        calibrations,
+        implementations,
         output_id="parallel",
     )
     assert isinstance(forward.program.body, PulseParallel)
@@ -442,10 +445,10 @@ def test_generated_lowering_preserves_every_composition_node_and_origin(
         CircuitProgram(CircuitId("generated-structure"), circuit_body),
         (X,),
     )
-    calibrations: list[GateCalibration] = []
+    implementations: list[GatePulseImplementation] = []
     templates_by_call: dict[
         CircuitOperationId,
-        tuple[GateCalibration, PulseProgram],
+        tuple[GatePulseImplementation, PulseProgram],
     ] = {}
     for index, call in enumerate(calls):
         template = PulseProgram(
@@ -456,12 +459,14 @@ def test_generated_lowering_preserves_every_composition_node_and_origin(
                 leaf_count=[0],
             ),
         )
-        calibration = _calibration(f"generated-calibration-{index}", call, template)
-        calibrations.append(calibration)
-        templates_by_call[call.id] = (calibration, template)
+        implementation = _implementation(
+            f"generated-implementation-{index}", call, template
+        )
+        implementations.append(implementation)
+        templates_by_call[call.id] = (implementation, template)
     lowered = _lower(
         verified,
-        tuple(calibrations),
+        tuple(implementations),
         output_id="generated-output",
     )
 
@@ -469,7 +474,7 @@ def test_generated_lowering_preserves_every_composition_node_and_origin(
         tuple[
             PulseEventId,
             CircuitOperationId,
-            CalibrationId,
+            PulseImplementationId,
             PulseProgramId,
             PulseEventId,
             tuple[int, ...],
@@ -478,8 +483,8 @@ def test_generated_lowering_preserves_every_composition_node_and_origin(
     expected_instantiations: list[
         tuple[
             CircuitOperationId,
-            GateCalibrationKey,
-            CalibrationId,
+            GatePulseImplementationKey,
+            PulseImplementationId,
             PulseProgramId,
             tuple[PulseEventId, ...],
         ]
@@ -490,7 +495,7 @@ def test_generated_lowering_preserves_every_composition_node_and_origin(
         lowered_instruction: PulseInstruction,
         *,
         call: GateCall,
-        calibration: GateCalibration,
+        implementation: GatePulseImplementation,
         template: PulseProgram,
         path: tuple[int, ...],
         event_ids: list[PulseEventId],
@@ -511,7 +516,7 @@ def test_generated_lowering_preserves_every_composition_node_and_origin(
                     template_child,
                     lowered_child,
                     call=call,
-                    calibration=calibration,
+                    implementation=implementation,
                     template=template,
                     path=(*path, index),
                     event_ids=event_ids,
@@ -533,7 +538,7 @@ def test_generated_lowering_preserves_every_composition_node_and_origin(
                     template_child,
                     lowered_child,
                     call=call,
-                    calibration=calibration,
+                    implementation=implementation,
                     template=template,
                     path=(*path, index),
                     event_ids=event_ids,
@@ -557,7 +562,7 @@ def test_generated_lowering_preserves_every_composition_node_and_origin(
             (
                 expected_event_id,
                 call.id,
-                calibration.id,
+                implementation.id,
                 template.id,
                 template_instruction.id,
                 path,
@@ -569,13 +574,13 @@ def test_generated_lowering_preserves_every_composition_node_and_origin(
         pulse_instruction: PulseInstruction,
     ) -> None:
         if isinstance(circuit_node, GateCall):
-            calibration, template = templates_by_call[circuit_node.id]
+            implementation, template = templates_by_call[circuit_node.id]
             event_ids: list[PulseEventId] = []
             assert_pulse_instantiation(
                 template.body,
                 pulse_instruction,
                 call=circuit_node,
-                calibration=calibration,
+                implementation=implementation,
                 template=template,
                 path=(),
                 event_ids=event_ids,
@@ -583,8 +588,8 @@ def test_generated_lowering_preserves_every_composition_node_and_origin(
             expected_instantiations.append(
                 (
                     circuit_node.id,
-                    calibration.key,
-                    calibration.id,
+                    implementation.key,
+                    implementation.id,
                     template.id,
                     tuple(event_ids),
                 )
@@ -612,7 +617,7 @@ def test_generated_lowering_preserves_every_composition_node_and_origin(
         (
             item.event_id,
             item.operation_id,
-            item.calibration_id,
+            item.implementation_id,
             item.template_program_id,
             item.template_event_id,
             item.template_path,
@@ -623,7 +628,7 @@ def test_generated_lowering_preserves_every_composition_node_and_origin(
         (
             cast("GatePulseInstantiation", item).call_id,
             item.key,
-            item.calibration_id,
+            item.implementation_id,
             item.template_program_id,
             item.event_ids,
         )
@@ -649,28 +654,26 @@ def test_reused_measurement_template_rewrites_every_declared_result_slot(
     )
     verified = _verified(CircuitSequence(measurements))
     template = _measurement_template(Q0)
-    measurement_calibration = _measurement_calibration(
+    measurement_implementation = _measurement_implementation(
         "readout-q0",
         measurements[0],
         template,
     )
-    selection = select_calibrations(
+    bindings = bind_pulse_implementations(
         verified,
-        CalibrationCatalog(
-            measurements=MeasurementCalibrationCatalog((measurement_calibration,))
-        ),
+        ResolvedPulseImplementations(measurements=(measurement_implementation,)),
     )
 
     lowered = lower_circuit_to_pulses(
         verified,
-        selection,
+        bindings,
         output_id=PulseProgramId("measured"),
     )
 
     expected_slot_ids = tuple(
         measurement.acquisition_slot_id for measurement in measurements
     )
-    assert measurement_calibration.pulse_template is template
+    assert measurement_implementation.pulse_template is template
     assert tuple(slot.id for slot in lowered.program.acquisition_slots) == (
         expected_slot_ids
     )
@@ -738,26 +741,26 @@ def test_parallel_measurements_preserve_structure_and_independent_slots() -> Non
         AcquisitionKind.INTEGRATED_IQ,
     )
     verified = _verified(CircuitParallel((first, second)))
-    calibrations = (
-        _measurement_calibration(
+    implementations = (
+        _measurement_implementation(
             "readout-q0",
             first,
             _measurement_template(Q0, program_id="readout-q0"),
         ),
-        _measurement_calibration(
+        _measurement_implementation(
             "readout-q1",
             second,
             _measurement_template(Q1, program_id="readout-q1"),
         ),
     )
-    selection = select_calibrations(
+    bindings = bind_pulse_implementations(
         verified,
-        CalibrationCatalog(measurements=MeasurementCalibrationCatalog(calibrations)),
+        ResolvedPulseImplementations(measurements=implementations),
     )
 
     lowered = lower_circuit_to_pulses(
         verified,
-        selection,
+        bindings,
         output_id=PulseProgramId("parallel-readout"),
     )
     scheduled = schedule(lowered.program)
@@ -786,16 +789,14 @@ def test_template_slot_rename_changes_provenance_but_not_lowered_program() -> No
             Q0,
             template_slot_id=template_slot_id,
         )
-        calibration = _measurement_calibration("readout", measurement, template)
-        selection = select_calibrations(
+        implementation = _measurement_implementation("readout", measurement, template)
+        bindings = bind_pulse_implementations(
             verified,
-            CalibrationCatalog(
-                measurements=MeasurementCalibrationCatalog((calibration,))
-            ),
+            ResolvedPulseImplementations(measurements=(implementation,)),
         )
         return lower_circuit_to_pulses(
             verified,
-            selection,
+            bindings,
             output_id=PulseProgramId("lowered-readout"),
         )
 
@@ -810,16 +811,14 @@ def test_template_slot_rename_changes_provenance_but_not_lowered_program() -> No
     )
 
 
-def test_selection_mismatches_and_measurement_are_aggregated() -> None:
+def test_binding_mismatches_and_measurement_are_aggregated() -> None:
     selected_call = _call("first", Q0)
-    selected_program = _verified(selected_call, circuit_id="selection-source")
+    selected_program = _verified(selected_call, circuit_id="bindings-source")
     template = _template(Q0, 10)
-    selection = select_calibrations(
+    bindings = bind_pulse_implementations(
         selected_program,
-        CalibrationCatalog(
-            gates=GateCalibrationCatalog(
-                (_calibration("selected", selected_call, template),)
-            )
+        ResolvedPulseImplementations(
+            gates=(_implementation("selected", selected_call, template),)
         ),
     )
     target = _verified(
@@ -843,7 +842,7 @@ def test_selection_mismatches_and_measurement_are_aggregated() -> None:
         with pytest.raises(CircuitPulseLoweringError) as raised:
             lower_circuit_to_pulses(
                 target,
-                selection,
+                bindings,
                 output_id=PulseProgramId("mismatched"),
             )
         errors.append(raised.value)
@@ -854,30 +853,30 @@ def test_selection_mismatches_and_measurement_are_aggregated() -> None:
             issue.code,
             issue.path,
             issue.operation_id,
-            issue.calibration_id,
+            issue.implementation_id,
             issue.template_event_id,
         )
         for issue in errors[0].issues
     ) == (
         (
+            CircuitPulseLoweringIssueCode.BINDINGS_CIRCUIT_MISMATCH,
+            ("bindings", "circuit_id"),
+            None,
+            None,
+            None,
+        ),
+        (
+            CircuitPulseLoweringIssueCode.BINDINGS_COVERAGE_MISMATCH,
+            ("bindings", "operation_ids"),
+            None,
+            None,
+            None,
+        ),
+        (
             CircuitPulseLoweringIssueCode.BINDING_KEY_MISMATCH,
             ("body", "operations", 0),
             CircuitOperationId("first"),
-            CalibrationId("selected"),
-            None,
-        ),
-        (
-            CircuitPulseLoweringIssueCode.SELECTION_CIRCUIT_MISMATCH,
-            ("selection", "circuit_id"),
-            None,
-            None,
-            None,
-        ),
-        (
-            CircuitPulseLoweringIssueCode.SELECTION_COVERAGE_MISMATCH,
-            ("selection", "operation_ids"),
-            None,
-            None,
+            PulseImplementationId("selected"),
             None,
         ),
     )
@@ -887,12 +886,30 @@ def test_final_scheduler_still_owns_cross_template_signal_conflicts() -> None:
     left = _call("left", Q0)
     right = _call("right", Q1)
     verified = _verified(CircuitParallel((left, right)))
-    shared_signal_template = _template(Q0, 10)
+    shared_coupler = CouplerId("shared-coupler")
+    shared_signal_template = PulseProgram(
+        PulseProgramId("shared-flux"),
+        Delay(
+            PulseEventId("flux"),
+            FluxSignal(shared_coupler),
+            Quantity(10, "ns"),
+        ),
+    )
     lowered = _lower(
         verified,
         (
-            _calibration("left", left, shared_signal_template),
-            _calibration("right", right, shared_signal_template),
+            _implementation(
+                "left",
+                left,
+                shared_signal_template,
+                resources=(shared_coupler,),
+            ),
+            _implementation(
+                "right",
+                right,
+                shared_signal_template,
+                resources=(shared_coupler,),
+            ),
         ),
     )
 
@@ -908,7 +925,7 @@ def test_zero_event_gate_still_exports_an_empty_instantiation() -> None:
     empty_template = _template(Q0, program_id="empty")
     lowered = _lower(
         verified,
-        (_calibration("empty", call, empty_template),),
+        (_implementation("empty", call, empty_template),),
     )
 
     assert lowered.event_provenance == ()

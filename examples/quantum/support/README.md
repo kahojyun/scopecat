@@ -22,7 +22,8 @@ Inside `src/quantum_lab_demo/`:
   preparation evidence kept outside compiler policy.
 - `targets/`: fake target lowering and execution.
 - `virtual_lab/`: wiring, typed parameter collections, instrument providers,
-  point-effective calibration lowering, and fake responses.
+  compiler parameter materialization, pulse implementation resolution, and
+  fake responses.
 
 Focused behavior checks live in `tests/unit/`.
 

@@ -1,18 +1,14 @@
-"""Exact, reusable calibration declarations for logical measurements.
-
-Measurement calibration is deliberately independent from gate calibration.  A
-measurement key describes the logical qubit and promised acquisition shape;
-operation and result-slot identities belong to an individual circuit occurrence
-and are therefore introduced later by selection and lowering.
-"""
+"""Resolved pulse implementations for logical measurements."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
+from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
+
 from scopecat_quantum._ids import (
-    CalibrationId,
     CircuitOperationId,
+    PulseImplementationId,
     QubitId,
 )
 from scopecat_quantum.acquisitions import AcquisitionKind
@@ -25,19 +21,22 @@ from scopecat_quantum.pulses import (
     PulseProgram,
     ReadoutSignal,
     iter_pulse_leaves,
+    pulse_leaf_owners,
 )
 
 
 @dataclass(frozen=True, slots=True)
-class MeasurementCalibrationKey:
+class MeasurementPulseImplementationKey:
     """Reusable logical identity of one single-qubit measurement shape."""
 
     qubit: QubitId
     acquisition_kind: AcquisitionKind
 
     @classmethod
-    def from_measurement(cls, measurement: Measure) -> MeasurementCalibrationKey:
-        """Snapshot the reusable calibration key of one measurement occurrence."""
+    def from_measurement(
+        cls, measurement: Measure
+    ) -> MeasurementPulseImplementationKey:
+        """Return the implementation key of one measurement occurrence."""
 
         return cls(
             qubit=measurement.qubit,
@@ -47,7 +46,7 @@ class MeasurementCalibrationKey:
 
 def _measurement_template_leaves(
     pulse_template: PulseProgram,
-    key: MeasurementCalibrationKey,
+    key: MeasurementPulseImplementationKey,
     *,
     subject: str,
 ) -> tuple[PulseLeaf, ...]:
@@ -59,11 +58,11 @@ def _measurement_template_leaves(
         raise ValueError(msg)
     slot = slots[0]
     if slot.kind is not key.acquisition_kind:
-        msg = f"{subject} acquisition slot kind must match its calibration key"
+        msg = f"{subject} acquisition slot kind must match its implementation key"
         raise ValueError(msg)
     expected_acquire_signal = AcquireSignal(key.qubit)
     if slot.signal != expected_acquire_signal:
-        msg = f"{subject} acquisition slot signal must match its calibration qubit"
+        msg = f"{subject} acquisition slot signal must match its implementation qubit"
         raise ValueError(msg)
 
     leaves = tuple(iter_pulse_leaves(pulse_template.body))
@@ -81,7 +80,7 @@ def _measurement_template_leaves(
         msg = f"{subject} Acquire instruction must close its declared acquisition slot"
         raise ValueError(msg)
     if acquire.signal != expected_acquire_signal:
-        msg = f"{subject} Acquire signal must match its calibration qubit"
+        msg = f"{subject} Acquire signal must match its implementation qubit"
         raise ValueError(msg)
 
     expected_readout_signal = ReadoutSignal(key.qubit)
@@ -89,51 +88,50 @@ def _measurement_template_leaves(
         isinstance(leaf, Play) and leaf.signal == expected_readout_signal
         for leaf in leaves
     ):
-        msg = f"{subject} pulse template must play its calibration qubit readout signal"
+        msg = (
+            f"{subject} pulse template must play its implementation qubit "
+            "readout signal"
+        )
+        raise ValueError(msg)
+    foreign_owners = set(pulse_leaf_owners(pulse_template.body)) - {key.qubit}
+    if foreign_owners:
+        rendered = ", ".join(
+            repr(owner.value)
+            for owner in sorted(foreign_owners, key=lambda item: item.value)
+        )
+        msg = f"{subject} contains unauthorized signal owners: {rendered}"
         raise ValueError(msg)
     return leaves
 
 
 @dataclass(frozen=True, slots=True)
-class MeasurementCalibration:
-    """One exact measurement calibration with a reusable pulse template."""
+class MeasurementPulseImplementation:
+    """One resolved measurement implementation with a reusable pulse template."""
 
-    id: CalibrationId
-    key: MeasurementCalibrationKey
+    id: PulseImplementationId
+    key: MeasurementPulseImplementationKey
     pulse_template: PulseProgram
 
     def __post_init__(self) -> None:
         _measurement_template_leaves(
             self.pulse_template,
             self.key,
-            subject="measurement calibration",
+            subject="measurement implementation",
         )
+
+    @property
+    def fingerprint(self) -> str:
+        """Identify the exact resolved template, including point-effective values."""
+
+        return stable_content_hash(content_fingerprint(self))
 
 
 @dataclass(frozen=True, slots=True)
-class MeasurementCalibrationCatalog:
-    """Order-independent collection of measurement calibrations."""
-
-    entries: tuple[MeasurementCalibration, ...]
-
-    def __post_init__(self) -> None:
-        entries = self.entries
-        calibration_ids = tuple(entry.id for entry in entries)
-        if len(set(calibration_ids)) != len(calibration_ids):
-            msg = "measurement calibration ids must be unique within a catalog"
-            raise ValueError(msg)
-        object.__setattr__(
-            self,
-            "entries",
-            tuple(sorted(entries, key=lambda entry: entry.id.value)),
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class MeasurementCalibrationBinding:
-    """Exact selected pulse template for one logical measurement occurrence."""
+class MeasurementPulseImplementationBinding:
+    """Resolved pulse template bound to one logical measurement occurrence."""
 
     measurement_id: CircuitOperationId
-    key: MeasurementCalibrationKey
-    calibration_id: CalibrationId
+    key: MeasurementPulseImplementationKey
+    implementation_id: PulseImplementationId
+    implementation_fingerprint: str
     pulse_template: PulseProgram
