@@ -15,16 +15,13 @@ from quantum_lab_demo.targets.fake_realtime.model import (
     FakeRealtimeInstruction,
     FakeRealtimeRegister,
     FakeRealtimeTarget,
-    RtAcquire,
     RtDecrementAndJump,
     RtEmit,
-    RtFrameXor,
     RtHalt,
     RtJump,
     RtJumpIf,
     RtLabel,
     RtMove,
-    RtPlay,
     RtPulseTimeline,
     RtWait,
     RtXor,
@@ -90,15 +87,10 @@ def _verify_finite_resources(
             ),
         )
     waveforms = {
-        waveform_id
+        play.waveform_id
         for item in instructions
-        for waveform_id in (
-            (item.waveform_id,)
-            if isinstance(item, RtPlay)
-            else tuple(play.waveform_id for play in item.plays)
-            if isinstance(item, RtPulseTimeline)
-            else ()
-        )
+        if isinstance(item, RtPulseTimeline)
+        for play in item.plays
     }
     if len(waveforms) > target.max_waveforms:
         _issue(
@@ -175,13 +167,6 @@ def _verify_physical_operands(
     issues: list[TargetCompilationIssue],
 ) -> None:
     for instruction in request.program.instructions:
-        if isinstance(instruction, RtPlay) and instruction.output not in target.outputs:
-            _issue(
-                request,
-                issues,
-                "fake_realtime_output_unbound",
-                f"output {instruction.output.value!r} is not configured",
-            )
         if isinstance(instruction, RtPulseTimeline):
             for play in instruction.plays:
                 if play.output not in target.outputs:
@@ -199,16 +184,6 @@ def _verify_physical_operands(
                         "fake_realtime_input_unbound",
                         f"input {acquisition.input.value!r} is not configured",
                     )
-        if (
-            isinstance(instruction, RtAcquire)
-            and instruction.input not in target.inputs
-        ):
-            _issue(
-                request,
-                issues,
-                "fake_realtime_input_unbound",
-                f"input {instruction.input.value!r} is not configured",
-            )
 
 
 def _verify_record_layout(
@@ -345,7 +320,7 @@ def _verify_register_flow(
             0
             if isinstance(
                 instruction,
-                RtLabel | RtHalt | RtPlay | RtAcquire | RtPulseTimeline | RtWait,
+                RtLabel | RtHalt | RtPulseTimeline | RtWait,
             )
             else target.classical_instruction_ticks
         )
@@ -383,9 +358,7 @@ def _transfer(
     selected = {
         register: max(0, remaining - elapsed) for register, remaining in state.items()
     }
-    if isinstance(instruction, RtAcquire):
-        selected[instruction.destination] = target.discrimination_latency_ticks
-    elif isinstance(instruction, RtPulseTimeline):
+    if isinstance(instruction, RtPulseTimeline):
         for acquisition in instruction.acquisitions:
             residual = instruction.duration_ticks - (
                 acquisition.start_ticks + acquisition.duration_ticks
@@ -470,7 +443,7 @@ def _instruction_ticks(
     instruction: FakeRealtimeInstruction,
     target: FakeRealtimeTarget,
 ) -> int:
-    if isinstance(instruction, RtPlay | RtAcquire | RtWait | RtPulseTimeline):
+    if isinstance(instruction, RtWait | RtPulseTimeline):
         return instruction.duration_ticks
     if isinstance(instruction, RtLabel | RtHalt):
         return 0
@@ -478,8 +451,6 @@ def _instruction_ticks(
 
 
 def _record_ids(instruction: FakeRealtimeInstruction) -> tuple[str, ...]:
-    if isinstance(instruction, RtAcquire):
-        return (instruction.result_id,) if instruction.record else ()
     if isinstance(instruction, RtPulseTimeline):
         return tuple(item.result_id for item in instruction.acquisitions if item.record)
     if isinstance(instruction, RtEmit):
@@ -502,7 +473,7 @@ def _read_registers(
         return (instruction.source,)
     if isinstance(instruction, RtDecrementAndJump):
         return (instruction.counter,)
-    if isinstance(instruction, RtEmit | RtFrameXor):
+    if isinstance(instruction, RtEmit):
         return (instruction.source,)
     return ()
 
@@ -513,7 +484,7 @@ def _registers(
     selected: set[FakeRealtimeRegister] = set()
     for instruction in instructions:
         selected.update(_read_registers(instruction))
-        if isinstance(instruction, RtMove | RtXor | RtAcquire):
+        if isinstance(instruction, RtMove | RtXor):
             selected.add(instruction.destination)
         elif isinstance(instruction, RtPulseTimeline):
             selected.update(item.destination for item in instruction.acquisitions)

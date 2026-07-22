@@ -54,6 +54,7 @@
   },
   "domain_target": {
     "id": "tests.domain.target",
+    "kind": "tests.domain",
     "instrument_ids": []
   },
   "parameter_catalog": {

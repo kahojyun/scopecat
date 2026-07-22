@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
 from typing import override
@@ -19,6 +20,7 @@ from scopecat.sdk.domain.runtime import (
     DomainFetchReceipt,
     DomainFetchRequest,
 )
+from scopecat_quantum import authoring as quantum
 
 from quantum_lab_demo import QuantumLabCompiler, quantum_lab_compiler
 from quantum_lab_demo.targets.fake_list_mode import (
@@ -101,6 +103,31 @@ def test_resource_independent_domain_spans_bias_state_coverage(
     second_state = effect_stages.index("apply_state", 1)
     assert "domain_fetch" in effect_stages[1:second_state]
     assert "domain_submit" not in effect_stages[second_state + 1 :]
+
+
+def test_lazy_target_artifact_binds_each_selected_point_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bind_calls = 0
+    bind = quantum.bind
+
+    def count_bind(
+        declaration: quantum.Program,
+        bindings: Mapping[str, object] | None = None,
+    ) -> quantum.BoundProgram:
+        nonlocal bind_calls
+        bind_calls += 1
+        return bind(declaration, bindings)
+
+    monkeypatch.setattr(quantum, "bind", count_bind)
+
+    run, _source, compiler = _run_mixed_experiment(tmp_path)
+
+    assert run.manifest.status == "completed"
+    assert bind_calls == sum(
+        len(preparation.points) for preparation in compiler.trace.all_preparations
+    )
 
 
 def test_different_target_partitions_preserve_the_logical_dataset(

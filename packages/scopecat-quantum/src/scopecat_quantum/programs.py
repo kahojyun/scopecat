@@ -28,7 +28,6 @@ from scopecat_quantum._ids import (
     PulseEventId,
     PulseProgramId,
     QuantumProgramId,
-    QubitId,
     RealtimeStateId,
     RealtimeValueId,
 )
@@ -171,7 +170,7 @@ class RealtimeBitStateWrite:
 
 @dataclass(frozen=True, slots=True)
 class RealtimeBitXor:
-    """Define one detector-like SSA bit from two exact inputs."""
+    """Define one SSA bit as the XOR of two exact inputs."""
 
     id: CircuitOperationId
     output_id: RealtimeValueId
@@ -197,23 +196,12 @@ class RealtimeResultProvenance:
     source_value_id: RealtimeValueId
 
 
-@dataclass(frozen=True, slots=True)
-class PauliFrameXor:
-    """XOR one realtime bit into a logical Pauli-frame component."""
-
-    id: CircuitOperationId
-    qubit: QubitId
-    axis: Literal["x", "z"]
-    source: RealtimeBitRef
-
-
 type RealtimeOperation = (
     RealtimeBitStateInit
     | RealtimeBitStateRead
     | RealtimeBitStateWrite
     | RealtimeBitXor
     | RealtimeResultEmit
-    | PauliFrameXor
 )
 type QuantumOperation = (
     GateCall | Measure | PulseBlock | ImplementedGate | RealtimeOperation
@@ -303,8 +291,7 @@ def iter_quantum_operations(node: QuantumNode) -> Iterator[QuantumOperation]:
         | RealtimeBitStateRead
         | RealtimeBitStateWrite
         | RealtimeBitXor
-        | RealtimeResultEmit
-        | PauliFrameXor,
+        | RealtimeResultEmit,
     ):
         yield node
         return
@@ -622,8 +609,7 @@ def _iter_operations_with_paths(
         | RealtimeBitStateRead
         | RealtimeBitStateWrite
         | RealtimeBitXor
-        | RealtimeResultEmit
-        | PauliFrameXor,
+        | RealtimeResultEmit,
     ):
         yield node, path
         return
@@ -693,7 +679,7 @@ def _verify_realtime_flow(
         _require_realtime_value(node.left, flow, (*path, "left"), issues)
         _require_realtime_value(node.right, flow, (*path, "right"), issues)
         return replace(flow, values=(*flow.values, node.output_id))
-    if isinstance(node, RealtimeResultEmit | PauliFrameXor):
+    if isinstance(node, RealtimeResultEmit):
         _require_realtime_value(node.source, flow, path, issues)
         return flow
     if isinstance(node, Sequence):
@@ -817,8 +803,7 @@ def _circuit_projection(
         | RealtimeBitStateRead
         | RealtimeBitStateWrite
         | RealtimeBitXor
-        | RealtimeResultEmit
-        | PauliFrameXor,
+        | RealtimeResultEmit,
     ):
         return CircuitSequence(())
     if isinstance(node, Sequence):
@@ -1085,8 +1070,7 @@ def lower_quantum_program_to_structured_pulses(
             RealtimeBitStateInit
             | RealtimeBitStateRead
             | RealtimeBitStateWrite
-            | RealtimeBitXor
-            | PauliFrameXor,
+            | RealtimeBitXor,
         ):
             return node
 
@@ -1238,8 +1222,7 @@ def _lower_node(
         | RealtimeBitStateRead
         | RealtimeBitStateWrite
         | RealtimeBitXor
-        | RealtimeResultEmit
-        | PauliFrameXor,
+        | RealtimeResultEmit,
     ):
         raise RealtimeControlFlowUnsupportedError(
             "realtime classical operations require a realtime target backend"

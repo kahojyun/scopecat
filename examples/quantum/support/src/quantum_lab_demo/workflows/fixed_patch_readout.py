@@ -1,4 +1,4 @@
-"""Fixed-patch stabilizer rounds through the shared quantum domain compiler."""
+"""Fixed multi-lane pulse/readout rounds through the quantum domain compiler."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from scopecat_quantum import authoring as q
 
 from quantum_lab_demo.virtual_lab.parameters import qubit_parameters
 
-TOY_SURFACE_CODE_ROUND_TEMPLATE_ID = "quantum_lab_demo.workflows.toy_surface_code_round"
+FIXED_PATCH_READOUT_TEMPLATE_ID = "quantum_lab_demo.workflows.fixed_patch_readout"
 
 _READOUT_DURATION = sc.Quantity(24, "ns")
 _READOUT_AMPLITUDE = sc.Quantity(0.3, "arb")
@@ -29,25 +29,25 @@ def _readout_branch(qubit: q.Qubit) -> q.QuantumFragment:
         q.acquire(
             qubit,
             duration=_READOUT_DURATION,
-            result="stabilizer_iq",
+            result="patch_iq",
         ),
     )
 
 
-@q.program(id="toy-surface-code-round")
-def toy_surface_code_round_program(
-    data_0: q.Qubit,
-    data_1: q.Qubit,
-    ancilla_0: q.Qubit,
-    ancilla_1: q.Qubit,
+@q.program(id="fixed-patch-readout")
+def fixed_patch_readout_program(
+    qubit_0: q.Qubit,
+    qubit_1: q.Qubit,
+    qubit_2: q.Qubit,
+    qubit_3: q.Qubit,
     coupler_01: q.Coupler,
     coupler_23: q.Coupler,
     rounds: Annotated[int, sc.IntType(minimum=1)],
     cycle_time: Annotated[sc.Quantity, sc.QuantityType(unit="ns")],
 ) -> q.QuantumFragment:
-    """Collect a fixed four-qubit patch as round-by-qubit IQ results."""
+    """Exercise fixed parallel lanes and collect round-by-qubit IQ results."""
 
-    entangling_step = q.parallel(
+    coupler_step = q.parallel(
         q.play(
             q.flux(coupler_01),
             q.constant(duration=cycle_time, amplitude=_COUPLER_AMPLITUDE),
@@ -58,31 +58,31 @@ def toy_surface_code_round_program(
         ),
     )
     patch_readout = q.parallel(
-        _readout_branch(data_0),
-        _readout_branch(data_1),
-        _readout_branch(ancilla_0),
-        _readout_branch(ancilla_1),
+        _readout_branch(qubit_0),
+        _readout_branch(qubit_1),
+        _readout_branch(qubit_2),
+        _readout_branch(qubit_3),
         axis="qubit",
         axis_kind="entity",
     )
     return q.repeat(
-        q.sequence(entangling_step, patch_readout),
+        q.sequence(coupler_step, patch_readout),
         rounds,
         axis="round",
     )
 
 
 @sc.template(
-    id=TOY_SURFACE_CODE_ROUND_TEMPLATE_ID,
-    kind="toy_surface_code_round",
-    label="toy surface-code round",
-    description=("Run a fixed four-qubit patch with recursive round-by-qubit readout."),
+    id=FIXED_PATCH_READOUT_TEMPLATE_ID,
+    kind="fixed_patch_readout",
+    label="fixed patch readout",
+    description="Exercise fixed parallel lanes with recursive round-by-qubit readout.",
 )
-def toy_surface_code_round_template(
-    data_0: q.QubitInput = "q0",
-    data_1: q.QubitInput = "q1",
-    ancilla_0: q.QubitInput = "q2",
-    ancilla_1: q.QubitInput = "q3",
+def fixed_patch_readout_template(
+    qubit_0: q.QubitInput = "q0",
+    qubit_1: q.QubitInput = "q1",
+    qubit_2: q.QubitInput = "q2",
+    qubit_3: q.QubitInput = "q3",
     coupler_01: q.CouplerInput = "coupler-q0-q1",
     coupler_23: q.CouplerInput = "coupler-q2-q3",
     rounds: Annotated[sc.Input[int], sc.IntType(minimum=1)] = 3,
@@ -95,11 +95,11 @@ def toy_surface_code_round_template(
     """Run one fixed patch; ``rounds`` and ``shots`` scale its recursive result."""
 
     call = (
-        toy_surface_code_round_program(
-            data_0=data_0,
-            data_1=data_1,
-            ancilla_0=ancilla_0,
-            ancilla_1=ancilla_1,
+        fixed_patch_readout_program(
+            qubit_0=qubit_0,
+            qubit_1=qubit_1,
+            qubit_2=qubit_2,
+            qubit_3=qubit_3,
             coupler_01=coupler_01,
             coupler_23=coupler_23,
             rounds=rounds,
@@ -108,11 +108,11 @@ def toy_surface_code_round_template(
         .with_compiler_inputs(qubits=qubit_parameters())
         .with_shots(shots)
     )
-    return sc.experiment(call).record_product(call.results.stabilizer_iq)
+    return sc.experiment(call).record_product(call.results.patch_iq)
 
 
 __all__ = [
-    "TOY_SURFACE_CODE_ROUND_TEMPLATE_ID",
-    "toy_surface_code_round_program",
-    "toy_surface_code_round_template",
+    "FIXED_PATCH_READOUT_TEMPLATE_ID",
+    "fixed_patch_readout_program",
+    "fixed_patch_readout_template",
 ]

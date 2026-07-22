@@ -116,9 +116,6 @@ from scopecat_quantum.programs import (
 )
 from scopecat_quantum.programs import Parallel as IrQuantumParallel
 from scopecat_quantum.programs import (
-    PauliFrameXor as IrPauliFrameXor,
-)
-from scopecat_quantum.programs import (
     RealtimeBitStateInit as IrRealtimeBitStateInit,
 )
 from scopecat_quantum.programs import (
@@ -745,15 +742,6 @@ class RealtimeBitEmit(QuantumFragment):
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class PauliFrameUpdate(QuantumFragment):
-    """XOR a realtime value into one logical Pauli-frame component."""
-
-    qubit: Qubit
-    axis: Literal["x", "z"]
-    source: RealtimeBit
-
-
-@dataclass(frozen=True, slots=True, repr=False)
 class PulseEnvelope:
     """A symbolic analytic envelope whose quantities bind with the program."""
 
@@ -1283,10 +1271,6 @@ def _inspection_node(fragment: QuantumFragment) -> _InspectionNode:
         return _InspectionNode(f"store_bit {fragment.source.id} -> {fragment.state.id}")
     if isinstance(fragment, RealtimeBitEmit):
         return _InspectionNode(f"emit_bit {fragment.source.id} -> {fragment.result.id}")
-    if isinstance(fragment, PauliFrameUpdate):
-        return _InspectionNode(
-            f"pauli_frame_{fragment.axis} {fragment.qubit.id} ^= {fragment.source.id}"
-        )
     if isinstance(fragment, Acquisition):
         return _InspectionNode(
             f"acquire {fragment.result.qubit.id} "
@@ -1672,18 +1656,6 @@ def emit_bit(
     if not result.strip():
         raise ValueError("realtime emitted result id must be a non-empty string")
     return RealtimeBitEmit(source, RealtimeResult(result))
-
-
-def update_pauli_frame(
-    qubit: Qubit,
-    source: RealtimeBit,
-    /,
-    *,
-    axis: Literal["x", "z"],
-) -> PauliFrameUpdate:
-    """XOR a realtime bit into one logical Pauli-frame component."""
-
-    return PauliFrameUpdate(qubit, axis, source)
 
 
 def acquire(
@@ -3334,15 +3306,6 @@ def _bind_quantum_fragment(
                 _bound_realtime_value_id(fragment.source, realtime_values)
             ),
         )
-    if isinstance(fragment, PauliFrameUpdate):
-        return IrPauliFrameXor(
-            id=CircuitOperationId(_operation_id(path, "pauli-frame-xor")),
-            qubit=_bound_qubit_id(fragment.qubit, element_bindings),
-            axis=fragment.axis,
-            source=RealtimeBitRef(
-                _bound_realtime_value_id(fragment.source, realtime_values)
-            ),
-        )
     if isinstance(fragment, Acquisition):
         slot_id = _physical_result_slot_id(fragment.result, path)
         bound_acquire = _bind_pulse_fragment(
@@ -4326,8 +4289,6 @@ def _summarize_fragment(fragment: QuantumFragment) -> _FragmentFacts:
             ),
             results=(fragment.result,),
         )
-    if isinstance(fragment, PauliFrameUpdate):
-        return _FragmentFacts(element_uses=(fragment.qubit,))
     if isinstance(fragment, Acquisition):
         return _FragmentFacts(
             pulse_only=True,
@@ -4577,7 +4538,6 @@ __all__ = [
     "GateImplementationDefinition",
     "Measurement",
     "MeasurementResult",
-    "PauliFrameUpdate",
     "Program",
     "ProgramBindingError",
     "ProgramDefinition",
@@ -4643,7 +4603,6 @@ __all__ = [
     "single_qubit_gate",
     "store_bit",
     "two_qubit_gate",
-    "update_pauli_frame",
     "when",
     "xor_bits",
 ]

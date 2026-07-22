@@ -202,13 +202,13 @@ def test_nested_repeat_and_parallel_results_share_the_composition_tree() -> None
     q0 = authoring.qubit("q0")
     q1 = authoring.qubit("q1")
     one_round = authoring.parallel(
-        authoring.measure(q0, result="stabilizer_iq"),
-        authoring.measure(q1, result="stabilizer_iq"),
+        authoring.measure(q0, result="parallel_iq"),
+        authoring.measure(q1, result="parallel_iq"),
         axis="qubit",
         axis_kind="entity",
     )
     declaration = authoring._close_program(
-        "stabilizer-rounds",
+        "parallel-readout-rounds",
         authoring.repeat(one_round, 2, axis="round"),
     )
 

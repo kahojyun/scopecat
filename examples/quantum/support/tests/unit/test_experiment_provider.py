@@ -11,6 +11,7 @@ from quantum_lab_demo.lab import quantum_lab
 from quantum_lab_demo.virtual_lab.responses.readout_frequency import (
     settings_from_config,
 )
+from quantum_lab_demo.workflows.fixed_patch_readout import fixed_patch_readout_template
 from quantum_lab_demo.workflows.qnd import qnd_repeated_measurement_template
 from quantum_lab_demo.workflows.readout_frequency import readout_frequency_template
 from quantum_lab_demo.workflows.single_qubit_rb import (
@@ -18,7 +19,6 @@ from quantum_lab_demo.workflows.single_qubit_rb import (
     RB_SEED,
     single_qubit_rb_template,
 )
-from quantum_lab_demo.workflows.surface_code import toy_surface_code_round_template
 
 from .demo_lab_test_paths import (
     EXPERIMENT_FIXTURE_DIR,
@@ -86,8 +86,8 @@ def test_experiment_system_run_provider_python_api(
             [1, 3, 2],
         ),
         (
-            toy_surface_code_round_template.bind(rounds=2, shots=3),
-            "stabilizer_iq",
+            fixed_patch_readout_template.bind(rounds=2, shots=3),
+            "patch_iq",
             [1, 3, 2, 4],
         ),
     ],

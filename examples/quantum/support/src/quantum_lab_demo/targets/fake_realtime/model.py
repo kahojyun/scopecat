@@ -5,12 +5,10 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, field
-from typing import Literal
 
 from scopecat_quantum import (
     AcquireSignal,
     PlaySignal,
-    QubitId,
     RealtimeResultProvenance,
     TargetAcquisitionAddress,
     TargetAcquisitionLayout,
@@ -242,30 +240,6 @@ class RtXor:
 
 
 @dataclass(frozen=True, slots=True)
-class RtPlay:
-    output: FakeRealtimeOutputId
-    waveform_id: str
-    duration_ticks: int
-
-    def __post_init__(self) -> None:
-        _require_text(self.waveform_id, field_name="waveform id")
-        _require_positive(self.duration_ticks, field_name="play duration")
-
-
-@dataclass(frozen=True, slots=True)
-class RtAcquire:
-    input: FakeRealtimeInputId
-    result_id: str
-    destination: FakeRealtimeRegister
-    duration_ticks: int
-    record: bool = True
-
-    def __post_init__(self) -> None:
-        _require_text(self.result_id, field_name="acquisition result id")
-        _require_positive(self.duration_ticks, field_name="acquisition duration")
-
-
-@dataclass(frozen=True, slots=True)
 class RtScheduledPlay:
     output: FakeRealtimeOutputId
     waveform_id: str
@@ -360,13 +334,6 @@ class RtEmit:
 
 
 @dataclass(frozen=True, slots=True)
-class RtFrameXor:
-    qubit: QubitId
-    axis: Literal["x", "z"]
-    source: FakeRealtimeRegister
-
-
-@dataclass(frozen=True, slots=True)
 class RtHalt:
     pass
 
@@ -375,15 +342,12 @@ type FakeRealtimeInstruction = (
     RtLabel
     | RtMove
     | RtXor
-    | RtPlay
-    | RtAcquire
     | RtPulseTimeline
     | RtWait
     | RtJump
     | RtJumpIf
     | RtDecrementAndJump
     | RtEmit
-    | RtFrameXor
     | RtHalt
 )
 
@@ -485,28 +449,6 @@ def instruction_payload(instruction: FakeRealtimeInstruction) -> object:
                 "left": left.value,
                 "right": right.value,
             }
-        case RtPlay(output=output, waveform_id=waveform_id, duration_ticks=duration):
-            return {
-                "op": "play",
-                "output": output.value,
-                "waveform_id": waveform_id,
-                "duration_ticks": duration,
-            }
-        case RtAcquire(
-            input=input_id,
-            result_id=result_id,
-            destination=destination,
-            duration_ticks=duration,
-            record=record,
-        ):
-            return {
-                "op": "acquire",
-                "input": input_id.value,
-                "result_id": result_id,
-                "destination": destination.value,
-                "duration_ticks": duration,
-                "record": record,
-            }
         case RtPulseTimeline(
             duration_ticks=duration,
             plays=plays,
@@ -555,13 +497,6 @@ def instruction_payload(instruction: FakeRealtimeInstruction) -> object:
             }
         case RtEmit(result_id=result_id, source=source):
             return {"op": "emit", "result_id": result_id, "source": source.value}
-        case RtFrameXor(qubit=qubit, axis=axis, source=source):
-            return {
-                "op": "frame_xor",
-                "qubit": qubit.value,
-                "axis": axis,
-                "source": source.value,
-            }
         case RtHalt():
             return {"op": "halt"}
 
@@ -578,16 +513,13 @@ __all__ = [
     "FakeRealtimeProgram",
     "FakeRealtimeRegister",
     "FakeRealtimeTarget",
-    "RtAcquire",
     "RtDecrementAndJump",
     "RtEmit",
-    "RtFrameXor",
     "RtHalt",
     "RtJump",
     "RtJumpIf",
     "RtLabel",
     "RtMove",
-    "RtPlay",
     "RtPulseTimeline",
     "RtScheduledAcquire",
     "RtScheduledPlay",

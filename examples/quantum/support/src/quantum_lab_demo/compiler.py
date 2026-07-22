@@ -26,6 +26,8 @@ from scopecat.sdk.domain import (
 from scopecat_quantum import (
     AcquisitionKind,
     CompiledQuantumTarget,
+    CompiledTargetArtifact,
+    PreparedQuantumTargetBatch,
     PreparedQuantumTargetEntry,
     PulseProgramId,
     PulseRecipeProfile,
@@ -53,8 +55,13 @@ from quantum_lab_demo.response_registry import (
     QuantumLabResponseRegistry,
     QuantumLabResponseRequest,
 )
+from quantum_lab_demo.targets.configuration import (
+    FAKE_LIST_TARGET_KIND,
+    FAKE_REALTIME_TARGET_KIND,
+)
 from quantum_lab_demo.targets.fake_list_mode import (
     FakeAcquisitionResponse,
+    FakeListArtifact,
     FakeListDomainRuntime,
     FakeListRun,
     FakeListRuntime,
@@ -70,7 +77,9 @@ from quantum_lab_demo.targets.fake_list_mode import (
     select_fake_measurement_realization,
 )
 from quantum_lab_demo.targets.fake_realtime import (
+    FakeRealtimeArtifact,
     FakeRealtimeCompiler,
+    FakeRealtimeCompileRequest,
     FakeRealtimeDomainRuntime,
     FakeRealtimeTarget,
     fake_realtime_invocation_spec,
@@ -100,7 +109,26 @@ _QUANTUM_REALTIME_TARGET_COMPILER_ID = TargetCompilerId(
 class _QuantumLabArtifact:
     program: quantum.Program = field(repr=False)
     points: tuple[QuantumLabPointValues, ...]
-    implementations: tuple[ResolvedPulseImplementations, ...] = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class _ListQuantumLabArtifact(_QuantumLabArtifact):
+    entries: tuple[PreparedQuantumTargetEntry, ...]
+    batch: PreparedQuantumTargetBatch
+    compiled: CompiledTargetArtifact[FakeListArtifact] = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class _RealtimeQuantumLabArtifact(_QuantumLabArtifact):
+    request: FakeRealtimeCompileRequest
+    compiled: CompiledTargetArtifact[FakeRealtimeArtifact] = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class _CompiledQuantumPoint:
+    values: QuantumLabPointValues
+    bound: quantum.BoundProgram = field(repr=False)
+    implementations: ResolvedPulseImplementations = field(repr=False)
 
 
 class _QuantumLabCompilerBase:
@@ -136,16 +164,26 @@ class _QuantumLabCompilerBase:
         if program is None:
             return None
         _validate_call(request.call, program, self._host_implementations)
+        shots = _shot_count(request.call)
         return compiled_jobs(
             request,
             max_points=self._max_points,
             artifact_input_ids=tuple(port.id for port in program.ports),
-            compile_artifact=lambda inputs: _compile_artifact(
+            compile_artifact=lambda inputs: self._compile_target_artifact(
                 program,
                 inputs,
-                self._pulse_profile,
+                shots=shots,
             ),
         )
+
+    def _compile_target_artifact(
+        self,
+        program: quantum.Program,
+        inputs: DomainCompiledInputs,
+        *,
+        shots: int,
+    ) -> _QuantumLabArtifact:
+        raise NotImplementedError
 
 
 class QuantumLabCompiler(_QuantumLabCompilerBase):
@@ -193,37 +231,32 @@ class QuantumLabCompiler(_QuantumLabCompilerBase):
     def target_id(self) -> str:
         return self._target.id.value
 
-    def prepare(
+    @property
+    def target_kind(self) -> str:
+        return FAKE_LIST_TARGET_KIND
+
+    @override
+    def _compile_target_artifact(
         self,
-        job: DomainCompiledJob,
-        context: DomainBatchContext,
-    ) -> PreparedDomainExecution:
-        artifact = cast("_QuantumLabArtifact", job.take_artifact())
-        execution = context.execution
-        _validate_execution(execution, artifact)
-        preparation = context.new_preparation()
+        program: quantum.Program,
+        inputs: DomainCompiledInputs,
+        *,
+        shots: int,
+    ) -> _ListQuantumLabArtifact:
+        points = _compile_points(program, inputs, self._pulse_profile)
         entries = tuple(
             prepare_quantum_target_entry(
-                TargetCompileEntryId(
-                    f"{artifact.program.id}.batch-{context.batch_ordinal}."
-                    f"point-{point.ordinal}"
-                ),
+                TargetCompileEntryId(f"{program.id}.point-{point.values.ordinal}"),
                 lower_quantum_program_to_pulses(
-                    quantum.bind(artifact.program, dict(point.values)).verified,
-                    implementations,
+                    point.bound.verified,
+                    point.implementations,
                     output_id=PulseProgramId(
-                        f"{artifact.program.id}.batch-{context.batch_ordinal}."
-                        f"point-{point.ordinal}.pulses"
+                        f"{program.id}.point-{point.values.ordinal}.pulses"
                     ),
                 ),
             )
-            for point, implementations in zip(
-                artifact.points,
-                artifact.implementations,
-                strict=True,
-            )
+            for point in points
         )
-        shots = _shot_count(execution)
         batch = prepare_quantum_target_batch(
             entries,
             target_id=self._target.id,
@@ -231,6 +264,27 @@ class QuantumLabCompiler(_QuantumLabCompilerBase):
             capability_fingerprint=self._target.capability_fingerprint,
             repetitions=shots,
         )
+        return _ListQuantumLabArtifact(
+            program=program,
+            points=tuple(point.values for point in points),
+            entries=entries,
+            batch=batch,
+            compiled=compile_target(self._target_compiler, batch.request),
+        )
+
+    def prepare(
+        self,
+        job: DomainCompiledJob,
+        context: DomainBatchContext,
+    ) -> PreparedDomainExecution:
+        artifact = cast("_ListQuantumLabArtifact", job.take_artifact())
+        execution = context.execution
+        _validate_execution(execution, artifact)
+        preparation = context.new_preparation()
+        entries = artifact.entries
+        batch = artifact.batch
+        if _shot_count(execution) != batch.repetitions:
+            raise ValueError("prepared quantum shots changed after compilation")
         mapping = seal_quantum_target_result_mapping(
             preparation,
             batch,
@@ -254,7 +308,7 @@ class QuantumLabCompiler(_QuantumLabCompilerBase):
         )
         compiled_target = CompiledQuantumTarget(
             mapping,
-            compile_target(self._target_compiler, batch.request),
+            artifact.compiled,
         )
         realization = select_fake_measurement_realization(
             compiled_target,
@@ -321,8 +375,9 @@ class QuantumRealtimeLabCompiler(_QuantumLabCompilerBase):
 
     The domain compiler advertises the whole logical target, so scheduling does
     not split a feedback program across instruments. Wiring and device selection
-    are already closed by the configured target; preparation only determines the
-    finite instruction/resource inventory used by the bound program.
+    are already closed by the configured target. Lazy artifact materialization
+    determines the finite instruction inventory; preparation only maps results
+    and closes the runtime invocation.
     """
 
     def __init__(
@@ -356,34 +411,30 @@ class QuantumRealtimeLabCompiler(_QuantumLabCompilerBase):
     def target_id(self) -> str:
         return self._target.id.value
 
-    def prepare(
+    @property
+    def target_kind(self) -> str:
+        return FAKE_REALTIME_TARGET_KIND
+
+    @override
+    def _compile_target_artifact(
         self,
-        job: DomainCompiledJob,
-        context: DomainBatchContext,
-    ) -> PreparedDomainExecution:
-        artifact = cast("_QuantumLabArtifact", job.take_artifact())
-        _validate_execution(context.execution, artifact)
-        if len(artifact.points) != 1 or len(context.points) != 1:
-            raise AssertionError("realtime domain batches contain exactly one point")
-        [point] = artifact.points
-        [implementations] = artifact.implementations
-        [point_ref] = context.points
-        bound = quantum.bind(artifact.program, dict(point.values))
-        entry_id = TargetCompileEntryId(
-            f"{artifact.program.id}.batch-{context.batch_ordinal}.point-{point.ordinal}"
-        )
+        program: quantum.Program,
+        inputs: DomainCompiledInputs,
+        *,
+        shots: int,
+    ) -> _RealtimeQuantumLabArtifact:
+        points = _compile_points(program, inputs, self._pulse_profile)
+        if len(points) != 1:
+            raise AssertionError("realtime artifacts contain exactly one point")
+        [point] = points
+        entry_id = TargetCompileEntryId(f"{program.id}.point-{point.values.ordinal}")
         structured = lower_quantum_program_to_structured_pulses(
-            bound.verified,
-            implementations,
+            point.bound.verified,
+            point.implementations,
             output_id=PulseProgramId(f"{entry_id.value}.pulses"),
         )
-        layouts = _realtime_result_layouts(
-            entry_id,
-            artifact.program,
-            point,
-        )
-        shots = _shot_count(context.execution)
-        target_request = prepare_fake_realtime_request(
+        layouts = _realtime_result_layouts(entry_id, program, point.values)
+        request = prepare_fake_realtime_request(
             entry_id,
             structured,
             target=self._target,
@@ -391,7 +442,29 @@ class QuantumRealtimeLabCompiler(_QuantumLabCompilerBase):
             result_layouts=layouts,
             repetitions=shots,
         )
-        compiled = compile_target(self._target_compiler, target_request)
+        return _RealtimeQuantumLabArtifact(
+            program=program,
+            points=(point.values,),
+            request=request,
+            compiled=compile_target(self._target_compiler, request),
+        )
+
+    def prepare(
+        self,
+        job: DomainCompiledJob,
+        context: DomainBatchContext,
+    ) -> PreparedDomainExecution:
+        artifact = cast("_RealtimeQuantumLabArtifact", job.take_artifact())
+        _validate_execution(context.execution, artifact)
+        if len(artifact.points) != 1 or len(context.points) != 1:
+            raise AssertionError("realtime domain batches contain exactly one point")
+        [point] = artifact.points
+        [point_ref] = context.points
+        target_request = artifact.request
+        layouts = target_request.result_layouts
+        shots = target_request.repetitions
+        if _shot_count(context.execution) != shots:
+            raise ValueError("prepared quantum shots changed after compilation")
         preparation = context.new_preparation()
         address_by_result_id = {
             layout.slot_id.local_id: layout.address for layout in layouts
@@ -413,7 +486,7 @@ class QuantumRealtimeLabCompiler(_QuantumLabCompilerBase):
             shots=shots,
         )
         invocation = fake_realtime_invocation_spec(
-            compiled,
+            artifact.compiled,
             measurements,
             invocation_id=(
                 f"{artifact.program.id}.batch-{context.batch_ordinal}."
@@ -440,8 +513,8 @@ class QuantumRealtimeLabCompiler(_QuantumLabCompilerBase):
                 points=artifact.points,
                 _target=self._target,
                 request=target_request,
-                artifact=compiled.artifact,
-                artifact_fingerprint=compiled.artifact_fingerprint,
+                artifact=artifact.compiled.artifact,
+                artifact_fingerprint=artifact.compiled.artifact_fingerprint,
             )
         )
         return prepared
@@ -535,11 +608,11 @@ def _shot_count(call: DomainCallView | DomainExecutionView) -> int:
     return counts[0]
 
 
-def _compile_artifact(
+def _compile_points(
     program: quantum.Program,
     inputs: DomainCompiledInputs,
     pulse_profile: PulseRecipeProfile[QuantumCompilerParameters],
-) -> _QuantumLabArtifact:
+) -> tuple[_CompiledQuantumPoint, ...]:
     program_inputs = inputs.program
     compiler_parameters = (
         tuple(QuantumCompilerParameters() for _ordinal in inputs.ordinals)
@@ -559,18 +632,20 @@ def _compile_artifact(
         )
         for index, ordinal in enumerate(program_inputs.ordinals)
     )
-    implementations = tuple(
-        pulse_profile.materialize(
-            parameters,
-            quantum.bind(program, dict(point.values)).verified.unresolved_circuit,
+    compiled: list[_CompiledQuantumPoint] = []
+    for point, parameters in zip(points, compiler_parameters, strict=True):
+        bound = quantum.bind(program, dict(point.values))
+        compiled.append(
+            _CompiledQuantumPoint(
+                values=point,
+                bound=bound,
+                implementations=pulse_profile.materialize(
+                    parameters,
+                    bound.verified.unresolved_circuit,
+                ),
+            )
         )
-        for point, parameters in zip(points, compiler_parameters, strict=True)
-    )
-    return _QuantumLabArtifact(
-        program=program,
-        points=points,
-        implementations=implementations,
-    )
+    return tuple(compiled)
 
 
 def _result_address(

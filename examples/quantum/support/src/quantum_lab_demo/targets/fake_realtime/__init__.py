@@ -1,7 +1,10 @@
 """Fake realtime control processor, compiler, and deterministic interpreter."""
 
 from quantum_lab_demo.targets.fake_realtime.compiler import FakeRealtimeCompiler
-from quantum_lab_demo.targets.fake_realtime.defaults import default_fake_realtime_target
+from quantum_lab_demo.targets.fake_realtime.defaults import (
+    configured_fake_realtime_target,
+    default_fake_realtime_target,
+)
 from quantum_lab_demo.targets.fake_realtime.domain_runtime import (
     FakeRealtimeDomainRuntime,
     FakeRealtimeInvocation,
@@ -23,16 +26,13 @@ from quantum_lab_demo.targets.fake_realtime.model import (
     FakeRealtimeProgram,
     FakeRealtimeRegister,
     FakeRealtimeTarget,
-    RtAcquire,
     RtDecrementAndJump,
     RtEmit,
-    RtFrameXor,
     RtHalt,
     RtJump,
     RtJumpIf,
     RtLabel,
     RtMove,
-    RtPlay,
     RtPulseTimeline,
     RtScheduledAcquire,
     RtScheduledPlay,
@@ -41,7 +41,6 @@ from quantum_lab_demo.targets.fake_realtime.model import (
 )
 from quantum_lab_demo.targets.fake_realtime.runtime import (
     FakeRealtimeExecutionError,
-    FakeRealtimeFrame,
     FakeRealtimeRecord,
     FakeRealtimeRun,
     FakeRealtimeRuntime,
@@ -55,7 +54,6 @@ __all__ = [
     "FakeRealtimeCompiler",
     "FakeRealtimeDomainRuntime",
     "FakeRealtimeExecutionError",
-    "FakeRealtimeFrame",
     "FakeRealtimeInputBinding",
     "FakeRealtimeInputId",
     "FakeRealtimeInstruction",
@@ -69,21 +67,19 @@ __all__ = [
     "FakeRealtimeRuntime",
     "FakeRealtimeTarget",
     "FakeRealtimeTraceEvent",
-    "RtAcquire",
     "RtDecrementAndJump",
     "RtEmit",
-    "RtFrameXor",
     "RtHalt",
     "RtJump",
     "RtJumpIf",
     "RtLabel",
     "RtMove",
-    "RtPlay",
     "RtPulseTimeline",
     "RtScheduledAcquire",
     "RtScheduledPlay",
     "RtWait",
     "RtXor",
+    "configured_fake_realtime_target",
     "default_fake_realtime_target",
     "fake_realtime_invocation_spec",
     "prepare_fake_realtime_request",

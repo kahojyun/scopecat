@@ -204,7 +204,7 @@ def test_n3_point_compiles_to_complex_drag_samples(tmp_path: Path) -> None:
     drive_waveform = next(
         waveform
         for waveform in entry.waveforms
-        if waveform.channel_id.value == "awg.drive.0"
+        if waveform.channel_id.value == "drive-stack:drive.awg0.ch1:q0"
     )
     positive = drive_waveform.samples[16:32]
     negative = drive_waveform.samples[32:48]

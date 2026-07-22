@@ -6,21 +6,18 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
-from scopecat_quantum import CompiledTargetArtifact, QubitId
+from scopecat_quantum import CompiledTargetArtifact
 
 from quantum_lab_demo.targets.fake_realtime.model import (
     FakeRealtimeArtifact,
     FakeRealtimeRegister,
     FakeRealtimeTarget,
-    RtAcquire,
     RtDecrementAndJump,
-    RtEmit,
     RtHalt,
     RtJump,
     RtJumpIf,
     RtLabel,
     RtMove,
-    RtPlay,
     RtPulseTimeline,
     RtWait,
     RtXor,
@@ -49,21 +46,10 @@ class FakeRealtimeRecord:
 
 
 @dataclass(frozen=True, slots=True)
-class FakeRealtimeFrame:
-    """Final Pauli frame tracked by the fake controller for one shot."""
-
-    shot_index: int
-    qubit: QubitId
-    x: int
-    z: int
-
-
-@dataclass(frozen=True, slots=True)
 class FakeRealtimeRun:
     artifact: FakeRealtimeArtifact
     events: tuple[FakeRealtimeTraceEvent, ...]
     records: tuple[FakeRealtimeRecord, ...]
-    frames: tuple[FakeRealtimeFrame, ...]
     shot_end_ticks: tuple[int, ...]
     fingerprint: str
 
@@ -111,27 +97,24 @@ class FakeRealtimeRuntime:
         cursor = _MeasurementCursor(measurements)
         events: list[FakeRealtimeTraceEvent] = []
         records: list[FakeRealtimeRecord] = []
-        frames: list[FakeRealtimeFrame] = []
         end_ticks: list[int] = []
         for shot_index in range(artifact.repetitions):
-            shot_frames, end_tick = self._execute_shot(
-                artifact,
-                shot_index=shot_index,
-                cursor=cursor,
-                events=events,
-                records=records,
+            end_ticks.append(
+                self._execute_shot(
+                    artifact,
+                    shot_index=shot_index,
+                    cursor=cursor,
+                    events=events,
+                    records=records,
+                )
             )
-            frames.extend(shot_frames)
-            end_ticks.append(end_tick)
         selected_events = tuple(events)
         selected_records = tuple(records)
-        selected_frames = tuple(frames)
         selected_end_ticks = tuple(end_ticks)
         return FakeRealtimeRun(
             artifact=artifact,
             events=selected_events,
             records=selected_records,
-            frames=selected_frames,
             shot_end_ticks=selected_end_ticks,
             fingerprint=stable_content_hash(
                 content_fingerprint(
@@ -139,7 +122,6 @@ class FakeRealtimeRuntime:
                         artifact.artifact_fingerprint,
                         selected_events,
                         selected_records,
-                        selected_frames,
                         selected_end_ticks,
                     )
                 )
@@ -154,12 +136,11 @@ class FakeRealtimeRuntime:
         cursor: _MeasurementCursor,
         events: list[FakeRealtimeTraceEvent],
         records: list[FakeRealtimeRecord],
-    ) -> tuple[tuple[FakeRealtimeFrame, ...], int]:
+    ) -> int:
         instructions = artifact.program.instructions
         labels = dict(artifact.labels)
         registers: dict[FakeRealtimeRegister, int] = {}
         ready_ticks: dict[FakeRealtimeRegister, int] = {}
-        frame_values: dict[tuple[QubitId, str], int] = {}
         tick = 0
         pc = 0
         executed = 0
@@ -187,29 +168,6 @@ class FakeRealtimeRuntime:
                 continue
             if isinstance(instruction, RtHalt):
                 break
-            if isinstance(instruction, RtPlay):
-                tick += instruction.duration_ticks
-                pc += 1
-                continue
-            if isinstance(instruction, RtAcquire):
-                value, occurrence = cursor.take(instruction.result_id)
-                tick += instruction.duration_ticks
-                registers[instruction.destination] = value
-                ready_ticks[instruction.destination] = (
-                    tick + self._target.discrimination_latency_ticks
-                )
-                if instruction.record:
-                    records.append(
-                        FakeRealtimeRecord(
-                            shot_index=shot_index,
-                            result_id=instruction.result_id,
-                            occurrence=occurrence,
-                            value=value,
-                            tick=tick,
-                        )
-                    )
-                pc += 1
-                continue
             if isinstance(instruction, RtPulseTimeline):
                 for acquisition in instruction.acquisitions:
                     value, occurrence = cursor.take(acquisition.result_id)
@@ -276,46 +234,25 @@ class FakeRealtimeRuntime:
                 ready_ticks[instruction.counter] = tick
                 pc = labels[instruction.target] if value != 0 else pc + 1
                 continue
-            if isinstance(instruction, RtEmit):
-                value = self._read(instruction.source, registers, ready_ticks, tick)
-                records.append(
-                    FakeRealtimeRecord(
-                        shot_index=shot_index,
-                        result_id=instruction.result_id,
-                        occurrence=sum(
-                            record.result_id == instruction.result_id
-                            for record in records
-                        ),
-                        value=value,
-                        tick=tick,
-                    )
-                )
-                if len(records) > self._target.max_result_records:
-                    raise FakeRealtimeExecutionError("realtime result memory exceeded")
-                pc += 1
-                continue
             value = self._read(instruction.source, registers, ready_ticks, tick)
-            key = (instruction.qubit, instruction.axis)
-            frame_values[key] = frame_values.get(key, 0) ^ (value & 1)
+            records.append(
+                FakeRealtimeRecord(
+                    shot_index=shot_index,
+                    result_id=instruction.result_id,
+                    occurrence=sum(
+                        record.result_id == instruction.result_id for record in records
+                    ),
+                    value=value,
+                    tick=tick,
+                )
+            )
+            if len(records) > self._target.max_result_records:
+                raise FakeRealtimeExecutionError("realtime result memory exceeded")
             pc += 1
         else:
             raise FakeRealtimeExecutionError("realtime program terminated without Halt")
 
-        qubits = sorted(
-            {qubit for qubit, _axis in frame_values}, key=lambda item: item.value
-        )
-        return (
-            tuple(
-                FakeRealtimeFrame(
-                    shot_index=shot_index,
-                    qubit=qubit,
-                    x=frame_values.get((qubit, "x"), 0),
-                    z=frame_values.get((qubit, "z"), 0),
-                )
-                for qubit in qubits
-            ),
-            tick,
-        )
+        return tick
 
     @staticmethod
     def _read(
@@ -354,7 +291,6 @@ def _verified_artifact(
 
 __all__ = [
     "FakeRealtimeExecutionError",
-    "FakeRealtimeFrame",
     "FakeRealtimeRecord",
     "FakeRealtimeRun",
     "FakeRealtimeRuntime",

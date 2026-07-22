@@ -27,6 +27,7 @@ from quantum_lab_demo.virtual_lab.provider import (
 from quantum_lab_demo.virtual_lab.wiring import (
     CouplerWiring,
     LineWiring,
+    QuantumDemoTarget,
     QuantumWiring,
     QuantumWiringBuilder,
     QubitWiring,
@@ -43,6 +44,7 @@ __all__ = [
     "TWO_QUBIT_GATE_PARAMETER_TABLE",
     "CouplerWiring",
     "LineWiring",
+    "QuantumDemoTarget",
     "QuantumLabVirtualProvider",
     "QuantumWiring",
     "QuantumWiringBuilder",

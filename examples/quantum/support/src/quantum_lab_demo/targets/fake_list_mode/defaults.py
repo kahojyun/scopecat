@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from scopecat.records.config import ConfigProfileSnapshot
 from scopecat_quantum import (
     AcquireSignal,
     CouplerId,
@@ -12,6 +13,12 @@ from scopecat_quantum import (
     TargetId,
 )
 
+from quantum_lab_demo.targets.configuration import (
+    FAKE_LIST_TARGET_KIND,
+    configured_acquisition_signal,
+    configured_output_signal,
+    configured_quantum_routes,
+)
 from quantum_lab_demo.targets.fake_list_mode.model import (
     FakeAcquisitionBinding,
     FakeAwgChannelId,
@@ -56,8 +63,48 @@ def default_fake_list_target() -> FakeListTarget:
         )
         for index, qubit in enumerate(qubits)
     )
+    return _fake_list_target(
+        target_id="quantum-lab-demo.fake-list-mode.v1",
+        output_bindings=output_bindings,
+        acquisition_bindings=acquisition_bindings,
+    )
+
+
+def configured_fake_list_target(config: ConfigProfileSnapshot) -> FakeListTarget:
+    """Build list-mode physical bindings from one accepted system snapshot."""
+
+    target_id, routes = configured_quantum_routes(
+        config,
+        target_kind=FAKE_LIST_TARGET_KIND,
+    )
+    output_bindings = tuple(
+        FakeOutputBinding(signal, FakeAwgChannelId(route.endpoint_id))
+        for route in routes
+        if (signal := configured_output_signal(route)) is not None
+    )
+    acquisition_bindings = tuple(
+        FakeAcquisitionBinding(
+            signal,
+            FakeDigitizerChannelId(route.endpoint_id),
+        )
+        for route in routes
+        if (signal := configured_acquisition_signal(route)) is not None
+    )
+    return _fake_list_target(
+        target_id=target_id,
+        output_bindings=output_bindings,
+        acquisition_bindings=acquisition_bindings,
+    )
+
+
+def _fake_list_target(
+    *,
+    target_id: str,
+    output_bindings: tuple[FakeOutputBinding, ...],
+    acquisition_bindings: tuple[FakeAcquisitionBinding, ...],
+) -> FakeListTarget:
     return FakeListTarget(
-        id=TargetId("quantum-lab-demo.fake-list-mode.v1"),
+        id=TargetId(target_id),
         sample_rate_hz=1_000_000_000,
         max_list_entries=256,
         max_samples_per_entry=1_000_000,
@@ -71,4 +118,4 @@ def default_fake_list_target() -> FakeListTarget:
     )
 
 
-__all__ = ["default_fake_list_target"]
+__all__ = ["configured_fake_list_target", "default_fake_list_target"]

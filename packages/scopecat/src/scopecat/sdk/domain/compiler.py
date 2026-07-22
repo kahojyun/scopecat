@@ -503,7 +503,7 @@ def _validate_input_order(
 
 @dataclass(frozen=True, slots=True)
 class DomainCompiledJob:
-    """One lightweight target recipe assigned to exact logical point ordinals."""
+    """One lazy pure artifact assigned to exact logical point ordinals."""
 
     id: str
     point_ordinals: tuple[int, ...]
@@ -519,7 +519,7 @@ class DomainCompiledJob:
         object.__setattr__(self, "point_ordinals", ordinals)
 
     def take_artifact(self) -> object:
-        """Materialize and release this job's one-shot target recipe."""
+        """Run and release this job's one-shot pure artifact materializer."""
 
         factory = self.artifact_factory
         if factory is None:
@@ -572,14 +572,17 @@ class DomainCompiler(Protocol):
     keeping check, preview, and run reproducible against the same semantics.
 
     The accepted system configuration selects one target and reserves its
-    complete physical footprint for the run. ``supports`` and ``compile`` must
-    not inspect live state or perform effects. ``prepare`` may close target
-    artifacts and runtime bindings for a selected single-use job, but
-    submission remains an interpreter effect.
+    complete physical footprint for the run. ``supports``, ``compile``, and a
+    job's lazy artifact materializer must not inspect live state or perform
+    effects. ``prepare`` consumes that selected artifact to close result and
+    runtime bindings; submission remains an interpreter effect.
     """
 
     @property
     def target_id(self) -> str: ...
+
+    @property
+    def target_kind(self) -> str: ...
 
     def supports(self, call: DomainCallView) -> bool: ...
 
@@ -734,7 +737,7 @@ def compiled_jobs(
     absorbed_input_ids: Sequence[str] = (),
     absorbed_transform_ids: Sequence[str] = (),
 ) -> DomainCompilation:
-    """Partition, resolve selected columns, and lower ordinary target jobs."""
+    """Partition, resolve columns, and attach lazy pure artifact lowering."""
 
     artifact_input_ids = tuple(artifact_input_ids)
     if len(artifact_input_ids) != len(set(artifact_input_ids)):

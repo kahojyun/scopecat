@@ -31,12 +31,15 @@ from scopecat.sdk.instruments import (
     InstrumentStateCommand,
     InstrumentStateSnapshot,
 )
+from scopecat_quantum import AcquireSignal, DriveSignal, QubitId
 
 from quantum_lab_demo.fixtures import EXPERIMENT_FIXTURE_DIR
 from quantum_lab_demo.scenarios.opaque_collection import (
     GATE_DURATION,
     parallel_gate_set_template,
 )
+from quantum_lab_demo.targets.fake_list_mode import configured_fake_list_target
+from quantum_lab_demo.targets.fake_realtime import configured_fake_realtime_target
 from quantum_lab_demo.virtual_lab.provider import QuantumLabVirtualProvider
 from quantum_lab_demo.virtual_lab.wiring import (
     compile_quantum_wiring_system,
@@ -132,6 +135,8 @@ def test_default_quantum_wiring_config_describes_lines_groups_and_channel_routes
     config = quantum_wiring_config_profile()
 
     assert not validate_config(config)
+    assert config.domain_target is not None
+    assert config.domain_target.kind == "quantum_lab_demo.fake-list-mode"
     assert {line.id for line in config.topology.lines} >= {
         "q0.xy",
         "q1.xy",
@@ -168,6 +173,36 @@ def test_default_quantum_wiring_config_describes_lines_groups_and_channel_routes
         ("q0", "ro.mux0", "readout.mux0", ["lo.ro0"]),
         ("q1", "ro.mux0", "readout.mux0", ["lo.ro0"]),
     ]
+
+
+def test_target_signal_bindings_are_derived_from_accepted_routing() -> None:
+    q0 = QubitId("q0")
+    list_config = quantum_wiring_config_profile()
+    list_target = configured_fake_list_target(list_config)
+    list_domain_target = list_config.domain_target
+    drive_channel = list_target.output_channel(DriveSignal(q0))
+    acquisition_channel = list_target.acquisition_channel(AcquireSignal(q0))
+
+    assert list_domain_target is not None
+    assert drive_channel is not None
+    assert acquisition_channel is not None
+    assert list_target.id.value == list_domain_target.id
+    assert drive_channel.value == "drive-stack:drive.awg0.ch1:q0"
+    assert acquisition_channel.value == "readout-stack:readout.mux0:q0"
+
+    realtime_config = quantum_wiring_config_profile(target="fake-realtime")
+    realtime_target = configured_fake_realtime_target(realtime_config)
+    realtime_domain_target = realtime_config.domain_target
+    output = realtime_target.output_for(DriveSignal(q0))
+    input_lane = realtime_target.input_for(AcquireSignal(q0))
+
+    assert output is not None
+    assert input_lane is not None
+    assert realtime_domain_target is not None
+    assert realtime_target.id.value == realtime_domain_target.id
+    assert output.value == "drive-stack:drive.awg0.ch1:q0"
+    assert input_lane.value == "readout-stack:readout.mux0:q0"
+    assert realtime_target.feedback_latency(input_lane, output) == 12
 
 
 def test_virtual_provider_description_declares_full_instrument_schemas() -> None:

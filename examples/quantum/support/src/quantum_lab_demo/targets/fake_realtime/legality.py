@@ -9,7 +9,6 @@ from scopecat_quantum import (
     Acquire,
     AcquisitionSlot,
     Delay,
-    PauliFrameXor,
     Play,
     PulseInstruction,
     PulseProgram,
@@ -229,8 +228,7 @@ def legalize_fake_realtime_program(
             | RealtimeBitStateRead
             | RealtimeBitStateWrite
             | RealtimeBitXor
-            | RealtimeResultEmit
-            | PauliFrameXor,
+            | RealtimeResultEmit,
         ):
             return
         if isinstance(node, StructuredPulseSequence):
@@ -285,8 +283,7 @@ def _feedback_dependencies(
             | RealtimeBitStateRead
             | RealtimeBitStateWrite
             | RealtimeBitXor
-            | RealtimeResultEmit
-            | PauliFrameXor,
+            | RealtimeResultEmit,
         ):
             return
         if isinstance(node, StructuredPulseSequence):
@@ -427,8 +424,7 @@ def _controlled_outputs(
         | RealtimeBitStateRead
         | RealtimeBitStateWrite
         | RealtimeBitXor
-        | RealtimeResultEmit
-        | PauliFrameXor,
+        | RealtimeResultEmit,
     ):
         return set()
     if isinstance(node, StructuredPulseSequence):

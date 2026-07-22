@@ -12,13 +12,14 @@ from quantum_lab_demo.targets.fake_realtime import (
     RtPulseTimeline,
 )
 from quantum_lab_demo.virtual_lab.parameters import qubit_parameters
+from quantum_lab_demo.virtual_lab.wiring import quantum_wiring_config_profile
 from quantum_lab_demo.workflows.active_reset import (
     active_reset_program,
     active_reset_template,
 )
-from quantum_lab_demo.workflows.surface_code import (
-    toy_surface_code_round_program,
-    toy_surface_code_round_template,
+from quantum_lab_demo.workflows.fixed_patch_readout import (
+    fixed_patch_readout_program,
+    fixed_patch_readout_template,
 )
 
 
@@ -60,10 +61,15 @@ def _detector_history_experiment() -> sc.ExperimentBody:
 def test_active_reset_runs_through_the_domain_compiler_without_unrolling(
     tmp_path: Path,
 ) -> None:
+    config = quantum_wiring_config_profile(target="fake-realtime")
     compiler = quantum_realtime_lab_compiler(
-        measurement_bits={"reset_iq": (0, 1, 0, 1, 1, 0)}
+        config_profile=config, measurement_bits={"reset_iq": (0, 1, 0, 1, 1, 0)}
     )
-    lab = quantum_lab(workspace=tmp_path, compiler=compiler)
+    lab = quantum_lab(
+        workspace=tmp_path,
+        config_profile=config,
+        compiler=compiler,
+    )
 
     run = lab.prepare(active_reset_template.bind(rounds=3, shots=2)).run()
 
@@ -87,14 +93,19 @@ def test_active_reset_runs_through_the_domain_compiler_without_unrolling(
 def test_fixed_patch_rounds_use_one_hardware_loop_and_parallel_readout(
     tmp_path: Path,
 ) -> None:
-    compiler = quantum_realtime_lab_compiler()
-    lab = quantum_lab(workspace=tmp_path, compiler=compiler)
+    config = quantum_wiring_config_profile(target="fake-realtime")
+    compiler = quantum_realtime_lab_compiler(config_profile=config)
+    lab = quantum_lab(
+        workspace=tmp_path,
+        config_profile=config,
+        compiler=compiler,
+    )
 
-    run = lab.prepare(toy_surface_code_round_template.bind(rounds=2, shots=2)).run()
+    run = lab.prepare(fixed_patch_readout_template.bind(rounds=2, shots=2)).run()
 
     assert run.manifest.status == "completed"
     [evidence] = compiler.trace.realtime_preparations
-    assert evidence.program_id == toy_surface_code_round_program.id
+    assert evidence.program_id == fixed_patch_readout_program.id
     instructions = evidence.artifact.program.instructions
     assert sum(isinstance(item, RtDecrementAndJump) for item in instructions) == 1
     timelines = tuple(
@@ -113,11 +124,16 @@ def test_fixed_patch_rounds_use_one_hardware_loop_and_parallel_readout(
 def test_emitted_detector_is_a_typed_domain_result_with_ssa_provenance(
     tmp_path: Path,
 ) -> None:
+    config = quantum_wiring_config_profile(target="fake-realtime")
     compiler = quantum_realtime_lab_compiler(
-        measurement_bits={"syndrome_iq": (0, 1, 0, 1, 1, 0)}
+        config_profile=config, measurement_bits={"syndrome_iq": (0, 1, 0, 1, 1, 0)}
     )
     run = (
-        quantum_lab(workspace=tmp_path, compiler=compiler)
+        quantum_lab(
+            workspace=tmp_path,
+            config_profile=config,
+            compiler=compiler,
+        )
         .prepare(_detector_history_experiment())
         .run()
     )

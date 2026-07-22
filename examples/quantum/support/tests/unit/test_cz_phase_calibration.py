@@ -141,7 +141,7 @@ def test_cz_phase_point_compiles_coupler_flux_on_the_target_channel(
     flux = next(
         waveform
         for waveform in entry.waveforms
-        if waveform.channel_id.value == "awg.flux.0"
+        if waveform.channel_id.value == ("coupler-stack:coupler.bias0:coupler-q0-q1")
     )
     assert flux.samples[16:48] == pytest.approx((0.24 + 0j,) * 32)
     assert all(sample == 0j for index, sample in enumerate(flux.samples) if index < 16)

@@ -339,6 +339,21 @@ def _domain_target_footprint(
                 )
             ]
         )
+    if compiler.target_kind != target.kind:
+        raise CheckFailed(
+            [
+                _planning_problem(
+                    "domain_target_kind_mismatch",
+                    "the domain compiler adapter does not match the accepted "
+                    "system configuration",
+                    category=ProblemCategory.INVALID_INPUT,
+                    details={
+                        "compiler_target_kind": compiler.target_kind,
+                        "configured_target_kind": target.kind,
+                    },
+                )
+            ]
+        )
     for execution_id, template in templates.items():
         if not compiler.supports(template.call):
             raise CheckFailed(

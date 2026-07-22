@@ -93,7 +93,7 @@ objects.
 | Reusable versus one-off definition | `@sc.template` and `@sc.scratch` over the same semantics | `authoring/01_template_and_scratch.py` |
 | One qubit, generated sequence | Point-bound Python elaboration with length and seed scans | `authoring/03_point_bound_sequence.py` and `workflows/single_qubit_rb.py` |
 | Repeated multi-qubit acquisition | Recursive repeat and parallel result axes | `authoring/04_recursive_results.py` |
-| Realtime feedback and fixed QEC rounds | Retained loops, measurement branches, symbolic result layouts, and a statically claimed target | `workflows/active_reset.py`, `workflows/surface_code.py`, and `support/tests/unit/test_fake_realtime_domain_e2e.py` |
+| Realtime feedback and fixed-patch readout | Retained loops, measurement branches, parallel lanes, symbolic result layouts, and a statically claimed target | `workflows/active_reset.py`, `workflows/fixed_patch_readout.py`, and `support/tests/unit/test_fake_realtime_domain_e2e.py` |
 | Pulse candidate | Mixed gates, pulses, frames, and accepted calibration | `authoring/05_mixed_gate_pulse.py` and `calibration/01_drag_beta.py` |
 | Two-qubit calibration | Gate semantics plus an explicit coupler resource | `calibration/02_cz_phase.py` |
 | No domain compiler | Preserve one collection as one opaque compute input | `integration/01_opaque_collection.py` |

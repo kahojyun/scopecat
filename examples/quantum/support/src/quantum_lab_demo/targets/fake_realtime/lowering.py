@@ -10,7 +10,6 @@ from scopecat.kernel.content_identity import content_fingerprint, stable_content
 from scopecat_quantum import (
     Acquire,
     Delay,
-    PauliFrameXor,
     Play,
     RealtimeBitStateInit,
     RealtimeBitStateRead,
@@ -43,16 +42,13 @@ from quantum_lab_demo.targets.fake_realtime.model import (
     FakeRealtimeProgram,
     FakeRealtimeRegister,
     FakeRealtimeTarget,
-    RtAcquire,
     RtDecrementAndJump,
     RtEmit,
-    RtFrameXor,
     RtHalt,
     RtJump,
     RtJumpIf,
     RtLabel,
     RtMove,
-    RtPlay,
     RtPulseTimeline,
     RtScheduledAcquire,
     RtScheduledPlay,
@@ -161,12 +157,6 @@ class _Assembler:
             source = self.result_registers[node.source.value_id]
             index = len(self.instructions)
             self.instructions.append(RtEmit(node.result_id.local_id, source))
-            self._record_value_use(node.source.value_id, source, index)
-            return
-        if isinstance(node, PauliFrameXor):
-            source = self.result_registers[node.source.value_id]
-            index = len(self.instructions)
-            self.instructions.append(RtFrameXor(node.qubit, node.axis, source))
             self._record_value_use(node.source.value_id, source, index)
             return
         if isinstance(node, StructuredPulseBlock | StructuredPulseParallel):
@@ -406,8 +396,6 @@ def _acquisition_definition_residual(
     instruction: FakeRealtimeInstruction,
     register: FakeRealtimeRegister,
 ) -> int | None:
-    if isinstance(instruction, RtAcquire) and instruction.destination == register:
-        return 0
     if isinstance(instruction, RtPulseTimeline):
         for acquisition in instruction.acquisitions:
             if acquisition.destination == register:
@@ -420,7 +408,7 @@ def _defines_register(
     instruction: FakeRealtimeInstruction,
     register: FakeRealtimeRegister,
 ) -> bool:
-    if isinstance(instruction, RtMove | RtXor | RtAcquire):
+    if isinstance(instruction, RtMove | RtXor):
         return instruction.destination == register
     return isinstance(instruction, RtPulseTimeline) and any(
         acquisition.destination == register for acquisition in instruction.acquisitions
@@ -431,8 +419,6 @@ def _instruction_ticks(
     instruction: FakeRealtimeInstruction,
     target: FakeRealtimeTarget,
 ) -> int:
-    if isinstance(instruction, RtPlay | RtAcquire):
-        return instruction.duration_ticks
     if isinstance(instruction, RtPulseTimeline | RtWait):
         return instruction.duration_ticks
     if isinstance(instruction, RtLabel | RtHalt):

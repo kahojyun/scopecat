@@ -7,6 +7,10 @@ from scopecat.measurements.projection import MeasurementProjection
 from scopecat.planning.authoring import resolve_experiment
 from scopecat.records.config import ConfigProfileSnapshot
 
+from quantum_lab_demo.workflows.fixed_patch_readout import (
+    FIXED_PATCH_READOUT_TEMPLATE_ID,
+    fixed_patch_readout_template,
+)
 from quantum_lab_demo.workflows.qnd import (
     QND_REPEATED_MEASUREMENT_TEMPLATE_ID,
     qnd_repeated_measurement_template,
@@ -21,10 +25,6 @@ from quantum_lab_demo.workflows.single_qubit_rb import (
     SINGLE_QUBIT_RB_TEMPLATE_ID,
     single_qubit_rb_template,
 )
-from quantum_lab_demo.workflows.surface_code import (
-    TOY_SURFACE_CODE_ROUND_TEMPLATE_ID,
-    toy_surface_code_round_template,
-)
 
 from .demo_lab_experiment_testkit import (
     load_experiment_config,
@@ -36,12 +36,12 @@ def test_recommended_workflow_template_ids() -> None:
     assert [
         readout_frequency_template.id,
         single_qubit_rb_template.id,
-        toy_surface_code_round_template.id,
+        fixed_patch_readout_template.id,
         qnd_repeated_measurement_template.id,
     ] == [
         READOUT_TEMPLATE_ID,
         SINGLE_QUBIT_RB_TEMPLATE_ID,
-        TOY_SURFACE_CODE_ROUND_TEMPLATE_ID,
+        FIXED_PATCH_READOUT_TEMPLATE_ID,
         QND_REPEATED_MEASUREMENT_TEMPLATE_ID,
     ]
 
@@ -62,9 +62,9 @@ def test_recommended_workflow_template_ids() -> None:
             "single_qubit_rb",
         ),
         (
-            toy_surface_code_round_template.bind(rounds=2),
-            TOY_SURFACE_CODE_ROUND_TEMPLATE_ID,
-            "toy_surface_code_round",
+            fixed_patch_readout_template.bind(rounds=2),
+            FIXED_PATCH_READOUT_TEMPLATE_ID,
+            "fixed_patch_readout",
         ),
         (
             qnd_repeated_measurement_template.bind(
@@ -91,12 +91,12 @@ def test_workflow_template_resolves_and_projects(
     assert projection.schema_for(points) is not None
 
 
-def test_toy_surface_code_round_uses_recursive_result_axes() -> None:
+def test_fixed_patch_readout_uses_recursive_result_axes() -> None:
     projection, points = _measurement_projection(
-        toy_surface_code_round_template.bind(rounds=2, shots=3)
+        fixed_patch_readout_template.bind(rounds=2, shots=3)
     )
     observable = next(
-        record for record in projection.records if record.id == "stabilizer_iq"
+        record for record in projection.records if record.id == "patch_iq"
     )
 
     assert observable.dims == ("point", "shot", "round", "qubit")

@@ -86,7 +86,7 @@ def test_ramsey_phase_rotates_only_the_candidate_and_resets_between_points(
         next(
             waveform
             for waveform in entry.waveforms
-            if waveform.channel_id.value == "awg.drive.0"
+            if waveform.channel_id.value == "drive-stack:drive.awg0.ch1:q0"
         )
         for entry in artifact.entries
     )

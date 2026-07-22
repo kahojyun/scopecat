@@ -162,6 +162,10 @@ class _DomainCompiler:
     def target_id(self) -> str:
         return "tests.domain.target"
 
+    @property
+    def target_kind(self) -> str:
+        return "tests.domain"
+
     def supports(self, call: DomainCallView) -> bool:
         del call
         self.support_calls += 1
@@ -253,6 +257,10 @@ class _BindingProbeCompiler:
     @property
     def target_id(self) -> str:
         return "tests.domain.target"
+
+    @property
+    def target_kind(self) -> str:
+        return "tests.domain"
 
     def supports(self, call: DomainCallView) -> bool:
         del call
@@ -621,6 +629,7 @@ def _config_with_domain_resources(
         update={
             "domain_target": DomainTargetBinding(
                 id="tests.domain.target",
+                kind="tests.domain",
                 instrument_ids=list(instrument_ids),
             )
         }
@@ -1115,7 +1124,7 @@ def test_ordered_domain_calls_share_one_target_resource_and_keep_job_identity() 
 def test_system_rejects_a_compiler_for_a_different_target() -> None:
     compiler = _DomainCompiler("tests.target-mismatch")
     config = _config_with_domain_resources()
-    mismatched = DomainTargetBinding(id="other.target")
+    mismatched = DomainTargetBinding(id="other.target", kind="tests.domain")
     mismatched_config = config.model_copy(
         update={
             "system": config.system.model_copy(update={"domain_target": mismatched})
@@ -1135,6 +1144,34 @@ def test_system_rejects_a_compiler_for_a_different_target() -> None:
         )
 
     assert _problem_codes(captured.value) == {"domain_target_mismatch"}
+
+
+def test_system_rejects_a_compiler_for_a_different_target_kind() -> None:
+    compiler = _DomainCompiler("tests.target-kind-mismatch")
+    config = _config_with_domain_resources()
+    mismatched = DomainTargetBinding(
+        id="tests.domain.target",
+        kind="tests.other-domain",
+    )
+    mismatched_config = config.model_copy(
+        update={
+            "system": config.system.model_copy(update={"domain_target": mismatched})
+        }
+    )
+    linked = _linked_program(
+        product_count=2,
+        domain_product_count=2,
+        domain_call_count=2,
+        config=mismatched_config,
+    )
+
+    with pytest.raises(CheckFailed) as captured:
+        ExperimentSystem(domain_compiler=compiler).compile(
+            linked,
+            config=mismatched_config,
+        )
+
+    assert _problem_codes(captured.value) == {"domain_target_kind_mismatch"}
 
 
 def test_point_inventory_closes_before_first_streaming_domain_block(

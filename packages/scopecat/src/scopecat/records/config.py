@@ -208,11 +208,12 @@ class RoutingGraph(BaseModel):
 
 
 class DomainTargetBinding(BaseModel):
-    """The one statically selected domain target in an accepted system."""
+    """The one target instance and adapter family selected by a system."""
 
     model_config = ConfigDict(extra="forbid")
 
     id: str = Field(min_length=1)
+    kind: str = Field(min_length=1)
     instrument_ids: list[Annotated[str, Field(min_length=1)]] = Field(
         default_factory=list
     )

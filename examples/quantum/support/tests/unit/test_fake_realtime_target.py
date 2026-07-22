@@ -32,14 +32,14 @@ from quantum_lab_demo.targets.fake_realtime import (
     FakeRealtimeProgram,
     FakeRealtimeRegister,
     FakeRealtimeRuntime,
-    RtAcquire,
     RtEmit,
-    RtFrameXor,
     RtHalt,
     RtJump,
     RtJumpIf,
     RtLabel,
-    RtPlay,
+    RtPulseTimeline,
+    RtScheduledAcquire,
+    RtScheduledPlay,
     RtWait,
     RtXor,
     default_fake_realtime_target,
@@ -107,12 +107,33 @@ def test_active_reset_uses_runtime_measurement_without_recompilation() -> None:
     program = FakeRealtimeProgram(
         id="active-reset",
         instructions=(
-            RtAcquire(target.inputs[0], "reset-bit", measured, duration_ticks=16),
+            RtPulseTimeline(
+                duration_ticks=16,
+                acquisitions=(
+                    RtScheduledAcquire(
+                        target.inputs[0],
+                        "reset-bit",
+                        measured,
+                        start_ticks=0,
+                        duration_ticks=16,
+                    ),
+                ),
+            ),
             RtWait(target.discrimination_latency_ticks),
             RtJumpIf(measured, equals=1, target="correct"),
             RtJump("done"),
             RtLabel("correct"),
-            RtPlay(target.outputs[0], "x180", duration_ticks=8),
+            RtPulseTimeline(
+                duration_ticks=8,
+                plays=(
+                    RtScheduledPlay(
+                        target.outputs[0],
+                        "x180",
+                        start_ticks=0,
+                        duration_ticks=8,
+                    ),
+                ),
+            ),
             RtLabel("done"),
             RtHalt(),
         ),
@@ -140,9 +161,9 @@ def test_active_reset_uses_runtime_measurement_without_recompilation() -> None:
     excited = runtime.execute(artifact, {"reset-bit": (1,)})
 
     assert ground.artifact is excited.artifact
-    assert not any(event.operation == "play" for event in ground.events)
-    assert sum(event.operation == "play" for event in excited.events) == 1
-    # The taken path replaces one classical Jump with an eight-tick pulse.
+    assert sum(event.operation == "pulsetimeline" for event in ground.events) == 1
+    assert sum(event.operation == "pulsetimeline" for event in excited.events) == 2
+    # The taken path replaces one classical Jump with an eight-tick timeline.
     assert excited.shot_end_ticks[0] - ground.shot_end_ticks[0] == 7
 
 
@@ -273,7 +294,7 @@ def test_authored_active_reset_lowers_to_one_bounded_realtime_artifact() -> None
     ]
 
 
-def test_repetition_rounds_emit_detector_history_and_frame_update() -> None:
+def test_repetition_rounds_emit_detector_history() -> None:
     target = default_fake_realtime_target()
     q0 = quantum.qubit("q0")
     previous_state = quantum.bit_state("previous-syndrome", initial=0)
@@ -303,7 +324,6 @@ def test_repetition_rounds_emit_detector_history_and_frame_update() -> None:
                 3,
                 axis="round",
             ),
-            quantum.update_pauli_frame(q0, detector.bit, axis="x"),
         ),
     )
     bound = quantum.bind(declaration)
@@ -365,13 +385,9 @@ def test_repetition_rounds_emit_detector_history_and_frame_update() -> None:
         1,
         1,
     ]
-    assert [(frame.qubit.value, frame.x, frame.z) for frame in run.frames] == [
-        ("q0", 1, 0)
-    ]
     assert sum(event.operation == "pulsetimeline" for event in run.events) == 3
     assert any(isinstance(item, RtXor) for item in request.program.instructions)
     assert any(isinstance(item, RtEmit) for item in request.program.instructions)
-    assert any(isinstance(item, RtFrameXor) for item in request.program.instructions)
 
 
 def test_compiler_rejects_feedback_read_before_ready_tick() -> None:
@@ -382,7 +398,18 @@ def test_compiler_rejects_feedback_read_before_ready_tick() -> None:
             FakeRealtimeProgram(
                 id="missing-feedback-wait",
                 instructions=(
-                    RtAcquire(target.inputs[0], "bit", measured, duration_ticks=4),
+                    RtPulseTimeline(
+                        duration_ticks=4,
+                        acquisitions=(
+                            RtScheduledAcquire(
+                                target.inputs[0],
+                                "bit",
+                                measured,
+                                start_ticks=0,
+                                duration_ticks=4,
+                            ),
+                        ),
+                    ),
                     RtJumpIf(measured, equals=1, target="done"),
                     RtLabel("done"),
                     RtHalt(),
@@ -428,11 +455,17 @@ def test_compiler_proves_machine_record_layout_coverage() -> None:
             FakeRealtimeProgram(
                 id="missing-record-layout",
                 instructions=(
-                    RtAcquire(
-                        target.inputs[0],
-                        "undeclared",
-                        FakeRealtimeRegister("capture"),
+                    RtPulseTimeline(
                         duration_ticks=4,
+                        acquisitions=(
+                            RtScheduledAcquire(
+                                target.inputs[0],
+                                "undeclared",
+                                FakeRealtimeRegister("capture"),
+                                start_ticks=0,
+                                duration_ticks=4,
+                            ),
+                        ),
                     ),
                     RtHalt(),
                 ),

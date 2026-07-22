@@ -45,7 +45,6 @@ from scopecat_quantum.programs import (
     Conditional,
     ImplementedGate,
     ImplementedGatePulseEventProvenance,
-    PauliFrameXor,
     PulseBlock,
     QuantumProgramIR,
     QuantumProgramVerificationError,
@@ -312,7 +311,7 @@ def test_realtime_condition_uses_exact_structural_value_identity() -> None:
     ]
 
 
-def test_structured_refinement_retains_detector_state_and_pauli_frame_ops() -> None:
+def test_structured_refinement_retains_detector_state_and_emit_ops() -> None:
     state_id = RealtimeStateId("previous-syndrome", scope=("rounds",))
     previous = RealtimeValueId("previous", scope=("rounds", "body"))
     current = RealtimeValueId("current", scope=("rounds", "body"))
@@ -357,12 +356,6 @@ def test_structured_refinement_retains_detector_state_and_pauli_frame_ops() -> N
                     count=3,
                     axis_id="round",
                 ),
-                PauliFrameXor(
-                    CircuitOperationId("update-frame"),
-                    Q0,
-                    "x",
-                    RealtimeBitRef(detector),
-                ),
             )
         ),
     )
@@ -384,7 +377,7 @@ def test_structured_refinement_retains_detector_state_and_pauli_frame_ops() -> N
     )
 
     assert isinstance(structured.body, StructuredPulseSequence)
-    initialize, repeated, frame = structured.body.operations
+    initialize, repeated = structured.body.operations
     assert isinstance(initialize, RealtimeBitStateInit)
     assert isinstance(repeated, StructuredPulseRepeat)
     assert isinstance(repeated.operation, StructuredPulseSequence)
@@ -395,8 +388,6 @@ def test_structured_refinement_retains_detector_state_and_pauli_frame_ops() -> N
         RealtimeResultEmit,
         RealtimeBitStateWrite,
     ]
-    assert isinstance(frame, PauliFrameXor)
-
     with pytest.raises(RealtimeControlFlowUnsupportedError):
         lower_quantum_program_to_pulses(
             verified,
