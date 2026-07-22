@@ -29,6 +29,7 @@ from scopecat.authoring import (
     DomainExecution,
     DomainProgramDef,
     EntityType,
+    ExperimentModule,
     FloatType,
     IntType,
     ModuleBuilder,
@@ -159,25 +160,11 @@ class Coupler:
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class QuantumInput:
-    """One core-typed scalar input consumed by a mixed quantum program."""
+class ProgramInput:
+    """One core-typed scalar input shared by circuit and pulse authoring."""
 
     _id: str
     value_type: ScalarType
-
-    @property
-    def id(self) -> str:
-        """Return the stable input-port identity."""
-
-        return self._id
-
-
-@dataclass(frozen=True, slots=True, repr=False)
-class CircuitInput:
-    """One typed scalar input consumed by a symbolic circuit."""
-
-    _id: str
-    kind: GateParameterKind
 
     @property
     def id(self) -> str:
@@ -191,7 +178,7 @@ class QuantumResultAxis:
     """One non-shot product axis declared by a quantum result contract."""
 
     id: str
-    size: int | CircuitInput | QuantumInput
+    size: int | ProgramInput
     kind: str
     unit: str | None = "count"
 
@@ -203,10 +190,7 @@ class QuantumResultAxis:
         if isinstance(self.size, int):
             if isinstance(self.size, bool) or self.size <= 0:
                 raise ValueError("quantum result axis size must be a positive integer")
-        elif isinstance(self.size, CircuitInput):
-            if self.size.kind is not GateParameterKind.INTEGER:
-                raise TypeError("quantum result axis inputs must be integers")
-        elif not isinstance(self.size.value_type.atom, IntType):
+        elif not _is_integer_input(self.size):
             raise TypeError("quantum result axis inputs must be integers")
 
 
@@ -268,7 +252,7 @@ INTEGRATED_IQ_RESULT = integrated_iq_result()
 
 
 def raw_trace_result(
-    samples: int | CircuitInput | QuantumInput,
+    samples: int | ProgramInput,
     /,
     *,
     dtype: MeasurementDType = "complex128",
@@ -381,6 +365,7 @@ class QuantumProgramCall:
         return _program_call(
             self.program,
             self.module_invocation.instance_id,
+            module=self.module_invocation.module,
             inputs=dict(self.arguments),
             shots=shots,
         )
@@ -409,9 +394,8 @@ class PulseFragment(QuantumFragment):
     __slots__ = ()
 
 
-type CircuitArgument = GateArgumentValue | CircuitInput
-type QuantumQuantity = Quantity | QuantumInput
-type ProgramInput = CircuitInput | QuantumInput
+type CircuitArgument = GateArgumentValue | ProgramInput
+type QuantumQuantity = Quantity | ProgramInput
 type ProgramPort = PulseElement | ProgramInput
 type ProgramFunction = Callable[..., QuantumFragment]
 type FragmentFunction = Callable[..., QuantumFragment]
@@ -421,8 +405,8 @@ type ElementBindings = Mapping[QubitId | CouplerId, QubitId | CouplerId]
 _SHOTS_INPUT_ID = "__shots__"
 _RESERVED_PROGRAM_PORT_IDS = frozenset({_SHOTS_INPUT_ID})
 _RESERVED_RESULT_IDS = frozenset({"count", "index"})
-type RepeatCount = int | CircuitInput | QuantumInput
-type PulseTemplateArgument = Quantity | int | float | QuantumInput
+type RepeatCount = int | ProgramInput
+type _PulseTemplateArgument = Quantity | int | float | ProgramInput
 type PulseElement = Qubit | Coupler
 type Gate = SingleQubitGate | TwoQubitGate
 type QubitInput = Annotated[
@@ -431,6 +415,42 @@ type QubitInput = Annotated[
 type CouplerInput = Annotated[
     ExperimentInput[str], EntityAtomType(entity_kind="logical_coupler")
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class _QuantumFunctionContract:
+    """One decorator function's ordered symbolic port contract."""
+
+    signature: inspect.Signature
+    parameters: tuple[ProgramPort, ...]
+
+    @property
+    def arguments(self) -> dict[str, ProgramPort]:
+        return {
+            parameter.name: value
+            for parameter, value in zip(
+                self.signature.parameters.values(),
+                self.parameters,
+                strict=True,
+            )
+        }
+
+    @property
+    def elements(self) -> tuple[PulseElement, ...]:
+        return tuple(
+            parameter
+            for parameter in self.parameters
+            if isinstance(parameter, Qubit | Coupler)
+        )
+
+    @property
+    def inputs(self) -> tuple[ProgramInput, ...]:
+        return tuple(
+            parameter
+            for parameter in self.parameters
+            if isinstance(parameter, ProgramInput)
+        )
+
 
 QUANTUM_PROGRAM_DIALECT_ID = "scopecat.quantum.program"
 QUANTUM_PROGRAM_DIALECT_VERSION = "2"
@@ -527,12 +547,12 @@ def _author_gate_call(
     ordered_arguments: list[tuple[str, CircuitArgument]] = []
     for parameter in gate_handle.parameters:
         value = arguments[parameter.id]
-        if isinstance(value, CircuitInput):
-            if value.kind is not parameter.kind:
+        if isinstance(value, ProgramInput):
+            if not _program_input_matches_kind(value, parameter.kind):
                 msg = (
                     f"gate {gate_handle.id!r} parameter {parameter.id!r} requires "
                     f"{parameter.kind.value!r}, but input {value.id!r} declares "
-                    f"{value.kind.value!r}"
+                    f"{_describe_program_input(value)!r}"
                 )
                 raise TypeError(msg)
         elif not _argument_matches_kind(value, parameter.kind):
@@ -578,13 +598,13 @@ class Acquisition(PulseFragment):
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class PulseTemplate:
-    """A reusable, result-free pulse fragment with typed formal ports."""
+class _PulseTemplateSource:
+    """Closed pulse-template source retained by a function definition."""
 
     ir_id: PulseProgramId
     body: QuantumFragment
     elements: tuple[PulseElement, ...]
-    inputs: tuple[QuantumInput, ...]
+    inputs: tuple[ProgramInput, ...]
 
     @property
     def id(self) -> str:
@@ -592,29 +612,20 @@ class PulseTemplate:
 
         return self.ir_id.value
 
-    def __call__(
-        self,
-        *elements: PulseElement,
-        **inputs: PulseTemplateArgument,
-    ) -> PulseFragment:
-        """Instantiate this template over logical elements and typed values."""
 
-        return _instantiate_pulse_template(self, elements, inputs)
-
-
-class PulseTemplateDefinition(PulseTemplate):
+class PulseTemplateDefinition[**P](_PulseTemplateSource):
     """A function-authored pulse template with an inspectable call signature."""
 
-    __slots__ = ("_definition", "parameters")
+    __slots__ = ("_contract", "_definition")
 
-    _definition: PulseTemplateFunction
-    parameters: tuple[PulseElement | ProgramInput, ...]
+    _contract: _QuantumFunctionContract
+    _definition: Callable[P, QuantumFragment]
 
     def __init__(
         self,
-        declaration: PulseTemplate,
-        definition: PulseTemplateFunction,
-        parameters: tuple[PulseElement | ProgramInput, ...],
+        declaration: _PulseTemplateSource,
+        definition: Callable[P, QuantumFragment],
+        contract: _QuantumFunctionContract,
     ) -> None:
         super().__init__(
             ir_id=declaration.ir_id,
@@ -623,10 +634,16 @@ class PulseTemplateDefinition(PulseTemplate):
             inputs=declaration.inputs,
         )
         self._definition = definition
-        self.parameters = parameters
+        self._contract = contract
 
     @property
-    def __wrapped__(self) -> PulseTemplateFunction:
+    def parameters(self) -> tuple[ProgramPort, ...]:
+        """Return ports in their declared Python order."""
+
+        return self._contract.parameters
+
+    @property
+    def __wrapped__(self) -> Callable[P, QuantumFragment]:
         return self._definition
 
     @property
@@ -635,51 +652,47 @@ class PulseTemplateDefinition(PulseTemplate):
 
     @property
     def __signature__(self) -> inspect.Signature:
-        return inspect.signature(self._definition).replace(
-            return_annotation=PulseFragment
-        )
+        return self._contract.signature.replace(return_annotation=PulseFragment)
 
-    @override
-    def __call__(self, *args: object, **kwargs: object) -> PulseFragment:
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> PulseFragment:
         """Instantiate the template in its declared Python parameter order."""
 
-        bound = inspect.signature(self._definition).bind(*args, **kwargs)
-        return self._instantiate(bound)
-
-    def _instantiate(self, bound: inspect.BoundArguments) -> PulseFragment:
-        elements: list[PulseElement] = []
-        inputs: dict[str, PulseTemplateArgument] = {}
-        for formal in self.parameters:
-            actual = cast("object", bound.arguments[formal.id])
-            if isinstance(formal, Qubit | Coupler):
-                elements.append(cast("PulseElement", actual))
-            else:
-                inputs[formal.id] = cast("PulseTemplateArgument", actual)
-        return _instantiate_pulse_template(self, tuple(elements), inputs)
+        bound = self._contract.signature.bind(*args, **kwargs)
+        return _instantiate_bound_pulse_template(self, bound)
 
 
-class GateImplementationDefinition:
+@dataclass(frozen=True, slots=True)
+class _GateImplementationContract:
+    """Names that attach pulse parameters to their gate-level roles."""
+
+    signature: inspect.Signature
+    operands: tuple[str, ...]
+    resources: tuple[str, ...]
+    arguments: tuple[str, ...]
+
+
+class GateImplementationDefinition[**P]:
     """A function-authored fixed gate implementation backed by pulse structure."""
 
-    __slots__ = ("_operand_count", "candidate", "gate", "template")
+    __slots__ = ("_contract", "candidate", "gate", "template")
 
     gate: Gate
     candidate: str | None
-    template: PulseTemplateDefinition
-    _operand_count: int
+    template: PulseTemplateDefinition[P]
+    _contract: _GateImplementationContract
 
     def __init__(
         self,
-        template: PulseTemplateDefinition,
+        template: PulseTemplateDefinition[P],
         *,
         gate: Gate,
         candidate: str | None,
-        operand_count: int,
+        contract: _GateImplementationContract,
     ) -> None:
         self.template = template
         self.gate = gate
         self.candidate = candidate
-        self._operand_count = operand_count
+        self._contract = contract
 
     @property
     def id(self) -> str:
@@ -694,7 +707,7 @@ class GateImplementationDefinition:
         return self.template.parameters
 
     @property
-    def __wrapped__(self) -> PulseTemplateFunction:
+    def __wrapped__(self) -> Callable[P, QuantumFragment]:
         return self.template.__wrapped__
 
     @property
@@ -703,28 +716,29 @@ class GateImplementationDefinition:
 
     @property
     def __signature__(self) -> inspect.Signature:
-        return inspect.signature(self.template.__wrapped__).replace(
-            return_annotation=QuantumFragment
-        )
+        return self._contract.signature.replace(return_annotation=QuantumFragment)
 
-    def __call__(self, *args: object, **kwargs: object) -> QuantumFragment:
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> QuantumFragment:
         """Instantiate the pulse and attach its declared gate semantics."""
 
-        bound = inspect.signature(self.template.__wrapped__).bind(*args, **kwargs)
-        pulse = self.template(*args, **kwargs)
-        elements = tuple(
-            cast("PulseElement", bound.arguments[formal.id])
-            for formal in self.parameters
-            if isinstance(formal, Qubit | Coupler)
+        bound = self._contract.signature.bind(*args, **kwargs)
+        pulse = _instantiate_bound_pulse_template(self.template, bound)
+        operands = tuple(
+            cast("Qubit", bound.arguments[name]) for name in self._contract.operands
         )
-        operands = cast("tuple[Qubit, ...]", elements[: self._operand_count])
-        resources = cast("tuple[Coupler, ...]", elements[self._operand_count :])
+        resources = tuple(
+            cast("Coupler", bound.arguments[name]) for name in self._contract.resources
+        )
+        arguments = {
+            name: cast("CircuitArgument", bound.arguments[name])
+            for name in self._contract.arguments
+        }
         gate_call: CircuitFragment
         if isinstance(self.gate, SingleQubitGate):
-            gate_call = self.gate(operands[0])
+            gate_call = self.gate(operands[0], **arguments)
         else:
-            gate_call = self.gate(operands[0], operands[1])
-        return implements(
+            gate_call = self.gate(operands[0], operands[1], **arguments)
+        return _implement_gate(
             gate_call,
             pulse,
             resources=resources,
@@ -733,15 +747,21 @@ class GateImplementationDefinition:
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class FragmentDefinition:
+class FragmentDefinition[**P]:
     """A typed result-free fragment expanded after point inputs bind."""
 
     id: str
-    _definition: FragmentFunction
-    parameters: tuple[PulseElement | ProgramInput, ...]
+    _definition: Callable[P, QuantumFragment]
+    _contract: _QuantumFunctionContract
 
     @property
-    def __wrapped__(self) -> FragmentFunction:
+    def parameters(self) -> tuple[ProgramPort, ...]:
+        """Return ports in their declared Python order."""
+
+        return self._contract.parameters
+
+    @property
+    def __wrapped__(self) -> Callable[P, QuantumFragment]:
         return self._definition
 
     @property
@@ -750,12 +770,12 @@ class FragmentDefinition:
 
     @property
     def __signature__(self) -> inspect.Signature:
-        return inspect.signature(self._definition)
+        return self._contract.signature
 
-    def __call__(self, *args: object, **kwargs: object) -> QuantumFragment:
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> QuantumFragment:
         """Record one typed call for expansion during program binding."""
 
-        bound = inspect.signature(self._definition).bind(*args, **kwargs)
+        bound = self._contract.signature.bind(*args, **kwargs)
         arguments = tuple(bound.arguments.items())
         _validate_fragment_call_arguments(self, arguments)
         return _FragmentCall(definition=self, arguments=arguments)
@@ -783,7 +803,7 @@ class _ParallelFragment(CircuitFragment):
 @dataclass(frozen=True, slots=True)
 class _RepeatFragment(CircuitFragment):
     operation: CircuitFragment
-    count: int | CircuitInput
+    count: int | ProgramInput
     result_axis: QuantumResultAxis | None = None
 
 
@@ -812,7 +832,7 @@ class _ShiftPhaseFragment(PulseFragment):
 
 @dataclass(frozen=True, slots=True)
 class _PulseTemplateCallFragment(PulseFragment):
-    template: PulseTemplate
+    template: PulseTemplateDefinition[...]
     body: QuantumFragment
 
 
@@ -844,7 +864,7 @@ class _ImplementedGateFragment(QuantumFragment):
 
 @dataclass(frozen=True, slots=True)
 class _FragmentCall(QuantumFragment):
-    definition: FragmentDefinition
+    definition: FragmentDefinition[...]
     arguments: tuple[tuple[str, object], ...]
 
 
@@ -887,43 +907,22 @@ class Program:
 
         return draw(self)
 
-    def __call__(
-        self,
-        **inputs: ComputeInput,
-    ) -> QuantumProgramCall:
-        """Create the ordinary single call of this closed program."""
-
-        return _program_call(
-            self,
-            self.id.rsplit(".", maxsplit=1)[-1],
-            inputs=inputs,
-            shots=1,
-        )
-
-    def call(
-        self,
-        instance_id: str,
-        /,
-        **inputs: ComputeInput,
-    ) -> QuantumProgramCall:
-        """Create an explicitly named call for repeated composition."""
-
-        return _program_call(
-            self,
-            instance_id,
-            inputs=inputs,
-            shots=1,
-        )
-
 
 class ProgramDefinition(Program):
     """A function-authored program with an inspectable call signature."""
 
-    __slots__ = ("_definition",)
+    __slots__ = ("_call_module", "_contract", "_definition")
 
+    _call_module: ExperimentModule
+    _contract: _QuantumFunctionContract
     _definition: ProgramFunction
 
-    def __init__(self, declaration: Program, definition: ProgramFunction) -> None:
+    def __init__(
+        self,
+        declaration: Program,
+        definition: ProgramFunction,
+        contract: _QuantumFunctionContract,
+    ) -> None:
         super().__init__(
             ir_id=declaration.ir_id,
             body=declaration.body,
@@ -933,6 +932,8 @@ class ProgramDefinition(Program):
             description=declaration.description,
         )
         self._definition = definition
+        self._contract = contract
+        self._call_module = _program_call_module(self)
 
     @property
     def __wrapped__(self) -> ProgramFunction:
@@ -944,16 +945,14 @@ class ProgramDefinition(Program):
 
     @property
     def __signature__(self) -> inspect.Signature:
-        source = inspect.signature(self._definition)
-        return source.replace(
+        return self._contract.signature.replace(
             parameters=tuple(
                 parameter.replace(annotation=ComputeInput)
-                for parameter in source.parameters.values()
+                for parameter in self._contract.signature.parameters.values()
             ),
             return_annotation=QuantumProgramCall,
         )
 
-    @override
     def __call__(
         self,
         *args: ComputeInput,
@@ -961,15 +960,15 @@ class ProgramDefinition(Program):
     ) -> QuantumProgramCall:
         """Bind ports in their declared Python order."""
 
-        bound = inspect.signature(self._definition).bind(*args, **inputs)
+        bound = self._contract.signature.bind(*args, **inputs)
         return _program_call(
             self,
             self.id.rsplit(".", maxsplit=1)[-1],
+            module=self._call_module,
             inputs=cast("Mapping[str, ComputeInput]", bound.arguments),
             shots=1,
         )
 
-    @override
     def call(
         self,
         instance_id: str,
@@ -979,10 +978,11 @@ class ProgramDefinition(Program):
     ) -> QuantumProgramCall:
         """Bind an explicitly named call in declared port order."""
 
-        bound = inspect.signature(self._definition).bind(*args, **inputs)
+        bound = self._contract.signature.bind(*args, **inputs)
         return _program_call(
             self,
             instance_id,
+            module=self._call_module,
             inputs=cast("Mapping[str, ComputeInput]", bound.arguments),
             shots=1,
         )
@@ -1219,7 +1219,7 @@ def _inspection_axis(axis: QuantumResultAxis | None) -> str:
 def _inspection_value(value: object) -> str:
     if isinstance(value, Qubit | Coupler):
         return value.id
-    if isinstance(value, CircuitInput | QuantumInput):
+    if isinstance(value, ProgramInput):
         return f"${value.id}"
     if isinstance(value, Quantity):
         return f"{value.value:g} {value.unit}"
@@ -1227,8 +1227,6 @@ def _inspection_value(value: object) -> str:
 
 
 def _describe_program_input(value: ProgramInput) -> str:
-    if isinstance(value, CircuitInput):
-        return value.kind.value
     atom = value.value_type.atom
     detail: str | None = None
     if isinstance(atom, QuantityAtomType):
@@ -1288,16 +1286,16 @@ def coupler(id: str) -> Coupler:  # noqa: A002
     return Coupler(ir_id=CouplerId(id))
 
 
-def scalar_input(id: str, kind: GateParameterKind) -> CircuitInput:  # noqa: A002
+def scalar_input(id: str, kind: GateParameterKind) -> ProgramInput:  # noqa: A002
     """Declare one typed scalar input port for a symbolic circuit."""
 
     if not id.strip():
         msg = "circuit input id must be a non-empty string"
         raise ValueError(msg)
-    return CircuitInput(_id=id, kind=kind)
+    return ProgramInput(_id=id, value_type=_core_input_type(kind))
 
 
-def input(id: str, value_type: ScalarType) -> QuantumInput:  # noqa: A001, A002
+def input(id: str, value_type: ScalarType) -> ProgramInput:  # noqa: A001, A002
     """Declare one core-typed scalar input for gate-and-pulse authoring."""
 
     if not id.strip():
@@ -1306,7 +1304,7 @@ def input(id: str, value_type: ScalarType) -> QuantumInput:  # noqa: A001, A002
     if value_type.nullable:
         msg = "quantum program inputs cannot be nullable"
         raise ValueError(msg)
-    return QuantumInput(
+    return ProgramInput(
         _id=id,
         value_type=value_type,
     )
@@ -1457,7 +1455,8 @@ def _close_pulse_template(
     /,
     *,
     elements: SequenceCollection[PulseElement],
-) -> PulseTemplate:
+    formal_inputs: SequenceCollection[ProgramInput] | None = None,
+) -> _PulseTemplateSource:
     facts = _summarize_fragment(body)
     if not facts.pulse_only:
         msg = "pulse_template body must contain only pulse statements"
@@ -1471,11 +1470,8 @@ def _close_pulse_template(
         msg = "pulse template elements must be unique"
         raise ValueError(msg)
 
-    inputs_by_id: dict[str, QuantumInput] = {}
+    inputs_by_id: dict[str, ProgramInput] = {}
     for input_handle in facts.inputs:
-        if not isinstance(input_handle, QuantumInput):
-            msg = "pulse templates require QuantumInput rather than CircuitInput ports"
-            raise TypeError(msg)
         existing = inputs_by_id.get(input_handle.id)
         if existing is not None and existing is not input_handle:
             msg = (
@@ -1484,6 +1480,29 @@ def _close_pulse_template(
             )
             raise ValueError(msg)
         inputs_by_id.setdefault(input_handle.id, input_handle)
+
+    selected_inputs = tuple(inputs_by_id.values())
+    if formal_inputs is not None:
+        declared_inputs = tuple(formal_inputs)
+        unused_inputs = tuple(
+            input_handle.id
+            for input_handle in declared_inputs
+            if all(input_handle is not used for used in selected_inputs)
+        )
+        if unused_inputs:
+            rendered = ", ".join(repr(item) for item in unused_inputs)
+            raise ValueError(f"pulse template has unused scalar ports: {rendered}")
+        foreign_inputs = tuple(
+            input_handle.id
+            for input_handle in selected_inputs
+            if all(input_handle is not declared for declared in declared_inputs)
+        )
+        if foreign_inputs:
+            rendered = ", ".join(repr(item) for item in foreign_inputs)
+            raise ValueError(
+                f"pulse template captures undeclared scalar ports: {rendered}"
+            )
+        selected_inputs = declared_inputs
 
     formal_ids = set(element_ids)
     foreign_owners = {owner for owner in facts.pulse_owners if owner not in formal_ids}
@@ -1495,11 +1514,11 @@ def _close_pulse_template(
         msg = f"pulse template contains undeclared formal elements: {rendered}"
         raise ValueError(msg)
 
-    return PulseTemplate(
+    return _PulseTemplateSource(
         ir_id=PulseProgramId(id),
         body=body,
         elements=raw_elements,
-        inputs=tuple(inputs_by_id.values()),
+        inputs=selected_inputs,
     )
 
 
@@ -1586,7 +1605,7 @@ def barrier(*signals: PlaySignal) -> PulseFragment:
     return _BarrierFragment(signals=signals)
 
 
-def implements(
+def _implement_gate(
     gate_call: CircuitFragment,
     pulse: QuantumFragment,
     /,
@@ -1594,22 +1613,22 @@ def implements(
     resources: SequenceCollection[Coupler] = (),
     candidate: str | None = None,
 ) -> QuantumFragment:
-    """Attach one explicit pulse implementation to a logical gate occurrence."""
+    """Attach validated pulse structure to one logical gate occurrence."""
 
     if not isinstance(gate_call, _GateFragment):
-        msg = "implements requires one authored gate call"
+        msg = "gate implementation requires one authored gate call"
         raise TypeError(msg)
     facts = _summarize_fragment(pulse)
     if not facts.pulse_only:
-        msg = "implements pulse must contain only pulse statements"
+        msg = "gate implementation must contain only pulse statements"
         raise TypeError(msg)
     if facts.results:
-        msg = "implements pulse cannot acquire results"
+        msg = "gate implementation cannot acquire results"
         raise ValueError(msg)
     selected_resources = tuple(resources)
     resource_ids = tuple(resource.ir_id for resource in selected_resources)
     if len(set(resource_ids)) != len(resource_ids):
-        msg = "implements resources must be unique"
+        msg = "gate implementation resources must be unique"
         raise ValueError(msg)
     operand_ids = {qubit.ir_id for qubit in gate_call.qubits}
     allowed_owners = {*operand_ids, *resource_ids}
@@ -1620,7 +1639,7 @@ def implements(
             repr(owner.value)
             for owner in sorted(foreign_owners, key=lambda item: item.value)
         )
-        msg = f"implements pulse contains unauthorized signal owners: {rendered}"
+        msg = f"gate implementation contains unauthorized signal owners: {rendered}"
         raise ValueError(msg)
     used_resources = {owner for owner in pulse_owners if isinstance(owner, CouplerId)}
     unused_resources = set(resource_ids) - used_resources
@@ -1629,10 +1648,10 @@ def implements(
             repr(owner.value)
             for owner in sorted(unused_resources, key=lambda item: item.value)
         )
-        msg = f"implements declares unused coupler resources: {rendered}"
+        msg = f"gate implementation declares unused coupler resources: {rendered}"
         raise ValueError(msg)
     if candidate is not None and not candidate.strip():
-        msg = "implements candidate must be a non-empty string"
+        msg = "gate implementation candidate must be a non-empty string"
         raise ValueError(msg)
     return _ImplementedGateFragment(
         gate=gate_call,
@@ -1792,7 +1811,7 @@ def _result_with_axis(
 @overload
 def repeat(
     operation: CircuitFragment,
-    count: int | CircuitInput,
+    count: int | ProgramInput,
     *,
     axis: str | None = None,
 ) -> CircuitFragment: ...
@@ -1820,7 +1839,7 @@ def repeat(
         raise ValueError("result-producing repeats require an axis")
     if not results and axis is not None:
         raise ValueError("result-free repeats cannot declare a result axis")
-    if isinstance(count, CircuitInput | QuantumInput):
+    if isinstance(count, ProgramInput):
         if not _is_integer_input(count):
             msg = "repeat count inputs must have integer kind"
             raise TypeError(msg)
@@ -1835,7 +1854,7 @@ def repeat(
         if result_axis is None
         else _prepend_result_axis(operation, result_axis)
     )
-    if isinstance(operation, CircuitFragment) and isinstance(count, int | CircuitInput):
+    if isinstance(operation, CircuitFragment):
         return _RepeatFragment(
             operation=cast("CircuitFragment", selected),
             count=count,
@@ -1849,80 +1868,89 @@ def repeat(
 
 
 @overload
-def fragment(
-    definition: FragmentFunction,
+def fragment[**P](
+    definition: Callable[P, QuantumFragment],
     /,
     *,
     id: str | None = None,
-) -> FragmentDefinition: ...
+) -> FragmentDefinition[P]: ...
 
 
 @overload
-def fragment(
+def fragment[**P](
     definition: None = None,
     /,
     *,
     id: str | None = None,
-) -> Callable[[FragmentFunction], FragmentDefinition]: ...
+) -> Callable[[Callable[P, QuantumFragment]], FragmentDefinition[P]]: ...
 
 
-def fragment(
-    definition: FragmentFunction | None = None,
+def fragment[**P](
+    definition: Callable[P, QuantumFragment] | None = None,
     /,
     *,
     id: str | None = None,  # noqa: A002
-) -> FragmentDefinition | Callable[[FragmentFunction], FragmentDefinition]:
+) -> (
+    FragmentDefinition[P]
+    | Callable[[Callable[P, QuantumFragment]], FragmentDefinition[P]]
+):
     """Define a result-free fragment expanded from concrete point inputs."""
 
-    def decorate(fn: FragmentFunction) -> FragmentDefinition:
+    def decorate(fn: Callable[P, QuantumFragment]) -> FragmentDefinition[P]:
         return _fragment_from_function(fn, id=id)
 
     return decorate(definition) if definition is not None else decorate
 
 
 @overload
-def pulse_template(
-    definition: PulseTemplateFunction,
+def pulse_template[**P](
+    definition: Callable[P, QuantumFragment],
     /,
     *,
     id: str | None = None,
-) -> PulseTemplateDefinition: ...
+) -> PulseTemplateDefinition[P]: ...
 
 
 @overload
-def pulse_template(
+def pulse_template[**P](
     definition: None = None,
     /,
     *,
     id: str | None = None,
-) -> Callable[[PulseTemplateFunction], PulseTemplateDefinition]: ...
+) -> Callable[[Callable[P, QuantumFragment]], PulseTemplateDefinition[P]]: ...
 
 
-def pulse_template(
-    definition: PulseTemplateFunction | None = None,
+def pulse_template[**P](
+    definition: Callable[P, QuantumFragment] | None = None,
     /,
     *,
     id: str | None = None,  # noqa: A002
 ) -> (
-    PulseTemplateDefinition | Callable[[PulseTemplateFunction], PulseTemplateDefinition]
+    PulseTemplateDefinition[P]
+    | Callable[[Callable[P, QuantumFragment]], PulseTemplateDefinition[P]]
 ):
     """Define a reusable pulse fragment from a symbolic Python function."""
 
-    def decorate(fn: PulseTemplateFunction) -> PulseTemplateDefinition:
+    def decorate(fn: Callable[P, QuantumFragment]) -> PulseTemplateDefinition[P]:
         return _pulse_template_from_function(fn, id=id)
 
     return decorate(definition) if definition is not None else decorate
 
 
-def implementation(
+def implementation[**P](
     *,
     of: Gate,
     candidate: str | None = None,
     id: str | None = None,  # noqa: A002
-) -> Callable[[PulseTemplateFunction], GateImplementationDefinition]:
+) -> Callable[
+    [Callable[P, QuantumFragment]],
+    GateImplementationDefinition[P],
+]:
     """Define a fixed semantic gate and its pulse implementation together."""
 
-    def decorate(fn: PulseTemplateFunction) -> GateImplementationDefinition:
+    def decorate(
+        fn: Callable[P, QuantumFragment],
+    ) -> GateImplementationDefinition[P]:
         return _gate_implementation_from_function(
             fn,
             gate=of,
@@ -1970,6 +1998,7 @@ def _close_program(
     body: QuantumFragment,
     *,
     elements: SequenceCollection[PulseElement] = (),
+    formal_inputs: SequenceCollection[ProgramInput] | None = None,
     description: str | None = None,
 ) -> Program:
     ir_id = QuantumProgramId(id)
@@ -1987,6 +2016,25 @@ def _close_program(
     if unused_elements:
         rendered = ", ".join(repr(item) for item in unused_elements)
         raise ValueError(f"quantum program has unused formal elements: {rendered}")
+    if formal_inputs is not None:
+        formal_element_keys = {
+            (type(element), element.id) for element in formal_elements
+        }
+        foreign_elements = sorted(
+            {
+                (type(element), element.id)
+                for element in facts.element_uses
+                if (type(element), element.id) not in formal_element_keys
+            },
+            key=lambda item: (item[0].__name__, item[1]),
+        )
+        if foreign_elements:
+            rendered = ", ".join(
+                repr(element_id) for _type, element_id in foreign_elements
+            )
+            raise ValueError(
+                f"quantum program captures undeclared formal elements: {rendered}"
+            )
     collected_inputs = facts.inputs
     inputs_by_id: dict[str, ProgramInput] = {}
     contracts_by_id: dict[str, ScalarType] = {}
@@ -2012,12 +2060,36 @@ def _close_program(
         inputs_by_id.setdefault(input_handle.id, input_handle)
         contracts_by_id.setdefault(input_handle.id, contract)
 
-    conflicting_ports = sorted(set(element_ids) & set(inputs_by_id))
+    selected_inputs = tuple(inputs_by_id.values())
+    if formal_inputs is not None:
+        declared_inputs = tuple(formal_inputs)
+        unused_inputs = tuple(
+            input_handle.id
+            for input_handle in declared_inputs
+            if all(input_handle is not used for used in selected_inputs)
+        )
+        if unused_inputs:
+            rendered = ", ".join(repr(item) for item in unused_inputs)
+            raise ValueError(f"quantum program has unused scalar ports: {rendered}")
+        foreign_inputs = tuple(
+            input_handle.id
+            for input_handle in selected_inputs
+            if all(input_handle is not declared for declared in declared_inputs)
+        )
+        if foreign_inputs:
+            rendered = ", ".join(repr(item) for item in foreign_inputs)
+            raise ValueError(
+                f"quantum program captures undeclared scalar ports: {rendered}"
+            )
+        selected_inputs = declared_inputs
+
+    selected_input_ids = {input_handle.id for input_handle in selected_inputs}
+    conflicting_ports = sorted(set(element_ids) & selected_input_ids)
     if conflicting_ports:
         rendered = ", ".join(repr(item) for item in conflicting_ports)
         raise ValueError(f"quantum program has conflicting port ids: {rendered}")
     reserved_ports = sorted(
-        (set(element_ids) | set(inputs_by_id)) & _RESERVED_PROGRAM_PORT_IDS
+        (set(element_ids) | selected_input_ids) & _RESERVED_PROGRAM_PORT_IDS
     )
     if reserved_ports:
         rendered = ", ".join(repr(item) for item in reserved_ports)
@@ -2040,114 +2112,100 @@ def _close_program(
         ir_id=ir_id,
         body=body,
         elements=formal_elements,
-        inputs=tuple(inputs_by_id.values()),
+        inputs=selected_inputs,
         results=ProgramResults(results),
         description=description,
     )
 
 
-def _fragment_from_function(
-    fn: FragmentFunction,
+def _quantum_function_contract(
+    fn: Callable[..., QuantumFragment],
     *,
-    id: str | None,  # noqa: A002
-) -> FragmentDefinition:
+    kind: str,
+) -> _QuantumFunctionContract:
     signature = inspect.signature(fn)
     hints = cast("Mapping[str, object]", get_type_hints(fn, include_extras=True))
-    parameters: list[PulseElement | ProgramInput] = []
+    parameters: list[ProgramPort] = []
     for parameter in signature.parameters.values():
         if parameter.kind in (
             inspect.Parameter.POSITIONAL_ONLY,
             inspect.Parameter.VAR_POSITIONAL,
             inspect.Parameter.VAR_KEYWORD,
         ):
-            raise TypeError("quantum fragment functions require named parameters")
+            raise TypeError(f"{kind} functions require named parameters")
         if cast("object", parameter.default) is not inspect.Parameter.empty:
-            raise TypeError("quantum fragment ports cannot declare Python defaults")
+            raise TypeError(f"{kind} ports cannot declare Python defaults")
         annotation = hints.get(
             parameter.name,
             cast("object", parameter.annotation),
         )
         parameters.append(_program_function_argument(parameter.name, annotation))
+    return _QuantumFunctionContract(signature, tuple(parameters))
+
+
+def _fragment_from_function[**P](
+    fn: Callable[P, QuantumFragment],
+    *,
+    id: str | None,  # noqa: A002
+) -> FragmentDefinition[P]:
+    contract = _quantum_function_contract(fn, kind="quantum fragment")
     selected_id = id or f"{fn.__module__}.{fn.__qualname__}"
     if not selected_id.strip():
         raise ValueError("quantum fragment id must be non-empty")
     return FragmentDefinition(
         id=selected_id,
         _definition=fn,
-        parameters=tuple(parameters),
+        _contract=contract,
     )
 
 
-def _pulse_template_from_function(
-    fn: PulseTemplateFunction,
+def _pulse_template_from_function[**P](
+    fn: Callable[P, QuantumFragment],
     *,
     id: str | None,  # noqa: A002
-) -> PulseTemplateDefinition:
-    signature = inspect.signature(fn)
-    hints = cast("Mapping[str, object]", get_type_hints(fn, include_extras=True))
-    arguments: dict[str, PulseElement | ProgramInput] = {}
-    elements: list[PulseElement] = []
-    for parameter in signature.parameters.values():
-        if parameter.kind in (
-            inspect.Parameter.POSITIONAL_ONLY,
-            inspect.Parameter.VAR_POSITIONAL,
-            inspect.Parameter.VAR_KEYWORD,
-        ):
-            raise TypeError("pulse template functions require named parameters")
-        if cast("object", parameter.default) is not inspect.Parameter.empty:
-            raise TypeError("pulse template ports cannot declare Python defaults")
-        annotation = hints.get(
-            parameter.name,
-            cast("object", parameter.annotation),
-        )
-        argument = _program_function_argument(parameter.name, annotation)
-        arguments[parameter.name] = argument
-        if isinstance(argument, Qubit | Coupler):
-            elements.append(argument)
-    result = fn(**arguments)
+) -> PulseTemplateDefinition[P]:
+    contract = _quantum_function_contract(fn, kind="pulse template")
+    arguments = contract.arguments
+    result = cast("PulseTemplateFunction", fn)(**arguments)
     selected_id = id or f"{fn.__module__}.{fn.__qualname__}"
-    declaration = _close_pulse_template(selected_id, result, elements=elements)
-    formal_inputs = tuple(
-        argument
-        for argument in arguments.values()
-        if isinstance(argument, QuantumInput)
+    declaration = _close_pulse_template(
+        selected_id,
+        result,
+        elements=contract.elements,
+        formal_inputs=contract.inputs,
     )
-    unused_inputs = tuple(
-        name
-        for name, argument in arguments.items()
-        if isinstance(argument, QuantumInput)
-        and all(argument is not used for used in declaration.inputs)
-    )
-    if unused_inputs:
-        rendered = ", ".join(repr(name) for name in unused_inputs)
-        raise ValueError(f"pulse template has unused scalar ports: {rendered}")
     return PulseTemplateDefinition(
-        replace(declaration, inputs=formal_inputs),
+        declaration,
         fn,
-        tuple(arguments.values()),
+        contract,
     )
 
 
-def _gate_implementation_from_function(
-    fn: PulseTemplateFunction,
+def _gate_implementation_from_function[**P](
+    fn: Callable[P, QuantumFragment],
     *,
     gate: Gate,
     candidate: str | None,
     id: str | None,  # noqa: A002
-) -> GateImplementationDefinition:
-    if gate.parameters:
-        msg = "implementation currently requires a gate without semantic parameters"
-        raise TypeError(msg)
+) -> GateImplementationDefinition[P]:
     if candidate is not None and not candidate.strip():
         raise ValueError("implementation candidate must be a non-empty string")
     template = _pulse_template_from_function(fn, id=id)
-    operand_count = 1 if isinstance(gate, SingleQubitGate) else 2
-    elements = tuple(
-        parameter
-        for parameter in template.parameters
-        if isinstance(parameter, Qubit | Coupler)
+    contract = _gate_implementation_contract(template, gate)
+    return GateImplementationDefinition(
+        template,
+        gate=gate,
+        candidate=candidate,
+        contract=contract,
     )
-    operands = elements[:operand_count]
+
+
+def _gate_implementation_contract[**P](
+    template: PulseTemplateDefinition[P],
+    gate: Gate,
+) -> _GateImplementationContract:
+    operand_count = 1 if isinstance(gate, SingleQubitGate) else 2
+    operands = template.parameters[:operand_count]
     if len(operands) != operand_count or any(
         not isinstance(operand, Qubit) for operand in operands
     ):
@@ -2156,14 +2214,37 @@ def _gate_implementation_from_function(
             f"{operand_count} leading qubits"
         )
         raise TypeError(msg)
-    if any(not isinstance(resource, Coupler) for resource in elements[operand_count:]):
+    remaining = template.parameters[operand_count:]
+    if any(isinstance(parameter, Qubit) for parameter in remaining):
         msg = "implementation resources after gate operands must be couplers"
         raise TypeError(msg)
-    return GateImplementationDefinition(
-        template,
-        gate=gate,
-        candidate=candidate,
-        operand_count=operand_count,
+    inputs = {
+        parameter.id: parameter
+        for parameter in remaining
+        if isinstance(parameter, ProgramInput)
+    }
+    missing = tuple(
+        parameter.id for parameter in gate.parameters if parameter.id not in inputs
+    )
+    if missing:
+        rendered = ", ".join(repr(item) for item in missing)
+        raise TypeError(
+            f"implementation for gate {gate.id!r} is missing parameters: {rendered}"
+        )
+    for parameter in gate.parameters:
+        input_handle = inputs[parameter.id]
+        if not _program_input_matches_kind(input_handle, parameter.kind):
+            raise TypeError(
+                f"implementation for gate {gate.id!r} parameter "
+                f"{parameter.id!r} requires {parameter.kind.value!r}"
+            )
+    return _GateImplementationContract(
+        signature=inspect.signature(template),
+        operands=tuple(cast("Qubit", operand).id for operand in operands),
+        resources=tuple(
+            parameter.id for parameter in remaining if isinstance(parameter, Coupler)
+        ),
+        arguments=tuple(parameter.id for parameter in gate.parameters),
     )
 
 
@@ -2172,56 +2253,25 @@ def _program_from_function(
     *,
     id: str | None,  # noqa: A002
 ) -> ProgramDefinition:
-    signature = inspect.signature(fn)
-    hints = cast("Mapping[str, object]", get_type_hints(fn, include_extras=True))
-    arguments: dict[str, PulseElement | ProgramInput] = {}
-    elements: list[PulseElement] = []
-    for parameter in signature.parameters.values():
-        if parameter.kind in (
-            inspect.Parameter.POSITIONAL_ONLY,
-            inspect.Parameter.VAR_POSITIONAL,
-            inspect.Parameter.VAR_KEYWORD,
-        ):
-            raise TypeError("quantum program functions require named parameters")
-        if cast("object", parameter.default) is not inspect.Parameter.empty:
-            raise TypeError("quantum program ports cannot declare Python defaults")
-        annotation = hints.get(
-            parameter.name,
-            cast("object", parameter.annotation),
-        )
-        argument = _program_function_argument(parameter.name, annotation)
-        arguments[parameter.name] = argument
-        if isinstance(argument, Qubit | Coupler):
-            elements.append(argument)
+    contract = _quantum_function_contract(fn, kind="quantum program")
+    arguments = contract.arguments
     result = fn(**arguments)
     declaration = _close_program(
         id or f"{fn.__module__}.{fn.__qualname__}",
         result,
-        elements=elements,
+        elements=contract.elements,
+        formal_inputs=contract.inputs,
         description=inspect.getdoc(fn),
     )
-    formal_inputs = tuple(
-        argument
-        for argument in arguments.values()
-        if isinstance(argument, CircuitInput | QuantumInput)
-    )
-    unused_inputs = tuple(
-        name
-        for name, argument in arguments.items()
-        if isinstance(argument, CircuitInput | QuantumInput)
-        and all(argument is not used for used in declaration.inputs)
-    )
-    if unused_inputs:
-        rendered = ", ".join(repr(name) for name in unused_inputs)
-        raise ValueError(f"quantum program has unused scalar ports: {rendered}")
     return ProgramDefinition(
-        replace(declaration, inputs=formal_inputs),
+        declaration,
         fn,
+        contract,
     )
 
 
 def _validate_fragment_call_arguments(
-    definition: FragmentDefinition,
+    definition: FragmentDefinition[...],
     arguments: tuple[tuple[str, object], ...],
 ) -> None:
     if tuple(name for name, _value in arguments) != tuple(
@@ -2244,7 +2294,7 @@ def _validate_fragment_call_arguments(
         if isinstance(actual, Qubit | Coupler):
             msg = f"quantum fragment {definition.id!r} port {name!r} requires a value"
             raise TypeError(msg)
-        if isinstance(actual, CircuitInput | QuantumInput):
+        if isinstance(actual, ProgramInput):
             expected = _program_input_type(formal, non_negative=False)
             supplied = _program_input_type(actual, non_negative=False)
             if supplied != expected:
@@ -2268,7 +2318,7 @@ def _expand_fragment_calls(
     value: QuantumFragment,
     bindings: Mapping[str, object],
     *,
-    stack: tuple[FragmentDefinition, ...] = (),
+    stack: tuple[FragmentDefinition[...], ...] = (),
 ) -> QuantumFragment:
     if isinstance(value, _FragmentCall):
         definition = value.definition
@@ -2325,11 +2375,7 @@ def _evaluate_fragment_call(
         if isinstance(formal, Qubit | Coupler):
             resolved[name] = actual
             continue
-        selected = (
-            bindings[actual.id]
-            if isinstance(actual, CircuitInput | QuantumInput)
-            else actual
-        )
+        selected = bindings[actual.id] if isinstance(actual, ProgramInput) else actual
         try:
             resolved[name] = coerce_literal(
                 _program_input_type(formal, non_negative=False),
@@ -2521,8 +2567,8 @@ def _domain_execution(
     normalized_inputs = {
         handle.id: (
             float(value)
-            if isinstance(handle, CircuitInput)
-            and handle.kind is GateParameterKind.NUMBER
+            if isinstance(handle, ProgramInput)
+            and isinstance(handle.value_type.atom, FloatType)
             and isinstance(value, int)
             and not isinstance(value, bool)
             else value
@@ -2537,29 +2583,8 @@ def _domain_execution(
     )
 
 
-def _program_call(
-    program: Program,
-    instance_id: str,
-    /,
-    *,
-    inputs: Mapping[str, ComputeInput],
-    shots: ComputeInput,
-) -> QuantumProgramCall:
-    """Lift one program use into a module-owned domain execution and products."""
-
-    expected = {port.id for port in program.ports}
-    supplied = set(inputs)
-    missing = sorted(expected - supplied)
-    unknown = sorted(supplied - expected)
-    if missing or unknown:
-        details: list[str] = []
-        if missing:
-            details.append("missing " + ", ".join(repr(item) for item in missing))
-        if unknown:
-            details.append("unknown " + ", ".join(repr(item) for item in unknown))
-        raise ValueError("invalid quantum program call inputs: " + "; ".join(details))
-    if _SHOTS_INPUT_ID in expected:
-        raise ValueError(f"quantum program port {_SHOTS_INPUT_ID!r} is reserved")
+def _program_call_module(program: Program) -> ExperimentModule:
+    """Build the reusable core module owned by one program definition."""
 
     domain = _domain_program(program)
     local_inputs = {
@@ -2586,7 +2611,7 @@ def _program_call(
                         axis.id,
                         size=(
                             local_inputs[axis.size.id]
-                            if isinstance(axis.size, CircuitInput | QuantumInput)
+                            if isinstance(axis.size, ProgramInput)
                             else axis.size
                         ),
                         kind=axis.kind,
@@ -2601,7 +2626,32 @@ def _program_call(
         inputs={port: local_inputs[port.id] for port in program.ports},
         results={result: builder.products[result.id] for result in program.results},
     )
-    module = builder.domain(execution).build()
+    return builder.domain(execution).build()
+
+
+def _program_call(
+    program: Program,
+    instance_id: str,
+    /,
+    *,
+    module: ExperimentModule,
+    inputs: Mapping[str, ComputeInput],
+    shots: ComputeInput,
+) -> QuantumProgramCall:
+    """Instantiate one use of a definition's cached core module."""
+
+    expected = {port.id for port in program.ports}
+    supplied = set(inputs)
+    missing = sorted(expected - supplied)
+    unknown = sorted(supplied - expected)
+    if missing or unknown:
+        details: list[str] = []
+        if missing:
+            details.append("missing " + ", ".join(repr(item) for item in missing))
+        if unknown:
+            details.append("unknown " + ", ".join(repr(item) for item in unknown))
+        raise ValueError("invalid quantum program call inputs: " + "; ".join(details))
+
     invocation = module.instantiate(
         instance_id,
         {
@@ -2672,7 +2722,7 @@ def _bind_fragment(
             arguments=tuple(
                 GateArgument(
                     argument_id,
-                    bindings[value.id] if isinstance(value, CircuitInput) else value,
+                    bindings[value.id] if isinstance(value, ProgramInput) else value,
                 )
                 for argument_id, value in fragment.arguments
             ),
@@ -2714,12 +2764,12 @@ def _bind_fragment(
         raise TypeError(msg)
     count = (
         bindings[fragment.count.id]
-        if isinstance(fragment.count, CircuitInput)
+        if isinstance(fragment.count, ProgramInput)
         else fragment.count
     )
     if not isinstance(count, int) or isinstance(count, bool) or count < 0:
         input_id = (
-            fragment.count.id if isinstance(fragment.count, CircuitInput) else None
+            fragment.count.id if isinstance(fragment.count, ProgramInput) else None
         )
         qualifier = f" input {input_id!r}" if input_id is not None else ""
         msg = f"repeat count{qualifier} must bind to a non-negative integer"
@@ -3047,7 +3097,7 @@ def _bound_quantity(
     value: QuantumQuantity,
     bindings: Mapping[str, object],
 ) -> Quantity:
-    selected = bindings[value.id] if isinstance(value, QuantumInput) else value
+    selected = bindings[value.id] if isinstance(value, ProgramInput) else value
     if not isinstance(selected, Quantity):
         raise AssertionError("verified quantity input must bind to Quantity")
     return selected
@@ -3057,11 +3107,9 @@ def _bound_repeat_count(
     count: RepeatCount,
     bindings: Mapping[str, object],
 ) -> int:
-    selected = (
-        bindings[count.id] if isinstance(count, CircuitInput | QuantumInput) else count
-    )
+    selected = bindings[count.id] if isinstance(count, ProgramInput) else count
     if not isinstance(selected, int) or isinstance(selected, bool) or selected < 0:
-        input_id = count.id if isinstance(count, CircuitInput | QuantumInput) else None
+        input_id = count.id if isinstance(count, ProgramInput) else None
         qualifier = f" input {input_id!r}" if input_id is not None else ""
         msg = f"repeat count{qualifier} must bind to a non-negative integer"
         raise ProgramBindingError(msg)
@@ -3113,17 +3161,26 @@ def _unique_gate_definitions(
     return tuple(by_id.values())
 
 
-def _instantiate_pulse_template(
-    template: PulseTemplate,
-    elements: tuple[PulseElement, ...],
-    inputs: Mapping[str, PulseTemplateArgument],
+def _instantiate_bound_pulse_template(
+    template: PulseTemplateDefinition[...],
+    bound: inspect.BoundArguments,
 ) -> PulseFragment:
-    if len(elements) != len(template.elements):
-        msg = (
-            f"pulse template {template.id!r} requires {len(template.elements)} "
-            f"elements, got {len(elements)}"
-        )
-        raise ValueError(msg)
+    elements: list[PulseElement] = []
+    inputs: dict[str, _PulseTemplateArgument] = {}
+    for formal in template.parameters:
+        actual = cast("object", bound.arguments[formal.id])
+        if isinstance(formal, Qubit | Coupler):
+            elements.append(cast("PulseElement", actual))
+        else:
+            inputs[formal.id] = cast("_PulseTemplateArgument", actual)
+    return _instantiate_pulse_template(template, tuple(elements), inputs)
+
+
+def _instantiate_pulse_template(
+    template: PulseTemplateDefinition[...],
+    elements: tuple[PulseElement, ...],
+    inputs: Mapping[str, _PulseTemplateArgument],
+) -> PulseFragment:
     for index, (formal, actual) in enumerate(
         zip(template.elements, elements, strict=True)
     ):
@@ -3139,23 +3196,10 @@ def _instantiate_pulse_template(
         raise ValueError(msg)
 
     expected = {input_handle.id: input_handle for input_handle in template.inputs}
-    missing = sorted(set(expected) - set(inputs))
-    unknown = sorted(set(inputs) - set(expected))
-    if missing or unknown:
-        details: list[str] = []
-        if missing:
-            details.append("missing " + ", ".join(repr(item) for item in missing))
-        if unknown:
-            details.append("unknown " + ", ".join(repr(item) for item in unknown))
-        msg = f"pulse template {template.id!r} inputs are invalid: " + "; ".join(
-            details
-        )
-        raise ValueError(msg)
-
-    input_bindings: dict[QuantumInput, Quantity | int | float | QuantumInput] = {}
+    input_bindings: dict[ProgramInput, Quantity | int | float | ProgramInput] = {}
     for input_id, formal in expected.items():
         selected = inputs[input_id]
-        if isinstance(selected, QuantumInput):
+        if isinstance(selected, ProgramInput):
             if selected.value_type != formal.value_type:
                 msg = (
                     f"pulse template input {input_id!r} requires "
@@ -3194,7 +3238,7 @@ def _substitute_pulse_fragment(
     fragment: QuantumFragment,
     *,
     element_bindings: Mapping[QubitId | CouplerId, QubitId | CouplerId],
-    input_bindings: Mapping[QuantumInput, Quantity | int | float | QuantumInput],
+    input_bindings: Mapping[ProgramInput, Quantity | int | float | ProgramInput],
 ) -> QuantumFragment:
     if isinstance(fragment, _PlayFragment):
         return play(
@@ -3270,7 +3314,7 @@ def _substitute_pulse_fragment(
 
 def _substitute_envelope(
     envelope: PulseEnvelope | AnalyticEnvelope,
-    bindings: Mapping[QuantumInput, Quantity | int | float | QuantumInput],
+    bindings: Mapping[ProgramInput, Quantity | int | float | ProgramInput],
 ) -> PulseEnvelope | AnalyticEnvelope:
     if not isinstance(envelope, PulseEnvelope):
         return envelope
@@ -3304,9 +3348,9 @@ def _substitute_envelope(
 
 def _substitute_template_value(
     value: object,
-    bindings: Mapping[QuantumInput, Quantity | int | float | QuantumInput],
+    bindings: Mapping[ProgramInput, Quantity | int | float | ProgramInput],
 ) -> object:
-    return bindings[value] if isinstance(value, QuantumInput) else value
+    return bindings[value] if isinstance(value, ProgramInput) else value
 
 
 def _substitute_signal(
@@ -3412,9 +3456,7 @@ def _quantity_converts_to(value: Quantity, unit: str) -> bool:
     return True
 
 
-def _is_integer_input(value: CircuitInput | QuantumInput) -> bool:
-    if isinstance(value, CircuitInput):
-        return value.kind is GateParameterKind.INTEGER
+def _is_integer_input(value: ProgramInput) -> bool:
     return isinstance(value.value_type.atom, IntType)
 
 
@@ -3424,12 +3466,6 @@ def _program_input_type(
     non_negative: bool,
     positive: bool = False,
 ) -> ScalarType:
-    if isinstance(value, CircuitInput):
-        return _core_input_type(
-            value.kind,
-            non_negative=non_negative,
-            positive=positive,
-        )
     if not non_negative and not positive:
         return value.value_type
     atom = value.value_type.atom
@@ -3451,7 +3487,7 @@ def _result_axis_input_ids(
         axis.size.id
         for result in results
         for axis in result.contract.axes
-        if isinstance(axis.size, CircuitInput | QuantumInput)
+        if isinstance(axis.size, ProgramInput)
     }
 
 
@@ -3587,7 +3623,7 @@ def _summarize_fragment(fragment: QuantumFragment) -> _FragmentFacts:
             inputs=tuple(
                 value
                 for _name, value in fragment.arguments
-                if isinstance(value, CircuitInput | QuantumInput)
+                if isinstance(value, ProgramInput)
             ),
         )
     if isinstance(fragment, _ExpandedFragment):
@@ -3598,7 +3634,7 @@ def _summarize_fragment(fragment: QuantumFragment) -> _FragmentFacts:
             inputs=tuple(
                 value
                 for _argument_id, value in fragment.arguments
-                if isinstance(value, CircuitInput)
+                if isinstance(value, ProgramInput)
             ),
             gate_definitions=(fragment.gate.definition,),
         )
@@ -3608,7 +3644,7 @@ def _summarize_fragment(fragment: QuantumFragment) -> _FragmentFacts:
             inputs=tuple(
                 axis.size
                 for axis in fragment.result.contract.axes
-                if isinstance(axis.size, CircuitInput | QuantumInput)
+                if isinstance(axis.size, ProgramInput)
             ),
             results=(fragment.result,),
         )
@@ -3620,13 +3656,13 @@ def _summarize_fragment(fragment: QuantumFragment) -> _FragmentFacts:
             inputs=(
                 *(
                     (fragment.duration,)
-                    if isinstance(fragment.duration, QuantumInput)
+                    if isinstance(fragment.duration, ProgramInput)
                     else ()
                 ),
                 *(
                     axis.size
                     for axis in fragment.result.contract.axes
-                    if isinstance(axis.size, CircuitInput | QuantumInput)
+                    if isinstance(axis.size, ProgramInput)
                 ),
             ),
             results=(fragment.result,),
@@ -3645,7 +3681,7 @@ def _summarize_fragment(fragment: QuantumFragment) -> _FragmentFacts:
             element_uses=(_signal_element(fragment.signal),),
             inputs=(
                 (fragment.duration,)
-                if isinstance(fragment.duration, QuantumInput)
+                if isinstance(fragment.duration, ProgramInput)
                 else ()
             ),
         )
@@ -3655,7 +3691,7 @@ def _summarize_fragment(fragment: QuantumFragment) -> _FragmentFacts:
             pulse_owners=(_signal_owner(fragment.signal),),
             element_uses=(_signal_element(fragment.signal),),
             inputs=(
-                (fragment.phase,) if isinstance(fragment.phase, QuantumInput) else ()
+                (fragment.phase,) if isinstance(fragment.phase, ProgramInput) else ()
             ),
         )
     if isinstance(fragment, _BarrierFragment):
@@ -3701,9 +3737,7 @@ def _summarize_fragment(fragment: QuantumFragment) -> _FragmentFacts:
                 pulse_owners=pulse_owners,
             )
         count_inputs: tuple[ProgramInput, ...] = (
-            (fragment.count,)
-            if isinstance(fragment.count, CircuitInput | QuantumInput)
-            else ()
+            (fragment.count,) if isinstance(fragment.count, ProgramInput) else ()
         )
         return _FragmentFacts(
             pulse_only=pulse_only,
@@ -3780,7 +3814,7 @@ def _operation_id(path: tuple[str, ...], kind: str) -> str:
 
 def _envelope_inputs(
     envelope: PulseEnvelope | AnalyticEnvelope,
-) -> tuple[QuantumInput, ...]:
+) -> tuple[ProgramInput, ...]:
     if not isinstance(envelope, PulseEnvelope):
         return ()
     _kind, duration, amplitude, sigma, beta, phase = _pulse_envelope_parts(envelope)
@@ -3793,7 +3827,7 @@ def _envelope_inputs(
             beta,
             phase,
         )
-        if isinstance(value, QuantumInput)
+        if isinstance(value, ProgramInput)
     )
 
 
@@ -3816,6 +3850,24 @@ def _argument_matches_kind(value: object, kind: GateParameterKind) -> bool:
     return math.isfinite(float(converted.value))
 
 
+def _program_input_matches_kind(
+    value: ProgramInput,
+    kind: GateParameterKind,
+) -> bool:
+    atom = value.value_type.atom
+    if kind is GateParameterKind.INTEGER:
+        return isinstance(atom, IntType)
+    if kind is GateParameterKind.NUMBER:
+        return isinstance(atom, IntType | FloatType)
+    if kind is not GateParameterKind.ANGLE or not isinstance(atom, QuantityType):
+        return False
+    if atom.dimension == "phase":
+        return True
+    if atom.unit is None:
+        return False
+    return _quantity_converts_to(Quantity(1, atom.unit), "rad")
+
+
 def _duplicates(values: Iterable[str]) -> tuple[str, ...]:
     selected = tuple(values)
     return tuple(sorted(value for value in set(selected) if selected.count(value) > 1))
@@ -3829,7 +3881,6 @@ __all__ = [
     "BoundProgram",
     "CircuitArgument",
     "CircuitFragment",
-    "CircuitInput",
     "Coupler",
     "CouplerInput",
     "FragmentDefinition",
@@ -3846,11 +3897,8 @@ __all__ = [
     "PulseElement",
     "PulseEnvelope",
     "PulseFragment",
-    "PulseTemplate",
-    "PulseTemplateArgument",
     "PulseTemplateDefinition",
     "QuantumFragment",
-    "QuantumInput",
     "QuantumProgramCall",
     "QuantumQuantity",
     "QuantumResultAxis",
@@ -3875,7 +3923,6 @@ __all__ = [
     "gate",
     "gaussian",
     "implementation",
-    "implements",
     "input",
     "integrated_iq_result",
     "measure",

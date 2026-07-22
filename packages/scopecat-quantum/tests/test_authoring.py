@@ -13,7 +13,7 @@ from scopecat_quantum.gates import GateCall, GateParameterKind
 
 def _x_count_declaration() -> tuple[
     authoring.Program,
-    authoring.CircuitInput,
+    authoring.ProgramInput,
     authoring.MeasurementResult,
 ]:
     q0 = authoring.qubit("q0")
@@ -36,7 +36,7 @@ def test_symbolic_repeat_and_measurement_declare_typed_ports() -> None:
     assert declaration.id == "x-count"
     assert declaration.inputs == (x_count,)
     assert x_count.id == "x_count"
-    assert x_count.kind is GateParameterKind.INTEGER
+    assert x_count.value_type == sc.ScalarType(sc.IntType())
     assert tuple(declaration.results) == (raw_iq,)
     assert raw_iq.id == "raw_iq"
     assert raw_iq.qubit.id == "q0"
@@ -124,7 +124,7 @@ def test_implemented_gate_only_tightens_pulse_repeat_inputs() -> None:
     )
     declaration = authoring._close_program(
         "implemented-repeat-inputs",
-        authoring.implements(custom(q0, value=gate_value), pulse),
+        authoring._implement_gate(custom(q0, value=gate_value), pulse),
     )
 
     assert declaration.inputs == (gate_value, pulse_count)

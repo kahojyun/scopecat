@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, cast
 
 import pytest
 import scopecat as sc
@@ -23,7 +23,7 @@ from scopecat_quantum.calibrations import (
     GateCalibrationKey,
 )
 from scopecat_quantum.circuits import Measure
-from scopecat_quantum.gates import GateCall
+from scopecat_quantum.gates import GateCall, GateParameterKind
 from scopecat_quantum.programs import (
     AuthoredPulseAcquisitionProvenance,
     AuthoredPulseEventProvenance,
@@ -55,16 +55,22 @@ from scopecat_quantum.pulses import (
 )
 
 
-def _beta_input() -> authoring.QuantumInput:
+def _beta_input() -> authoring.ProgramInput:
     return authoring.input(
         "beta",
         sc.ScalarType(sc.QuantityType(unit="ns")),
     )
 
 
+def _symbolic_quantity(value: authoring.ProgramInput) -> Quantity:
+    """Expose a runtime symbolic handle through a decorated source signature."""
+
+    return cast("Quantity", cast("object", value))
+
+
 def _drag_play(
     qubit: authoring.Qubit,
-    beta: authoring.QuantumInput,
+    beta: authoring.ProgramInput,
 ) -> authoring.PulseFragment:
     return authoring.play(
         authoring.drive(qubit),
@@ -86,7 +92,7 @@ def test_sequence_composes_baseline_gate_candidate_pulse_and_measurement() -> No
         "drag-calibration-point",
         authoring.sequence(
             x90(q0),
-            authoring.implements(
+            authoring._implement_gate(
                 x90(q0),
                 _drag_play(q0, beta),
                 candidate="x90.drag",
@@ -122,7 +128,7 @@ def test_repeated_candidate_materializes_unique_calls_with_bound_drag_beta() -> 
         sc.ScalarType(sc.IntType()),
     )
     x90 = authoring.single_qubit_gate("x90")
-    candidate = authoring.implements(
+    candidate = authoring._implement_gate(
         x90(q0),
         _drag_play(q0, beta),
         candidate="x90.drag",
@@ -223,7 +229,7 @@ def test_gate_implementation_rejects_a_foreign_pulse_qubit() -> None:
     x90 = authoring.single_qubit_gate("x90")
 
     with pytest.raises(ValueError, match="unauthorized signal owners: 'q1'"):
-        authoring.implements(
+        authoring._implement_gate(
             x90(q0),
             authoring.play(
                 authoring.drive(q1),
@@ -267,7 +273,7 @@ def test_two_qubit_gate_implementation_authorizes_and_lowers_coupler_pulse() -> 
     c01 = authoring.coupler("coupler-q0-q1")
     declaration = authoring._close_program(
         "cz-candidate",
-        cz_flux(q0, q1, c01, amplitude=amplitude),
+        cz_flux(q0, q1, c01, amplitude=_symbolic_quantity(amplitude)),
     )
 
     bound = authoring.bind(declaration, {"amplitude": Quantity(0.24, "arb")})
@@ -293,6 +299,40 @@ def test_two_qubit_gate_implementation_authorizes_and_lowers_coupler_pulse() -> 
     assert provenance.template_program_id == PulseProgramId("cz.flux")
 
 
+def test_gate_implementation_maps_named_semantic_parameters() -> None:
+    rx = authoring.single_qubit_gate(
+        "rx",
+        parameters={"theta": GateParameterKind.ANGLE},
+    )
+
+    @authoring.implementation(of=rx, id="rx.frame-shift")
+    def rx_frame_shift(
+        qubit: authoring.Qubit,
+        theta: Annotated[Quantity, sc.QuantityType(unit="rad")],
+    ) -> authoring.QuantumFragment:
+        return authoring.shift_phase(authoring.drive(qubit), theta)
+
+    q0 = authoring.qubit("q0")
+    theta = authoring.input(
+        "theta",
+        sc.ScalarType(sc.QuantityType(unit="rad")),
+    )
+    declaration = authoring._close_program(
+        "parameterized-rx",
+        rx_frame_shift(q0, theta=_symbolic_quantity(theta)),
+    )
+
+    bound = authoring.bind(declaration, {"theta": Quantity(90, "deg")})
+    [logical_call] = bound.verified.logical_circuit.operations
+    [implemented] = bound.verified.operations
+
+    assert isinstance(logical_call, GateCall)
+    assert logical_call.arguments[0].id == "theta"
+    assert logical_call.arguments[0].value == Quantity(90, "deg").to("rad")
+    assert isinstance(implemented, ImplementedGate)
+    assert implemented.call == logical_call
+
+
 def test_gate_implementation_requires_coupler_resource_authorization() -> None:
     q0 = authoring.qubit("q0")
     q1 = authoring.qubit("q1")
@@ -310,7 +350,7 @@ def test_gate_implementation_requires_coupler_resource_authorization() -> None:
         ValueError,
         match="unauthorized signal owners: 'coupler-q0-q1'",
     ):
-        authoring.implements(cz(q0, q1), pulse)
+        authoring._implement_gate(cz(q0, q1), pulse)
 
 
 def test_drag_beta_requires_a_time_typed_input() -> None:
@@ -510,8 +550,8 @@ def test_pulse_template_substitutes_qubit_and_outer_input_hygienically() -> None
     declaration = authoring._close_program(
         "two-template-calls",
         authoring.sequence(
-            template(q0, phase=outer_phase),
-            template(q0, phase=outer_phase),
+            template(q0, phase=_symbolic_quantity(outer_phase)),
+            template(q0, phase=_symbolic_quantity(outer_phase)),
         ),
     )
 
@@ -640,7 +680,7 @@ def test_program_element_ports_bind_every_logical_owner() -> None:
             authoring.play(authoring.drive(formal_q0), envelope),
             authoring.play(authoring.readout(formal_q1), envelope),
             capture,
-            authoring.implements(
+            authoring._implement_gate(
                 cz(formal_q0, formal_q1),
                 authoring.play(authoring.flux(formal_coupler), envelope),
                 resources=(formal_coupler,),

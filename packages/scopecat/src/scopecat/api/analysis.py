@@ -352,6 +352,7 @@ class AnalysisDefinition[**P]:
 
     id: str
     _definition: Callable[Concatenate[AnalysisContext, P], Analysis]
+    _signature: inspect.Signature
 
     @property
     def __wrapped__(self) -> Callable[Concatenate[AnalysisContext, P], Analysis]:
@@ -363,16 +364,12 @@ class AnalysisDefinition[**P]:
 
     @property
     def __signature__(self) -> inspect.Signature:
-        source = inspect.signature(self._definition)
-        return source.replace(
-            parameters=tuple(source.parameters.values())[1:],
-            return_annotation=AnalysisInvocation,
-        )
+        return self._signature
 
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> AnalysisInvocation:
         """Bind analysis configuration without attaching it to a run yet."""
 
-        bound = self.__signature__.bind(*args, **kwargs)
+        bound = self._signature.bind(*args, **kwargs)
         return AnalysisInvocation(
             id=self.id,
             _definition=cast("AnalysisFunction", self._definition),
@@ -458,7 +455,14 @@ def _analysis_definition[**P](
     selected_id = id or f"{fn.__module__}.{fn.__qualname__}"
     if not selected_id.strip():
         raise ValueError("analysis id must be non-empty")
-    return AnalysisDefinition(id=selected_id, _definition=fn)
+    return AnalysisDefinition(
+        id=selected_id,
+        _definition=fn,
+        _signature=signature.replace(
+            parameters=parameters[1:],
+            return_annotation=AnalysisInvocation,
+        ),
+    )
 
 
 def _select_candidate_proposals(

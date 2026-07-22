@@ -142,7 +142,7 @@ def test_template_body_enriches_signature_input_metadata() -> None:
     @sc.template
     def count_experiment(count: Annotated[sc.Input[int], _COUNT_TYPE] = 2):
         call = count_source(count=count)
-        return sc.experiment(call).input(
+        return sc.experiment(call).describe_input(
             "count",
             label="Count",
             description="Number of increments.",
@@ -154,6 +154,24 @@ def test_template_body_enriches_signature_input_metadata() -> None:
     assert description.label == "Count"
     assert description.description == "Number of increments."
     assert description.metadata == {"group": "counter"}
+
+
+def test_template_input_descriptions_require_signature_ports() -> None:
+    with pytest.raises(ValueError, match="require signature ports: 'missing'"):
+
+        @sc.template
+        def invalid():  # pyright: ignore[reportUnusedFunction]
+            return sc.experiment().describe_input("missing")
+
+
+def test_template_functions_require_explicit_experiment_bodies() -> None:
+    def raw_module_body() -> sc.ModuleBuilder:
+        return sc.module_body()
+
+    with pytest.raises(TypeError, match=r"return experiment\(\) bodies"):
+        sc.template(  # pyright: ignore[reportCallIssue]
+            raw_module_body  # pyright: ignore[reportArgumentType]
+        )
 
 
 def test_template_and_scratch_share_the_experiment_body_protocol() -> None:

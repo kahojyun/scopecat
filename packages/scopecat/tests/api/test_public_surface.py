@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 from pathlib import Path
-from typing import cast
+from typing import Annotated, cast
 
 import pytest
 
@@ -41,6 +41,7 @@ def test_user_facing_facades_expose_entry_points() -> None:
     assert sc.ScratchDefinition
     assert callable(sc.ModuleBuilder.bind_field)
     assert callable(sc.ExperimentBody.record_product)
+    assert callable(sc.ExperimentBody.describe_input)
     assert sc.ModuleOutputs
     assert sc.ProductOutputs
     assert sc.ProductRef
@@ -121,20 +122,29 @@ def test_typed_values_are_the_public_module_wiring_surface() -> None:
 
 
 def test_template_inputs_reject_non_finite_numbers() -> None:
-    template = sc.template(
+    @sc.template(
         id="test.closed-runtime-input",
         kind="closed-runtime-input",
-    )(lambda: sc.experiment().input("subject"))
+    )
+    def template(subject: float) -> sc.ExperimentBody:
+        del subject
+        return sc.experiment()
 
     with pytest.raises(TypeError, match="closed runtime data"):
         template.bind(subject=float("nan"))
 
 
 def test_public_invocations_capture_immutable_input_snapshots() -> None:
-    template = sc.template(
+    @sc.template(
         id="test.immutable-runtime-input",
         kind="immutable-runtime-input",
-    )(lambda: sc.experiment().input("settings"))
+    )
+    def template(
+        settings: Annotated[dict[str, object], sc.PayloadType("test.settings")],
+    ) -> sc.ExperimentBody:
+        del settings
+        return sc.experiment()
+
     labels = ["q0"]
     settings = cast("sc.RuntimeInput", {"labels": labels})
 
@@ -147,7 +157,15 @@ def test_public_invocations_capture_immutable_input_snapshots() -> None:
 
     labels_metadata = ["data"]
     entity = sc.EntityRef(id="q0", metadata={"labels": labels_metadata})
-    entity_invocation = template.bind(settings=entity)
+
+    @sc.template(id="test.immutable-entity", kind="immutable-entity")
+    def entity_template(
+        settings: Annotated[sc.EntityRef | str, sc.EntityType()],
+    ) -> sc.ExperimentBody:
+        del settings
+        return sc.experiment()
+
+    entity_invocation = entity_template.bind(settings=entity)
     labels_metadata.append("changed")
 
     captured_entity = cast("sc.EntityRef", entity_invocation.inputs["settings"])

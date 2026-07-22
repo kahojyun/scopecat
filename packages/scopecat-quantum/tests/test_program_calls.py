@@ -81,6 +81,56 @@ def test_program_decorator_preserves_signature_order_and_rejects_unused_ports() 
             return authoring.measure(qubit, result="iq")
 
 
+def test_definition_signatures_own_every_live_port() -> None:
+    x = authoring.single_qubit_gate("x")
+    external_count = authoring.scalar_input(
+        "external_count",
+        GateParameterKind.INTEGER,
+    )
+
+    with pytest.raises(ValueError, match="captures undeclared scalar ports"):
+
+        @authoring.program
+        def captured_input(  # pyright: ignore[reportUnusedFunction]
+            qubit: authoring.Qubit,
+        ) -> authoring.QuantumFragment:
+            return authoring.sequence(
+                authoring.repeat(x(qubit), external_count),
+                authoring.measure(qubit, result="iq"),
+            )
+
+    fixed = authoring.qubit("fixed")
+    with pytest.raises(ValueError, match="captures undeclared formal elements"):
+
+        @authoring.program
+        def captured_element(  # pyright: ignore[reportUnusedFunction]
+            qubit: authoring.Qubit,
+        ) -> authoring.QuantumFragment:
+            return authoring.sequence(
+                x(qubit),
+                x(fixed),
+                authoring.measure(qubit, result="iq"),
+            )
+
+    external_amplitude = authoring.input(
+        "external_amplitude",
+        sc.ScalarType(sc.QuantityType(unit="arb")),
+    )
+    with pytest.raises(ValueError, match="captures undeclared scalar ports"):
+
+        @authoring.pulse_template
+        def captured_pulse_input(  # pyright: ignore[reportUnusedFunction]
+            qubit: authoring.Qubit,
+        ) -> authoring.QuantumFragment:
+            return authoring.play(
+                authoring.drive(qubit),
+                authoring.constant(
+                    duration=sc.Quantity(8, "ns"),
+                    amplitude=external_amplitude,
+                ),
+            )
+
+
 def test_fragment_decorator_expands_from_point_bound_inputs() -> None:
     x = authoring.single_qubit_gate("x")
     y = authoring.single_qubit_gate("y")
@@ -204,10 +254,15 @@ def test_program_call_owns_domain_effect_shots_and_named_products() -> None:
             authoring.measure(qubit, result="iq_shots"),
         )
 
+    default_call = x_count("q0", 2)
     call = assert_type(
-        x_count("q0", 2).with_shots(32),
+        default_call.with_shots(32),
         authoring.QuantumProgramCall,
     )
+    repeated_call = x_count.call("second", "q0", 3)
+
+    assert default_call.module_invocation.module is call.module_invocation.module
+    assert repeated_call.module_invocation.module is call.module_invocation.module
     assert call.shots == 32
     assert call.arguments == (("qubit", "q0"), ("count", 2))
     module = call.module_invocation.module
@@ -239,18 +294,18 @@ def test_program_call_owns_domain_effect_shots_and_named_products() -> None:
 
 
 def test_repeated_program_calls_require_explicit_instances() -> None:
-    q0 = authoring.qubit("q0")
-    readout = authoring.measure(q0, result="iq")
-    declaration = authoring._close_program("test.quantum.repeated", readout)
+    @authoring.program(id="test.quantum.repeated")
+    def declaration(qubit: authoring.Qubit) -> authoring.QuantumFragment:
+        return authoring.measure(qubit, result="iq")
 
     with pytest.raises(ValueError, match="duplicate instance ids"):
         sc.experiment(
-            declaration().with_shots(8),
-            declaration().with_shots(8),
+            declaration("q0").with_shots(8),
+            declaration("q0").with_shots(8),
         )
 
-    left = declaration.call("left").with_shots(8)
-    right = declaration.call("right").with_shots(8)
+    left = declaration.call("left", "q0").with_shots(8)
+    right = declaration.call("right", "q0").with_shots(8)
     body = sc.experiment(left, right)
     assert [item.instance_id for item in body.module.invocations] == ["left", "right"]
     assert left.results.iq.id == "left/iq"
@@ -258,12 +313,11 @@ def test_repeated_program_calls_require_explicit_instances() -> None:
 
 
 def test_parent_transform_consumes_program_call_result() -> None:
-    q0 = authoring.qubit("q0")
-    declaration = authoring._close_program(
-        "test.quantum.discriminate",
-        authoring.measure(q0, result="iq_shots"),
-    )
-    call = declaration().with_shots(16)
+    @authoring.program(id="test.quantum.discriminate")
+    def declaration(qubit: authoring.Qubit) -> authoring.QuantumFragment:
+        return authoring.measure(qubit, result="iq_shots")
+
+    call = declaration("q0").with_shots(16)
     body = sc.module_body().use(call).product("probability_0", "probability_1")
     transform = binary_iq_probability_transform(
         "discriminate",
@@ -291,19 +345,20 @@ def test_parent_transform_consumes_program_call_result() -> None:
 
 
 def test_program_call_derives_raw_trace_product_from_result_contract() -> None:
-    q0 = authoring.qubit("q0")
-    raw = authoring.measure(
-        q0,
-        result="trace",
-        contract=authoring.raw_trace_result(16),
-    )
-    declaration = authoring._close_program("test.quantum.raw", raw)
+    @authoring.program(id="test.quantum.raw")
+    def declaration(qubit: authoring.Qubit) -> authoring.QuantumFragment:
+        return authoring.measure(
+            qubit,
+            result="trace",
+            contract=authoring.raw_trace_result(16),
+        )
 
-    call = declaration().with_shots(8)
+    call = declaration("q0").with_shots(8)
     [product] = call.module_invocation.module.product_declarations
+    [raw] = declaration.results
 
-    assert raw.result.contract.acquisition_kind is AcquisitionKind.RAW_TRACE
-    assert raw.result.contract.acquisition_shape == ("sample",)
+    assert raw.contract.acquisition_kind is AcquisitionKind.RAW_TRACE
+    assert raw.contract.acquisition_shape == ("sample",)
     assert product.dtype == "complex128"
     assert product.unit == "ratio"
     assert [(axis.id, axis.kind, axis.unit) for axis in product.axes] == [

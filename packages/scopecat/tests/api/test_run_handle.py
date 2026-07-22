@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Annotated
 
 import scopecat as sc
 import scopecat.authoring as authoring
@@ -40,11 +41,16 @@ def simple_frequency_scan(*, subject: str) -> ExperimentInvocation:
 
 
 def simple_frequency_scan_template() -> ExperimentTemplate:
-    def definition() -> authoring.ExperimentBody:
+    def definition(
+        subject: Annotated[
+            authoring.Input[sc.EntityRef | str],
+            authoring.EntityType(),
+        ],
+    ) -> authoring.ExperimentBody:
+        del subject
         module_call = SIMPLE_FREQUENCY_SCAN()
         return (
             authoring.experiment(module_call)
-            .input("subject")
             .scan(
                 DRIVE_FREQUENCY_POINT,
                 center=authoring.parameter(

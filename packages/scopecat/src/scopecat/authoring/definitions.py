@@ -81,11 +81,16 @@ def input_ref[T](value: Input[T]) -> ValueRef:
     return cast("ValueRef", value)
 
 
-class _Missing:
-    __slots__ = ()
+@dataclass(frozen=True, slots=True)
+class _DefinitionContract:
+    """One decorator function's parsed signature and symbolic arguments."""
 
+    signature: inspect.Signature
+    arguments: tuple[tuple[str, ValueRef], ...]
 
-_MISSING = _Missing()
+    @property
+    def values(self) -> dict[str, ValueRef]:
+        return dict(self.arguments)
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -151,49 +156,47 @@ class ExperimentBody:
             record_selections=(*self.record_selections, *selections),
         )
 
-    def input(
+    def describe_input(
         self,
         id: str,  # noqa: A002
         *,
-        default: RuntimeInput | _Missing = _MISSING,
         label: str | None = None,
         description: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> ExperimentBody:
+        """Add presentation metadata to an input declared in the signature."""
+
         selected = InputDescription(
             id=id,
             label=label,
             description=description,
             metadata=metadata or {},
         )
-        if default is not _MISSING:
-            selected = InputDescription(
-                id=id,
-                default=cast("RuntimeInput", default),
-                label=label,
-                description=description,
-                metadata=metadata or {},
-            )
         return replace(self, inputs=(*self.inputs, selected))
 
 
 class ModuleDefinition[**P](ExperimentModule):
     """A closed module retaining its Python definition's call contract."""
 
-    __slots__ = ("_definition",)
+    __slots__ = ("_contract", "_definition", "_signature")
 
-    _definition: Callable[P, object]
+    _contract: _DefinitionContract
+    _definition: Callable[P, ModuleBodyResult]
+    _signature: inspect.Signature
 
     def __init__(
         self,
         module: ExperimentModule,
-        definition: Callable[P, object],
+        definition: Callable[P, ModuleBodyResult],
+        contract: _DefinitionContract,
     ) -> None:
         super().__init__(_ir=module.ir)
         self._definition = definition
+        self._contract = contract
+        self._signature = contract.signature.replace(return_annotation=ModuleInvocation)
 
     @property
-    def __wrapped__(self) -> Callable[P, object]:
+    def __wrapped__(self) -> Callable[P, ModuleBodyResult]:
         return self._definition
 
     @property
@@ -202,13 +205,11 @@ class ModuleDefinition[**P](ExperimentModule):
 
     @property
     def __signature__(self) -> inspect.Signature:
-        return inspect.signature(self._definition).replace(
-            return_annotation=ModuleInvocation
-        )
+        return self._signature
 
     @override
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> ModuleInvocation:
-        bound = inspect.signature(self._definition).bind(*args, **kwargs)
+        bound = self._contract.signature.bind(*args, **kwargs)
         return self.instantiate(
             self.id.rsplit(".", maxsplit=1)[-1],
             cast("Mapping[str, ModuleInput]", bound.arguments),
@@ -218,14 +219,17 @@ class ModuleDefinition[**P](ExperimentModule):
 class TemplateDefinition[**P](ExperimentTemplate):
     """A closed template retaining its Python definition's call contract."""
 
-    __slots__ = ("_definition",)
+    __slots__ = ("_contract", "_definition", "_signature")
 
-    _definition: Callable[P, object]
+    _contract: _DefinitionContract
+    _definition: Callable[P, ExperimentBody]
+    _signature: inspect.Signature
 
     def __init__(
         self,
         template: ExperimentTemplate,
-        definition: Callable[P, object],
+        definition: Callable[P, ExperimentBody],
+        contract: _DefinitionContract,
     ) -> None:
         super().__init__(
             id=template.id,
@@ -239,9 +243,13 @@ class TemplateDefinition[**P](ExperimentTemplate):
             metadata=template.metadata,
         )
         self._definition = definition
+        self._contract = contract
+        self._signature = contract.signature.replace(
+            return_annotation=ExperimentInvocation
+        )
 
     @property
-    def __wrapped__(self) -> Callable[P, object]:
+    def __wrapped__(self) -> Callable[P, ExperimentBody]:
         return self._definition
 
     @property
@@ -250,13 +258,11 @@ class TemplateDefinition[**P](ExperimentTemplate):
 
     @property
     def __signature__(self) -> inspect.Signature:
-        return inspect.signature(self._definition).replace(
-            return_annotation=ExperimentInvocation
-        )
+        return self._signature
 
     @override
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> ExperimentInvocation:
-        bound = inspect.signature(self._definition).bind(*args, **kwargs)
+        bound = self._contract.signature.bind(*args, **kwargs)
         return self.bind(**cast("dict[str, RuntimeInput]", dict(bound.arguments)))
 
 
@@ -264,7 +270,8 @@ class TemplateDefinition[**P](ExperimentTemplate):
 class ScratchDefinition[**P]:
     """A workspace-neutral experiment factory evaluated for each call."""
 
-    fn: Callable[P, object] = field(repr=False, compare=False)
+    fn: Callable[P, ExperimentBody] = field(repr=False, compare=False)
+    _signature: inspect.Signature = field(repr=False, compare=False)
     id: str
     kind: str
     label: str | None = None
@@ -272,7 +279,7 @@ class ScratchDefinition[**P]:
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
 
     @property
-    def __wrapped__(self) -> Callable[P, object]:
+    def __wrapped__(self) -> Callable[P, ExperimentBody]:
         return self.fn
 
     @property
@@ -281,9 +288,7 @@ class ScratchDefinition[**P]:
 
     @property
     def __signature__(self) -> inspect.Signature:
-        return inspect.signature(self.fn).replace(
-            return_annotation=ExperimentInvocation
-        )
+        return self._signature
 
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> ExperimentInvocation:
         result = self.fn(*args, **kwargs)
@@ -301,7 +306,7 @@ class ScratchDefinition[**P]:
 
 @overload
 def module[**P](
-    definition: Callable[P, object],
+    definition: Callable[P, ModuleBodyResult],
     /,
     *,
     id: str | None = None,
@@ -316,16 +321,18 @@ def module[**P](
     *,
     id: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
-) -> Callable[[Callable[P, object]], ModuleDefinition[P]]: ...
+) -> Callable[[Callable[P, ModuleBodyResult]], ModuleDefinition[P]]: ...
 
 
-def module(
-    definition: DefinitionFunction | None = None,
+def module[**P](
+    definition: Callable[P, ModuleBodyResult] | None = None,
     /,
     *,
     id: str | None = None,  # noqa: A002
     metadata: Mapping[str, MetadataValue] | None = None,
-) -> ExperimentModule | Callable[[DefinitionFunction], ExperimentModule]:
+) -> (
+    ModuleDefinition[P] | Callable[[Callable[P, ModuleBodyResult]], ModuleDefinition[P]]
+):
     """Define a closed module from a Python function."""
 
     if definition is None:
@@ -358,7 +365,7 @@ def experiment(*parts: object) -> ExperimentBody:
 
 @overload
 def template[**P](
-    definition: Callable[P, object],
+    definition: Callable[P, ExperimentBody],
     /,
     *,
     id: str | None = None,
@@ -379,11 +386,11 @@ def template[**P](
     label: str | None = None,
     description: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
-) -> Callable[[Callable[P, object]], TemplateDefinition[P]]: ...
+) -> Callable[[Callable[P, ExperimentBody]], TemplateDefinition[P]]: ...
 
 
-def template(
-    definition: DefinitionFunction | None = None,
+def template[**P](
+    definition: Callable[P, ExperimentBody] | None = None,
     /,
     *,
     id: str | None = None,  # noqa: A002
@@ -391,10 +398,13 @@ def template(
     label: str | None = None,
     description: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
-) -> ExperimentTemplate | Callable[[DefinitionFunction], ExperimentTemplate]:
+) -> (
+    TemplateDefinition[P]
+    | Callable[[Callable[P, ExperimentBody]], TemplateDefinition[P]]
+):
     """Close a symbolic Python function as an experiment template."""
 
-    def decorate(fn: DefinitionFunction) -> ExperimentTemplate:
+    def decorate(fn: Callable[P, ExperimentBody]) -> TemplateDefinition[P]:
         return _template_from_function(
             fn,
             id=id,
@@ -409,7 +419,7 @@ def template(
 
 @overload
 def scratch[**P](
-    definition: Callable[P, object],
+    definition: Callable[P, ExperimentBody],
     /,
     *,
     id: str | None = None,
@@ -430,11 +440,11 @@ def scratch[**P](
     label: str | None = None,
     description: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
-) -> Callable[[Callable[P, object]], ScratchDefinition[P]]: ...
+) -> Callable[[Callable[P, ExperimentBody]], ScratchDefinition[P]]: ...
 
 
 def scratch[**P](
-    definition: Callable[P, object] | None = None,
+    definition: Callable[P, ExperimentBody] | None = None,
     /,
     *,
     id: str | None = None,  # noqa: A002
@@ -442,12 +452,17 @@ def scratch[**P](
     label: str | None = None,
     description: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
-) -> ScratchDefinition[P] | Callable[[Callable[P, object]], ScratchDefinition[P]]:
+) -> (
+    ScratchDefinition[P] | Callable[[Callable[P, ExperimentBody]], ScratchDefinition[P]]
+):
     """Define a workspace-neutral scratch experiment factory."""
 
-    def decorate(fn: Callable[P, object]) -> ScratchDefinition[P]:
+    def decorate(fn: Callable[P, ExperimentBody]) -> ScratchDefinition[P]:
         return ScratchDefinition(
             fn=fn,
+            _signature=inspect.signature(fn).replace(
+                return_annotation=ExperimentInvocation
+            ),
             id=id or _definition_id(fn),
             kind=kind or fn.__name__,
             label=label,
@@ -459,13 +474,14 @@ def scratch[**P](
 
 
 def _module_from_function[**P](
-    fn: Callable[P, object],
+    fn: Callable[P, ModuleBodyResult],
     *,
     id: str | None,  # noqa: A002
     metadata: Mapping[str, MetadataValue] | None,
 ) -> ModuleDefinition[P]:
     source = cast("DefinitionFunction", fn)
-    _signature, values = _symbolic_arguments(source, defaults=False)
+    contract = _definition_contract(source, defaults=False)
+    values = contract.values
     result = source(**values)
     body = _module_body(result)
     if body.input_ports:
@@ -480,11 +496,11 @@ def _module_from_function[**P](
         input_ports=tuple(_input_port(name, value) for name, value in values.items()),
         metadata=freeze_json_mapping({**body.metadata, **selected_metadata}),
     )
-    return ModuleDefinition(build_module_from_builder(builder), fn)
+    return ModuleDefinition(build_module_from_builder(builder), fn, contract)
 
 
 def _template_from_function[**P](
-    fn: Callable[P, object],
+    fn: Callable[P, ExperimentBody],
     *,
     id: str | None,  # noqa: A002
     kind: str | None,
@@ -493,7 +509,9 @@ def _template_from_function[**P](
     metadata: Mapping[str, MetadataValue] | None,
 ) -> TemplateDefinition[P]:
     source = cast("DefinitionFunction", fn)
-    signature, values = _symbolic_arguments(source, defaults=True)
+    contract = _definition_contract(source, defaults=True)
+    signature = contract.signature
+    values = contract.values
     body = _experiment_body(source(**values))
     if body.module.input_ports:
         raise ValueError(
@@ -502,18 +520,24 @@ def _template_from_function[**P](
     inferred_inputs = tuple(
         _input_description(parameter) for parameter in signature.parameters.values()
     )
-    body_inputs = {item.id: item for item in body.inputs}
-    if len(body_inputs) != len(body.inputs):
+    descriptions_by_id = {item.id: item for item in body.inputs}
+    if len(descriptions_by_id) != len(body.inputs):
         duplicates = sorted(
             input_id
-            for input_id in body_inputs
+            for input_id in descriptions_by_id
             if sum(item.id == input_id for item in body.inputs) > 1
         )
         rendered = ", ".join(repr(item) for item in duplicates)
         raise ValueError(f"template inputs are declared twice: {rendered}")
     inferred_ids = {item.id for item in inferred_inputs}
+    unknown_descriptions = sorted(set(descriptions_by_id) - inferred_ids)
+    if unknown_descriptions:
+        rendered = ", ".join(repr(item) for item in unknown_descriptions)
+        raise ValueError(
+            f"template input descriptions require signature ports: {rendered}"
+        )
     selected_inputs = tuple(
-        _merge_input_description(item, body_inputs.get(item.id))
+        _merge_input_description(item, descriptions_by_id.get(item.id))
         for item in inferred_inputs
     )
     selected_body = replace(
@@ -524,10 +548,7 @@ def _template_from_function[**P](
                 _input_port(name, value) for name, value in values.items()
             ),
         ),
-        inputs=(
-            *selected_inputs,
-            *(item for item in body.inputs if item.id not in inferred_ids),
-        ),
+        inputs=selected_inputs,
     )
     return TemplateDefinition(
         _close_experiment_body(
@@ -539,6 +560,7 @@ def _template_from_function[**P](
             metadata=metadata,
         ),
         fn,
+        contract,
     )
 
 
@@ -572,11 +594,11 @@ def _close_experiment_body(
     return template_handle
 
 
-def _symbolic_arguments(
+def _definition_contract(
     fn: DefinitionFunction,
     *,
     defaults: bool,
-) -> tuple[inspect.Signature, dict[str, ValueRef]]:
+) -> _DefinitionContract:
     signature = inspect.signature(fn)
     hints = cast("Mapping[str, object]", get_type_hints(fn, include_extras=True))
     values: dict[str, ValueRef] = {}
@@ -598,7 +620,7 @@ def _symbolic_arguments(
             parameter.name,
             _annotation_value_type(annotation, parameter=parameter.name),
         )
-    return signature, values
+    return _DefinitionContract(signature, tuple(values.items()))
 
 
 def _annotation_value_type(annotation: object, *, parameter: str) -> ValueType:
@@ -675,6 +697,8 @@ def _python_annotation_matches(annotation: object, value_type: ValueType) -> boo
         return True
     if isinstance(value_type, Scalar):
         atom = value_type.atom
+        if isinstance(atom, Payload | Record) and origin in (dict, Mapping):
+            return True
         expected: dict[type[object], tuple[object, ...]] = {
             Bool: (bool,),
             Entity: (str, EntityRef),
@@ -730,11 +754,8 @@ def _merge_input_description(
 ) -> InputDescription:
     if declared is None:
         return inferred
-    selected = inferred
-    if declared.has_default:
-        selected = replace(selected, default=declared.default)
     return replace(
-        selected,
+        inferred,
         label=declared.label,
         description=declared.description,
         metadata=freeze_json_mapping({**inferred.metadata, **declared.metadata}),
@@ -746,13 +767,6 @@ def _module_body(value: ModuleBodyResult | object) -> ModuleBuilder:
         return ModuleBuilder()
     if isinstance(value, ModuleBuilder):
         return value
-    if isinstance(value, ExperimentModule):
-        return ModuleBuilder().use(value())
-    if isinstance(value, ModuleInvocation):
-        return ModuleBuilder().use(value)
-    invocation = getattr(value, "module_invocation", None)
-    if isinstance(invocation, ModuleInvocation):
-        return ModuleBuilder().use(invocation)
     if isinstance(value, Sequence) and not isinstance(value, str | bytes):
         invocations: list[ModuleInvocation] = []
         for item in cast("Sequence[object]", value):
@@ -763,6 +777,10 @@ def _module_body(value: ModuleBodyResult | object) -> ModuleBuilder:
             invocations.append(invocation)
         else:
             return ModuleBuilder().use(*invocations)
+    try:
+        return ModuleBuilder().use(_module_invocation(cast("object", value)))
+    except TypeError:
+        pass
     raise TypeError(
         "@module functions must return a module body, module call, or module calls"
     )
@@ -771,18 +789,18 @@ def _module_body(value: ModuleBodyResult | object) -> ModuleBuilder:
 def _experiment_body(value: object) -> ExperimentBody:
     if isinstance(value, ExperimentBody):
         return value
-    return ExperimentBody(module=_module_body(value))
+    raise TypeError("template and scratch functions must return experiment() bodies")
 
 
 def _module_invocation(value: object) -> ModuleInvocation:
-    if isinstance(value, ModuleInvocation):
-        return value
     if isinstance(value, ExperimentModule):
         return value()
-    invocation = getattr(value, "module_invocation", None)
-    if isinstance(invocation, ModuleInvocation):
-        return invocation
-    raise TypeError("experiment() requires explicit module or domain-program calls")
+    try:
+        return module_use_invocation(value)
+    except TypeError as error:
+        raise TypeError(
+            "experiment() requires explicit module or domain-program calls"
+        ) from error
 
 
 def _definition_id(fn: DefinitionFunction) -> str:

@@ -94,7 +94,12 @@ def simple_template() -> ExperimentTemplate:
             authoring.Input[EntityRef | str],
             _SIMPLE_SUBJECT.value_type,
         ],
+        drive_frequency: Annotated[
+            authoring.Input[Quantity],
+            authoring.QuantityType(),
+        ],
     ) -> authoring.ExperimentBody:
+        del drive_frequency
         module_call = SIMPLE_MODULE(subject=subject)
         return (
             authoring.experiment(module_call)
@@ -108,7 +113,6 @@ def simple_template() -> ExperimentTemplate:
                 points=5,
             )
             .record_product(module_call.products.signal, record_id="signal")
-            .input("drive_frequency")
         )
 
     return authoring.template(

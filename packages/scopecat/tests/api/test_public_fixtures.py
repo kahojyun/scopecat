@@ -120,25 +120,26 @@ def test_parameter_around_scan_request_preserves_implicit_center_intent() -> Non
 
 def test_dependent_default_scan_projects_its_input_as_an_axis() -> None:
     frequency = sc.ScalarType(sc.QuantityType(unit="GHz"))
-    first = sc.coordinate("first", frequency)
-    second = sc.coordinate("second", frequency)
+    first_axis = sc.coordinate("first", frequency)
+    second_axis = sc.coordinate("second", frequency)
     module = sc.module_body(id="test.request_axis_dependency").build()
 
     @sc.template(
         id="test.request_axis_dependency",
         kind="request_axis_dependency",
     )
-    def template_definition() -> sc.ExperimentBody:
+    def template_definition(
+        first: Annotated[sc.Input[sc.Quantity], sc.QuantityType(unit="GHz")],
+    ) -> sc.ExperimentBody:
         return (
             sc.experiment(module())
             .scan(
-                second,
-                center=sc.input("first", frequency),
+                second_axis,
+                center=first,
                 span="2 GHz",
                 points=2,
             )
-            .scan(first, [4.9, 5.1], unit="GHz")
-            .input("first")
+            .scan(first_axis, [4.9, 5.1], unit="GHz")
         )
 
     template = template_definition

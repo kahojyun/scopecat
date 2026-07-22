@@ -39,6 +39,7 @@ READOUT_GAIN_POINT = sc.coordinate(
     sc.ScalarType(sc.FloatType()),
 )
 _SUBJECT = sc.ScalarType(sc.EntityType())
+_DEFAULT_DRIVE_FREQUENCY = Quantity(value=5.0, unit="GHz")
 
 
 class AnalysisArtifactPayload(BaseModel):
@@ -586,14 +587,17 @@ def test_prepared_template_builder_preview_and_run_terminals(
             sc.Input[sc.EntityRef | str],
             SIMPLE_MODULE.input_ports[0].value_type,
         ],
+        drive_frequency: Annotated[
+            sc.Input[sc.Quantity],
+            DRIVE_FREQUENCY_POINT.value_type,
+        ] = _DEFAULT_DRIVE_FREQUENCY,
     ) -> sc.ExperimentBody:
         module_call = SIMPLE_MODULE(subject=subject)
         return (
             sc.experiment(module_call)
-            .input("drive_frequency")
             .scan(
                 DRIVE_FREQUENCY_POINT,
-                center=Quantity(value=5.0, unit="GHz"),
+                center=drive_frequency,
                 span=Quantity(value=200.0, unit="MHz"),
                 points=5,
             )
