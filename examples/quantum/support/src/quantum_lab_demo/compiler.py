@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import cast
+from typing import cast, override
 
 from scopecat.sdk.domain import (
     CorrelatedDomainFetch,
@@ -19,6 +19,7 @@ from scopecat.sdk.domain import (
     DomainHostTransformBinding,
     DomainHostTransformImplementation,
     DomainMeasurementTransform,
+    DomainResultBinding,
     PreparedDomainExecution,
     compiled_jobs,
 )
@@ -32,12 +33,15 @@ from scopecat_quantum import (
     QuantumTargetResultUseBinding,
     ResolvedPulseImplementations,
     ResultCollection,
+    TargetAcquisitionLayout,
     TargetCompileEntryId,
     TargetCompilerId,
     TargetResultAddress,
+    TargetResultAxisLayout,
     binary_iq_probability_host_implementation,
     compile_target,
     lower_quantum_program_to_pulses,
+    lower_quantum_program_to_structured_pulses,
     prepare_quantum_target_batch,
     prepare_quantum_target_entry,
     seal_quantum_target_result_mapping,
@@ -65,10 +69,19 @@ from quantum_lab_demo.targets.fake_list_mode import (
     realize_fetched_fake_measurements,
     select_fake_measurement_realization,
 )
+from quantum_lab_demo.targets.fake_realtime import (
+    FakeRealtimeCompiler,
+    FakeRealtimeDomainRuntime,
+    FakeRealtimeTarget,
+    fake_realtime_invocation_spec,
+    prepare_fake_realtime_request,
+    realize_fetched_realtime_results,
+)
 from quantum_lab_demo.trace import (
     QuantumLabPointValues,
     QuantumLabPreparationEvidence,
     QuantumLabTrace,
+    QuantumRealtimePreparationEvidence,
 )
 from quantum_lab_demo.virtual_lab.compiler_parameters import QuantumCompilerParameters
 from quantum_lab_demo.virtual_lab.parameters import QUBIT_PARAMETER_TABLE
@@ -76,6 +89,10 @@ from quantum_lab_demo.virtual_lab.parameters import QUBIT_PARAMETER_TABLE
 _QUANTUM_LAB_COMPILER_ID = "quantum-lab-demo.compiler.v1"
 _QUANTUM_LAB_TARGET_COMPILER_ID = TargetCompilerId(
     "quantum-lab-demo.fake-list-target.v1"
+)
+_QUANTUM_REALTIME_LAB_COMPILER_ID = "quantum-lab-demo.realtime-compiler.v1"
+_QUANTUM_REALTIME_TARGET_COMPILER_ID = TargetCompilerId(
+    "quantum-lab-demo.fake-realtime-target.v1"
 )
 
 
@@ -86,7 +103,52 @@ class _QuantumLabArtifact:
     implementations: tuple[ResolvedPulseImplementations, ...] = field(repr=False)
 
 
-class QuantumLabCompiler:
+class _QuantumLabCompilerBase:
+    def __init__(
+        self,
+        *,
+        max_points: int,
+        trace: QuantumLabTrace,
+        pulse_profile: PulseRecipeProfile[QuantumCompilerParameters],
+    ) -> None:
+        self._max_points = max_points
+        self._trace = trace
+        self._pulse_profile = pulse_profile
+        self._host_implementations = (binary_iq_probability_host_implementation(),)
+
+    @property
+    def compiler_id(self) -> str:
+        raise NotImplementedError
+
+    @property
+    def trace(self) -> QuantumLabTrace:
+        return self._trace
+
+    def supports(self, call: DomainCallView) -> bool:
+        program = _supported_program(call)
+        if program is None:
+            return False
+        _validate_call(call, program, self._host_implementations)
+        return True
+
+    def compile(self, request: DomainCompileRequest) -> DomainCompilation | None:
+        program = _supported_program(request.call)
+        if program is None:
+            return None
+        _validate_call(request.call, program, self._host_implementations)
+        return compiled_jobs(
+            request,
+            max_points=self._max_points,
+            artifact_input_ids=tuple(port.id for port in program.ports),
+            compile_artifact=lambda inputs: _compile_artifact(
+                program,
+                inputs,
+                self._pulse_profile,
+            ),
+        )
+
+
+class QuantumLabCompiler(_QuantumLabCompilerBase):
     """Own the demo lab's single domain-compilation boundary.
 
     Scopecat derives domain input normal forms from accepted experiment
@@ -108,53 +170,28 @@ class QuantumLabCompiler:
         trace: QuantumLabTrace,
         pulse_profile: PulseRecipeProfile[QuantumCompilerParameters],
     ) -> None:
+        super().__init__(
+            max_points=target.max_list_entries,
+            trace=trace,
+            pulse_profile=pulse_profile,
+        )
         self._target = target
         self._runtime = runtime
         self._response_registry = response_registry
-        self._trace = trace
-        self._pulse_profile = pulse_profile
         self._trace.register_runtime(runtime)
         self._target_compiler = FakeListTargetCompiler(
             _QUANTUM_LAB_TARGET_COMPILER_ID,
             self._target,
         )
-        self._host_implementations = (binary_iq_probability_host_implementation(),)
 
     @property
+    @override
     def compiler_id(self) -> str:
         return _QUANTUM_LAB_COMPILER_ID
 
     @property
     def target_id(self) -> str:
         return self._target.id.value
-
-    @property
-    def trace(self) -> QuantumLabTrace:
-        return self._trace
-
-    def supports(self, call: DomainCallView) -> bool:
-        program = _supported_program(call)
-        if program is None:
-            return False
-        _validate_call(call, program, self._host_implementations)
-        return True
-
-    def compile(self, request: DomainCompileRequest) -> DomainCompilation | None:
-        program = _supported_program(request.call)
-        if program is None:
-            return None
-        _validate_call(request.call, program, self._host_implementations)
-        input_ids = tuple(port.id for port in program.ports)
-        return compiled_jobs(
-            request,
-            max_points=self._target.max_list_entries,
-            artifact_input_ids=input_ids,
-            compile_artifact=lambda inputs: _compile_artifact(
-                program,
-                inputs,
-                self._pulse_profile,
-            ),
-        )
 
     def prepare(
         self,
@@ -211,7 +248,7 @@ class QuantumLabCompiler:
                     artifact.points,
                     strict=True,
                 )
-                for result in artifact.program.results
+                for result in _measurement_results(artifact.program)
                 for product_use in execution.result(result.id).product_uses
             ),
         )
@@ -277,6 +314,164 @@ class QuantumLabCompiler:
         )
         self._trace.record_preparation(evidence)
         return prepared
+
+
+class QuantumRealtimeLabCompiler(_QuantumLabCompilerBase):
+    """Compile every accepted program for one statically selected realtime target.
+
+    The domain compiler advertises the whole logical target, so scheduling does
+    not split a feedback program across instruments. Wiring and device selection
+    are already closed by the configured target; preparation only determines the
+    finite instruction/resource inventory used by the bound program.
+    """
+
+    def __init__(
+        self,
+        *,
+        target: FakeRealtimeTarget,
+        runtime: FakeRealtimeDomainRuntime,
+        trace: QuantumLabTrace,
+        pulse_profile: PulseRecipeProfile[QuantumCompilerParameters],
+        measurement_bits: Mapping[str, Sequence[int]] | None = None,
+    ) -> None:
+        super().__init__(max_points=1, trace=trace, pulse_profile=pulse_profile)
+        self._target = target
+        self._runtime = runtime
+        self._measurement_bits = {
+            result_id: tuple(bits)
+            for result_id, bits in (measurement_bits or {}).items()
+        }
+        self._target_compiler = FakeRealtimeCompiler(
+            _QUANTUM_REALTIME_TARGET_COMPILER_ID,
+            target,
+        )
+        self._trace.register_runtime(runtime)
+
+    @property
+    @override
+    def compiler_id(self) -> str:
+        return _QUANTUM_REALTIME_LAB_COMPILER_ID
+
+    @property
+    def target_id(self) -> str:
+        return self._target.id.value
+
+    def prepare(
+        self,
+        job: DomainCompiledJob,
+        context: DomainBatchContext,
+    ) -> PreparedDomainExecution:
+        artifact = cast("_QuantumLabArtifact", job.take_artifact())
+        _validate_execution(context.execution, artifact)
+        if len(artifact.points) != 1 or len(context.points) != 1:
+            raise AssertionError("realtime domain batches contain exactly one point")
+        [point] = artifact.points
+        [implementations] = artifact.implementations
+        [point_ref] = context.points
+        bound = quantum.bind(artifact.program, dict(point.values))
+        entry_id = TargetCompileEntryId(
+            f"{artifact.program.id}.batch-{context.batch_ordinal}.point-{point.ordinal}"
+        )
+        structured = lower_quantum_program_to_structured_pulses(
+            bound.verified,
+            implementations,
+            output_id=PulseProgramId(f"{entry_id.value}.pulses"),
+        )
+        layouts = _realtime_result_layouts(
+            entry_id,
+            artifact.program,
+            point,
+        )
+        shots = _shot_count(context.execution)
+        target_request = prepare_fake_realtime_request(
+            entry_id,
+            structured,
+            target=self._target,
+            compiler_id=self._target_compiler.id,
+            result_layouts=layouts,
+            repetitions=shots,
+        )
+        compiled = compile_target(self._target_compiler, target_request)
+        preparation = context.new_preparation()
+        address_by_result_id = {
+            layout.slot_id.local_id: layout.address for layout in layouts
+        }
+        mapping = preparation.map_measurements(
+            results=tuple(
+                DomainResultBinding(
+                    result_address=address_by_result_id[result.id],
+                    point=point_ref,
+                    product_use=product_use,
+                )
+                for result in artifact.program.results
+                for product_use in context.execution.result(result.id).product_uses
+            )
+        )
+        measurements = self._measurements_for(
+            artifact.program,
+            layouts,
+            shots=shots,
+        )
+        invocation = fake_realtime_invocation_spec(
+            compiled,
+            measurements,
+            invocation_id=(
+                f"{artifact.program.id}.batch-{context.batch_ordinal}."
+                f"point-{point.ordinal}"
+            ),
+        )
+        host_transforms = tuple(
+            DomainHostTransformBinding(
+                transform,
+                _host_implementation(transform, self._host_implementations),
+            )
+            for transform in context.execution.measurement_transforms
+        )
+        prepared = preparation.build(
+            mapping=mapping,
+            host_transforms=host_transforms,
+            invocation=invocation,
+            runtime=self._runtime,
+            realize=lambda fetched: realize_fetched_realtime_results(mapping, fetched),
+        )
+        self._trace.record_realtime_preparation(
+            QuantumRealtimePreparationEvidence(
+                program=artifact.program,
+                points=artifact.points,
+                _target=self._target,
+                request=target_request,
+                artifact=compiled.artifact,
+                artifact_fingerprint=compiled.artifact_fingerprint,
+            )
+        )
+        return prepared
+
+    def _measurements_for(
+        self,
+        program: quantum.Program,
+        layouts: tuple[TargetAcquisitionLayout, ...],
+        *,
+        shots: int,
+    ) -> tuple[tuple[str, tuple[int, ...]], ...]:
+        selected: list[tuple[str, tuple[int, ...]]] = []
+        measurement_ids = {
+            result.id
+            for result in program.results
+            if isinstance(result, quantum.MeasurementResult)
+        }
+        for layout in layouts:
+            result_id = layout.slot_id.local_id
+            if result_id not in measurement_ids:
+                continue
+            expected_count = shots * len(layout.acquisition_addresses)
+            bits = self._measurement_bits.get(result_id, (0,) * expected_count)
+            if len(bits) != expected_count or any(bit not in (0, 1) for bit in bits):
+                raise ValueError(
+                    f"realtime measurement script {result_id!r} must contain "
+                    f"{expected_count} bits"
+                )
+            selected.append((result_id, bits))
+        return tuple(selected)
 
 
 def _supported_program(call: DomainCallView) -> quantum.Program | None:
@@ -415,6 +610,43 @@ def _result_address(
     return collect(0)
 
 
+def _realtime_result_layouts(
+    entry_id: TargetCompileEntryId,
+    program: quantum.Program,
+    point: QuantumLabPointValues,
+) -> tuple[TargetAcquisitionLayout, ...]:
+    values = dict(point.values)
+    layouts: list[TargetAcquisitionLayout] = []
+    for result in program.results:
+        if (
+            isinstance(result, quantum.MeasurementResult)
+            and result.acquisition_kind is not AcquisitionKind.INTEGRATED_IQ
+        ):
+            raise ValueError("fake realtime target supports integrated-IQ results only")
+        slot_id = (
+            result.acquisition_slot_id
+            if isinstance(result, quantum.MeasurementResult)
+            else result.result_slot_id
+        )
+        acquisition_shape = (
+            result.contract.acquisition_shape
+            if isinstance(result, quantum.MeasurementResult)
+            else ()
+        )
+        layouts.append(
+            TargetAcquisitionLayout(
+                entry_id=entry_id,
+                slot_id=slot_id,
+                axes=tuple(
+                    TargetResultAxisLayout(axis.id, _result_axis_size(axis, values))
+                    for axis in result.contract.axes
+                    if axis.id not in acquisition_shape
+                ),
+            )
+        )
+    return tuple(layouts)
+
+
 def _result_axis_size(
     axis: quantum.QuantumResultAxis,
     values: Mapping[str, object],
@@ -437,10 +669,25 @@ def _realization_binding(
     if len(result_ids) != 1:
         raise ValueError("one quantum result tree must retain one logical result id")
     [result_id] = result_ids
-    result = next(result for result in program.results if result.id == result_id)
+    result = next(
+        result for result in _measurement_results(program) if result.id == result_id
+    )
     if result.acquisition_kind is AcquisitionKind.INTEGRATED_IQ:
         return integrated_iq_shots(address)
     return raw_trace_shots(address)
+
+
+def _measurement_results(
+    program: quantum.Program,
+) -> tuple[quantum.MeasurementResult, ...]:
+    results = tuple(
+        result
+        for result in program.results
+        if isinstance(result, quantum.MeasurementResult)
+    )
+    if len(results) != len(program.results):
+        raise ValueError("list-mode targets only support acquisition results")
+    return results
 
 
 def _host_implementation(
@@ -476,4 +723,5 @@ def _realize(
 
 __all__ = [
     "QuantumLabCompiler",
+    "QuantumRealtimeLabCompiler",
 ]

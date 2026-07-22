@@ -200,12 +200,25 @@ def quantum_wiring() -> QuantumWiringBuilder:
     return QuantumWiringBuilder()
 
 
-def quantum_wiring_config_profile() -> ConfigProfileSnapshot:
+def quantum_wiring_config_profile(
+    *,
+    domain_target_id: str = "quantum-lab-demo.fake-list-mode.v1",
+) -> ConfigProfileSnapshot:
     base = load_config_profile(EXPERIMENT_FIXTURE_DIR / "config-profile.json")
+    domain_target = base.system.domain_target
+    if domain_target is None:
+        raise ValueError("quantum demo configuration requires a domain target")
     return base.model_copy(
         update={
             "system": compile_quantum_wiring_system(
-                base.system, default_quantum_wiring()
+                base.system.model_copy(
+                    update={
+                        "domain_target": domain_target.model_copy(
+                            update={"id": domain_target_id}
+                        )
+                    }
+                ),
+                default_quantum_wiring(),
             )
         }
     )

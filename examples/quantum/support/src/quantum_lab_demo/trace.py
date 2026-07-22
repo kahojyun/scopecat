@@ -4,14 +4,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from decimal import Decimal
+from typing import Protocol
 
 from scopecat_quantum import Play, PreparedQuantumTargetEntry, PulseEventId
 from scopecat_quantum import authoring as quantum
 
 from quantum_lab_demo.targets.fake_list_mode import (
     FakeListArtifact,
-    FakeListDomainRuntime,
     FakeListTarget,
+)
+from quantum_lab_demo.targets.fake_realtime import (
+    FakeRealtimeArtifact,
+    FakeRealtimeCompileRequest,
+    FakeRealtimeTarget,
 )
 
 
@@ -76,6 +81,27 @@ class QuantumLabPreparationEvidence:
         return waveform.samples[first : first + int(count)]
 
 
+@dataclass(frozen=True, slots=True)
+class QuantumRealtimePreparationEvidence:
+    """Typed preparation evidence for one retained-control-flow program."""
+
+    program: quantum.Program = field(repr=False)
+    points: tuple[QuantumLabPointValues, ...]
+    _target: FakeRealtimeTarget = field(repr=False)
+    request: FakeRealtimeCompileRequest
+    artifact: FakeRealtimeArtifact
+    artifact_fingerprint: str
+
+    @property
+    def program_id(self) -> str:
+        return self.program.id
+
+
+class _RuntimeCounter(Protocol):
+    @property
+    def physical_execution_count(self) -> int: ...
+
+
 class QuantumLabTrace:
     """Collect lab observability without making it compiler policy.
 
@@ -86,7 +112,8 @@ class QuantumLabTrace:
 
     def __init__(self) -> None:
         self._preparations: list[QuantumLabPreparationEvidence] = []
-        self._runtimes: list[FakeListDomainRuntime] = []
+        self._realtime_preparations: list[QuantumRealtimePreparationEvidence] = []
+        self._runtimes: list[_RuntimeCounter] = []
 
     @property
     def physical_execution_count(self) -> int:
@@ -111,7 +138,17 @@ class QuantumLabTrace:
     def record_preparation(self, evidence: QuantumLabPreparationEvidence) -> None:
         self._preparations.append(evidence)
 
-    def register_runtime(self, runtime: FakeListDomainRuntime) -> None:
+    @property
+    def realtime_preparations(self) -> tuple[QuantumRealtimePreparationEvidence, ...]:
+        return tuple(self._realtime_preparations)
+
+    def record_realtime_preparation(
+        self,
+        evidence: QuantumRealtimePreparationEvidence,
+    ) -> None:
+        self._realtime_preparations.append(evidence)
+
+    def register_runtime(self, runtime: _RuntimeCounter) -> None:
         self._runtimes.append(runtime)
 
 
@@ -119,4 +156,5 @@ __all__ = [
     "QuantumLabPointValues",
     "QuantumLabPreparationEvidence",
     "QuantumLabTrace",
+    "QuantumRealtimePreparationEvidence",
 ]

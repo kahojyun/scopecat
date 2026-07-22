@@ -7,6 +7,7 @@ import math
 from scopecat import Quantity
 from scopecat_quantum import (
     AcquisitionKind,
+    MeasurementDiscriminator,
     PulseRecipeProfile,
     gate_pulse_recipe,
     map_qubit_pulse_recipes,
@@ -95,6 +96,10 @@ def ym90_pulse_recipe(
 @measurement_pulse_recipe(
     kind=AcquisitionKind.INTEGRATED_IQ,
     id="readout.integrated-iq",
+    discriminator=MeasurementDiscriminator(
+        id="binary-iq-threshold",
+        input_kind=AcquisitionKind.INTEGRATED_IQ,
+    ),
 )
 def integrated_iq_pulse_recipe(
     row: QubitPulseParameters,

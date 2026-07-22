@@ -289,6 +289,7 @@ class PulseImplementationBindingIssueCode(StrEnum):
     """Stable kinds of pulse implementation binding failure."""
 
     MISSING = "pulse_implementation_missing"
+    DISCRIMINATOR_MISSING = "measurement_discriminator_missing"
 
 
 @dataclass(frozen=True, slots=True)
@@ -392,6 +393,26 @@ def bind_pulse_implementations(
             key = MeasurementPulseImplementationKey.from_measurement(operation)
             selected = measurements_by_key.get(key)
         if selected is not None:
+            if (
+                isinstance(operation, Measure)
+                and operation.realtime_bit_id is not None
+                and isinstance(selected, MeasurementPulseImplementation)
+                and selected.discriminator is None
+            ):
+                issues.append(
+                    PulseImplementationBindingIssue(
+                        code=(
+                            PulseImplementationBindingIssueCode.DISCRIMINATOR_MISSING
+                        ),
+                        operation_id=operation.id,
+                        key=key,
+                        message=(
+                            f"measurement {operation.id.value!r} requests realtime "
+                            "feedback but its pulse implementation has no discriminator"
+                        ),
+                    )
+                )
+                continue
             if isinstance(operation, GateCall):
                 assert isinstance(key, GatePulseImplementationKey)  # noqa: S101
                 assert isinstance(selected, GatePulseImplementation)  # noqa: S101
@@ -414,6 +435,7 @@ def bind_pulse_implementations(
                         implementation_id=selected.id,
                         implementation_fingerprint=selected.fingerprint,
                         pulse_template=selected.pulse_template,
+                        discriminator=selected.discriminator,
                     )
                 )
             continue

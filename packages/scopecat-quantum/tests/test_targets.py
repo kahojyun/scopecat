@@ -28,6 +28,7 @@ from scopecat_quantum.pulses import (
 )
 from scopecat_quantum.targets import (
     TargetAcquisitionAddress,
+    TargetAcquisitionLayout,
     TargetArtifact,
     TargetCompilationError,
     TargetCompilationIssue,
@@ -35,8 +36,10 @@ from scopecat_quantum.targets import (
     TargetCompileEntry,
     TargetCompiler,
     TargetCompileRequest,
+    TargetCompileRequestLike,
     TargetDescription,
     TargetEventAddress,
+    TargetResultAxisLayout,
     compile_target,
 )
 
@@ -165,7 +168,7 @@ def test_structural_target_protocols_admit_a_laboratory_adapter() -> None:
         id=TargetId("reference-target"),
         capability_fingerprint="capabilities:v1",
     )
-    compiler: TargetCompiler[_Artifact] = _Compiler(
+    compiler: TargetCompiler[TargetCompileRequest, _Artifact] = _Compiler(
         id=TargetCompilerId("reference-compiler"),
         target_id=description.id,
         capability_fingerprint=description.capability_fingerprint,
@@ -181,6 +184,81 @@ def test_structural_target_protocols_admit_a_laboratory_adapter() -> None:
     assert artifact.repetitions == 5
     assert artifact.artifact_fingerprint == "artifact-content:v1"
     assert compiled.source_entry_ids == (TargetCompileEntryId("point-0"),)
+
+
+@dataclass(frozen=True)
+class _StructuredRequest:
+    target_id: TargetId
+    compiler_id: TargetCompilerId
+    capability_fingerprint: str
+    source_entry_ids: tuple[TargetCompileEntryId, ...]
+    repetitions: int
+    control_program: str
+
+
+@dataclass
+class _StructuredCompiler:
+    id: TargetCompilerId
+    target_id: TargetId
+    capability_fingerprint: str
+
+    def compile(self, request: _StructuredRequest) -> _Artifact:
+        return _Artifact(
+            id=TargetArtifactId("structured-artifact"),
+            target_id=request.target_id,
+            compiler_id=request.compiler_id,
+            capability_fingerprint=request.capability_fingerprint,
+            artifact_fingerprint=f"structured:{request.control_program}",
+            source_entry_ids=request.source_entry_ids,
+            repetitions=request.repetitions,
+            payload=request.control_program.encode(),
+        )
+
+
+def test_target_compiler_accepts_an_adapter_owned_structured_request() -> None:
+    request = _StructuredRequest(
+        target_id=TargetId("realtime-target"),
+        compiler_id=TargetCompilerId("realtime-compiler"),
+        capability_fingerprint="realtime:v1",
+        source_entry_ids=(TargetCompileEntryId("point-0"),),
+        repetitions=3,
+        control_program="repeat(acquire; branch)",
+    )
+    compiler: TargetCompiler[_StructuredRequest, _Artifact] = _StructuredCompiler(
+        id=request.compiler_id,
+        target_id=request.target_id,
+        capability_fingerprint=request.capability_fingerprint,
+    )
+
+    compiled = compile_target(compiler, request)
+
+    assert isinstance(request, TargetCompileRequestLike)
+    assert compiled.artifact.payload == b"repeat(acquire; branch)"
+    assert compiled.source_entry_ids == request.source_entry_ids
+
+
+def test_symbolic_layout_materializes_stable_rectangular_addresses() -> None:
+    entry_id = TargetCompileEntryId("point-0")
+    layout = TargetAcquisitionLayout(
+        entry_id=entry_id,
+        slot_id=AcquisitionSlotId("syndrome"),
+        axes=(
+            TargetResultAxisLayout("round", 2),
+            TargetResultAxisLayout("ancilla", 2),
+        ),
+    )
+
+    assert layout.acquisition_addresses == tuple(
+        TargetAcquisitionAddress(
+            entry_id,
+            AcquisitionSlotId(
+                "syndrome",
+                scope=(f"round[{round_index}]", f"ancilla[{ancilla_index}]"),
+            ),
+        )
+        for round_index in range(2)
+        for ancilla_index in range(2)
+    )
 
 
 def test_addresses_cover_entries_in_exact_schedule_order() -> None:

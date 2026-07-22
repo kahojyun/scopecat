@@ -7,6 +7,7 @@ from typing import cast
 from scopecat import Quantity
 from scopecat_quantum import (
     AcquisitionSlotId,
+    MeasurementResult,
     PreparedQuantumTargetEntry,
     TargetAcquisitionAddress,
 )
@@ -55,6 +56,7 @@ def _drag_beta_response(
     request: QuantumLabResponseRequest,
 ) -> FakeAcquisitionResponse:
     [result] = request.program.results
+    result = cast("MeasurementResult", result)
     return DragBetaAcquisitionResponse(
         points=tuple(
             DragBetaResponsePoint(
@@ -72,6 +74,8 @@ def _cz_phase_response(
     request: QuantumLabResponseRequest,
 ) -> FakeAcquisitionResponse:
     control_result, target_result = request.program.results
+    control_result = cast("MeasurementResult", control_result)
+    target_result = cast("MeasurementResult", target_result)
     return CzPhaseAcquisitionResponse(
         points=tuple(
             CzPhaseResponsePoint(
@@ -97,6 +101,7 @@ def _single_qubit_rb_response(
     request: QuantumLabResponseRequest,
 ) -> FakeAcquisitionResponse:
     [result] = request.program.results
+    result = cast("MeasurementResult", result)
     return SingleQubitRbAcquisitionResponse(
         points=tuple(
             SingleQubitRbResponsePoint(

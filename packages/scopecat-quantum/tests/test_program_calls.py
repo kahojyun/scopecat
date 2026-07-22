@@ -389,6 +389,7 @@ def test_program_call_derives_raw_trace_product_from_result_contract() -> None:
     [product] = call.module_invocation.module.product_declarations
     [raw] = declaration.results
 
+    assert isinstance(raw, authoring.MeasurementResult)
     assert raw.contract.acquisition_kind is AcquisitionKind.RAW_TRACE
     assert raw.contract.acquisition_shape == ("sample",)
     assert product.dtype == "complex128"

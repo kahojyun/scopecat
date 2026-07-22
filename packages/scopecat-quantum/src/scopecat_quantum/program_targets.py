@@ -6,9 +6,9 @@ module is entered.  Preparation therefore has one source-neutral job: schedule
 the canonical pulse program, qualify every event and acquisition with a target
 entry identity, and retain the exact mixed-source provenance for correlation.
 
-Target compilers remain deliberately outside this module.  They receive only
-the resulting :class:`~scopecat_quantum.targets.TargetCompileEntry`, whose
-program is a :class:`~scopecat_quantum.pulses.ScheduledPulseProgram`.
+This module is the straight-line scheduled-target preparation path. Realtime
+targets instead retain control flow through ``StructuredQuantumPulseProgram``
+and close their own request type at the same generic target boundary.
 """
 
 from __future__ import annotations

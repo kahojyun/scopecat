@@ -15,6 +15,7 @@ from scopecat_quantum._ids import (
     PulseImplementationId,
     PulseProgramId,
     QubitId,
+    RealtimeValueId,
 )
 from scopecat_quantum.acquisitions import AcquisitionKind
 from scopecat_quantum.circuits import (
@@ -353,6 +354,35 @@ def test_resolved_measurement_implementation_keys_must_be_unique() -> None:
     for ordered_entries in (entries, tuple(reversed(entries))):
         with pytest.raises(ValueError, match=r"measurement.*keys must be unique"):
             ResolvedPulseImplementations(measurements=ordered_entries)
+
+
+def test_feedback_measurement_requires_a_discriminator_implementation() -> None:
+    measurement = Measure(
+        id=CircuitOperationId("measure"),
+        qubit=Q0,
+        acquisition_slot_id=AcquisitionSlotId("result"),
+        acquisition_kind=AcquisitionKind.INTEGRATED_IQ,
+        realtime_bit_id=RealtimeValueId("bit", scope=("measure",)),
+    )
+    program = verify_circuit_program(
+        CircuitProgram(CircuitId("feedback"), measurement),
+        (),
+    )
+    implementation = MeasurementPulseImplementation(
+        PulseImplementationId("readout"),
+        MeasurementPulseImplementationKey.from_measurement(measurement),
+        _measurement_template(),
+    )
+
+    with pytest.raises(PulseImplementationBindingError) as caught:
+        bind_pulse_implementations(
+            program,
+            ResolvedPulseImplementations(measurements=(implementation,)),
+        )
+
+    assert caught.value.issues[0].code is (
+        PulseImplementationBindingIssueCode.DISCRIMINATOR_MISSING
+    )
 
 
 def test_missing_implementations_are_aggregated_deterministically() -> None:

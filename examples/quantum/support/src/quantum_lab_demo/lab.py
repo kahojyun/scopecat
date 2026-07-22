@@ -8,7 +8,7 @@ import scopecat as sc
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat_quantum import PulseRecipeProfile
 
-from quantum_lab_demo.compiler import QuantumLabCompiler
+from quantum_lab_demo.compiler import QuantumLabCompiler, QuantumRealtimeLabCompiler
 from quantum_lab_demo.fixtures import (
     DEFAULT_EXPERIMENT_WORKSPACE,
     EXPERIMENT_VIRTUAL_LAB_PROFILE,
@@ -18,6 +18,12 @@ from quantum_lab_demo.targets.fake_list_mode import (
     FakeListDomainRuntime,
     FakeListTarget,
     default_fake_list_target,
+)
+from quantum_lab_demo.targets.fake_realtime import (
+    FakeRealtimeDomainRuntime,
+    FakeRealtimeRuntime,
+    FakeRealtimeTarget,
+    default_fake_realtime_target,
 )
 from quantum_lab_demo.trace import QuantumLabTrace
 from quantum_lab_demo.virtual_lab.compiler_parameters import QuantumCompilerParameters
@@ -57,12 +63,38 @@ def quantum_lab_compiler(
     )
 
 
+def quantum_realtime_lab_compiler(
+    *,
+    target: FakeRealtimeTarget | None = None,
+    runtime: FakeRealtimeDomainRuntime | None = None,
+    trace: QuantumLabTrace | None = None,
+    pulse_profile: PulseRecipeProfile[QuantumCompilerParameters] | None = None,
+    measurement_bits: dict[str, tuple[int, ...]] | None = None,
+) -> QuantumRealtimeLabCompiler:
+    """Compose the demo compiler around one statically selected realtime target."""
+
+    selected_target = default_fake_realtime_target() if target is None else target
+    return QuantumRealtimeLabCompiler(
+        target=selected_target,
+        runtime=(
+            FakeRealtimeDomainRuntime(FakeRealtimeRuntime(selected_target))
+            if runtime is None
+            else runtime
+        ),
+        trace=QuantumLabTrace() if trace is None else trace,
+        pulse_profile=(
+            QUANTUM_PULSE_PROFILE if pulse_profile is None else pulse_profile
+        ),
+        measurement_bits=measurement_bits,
+    )
+
+
 def quantum_lab(
     *,
     workspace: PathInput = DEFAULT_EXPERIMENT_WORKSPACE,
     config_profile: ConfigProfileInput | None = None,
     virtual_lab_profile: PathInput = EXPERIMENT_VIRTUAL_LAB_PROFILE,
-    compiler: QuantumLabCompiler | None = None,
+    compiler: QuantumLabCompiler | QuantumRealtimeLabCompiler | None = None,
 ) -> sc.Workspace:
     """Open the demo environment with one compiler for all quantum Programs.
 
@@ -75,7 +107,12 @@ def quantum_lab(
     selected_compiler = quantum_lab_compiler() if compiler is None else compiler
     return sc.open(
         workspace,
-        config_profile=config_profile or quantum_wiring_config_profile(),
+        config_profile=(
+            config_profile
+            or quantum_wiring_config_profile(
+                domain_target_id=selected_compiler.target_id
+            )
+        ),
         system=sc.ExperimentSystem(
             provider=provider,
             domain_compiler=selected_compiler,
@@ -88,4 +125,5 @@ __all__ = [
     "PathInput",
     "quantum_lab",
     "quantum_lab_compiler",
+    "quantum_realtime_lab_compiler",
 ]

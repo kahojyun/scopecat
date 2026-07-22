@@ -1,14 +1,16 @@
-"""Hardware-neutral contracts for lowering scheduled quantum programs.
+"""Hardware-neutral contracts for lowering quantum programs to targets.
 
 The objects in this module describe the boundary between the reusable quantum
 package and a laboratory-owned target adapter.  They intentionally say
 nothing about physical instruments, transport, wiring, or artifact layout.
 
-A target compiler is pure and consumes only canonical scheduled programs.
-Concrete payloads remain opaque and laboratory-owned; stable target, compiler,
-capability, artifact, entry, and acquisition identities provide correlation
-without defining a universal hardware schema. Adapter fingerprints must cover
-opaque artifact content because core cannot interpret that content itself.
+A target compiler is pure, but its closed input representation is target-owned:
+simple list-mode adapters can consume canonical scheduled programs while a
+realtime adapter can retain loops and feedback. Concrete payloads remain opaque
+and laboratory-owned; stable target, compiler, capability, artifact, entry, and
+acquisition identities provide correlation without defining a universal
+hardware schema. Adapter fingerprints must cover opaque artifact content because
+core cannot interpret that content itself.
 """
 
 from __future__ import annotations
@@ -54,6 +56,69 @@ class TargetAcquisitionAddress:
 type TargetResultAddress = (
     TargetAcquisitionAddress | ResultCollection[TargetAcquisitionAddress]
 )
+
+
+@dataclass(frozen=True, slots=True)
+class TargetResultAxisLayout:
+    """One finite logical axis emitted by a target acquisition."""
+
+    id: str
+    size: int
+
+    def __post_init__(self) -> None:
+        _require_text(self.id, field="target result axis id")
+        if isinstance(self.size, bool) or self.size <= 0:
+            raise ValueError("target result axis size must be a positive integer")
+
+
+@dataclass(frozen=True, slots=True)
+class TargetAcquisitionLayout:
+    """Symbolically expand one target acquisition into logical result addresses.
+
+    Realtime targets can retain a bounded loop in their executable while this
+    layout describes the finite records it emits. Axis indices become structural
+    slot scopes only at the result boundary, so executable duplication is not
+    required to obtain stable leaf identities.
+    """
+
+    entry_id: TargetCompileEntryId
+    slot_id: AcquisitionSlotId
+    axes: tuple[TargetResultAxisLayout, ...] = ()
+
+    def __post_init__(self) -> None:
+        axis_ids = tuple(axis.id for axis in self.axes)
+        if len(set(axis_ids)) != len(axis_ids):
+            raise ValueError("target result layout axis ids must be unique")
+
+    @property
+    def address(self) -> TargetResultAddress:
+        """Return the rectangular logical result tree for this acquisition."""
+
+        def collect(
+            axis_index: int,
+            scope: tuple[str, ...],
+        ) -> TargetResultAddress:
+            if axis_index == len(self.axes):
+                return TargetAcquisitionAddress(
+                    self.entry_id,
+                    self.slot_id.prefixed(*scope),
+                )
+            axis = self.axes[axis_index]
+            return ResultCollection(
+                axis.id,
+                tuple(
+                    collect(axis_index + 1, (*scope, f"{axis.id}[{index}]"))
+                    for index in range(axis.size)
+                ),
+            )
+
+        return collect(0, ())
+
+    @property
+    def acquisition_addresses(self) -> tuple[TargetAcquisitionAddress, ...]:
+        """Return materialized leaf addresses in recursive axis order."""
+
+        return target_result_acquisition_addresses(self.address)
 
 
 def target_result_entry_id(address: TargetResultAddress) -> TargetCompileEntryId:
@@ -146,6 +211,32 @@ class TargetCompileRequest:
             address for entry in self.entries for address in entry.acquisition_addresses
         )
 
+    @property
+    def source_entry_ids(self) -> tuple[TargetCompileEntryId, ...]:
+        """Return the ordered source inventory covered by the request."""
+
+        return tuple(entry.id for entry in self.entries)
+
+
+@runtime_checkable
+class TargetCompileRequestLike(Protocol):
+    """Common dispatch and provenance carried by every target-owned request."""
+
+    @property
+    def target_id(self) -> TargetId: ...
+
+    @property
+    def compiler_id(self) -> TargetCompilerId: ...
+
+    @property
+    def capability_fingerprint(self) -> str: ...
+
+    @property
+    def source_entry_ids(self) -> tuple[TargetCompileEntryId, ...]: ...
+
+    @property
+    def repetitions(self) -> int: ...
+
 
 class TargetCompilationIssueDimension(StrEnum):
     """Hardware-neutral part of target compilation that rejected input."""
@@ -235,14 +326,16 @@ class TargetArtifact(Protocol):
 
 
 @runtime_checkable
-class TargetCompiler[ArtifactT: TargetArtifact](Protocol):
-    """Lower scheduled quantum target IR into one target artifact.
+class TargetCompiler[
+    RequestT: TargetCompileRequestLike,
+    ArtifactT: TargetArtifact,
+](Protocol):
+    """Lower one closed target-owned request into one target artifact.
 
-    The request contains already prepared and scheduled target entries; this
-    protocol does not own domain routing, input resolution, or pulse
-    implementation binding. When used in an ``ExperimentSystem`` integration, it is an
-    internal stage invoked by the domain compiler rather than a second system
-    compiler.
+    This protocol does not own domain routing or input resolution. When used in
+    an ``ExperimentSystem`` integration, it is an internal stage invoked by the
+    domain compiler rather than a second system compiler. The request type is an
+    associated adapter contract: no universal instruction shape is imposed here.
     """
 
     @property
@@ -254,7 +347,7 @@ class TargetCompiler[ArtifactT: TargetArtifact](Protocol):
     @property
     def capability_fingerprint(self) -> str: ...
 
-    def compile(self, request: TargetCompileRequest) -> ArtifactT: ...
+    def compile(self, request: RequestT) -> ArtifactT: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,7 +359,7 @@ class CompiledTargetArtifact[ArtifactT: TargetArtifact]:
     inspect or prove the meaning of a target-owned opaque payload.
     """
 
-    request: TargetCompileRequest
+    request: TargetCompileRequestLike
     artifact: ArtifactT
     _artifact_id: TargetArtifactId = field(init=False)
     _artifact_fingerprint: str = field(init=False)
@@ -304,7 +397,7 @@ class CompiledTargetArtifact[ArtifactT: TargetArtifact]:
 
     @property
     def source_entry_ids(self) -> tuple[TargetCompileEntryId, ...]:
-        return tuple(entry.id for entry in self.request.entries)
+        return self.request.source_entry_ids
 
     @property
     def repetitions(self) -> int:
@@ -312,10 +405,10 @@ class CompiledTargetArtifact[ArtifactT: TargetArtifact]:
 
 
 def _target_artifact_issues(
-    request: TargetCompileRequest,
+    request: TargetCompileRequestLike,
     artifact: TargetArtifact,
 ) -> tuple[TargetCompilationIssue, ...]:
-    expected_entry_ids = tuple(entry.id for entry in request.entries)
+    expected_entry_ids = request.source_entry_ids
     issues: list[TargetCompilationIssue] = []
     if artifact.target_id != request.target_id:
         issues.append(
@@ -368,9 +461,12 @@ def _target_artifact_issues(
     return tuple(issues)
 
 
-def compile_target[ArtifactT: TargetArtifact](
-    compiler: TargetCompiler[ArtifactT],
-    request: TargetCompileRequest,
+def compile_target[
+    RequestT: TargetCompileRequestLike,
+    ArtifactT: TargetArtifact,
+](
+    compiler: TargetCompiler[RequestT, ArtifactT],
+    request: RequestT,
 ) -> CompiledTargetArtifact[ArtifactT]:
     """Check dispatch and return-time provenance around one compiler call.
 

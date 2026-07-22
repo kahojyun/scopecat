@@ -9,6 +9,7 @@ from scopecat_quantum._ids import AcquisitionSlotId, QubitId
 from scopecat_quantum.acquisitions import AcquisitionKind
 from scopecat_quantum.circuits import Measure
 from scopecat_quantum.gates import GateCall, GateParameterKind
+from scopecat_quantum.programs import Parallel, Repeat
 
 
 def _x_count_declaration() -> tuple[
@@ -169,7 +170,7 @@ def test_repeat_rejects_non_integer_input_and_unnamed_result_axis() -> None:
         authoring.repeat(authoring.measure(q0, result="raw_iq"), 2)
 
 
-def test_result_repeat_declares_one_axis_and_unique_physical_slots() -> None:
+def test_result_repeat_retains_one_structural_body_and_result_axis() -> None:
     q0 = authoring.qubit("q0")
     rounds = authoring.scalar_input("rounds", GateParameterKind.INTEGER)
     declaration = authoring._close_program(
@@ -183,23 +184,16 @@ def test_result_repeat_declares_one_axis_and_unique_physical_slots() -> None:
 
     [result] = declaration.results
     bound = authoring.bind(declaration, {"rounds": 3})
-    measurements = tuple(
-        operation
-        for operation in bound.verified.operations
-        if isinstance(operation, Measure)
-    )
+    repeated = bound.verified.program.body
 
     assert tuple((axis.id, axis.size, axis.kind) for axis in result.contract.axes) == (
         ("round", rounds, "repeat"),
     )
-    assert tuple(
-        operation.acquisition_slot_id.local_id for operation in measurements
-    ) == (
-        "raw_iq",
-        "raw_iq",
-        "raw_iq",
-    )
-    assert len({operation.acquisition_slot_id for operation in measurements}) == 3
+    assert isinstance(repeated, Repeat)
+    assert repeated.count == 3
+    assert repeated.axis_id == "round"
+    assert isinstance(repeated.operation, Measure)
+    assert repeated.operation.acquisition_slot_id.local_id == "raw_iq"
     with pytest.raises(authoring.ProgramBindingError, match=r"bindings\.rounds"):
         authoring.bind(declaration, {"rounds": 0})
 
@@ -225,13 +219,18 @@ def test_nested_repeat_and_parallel_results_share_the_composition_tree() -> None
         ("round", 2, "repeat"),
         ("qubit", 2, "entity"),
     )
+    repeated = bound.verified.program.body
+    assert isinstance(repeated, Repeat)
+    assert repeated.count == 2
+    assert repeated.axis_id == "round"
+    assert isinstance(repeated.operation, Parallel)
     measurements = tuple(
         operation
         for operation in bound.verified.operations
         if isinstance(operation, Measure)
     )
-    assert len(measurements) == 4
-    assert len({operation.acquisition_slot_id for operation in measurements}) == 4
+    assert len(measurements) == 2
+    assert len({operation.acquisition_slot_id for operation in measurements}) == 2
 
 
 def test_gate_parameter_inputs_are_checked_and_angle_values_are_canonicalized() -> None:

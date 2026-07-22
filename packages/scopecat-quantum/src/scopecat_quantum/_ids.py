@@ -131,6 +131,16 @@ class AcquisitionSlotId(_StructuralId):
 
 
 @dataclass(frozen=True, slots=True)
+class RealtimeValueId(_StructuralId):
+    """Structural SSA identity of one target-local realtime value."""
+
+
+@dataclass(frozen=True, slots=True)
+class RealtimeStateId(_StructuralId):
+    """Structural identity of explicit target-local loop-carried state."""
+
+
+@dataclass(frozen=True, slots=True)
 class PulseImplementationId(_NominalId):
     """Stable identity of one compiler-owned pulse implementation recipe."""
 
