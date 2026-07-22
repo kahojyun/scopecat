@@ -8,6 +8,7 @@ from dataclasses import dataclass, field, replace
 from types import NoneType, UnionType
 from typing import (
     Annotated,
+    TypeAliasType,
     cast,
     get_args,
     get_origin,
@@ -66,6 +67,18 @@ type ModuleBodyResult = (
     | Sequence[ModuleInvocation | ModuleCall]
     | None
 )
+
+
+def input_ref[T](value: Input[T]) -> ValueRef:
+    """View a decorator function input as its symbolic authoring reference.
+
+    ``@module`` and ``@template`` evaluate their Python bodies with symbolic
+    values, while ``Input[T]`` also preserves the concrete caller contract.
+    Use this helper only when a symbolic-only operation, such as a table
+    transform, needs that distinction for static typing.
+    """
+
+    return cast("ValueRef", value)
 
 
 class _Missing:
@@ -589,6 +602,8 @@ def _symbolic_arguments(
 
 
 def _annotation_value_type(annotation: object, *, parameter: str) -> ValueType:
+    while isinstance(annotation, TypeAliasType):
+        annotation = cast("object", annotation.__value__)
     if get_origin(annotation) is Annotated:
         python_type, *metadata = cast("tuple[object, ...]", get_args(annotation))
         declared = tuple(item for item in metadata if _is_value_type(item))

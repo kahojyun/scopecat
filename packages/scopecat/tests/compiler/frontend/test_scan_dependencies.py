@@ -51,7 +51,7 @@ _DURATION = sc.ScalarType(sc.QuantityType(unit="ns"))
 
 
 def _point(axis_id: str, *, duration: bool = False):
-    return sc.point(axis_id, _DURATION if duration else _FREQUENCY)
+    return sc.coordinate(axis_id, _DURATION if duration else _FREQUENCY)
 
 
 def _values(axis_id: str, *, duration: bool = False) -> Scan:

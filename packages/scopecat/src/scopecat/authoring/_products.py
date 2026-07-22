@@ -200,6 +200,8 @@ def record_product(
     record_id: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> RecordSelection:
+    """Select a product, using its local id unless an explicit alias is given."""
+
     selected_product_id = (
         product_id.product_id
         if isinstance(product_id, ProductRef)
@@ -211,7 +213,7 @@ def record_product(
     return RecordSelection(
         product_use=product_use(selected_product_id),
         product_origin=selected_product_origin,
-        record_id=record_id,
+        record_id=record_id or selected_product_id.local_id,
         metadata=freeze_json_mapping(metadata or {}),
     )
 

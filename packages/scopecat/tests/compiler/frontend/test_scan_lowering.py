@@ -30,7 +30,7 @@ _FREQUENCY = sc.ScalarType(sc.QuantityType(unit="GHz"))
 
 
 def _point(axis_id: str):
-    return sc.point(axis_id, _FREQUENCY)
+    return sc.coordinate(axis_id, _FREQUENCY)
 
 
 def test_explicit_scan_lowers_to_a_structural_axis_with_normalized_values() -> None:
@@ -118,7 +118,7 @@ def test_parameter_scan_forms_are_mutually_exclusive_and_complete() -> None:
 def test_parameter_around_scan_requires_a_quantity_point() -> None:
     with pytest.raises(TypeError, match="typed quantity point"):
         sc.param_axis(
-            sc.point("gain", sc.ScalarType(sc.FloatType())),
+            sc.coordinate("gain", sc.ScalarType(sc.FloatType())),
             sc.param_row("device_parameters", device="q0"),
             "gain",
             span="0.2 ratio",

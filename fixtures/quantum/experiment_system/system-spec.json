@@ -430,12 +430,6 @@
       },
       {
         "instrument_id": "readout-stack",
-        "capability": "submit_backend_batch",
-        "entity_id": "q0",
-        "channel_id": "readout-q0"
-      },
-      {
-        "instrument_id": "readout-stack",
         "capability": "acquire_iq",
         "entity_id": "q0",
         "channel_id": "readout-q0"
@@ -448,12 +442,6 @@
       },
       {
         "instrument_id": "readout-stack",
-        "capability": "submit_backend_batch",
-        "entity_id": "q1",
-        "channel_id": "readout-q1"
-      },
-      {
-        "instrument_id": "readout-stack",
         "capability": "acquire_iq",
         "entity_id": "q1",
         "channel_id": "readout-q1"
@@ -466,12 +454,6 @@
       },
       {
         "instrument_id": "readout-stack",
-        "capability": "submit_backend_batch",
-        "entity_id": "q2",
-        "channel_id": "readout-q2"
-      },
-      {
-        "instrument_id": "readout-stack",
         "capability": "acquire_iq",
         "entity_id": "q2",
         "channel_id": "readout-q2"
@@ -479,12 +461,6 @@
       {
         "instrument_id": "readout-stack",
         "capability": "readout_pulse",
-        "entity_id": "q3",
-        "channel_id": "readout-q3"
-      },
-      {
-        "instrument_id": "readout-stack",
-        "capability": "submit_backend_batch",
         "entity_id": "q3",
         "channel_id": "readout-q3"
       },

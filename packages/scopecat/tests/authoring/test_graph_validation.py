@@ -325,7 +325,7 @@ def test_product_axis_rejects_external_operation_value() -> None:
 
 
 def test_product_axis_rejects_point_dependent_value() -> None:
-    size = sc.point("axis-size", sc.ScalarType(sc.IntType(minimum=1)))
+    size = sc.coordinate("axis-size", sc.ScalarType(sc.IntType(minimum=1)))
     module = (
         sc.module_body(id="test.stage.record-point")
         .product("signal", axes=(sc.product_axis("sample", size=size),))

@@ -2,10 +2,19 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+import inspect
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, NoReturn, Protocol
+from typing import (
+    TYPE_CHECKING,
+    Concatenate,
+    NoReturn,
+    Protocol,
+    cast,
+    get_type_hints,
+    overload,
+)
 
 from pydantic import BaseModel
 
@@ -314,9 +323,142 @@ class AnalysisContext:
 
 
 class AnalysisStep(Protocol):
-    id: str
+    @property
+    def id(self) -> str: ...
 
     def run(self, context: AnalysisContext) -> Analysis: ...
+
+
+type AnalysisFunction = Callable[..., Analysis]
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class AnalysisInvocation:
+    """One configured function-backed analysis step."""
+
+    id: str
+    _definition: AnalysisFunction
+    arguments: tuple[tuple[str, object], ...]
+
+    def run(self, context: AnalysisContext) -> Analysis:
+        """Evaluate the analysis function against one completed run."""
+
+        return self._definition(context, **dict(self.arguments))
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class AnalysisDefinition[**P]:
+    """A reusable analysis function retaining its configuration signature."""
+
+    id: str
+    _definition: Callable[Concatenate[AnalysisContext, P], Analysis]
+
+    @property
+    def __wrapped__(self) -> Callable[Concatenate[AnalysisContext, P], Analysis]:
+        return self._definition
+
+    @property
+    def __name__(self) -> str:
+        return self._definition.__name__
+
+    @property
+    def __signature__(self) -> inspect.Signature:
+        source = inspect.signature(self._definition)
+        return source.replace(
+            parameters=tuple(source.parameters.values())[1:],
+            return_annotation=AnalysisInvocation,
+        )
+
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> AnalysisInvocation:
+        """Bind analysis configuration without attaching it to a run yet."""
+
+        bound = self.__signature__.bind(*args, **kwargs)
+        return AnalysisInvocation(
+            id=self.id,
+            _definition=cast("AnalysisFunction", self._definition),
+            arguments=tuple(bound.arguments.items()),
+        )
+
+
+@overload
+def analysis_step[**P](
+    definition: Callable[Concatenate[AnalysisContext, P], Analysis],
+    /,
+    *,
+    id: str | None = None,
+) -> AnalysisDefinition[P]: ...
+
+
+@overload
+def analysis_step[**P](
+    definition: None = None,
+    /,
+    *,
+    id: str | None = None,
+) -> Callable[
+    [Callable[Concatenate[AnalysisContext, P], Analysis]],
+    AnalysisDefinition[P],
+]: ...
+
+
+def analysis_step[**P](
+    definition: Callable[Concatenate[AnalysisContext, P], Analysis] | None = None,
+    /,
+    *,
+    id: str | None = None,  # noqa: A002
+) -> (
+    AnalysisDefinition[P]
+    | Callable[
+        [Callable[Concatenate[AnalysisContext, P], Analysis]],
+        AnalysisDefinition[P],
+    ]
+):
+    """Define a reusable analysis step from a typed Python function."""
+
+    def decorate(
+        fn: Callable[Concatenate[AnalysisContext, P], Analysis],
+    ) -> AnalysisDefinition[P]:
+        return _analysis_definition(fn, id=id)
+
+    return decorate(definition) if definition is not None else decorate
+
+
+def _analysis_definition[**P](
+    fn: Callable[Concatenate[AnalysisContext, P], Analysis],
+    *,
+    id: str | None,  # noqa: A002
+) -> AnalysisDefinition[P]:
+    signature = inspect.signature(fn)
+    parameters = tuple(signature.parameters.values())
+    if not parameters or parameters[0].kind not in (
+        inspect.Parameter.POSITIONAL_ONLY,
+        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+    ):
+        raise TypeError("analysis functions require AnalysisContext first")
+    for parameter in parameters[1:]:
+        if parameter.kind in (
+            inspect.Parameter.POSITIONAL_ONLY,
+            inspect.Parameter.VAR_POSITIONAL,
+            inspect.Parameter.VAR_KEYWORD,
+        ):
+            raise TypeError("analysis configuration requires named parameters")
+    hints = cast("Mapping[str, object]", get_type_hints(fn))
+    context_annotation = hints.get(
+        parameters[0].name,
+        cast("object", parameters[0].annotation),
+    )
+    if context_annotation is not AnalysisContext:
+        raise TypeError("analysis functions require an AnalysisContext annotation")
+    return_annotation = hints.get(
+        "return",
+        cast("object", signature.return_annotation),
+    )
+    if return_annotation is not Analysis:
+        raise TypeError("analysis functions must return Analysis")
+    selected_id = id or f"{fn.__module__}.{fn.__qualname__}"
+    if not selected_id.strip():
+        raise ValueError("analysis id must be non-empty")
+    return AnalysisDefinition(id=selected_id, _definition=fn)
 
 
 def _select_candidate_proposals(
@@ -403,8 +545,11 @@ def _raise_analysis_problem(
 __all__ = [
     "Analysis",
     "AnalysisContext",
+    "AnalysisDefinition",
     "AnalysisInput",
+    "AnalysisInvocation",
     "AnalysisOutput",
     "AnalysisStep",
     "SavedAnalysis",
+    "analysis_step",
 ]

@@ -1,6 +1,6 @@
 {
   "schema_version": "quantum_lab_demo.virtual_lab_profile.v1",
-  "id": "quantum_lab_demo.experiments_templates.virtual_lab",
+  "id": "quantum_lab_demo.virtual_lab",
   "devices": [
     {
       "id": "drive-stack",

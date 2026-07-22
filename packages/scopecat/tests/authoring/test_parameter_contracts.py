@@ -264,7 +264,7 @@ def test_parameter_contract_survives_scan_lowering() -> None:
         kind="parameter_contract",
         scans=(
             sc.axis(
-                sc.point(
+                sc.coordinate(
                     "frequency",
                     sc.ScalarType(sc.QuantityType()),
                 ),
@@ -311,7 +311,7 @@ def test_parameter_scan_target_is_checked_against_catalog_column(
     expected_code: str,
 ) -> None:
     scan = sc.param_axis(
-        sc.point("scanned_value", point_type),
+        sc.coordinate("scanned_value", point_type),
         sc.param_row("device_parameters", device="q0"),
         column,
         values,
@@ -335,7 +335,7 @@ def test_parameter_scan_target_is_checked_against_catalog_column(
 
 def test_parameter_scan_retains_row_key_parameter_contracts() -> None:
     scan = sc.param_axis(
-        sc.point(
+        sc.coordinate(
             "scanned_frequency",
             sc.ScalarType(sc.QuantityType(unit="GHz")),
         ),
@@ -369,7 +369,7 @@ def test_parameter_scan_retains_row_key_parameter_contracts() -> None:
 
 def test_parameter_around_scan_materializes_about_the_current_table_cell() -> None:
     config = _config_with_parameter_table()
-    frequency = sc.point(
+    frequency = sc.coordinate(
         "scanned_frequency",
         sc.ScalarType(sc.QuantityType(unit="GHz")),
     )

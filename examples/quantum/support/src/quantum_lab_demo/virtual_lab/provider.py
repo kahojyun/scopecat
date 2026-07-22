@@ -109,7 +109,7 @@ class _VirtualInstrumentDriver:
 
 
 class QuantumDriveStack(_VirtualInstrumentDriver):
-    implementation_id = "quantum_lab_demo.experiments_drive_stack"
+    implementation_id = "quantum_lab_demo.virtual_lab.drive_stack"
     implementation_version = "v0"
 
     def __init__(self, *, device: VirtualDevice) -> None:
@@ -141,7 +141,7 @@ class QuantumDriveStack(_VirtualInstrumentDriver):
 
 
 class QuantumReadoutStack(_VirtualInstrumentDriver):
-    implementation_id = "quantum_lab_demo.experiments_readout_stack"
+    implementation_id = "quantum_lab_demo.virtual_lab.readout_stack"
     implementation_version = "v0"
 
     def __init__(self, *, device: VirtualDevice) -> None:
@@ -153,14 +153,9 @@ class QuantumReadoutStack(_VirtualInstrumentDriver):
                 capability(
                     "readout_pulse",
                     fields=[
-                        payload_field("program", schema_id="readout_program"),
                         quantity_field("frequency", unit="GHz"),
                         quantity_field("power", unit="dBm"),
                     ],
-                ),
-                capability(
-                    "submit_backend_batch",
-                    fields=[payload_field("job", schema_id="backend_job")],
                 ),
                 capability(
                     "acquire_iq",
@@ -174,35 +169,6 @@ class QuantumReadoutStack(_VirtualInstrumentDriver):
                             dtype="complex128",
                             unit="ratio",
                             axes=[product_axis("qubit", kind="entity")],
-                        ),
-                        product(
-                            "qnd_iq",
-                            dtype="complex128",
-                            unit="ratio",
-                            axes=[
-                                product_axis("round", kind="repeat", unit="count"),
-                                product_axis("shot", kind="shot", unit="count"),
-                            ],
-                        ),
-                        product(
-                            "stabilizer_iq",
-                            dtype="complex128",
-                            unit="ratio",
-                            axes=[
-                                product_axis("round", kind="repeat", unit="count"),
-                                product_axis("qubit", kind="entity"),
-                            ],
-                        ),
-                        product(
-                            "backend_probabilities",
-                            unit="ratio",
-                            axes=[
-                                product_axis(
-                                    "backend_point",
-                                    kind="backend_point",
-                                    unit="count",
-                                ),
-                            ],
                         ),
                         product("state0_iq", dtype="complex128", unit="ratio"),
                         product("state1_iq", dtype="complex128", unit="ratio"),
@@ -230,7 +196,7 @@ class QuantumReadoutStack(_VirtualInstrumentDriver):
 
 
 class QuantumCouplerStack(_VirtualInstrumentDriver):
-    implementation_id = "quantum_lab_demo.experiments_coupler_stack"
+    implementation_id = "quantum_lab_demo.virtual_lab.coupler_stack"
     implementation_version = "v0"
 
     def __init__(self, *, device: VirtualDevice) -> None:
@@ -339,7 +305,7 @@ class QuantumLabVirtualProvider(_VirtualLabProvider):
     def __init__(
         self,
         profile: VirtualLabProfileInput,
-        provider_id: str = "quantum_lab_demo.experiments_provider",
+        provider_id: str = "quantum_lab_demo.virtual_lab.provider",
     ) -> None:
         super().__init__(
             profile=profile,

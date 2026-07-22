@@ -76,6 +76,7 @@ def test_selected_product_lowers_schema_and_acquisition_metadata_independently(
     assert core_acquisitions(resolved.experiment)[0].products[0].metadata == {
         "adapter_mode": "fast"
     }
+    assert [record.id for record in resolved.experiment.record_uses] == ["signal"]
 
 
 def test_acquire_is_an_ordered_effect_with_source_provenance() -> None:

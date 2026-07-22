@@ -10,20 +10,26 @@ if TYPE_CHECKING:
     from scopecat.api.analysis import (
         Analysis,
         AnalysisContext,
+        AnalysisDefinition,
         AnalysisInput,
+        AnalysisInvocation,
         AnalysisOutput,
         AnalysisStep,
         SavedAnalysis,
+        analysis_step,
     )
 
 _EXPORTS = {
     "Analysis": ("scopecat.api.analysis", "Analysis"),
     "AnalysisContext": ("scopecat.api.analysis", "AnalysisContext"),
+    "AnalysisDefinition": ("scopecat.api.analysis", "AnalysisDefinition"),
     "AnalysisInput": ("scopecat.api.analysis", "AnalysisInput"),
+    "AnalysisInvocation": ("scopecat.api.analysis", "AnalysisInvocation"),
     "AnalysisOutput": ("scopecat.api.analysis", "AnalysisOutput"),
     "AnalysisStep": ("scopecat.api.analysis", "AnalysisStep"),
     "EarlyStopDecision": ("scopecat.analysis.online", "EarlyStopDecision"),
     "SavedAnalysis": ("scopecat.api.analysis", "SavedAnalysis"),
+    "analysis_step": ("scopecat.api.analysis", "analysis_step"),
     "decide_online_convergence": (
         "scopecat.analysis.online",
         "decide_online_convergence",
@@ -44,10 +50,13 @@ def __getattr__(name: str) -> object:
 __all__ = [
     "Analysis",
     "AnalysisContext",
+    "AnalysisDefinition",
     "AnalysisInput",
+    "AnalysisInvocation",
     "AnalysisOutput",
     "AnalysisStep",
     "EarlyStopDecision",
     "SavedAnalysis",
+    "analysis_step",
     "decide_online_convergence",
 ]

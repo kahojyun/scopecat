@@ -48,14 +48,10 @@ def test_program_decorator_infers_ports_identity_description_and_results() -> No
     assert x_count.results[0] is x_count.results["iq_shots"]
     assert x_count.results.iq_shots is x_count.results[0]
     signature = inspect.signature(x_count)
-    assert tuple(signature.parameters) == ("qubit", "count", "shots")
-    assert signature.parameters["shots"].kind is inspect.Parameter.KEYWORD_ONLY
-    assert cast("object", signature.parameters["shots"].default) == 1
+    assert tuple(signature.parameters) == ("qubit", "count")
     assert cast("object", signature.return_annotation) is authoring.QuantumProgramCall
     assert x_count.__wrapped__.__name__ == "x_count"
     assert isinstance(x_count, authoring.ProgramDefinition)
-    with pytest.raises(KeyError):
-        _ = x_count.results["missing"]
 
 
 def test_program_decorator_preserves_signature_order_and_rejects_unused_ports() -> None:
@@ -169,7 +165,7 @@ def test_fragment_expansion_rejects_results_and_cycles() -> None:
         authoring.bind(invalid_cycle, {"qubit": "q0"})
 
 
-def test_program_decorator_rejects_mismatched_and_reserved_ports() -> None:
+def test_program_decorator_rejects_mismatched_ports() -> None:
     x = authoring.single_qubit_gate("x")
 
     with pytest.raises(TypeError, match="Python annotation is incompatible"):
@@ -181,18 +177,6 @@ def test_program_decorator_rejects_mismatched_and_reserved_ports() -> None:
         ) -> authoring.QuantumFragment:
             return authoring.sequence(
                 authoring.repeat(x(qubit), cast("int", cast("object", count))),
-                authoring.measure(qubit, result="iq"),
-            )
-
-    with pytest.raises(ValueError, match="reserved port ids: 'shots'"):
-
-        @authoring.program
-        def reserved(  # pyright: ignore[reportUnusedFunction]
-            qubit: authoring.Qubit,
-            shots: int,
-        ) -> authoring.QuantumFragment:
-            return authoring.sequence(
-                authoring.repeat(x(qubit), shots),
                 authoring.measure(qubit, result="iq"),
             )
 
@@ -221,11 +205,11 @@ def test_program_call_owns_domain_effect_shots_and_named_products() -> None:
         )
 
     call = assert_type(
-        x_count("q0", 2, shots=32),
+        x_count("q0", 2).with_shots(32),
         authoring.QuantumProgramCall,
     )
-    with pytest.raises(TypeError, match="missing a required argument: 'count'"):
-        x_count("q0", shots=32)
+    assert call.shots == 32
+    assert call.arguments == (("qubit", "q0"), ("count", 2))
     module = call.module_invocation.module
     assert call.module_invocation.instance_id == "call"
     assert [port.id for port in module.input_ports] == [
@@ -260,10 +244,13 @@ def test_repeated_program_calls_require_explicit_instances() -> None:
     declaration = authoring._close_program("test.quantum.repeated", readout)
 
     with pytest.raises(ValueError, match="duplicate instance ids"):
-        sc.experiment(declaration(shots=8), declaration(shots=8))
+        sc.experiment(
+            declaration().with_shots(8),
+            declaration().with_shots(8),
+        )
 
-    left = declaration.call("left", shots=8)
-    right = declaration.call("right", shots=8)
+    left = declaration.call("left").with_shots(8)
+    right = declaration.call("right").with_shots(8)
     body = sc.experiment(left, right)
     assert [item.instance_id for item in body.module.invocations] == ["left", "right"]
     assert left.results.iq.id == "left/iq"
@@ -276,7 +263,7 @@ def test_parent_transform_consumes_program_call_result() -> None:
         "test.quantum.discriminate",
         authoring.measure(q0, result="iq_shots"),
     )
-    call = declaration(shots=16)
+    call = declaration().with_shots(16)
     body = sc.module_body().use(call).product("probability_0", "probability_1")
     transform = binary_iq_probability_transform(
         "discriminate",
@@ -312,7 +299,7 @@ def test_program_call_derives_raw_trace_product_from_result_contract() -> None:
     )
     declaration = authoring._close_program("test.quantum.raw", raw)
 
-    call = declaration(shots=8)
+    call = declaration().with_shots(8)
     [product] = call.module_invocation.module.product_declarations
 
     assert raw.result.contract.acquisition_kind is AcquisitionKind.RAW_TRACE
@@ -339,7 +326,7 @@ def test_result_axis_size_is_a_declared_program_input() -> None:
         )
 
     assert [port.id for port in trace.ports] == ["qubit", "samples"]
-    call = trace("q0", 16, shots=8)
+    call = trace("q0", 16).with_shots(8)
     assert [port.id for port in call.module_invocation.module.input_ports] == [
         "qubit",
         "samples",

@@ -32,8 +32,11 @@ from scopecat.sdk.instruments import (
     InstrumentStateSnapshot,
 )
 
-from quantum_lab_demo.experiments import SIMULTANEOUS_RABI_TEMPLATE
 from quantum_lab_demo.fixtures import EXPERIMENT_FIXTURE_DIR
+from quantum_lab_demo.scenarios.opaque_collection import (
+    GATE_DURATION,
+    parallel_gate_set_template,
+)
 from quantum_lab_demo.virtual_lab.provider import QuantumLabVirtualProvider
 from quantum_lab_demo.virtual_lab.wiring import (
     compile_quantum_wiring_system,
@@ -191,7 +194,15 @@ def test_default_quantum_wiring_runtime_commands_include_channel_bindings(
 ) -> None:
     config = quantum_wiring_config_profile()
     resolved = resolve_experiment(
-        SIMULTANEOUS_RABI_TEMPLATE.bind(qubits=("q0", "q1")),
+        parallel_gate_set_template.bind(
+            gates=(
+                {
+                    "control_qubit": "q0",
+                    "partner_qubit": "q1",
+                    "gate": "cz",
+                },
+            )
+        ).scan(GATE_DURATION, [28], unit="ns"),
         config_profile=config,
     )
     provider = _RecordingProvider(

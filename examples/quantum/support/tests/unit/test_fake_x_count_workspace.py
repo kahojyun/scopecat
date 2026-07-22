@@ -13,7 +13,7 @@ from scopecat.adapters.filesystem.execution import (
 )
 from scopecat.compiler.linking.linked import LinkedPointMaterializer
 from scopecat.execution.observation import RuntimeEvent, RuntimeTransitionEvent
-from scopecat.kernel.errors import CheckFailed, RunFailed, RunIndeterminate
+from scopecat.kernel.errors import RunFailed, RunIndeterminate
 from scopecat.kernel.problems import (
     ProblemCategory,
     ProblemPhase,
@@ -39,32 +39,6 @@ from quantum_lab_demo import (
     quantum_lab,
     quantum_lab_compiler,
 )
-from quantum_lab_demo.experiments import READOUT_TEMPLATE
-from quantum_lab_demo.reference_experiments.cz_phase_calibration import (
-    cz_conditional_phase,
-)
-from quantum_lab_demo.reference_experiments.cz_phase_experiment import (
-    cz_phase_template,
-)
-from quantum_lab_demo.reference_experiments.drag_beta_experiment import (
-    drag_beta_program,
-    drag_beta_template,
-)
-from quantum_lab_demo.reference_experiments.fake_x_count_experiment import (
-    X_COUNT,
-    fake_x_count_capture,
-    fake_x_count_scratch_experiment,
-    fake_x_count_template,
-    x_count_program,
-)
-from quantum_lab_demo.reference_experiments.production_drag_gate import (
-    production_drag_program,
-    production_drag_template,
-)
-from quantum_lab_demo.reference_experiments.ramsey_phase_experiment import (
-    ramsey_phase_program,
-    ramsey_phase_template,
-)
 from quantum_lab_demo.targets.fake_list_mode import (
     FakeListDomainRuntime,
     FakeListRun,
@@ -77,6 +51,31 @@ from quantum_lab_demo.virtual_lab.calibrations import (
 )
 from quantum_lab_demo.virtual_lab.quantum_responses import (
     quantum_lab_response_registry,
+)
+from quantum_lab_demo.workflows.cz_phase_calibration import (
+    cz_conditional_phase,
+)
+from quantum_lab_demo.workflows.cz_phase_experiment import (
+    cz_phase_template,
+)
+from quantum_lab_demo.workflows.drag_beta_experiment import (
+    drag_beta_program,
+    drag_beta_template,
+)
+from quantum_lab_demo.workflows.fake_x_count_experiment import (
+    X_COUNT,
+    fake_x_count_capture,
+    fake_x_count_scratch,
+    fake_x_count_template,
+    x_count_program,
+)
+from quantum_lab_demo.workflows.production_drag_gate import (
+    production_drag_program,
+    production_drag_template,
+)
+from quantum_lab_demo.workflows.ramsey_phase_experiment import (
+    ramsey_phase_program,
+    ramsey_phase_template,
 )
 
 
@@ -265,7 +264,7 @@ def test_fake_x_count_authoring_paths_share_one_standard_domain_semantics(
             lab.prepare(fake_x_count_template)
             if authoring == "template"
             else lab.prepare(
-                fake_x_count_scratch_experiment(
+                fake_x_count_scratch(
                     x_counts=(0, 1, 2, 4),
                 ),
             )
@@ -361,7 +360,7 @@ def test_fake_x_count_compiler_projects_zipped_axis_without_binding(
         "bind_domain_inputs",
         reject_input_binding,
     )
-    auxiliary = sc.point("auxiliary", sc.ScalarType(sc.IntType()))
+    auxiliary = sc.coordinate("auxiliary", sc.ScalarType(sc.IntType()))
     capture = fake_x_count_capture.instantiate("capture", x_count=X_COUNT)
 
     @sc.template(id="test.fake-x-count.zip", kind="fake_x_count")
@@ -431,25 +430,6 @@ def test_two_ordered_domain_calls_share_target_and_produce_canonical_results(
     ]
     assert len(submission_operations) == 2
     assert len(set(submission_operations)) == 2
-
-
-def test_domain_only_system_reports_missing_local_provider(
-    tmp_path: Path,
-) -> None:
-    lab = quantum_lab(workspace=tmp_path)
-    experiment = lab.prepare(
-        READOUT_TEMPLATE,
-        system=_domain_only(quantum_lab_compiler()),
-    )
-    experiment = experiment.input("qubit", "q0")
-
-    report = experiment.check()
-
-    assert not report.ok
-    assert report.problems[0].code == "local_instrument_provider_missing"
-    with pytest.raises(CheckFailed):
-        experiment.run()
-    assert lab.runs() == ()
 
 
 @pytest.mark.parametrize("compiler", [_RaisingCompiler(), _WrongResultCompiler()])

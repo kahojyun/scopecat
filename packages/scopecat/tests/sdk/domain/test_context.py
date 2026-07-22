@@ -35,7 +35,7 @@ def _domain_scenario(
     portability: MeasurementTransformPortability = "host_only",
 ) -> MaterializedLinkedPoints:
     count_type = sc.ScalarType(sc.IntType(minimum=0))
-    count = sc.point(f"{namespace}_count", count_type)
+    count = sc.coordinate(f"{namespace}_count", count_type)
     program = sc.domain_program(
         "program",
         dialect_id="test.context",

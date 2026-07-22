@@ -11,7 +11,7 @@ from scopecat.kernel.problems import model_location
 
 def _quantity_scan_parts() -> tuple[sc.ValueRef, sc.Compute]:
     quantity_type = sc.ScalarType(sc.QuantityType(unit="GHz"))
-    target = sc.point("frequency", quantity_type)
+    target = sc.coordinate("frequency", quantity_type)
     center = sc.compute(
         "compute-center",
         fn=lambda: sc.Quantity(value=5.0, unit="GHz"),
@@ -75,7 +75,7 @@ def test_parameter_scan_key_rejects_external_operation() -> None:
         fn=lambda: "q0",
         output_type=entity_type,
     )
-    target = sc.point("gain", sc.ScalarType(sc.FloatType()))
+    target = sc.coordinate("gain", sc.ScalarType(sc.FloatType()))
     module = sc.module_body(id="test.scan-stage.parameter-key").computes(key).build()
     call = module()
     scan = sc.param_axis(

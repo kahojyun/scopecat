@@ -14,15 +14,15 @@ from scopecat_quantum import (
 )
 
 from quantum_lab_demo import quantum_lab, quantum_lab_compiler
-from quantum_lab_demo.reference_experiments.drag_beta_calibration import (
+from quantum_lab_demo.workflows.drag_beta_calibration import (
     X90_CALIBRATION_ID,
 )
-from quantum_lab_demo.reference_experiments.ramsey_phase_experiment import (
+from quantum_lab_demo.workflows.ramsey_phase_experiment import (
     PHASE,
-    RAMSEY_X90_PULSE_TEMPLATE,
     X90_CANDIDATE_ID,
     ramsey_phase_program,
     ramsey_phase_template,
+    ramsey_x90_candidate,
 )
 
 
@@ -63,7 +63,7 @@ def test_ramsey_program_runs_through_the_shared_compiler(tmp_path: Path) -> None
     assert any(
         isinstance(item, ImplementedGatePulseEventProvenance)
         and item.candidate_id == X90_CANDIDATE_ID
-        and item.template_program_id.value == RAMSEY_X90_PULSE_TEMPLATE.id
+        and item.template_program_id.value == ramsey_x90_candidate.id
         for item in provenance
     )
     assert any(isinstance(item, AuthoredPulseEventProvenance) for item in provenance)

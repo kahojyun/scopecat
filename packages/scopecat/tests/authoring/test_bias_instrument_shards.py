@@ -183,8 +183,8 @@ def _bias_invocation() -> authoring.ExperimentInvocation:
         )
         .build()
     )
-    target_point = authoring.point("target", _ENTITY)
-    bias_point = authoring.point("scan_bias", _BIAS)
+    target_point = authoring.coordinate("target", _ENTITY)
+    bias_point = authoring.coordinate("scan_bias", _BIAS)
     template = template_fixture(
         module,
         id="test.bias-shards.scan-target",

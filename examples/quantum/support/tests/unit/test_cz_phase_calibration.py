@@ -18,27 +18,27 @@ from scopecat_quantum import (
 from scopecat_quantum import authoring as quantum
 
 from quantum_lab_demo import quantum_lab, quantum_lab_compiler
-from quantum_lab_demo.reference_experiments.cz_phase_analysis import (
-    CZ_PHASE_PROPOSAL_ID,
-    analyze_cz_phase_run,
-)
-from quantum_lab_demo.reference_experiments.cz_phase_calibration import (
-    CZ_CANDIDATE_ID,
-    CZ_FLUX_PULSE_TEMPLATE,
-    cz_conditional_phase,
-)
-from quantum_lab_demo.reference_experiments.cz_phase_experiment import (
-    ANALYZER_PHASE,
-    CONTROL_STATE,
-    CZ_AMPLITUDE,
-    cz_phase_capture,
-    cz_phase_template,
-)
 from quantum_lab_demo.virtual_lab.parameters import (
     CZ_AMPLITUDE_PARAMETER_COLUMN,
     TWO_QUBIT_GATE_PARAMETER_TABLE,
     q0_q1_cz_amplitude_lookup,
     q0_q1_cz_row,
+)
+from quantum_lab_demo.workflows.cz_phase_analysis import (
+    CZ_PHASE_PROPOSAL_ID,
+    analyze_cz_phase_run,
+)
+from quantum_lab_demo.workflows.cz_phase_calibration import (
+    CZ_CANDIDATE_ID,
+    cz_conditional_phase,
+    cz_flux_candidate,
+)
+from quantum_lab_demo.workflows.cz_phase_experiment import (
+    ANALYZER_PHASE,
+    CONTROL_STATE,
+    CZ_AMPLITUDE,
+    cz_phase_capture,
+    cz_phase_template,
 )
 
 
@@ -103,7 +103,7 @@ def test_cz_phase_program_keeps_two_qubit_gate_and_coupler_pulse_provenance(
     )
     assert candidate.gate_id.value == "cz"
     assert candidate.candidate_id == CZ_CANDIDATE_ID
-    assert candidate.template_program_id.value == CZ_FLUX_PULSE_TEMPLATE.id
+    assert candidate.template_program_id.value == cz_flux_candidate.id
     candidate_event = next(
         event for event in prepared.scheduled.events if event.id == candidate.event_id
     )

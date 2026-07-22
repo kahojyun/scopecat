@@ -38,7 +38,7 @@ from tests.testkit.authoring import load_config
 
 def _context(tmp_path: Path, *, namespace: str) -> DomainBatchContext:
     count_type = sc.ScalarType(sc.IntType(minimum=0))
-    count = sc.point(f"{namespace}_count", count_type)
+    count = sc.coordinate(f"{namespace}_count", count_type)
     program = sc.domain_program(
         "program",
         dialect_id="test.sdk.measurements",

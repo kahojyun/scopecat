@@ -26,7 +26,7 @@ them.
 The quantum learning path is the most complete runnable introduction:
 
 ```sh
-uv run python examples/quantum/notebooks/01_open_workspace.py
+uv run python examples/quantum/notebooks/getting_started/01_open_workspace.py
 ```
 
 Continue with [the quantum examples](examples/quantum/README.md). The package

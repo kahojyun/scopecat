@@ -559,7 +559,7 @@ def test_same_name_inputs_pass_through_multiple_module_boundaries() -> None:
         kind="same_name",
         scans=(
             axis(
-                authoring.point("value", scalar_type),
+                authoring.coordinate("value", scalar_type),
                 (0.25, 0.5),
             ),
         ),
@@ -651,7 +651,7 @@ def test_scan_points_are_coerced_by_same_named_scalar_input_type() -> None:
         kind="scan_coercion",
         scans=(
             axis(
-                authoring.point(
+                authoring.coordinate(
                     "value",
                     authoring.ScalarType(authoring.FloatType()),
                 ),
@@ -686,7 +686,7 @@ def test_scan_points_reject_same_named_scalar_input_constraint_violation() -> No
             kind="scan_constraint",
             scans=(
                 axis(
-                    authoring.point(
+                    authoring.coordinate(
                         "count",
                         authoring.ScalarType(authoring.IntType(minimum=1)),
                     ),
@@ -1017,7 +1017,7 @@ def test_table_input_drives_child_state_with_outer_scanned_input() -> None:
         kind="collection_state",
         scans=(
             axis(
-                authoring.point(
+                authoring.coordinate(
                     "point_bias",
                     authoring.ScalarType(authoring.FloatType()),
                 ),
@@ -1379,7 +1379,7 @@ def test_state_each_resolves_inputs_nested_inside_a_relation() -> None:
         kind="collection_state",
         scans=(
             axis(
-                authoring.point(
+                authoring.coordinate(
                     "bias",
                     authoring.ScalarType(authoring.FloatType()),
                 ),
@@ -1464,7 +1464,7 @@ def test_state_each_preserves_outer_scope_across_two_module_boundaries() -> None
         kind="collection_state",
         scans=(
             axis(
-                authoring.point(
+                authoring.coordinate(
                     "point_bias",
                     authoring.ScalarType(authoring.FloatType()),
                 ),

@@ -154,7 +154,7 @@ def test_entity_resource_selection_is_deterministic_across_instruments() -> None
         kind="resource_binding_contract",
         scans=(
             axis(
-                authoring.point(
+                authoring.coordinate(
                     "qubit",
                     authoring.ScalarType(
                         authoring.EntityType(entity_kind="logical_device")
@@ -254,7 +254,7 @@ def test_acquisition_selects_point_local_instruments_and_channels(
         kind="resource_binding_contract",
         scans=(
             axis(
-                authoring.point(
+                authoring.coordinate(
                     "qubit",
                     authoring.ScalarType(
                         authoring.EntityType(entity_kind="logical_device")
@@ -350,7 +350,7 @@ def test_action_selects_point_local_instruments_and_channels() -> None:
         kind="resource_binding_contract",
         scans=(
             axis(
-                authoring.point(
+                authoring.coordinate(
                     "qubit",
                     authoring.ScalarType(
                         authoring.EntityType(entity_kind="logical_device")
@@ -493,7 +493,7 @@ def test_switch_path_action_keeps_the_analyzer_binding_fixed() -> None:
             ),
         ),
     )
-    path = authoring.point(
+    path = authoring.coordinate(
         "path",
         authoring.ScalarType(authoring.StringType()),
     )

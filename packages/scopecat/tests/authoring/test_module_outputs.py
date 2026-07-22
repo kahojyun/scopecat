@@ -489,7 +489,7 @@ def test_output_roots_preserve_free_inputs_and_value_provenance() -> None:
     value_type = sc.ScalarType(sc.FloatType())
     value = sc.input("value", value_type)
     parameter = sc.parameter("output_parameter", value_type)
-    point = sc.point("output_point", value_type)
+    point = sc.coordinate("output_point", value_type)
     source = (
         sc.module_body(id="test.outputs.roots")
         .inputs(value)

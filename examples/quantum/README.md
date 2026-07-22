@@ -1,91 +1,93 @@
 # Scopecat Quantum Examples
 
-Executable quantum-flavored examples for learning the Scopecat workflow:
+Executable examples for learning the Scopecat workflow:
 
 ```text
 Quantum Program -> Module -> Template/Scratch -> Prepared Experiment -> Run -> Data
 ```
 
-The primary learning path is the cell-style Python notebooks in `notebooks/`.
-They are ordinary `# %%` files: run them top to bottom in VS Code or execute
-the notebook files directly from the command line. The demo lab code they
-import lives in `support/` as the `quantum_lab_demo` package. Treat that
-support package as copyable example lab code, not as a stable product API.
+The `# %%` Python files under `notebooks/` are the user-facing learning path.
+Run them top to bottom in an editor or as ordinary Python files. Reusable demo
+lab code lives in `support/` as `quantum_lab_demo`; it is copyable example code,
+not a stable product API.
 
-The demo `ExperimentSystem` shares one `QuantumLabCompiler` across every
-quantum program; notebooks 13 and 15 show calibration through the ordinary
-parameter proposal, review, and activation workflow.
+## Learning paths
 
-## Run The Core Learning Path
+Start with `getting_started/`, then choose a path by intent:
 
-From the repository root:
+| Directory | Responsibility |
+|---|---|
+| `notebooks/getting_started/` | Workspace, template, run, data, analysis, and candidate-config lifecycle. |
+| `notebooks/authoring/` | Recommended decorator and function authoring, from template/scratch through recursive quantum programs. |
+| `notebooks/calibration/` | Longer end-to-end parameter calibration and review workflows. |
+| `notebooks/integration/` | The opaque collection escape hatch for a target without a domain compiler. |
 
-```sh
-uv run python examples/quantum/notebooks/01_open_workspace.py
-uv run python examples/quantum/notebooks/02_define_experiment.py
-uv run python examples/quantum/notebooks/03_run_and_read_data.py
-uv run python examples/quantum/notebooks/04_manual_analysis.py
-uv run python examples/quantum/notebooks/05_promote_analysis_step.py
-uv run python examples/quantum/notebooks/06_rerun_candidate_config.py
-uv run python examples/quantum/notebooks/10_fake_awg_template.py
-uv run python examples/quantum/notebooks/11_fake_awg_scratch.py
-uv run python examples/quantum/notebooks/12_fake_awg_with_bias.py
-uv run python examples/quantum/notebooks/14_ramsey_phase_dsl.py
-uv run python examples/quantum/notebooks/15_cz_conditional_phase.py
-```
-
-Notebook 13 is the longer calibration lifecycle reference. Notebooks 07–09
-are coverage galleries for experiment families and backend shapes; they are
-useful when extending the demo, but are not prerequisites for authoring a
-normal experiment.
-
-For VS Code notebook/cell execution, sync the workspace environment first.
-The default sync includes the notebook kernel dependencies:
+For example:
 
 ```sh
-uv sync
+uv run python examples/quantum/notebooks/getting_started/01_open_workspace.py
+uv run python examples/quantum/notebooks/authoring/01_template_and_scratch.py
+uv run python examples/quantum/notebooks/authoring/03_point_bound_sequence.py
+uv run python examples/quantum/notebooks/calibration/01_drag_beta.py
 ```
 
-## Notebook Map
+## Notebook map
 
 | File | What it teaches |
 |---|---|
-| `notebooks/01_open_workspace.py` | Open the demo lab and inspect the workspace handle. |
-| `notebooks/02_define_experiment.py` | Define a reusable template from a module with a Python decorator. |
-| `notebooks/03_run_and_read_data.py` | Run once, keep the run in scope, and inspect `Run.data()`. |
-| `notebooks/04_manual_analysis.py` | Build one-off notebook analysis and candidate evidence. |
-| `notebooks/05_promote_analysis_step.py` | Replace repeated manual analysis with an `AnalysisStep`. |
-| `notebooks/06_rerun_candidate_config.py` | Run a follow-up experiment with a candidate config. |
-| `notebooks/07_gate_calibration_family.py` | Coverage gallery for related gate-calibration shapes. |
-| `notebooks/08_readout_family.py` | Coverage gallery for single, multiplexed, calibrated, and QND readout. |
-| `notebooks/09_system_scale_cases.py` | Coverage gallery for larger point domains and backend batches. |
-| `notebooks/10_fake_awg_template.py` | Run a reusable template against the fake AWG and digitizer target. |
-| `notebooks/11_fake_awg_scratch.py` | Run the same target through scratch experiment authoring. |
-| `notebooks/12_fake_awg_with_bias.py` | Combine a scalar bias source with a programmable quantum scan. |
-| `notebooks/13_drag_beta_calibration.py` | Scan an accepted gate parameter, then fit, review, activate, and roll it back. |
-| `notebooks/14_ramsey_phase_dsl.py` | Compose a Ramsey sequence from gates, pulses, frames, and acquisition. |
-| `notebooks/15_cz_conditional_phase.py` | Calibrate a physical CZ and produce a reviewable parameter proposal. |
+| `getting_started/01_open_workspace.py` | Open the demo lab and inspect the workspace. |
+| `getting_started/02_define_experiment.py` | Compose a reusable module into a template with a configurable scan. |
+| `getting_started/03_run_and_read_data.py` | Run an experiment and inspect `Run.data()`. |
+| `getting_started/04_manual_analysis.py` | Save one-off notebook analysis and candidate evidence. |
+| `getting_started/05_promote_analysis_step.py` | Promote repeated analysis with `@sc.analysis_step`. |
+| `getting_started/06_rerun_candidate_config.py` | Run a follow-up experiment with a candidate config. |
+| `authoring/01_template_and_scratch.py` | Compare reusable `@sc.template` and caller-configured `@sc.scratch`. |
+| `authoring/02_instrument_composition.py` | Compose a scalar instrument with a programmable quantum scan. |
+| `authoring/03_point_bound_sequence.py` | Generate a composable `@q.fragment` after length and seed bind per scan point. |
+| `authoring/04_recursive_results.py` | Derive dense result axes from nested `parallel` and `repeat`. |
+| `authoring/05_mixed_gate_pulse.py` | Mix gates, pulse templates, frames, and acquisition in one program. |
+| `calibration/01_drag_beta.py` | Fit, review, activate, and roll back a one-qubit gate parameter. |
+| `calibration/02_cz_phase.py` | Calibrate a two-qubit gate with an explicit coupler resource. |
+| `integration/01_opaque_collection.py` | Preserve one gate table as one opaque compute input when no domain compiler exists. |
 
-## Adapting The Demo
+## Support package responsibilities
 
-When copying this example into a lab repository, use the pieces that match the
-workflow you are building:
+The support package separates code by why it exists:
 
-| Goal | Start here |
+| Package | Responsibility |
 |---|---|
-| Learn reusable experiment definitions | `reference_experiments/fake_x_count_experiment.py` |
-| Browse broader shape coverage | `support/src/quantum_lab_demo/experiments/` |
-| Try one-off scans and product selection | `@sc.scratch` and `Workspace.prepare(...)` |
-| Generate a point-dependent gate sequence | `reference_experiments/single_qubit_rb.py` uses `@q.fragment`; Clifford length and seed remain ordinary scan axes. |
-| Change laboratory policy, parameters, calibration, or wiring | `support/src/quantum_lab_demo/virtual_lab/` |
-| Compose the lab or adapt quantum programs to a target | `support/src/quantum_lab_demo/lab.py`, `compiler.py`, and `targets/` |
-| Pass a collection without a domain compiler | The `parallel_gate_collection` cell in notebook 07 passes one tuple of rows into `PARALLEL_GATE_SET_MODULE`; the module keeps that `TableType` value intact through `sc.compute` and opaque payload rendering. |
-| Develop analysis and configuration proposals | notebooks 04–06 and the reusable analysis code under `support/` |
+| `quantum_lab_demo.workflows` | Recommended, user-copyable vertical workflows. Import a specific workflow module rather than a package-wide barrel. |
+| `quantum_lab_demo.scenarios` | Integration boundaries that intentionally depart from normal domain authoring. |
+| `quantum_lab_demo.virtual_lab.calibrations` | Calibration catalog installed by the fake laboratory. |
+| `quantum_lab_demo.virtual_lab.responses` | Deterministic response generation used by the fake laboratory. |
+| `quantum_lab_demo.targets` | Target compiler/runtime adapters. |
 
-The support package is one copyable way to organize repeated lab code, not a
-required project structure. The notebooks demonstrate the public workflow
-objects: `Workspace`, `ExperimentTemplate`, `ExperimentInvocation`, `Run`,
-`Data`, `Analysis`, and `CandidateConfig`.
+Tests have a separate job. Notebook tests only execute every learning-path file
+as documentation smoke tests. Exact artifact, provenance, shape, response, and
+configuration assertions live in `support/tests/`, so notebooks remain readable.
+
+## Capability matrix
+
+A quantum program call represents one experiment point. Length, seed, pulse
+parameters, and other varying values remain ordinary scan axes. Within that
+point, `q.sequence`, `q.parallel`, and `q.repeat` form one recursive program;
+result axes follow the same tree.
+
+| Scale or boundary | Required capability | Minimal coverage |
+|---|---|---|
+| Scalar instrument workflow | Module, template, scan, analysis, candidate config | `getting_started/02`–`06` |
+| Reusable versus one-off definition | `@sc.template` and `@sc.scratch` over the same semantics | `authoring/01_template_and_scratch.py` |
+| One qubit, generated sequence | Point-bound Python elaboration with length and seed scans | `authoring/03_point_bound_sequence.py` and `workflows/single_qubit_rb.py` |
+| Repeated multi-qubit acquisition | Recursive repeat and parallel result axes | `authoring/04_recursive_results.py` |
+| Pulse candidate | Mixed gates, pulses, frames, and accepted calibration | `authoring/05_mixed_gate_pulse.py` and `calibration/01_drag_beta.py` |
+| Two-qubit calibration | Gate semantics plus an explicit coupler resource | `calibration/02_cz_phase.py` |
+| No domain compiler | Preserve one collection as one opaque compute input | `integration/01_opaque_collection.py` |
+
+A program or circuit collection is not part of the normal model: static
+elements compose recursively, while experiment variation belongs to scan axes.
+The opaque collection notebook exists only for a target without a domain
+compiler. Raw-trace dtype and shape propagation similarly stay focused contract
+tests rather than another user-facing experiment.
 
 ## Checks
 
@@ -95,5 +97,3 @@ uv run --offline ruff check examples/quantum
 uv run --offline ruff format --check examples/quantum
 uv run --offline basedpyright
 ```
-
-The checks execute the notebook files end to end as ordinary Python programs.

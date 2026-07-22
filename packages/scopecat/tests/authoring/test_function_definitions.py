@@ -27,6 +27,7 @@ def test_module_decorator_closes_a_symbolic_function_once() -> None:
 
         nonlocal elaborations
         elaborations += 1
+        count_ref = assert_type(sc.input_ref(count), sc.ValueRef)
         return (
             sc.module_body()
             .resource("counter")
@@ -34,7 +35,7 @@ def test_module_decorator_closes_a_symbolic_function_once() -> None:
                 "set-count",
                 resource="counter",
                 capability="counter",
-                fields={"count": count},
+                fields={"count": count_ref},
             )
         )
 
@@ -94,6 +95,36 @@ def test_template_infers_identity_description_and_defaults() -> None:
         count_experiment(unknown=3)  # pyright: ignore[reportCallIssue]
 
 
+def test_analysis_decorator_preserves_configuration_signature() -> None:
+    evaluations = 0
+
+    @sc.analysis_step(id="readout.fit")
+    def readout_fit(
+        context: sc.AnalysisContext,
+        *,
+        qubit: str,
+        attempts: int = 2,
+    ) -> sc.Analysis:
+        nonlocal evaluations
+        evaluations += 1
+        return context.result(f"readout fit for {qubit}").note(str(attempts))
+
+    assert evaluations == 0
+    assert readout_fit.id == "readout.fit"
+    assert readout_fit.__wrapped__.__name__ == "readout_fit"
+    assert isinstance(readout_fit, sc.AnalysisDefinition)
+    signature = inspect.signature(readout_fit)
+    assert tuple(signature.parameters) == ("qubit", "attempts")
+    assert signature.return_annotation is sc.AnalysisInvocation
+    step = assert_type(readout_fit(qubit="q0"), sc.AnalysisInvocation)
+    assert step.id == "readout.fit"
+    assert step.arguments == (("qubit", "q0"),)
+
+    if TYPE_CHECKING:
+        readout_fit(qubit=1)  # pyright: ignore[reportArgumentType]
+        readout_fit(unknown="q0")  # pyright: ignore[reportCallIssue]
+
+
 def test_template_body_enriches_signature_input_metadata() -> None:
     @sc.module
     def count_source(count: Annotated[sc.Input[int], _COUNT_TYPE]):
@@ -126,7 +157,7 @@ def test_template_body_enriches_signature_input_metadata() -> None:
 
 
 def test_template_and_scratch_share_the_experiment_body_protocol() -> None:
-    count = sc.point("count", sc.ScalarType(_COUNT_TYPE))
+    count = sc.coordinate("count", sc.ScalarType(_COUNT_TYPE))
 
     @sc.module
     def count_source(value: Annotated[sc.Input[int], _COUNT_TYPE]):

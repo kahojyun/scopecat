@@ -108,8 +108,8 @@ def test_template_bind_rejects_known_input_errors_without_requiring_missing() ->
 
 
 def test_template_build_validates_default_scan_shape() -> None:
-    first = sc.point("first", sc.ScalarType(sc.FloatType()))
-    second = sc.point("second", sc.ScalarType(sc.FloatType()))
+    first = sc.coordinate("first", sc.ScalarType(sc.FloatType()))
+    second = sc.coordinate("second", sc.ScalarType(sc.FloatType()))
     module = sc.module_body(id="test.invalid-default-scans").build()
 
     with pytest.raises(CheckFailed) as error:
@@ -302,7 +302,7 @@ def test_scan_point_satisfies_consumed_module_input(tmp_path: Path) -> None:
         kind="input",
         scans=(
             sc.axis(
-                sc.point("value", sc.ScalarType(sc.FloatType())),
+                sc.coordinate("value", sc.ScalarType(sc.FloatType())),
                 (1.0,),
             ),
         ),

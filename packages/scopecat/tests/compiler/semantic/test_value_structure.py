@@ -23,7 +23,7 @@ from scopecat.authoring._value_refs import (
 def test_value_structure_identifies_external_execution_and_point_dependencies() -> None:
     scalar = sc.ScalarType(sc.FloatType())
     run_input = sc.input("run-input", scalar)
-    point = sc.point("point-value", scalar)
+    point = sc.coordinate("point-value", scalar)
     compute = sc.compute("execute-value", fn=lambda: 1.0, output_type=scalar)
 
     assert not internal_value_ref_requires_execution(run_input)
@@ -50,7 +50,7 @@ def test_nested_binding_tracks_point_and_remaining_scalar_inputs() -> None:
     scalar = sc.ScalarType(sc.FloatType())
     inner_input = sc.input("inner", scalar)
     outer_input = sc.input("outer", scalar)
-    point = sc.point("inner", scalar)
+    point = sc.coordinate("inner", scalar)
     nested_input = sc.input("nested", scalar)
 
     inner = internal_bind_value_ref_inputs(
@@ -115,7 +115,7 @@ def test_scalar_operation_derives_parameter_and_point_provenance_from_operands()
 ):
     scalar = sc.ScalarType(sc.FloatType())
     parameter = sc.parameter("frequency", scalar)
-    point = sc.point("detuning", scalar)
+    point = sc.coordinate("detuning", scalar)
     expression = parameter + point
 
     assert internal_value_ref_parameter_contracts(expression) == (

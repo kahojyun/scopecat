@@ -35,7 +35,7 @@ def test_typed_value_assignability_and_descriptions() -> None:
 
 
 def test_scalar_operations_capture_entity_literal_snapshots() -> None:
-    subject = sc.point("subject", sc.ScalarType(sc.EntityType()))
+    subject = sc.coordinate("subject", sc.ScalarType(sc.EntityType()))
     labels = ["data"]
     entity = sc.EntityRef(id="q0", metadata={"labels": labels})
 

@@ -45,7 +45,7 @@ def test_simple_scan_dsl_produces_durable_request_and_user_plan() -> None:
 
 def test_parameter_scan_request_materializes_typed_input_keys() -> None:
     subject = sc.input("subject", sc.ScalarType(sc.EntityType()))
-    frequency = sc.point(
+    frequency = sc.coordinate(
         "frequency",
         sc.ScalarType(sc.QuantityType(unit="GHz")),
     )
@@ -81,7 +81,7 @@ def test_parameter_scan_request_materializes_typed_input_keys() -> None:
 
 def test_parameter_around_scan_request_preserves_implicit_center_intent() -> None:
     subject = sc.input("subject", sc.ScalarType(sc.EntityType()))
-    frequency = sc.point(
+    frequency = sc.coordinate(
         "frequency",
         sc.ScalarType(sc.QuantityType(unit="GHz")),
     )
@@ -120,8 +120,8 @@ def test_parameter_around_scan_request_preserves_implicit_center_intent() -> Non
 
 def test_dependent_default_scan_projects_its_input_as_an_axis() -> None:
     frequency = sc.ScalarType(sc.QuantityType(unit="GHz"))
-    first = sc.point("first", frequency)
-    second = sc.point("second", frequency)
+    first = sc.coordinate("first", frequency)
+    second = sc.coordinate("second", frequency)
     module = sc.module_body(id="test.request_axis_dependency").build()
 
     @sc.template(

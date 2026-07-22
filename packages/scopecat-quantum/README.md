@@ -31,8 +31,15 @@ def x_count_program(
     )
 
 
-call = x_count_program(qubit="q0", x_count=3, shots=32)
+call = x_count_program(qubit="q0", x_count=3).with_shots(32)
+
+print(x_count_program.describe())
+print(x_count_program.draw())
 ```
+
+The program call accepts exactly the ports in the Python definition.
+`with_shots(...)` separately selects acquisition count without adding a hidden
+parameter to that signature.
 
 An explicit implementation keeps the logical gate identity while substituting
 a local pulse implementation. Giving it a `candidate` ID records calibration
@@ -51,35 +58,37 @@ x90 = authoring.single_qubit_gate("x90")
 beta_type = sc.ScalarType(sc.QuantityType(unit="ns"))
 
 
+@authoring.implementation(of=x90, candidate="x90.drag")
+def x90_drag_candidate(
+    qubit: authoring.Qubit,
+    beta: Annotated[Quantity, beta_type],
+) -> authoring.QuantumFragment:
+    return authoring.play(
+        authoring.drive(qubit),
+        authoring.drag(
+            duration=Quantity(16, "ns"),
+            amplitude=Quantity(0.2, "arb"),
+            sigma=Quantity(4, "ns"),
+            beta=beta,
+        ),
+    )
+
+
 @authoring.program(id="x90-drag-point")
 def x90_drag_point(
     qubit: authoring.Qubit,
     beta: Annotated[Quantity, beta_type],
 ) -> authoring.QuantumFragment:
-    candidate = authoring.implements(
-        x90(qubit),
-        authoring.play(
-            authoring.drive(qubit),
-            authoring.drag(
-                duration=Quantity(16, "ns"),
-                amplitude=Quantity(0.2, "arb"),
-                sigma=Quantity(4, "ns"),
-                beta=beta,
-            ),
-        ),
-        candidate="x90.drag",
-    )
+    candidate = x90_drag_candidate(qubit, beta=beta)
     return authoring.sequence(x90(qubit), authoring.repeat(candidate, 3))
 
 
 call = x90_drag_point(qubit="q0", beta=Quantity(0.75, "ns"))
 ```
 
-Two-qubit gates use the same surface. Couplers are opaque physical resources,
-not extra gate operands: declare them separately and explicitly authorize only
-the couplers that an implementation may drive. Pulse templates bind qubits and
-couplers through one ordered `elements` interface while preserving their
-distinct types:
+Two-qubit gates use the same surface. Couplers are typed implementation
+resources, not extra gate operands. The implementation call carries the two
+logical operands and its physical coupler together:
 
 ```python
 from scopecat import Quantity
@@ -87,18 +96,20 @@ from scopecat_quantum import authoring
 
 cz = authoring.two_qubit_gate("cz")
 
-formal_coupler = authoring.coupler("coupler")
-cz_flux = authoring.pulse_template(
-    "cz.flux",
-    authoring.play(
-        authoring.flux(formal_coupler),
+
+@authoring.implementation(of=cz, candidate="cz.conditional-phase")
+def cz_flux(
+    control: authoring.Qubit,
+    target: authoring.Qubit,
+    coupler: authoring.Coupler,
+) -> authoring.QuantumFragment:
+    return authoring.play(
+        authoring.flux(coupler),
         authoring.constant(
             duration=Quantity(32, "ns"),
             amplitude=Quantity(0.24, "arb"),
         ),
-    ),
-    elements=(formal_coupler,),
-)
+    )
 
 
 @authoring.program(id="cz-point")
@@ -107,12 +118,7 @@ def cz_point(
     target: authoring.Qubit,
     coupler: authoring.Coupler,
 ) -> authoring.QuantumFragment:
-    return authoring.implements(
-        cz(control, target),
-        cz_flux(coupler),
-        resources=(coupler,),
-        candidate="cz.conditional-phase",
-    )
+    return cz_flux(control, target, coupler)
 
 
 call = cz_point(
@@ -122,8 +128,8 @@ call = cz_point(
 )
 ```
 
-The same `PulseTemplate` can back both a scanned candidate and an accepted
-production gate. Program inputs may bind directly to Scopecat values such as
+The same `@pulse_template` function can be composed inside scanned and
+production `@implementation` functions. Program inputs may bind directly to Scopecat values such as
 `scopecat.parameter_lookup(...)`, keeping active configuration visible in the
 authored experiment instead of hidden mutable state.
 

@@ -27,7 +27,7 @@ def _raw_trace_program(qubit: q.Qubit) -> q.QuantumFragment:
 
 @sc.scratch(id="test.raw-trace-result-contract.experiment", kind="raw_trace")
 def _raw_trace_experiment() -> sc.ExperimentBody:
-    call = _raw_trace_program(qubit="q0", shots=_SHOTS)
+    call = _raw_trace_program(qubit="q0").with_shots(_SHOTS)
     return sc.experiment(call).record_product(call.results.trace, record_id="trace")
 
 
@@ -42,7 +42,7 @@ def _repeated_program(qubit: q.Qubit, rounds: int) -> q.QuantumFragment:
 
 @sc.scratch(id="test.repeated-result-contract.experiment", kind="repeated_readout")
 def _repeated_experiment() -> sc.ExperimentBody:
-    call = _repeated_program(qubit="q0", rounds=_ROUNDS, shots=_SHOTS)
+    call = _repeated_program(qubit="q0", rounds=_ROUNDS).with_shots(_SHOTS)
     return sc.experiment(call).record_product(call.results.iq, record_id="iq")
 
 

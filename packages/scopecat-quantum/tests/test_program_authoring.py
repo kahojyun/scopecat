@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from typing import Annotated
 
 import pytest
 import scopecat as sc
@@ -22,7 +23,7 @@ from scopecat_quantum.calibrations import (
     GateCalibrationKey,
 )
 from scopecat_quantum.circuits import Measure
-from scopecat_quantum.gates import GateCall, GateParameterKind
+from scopecat_quantum.gates import GateCall
 from scopecat_quantum.programs import (
     AuthoredPulseAcquisitionProvenance,
     AuthoredPulseEventProvenance,
@@ -235,36 +236,38 @@ def test_gate_implementation_rejects_a_foreign_pulse_qubit() -> None:
 
 
 def test_two_qubit_gate_implementation_authorizes_and_lowers_coupler_pulse() -> None:
-    formal_coupler = authoring.coupler("formal-coupler")
     amplitude = authoring.input(
         "amplitude",
         sc.ScalarType(sc.QuantityType(unit="arb")),
     )
-    template = authoring.pulse_template(
-        "cz.flux",
-        authoring.play(
-            authoring.flux(formal_coupler),
+
+    cz = authoring.two_qubit_gate("cz")
+
+    @authoring.implementation(
+        of=cz,
+        candidate="cz.conditional-phase",
+        id="cz.flux",
+    )
+    def cz_flux(
+        control: authoring.Qubit,
+        target: authoring.Qubit,
+        coupler: authoring.Coupler,
+        amplitude: Annotated[Quantity, sc.QuantityType(unit="arb")],
+    ) -> authoring.QuantumFragment:
+        return authoring.play(
+            authoring.flux(coupler),
             authoring.constant(
                 duration=Quantity(32, "ns"),
                 amplitude=amplitude,
             ),
-        ),
-        elements=(formal_coupler,),
-    )
+        )
+
     q0 = authoring.qubit("q0")
     q1 = authoring.qubit("q1")
     c01 = authoring.coupler("coupler-q0-q1")
-    cz = authoring.two_qubit_gate("cz")
-    with pytest.raises(TypeError, match="element 0 requires Coupler, got Qubit"):
-        template(q0, amplitude=amplitude)
     declaration = authoring._close_program(
         "cz-candidate",
-        authoring.implements(
-            cz(q0, q1),
-            template(c01, amplitude=amplitude),
-            resources=(c01,),
-            candidate="cz.conditional-phase",
-        ),
+        cz_flux(q0, q1, c01, amplitude=amplitude),
     )
 
     bound = authoring.bind(declaration, {"amplitude": Quantity(0.24, "arb")})
@@ -290,11 +293,10 @@ def test_two_qubit_gate_implementation_authorizes_and_lowers_coupler_pulse() -> 
     assert provenance.template_program_id == PulseProgramId("cz.flux")
 
 
-def test_gate_implementation_requires_exact_coupler_resource_authorization() -> None:
+def test_gate_implementation_requires_coupler_resource_authorization() -> None:
     q0 = authoring.qubit("q0")
     q1 = authoring.qubit("q1")
     c01 = authoring.coupler("coupler-q0-q1")
-    c23 = authoring.coupler("coupler-q2-q3")
     cz = authoring.two_qubit_gate("cz")
     pulse = authoring.play(
         authoring.flux(c01),
@@ -309,10 +311,6 @@ def test_gate_implementation_requires_exact_coupler_resource_authorization() -> 
         match="unauthorized signal owners: 'coupler-q0-q1'",
     ):
         authoring.implements(cz(q0, q1), pulse)
-    with pytest.raises(ValueError, match="unused coupler resources: 'coupler-q2-q3'"):
-        authoring.implements(cz(q0, q1), pulse, resources=(c01, c23))
-    with pytest.raises(ValueError, match="resources must be unique"):
-        authoring.implements(cz(q0, q1), pulse, resources=(c01, c01))
 
 
 def test_drag_beta_requires_a_time_typed_input() -> None:
@@ -366,8 +364,8 @@ def test_domain_program_and_execution_expose_typed_ports() -> None:
         ),
     )
     repetitions_type = sc.ScalarType(sc.IntType(minimum=0))
-    repetitions_point = sc.point("repetitions", repetitions_type)
-    beta_point = sc.point("beta", beta_type)
+    repetitions_point = sc.coordinate("repetitions", repetitions_type)
+    beta_point = sc.coordinate("beta", beta_type)
     products = (
         sc.module_body(id="test.quantum.typed-drag")
         .product("integrated_iq_shots")
@@ -486,25 +484,24 @@ def test_explicit_acquire_results_require_an_axis_or_a_unique_id() -> None:
 
 
 def test_pulse_template_substitutes_qubit_and_outer_input_hygienically() -> None:
-    formal_q = authoring.qubit("formal")
-    formal_phase = authoring.input(
-        "phase",
-        sc.ScalarType(sc.QuantityType(unit="rad")),
-    )
-    template = authoring.pulse_template(
-        "x90-with-frame",
-        authoring.sequence(
-            authoring.shift_phase(authoring.drive(formal_q), formal_phase),
+    @authoring.pulse_template(id="x90-with-frame")
+    def template(
+        qubit: authoring.Qubit,
+        phase: Annotated[Quantity, sc.QuantityType(unit="rad")],
+    ) -> authoring.QuantumFragment:
+        return authoring.sequence(
+            authoring.shift_phase(authoring.drive(qubit), phase),
             authoring.play(
-                authoring.drive(formal_q),
+                authoring.drive(qubit),
                 authoring.constant(
                     duration=Quantity(8, "ns"),
                     amplitude=Quantity(0.2, "arb"),
                 ),
             ),
-        ),
-        elements=(formal_q,),
-    )
+        )
+
+    [formal_q] = template.elements
+    [formal_phase] = template.inputs
     q0 = authoring.qubit("q0")
     outer_phase = authoring.input(
         "ramsey_phase",
@@ -561,34 +558,29 @@ def test_pulse_template_substitutes_qubit_and_outer_input_hygienically() -> None
     assert all(shift.phase == Quantity(90, "deg").to("rad") for shift in shifts)
 
 
-def test_pulse_template_rejects_results_and_requires_exact_call_ports() -> None:
-    formal_q = authoring.qubit("formal")
-    duration = authoring.input(
-        "duration",
-        sc.ScalarType(sc.QuantityType(unit="ns")),
-    )
+def test_pulse_template_rejects_results_and_invalid_typed_values() -> None:
     with pytest.raises(ValueError, match="cannot capture acquisition results"):
-        authoring.pulse_template(
-            "invalid-readout",
-            authoring.acquire(
-                formal_q,
+
+        @authoring.pulse_template(id="invalid-readout")
+        def invalid_readout(  # pyright: ignore[reportUnusedFunction]
+            qubit: authoring.Qubit,
+        ) -> authoring.QuantumFragment:
+            return authoring.acquire(
+                qubit,
                 duration=Quantity(8, "ns"),
                 result="iq",
-            ),
-            elements=(formal_q,),
-        )
+            )
 
-    template = authoring.pulse_template(
-        "delay",
-        authoring.delay(authoring.drive(formal_q), duration),
-        elements=(formal_q,),
-    )
-    with pytest.raises(ValueError, match="missing 'duration'"):
-        template(formal_q)
-    with pytest.raises(ValueError, match="unknown 'other'"):
-        template(formal_q, duration=Quantity(8, "ns"), other=1)
+    @authoring.pulse_template(id="delay")
+    def delay_template(
+        qubit: authoring.Qubit,
+        duration: Annotated[Quantity, sc.QuantityType(unit="ns")],
+    ) -> authoring.QuantumFragment:
+        return authoring.delay(authoring.drive(qubit), duration)
+
+    q0 = authoring.qubit("q0")
     with pytest.raises(TypeError, match="invalid pulse template input 'duration'"):
-        template(formal_q, duration=Quantity(1, "rad"))
+        delay_template(q0, duration=Quantity(1, "rad"))
 
 
 def test_shift_phase_accepts_symbolic_phase() -> None:
@@ -700,24 +692,4 @@ def test_program_element_ports_bind_every_logical_owner() -> None:
                 "target": "q3",
                 "coupler": "coupler-q2-q3",
             },
-        )
-
-
-def test_program_rejects_unused_or_conflicting_formal_ports() -> None:
-    q0 = authoring.qubit("q0")
-    unused = authoring.qubit("unused")
-    measurement = authoring.measure(q0, result="iq")
-
-    with pytest.raises(ValueError, match="unused formal elements: 'unused'"):
-        authoring._close_program("unused", measurement, elements=(unused,))
-
-    count = authoring.scalar_input("q0", GateParameterKind.INTEGER)
-    with pytest.raises(ValueError, match="conflicting port ids: 'q0'"):
-        authoring._close_program(
-            "conflict",
-            authoring.sequence(
-                authoring.repeat(authoring.single_qubit_gate("x")(q0), count),
-                measurement,
-            ),
-            elements=(q0,),
         )

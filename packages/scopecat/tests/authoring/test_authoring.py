@@ -157,7 +157,7 @@ def _around_parameter_points(
     point_type = authoring.ScalarType(authoring.QuantityType(unit="GHz"))
     return lower_scan_points(
         sc.axis(
-            sc.point(parameter_id, point_type),
+            sc.coordinate(parameter_id, point_type),
             center=sc.parameter(parameter_id, _QUANTITY_VALUE),
             span=Quantity(value=200.0, unit="MHz"),
             points=points,
@@ -487,7 +487,7 @@ def test_template_can_scan_any_entity_input() -> None:
         kind="entity_scan",
         scans=(
             sc.axis(
-                sc.point("qubit", authoring.ScalarType(authoring.EntityType())),
+                sc.coordinate("qubit", authoring.ScalarType(authoring.EntityType())),
                 [EntityRef(id="q0", kind="logical_device")],
             ),
         ),
@@ -522,7 +522,7 @@ def test_template_can_scan_any_entity_input() -> None:
 
 
 def test_entity_scan_captures_an_immutable_durable_snapshot() -> None:
-    subject = sc.point(
+    subject = sc.coordinate(
         "subject",
         sc.ScalarType(sc.EntityType()),
     )
@@ -628,7 +628,7 @@ def test_entity_scan_selects_resource_entities_per_point() -> None:
         kind="entity_scan_selection",
         scans=(
             sc.axis(
-                sc.point("qubit", authoring.ScalarType(authoring.EntityType())),
+                sc.coordinate("qubit", authoring.ScalarType(authoring.EntityType())),
                 [
                     EntityRef(id="q0", kind="logical_device"),
                     EntityRef(id="q1", kind="logical_device"),
@@ -815,7 +815,7 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
 
     resolved = resolve_experiment(
         template.bind().scan(
-            sc.point(
+            sc.coordinate(
                 "qubit",
                 authoring.ScalarType(
                     authoring.EntityType(entity_kind="logical_device")
@@ -931,7 +931,7 @@ def test_runtime_entity_scan_can_drive_dependent_default_scan() -> None:
         kind="runtime_entity_dependent_points",
         scans=(
             sc.axis(
-                sc.point("drive_length", _QUANTITY_VALUE),
+                sc.coordinate("drive_length", _QUANTITY_VALUE),
                 center=sc.parameter_lookup(
                     "sample_qubits",
                     key={"qubit": qubit},
@@ -947,7 +947,7 @@ def test_runtime_entity_scan_can_drive_dependent_default_scan() -> None:
 
     resolved = resolve_experiment(
         template.bind().scan(
-            sc.point(
+            sc.coordinate(
                 "qubit",
                 authoring.ScalarType(
                     authoring.EntityType(entity_kind="logical_device")
@@ -1500,7 +1500,7 @@ def test_elaboration_defers_nested_expression_and_literal_bindings() -> None:
                     "unused_parameter",
                     value_type,
                 ),
-                unused_point=authoring.point("unused_point", value_type),
+                unused_point=authoring.coordinate("unused_point", value_type),
             )
         )
         .build()
@@ -1553,8 +1553,8 @@ def test_module_provenance_follows_only_reachable_input_bindings() -> None:
     )
     used_parameter = authoring.parameter("reachable_parameter", value_type)
     unused_parameter = authoring.parameter("phantom_parameter", value_type)
-    used_point = authoring.point("reachable_point", value_type)
-    unused_point = authoring.point("phantom_point", value_type)
+    used_point = authoring.coordinate("reachable_point", value_type)
+    unused_point = authoring.coordinate("phantom_point", value_type)
 
     assembly = elaborate_module(
         module,

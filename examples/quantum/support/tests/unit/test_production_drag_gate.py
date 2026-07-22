@@ -16,20 +16,20 @@ from scopecat_quantum import (
 from scopecat_quantum import authoring as quantum
 
 from quantum_lab_demo import quantum_lab, quantum_lab_compiler
-from quantum_lab_demo.reference_experiments.drag_beta_calibration import (
-    DRAG_GATE_PULSE_TEMPLATE,
+from quantum_lab_demo.virtual_lab.parameters import q0_drag_beta_lookup
+from quantum_lab_demo.virtual_lab.wiring import quantum_wiring_config_profile
+from quantum_lab_demo.workflows.drag_beta_calibration import (
     XM90_CALIBRATION_ID,
 )
-from quantum_lab_demo.reference_experiments.production_drag_gate import (
+from quantum_lab_demo.workflows.production_drag_gate import (
     TRUSTED_REFERENCE_BETA,
     production_drag_capture,
     production_drag_program,
     production_drag_template,
+    production_x90,
     production_x90_event_id,
     trusted_xm90_event_id,
 )
-from quantum_lab_demo.virtual_lab.parameters import q0_drag_beta_lookup
-from quantum_lab_demo.virtual_lab.wiring import quantum_wiring_config_profile
 
 
 def _entity_id(value: object) -> str:
@@ -159,7 +159,7 @@ def test_active_drag_beta_changes_only_production_compiled_segment(
     )
     assert production.gate_id == GateId("x90")
     assert production.candidate_id is None
-    assert production.template_program_id.value == DRAG_GATE_PULSE_TEMPLATE.id
+    assert production.template_program_id.value == production_x90.id
 
     [trusted] = tuple(
         origin.provenance

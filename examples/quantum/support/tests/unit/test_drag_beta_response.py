@@ -15,15 +15,15 @@ from scopecat_quantum import (
     TargetCompileEntryId,
 )
 
-from quantum_lab_demo.reference_experiments.drag_beta_response import (
-    DragBetaAcquisitionResponse,
-    DragBetaResponsePoint,
-)
 from quantum_lab_demo.targets.fake_list_mode import (
     FakeAcquisitionResponse,
     FakeAcquisitionWindow,
     FakeAwgPlayback,
     FakeDigitizerChannelId,
+)
+from quantum_lab_demo.virtual_lab.responses.drag_beta import (
+    DragBetaAcquisitionResponse,
+    DragBetaResponsePoint,
 )
 
 

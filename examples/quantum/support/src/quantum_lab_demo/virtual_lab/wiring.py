@@ -408,7 +408,7 @@ def _line_capabilities(kind: str) -> list[str]:
     if kind == "drive":
         return ["play_pulse_program", "play_gate_sequence"]
     if kind == "readout":
-        return ["readout_pulse", "submit_backend_batch", "acquire_iq"]
+        return ["readout_pulse", "acquire_iq"]
     if kind == "coupler":
         return ["play_coupler_pulse", "set_flux_bias"]
     if kind == "flux":

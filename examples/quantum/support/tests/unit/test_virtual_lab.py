@@ -21,7 +21,7 @@ from .demo_lab_test_paths import EXPERIMENT_VIRTUAL_LAB_PROFILE
 def test_virtual_lab_profile_loads_configured_devices_and_responses() -> None:
     profile = load_virtual_lab_profile(EXPERIMENT_VIRTUAL_LAB_PROFILE)
 
-    assert profile.id == "quantum_lab_demo.experiments_templates.virtual_lab"
+    assert profile.id == "quantum_lab_demo.virtual_lab"
     assert profile.schema_version == "quantum_lab_demo.virtual_lab_profile.v1"
     assert profile.device_profile("readout-stack").response_model_id is None
     assert profile.response_models == []

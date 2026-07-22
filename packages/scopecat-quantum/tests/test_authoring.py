@@ -79,27 +79,26 @@ def test_literal_zero_repeat_elides_dead_inputs_and_gate_definitions() -> None:
 
 
 def test_literal_zero_pulse_repeat_elides_inputs_but_retains_signal_owners() -> None:
-    q0 = authoring.qubit("q0")
     amplitude = authoring.input(
         "amplitude",
         sc.ScalarType(sc.QuantityType(unit="arb")),
     )
-    dead_pulse = authoring.repeat(
-        authoring.play(
-            authoring.drive(q0),
-            authoring.constant(
-                duration=Quantity(8, "ns"),
-                amplitude=amplitude,
+
+    @authoring.pulse_template(id="dead-pulse")
+    def dead_pulse(qubit: authoring.Qubit) -> authoring.QuantumFragment:
+        return authoring.repeat(
+            authoring.play(
+                authoring.drive(qubit),
+                authoring.constant(
+                    duration=Quantity(8, "ns"),
+                    amplitude=amplitude,
+                ),
             ),
-        ),
-        0,
-    )
+            0,
+        )
 
-    with pytest.raises(ValueError, match="undeclared formal elements: 'q0'"):
-        authoring.pulse_template("dead-pulse", dead_pulse, elements=())
-
-    template = authoring.pulse_template("dead-pulse", dead_pulse, elements=(q0,))
-    assert template.inputs == ()
+    assert [element.id for element in dead_pulse.elements] == ["qubit"]
+    assert dead_pulse.inputs == ()
 
 
 def test_implemented_gate_only_tightens_pulse_repeat_inputs() -> None:

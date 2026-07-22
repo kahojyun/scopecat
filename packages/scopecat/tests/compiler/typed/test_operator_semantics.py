@@ -45,7 +45,7 @@ def test_typed_arithmetic_and_runtime_use_the_same_operator_contract() -> None:
 
 
 def test_integer_arithmetic_preserves_provable_bounds() -> None:
-    count = sc.point(
+    count = sc.coordinate(
         "count",
         sc.ScalarType(sc.IntType(minimum=0, maximum=4)),
     )

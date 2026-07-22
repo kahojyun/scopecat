@@ -139,8 +139,8 @@ def input(  # noqa: A001
     return internal_input_value_ref(id, value_type)
 
 
-def point(id: str, value_type: Scalar) -> ValueRef:  # noqa: A002
-    """Declare a typed scalar supplied by the current experiment point.
+def coordinate(id: str, value_type: Scalar) -> ValueRef:  # noqa: A002
+    """Declare a typed scalar coordinate supplied by each experiment point.
 
     Pass the same value to module bindings and scan factories. This keeps the
     coordinate identity and its semantic type on one first-class value edge.
@@ -417,8 +417,8 @@ __all__ = [
     "TableRow",
     "ValueRef",
     "compute",
+    "coordinate",
     "input",
     "parameter",
     "parameter_lookup",
-    "point",
 ]

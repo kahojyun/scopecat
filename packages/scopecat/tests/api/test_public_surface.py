@@ -47,7 +47,7 @@ def test_user_facing_facades_expose_entry_points() -> None:
     assert callable(sc.input)
     assert callable(sc.compute)
     assert sc.ComputeInput
-    assert callable(sc.point)
+    assert callable(sc.coordinate)
     assert callable(sc.parameter)
     assert callable(sc.parameter_lookup)
     assert sc.TableRow
@@ -177,11 +177,11 @@ def test_public_invocations_capture_immutable_input_snapshots() -> None:
 
 
 def test_typed_around_scans_reject_incompatible_quantity_dimensions() -> None:
-    frequency = sc.point(
+    frequency = sc.coordinate(
         "frequency",
         sc.ScalarType(sc.QuantityType(unit="GHz")),
     )
-    duration = sc.point(
+    duration = sc.coordinate(
         "duration",
         sc.ScalarType(sc.QuantityType(unit="ns")),
     )
@@ -195,11 +195,11 @@ def test_typed_around_scans_reject_incompatible_quantity_dimensions() -> None:
 
 
 def test_scans_reject_non_finite_durable_values_at_capture() -> None:
-    floating = sc.point(
+    floating = sc.coordinate(
         "floating",
         sc.ScalarType(sc.FloatType(finite=False)),
     )
-    frequency = sc.point(
+    frequency = sc.coordinate(
         "frequency",
         sc.ScalarType(sc.QuantityType(unit="GHz", finite=False)),
     )

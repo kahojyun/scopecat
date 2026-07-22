@@ -18,25 +18,28 @@ from scopecat_quantum import (
 )
 
 from quantum_lab_demo import quantum_lab, quantum_lab_compiler
-from quantum_lab_demo.reference_experiments.drag_beta_calibration import (
-    DRAG_GATE_PULSE_TEMPLATE,
-    NEGATIVE_CANDIDATE_ID,
-    POSITIVE_CANDIDATE_ID,
-    X90_CALIBRATION_ID,
-    XM90_CALIBRATION_ID,
+from quantum_lab_demo.virtual_lab.calibrations.drag_beta import (
     baseline_calibration_catalog,
-)
-from quantum_lab_demo.reference_experiments.drag_beta_experiment import (
-    AMPLIFICATION,
-    BETA,
-    drag_beta_capture,
-    drag_beta_program,
-    drag_beta_template,
 )
 from quantum_lab_demo.virtual_lab.parameters import (
     DRAG_BETA_PARAMETER_COLUMN,
     q0_drag_beta_lookup,
     q0_drag_beta_row,
+)
+from quantum_lab_demo.workflows.drag_beta_calibration import (
+    NEGATIVE_CANDIDATE_ID,
+    POSITIVE_CANDIDATE_ID,
+    X90_CALIBRATION_ID,
+    XM90_CALIBRATION_ID,
+    candidate_x90,
+    candidate_xm90,
+)
+from quantum_lab_demo.workflows.drag_beta_experiment import (
+    AMPLIFICATION,
+    BETA,
+    drag_beta_capture,
+    drag_beta_program,
+    drag_beta_template,
 )
 
 _GOLDEN_BASELINE_BETA = Quantity(0.625, "ns")
@@ -193,7 +196,7 @@ def test_n3_golden_schedule_and_calibration_selection(tmp_path: Path) -> None:
     assert acquisition_origin.acquisition_slot_id.value == "iq_shots"
     assert {
         provenance.template_program_id.value for provenance in candidate_origins
-    } == {DRAG_GATE_PULSE_TEMPLATE.id}
+    } == {candidate_x90.id, candidate_xm90.id}
 
 
 def test_n3_point_compiles_to_complex_drag_samples(tmp_path: Path) -> None:

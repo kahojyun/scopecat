@@ -31,7 +31,7 @@ _TEMPLATE_ID = "examples.quantum.x-repetition-iq"
 _EXPERIMENT_ID = "x-repetition-iq"
 _SCRATCH_NAME = "x repetition iq"
 _QUBIT = sc.ScalarType(sc.EntityType(entity_kind="logical_qubit"))
-_X_REPETITIONS = sc.point(
+_X_REPETITIONS = sc.coordinate(
     "x_repetitions",
     sc.ScalarType(sc.IntType(minimum=0)),
 )

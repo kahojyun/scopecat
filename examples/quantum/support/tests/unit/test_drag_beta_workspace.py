@@ -13,9 +13,18 @@ from scopecat.kernel.errors import Conflict
 from scopecat.records.parameter import TableParameterValue
 from scopecat_quantum import authoring as quantum
 
+import quantum_lab_demo.workflows.drag_beta_analysis as analysis_module
 from quantum_lab_demo import quantum_lab, quantum_lab_compiler
-from quantum_lab_demo.reference_experiments import drag_beta_analysis as analysis_module
-from quantum_lab_demo.reference_experiments.drag_beta_analysis import (
+from quantum_lab_demo.targets.fake_list_mode import default_fake_list_target
+from quantum_lab_demo.virtual_lab.parameters import (
+    DRAG_BETA_PARAMETER_COLUMN,
+    QUBIT_PARAMETER_TABLE,
+    q0_drag_beta_lookup,
+)
+from quantum_lab_demo.virtual_lab.responses.drag_beta import (
+    synthetic_drag_beta_response,
+)
+from quantum_lab_demo.workflows.drag_beta_analysis import (
     DRAG_BETA_PROPOSAL_ID,
     DragBetaFit,
     DragBetaFitAssessment,
@@ -24,22 +33,13 @@ from quantum_lab_demo.reference_experiments.drag_beta_analysis import (
     assess_drag_beta_fit,
     fit_drag_beta,
 )
-from quantum_lab_demo.reference_experiments.drag_beta_experiment import (
+from quantum_lab_demo.workflows.drag_beta_experiment import (
     AMPLIFICATION,
     DEFAULT_AMPLIFICATIONS,
     DEFAULT_BETAS,
     drag_beta_program,
     drag_beta_scratch_experiment,
     drag_beta_template,
-)
-from quantum_lab_demo.reference_experiments.drag_beta_response import (
-    synthetic_drag_beta_response,
-)
-from quantum_lab_demo.targets.fake_list_mode import default_fake_list_target
-from quantum_lab_demo.virtual_lab.parameters import (
-    DRAG_BETA_PARAMETER_COLUMN,
-    QUBIT_PARAMETER_TABLE,
-    q0_drag_beta_lookup,
 )
 
 
@@ -59,8 +59,7 @@ def test_drag_beta_authors_one_mixed_program_for_both_scan_axes() -> None:
         qubit="q0",
         amplification=AMPLIFICATION,
         beta=q0_drag_beta_lookup(),
-        shots=64,
-    )
+    ).with_shots(64)
     [execution] = call.module_invocation.module.domain_executions
     program = execution.program
 

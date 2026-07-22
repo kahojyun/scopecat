@@ -8,8 +8,8 @@ from scopecat import Quantity
 from scopecat_quantum import GateCall
 from scopecat_quantum import authoring as q
 
+import quantum_lab_demo.workflows.single_qubit_rb as rb
 from quantum_lab_demo.lab import quantum_lab, quantum_lab_compiler
-from quantum_lab_demo.reference_experiments import single_qubit_rb as rb
 
 
 def test_seeded_clifford_fragment_appends_an_exact_inverse() -> None:

@@ -63,7 +63,7 @@ _SIMPLE_SUBJECT = authoring.input(
     "subject",
     authoring.ScalarType(authoring.EntityType()),
 )
-DRIVE_FREQUENCY_POINT = authoring.point(
+DRIVE_FREQUENCY_POINT = authoring.coordinate(
     "drive_frequency",
     authoring.ScalarType(authoring.QuantityType(unit="GHz")),
 )

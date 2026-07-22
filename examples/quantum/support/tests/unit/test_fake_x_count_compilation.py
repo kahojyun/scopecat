@@ -21,15 +21,15 @@ from scopecat.sdk.domain.runtime import (
 )
 
 from quantum_lab_demo import QuantumLabCompiler, quantum_lab_compiler
-from quantum_lab_demo.reference_experiments import (
-    FakeBiasVoltageProvider,
-    fake_x_count_bias_config,
-    fake_x_count_bias_template,
-)
 from quantum_lab_demo.targets.fake_list_mode import (
     FakeListDomainRuntime,
     FakeListRun,
     default_fake_list_target,
+)
+from quantum_lab_demo.workflows.fake_x_count_bias import (
+    FakeBiasVoltageProvider,
+    fake_x_count_bias_config,
+    fake_x_count_bias_template,
 )
 
 

@@ -12,16 +12,17 @@ for laboratory projects.
 
 Inside `src/quantum_lab_demo/`:
 
-- `experiments/`: broader `@sc.module` and `@sc.template` shape coverage.
-- `reference_experiments/`: focused `@q.program`, module, template, scratch,
-  calibration, and production examples.
+- `workflows/`: recommended vertical `@q.program`, module, template, scratch,
+  analysis, and production examples.
+- `scenarios/`: the opaque collection boundary for a target without a domain
+  compiler.
 - `lab.py`: the composition root for the configured demo environment.
 - `compiler.py`: the unified `QuantumLabCompiler` domain boundary.
 - `response_registry.py` and `trace.py`: fake-response selection and observable
   preparation evidence kept outside compiler policy.
 - `targets/`: fake target lowering and execution.
-- `virtual_lab/`: wiring, parameter schema, accepted calibrations, deterministic
-  responses, and instrument providers.
+- `virtual_lab/`: wiring, parameter schema, instrument providers, and explicit
+  `calibrations/` and `responses/` fixture packages.
 
 Focused behavior checks live in `tests/unit/`.
 

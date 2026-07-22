@@ -11,32 +11,32 @@ from scopecat_quantum import (
     TargetAcquisitionAddress,
 )
 
-from quantum_lab_demo.reference_experiments.cz_phase_calibration import (
-    cz_conditional_phase,
-)
-from quantum_lab_demo.reference_experiments.cz_phase_response import (
-    CzPhaseAcquisitionResponse,
-    CzPhaseResponsePoint,
-)
-from quantum_lab_demo.reference_experiments.drag_beta_calibration import (
-    drag_beta_program,
-)
-from quantum_lab_demo.reference_experiments.drag_beta_response import (
-    DragBetaAcquisitionResponse,
-    DragBetaResponsePoint,
-)
-from quantum_lab_demo.reference_experiments.single_qubit_rb import (
-    single_qubit_rb_program,
-)
-from quantum_lab_demo.reference_experiments.single_qubit_rb_response import (
-    SingleQubitRbAcquisitionResponse,
-    SingleQubitRbResponsePoint,
-)
 from quantum_lab_demo.response_registry import (
     QuantumLabResponseRegistry,
     QuantumLabResponseRequest,
 )
 from quantum_lab_demo.targets.fake_list_mode import FakeAcquisitionResponse
+from quantum_lab_demo.virtual_lab.responses.cz_phase import (
+    CzPhaseAcquisitionResponse,
+    CzPhaseResponsePoint,
+)
+from quantum_lab_demo.virtual_lab.responses.drag_beta import (
+    DragBetaAcquisitionResponse,
+    DragBetaResponsePoint,
+)
+from quantum_lab_demo.virtual_lab.responses.single_qubit_rb import (
+    SingleQubitRbAcquisitionResponse,
+    SingleQubitRbResponsePoint,
+)
+from quantum_lab_demo.workflows.cz_phase_calibration import (
+    cz_conditional_phase,
+)
+from quantum_lab_demo.workflows.drag_beta_calibration import (
+    drag_beta_program,
+)
+from quantum_lab_demo.workflows.single_qubit_rb import (
+    single_qubit_rb_program,
+)
 
 
 def quantum_lab_response_registry() -> QuantumLabResponseRegistry:

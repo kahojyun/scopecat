@@ -27,7 +27,7 @@ def test_domain_batch_context_materializes_only_selected_residual_inputs(
     tmp_path: Path,
 ) -> None:
     count_type = sc.ScalarType(sc.IntType(minimum=0))
-    count = sc.point("count", count_type)
+    count = sc.coordinate("count", count_type)
     body = object()
     program = sc.domain_program(
         "program",

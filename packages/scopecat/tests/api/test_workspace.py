@@ -30,11 +30,11 @@ from tests.testkit.records import read_model
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.workflow_fixtures import load_config, load_invocation
 
-PHASE_OFFSET_POINT = sc.point(
+PHASE_OFFSET_POINT = sc.coordinate(
     "phase_offset",
     sc.ScalarType(sc.QuantityType(unit="rad")),
 )
-READOUT_GAIN_POINT = sc.point(
+READOUT_GAIN_POINT = sc.coordinate(
     "readout_gain",
     sc.ScalarType(sc.FloatType()),
 )
@@ -1368,27 +1368,25 @@ def test_analysis_rejects_invalid_notebook_payloads(
 
 
 def test_analysis_step_reuses_manual_analysis_shape(tmp_path: Path) -> None:
-    class ReadoutFit:
-        id = "readout.fit"
-
-        def run(self, context: sc.AnalysisContext) -> sc.Analysis:
-            raw = context.data.measurements()
-            assert context.config.parameter_snapshot.get("drive_frequency") is not None
-            return (
-                context.result("readout fit")
-                .note(f"loaded {len(raw.dataset.records)} records")
-                .table(
-                    [{"center": 5.0, "unit": "GHz"}],
-                    title="fit summary",
-                )
-                .propose(
-                    "drive_frequency",
-                    sc.replace_scalar_parameter(
-                        "drive_frequency",
-                        sc.Quantity(5.1, "GHz"),
-                    ),
-                )
+    @sc.analysis_step(id="readout.fit")
+    def readout_fit(context: sc.AnalysisContext) -> sc.Analysis:
+        raw = context.data.measurements()
+        assert context.config.parameter_snapshot.get("drive_frequency") is not None
+        return (
+            context.result("readout fit")
+            .note(f"loaded {len(raw.dataset.records)} records")
+            .table(
+                [{"center": 5.0, "unit": "GHz"}],
+                title="fit summary",
             )
+            .propose(
+                "drive_frequency",
+                sc.replace_scalar_parameter(
+                    "drive_frequency",
+                    sc.Quantity(5.1, "GHz"),
+                ),
+            )
+        )
 
     lab = sc.open(
         tmp_path,
@@ -1396,7 +1394,7 @@ def test_analysis_step_reuses_manual_analysis_shape(tmp_path: Path) -> None:
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
     )
     run = lab.prepare(load_invocation()).run()
-    step: sc.AnalysisStep = ReadoutFit()
+    step: sc.AnalysisStep = readout_fit()
 
     analysis = run.analyze(step)
 
