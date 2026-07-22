@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from scopecat import Quantity
 from scopecat.authoring import ExperimentInvocation
 from scopecat.config.profiles import load_config_profile
 from scopecat.records.config import ConfigProfileSnapshot
@@ -11,7 +12,12 @@ from quantum_lab_demo.lab import quantum_lab
 from quantum_lab_demo.virtual_lab.responses.readout_frequency import (
     settings_from_config,
 )
-from quantum_lab_demo.workflows.fixed_patch_readout import fixed_patch_readout_template
+from quantum_lab_demo.workflows.interaction_tomography import (
+    ANALYSIS_BASIS,
+    INTERACTION_AMPLITUDE,
+    PREPARATION,
+    interaction_tomography_template,
+)
 from quantum_lab_demo.workflows.qnd import qnd_repeated_measurement_template
 from quantum_lab_demo.workflows.readout_frequency import readout_frequency_template
 from quantum_lab_demo.workflows.single_qubit_rb import (
@@ -55,6 +61,14 @@ def test_readout_settings_come_from_the_typed_qubit_table() -> None:
             ("clifford_length", "rb_seed"),
             2,
         ),
+        (
+            interaction_tomography_template.bind(shots=2)
+            .scan(PREPARATION, ("00", "0+"))
+            .scan(ANALYSIS_BASIS, ("z",))
+            .scan(INTERACTION_AMPLITUDE, (Quantity(0.03, "arb"),)),
+            ("preparation", "analysis_basis", "interaction_amplitude"),
+            2,
+        ),
     ],
 )
 def test_experiment_system_run_provider_python_api(
@@ -73,42 +87,28 @@ def test_experiment_system_run_provider_python_api(
     assert len(measurements.dataset.records) == expected_measurements
 
 
-@pytest.mark.parametrize(
-    ("invocation", "observable_id", "shape"),
-    [
-        (
+def test_qnd_array_record_runs_provider_python_api(tmp_path: Path) -> None:
+    run = (
+        _lab(tmp_path)
+        .prepare(
             qnd_repeated_measurement_template.bind(
                 qubit="q0",
                 rounds=2,
                 shots=3,
-            ),
-            "qnd_iq",
-            [1, 3, 2],
-        ),
-        (
-            fixed_patch_readout_template.bind(rounds=2, shots=3),
-            "patch_iq",
-            [1, 3, 2, 4],
-        ),
-    ],
-)
-def test_array_record_cases_run_provider_python_api(
-    tmp_path: Path,
-    invocation: ExperimentInvocation,
-    observable_id: str,
-    shape: list[int],
-) -> None:
-    run = _lab(tmp_path).prepare(invocation).run()
+            )
+        )
+        .run()
+    )
     measurements = run.data().measurements()
     observable = next(
         variable
         for variable in measurements.dataset.dataset_schema.variables
-        if variable.id == observable_id
+        if variable.id == "qnd_iq"
     )
 
     assert run.manifest.status == "completed"
     assert len(measurements.dataset.records) == 1
-    assert observable.shape == shape
+    assert observable.shape == [1, 3, 2]
 
 
 def _lab(tmp_path: Path):

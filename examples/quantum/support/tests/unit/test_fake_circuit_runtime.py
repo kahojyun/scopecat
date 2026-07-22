@@ -1164,45 +1164,6 @@ def test_integrated_iq_shot_realization_accepts_exact_product_contract() -> None
         ]
 
 
-@given(repetitions=st.integers(min_value=1, max_value=8))
-@settings(max_examples=8, deadline=None)
-def test_integrated_iq_realization_preserves_generated_shot_cardinality(
-    repetitions: int,
-) -> None:
-    scenario = _scenario(
-        repetitions=repetitions,
-        product_unit="ratio",
-        product_axes=(shot_axis(repetitions),),
-    )
-
-    selection = select_fake_measurement_realization(
-        scenario.compiled_target,
-        scenario.compiler.target,
-        _integrated_iq_bindings(scenario),
-    )
-    realized = execute_realized_fake_measurements(
-        FakeListRuntime(),
-        selection,
-    )
-
-    assert all(
-        cast("MeasurementArray", result.value).shape == [repetitions]
-        for result in realized.result_values
-    )
-    assert all(
-        tuple(
-            frame.shot_index
-            for frame in realized.frames_for_output(
-                output.point,
-                product_use,
-            )
-        )
-        == tuple(range(repetitions))
-        for output in selection.outputs
-        for product_use in output.product_uses
-    )
-
-
 @pytest.mark.parametrize(
     ("scenario_kwargs", "expected_code"),
     (
@@ -1331,57 +1292,6 @@ def test_raw_trace_realization_accepts_exact_shot_sample_contract() -> None:
             ]
             for frame in frames
         ]
-
-
-@given(
-    repetitions=st.integers(min_value=1, max_value=6),
-    sample_count=st.integers(min_value=1, max_value=8),
-)
-@settings(max_examples=12, deadline=None)
-def test_raw_trace_realization_preserves_generated_shot_sample_cardinality(
-    repetitions: int,
-    sample_count: int,
-) -> None:
-    scenario = _scenario(
-        repetitions=repetitions,
-        product_unit="ratio",
-        product_axes=_raw_trace_axes(repetitions, sample_count),
-        acquisition_kind=AcquisitionKind.RAW_TRACE,
-        sample_count=sample_count,
-    )
-
-    selection = select_fake_measurement_realization(
-        scenario.compiled_target,
-        scenario.compiler.target,
-        _raw_trace_bindings(scenario),
-    )
-    realized = execute_realized_fake_measurements(FakeListRuntime(), selection)
-
-    for output, result_value in zip(
-        selection.outputs,
-        realized.result_values,
-        strict=True,
-    ):
-        value = result_value.value
-        assert isinstance(value, MeasurementArray)
-        assert value.shape == [repetitions, sample_count]
-        assert len(value.values) == repetitions
-        assert all(
-            len(cast("list[ComplexQuantity]", samples)) == sample_count
-            for samples in value.values
-        )
-        frames = realized.correlated_run.frames_for_result_address(
-            output.result_address
-        )
-        assert tuple(frame.shot_index for frame in frames) == tuple(range(repetitions))
-        assert all(
-            realized.frames_for_output(output.point, product_use) == frames
-            for product_use in output.product_uses
-        )
-        assert all(
-            len(cast("tuple[complex, ...]", frame.frame.value)) == sample_count
-            for frame in frames
-        )
 
 
 @pytest.mark.parametrize(

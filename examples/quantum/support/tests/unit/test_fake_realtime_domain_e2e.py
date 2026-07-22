@@ -17,9 +17,12 @@ from quantum_lab_demo.workflows.active_reset import (
     active_reset_program,
     active_reset_template,
 )
-from quantum_lab_demo.workflows.fixed_patch_readout import (
-    fixed_patch_readout_program,
-    fixed_patch_readout_template,
+from quantum_lab_demo.workflows.interaction_tomography import (
+    ANALYSIS_BASIS,
+    INTERACTION_AMPLITUDE,
+    PREPARATION,
+    interaction_tomography_program,
+    interaction_tomography_template,
 )
 
 
@@ -90,7 +93,7 @@ def test_active_reset_runs_through_the_domain_compiler_without_unrolling(
     assert [(axis.id, axis.size) for axis in layout.axes] == [("round", 3)]
 
 
-def test_fixed_patch_rounds_use_one_hardware_loop_and_parallel_readout(
+def test_direct_interaction_layout_runs_on_the_realtime_target(
     tmp_path: Path,
 ) -> None:
     config = quantum_wiring_config_profile(target="fake-realtime")
@@ -101,24 +104,35 @@ def test_fixed_patch_rounds_use_one_hardware_loop_and_parallel_readout(
         compiler=compiler,
     )
 
-    run = lab.prepare(fixed_patch_readout_template.bind(rounds=2, shots=2)).run()
+    run = (
+        lab.prepare(interaction_tomography_template.bind(shots=2))
+        .scan(PREPARATION, ("00",))
+        .scan(ANALYSIS_BASIS, ("z",))
+        .scan(INTERACTION_AMPLITUDE, (sc.Quantity(0.03, "arb"),))
+        .run()
+    )
 
     assert run.manifest.status == "completed"
     [evidence] = compiler.trace.realtime_preparations
-    assert evidence.program_id == fixed_patch_readout_program.id
+    assert evidence.program_id == interaction_tomography_program.id
     instructions = evidence.artifact.program.instructions
-    assert sum(isinstance(item, RtDecrementAndJump) for item in instructions) == 1
     timelines = tuple(
         item for item in instructions if isinstance(item, RtPulseTimeline)
     )
     assert len(timelines) == 2
-    assert sorted(len(item.plays) for item in timelines) == [2, 4]
-    assert sorted(len(item.acquisitions) for item in timelines) == [0, 4]
-    [layout] = evidence.request.result_layouts
-    assert [(axis.id, axis.size) for axis in layout.axes] == [
-        ("round", 2),
-        ("qubit", 4),
-    ]
+    direct = next(item for item in timelines if not item.acquisitions)
+    measurement = next(item for item in timelines if item.acquisitions)
+    assert direct.duration_ticks == 12
+    assert sorted(item.start_ticks for item in direct.plays) == [0, 2, 3]
+    assert sorted(item.duration_ticks for item in direct.plays) == [6, 8, 12]
+    assert measurement.duration_ticks == 2
+    assert len(measurement.plays) == 2
+    assert len(measurement.acquisitions) == 2
+    assert {layout.slot_id.local_id for layout in evidence.request.result_layouts} == {
+        "control_iq_shots",
+        "target_iq_shots",
+    }
+    assert all(not layout.axes for layout in evidence.request.result_layouts)
 
 
 def test_emitted_detector_is_a_typed_domain_result_with_ssa_provenance(

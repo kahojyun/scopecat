@@ -7,9 +7,9 @@ from scopecat.measurements.projection import MeasurementProjection
 from scopecat.planning.authoring import resolve_experiment
 from scopecat.records.config import ConfigProfileSnapshot
 
-from quantum_lab_demo.workflows.fixed_patch_readout import (
-    FIXED_PATCH_READOUT_TEMPLATE_ID,
-    fixed_patch_readout_template,
+from quantum_lab_demo.workflows.interaction_tomography import (
+    INTERACTION_TOMOGRAPHY_TEMPLATE_ID,
+    interaction_tomography_template,
 )
 from quantum_lab_demo.workflows.qnd import (
     QND_REPEATED_MEASUREMENT_TEMPLATE_ID,
@@ -36,12 +36,12 @@ def test_recommended_workflow_template_ids() -> None:
     assert [
         readout_frequency_template.id,
         single_qubit_rb_template.id,
-        fixed_patch_readout_template.id,
+        interaction_tomography_template.id,
         qnd_repeated_measurement_template.id,
     ] == [
         READOUT_TEMPLATE_ID,
         SINGLE_QUBIT_RB_TEMPLATE_ID,
-        FIXED_PATCH_READOUT_TEMPLATE_ID,
+        INTERACTION_TOMOGRAPHY_TEMPLATE_ID,
         QND_REPEATED_MEASUREMENT_TEMPLATE_ID,
     ]
 
@@ -62,9 +62,9 @@ def test_recommended_workflow_template_ids() -> None:
             "single_qubit_rb",
         ),
         (
-            fixed_patch_readout_template.bind(rounds=2),
-            FIXED_PATCH_READOUT_TEMPLATE_ID,
-            "fixed_patch_readout",
+            interaction_tomography_template.bind(shots=2),
+            INTERACTION_TOMOGRAPHY_TEMPLATE_ID,
+            "interaction-tomography",
         ),
         (
             qnd_repeated_measurement_template.bind(
@@ -91,16 +91,25 @@ def test_workflow_template_resolves_and_projects(
     assert projection.schema_for(points) is not None
 
 
-def test_fixed_patch_readout_uses_recursive_result_axes() -> None:
+def test_interaction_tomography_projects_the_compact_scan_matrix() -> None:
     projection, points = _measurement_projection(
-        fixed_patch_readout_template.bind(rounds=2, shots=3)
+        interaction_tomography_template.bind(shots=3)
     )
-    observable = next(
-        record for record in projection.records if record.id == "patch_iq"
-    )
+    observables = {
+        record.id: record
+        for record in projection.records
+        if record.id in {"control_iq_shots", "target_iq_shots"}
+    }
 
-    assert observable.dims == ("point", "shot", "round", "qubit")
-    assert (len(points), *observable.shape[1:]) == (1, 3, 2, 4)
+    assert len(points) == 24
+    assert set(observables) == {"control_iq_shots", "target_iq_shots"}
+    assert all(
+        observable.dims == ("point", "shot") for observable in observables.values()
+    )
+    assert all(
+        (len(points), *observable.shape[1:]) == (24, 3)
+        for observable in observables.values()
+    )
 
 
 def test_qnd_repeated_measurement_keeps_dense_shot_round_array() -> None:

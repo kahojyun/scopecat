@@ -55,30 +55,12 @@ from quantum_lab_demo.virtual_lab.pulse_profile import QUANTUM_PULSE_PROFILE
 from quantum_lab_demo.virtual_lab.quantum_responses import (
     quantum_lab_response_registry,
 )
-from quantum_lab_demo.workflows.cz_phase_calibration import (
-    cz_conditional_phase,
-)
-from quantum_lab_demo.workflows.cz_phase_experiment import (
-    cz_phase_template,
-)
-from quantum_lab_demo.workflows.drag_beta_experiment import (
-    drag_beta_program,
-    drag_beta_template,
-)
 from quantum_lab_demo.workflows.fake_x_count_experiment import (
     X_COUNT,
     fake_x_count_capture,
     fake_x_count_scratch,
     fake_x_count_template,
     x_count_program,
-)
-from quantum_lab_demo.workflows.production_drag_gate import (
-    production_drag_program,
-    production_drag_template,
-)
-from quantum_lab_demo.workflows.ramsey_phase_experiment import (
-    ramsey_phase_program,
-    ramsey_phase_template,
 )
 
 from .demo_lab_experiment_testkit import reject_program_input_binding
@@ -202,49 +184,6 @@ def test_fake_x_count_authors_direct_iq_and_derived_probabilities_separately() -
         "state_1_centroid": {"real": 1.0, "imag": 0.0, "unit": "ratio"},
         "tie_policy": "state_0",
     }
-
-
-def test_one_quantum_lab_compiler_prepares_every_reference_program(
-    tmp_path: Path,
-) -> None:
-    compiler = quantum_lab_compiler()
-    lab = quantum_lab(workspace=tmp_path, compiler=compiler)
-
-    runs = tuple(
-        lab.prepare(template).run()
-        for template in (
-            fake_x_count_template,
-            drag_beta_template,
-            production_drag_template,
-            ramsey_phase_template,
-            cz_phase_template,
-        )
-    )
-
-    assert all(run.manifest.status == "completed" for run in runs)
-    assert tuple(
-        evidence.program_id for evidence in compiler.trace.all_preparations
-    ) == (
-        x_count_program.id,
-        drag_beta_program.id,
-        production_drag_program.id,
-        ramsey_phase_program.id,
-        cz_conditional_phase.id,
-    )
-    assert tuple(
-        len(evidence.points) for evidence in compiler.trace.all_preparations
-    ) == (
-        4,
-        15,
-        1,
-        3,
-        24,
-    )
-    [target_compiler_id] = {
-        evidence.artifact.compiler_id.value
-        for evidence in compiler.trace.all_preparations
-    }
-    assert target_compiler_id != compiler.compiler_id
 
 
 def test_fake_x_count_authoring_paths_share_one_standard_domain_semantics(

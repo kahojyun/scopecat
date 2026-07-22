@@ -45,7 +45,7 @@ uv run python examples/quantum/notebooks/calibration/01_drag_beta.py
 | `authoring/02_instrument_composition.py` | Compose a scalar instrument with a programmable quantum scan. |
 | `authoring/03_point_bound_sequence.py` | Generate a composable `@q.fragment` after length and seed bind per scan point. |
 | `authoring/04_recursive_results.py` | Derive dense result axes from nested `parallel` and `repeat`. |
-| `authoring/05_mixed_gate_pulse.py` | Mix gates, pulse templates, frames, and acquisition in one program. |
+| `authoring/05_mixed_gate_pulse.py` | Place standard-gate preparation and analysis around a direct multi-channel pulse layout. |
 | `calibration/01_drag_beta.py` | Fit, review, activate, and roll back a one-qubit gate parameter. |
 | `calibration/02_cz_phase.py` | Calibrate a two-qubit gate with an explicit coupler resource. |
 | `integration/01_opaque_collection.py` | Preserve one gate table as one opaque compute input when no domain compiler exists. |
@@ -93,8 +93,9 @@ objects.
 | Reusable versus one-off definition | `@sc.template` and `@sc.scratch` over the same semantics | `authoring/01_template_and_scratch.py` |
 | One qubit, generated sequence | Point-bound Python elaboration with length and seed scans | `authoring/03_point_bound_sequence.py` and `workflows/single_qubit_rb.py` |
 | Repeated multi-qubit acquisition | Recursive repeat and parallel result axes | `authoring/04_recursive_results.py` |
-| Realtime feedback and fixed-patch readout | Retained loops, measurement branches, parallel lanes, symbolic result layouts, and a statically claimed target | `workflows/active_reset.py`, `workflows/fixed_patch_readout.py`, and `support/tests/unit/test_fake_realtime_domain_e2e.py` |
-| Pulse candidate | Mixed gates, pulses, frames, and accepted calibration | `authoring/05_mixed_gate_pulse.py` and `calibration/01_drag_beta.py` |
+| Realtime feedback | Retained loops, measurement branches, symbolic result layouts, and a statically claimed target | `workflows/active_reset.py` and `support/tests/unit/test_fake_realtime_domain_e2e.py` |
+| Low-level interaction characterization | Standard-gate preparation and basis rotation around a direct, offset multi-channel pulse layout; the same source program targets list and realtime hardware | `authoring/05_mixed_gate_pulse.py`, `workflows/interaction_tomography.py`, `support/tests/unit/test_interaction_tomography.py`, and `support/tests/unit/test_fake_realtime_domain_e2e.py` |
+| Pulse candidate | Explicit candidate pulses alongside accepted gate recipes | `calibration/01_drag_beta.py` |
 | Two-qubit calibration | Gate semantics plus an explicit coupler resource | `calibration/02_cz_phase.py` |
 | No domain compiler | Preserve one collection as one opaque compute input | `integration/01_opaque_collection.py` |
 
