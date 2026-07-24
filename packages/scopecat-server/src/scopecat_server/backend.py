@@ -146,11 +146,13 @@ from scopecat.daemon.wire import (
     RunAttachmentCommand,
     RunAttachmentReceipt,
     RunSubmission,
+    RuntimeEventPublishCommand,
+    RuntimeEventPublishReceipt,
     TerminalRunCommitCommand,
     TerminalRunCommitReceipt,
     UpdateConfigParameterRows,
 )
-from scopecat.execution.evidence import run_outcome_ref
+from scopecat.execution.evidence import RAW_MEASUREMENTS_DATASET_ID, run_outcome_ref
 from scopecat.execution.interpreter import execute_running_run
 from scopecat.execution.observation import RuntimeEvent
 from scopecat.execution.ports.resources import ResourceLeaseManager
@@ -724,12 +726,14 @@ class SQLiteDaemonBackend:
         *,
         limit: int,
         after: int | None,
+        before: int | None,
         state: ControlRunState | None,
         latest: bool = False,
     ) -> RunPage:
         return self.control.list_runs(
             limit=limit,
             after=after,
+            before=before,
             state=state,
             latest=latest,
         )
@@ -1279,7 +1283,7 @@ class SQLiteDaemonBackend:
         records = SQLiteMeasurementDatasetRepository(
             self.runs,
             run_id=run_id,
-        ).measurements()
+        ).measurements(dataset_id=RAW_MEASUREMENTS_DATASET_ID)
         items = records[offset : offset + limit]
         next_offset = (
             offset + len(items) if offset + len(items) < len(records) else None
@@ -1400,6 +1404,33 @@ class SQLiteDaemonBackend:
         return ExecutionTransitionBatchReceipt(
             batch_id=batch.batch_id,
             committed=commit.transitions,
+        )
+
+    def publish_runtime_event(
+        self,
+        run_id: str,
+        command: RuntimeEventPublishCommand,
+    ) -> RuntimeEventPublishReceipt:
+        with self.fenced_write(
+            run_id,
+            token=command.lease_id,
+            generation=command.generation,
+        ) as connection:
+            durable = self.control.append_event_in_transaction(
+                connection,
+                DurableEventInput(
+                    run_id=run_id,
+                    kind=f"runtime_{command.event.kind}",
+                    payload=_JSON_OBJECT.validate_python(
+                        command.event.model_dump(mode="json"),
+                    ),
+                    occurred_at=command.event.observed_at,
+                ),
+            )
+        return RuntimeEventPublishReceipt(
+            event_id=durable.event_id,
+            run_id=run_id,
+            kind=command.event.kind,
         )
 
     def recover_execution(

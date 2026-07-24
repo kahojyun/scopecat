@@ -617,17 +617,34 @@ class SQLiteMeasurementDatasetRepository:
                 f"failed to seal measurement dataset: {error}"
             ) from error
 
-    def measurements(self) -> tuple[MeasurementRecord, ...]:
+    def measurements(
+        self,
+        *,
+        dataset_id: str | None = None,
+    ) -> tuple[MeasurementRecord, ...]:
         try:
             with closing(_connect(self._runs)) as connection:
-                rows = _all(
-                    connection.execute(
-                        """
-                        SELECT ref FROM execution_measurement_appends
-                        WHERE run_id = ?
-                        ORDER BY dataset_id, start_index
-                        """,
-                        (self._run_id,),
+                rows = (
+                    _all(
+                        connection.execute(
+                            """
+                            SELECT ref FROM execution_measurement_appends
+                            WHERE run_id = ?
+                            ORDER BY dataset_id, start_index
+                            """,
+                            (self._run_id,),
+                        )
+                    )
+                    if dataset_id is None
+                    else _all(
+                        connection.execute(
+                            """
+                            SELECT ref FROM execution_measurement_appends
+                            WHERE run_id = ? AND dataset_id = ?
+                            ORDER BY start_index
+                            """,
+                            (self._run_id, dataset_id),
+                        )
                     )
                 )
             return tuple(

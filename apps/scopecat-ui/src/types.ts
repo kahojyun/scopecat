@@ -49,6 +49,11 @@ export interface ProjectRun {
   contents: ContentEntry[];
 }
 
+export interface ProjectRunPage {
+  items: ProjectRun[];
+  previousCursor?: number;
+}
+
 export interface ProjectEvent {
   id: number;
   runId?: string;

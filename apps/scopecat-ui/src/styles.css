@@ -535,6 +535,23 @@ main {
   scrollbar-width: thin;
 }
 
+.run-pagination {
+  display: flex;
+  justify-content: center;
+  padding: 7px 0 3px;
+}
+
+.run-pagination .secondary-button {
+  width: 100%;
+}
+
+.run-pagination-error {
+  margin: 4px 8px 0;
+  color: var(--red);
+  font-size: 0.67rem;
+  line-height: 1.45;
+}
+
 .run-item {
   position: relative;
   display: grid;
@@ -1205,6 +1222,13 @@ main {
   background: var(--panel);
 }
 
+.timeline-limit-note {
+  margin: 0 0 12px;
+  color: var(--text-dim);
+  font-size: 0.64rem;
+  line-height: 1.45;
+}
+
 .timeline {
   display: grid;
   gap: 0;
@@ -1392,6 +1416,17 @@ main {
   line-height: 1.5;
   scrollbar-color: #344252 transparent;
   scrollbar-width: thin;
+}
+
+.measurement-pagination {
+  display: flex;
+  justify-content: center;
+  padding: 9px 10px;
+  border-top: 1px solid var(--line);
+}
+
+.measurement-pagination .secondary-button {
+  width: 100%;
 }
 
 .analysis-list {

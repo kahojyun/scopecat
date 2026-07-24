@@ -105,8 +105,14 @@ def test_run_admission_state_and_pagination(tmp_path: Path) -> None:
     latest = store.list_runs(limit=2, latest=True)
     assert [run.run_id for run in latest.items] == ["run-1", "run-2"]
     assert latest.next_cursor is None
-    with pytest.raises(ValueError, match="after cursor"):
+    assert latest.previous_cursor == latest.items[0].sequence
+    older = store.list_runs(limit=2, before=latest.previous_cursor)
+    assert [run.run_id for run in older.items] == ["run-0"]
+    assert older.previous_cursor is None
+    with pytest.raises(ValueError, match="do not accept a cursor"):
         store.list_runs(limit=2, after=1, latest=True)
+    with pytest.raises(ValueError, match="either an after or before cursor"):
+        store.list_runs(limit=2, after=1, before=2)
 
     retry = _admission("retry-run").model_copy(
         update={

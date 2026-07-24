@@ -35,7 +35,10 @@ from scopecat.records.execution_journal import (
     CollectionChunk,
     CollectionChunkReceipt,
     CommittedPayloadEvidence,
+    ExecutionEffect,
+    ExecutionStage,
     ExecutionTransition,
+    JournalEntryState,
     PayloadEvidence,
 )
 from scopecat.records.measurement import MeasurementRecord
@@ -752,6 +755,60 @@ class ExecutionTransitionBatchReceipt(_WireModel):
         return self
 
 
+class RuntimeProgressPayload(_WireModel):
+    completed_points: int = Field(ge=0)
+    total_points: int | None = Field(default=None, ge=0)
+
+
+class RuntimeTransitionEventPayload(_WireModel):
+    """JSON projection shared by managed and delegated observations."""
+
+    run_id: NonEmptyText
+    experiment_id: NonEmptyText
+    observed_at: datetime
+    occurred_at: datetime
+    operation_id: NonEmptyText
+    stage: ExecutionStage
+    effect: ExecutionEffect
+    state: JournalEntryState
+    progress: RuntimeProgressPayload
+    sequence: int | None = Field(default=None, ge=0)
+    point_index: int | None = Field(default=None, ge=0)
+    point_indices: tuple[int, ...] = ()
+    instrument_id: str | None = None
+    metrics: dict[str, JsonValue] = Field(default_factory=dict)
+    kind: Literal["transition"] = "transition"
+
+    @field_validator("observed_at", "occurred_at")
+    @classmethod
+    def validate_datetimes(cls, value: datetime) -> datetime:
+        return _aware_datetime(value, field_name="runtime event datetime")
+
+
+class RuntimeEventPublishCommand(_FencedRunCommand):
+    """Publish one live observation under the delegated executor lease."""
+
+    schema_version: Literal["scopecat.runtime_event_publish_command.v1"] = (
+        "scopecat.runtime_event_publish_command.v1"
+    )
+    event: RuntimeTransitionEventPayload
+
+    @model_validator(mode="after")
+    def validate_event(self) -> RuntimeEventPublishCommand:
+        if self.event.run_id != self.run_id:
+            raise ValueError("runtime event command and event run ids must match")
+        return self
+
+
+class RuntimeEventPublishReceipt(_WireModel):
+    schema_version: Literal["scopecat.runtime_event_publish_receipt.v1"] = (
+        "scopecat.runtime_event_publish_receipt.v1"
+    )
+    event_id: int = Field(ge=1)
+    run_id: NonEmptyText
+    kind: Literal["transition"]
+
+
 class ExecutionRecoveryRequest(_FencedRunCommand):
     """Read the canonical recovery views behind all delegated ports."""
 
@@ -1026,6 +1083,10 @@ __all__ = [
     "RunAttachmentCommand",
     "RunAttachmentReceipt",
     "RunSubmission",
+    "RuntimeEventPublishCommand",
+    "RuntimeEventPublishReceipt",
+    "RuntimeProgressPayload",
+    "RuntimeTransitionEventPayload",
     "TerminalModelWrite",
     "TerminalRecordSetWrite",
     "TerminalRunCommitCommand",

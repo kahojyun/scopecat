@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   Activity,
   AlertTriangle,
@@ -38,9 +43,11 @@ import {
   getEvents,
   getHealth,
   getMeasurementPreview,
+  getOlderRuns,
   getRun,
   getRunAnalyses,
   getRunContent,
+  getRunEvents,
   getRuns,
   resolveAttention,
   type AttentionAction,
@@ -52,11 +59,20 @@ import type {
   ProjectEvent,
   ProjectHealth,
   ProjectRun,
+  ProjectRunPage,
   RunAnalysis,
 } from "./types";
 
 type FilterKey = "all" | "active" | "attention" | "complete";
 type ProjectView = "runs" | "configuration";
+interface OlderRunHistory {
+  headCursor: number;
+  pages: ProjectRunPage[];
+}
+interface OlderRunPageRequest {
+  headCursor: number;
+  before: number;
+}
 
 const FILTERS: Array<{ key: FilterKey; label: string }> = [
   { key: "all", label: "All" },
@@ -72,8 +88,15 @@ export default function App() {
   );
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<FilterKey>("all");
-  const [selectedRunId, setSelectedRunId] = useState<string>();
+  const [selectedRunId, setSelectedRunId] = useState<string | undefined>(
+    selectedRunFromUrl,
+  );
+  const [olderRunHistory, setOlderRunHistory] =
+    useState<OlderRunHistory>();
   const eventCursor = useRef(0);
+  const latestRunHeadCursor = useRef<number | undefined>(undefined);
+  const selectedRunIdRef = useRef(selectedRunId);
+  selectedRunIdRef.current = selectedRunId;
 
   const healthQuery = useQuery({
     queryKey: ["health"],
@@ -84,6 +107,19 @@ export default function App() {
     queryKey: ["runs"],
     queryFn: ({ signal }) => getRuns(signal),
     refetchInterval: 2_500,
+  });
+  const runHeadCursor = runsQuery.data?.previousCursor;
+  latestRunHeadCursor.current = runHeadCursor;
+  const olderRunsMutation = useMutation({
+    mutationFn: ({ before }: OlderRunPageRequest) => getOlderRuns(before),
+    onSuccess: (page, request) => {
+      if (latestRunHeadCursor.current !== request.headCursor) return;
+      setOlderRunHistory((current) =>
+        current?.headCursor === request.headCursor
+          ? { ...current, pages: [...current.pages, page] }
+          : { headCursor: request.headCursor, pages: [page] },
+      );
+    },
   });
   const eventsQuery = useQuery({
     queryKey: ["events"],
@@ -100,10 +136,18 @@ export default function App() {
     queryFn: ({ signal }) => getRun(selectedRunId!, signal),
     enabled: selectedRunId !== undefined,
   });
-  const measurementsQuery = useQuery({
-    queryKey: ["measurements", selectedRunId],
-    queryFn: ({ signal }) => getMeasurementPreview(selectedRunId!, signal),
+  const selectedEventsQuery = useQuery({
+    queryKey: ["events", "run", selectedRunId],
+    queryFn: ({ signal }) => getRunEvents(selectedRunId!, signal),
     enabled: selectedRunId !== undefined,
+  });
+  const measurementsQuery = useInfiniteQuery({
+    queryKey: ["measurements", selectedRunId],
+    queryFn: ({ signal, pageParam }) =>
+      getMeasurementPreview(selectedRunId!, pageParam, signal),
+    enabled: selectedRunId !== undefined,
+    initialPageParam: 0,
+    getNextPageParam: (page) => page.nextOffset,
   });
   const analysesQuery = useQuery({
     queryKey: ["analyses", selectedRunId],
@@ -140,14 +184,29 @@ export default function App() {
       `/api/v1/events/stream?after=${eventCursor.current}`,
     );
     let refreshTimer: number | undefined;
-    const refresh = () => {
+    const measurementRunsToReset = new Set<string>();
+    const refresh = (event: Event) => {
+      const measurementRunId = measurementEventRunId(event);
+      if (
+        measurementRunId !== undefined &&
+        measurementRunId === selectedRunIdRef.current
+      ) {
+        measurementRunsToReset.add(measurementRunId);
+      }
       if (refreshTimer !== undefined) return;
       refreshTimer = window.setTimeout(() => {
         refreshTimer = undefined;
+        const resetMeasurementRuns = [...measurementRunsToReset];
+        measurementRunsToReset.clear();
         void queryClient.invalidateQueries({ queryKey: ["runs"] });
         void queryClient.invalidateQueries({ queryKey: ["events"] });
         void queryClient.invalidateQueries({ queryKey: ["run"] });
-        void queryClient.invalidateQueries({ queryKey: ["measurements"] });
+        for (const runId of resetMeasurementRuns) {
+          void queryClient.resetQueries({
+            queryKey: ["measurements", runId],
+            exact: true,
+          });
+        }
         void queryClient.invalidateQueries({ queryKey: ["analyses"] });
         void queryClient.invalidateQueries({ queryKey: ["run-content"] });
         void queryClient.invalidateQueries({ queryKey: ["config"] });
@@ -164,8 +223,34 @@ export default function App() {
     };
   }, [eventsQuery.isSuccess, queryClient]);
 
-  const runs = runsQuery.data ?? [];
-  const events = eventsQuery.data ?? [];
+  const olderRunPages =
+    olderRunHistory && olderRunHistory.headCursor === runHeadCursor
+      ? olderRunHistory.pages
+      : [];
+  const runs = useMemo(
+    () => {
+      const indexedRuns = mergeRunPages([
+        ...olderRunPages,
+        ...(runsQuery.data ? [runsQuery.data] : []),
+      ]);
+      return runDetailQuery.data
+        ? indexedRuns.map((run) =>
+            run.runId === runDetailQuery.data.runId
+              ? runDetailQuery.data
+              : run,
+          )
+        : indexedRuns;
+    },
+    [olderRunPages, runDetailQuery.data, runsQuery.data],
+  );
+  const previousRunCursor =
+    olderRunPages.length > 0
+      ? olderRunPages.at(-1)?.previousCursor
+      : runHeadCursor;
+  const measurements = useMemo(
+    () => mergeMeasurementPages(measurementsQuery.data?.pages ?? []),
+    [measurementsQuery.data?.pages],
+  );
   const catalog = catalogQuery.data;
   const filteredRuns = useMemo(
     () => filterRuns(runs, filter, search),
@@ -173,29 +258,31 @@ export default function App() {
   );
 
   useEffect(() => {
+    setOlderRunHistory((current) =>
+      current && current.headCursor !== runHeadCursor ? undefined : current,
+    );
+  }, [runHeadCursor]);
+
+  useEffect(() => {
     if (runs.length > 0 && selectedRunId === undefined) {
-      setSelectedRunId(runs[0]?.runId);
+      const firstRunId = runs[0]?.runId;
+      setSelectedRunId(firstRunId);
+      replaceNavigation(view, firstRunId);
     }
-  }, [runs, selectedRunId]);
+  }, [runs, selectedRunId, view]);
 
   const selectedRun =
     runDetailQuery.data ??
     runs.find((run) => run.runId === selectedRunId);
-  const selectedEvents = selectedRun
-    ? events.filter((event) => event.runId === selectedRun.runId)
-    : [];
+  const selectedEvents = selectedEventsQuery.data ?? [];
   const activeCount = runs.filter((run) =>
     ["accepted", "running"].includes(run.status),
   ).length;
   const attentionCount = runs.filter(
     (run) => run.status === "attention_required",
   ).length;
-  const daemonReachable =
-    healthQuery.isSuccess ||
-    runsQuery.isSuccess ||
-    eventsQuery.isSuccess ||
-    catalogQuery.isSuccess;
-  const daemonUnavailable = healthQuery.isError && runsQuery.isError;
+  const daemonReachable = healthQuery.isSuccess;
+  const daemonUnavailable = healthQuery.isError;
   const refreshing =
     healthQuery.isFetching ||
     runsQuery.isFetching ||
@@ -213,18 +300,20 @@ export default function App() {
   };
   const selectView = (selected: ProjectView) => {
     setView(selected);
-    window.history.replaceState(
-      null,
-      "",
-      selected === "configuration" ? "#configuration" : window.location.pathname,
-    );
+    replaceNavigation(selected, selectedRunId);
     window.scrollTo({ top: 0, left: 0 });
+  };
+  const selectRun = (runId: string) => {
+    setSelectedRunId(runId);
+    replaceNavigation("runs", runId);
   };
   const openConfigSourceRun = (runId: string) => {
     setSelectedRunId(runId);
     setSearch("");
     setFilter("all");
-    selectView("runs");
+    setView("runs");
+    replaceNavigation("runs", runId);
+    window.scrollTo({ top: 0, left: 0 });
   };
 
   return (
@@ -340,10 +429,16 @@ export default function App() {
           <StatusCard
             icon={<FlaskConical size={18} />}
             label="Runs"
-            value={runsQuery.isSuccess ? String(runs.length) : "—"}
+            value={
+              runsQuery.isSuccess
+                ? `${runs.length}${previousRunCursor !== undefined ? "+" : ""}`
+                : "—"
+            }
             detail={
               runsQuery.isSuccess
-                ? `${activeCount} active`
+                ? previousRunCursor !== undefined
+                  ? `${activeCount} active in loaded runs`
+                  : `${activeCount} active`
                 : "No run data received"
             }
             tone={activeCount > 0 ? "active" : "muted"}
@@ -353,9 +448,19 @@ export default function App() {
             label="Attention"
             value={runsQuery.isSuccess ? String(attentionCount) : "—"}
             detail={
-              attentionCount > 0 ? "Operator review needed" : "No flagged runs"
+              attentionCount > 0
+                ? "Operator review needed"
+                : previousRunCursor !== undefined
+                  ? "No flags in loaded runs"
+                  : "No flagged runs"
             }
-            tone={attentionCount > 0 ? "warning" : "good"}
+            tone={
+              attentionCount > 0
+                ? "warning"
+                : previousRunCursor !== undefined
+                  ? "muted"
+                  : "good"
+            }
           />
           <StatusCard
             icon={<BookOpen size={18} />}
@@ -454,9 +559,44 @@ export default function App() {
                   key={run.runId}
                   run={run}
                   selected={run.runId === selectedRunId}
-                  onSelect={() => setSelectedRunId(run.runId)}
+                  onSelect={() => selectRun(run.runId)}
                 />
               ))}
+              {olderRunsMutation.isError && (
+                <p className="run-pagination-error" role="status">
+                  {errorMessage(olderRunsMutation.error)}
+                </p>
+              )}
+              {runsQuery.isSuccess &&
+                runHeadCursor !== undefined &&
+                previousRunCursor !== undefined && (
+                <div className="run-pagination">
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    disabled={olderRunsMutation.isPending}
+                    onClick={() =>
+                      olderRunsMutation.mutate({
+                        headCursor: runHeadCursor,
+                        before: previousRunCursor,
+                      })
+                    }
+                  >
+                    {olderRunsMutation.isPending ? (
+                      <LoaderCircle
+                        className="spin"
+                        size={14}
+                        aria-hidden="true"
+                      />
+                    ) : (
+                      <ChevronRight size={14} aria-hidden="true" />
+                    )}
+                    {olderRunsMutation.isPending
+                      ? "Loading older runs…"
+                      : "Load older runs"}
+                  </button>
+                </div>
+              )}
             </div>
           </aside>
 
@@ -471,12 +611,18 @@ export default function App() {
               <RunDetail
                 run={selectedRun}
                 events={selectedEvents}
-                eventsError={eventsQuery.error}
+                eventsError={selectedEventsQuery.error}
+                eventsPending={selectedEventsQuery.isPending}
                 catalog={catalog}
                 catalogError={catalogQuery.error}
-                measurements={measurementsQuery.data}
+                measurements={measurements}
                 measurementsError={measurementsQuery.error}
                 measurementsPending={measurementsQuery.isPending}
+                measurementsHasMore={measurementsQuery.hasNextPage}
+                measurementsLoadingMore={measurementsQuery.isFetchingNextPage}
+                onLoadMoreMeasurements={() => {
+                  void measurementsQuery.fetchNextPage();
+                }}
                 analyses={analysesQuery.data}
                 analysesError={analysesQuery.error}
                 analysesPending={analysesQuery.isPending}
@@ -613,11 +759,15 @@ function RunDetail({
   run,
   events,
   eventsError,
+  eventsPending,
   catalog,
   catalogError,
   measurements,
   measurementsError,
   measurementsPending,
+  measurementsHasMore,
+  measurementsLoadingMore,
+  onLoadMoreMeasurements,
   analyses,
   analysesError,
   analysesPending,
@@ -629,11 +779,15 @@ function RunDetail({
   run: ProjectRun;
   events: ProjectEvent[];
   eventsError: Error | null;
+  eventsPending: boolean;
   catalog?: ExperimentCatalog;
   catalogError: Error | null;
   measurements?: MeasurementPreview;
   measurementsError: Error | null;
   measurementsPending: boolean;
+  measurementsHasMore: boolean;
+  measurementsLoadingMore: boolean;
+  onLoadMoreMeasurements: () => void;
   analyses?: RunAnalysis[];
   analysesError: Error | null;
   analysesPending: boolean;
@@ -741,12 +895,19 @@ function RunDetail({
           pending={analysesPending}
         />
         <ResourceCard run={run} />
-        <TimelineCard events={events} error={eventsError} />
+        <TimelineCard
+          events={events}
+          error={eventsError}
+          pending={eventsPending}
+        />
         <DataCard
           run={run}
           measurements={measurements}
           error={measurementsError}
           pending={measurementsPending}
+          hasMoreMeasurements={measurementsHasMore}
+          loadingMoreMeasurements={measurementsLoadingMore}
+          onLoadMoreMeasurements={onLoadMoreMeasurements}
         />
         <CatalogCard
           currentExperimentId={run.experimentId}
@@ -947,15 +1108,17 @@ function ResourceCard({ run }: { run: ProjectRun }) {
 function TimelineCard({
   events,
   error,
+  pending,
 }: {
   events: ProjectEvent[];
   error: Error | null;
+  pending: boolean;
 }) {
   return (
     <article className="detail-card timeline-card">
       <CardHeading
         icon={<Activity size={17} />}
-        title="Event timeline"
+        title="Recent events"
         accessory={<span className="count-badge">{events.length}</span>}
       />
       {error ? (
@@ -964,33 +1127,45 @@ function TimelineCard({
           detail={errorMessage(error)}
           warning
         />
+      ) : pending ? (
+        <InlineEmpty
+          title="Reading events"
+          detail="Waiting for this run's durable event timeline."
+        />
       ) : events.length === 0 ? (
         <InlineEmpty
           title="No events reported"
           detail="The daemon has not returned durable events for this run."
         />
       ) : (
-        <ol className="timeline">
-          {events.map((event) => (
-            <li key={event.id}>
-              <span className="timeline-marker" aria-hidden="true">
-                {eventIcon(event.kind)}
-              </span>
-              <div>
-                <div className="event-heading">
-                  <strong>{humanizeEvent(event.kind)}</strong>
-                  <span>#{event.id}</span>
+        <>
+          {events.length === 500 && (
+            <p className="timeline-limit-note">
+              Showing the latest 500 events; older events are not loaded.
+            </p>
+          )}
+          <ol className="timeline">
+            {events.map((event) => (
+              <li key={event.id}>
+                <span className="timeline-marker" aria-hidden="true">
+                  {eventIcon(event.kind)}
+                </span>
+                <div>
+                  <div className="event-heading">
+                    <strong>{humanizeEvent(event.kind)}</strong>
+                    <span>#{event.id}</span>
+                  </div>
+                  <p>{eventDescription(event)}</p>
+                  <time dateTime={event.occurredAt}>
+                    {event.occurredAt
+                      ? formatDateTime(event.occurredAt)
+                      : "Timestamp not reported"}
+                  </time>
                 </div>
-                <p>{eventDescription(event)}</p>
-                <time dateTime={event.occurredAt}>
-                  {event.occurredAt
-                    ? formatDateTime(event.occurredAt)
-                    : "Timestamp not reported"}
-                </time>
-              </div>
-            </li>
-          ))}
-        </ol>
+              </li>
+            ))}
+          </ol>
+        </>
       )}
     </article>
   );
@@ -1001,11 +1176,17 @@ function DataCard({
   measurements,
   error,
   pending,
+  hasMoreMeasurements,
+  loadingMoreMeasurements,
+  onLoadMoreMeasurements,
 }: {
   run: ProjectRun;
   measurements?: MeasurementPreview;
   error: Error | null;
   pending: boolean;
+  hasMoreMeasurements: boolean;
+  loadingMoreMeasurements: boolean;
+  onLoadMoreMeasurements: () => void;
 }) {
   const [selectedContentKey, setSelectedContentKey] = useState<string>();
   useEffect(() => {
@@ -1124,6 +1305,9 @@ function DataCard({
         preview={measurements}
         error={error}
         pending={pending}
+        hasMore={hasMoreMeasurements}
+        loadingMore={loadingMoreMeasurements}
+        onLoadMore={onLoadMoreMeasurements}
       />
     </article>
   );
@@ -1198,10 +1382,16 @@ function MeasurementRecords({
   preview,
   error,
   pending,
+  hasMore,
+  loadingMore,
+  onLoadMore,
 }: {
   preview?: MeasurementPreview;
   error: Error | null;
   pending: boolean;
+  hasMore: boolean;
+  loadingMore: boolean;
+  onLoadMore: () => void;
 }) {
   if (error) {
     return (
@@ -1238,6 +1428,21 @@ function MeasurementRecords({
         </span>
       </div>
       <pre>{JSON.stringify(preview.items, null, 2)}</pre>
+      {hasMore && (
+        <div className="measurement-pagination">
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={loadingMore}
+            onClick={onLoadMore}
+          >
+            {loadingMore && (
+              <LoaderCircle className="spin" size={14} aria-hidden="true" />
+            )}
+            {loadingMore ? "Loading measurements…" : "Load more measurements"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -1413,6 +1618,46 @@ function InlineEmpty({
   );
 }
 
+function selectedRunFromUrl(): string | undefined {
+  return new URL(window.location.href).searchParams.get("run") || undefined;
+}
+
+function replaceNavigation(view: ProjectView, runId?: string): void {
+  const location = new URL(window.location.href);
+  if (runId) {
+    location.searchParams.set("run", runId);
+  } else {
+    location.searchParams.delete("run");
+  }
+  location.hash = view === "configuration" ? "configuration" : "";
+  window.history.replaceState(
+    null,
+    "",
+    `${location.pathname}${location.search}${location.hash}`,
+  );
+}
+
+function mergeRunPages(pages: ProjectRunPage[]): ProjectRun[] {
+  const runs = new Map<string, ProjectRun>();
+  for (const page of pages) {
+    for (const run of page.items) runs.set(run.runId, run);
+  }
+  return [...runs.values()].sort((left, right) => {
+    if (left.sequence !== undefined && right.sequence !== undefined) {
+      return right.sequence - left.sequence;
+    }
+    return (right.updatedAt ?? "").localeCompare(left.updatedAt ?? "");
+  });
+}
+
+function mergeMeasurementPages(
+  pages: MeasurementPreview[],
+): MeasurementPreview | undefined {
+  if (pages.length === 0) return undefined;
+  const items = pages.flatMap((page) => page.items);
+  return { items, nextOffset: pages.at(-1)?.nextOffset };
+}
+
 function filterRuns(
   runs: ProjectRun[],
   filter: FilterKey,
@@ -1447,19 +1692,34 @@ function completedPoints(
 ): number {
   let completed = run.progressCompleted ?? 0;
   for (const event of events) {
-    for (const key of [
-      "completed_points",
-      "points_completed",
-      "point_count",
-      "point_index",
-    ]) {
-      const value = event.payload[key];
-      if (typeof value === "number" && Number.isFinite(value)) {
-        completed = Math.max(completed, key === "point_index" ? value + 1 : value);
-      }
+    const progress = event.payload.progress;
+    if (typeof progress !== "object" || progress === null) continue;
+    const value = (progress as Record<string, unknown>).completed_points;
+    if (typeof value === "number" && Number.isFinite(value)) {
+      completed = Math.max(completed, value);
     }
   }
   return completed;
+}
+
+function measurementEventRunId(event: Event): string | undefined {
+  if (!(event instanceof MessageEvent) || typeof event.data !== "string") {
+    return undefined;
+  }
+  try {
+    const payload: unknown = JSON.parse(event.data);
+    if (typeof payload !== "object" || payload === null) return undefined;
+    const source = payload as Record<string, unknown>;
+    if (
+      source.kind !== "measurements_appended" &&
+      source.kind !== "measurements_sealed"
+    ) {
+      return undefined;
+    }
+    return typeof source.run_id === "string" ? source.run_id : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function eventIcon(kind: string): ReactNode {

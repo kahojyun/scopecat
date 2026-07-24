@@ -42,6 +42,10 @@ from scopecat.daemon import (
     RegisteredExperimentDescriptor,
     RunAdmission,
     RunDetail,
+    RuntimeEventPublishCommand,
+    RuntimeEventPublishReceipt,
+    RuntimeProgressPayload,
+    RuntimeTransitionEventPayload,
     TerminalRunCommitCommand,
     TerminalRunCommitReceipt,
 )
@@ -151,6 +155,19 @@ def test_queries_and_run_submissions_use_typed_wire_models() -> None:
     assert b'"execution_mode":"delegated"' in requests[7].content
 
 
+def test_run_queries_serialize_the_older_page_cursor() -> None:
+    requests: list[httpx.Request] = []
+    client = _client(requests)
+
+    page = client.list_runs(limit=5, before=10)
+
+    assert isinstance(page, RunPage)
+    assert dict(requests[0].url.params) == {
+        "limit": "5",
+        "before": "10",
+    }
+
+
 def test_delegated_executor_commands_follow_run_scoped_routes() -> None:
     requests: list[httpx.Request] = []
     client = _client(requests)
@@ -171,22 +188,45 @@ def test_delegated_executor_commands_follow_run_scoped_routes() -> None:
         run_id="run-1",
         transitions=(_transition(),),
     )
+    runtime_event = RuntimeEventPublishCommand(
+        run_id="run-1",
+        lease_id="lease-1",
+        generation=1,
+        event=RuntimeTransitionEventPayload(
+            run_id="run-1",
+            experiment_id="scratch",
+            observed_at=_NOW,
+            occurred_at=_NOW,
+            operation_id="point-0",
+            stage="point",
+            effect="pure",
+            state="completed",
+            progress=RuntimeProgressPayload(
+                completed_points=1,
+                total_points=2,
+            ),
+            point_index=0,
+        ),
+    )
     terminal = _terminal_command()
 
     lease = client.start_executor(start_request)
     renewed = client.heartbeat_executor("run-1", heartbeat)
     receipt = client.append_transitions(batch)
+    runtime_receipt = client.publish_runtime_event(runtime_event)
     completed = client.commit_terminal(terminal)
 
     assert isinstance(lease, ExecutorLease)
     assert renewed.expires_at == lease.expires_at
     assert isinstance(receipt, ExecutionTransitionBatchReceipt)
     assert receipt.committed[0].sequence == 1
+    assert runtime_receipt.kind == "transition"
     assert completed.manifest.lifecycle == "terminal"
     assert [request.url.path for request in requests] == [
         "/api/v1/runs/run-1/executor/start",
         "/api/v1/runs/run-1/executor/heartbeat",
         "/api/v1/runs/run-1/transitions",
+        "/api/v1/runs/run-1/runtime-events",
         "/api/v1/runs/run-1/terminal",
     ]
 
@@ -716,6 +756,15 @@ def _client(requests: list[httpx.Request]) -> DaemonClient:
                 ExecutionTransitionBatchReceipt(
                     batch_id="batch-1",
                     committed=(_transition().model_copy(update={"sequence": 1}),),
+                )
+            )
+        if path == "/api/v1/runs/run-1/runtime-events":
+            command = RuntimeEventPublishCommand.model_validate_json(request.content)
+            return _model(
+                RuntimeEventPublishReceipt(
+                    event_id=7,
+                    run_id=command.run_id,
+                    kind=command.event.kind,
                 )
             )
         if path == "/api/v1/runs/run-1/terminal":

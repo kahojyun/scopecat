@@ -432,6 +432,26 @@ def test_two_measurement_connections_replay_and_conflict_by_canonical_slot(
         second.append(_append("run-measurement", value=2))
 
 
+def test_measurements_can_select_one_canonical_dataset(tmp_path: Path) -> None:
+    repository = SQLiteMeasurementDatasetRepository(
+        _runs(tmp_path),
+        run_id="run-measurement",
+    )
+    raw = _append("run-measurement")
+    derived = _append("run-measurement", value=2).model_copy(
+        update={"dataset_id": "derived-measurements"}
+    )
+
+    repository.append(raw)
+    repository.append(derived)
+
+    assert repository.measurements(dataset_id="raw-measurements") == raw.records
+    assert repository.measurements(dataset_id="derived-measurements") == (
+        derived.records
+    )
+    assert len(repository.measurements()) == 2
+
+
 def test_measurement_replay_rejects_mismatched_durable_operation_identity(
     tmp_path: Path,
 ) -> None:

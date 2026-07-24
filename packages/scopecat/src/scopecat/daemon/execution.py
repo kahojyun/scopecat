@@ -25,10 +25,14 @@ from scopecat.daemon.wire import (
     MeasurementSealCommand,
     PayloadCommitCommand,
     RunAdmission,
+    RuntimeEventPublishCommand,
+    RuntimeProgressPayload,
+    RuntimeTransitionEventPayload,
     TerminalModelWrite,
     TerminalRecordSetWrite,
     TerminalRunCommitCommand,
 )
+from scopecat.execution.observation import RuntimeEvent, RuntimeTransitionEvent
 from scopecat.execution.services import ExecutionServices
 from scopecat.kernel.resource_identity import ResourceClaim
 from scopecat.records.config import ConfigProfileSnapshot
@@ -94,6 +98,7 @@ def delegated_execution_services(
             run_id,
         ),
         payloads_for=lambda run_id: _DelegatedPayloadCommitter(authority, run_id),
+        runtime_event_sink=authority.publish_runtime_event,
     )
 
 
@@ -173,6 +178,42 @@ class _LeaseAuthority:
                 generation=generation,
             )
         )
+
+    def publish_runtime_event(self, event: RuntimeEvent) -> None:
+        # The delegated lease starts after run_started and is consumed by the
+        # terminal commit, so only in-flight transitions can be fenced here.
+        if not isinstance(event, RuntimeTransitionEvent) or event.stage != "point":
+            return
+        self.require_run(event.run_id)
+        lease_id, generation = self.fence()
+        receipt = self.client.publish_runtime_event(
+            RuntimeEventPublishCommand(
+                run_id=event.run_id,
+                lease_id=lease_id,
+                generation=generation,
+                event=RuntimeTransitionEventPayload(
+                    run_id=event.run_id,
+                    experiment_id=event.experiment_id,
+                    observed_at=event.observed_at,
+                    occurred_at=event.occurred_at,
+                    operation_id=event.operation_id,
+                    stage=event.stage,
+                    effect=event.effect,
+                    state=event.state,
+                    progress=RuntimeProgressPayload(
+                        completed_points=event.progress.completed_points,
+                        total_points=event.progress.total_points,
+                    ),
+                    sequence=event.sequence,
+                    point_index=event.point_index,
+                    point_indices=event.point_indices,
+                    instrument_id=event.instrument_id,
+                    metrics=event.metrics,
+                ),
+            )
+        )
+        if receipt.run_id != event.run_id or receipt.kind != event.kind:
+            raise ValueError("runtime event receipt identity does not match")
 
     def require_run(self, run_id: str) -> None:
         if run_id != self.run_id:

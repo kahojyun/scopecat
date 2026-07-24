@@ -61,6 +61,9 @@ from scopecat.daemon.wire import (
     ResourceClaimDescriptor,
     RunAdmission,
     RunAttachmentCommand,
+    RuntimeEventPublishCommand,
+    RuntimeProgressPayload,
+    RuntimeTransitionEventPayload,
     TerminalRunCommitCommand,
 )
 from scopecat.planning.system import ExperimentSystem
@@ -1144,6 +1147,93 @@ def test_delegated_effect_is_fenced_and_terminal_updates_control(
         assert runtime.control.list_resource_leases() == ()
         terminal_detail = client.get(f"/api/v1/runs/{run_id}").json()
         assert terminal_detail["resources"][0]["status"] == "released"
+
+
+def test_delegated_runtime_event_is_fenced_and_durable(tmp_path: Path) -> None:
+    with LocalDaemonRuntime(tmp_path) as runtime:
+        client = TestClient(runtime.app())
+        admission_response = client.post(
+            "/api/v1/runs",
+            json=_submission().model_dump(mode="json"),
+        )
+        run_id = RunAdmission.model_validate(admission_response.json()).run_id
+        accepted = runtime.runs.read_manifest(run_id)
+        lease_response = client.post(
+            f"/api/v1/runs/{run_id}/executor/start",
+            json=ExecutorStartRequest(
+                run_id=run_id,
+                executor_id="notebook-1",
+                manifest=accepted.model_copy(update={"lifecycle": "running"}),
+            ).model_dump(mode="json"),
+        )
+        lease = ExecutorLease.model_validate(lease_response.json())
+        observed_at = datetime(2026, 7, 23, 9, 0, 2, tzinfo=UTC)
+        occurred_at = datetime(2026, 7, 23, 9, 0, 1, tzinfo=UTC)
+        command = RuntimeEventPublishCommand(
+            run_id=run_id,
+            lease_id=lease.lease_id,
+            generation=lease.generation,
+            event=RuntimeTransitionEventPayload(
+                run_id=run_id,
+                experiment_id="scratch",
+                observed_at=observed_at,
+                occurred_at=occurred_at,
+                operation_id="point-1",
+                stage="point",
+                effect="acquisition",
+                state="completed",
+                progress=RuntimeProgressPayload(
+                    completed_points=1,
+                    total_points=2,
+                ),
+                point_index=0,
+                point_indices=(0,),
+                instrument_id="scope-1",
+                metrics={"measurement_count": 1},
+            ),
+        )
+
+        published = client.post(
+            f"/api/v1/runs/{run_id}/runtime-events",
+            json=command.model_dump(mode="json"),
+        )
+        stale = client.post(
+            f"/api/v1/runs/{run_id}/runtime-events",
+            json=command.model_copy(
+                update={"generation": lease.generation + 1}
+            ).model_dump(mode="json"),
+        )
+
+        assert published.status_code == 200
+        assert published.json()["kind"] == "transition"
+        assert stale.status_code == 409
+        events = tuple(
+            event
+            for event in runtime.control.list_events(run_id=run_id).items
+            if event.kind == "runtime_transition"
+        )
+        assert len(events) == 1
+        assert events[0].occurred_at == observed_at
+        assert events[0].payload == {
+            "run_id": run_id,
+            "experiment_id": "scratch",
+            "observed_at": "2026-07-23T09:00:02Z",
+            "occurred_at": "2026-07-23T09:00:01Z",
+            "operation_id": "point-1",
+            "stage": "point",
+            "effect": "acquisition",
+            "state": "completed",
+            "progress": {
+                "completed_points": 1,
+                "total_points": 2,
+            },
+            "sequence": None,
+            "point_index": 0,
+            "point_indices": [0],
+            "instrument_id": "scope-1",
+            "metrics": {"measurement_count": 1},
+            "kind": "transition",
+        }
 
 
 def test_effect_and_terminal_publication_roll_back_with_control(

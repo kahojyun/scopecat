@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 
+from scopecat.execution.observation import RuntimeEventSink
 from scopecat.execution.ports.journal import (
     CollectionRepository,
     ExecutionJournal,
@@ -66,3 +67,4 @@ class ExecutionServices:
     measurements_for: Callable[[str], MeasurementDatasetRepository]
     collections_for: Callable[[str], CollectionRecordRepository]
     payloads_for: Callable[[str], PayloadEvidenceCommitter]
+    runtime_event_sink: RuntimeEventSink | None = None

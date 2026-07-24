@@ -115,6 +115,7 @@ class ControlRun(_ControlModel):
 class RunPage(_ControlModel):
     items: tuple[ControlRun, ...]
     next_cursor: int | None = None
+    previous_cursor: int | None = None
 
 
 class DurableEventInput(_ControlModel):

@@ -97,7 +97,11 @@ from scopecat.daemon.wire import (
     UpdateConfigParameterRows,
 )
 from scopecat.execution.interpreter import execute_admitted_run
-from scopecat.execution.observation import RuntimeEventSink, RuntimePayloadObserver
+from scopecat.execution.observation import (
+    RuntimeEvent,
+    RuntimeEventSink,
+    RuntimePayloadObserver,
+)
 from scopecat.measurements.results import MeasurementDataset
 from scopecat.planning.preview import build_run_program_preview
 from scopecat.planning.preview_models import ExperimentPreview
@@ -395,14 +399,18 @@ class DaemonConnection:
         *,
         limit: int = 50,
         after: int | None = None,
+        before: int | None = None,
         state: ControlRunState | None = None,
-        latest: bool = True,
+        latest: bool | None = None,
     ) -> RunPage:
+        """Return the latest page unless a traversal cursor is supplied."""
+
         return self._client.list_runs(
             limit=limit,
             after=after,
+            before=before,
             state=state,
-            latest=latest,
+            latest=(after is None and before is None if latest is None else latest),
         )
 
     def get_run(self, run_id: str) -> RunDetail:
@@ -701,7 +709,10 @@ class DaemonConnection:
                 instrument_provider=(
                     None if planned.system is None else planned.system.provider
                 ),
-                event_sink=event_sink,
+                event_sink=_combine_runtime_event_sinks(
+                    services.runtime_event_sink,
+                    event_sink,
+                ),
                 payload_observer=payload_observer,
             )
         finally:
@@ -976,6 +987,24 @@ def connect(
     """Connect low-level notebook code to an explicit daemon endpoint."""
 
     return DaemonConnection(daemon, build_system=build_system)
+
+
+def _combine_runtime_event_sinks(
+    remote: RuntimeEventSink | None,
+    local: RuntimeEventSink | None,
+) -> RuntimeEventSink | None:
+    if remote is None:
+        return local
+    if local is None:
+        return remote
+
+    def observe(event: RuntimeEvent) -> None:
+        try:
+            remote(event)
+        finally:
+            local(event)
+
+    return observe
 
 
 class _LeaseHeartbeat(DelegatedLeaseSupervisor):

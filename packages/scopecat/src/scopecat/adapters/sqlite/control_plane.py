@@ -200,14 +200,17 @@ class SQLiteControlPlane:
         *,
         limit: int = 50,
         after: int | None = None,
+        before: int | None = None,
         state: ControlRunState | None = None,
         latest: bool = False,
     ) -> RunPage:
         """Return a keyset page in immutable admission order."""
 
         _page_size(limit)
-        if latest and after is not None:
-            raise ValueError("latest run snapshots do not accept an after cursor")
+        if after is not None and before is not None:
+            raise ValueError("run pages accept either an after or before cursor")
+        if latest and (after is not None or before is not None):
+            raise ValueError("latest run snapshots do not accept a cursor")
         cursor = after or 0
         with closing(self._connect()) as connection:
             if latest and state is None:
@@ -218,7 +221,7 @@ class SQLiteControlPlane:
                         ORDER BY sequence DESC
                         LIMIT ?
                         """,
-                        (limit,),
+                        (limit + 1,),
                     )
                 )
             elif latest:
@@ -230,7 +233,31 @@ class SQLiteControlPlane:
                         ORDER BY sequence DESC
                         LIMIT ?
                         """,
-                        (state, limit),
+                        (state, limit + 1),
+                    )
+                )
+            elif before is not None and state is None:
+                rows = _all(
+                    connection.execute(
+                        """
+                        SELECT * FROM runs
+                        WHERE sequence < ?
+                        ORDER BY sequence DESC
+                        LIMIT ?
+                        """,
+                        (before, limit + 1),
+                    )
+                )
+            elif before is not None:
+                rows = _all(
+                    connection.execute(
+                        """
+                        SELECT * FROM runs
+                        WHERE sequence < ? AND state = ?
+                        ORDER BY sequence DESC
+                        LIMIT ?
+                        """,
+                        (before, state, limit + 1),
                     )
                 )
             elif state is None:
@@ -257,10 +284,14 @@ class SQLiteControlPlane:
                         (cursor, state, limit + 1),
                     )
                 )
-        if latest:
-            rows.reverse()
+        if latest or before is not None:
+            page_rows = rows[:limit]
+            page_rows.reverse()
+            items = tuple(_run(row) for row in page_rows)
+            previous_cursor = items[0].sequence if len(rows) > limit and items else None
+            return RunPage(items=items, previous_cursor=previous_cursor)
         items = tuple(_run(row) for row in rows[:limit])
-        next_cursor = None if latest or len(rows) <= limit else items[-1].sequence
+        next_cursor = None if len(rows) <= limit else items[-1].sequence
         return RunPage(items=items, next_cursor=next_cursor)
 
     def transition_run(

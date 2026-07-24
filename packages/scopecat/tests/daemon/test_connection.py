@@ -53,6 +53,8 @@ from scopecat.daemon import (
     ResourceClaimDescriptor,
     RunAdmission,
     RunDetail,
+    RuntimeEventPublishCommand,
+    RuntimeEventPublishReceipt,
 )
 from scopecat.daemon.views import (
     ActiveConfigView,
@@ -81,7 +83,12 @@ from scopecat.daemon.wire import (
     ReplaceConfigParameter,
     UpdateConfigParameterRows,
 )
-from scopecat.execution.observation import RuntimeEvent, RuntimePayloadObservation
+from scopecat.execution.observation import (
+    RuntimeEvent,
+    RuntimePayloadObservation,
+    RuntimeProgress,
+    RuntimeTransitionEvent,
+)
 from scopecat.execution.program import RunProgram
 from scopecat.execution.services import ExecutionServices
 from scopecat.planning.preview import build_run_program_preview
@@ -158,7 +165,12 @@ def test_connection_exposes_browsing_and_managed_submission() -> None:
                 )
             )
         if path.endswith("/runs") and http_request.method == "GET":
-            assert http_request.url.params["state"] == "accepted"
+            if "before" in http_request.url.params:
+                assert http_request.url.params["before"] == "10"
+                assert "latest" not in http_request.url.params
+            else:
+                assert http_request.url.params["state"] == "accepted"
+                assert http_request.url.params["latest"] == "true"
             return _model(RunPage(items=(run,)))
         if path.endswith(f"/runs/{run.run_id}"):
             return _model(
@@ -197,6 +209,7 @@ def test_connection_exposes_browsing_and_managed_submission() -> None:
     assert connection.health().project_id == "project-1"
     assert connection.catalog().experiments[0].id == "ramsey"
     assert connection.runs(state="accepted").items == (run,)
+    assert connection.runs(before=10).items == (run,)
     assert connection.get_run(run.run_id).control == run
     assert connection.events(run_id=run.run_id).items == (event,)
     admission = connection.submit_managed(
@@ -231,7 +244,26 @@ def test_execute_delegated_submits_complete_plan_and_heartbeats(
     heartbeat_seen = Event()
     heartbeat_count = 0
     delegated_submissions: list[DelegatedRunSubmission] = []
+    published_events: list[RuntimeEventPublishCommand] = []
+    local_events: list[RuntimeEvent] = []
     forwarded: dict[str, object] = {}
+    transition_event = RuntimeTransitionEvent(
+        run_id="run-1",
+        experiment_id=preview.experiment_id,
+        observed_at=_NOW,
+        occurred_at=_NOW,
+        operation_id="point-0",
+        stage="point",
+        effect="pure",
+        state="completed",
+        progress=RuntimeProgress(completed_points=1, total_points=1),
+        point_index=0,
+    )
+    compute_event = replace(
+        transition_event,
+        operation_id="compute-0",
+        stage="compute",
+    )
 
     def handler(http_request: httpx.Request) -> httpx.Response:
         nonlocal heartbeat_count
@@ -248,6 +280,18 @@ def test_execute_delegated_submits_complete_plan_and_heartbeats(
             heartbeat_count += 1
             heartbeat_seen.set()
             return _model(_lease(heartbeat_interval=0.01))
+        if path.endswith("/runtime-events"):
+            command = RuntimeEventPublishCommand.model_validate_json(
+                http_request.content
+            )
+            published_events.append(command)
+            return _model(
+                RuntimeEventPublishReceipt(
+                    event_id=2,
+                    run_id=command.run_id,
+                    kind=command.event.kind,
+                )
+            )
         raise AssertionError(f"unexpected request: {http_request.method} {path}")
 
     def execute(
@@ -271,12 +315,15 @@ def test_execute_delegated_submits_complete_plan_and_heartbeats(
         )
         with services.resources.acquire(program.resource_claims):
             assert heartbeat_seen.wait(timeout=1)
+            assert event_sink is not None
+            event_sink(compute_event)
+            event_sink(transition_event)
         return _terminal_manifest(accepted)
 
     monkeypatch.setattr(connection_module, "execute_admitted_run", execute)
 
-    def event_sink(_event: RuntimeEvent) -> None:
-        pass
+    def event_sink(event: RuntimeEvent) -> None:
+        local_events.append(event)
 
     def payload_observer(_event: RuntimePayloadObservation) -> None:
         pass
@@ -305,14 +352,16 @@ def test_execute_delegated_submits_complete_plan_and_heartbeats(
         ResourceClaimDescriptor(id=claim.id, kind=claim.kind)
         for claim in planned.program.resource_claims
     )
-    assert forwarded == {
-        "program": planned.program,
-        "instrument_provider": (
-            None if planned.system is None else planned.system.provider
-        ),
-        "event_sink": event_sink,
-        "payload_observer": payload_observer,
-    }
+    assert forwarded["program"] == planned.program
+    assert forwarded["instrument_provider"] == (
+        None if planned.system is None else planned.system.provider
+    )
+    assert forwarded["event_sink"] is not event_sink
+    assert forwarded["payload_observer"] is payload_observer
+    assert local_events == [compute_event, transition_event]
+    assert len(published_events) == 1
+    assert published_events[0].event.progress.completed_points == 1
+    assert published_events[0].event.progress.total_points == 1
     assert result.status == "completed"
     assert completed_heartbeats >= 1
     assert heartbeat_count == completed_heartbeats

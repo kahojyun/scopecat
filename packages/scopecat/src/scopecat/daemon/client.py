@@ -79,6 +79,8 @@ from scopecat.daemon.wire import (
     RunAdmission,
     RunAttachmentCommand,
     RunAttachmentReceipt,
+    RuntimeEventPublishCommand,
+    RuntimeEventPublishReceipt,
     TerminalRunCommitCommand,
     TerminalRunCommitReceipt,
 )
@@ -242,12 +244,15 @@ class DaemonClient:
         *,
         limit: int = 50,
         after: int | None = None,
+        before: int | None = None,
         state: ControlRunState | None = None,
         latest: bool = False,
     ) -> RunPage:
         params: dict[str, str | int] = {"limit": limit}
         if after is not None:
             params["after"] = after
+        if before is not None:
+            params["before"] = before
         if state is not None:
             params["state"] = state
         if latest:
@@ -509,6 +514,16 @@ class DaemonClient:
             f"{_API_PREFIX}/runs/{batch.run_id}/transitions",
             batch,
             ExecutionTransitionBatchReceipt,
+        )
+
+    def publish_runtime_event(
+        self,
+        command: RuntimeEventPublishCommand,
+    ) -> RuntimeEventPublishReceipt:
+        return self._post_model(
+            f"{_API_PREFIX}/runs/{command.run_id}/runtime-events",
+            command,
+            RuntimeEventPublishReceipt,
         )
 
     def recover_execution(

@@ -6,6 +6,7 @@ import type {
   ProjectEvent,
   ProjectHealth,
   ProjectRun,
+  ProjectRunPage,
   ResourceClaim,
   RunAnalysis,
   RunContentPreview,
@@ -14,7 +15,7 @@ import type {
 
 const API = {
   health: "/api/v1/health",
-  runs: "/api/v1/runs?limit=500&latest=true",
+  runs: "/api/v1/runs?limit=100&latest=true",
   events: "/api/v1/events?limit=500&latest=true",
   catalog: "/api/v1/catalog",
 } as const;
@@ -92,13 +93,31 @@ export async function getHealth(signal?: AbortSignal): Promise<ProjectHealth> {
   };
 }
 
-export async function getRuns(signal?: AbortSignal): Promise<ProjectRun[]> {
+export async function getRuns(signal?: AbortSignal): Promise<ProjectRunPage> {
   const raw = await request(API.runs, signal);
+  return normalizeRunPage(raw);
+}
+
+export async function getOlderRuns(
+  before: number,
+  signal?: AbortSignal,
+): Promise<ProjectRunPage> {
+  const raw = await request(
+    `/api/v1/runs?limit=100&before=${before}`,
+    signal,
+  );
+  return normalizeRunPage(raw);
+}
+
+function normalizeRunPage(raw: unknown): ProjectRunPage {
   const envelope = record(raw);
   const values = Array.isArray(raw)
     ? raw
     : array(envelope.items) ?? array(envelope.runs) ?? [];
-  return values.map(normalizeRun).sort(compareRuns);
+  return {
+    items: values.map(normalizeRun).sort(compareRuns),
+    previousCursor: number(envelope.previous_cursor),
+  };
 }
 
 export async function getRun(
@@ -122,10 +141,11 @@ export async function getRun(
 
 export async function getMeasurementPreview(
   runId: string,
+  offset = 0,
   signal?: AbortSignal,
 ): Promise<MeasurementPreview> {
   const raw = await request(
-    `/api/v1/runs/${encodeURIComponent(runId)}/measurements?limit=100`,
+    `/api/v1/runs/${encodeURIComponent(runId)}/measurements?limit=100&offset=${offset}`,
     signal,
   );
   const envelope = record(raw);
@@ -215,7 +235,19 @@ export async function getRunContent(
 }
 
 export async function getEvents(signal?: AbortSignal): Promise<ProjectEvent[]> {
-  const raw = await request(API.events, signal);
+  return normalizeEvents(await request(API.events, signal));
+}
+
+export async function getRunEvents(
+  runId: string,
+  signal?: AbortSignal,
+): Promise<ProjectEvent[]> {
+  const path =
+    `/api/v1/events?limit=500&latest=true&run_id=${encodeURIComponent(runId)}`;
+  return normalizeEvents(await request(path, signal));
+}
+
+function normalizeEvents(raw: unknown): ProjectEvent[] {
   const envelope = record(raw);
   const values = Array.isArray(raw)
     ? raw

@@ -1,9 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getHealth,
+  getMeasurementPreview,
+  getOlderRuns,
   getRun,
   getRunAnalyses,
   getRunContent,
+  getRunEvents,
+  getRuns,
 } from "./api";
 import type { ContentEntry } from "./types";
 
@@ -211,6 +215,81 @@ describe("project daemon reads", () => {
       "/api/v1/runs/run%2F1/records/analysis-fit/json?expected_kind=analysis",
       "/api/v1/runs/run%2F1/datasets/fit-table",
     ]);
+  });
+
+  it("uses the daemon's backward run cursor and run-scoped event query", async () => {
+    const fetchMock = vi.fn((input: string | URL | Request) => {
+      const path = String(input);
+      if (path.includes("/events?")) {
+        return Promise.resolve(
+          jsonResponse({
+            items: [
+              {
+                event_id: 12,
+                run_id: "run/1",
+                kind: "run_state_changed",
+                payload: { state: "running" },
+              },
+            ],
+          }),
+        );
+      }
+      return Promise.resolve(
+        jsonResponse({
+          items: [
+            {
+              sequence: path.includes("before=") ? 1 : 2,
+              state: "accepted",
+              admission: {
+                run_id: path.includes("before=") ? "run-old" : "run-new",
+                experiment_id: "ramsey",
+                execution_mode: "managed",
+              },
+            },
+          ],
+          previous_cursor: path.includes("before=") ? null : 2,
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getRuns()).resolves.toMatchObject({
+      items: [{ runId: "run-new", sequence: 2 }],
+      previousCursor: 2,
+    });
+    await expect(getOlderRuns(2)).resolves.toMatchObject({
+      items: [{ runId: "run-old", sequence: 1 }],
+      previousCursor: undefined,
+    });
+    await expect(getRunEvents("run/1")).resolves.toMatchObject([
+      { id: 12, runId: "run/1", kind: "run_state_changed" },
+    ]);
+    expect(fetchMock.mock.calls.map(([path]) => String(path))).toEqual([
+      "/api/v1/runs?limit=100&latest=true",
+      "/api/v1/runs?limit=100&before=2",
+      "/api/v1/events?limit=500&latest=true&run_id=run%2F1",
+    ]);
+  });
+
+  it("requests measurement pages by their returned offset", async () => {
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(
+        jsonResponse({
+          items: [{ run_id: "run/1", point_index: 100 }],
+          next_offset: 200,
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getMeasurementPreview("run/1", 100)).resolves.toEqual({
+      items: [{ run_id: "run/1", point_index: 100 }],
+      nextOffset: 200,
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/runs/run%2F1/measurements?limit=100&offset=100",
+      expect.objectContaining({ signal: undefined }),
+    );
   });
 });
 

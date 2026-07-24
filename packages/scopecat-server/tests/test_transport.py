@@ -90,6 +90,10 @@ from scopecat.daemon.wire import (
     RunAttachmentCommand,
     RunAttachmentReceipt,
     RunSubmission,
+    RuntimeEventPublishCommand,
+    RuntimeEventPublishReceipt,
+    RuntimeProgressPayload,
+    RuntimeTransitionEventPayload,
     TerminalRunCommitCommand,
     TerminalRunCommitReceipt,
 )
@@ -167,6 +171,7 @@ class FakeBackend:
         self.last_start: ExecutorStartRequest | None = None
         self.last_heartbeat: ExecutorHeartbeat | None = None
         self.last_batch: ExecutionTransitionBatch | None = None
+        self.last_runtime_event: RuntimeEventPublishCommand | None = None
         self.last_terminal: TerminalRunCommitCommand | None = None
         self.last_config_import: DirectConfigImportCommand | None = None
         self.last_config_default: DirectConfigDefaultCommand | None = None
@@ -315,6 +320,7 @@ class FakeBackend:
         *,
         limit: int,
         after: int | None,
+        before: int | None,
         state: str | None,
         latest: bool,
     ) -> RunPage:
@@ -322,6 +328,8 @@ class FakeBackend:
         if state is not None and state != self.run.state:
             return RunPage(items=())
         if after is not None and after >= self.run.sequence:
+            return RunPage(items=())
+        if before is not None and before <= self.run.sequence:
             return RunPage(items=())
         return RunPage(items=(self.run,)[:limit])
 
@@ -618,6 +626,19 @@ class FakeBackend:
             committed=committed,
         )
 
+    def publish_runtime_event(
+        self,
+        run_id: str,
+        command: RuntimeEventPublishCommand,
+    ) -> RuntimeEventPublishReceipt:
+        assert run_id == self.run.run_id
+        self.last_runtime_event = command
+        return RuntimeEventPublishReceipt(
+            event_id=3,
+            run_id=run_id,
+            kind=command.event.kind,
+        )
+
     def recover_execution(
         self,
         run_id: str,
@@ -682,6 +703,7 @@ def test_health_catalog_and_run_queries() -> None:
     health = client.get("/api/v1/health")
     catalog = client.get("/api/v1/catalog")
     runs = client.get("/api/v1/runs", params={"state": "accepted"})
+    older_runs = client.get("/api/v1/runs", params={"before": 1})
     run = client.get("/api/v1/runs/run-1")
     measurements = client.get(
         "/api/v1/runs/run-1/measurements",
@@ -698,8 +720,25 @@ def test_health_catalog_and_run_queries() -> None:
     }
     assert catalog.json()["experiments"][0]["id"] == "ramsey"
     assert runs.json()["items"][0]["admission"]["run_id"] == "run-1"
+    assert older_runs.json()["items"] == []
     assert run.json()["control"]["state"] == "accepted"
     assert measurements.json()["items"] == []
+
+
+def test_run_queries_reject_conflicting_page_modes() -> None:
+    client = TestClient(create_app(FakeBackend()))
+
+    both_cursors = client.get(
+        "/api/v1/runs",
+        params={"after": 1, "before": 2},
+    )
+    latest_cursor = client.get(
+        "/api/v1/runs",
+        params={"latest": "true", "before": 2},
+    )
+
+    assert both_cursors.status_code == 422
+    assert latest_cursor.status_code == 422
 
 
 def test_config_registry_routes_use_typed_commands_and_views() -> None:
@@ -968,6 +1007,29 @@ def test_delegated_executor_routes() -> None:
     backend = FakeBackend()
     client = TestClient(create_app(backend))
     transition = _transition()
+    runtime_event = RuntimeEventPublishCommand(
+        run_id="run-1",
+        lease_id="lease-1",
+        generation=1,
+        event=RuntimeTransitionEventPayload(
+            run_id="run-1",
+            experiment_id="scratch",
+            observed_at=_NOW + timedelta(seconds=2),
+            occurred_at=_NOW + timedelta(seconds=1),
+            operation_id="point-1",
+            stage="point",
+            effect="acquisition",
+            state="completed",
+            progress=RuntimeProgressPayload(
+                completed_points=1,
+                total_points=2,
+            ),
+            point_index=0,
+            point_indices=(0,),
+            instrument_id="scope-1",
+            metrics={"measurement_count": 1},
+        ),
+    )
     terminal = _terminal_command()
 
     lease = client.post(
@@ -996,6 +1058,10 @@ def test_delegated_executor_routes() -> None:
             transitions=(transition,),
         ).model_dump(mode="json"),
     )
+    published = client.post(
+        "/api/v1/runs/run-1/runtime-events",
+        json=runtime_event.model_dump(mode="json"),
+    )
     completed = client.post(
         "/api/v1/runs/run-1/terminal",
         json=terminal.model_dump(mode="json"),
@@ -1004,10 +1070,13 @@ def test_delegated_executor_routes() -> None:
     assert lease.status_code == 200
     assert heartbeat.status_code == 200
     assert transitions.json()["committed"][0]["sequence"] == 1
+    assert published.status_code == 200
+    assert published.json()["event_id"] == 3
     assert completed.json()["manifest"]["lifecycle"] == "terminal"
     assert backend.last_start is not None
     assert backend.last_heartbeat is not None
     assert backend.last_batch is not None
+    assert backend.last_runtime_event == runtime_event
     assert backend.last_terminal == terminal
 
 

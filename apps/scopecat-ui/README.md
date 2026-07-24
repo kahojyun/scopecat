@@ -13,6 +13,20 @@ npm run build
 During development, Vite proxies `/api` to `http://127.0.0.1:8765`. Set
 `SCOPECAT_DAEMON_ORIGIN` to use a different local daemon address.
 
+## Browser end-to-end test
+
+```sh
+npm run test:e2e:install
+npm run test:e2e
+```
+
+The test first builds the current UI into the daemon's static bundle. It then
+creates a temporary starter project, starts its daemon on a dynamic port,
+executes the generated first notebook, and drives the daemon-served GUI through
+a parameter default and undo. The fixture removes the daemon and project after
+success or an assertion failure. If identity-safe daemon shutdown itself fails,
+it retains the project and reports the daemon log for manual cleanup.
+
 ## Configuration API
 
 The configuration view uses the daemon-owned registry directly:

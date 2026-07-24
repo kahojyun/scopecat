@@ -78,6 +78,8 @@ from scopecat.daemon.wire import (
     RunAttachmentCommand,
     RunAttachmentReceipt,
     RunSubmission,
+    RuntimeEventPublishCommand,
+    RuntimeEventPublishReceipt,
     TerminalRunCommitCommand,
     TerminalRunCommitReceipt,
 )
@@ -146,6 +148,7 @@ class DaemonBackend(Protocol):
         *,
         limit: int,
         after: int | None,
+        before: int | None,
         state: ControlRunState | None,
         latest: bool,
     ) -> RunPage: ...
@@ -275,6 +278,12 @@ class DaemonBackend(Protocol):
         batch: ExecutionTransitionBatch,
     ) -> ExecutionTransitionBatchReceipt: ...
 
+    def publish_runtime_event(
+        self,
+        run_id: str,
+        command: RuntimeEventPublishCommand,
+    ) -> RuntimeEventPublishReceipt: ...
+
     def recover_execution(
         self,
         run_id: str,
@@ -403,12 +412,24 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     def list_runs(
         limit: Annotated[int, Query(ge=1, le=500)] = 50,
         after: Annotated[int | None, Query(ge=0)] = None,
+        before: Annotated[int | None, Query(ge=1)] = None,
         state: ControlRunState | None = None,
         latest: bool = False,
     ) -> RunPage:
+        if after is not None and before is not None:
+            raise HTTPException(
+                status_code=422,
+                detail="run pages accept either an after or before cursor",
+            )
+        if latest and (after is not None or before is not None):
+            raise HTTPException(
+                status_code=422,
+                detail="latest run snapshots do not accept a cursor",
+            )
         return backend.list_runs(
             limit=limit,
             after=after,
+            before=before,
             state=state,
             latest=latest,
         )
@@ -625,6 +646,14 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     ) -> ExecutionTransitionBatchReceipt:
         _require_run_id(run_id, batch.run_id)
         return backend.append_transitions(run_id, batch)
+
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/runtime-events")
+    def publish_runtime_event(
+        run_id: str,
+        command: RuntimeEventPublishCommand,
+    ) -> RuntimeEventPublishReceipt:
+        _require_run_id(run_id, command.run_id)
+        return backend.publish_runtime_event(run_id, command)
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/execution/recovery")
     def recover_execution(
