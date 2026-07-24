@@ -29,6 +29,18 @@ distribution contain the same bundle.
 `pnpm-workspace.yaml` applies the same 14-day minimum release age as Renovate
 to direct and transitive dependency resolution.
 
+## Development checks
+
+```sh
+pnpm run format:check
+pnpm run lint
+pnpm run typecheck
+pnpm test
+```
+
+Oxfmt owns layout and Oxlint owns correctness checks. Generated API types and
+package-manager output are excluded; their producing tools remain authoritative.
+
 ## API contract
 
 `src/api-schema.d.ts` is generated from the daemon's FastAPI schema. Run

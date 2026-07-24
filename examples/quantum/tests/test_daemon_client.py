@@ -87,8 +87,7 @@ def test_demo_execution_round_trips_through_shared_daemon(
             == "fit review"
         )
         assert [
-            item.analysis.title
-            for item in lab.run_operations.analyses(run.id).items
+            item.analysis.title for item in lab.run_operations.analyses(run.id).items
         ] == ["fit review"]
 
     with sc.open_project(EXAMPLE_ROOT).connect(demo_daemon.url) as observer:

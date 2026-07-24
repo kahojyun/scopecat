@@ -277,8 +277,7 @@ class LabConfigOperations:
                     registration=ConfigDraftRegistrationCommand(
                         draft=_reviewed_draft_command(config, preview),
                         expected_result_content_hash=preview.result_content_hash,
-                        entry_id=entry_id
-                        or config_revision_entry_id(preview.config),
+                        entry_id=entry_id or config_revision_entry_id(preview.config),
                         registered_by=selected_registered_by,
                         note=note,
                     ),
@@ -420,9 +419,7 @@ class LabConfigOperations:
         )
         proposal_views = {
             item.proposal.id: item
-            for item in self.client.parameter_proposals(
-                selected.source_run_id
-            ).items
+            for item in self.client.parameter_proposals(selected.source_run_id).items
         }
         for proposal_id in selected.proposal_ids:
             decisions = proposal_views[proposal_id].decisions

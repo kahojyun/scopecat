@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -183,7 +183,7 @@ export function ConfigDraftEditor({
     registrationMutation.reset();
     defaultMutation.reset();
   };
-  const setFieldValidity = useCallback((field: string, valid: boolean) => {
+  const setFieldValidity = (field: string, valid: boolean) => {
     draftRevision.current += 1;
     setInvalidFields((current) => {
       const next = new Set(current);
@@ -195,7 +195,7 @@ export function ConfigDraftEditor({
     previewMutation.reset();
     registrationMutation.reset();
     defaultMutation.reset();
-  }, []);
+  };
   const resetParameter = (parameterId: string) => {
     draftRevision.current += 1;
     setEditedValues((current) => {

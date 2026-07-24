@@ -76,6 +76,12 @@ jobs:
       - name: Check generated daemon API types
         run: pnpm run check:api
 
+      - name: Check UI formatting
+        run: pnpm run format:check
+
+      - name: Run UI lint
+        run: pnpm run lint
+
       - name: Run UI tests
         run: pnpm test
 

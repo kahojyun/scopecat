@@ -916,12 +916,9 @@ function expectRequest(
 ) {
   const call = fetchMock.mock.calls[index];
   expect(call?.[0]).toBe(path);
-  expect(call?.[1]).toMatchObject({
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-    },
-  });
+  expect(call?.[1]?.method).toBe("POST");
+  const headers = new Headers(call?.[1]?.headers);
+  expect(headers.get("Accept")).toBe("application/json");
+  expect(headers.get("Content-Type")).toBe("application/json");
   expect(JSON.parse(String(call?.[1]?.body))).toEqual(body);
 }

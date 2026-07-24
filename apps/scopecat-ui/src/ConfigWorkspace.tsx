@@ -208,11 +208,13 @@ export function ConfigWorkspace({
     setImportError(undefined);
     try {
       const config = parseConfigProfileJson(await file.text());
+      const suggestedEntryId =
+        typeof config.id === "string"
+          ? config.id
+          : file.name.replace(/\.[^.]+$/, "");
       setImportDraft({
         fileName: file.name,
-        entryId: safeEntryId(
-          String(config.id ?? file.name.replace(/\.[^.]+$/, "")),
-        ),
+        entryId: safeEntryId(suggestedEntryId),
         config,
       });
     } catch (error) {

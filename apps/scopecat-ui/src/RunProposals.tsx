@@ -89,6 +89,7 @@ export function RunProposals({ runId }: { runId: string }) {
       } catch (error) {
         throw new Error(
           `The proposal is accepted, but the default was not changed: ${errorMessage(error)}`,
+          { cause: error },
         );
       }
     },

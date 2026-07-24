@@ -1,0 +1,55 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error"
+  },
+  "plugins": [
+    "eslint",
+    "typescript",
+    "unicorn",
+    "oxc",
+    "react",
+    "vitest",
+    "jsx-a11y"
+  ],
+  "env": {
+    "browser": true,
+    "es2022": true
+  },
+  "ignorePatterns": [
+    ".generated/**",
+    "dist/**",
+    "playwright-report/**",
+    "src/api-schema.d.ts",
+    "test-results/**"
+  ],
+  "options": {
+    "denyWarnings": true,
+    "reportUnusedDisableDirectives": "error"
+  },
+  "rules": {
+    "jsx-a11y/prefer-tag-over-role": "off",
+    "react/react-in-jsx-scope": "off",
+    "unicorn/no-array-sort": "off",
+    "vitest/expect-expect": "off",
+    "vitest/require-mock-type-parameters": "off"
+  },
+  "overrides": [
+    {
+      "files": ["e2e/**/*.ts"],
+      "env": {
+        "node": true
+      },
+      "rules": {
+        "no-empty-pattern": "off"
+      }
+    },
+    {
+      "files": ["*.config.ts"],
+      "env": {
+        "node": true
+      }
+    }
+  ]
+}

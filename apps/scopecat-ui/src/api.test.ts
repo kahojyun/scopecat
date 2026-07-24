@@ -8,6 +8,7 @@ import {
   getRunContent,
   getRunEvents,
   getRuns,
+  request,
 } from "./api";
 import type { ContentEntry } from "./types";
 
@@ -16,6 +17,25 @@ afterEach(() => {
 });
 
 describe("project daemon reads", () => {
+  it("merges every HeadersInit form without replacing caller headers", async () => {
+    const fetchMock = vi.fn(
+      (_input: RequestInfo | URL, _init?: RequestInit) =>
+        Promise.resolve(jsonResponse({ ok: true })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await request("/api/test", undefined, {
+      headers: new Headers([
+        ["Accept", "application/problem+json"],
+        ["X-Scopecat-Test", "present"],
+      ]),
+    });
+
+    const headers = new Headers(fetchMock.mock.calls[0]?.[1]?.headers);
+    expect(headers.get("Accept")).toBe("application/problem+json");
+    expect(headers.get("X-Scopecat-Test")).toBe("present");
+  });
+
   it("uses the daemon's one project identity", async () => {
     vi.stubGlobal(
       "fetch",

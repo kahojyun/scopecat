@@ -223,10 +223,13 @@ export default function App() {
     };
   }, [eventsQuery.isSuccess, queryClient]);
 
-  const olderRunPages =
-    olderRunHistory && olderRunHistory.headCursor === runHeadCursor
-      ? olderRunHistory.pages
-      : [];
+  const olderRunPages = useMemo(
+    () =>
+      olderRunHistory && olderRunHistory.headCursor === runHeadCursor
+        ? olderRunHistory.pages
+        : [],
+    [olderRunHistory, runHeadCursor],
+  );
   const runs = useMemo(
     () => {
       const indexedRuns = mergeRunPages([

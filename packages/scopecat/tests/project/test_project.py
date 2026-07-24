@@ -84,9 +84,7 @@ def test_project_connect_prioritizes_explicit_then_environment_then_record(
     discovered = project.connect()
 
     assert str(explicit._client._http.base_url) == "http://explicit.local:1000"
-    assert str(environment._client._http.base_url) == (
-        "http://environment.local:2000"
-    )
+    assert str(environment._client._http.base_url) == ("http://environment.local:2000")
     assert str(discovered._client._http.base_url) == "http://record.local:3000"
     explicit.close()
     environment.close()
