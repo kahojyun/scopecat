@@ -153,11 +153,19 @@ if TYPE_CHECKING:
     from scopecat.planning.system import ExperimentSystem
     from scopecat.project import Project, open_project
     from scopecat.records.entity import EntityRef, entity_ref
+    from scopecat.records.parameter_change import (
+        AutomaticPolicyDecisionAuthority,
+        HumanDecisionAuthority,
+    )
 
     Run = RunHandle
 
 
 _EXPORTS: dict[str, tuple[str, str]] = {
+    "AutomaticPolicyDecisionAuthority": (
+        "scopecat.records.parameter_change",
+        "AutomaticPolicyDecisionAuthority",
+    ),
     "BoolType": ("scopecat.authoring", "BoolType"),
     "Compute": ("scopecat.authoring", "Compute"),
     "ComputeInput": ("scopecat.authoring", "ComputeInput"),
@@ -178,6 +186,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "IntType": ("scopecat.authoring", "IntType"),
     "LabApplication": ("scopecat.application", "LabApplication"),
     "LabClient": ("scopecat.api.lab", "LabClient"),
+    "HumanDecisionAuthority": (
+        "scopecat.records.parameter_change",
+        "HumanDecisionAuthority",
+    ),
     "MeasurementTransform": ("scopecat.authoring", "MeasurementTransform"),
     "MetadataValue": ("scopecat.authoring", "MetadataValue"),
     "ModuleBuilder": ("scopecat.authoring", "ModuleBuilder"),
@@ -343,6 +355,7 @@ __all__ = [
     "AnalysisInvocation",
     "AnalysisOutput",
     "AnalysisStep",
+    "AutomaticPolicyDecisionAuthority",
     "BoolType",
     "CandidateConfig",
     "Compute",
@@ -367,6 +380,7 @@ __all__ = [
     "ExperimentTemplate",
     "ExternalLocation",
     "FloatType",
+    "HumanDecisionAuthority",
     "Input",
     "InputDescription",
     "IntType",

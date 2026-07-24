@@ -432,6 +432,15 @@ def save_analysis(
     """Persist one analysis record and its owned durable evidence."""
 
     selected_record_id = f"analysis-{analysis_key}"
+    if any(
+        proposal.analysis_record_id != selected_record_id
+        for proposal in parameter_proposals
+    ):
+        _raise_analysis_problem(
+            "analysis_parameter_proposal_source_invalid",
+            "analysis parameter proposal does not identify its producing analysis",
+            "parameter_proposals",
+        )
     ref = record_content_ref(record_id=selected_record_id, kind="analysis")
     storage = services.runs
     prepared_artifacts = _prepare_analysis_output_artifacts(

@@ -20,7 +20,9 @@ from scopecat.config.candidates import (
     resolve_candidate_config_snapshot,
 )
 from scopecat.config.changes import (
+    decide_parameter_change_proposal,
     invalidate_parameter_change_proposal,
+    list_parameter_change_decisions,
     load_parameter_change_proposal,
     review_parameter_change_proposal,
 )
@@ -43,6 +45,7 @@ from scopecat.config.registry import (
     load_config_registry_entry,
     preview_manual_config_draft,
     register_and_activate_config_profile,
+    register_and_activate_manual_config_draft,
     register_candidate_config,
     register_config_profile,
     register_manual_config_draft,
@@ -59,9 +62,11 @@ from scopecat.kernel.errors import (
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.parameter import Quantity, ScalarParameterValue
 from scopecat.records.parameter_change import (
+    AutomaticPolicyDecisionAuthority,
     ParameterChangeDecisionRecord,
     ParameterChangeProposal,
 )
+from scopecat.records.run import ConfigRegistryRunConfigSource
 from scopecat.runs.refs import record_content_ref
 from tests.testkit.config_registry import (
     load_config,
@@ -298,6 +303,53 @@ def test_manual_config_draft_registration_rejects_changed_preview_result(
     assert load_active_config_registry_state(unit_of_work=unit_of_work) == active_state
 
 
+def test_manual_config_draft_set_default_stale_conflict_leaves_no_entry(
+    tmp_path: Path,
+) -> None:
+    unit_of_work = embedded_config_registry_unit_of_work(tmp_path)
+    base, active_state = _seed_active_config_registry(tmp_path)
+    preview = preview_manual_config_draft(
+        unit_of_work=unit_of_work,
+        base_entry_id=base.id,
+        base_config_content_hash=base.content_hash,
+        base_generation=active_state.generation,
+        candidate_id="stale-default",
+        updates=_manual_config_updates(),
+    )
+    assert preview.check.candidate is not None
+    newer, newer_state, _activation = register_and_activate_config_profile(
+        config=load_config().model_copy(update={"id": "newer-config"}),
+        unit_of_work=unit_of_work,
+        entry_id="newer-entry",
+        registered_by="operator",
+        operator="operator",
+        expected_generation=active_state.generation,
+    )
+
+    with pytest.raises(Conflict) as error:
+        register_and_activate_manual_config_draft(
+            unit_of_work=unit_of_work,
+            base_entry_id=base.id,
+            base_config_content_hash=base.content_hash,
+            base_generation=active_state.generation,
+            candidate_id="stale-default",
+            updates=_manual_config_updates(),
+            expected_result_content_hash=config_content_hash(
+                preview.check.candidate,
+            ),
+            entry_id="stale-default",
+            registered_by="operator",
+            operator="operator",
+        )
+
+    assert error.value.problems[0].code == "config_registry.conflict"
+    assert "stale-default" not in {
+        entry.id for entry in list_config_registry_entries(unit_of_work=unit_of_work)
+    }
+    assert load_active_config_registry_state(unit_of_work=unit_of_work) == newer_state
+    assert newer_state.active_entry_id == newer.id
+
+
 def test_manual_config_draft_activation_rejects_a_stale_base(
     tmp_path: Path,
 ) -> None:
@@ -409,6 +461,85 @@ def test_candidate_config_registers_and_activates_parameter_proposal(
     assert config == load_config_registry_config(
         entry_id=entry.id, unit_of_work=embedded_config_registry_unit_of_work(tmp_path)
     )
+
+
+def test_automatic_policy_approval_can_activate_candidate_without_verification(
+    tmp_path: Path,
+) -> None:
+    run_id = signal_run_with_parameter_change(tmp_path)
+    proposal = load_parameter_change_proposal(
+        run_id=run_id,
+        selector="best-signal",
+        services=embedded_workspace_services(tmp_path),
+    )
+    candidate = CandidateConfig(parameter_proposals=(proposal,))
+    authority = AutomaticPolicyDecisionAuthority(
+        actor="calibration-scheduler",
+        policy_id="accept-high-confidence-fit",
+        policy_version="1",
+    )
+    decision = decide_parameter_change_proposal(
+        run_id=run_id,
+        selector=proposal.id,
+        services=embedded_workspace_services(tmp_path),
+        decision="approved",
+        authority=authority,
+    )
+
+    result = register_and_activate_candidate_config(
+        candidate=candidate,
+        services=embedded_workspace_services(tmp_path),
+        entry_id="automatic-policy-candidate",
+        registered_by="calibration-scheduler",
+        operator="calibration-scheduler",
+    )
+
+    assert result.active_state.active_entry_id == result.entry.id
+    assert isinstance(result.entry.source, CandidateConfigRegistrySource)
+    assert result.entry.source.proposal_evidence[0].approval_event_id == (
+        decision.event_id
+    )
+    assert list_parameter_change_decisions(
+        run_id=run_id,
+        selector=proposal.id,
+        storage=embedded_run_repository(tmp_path),
+    ) == [decision]
+    assert decision.authority == authority
+    assert decision.related_refs == ()
+
+
+def test_later_approval_preserves_registered_candidate_evidence(
+    tmp_path: Path,
+) -> None:
+    run_id, proposal, resolved = _resolved_candidate(tmp_path)
+    entry = register_candidate_config(
+        config=resolved.config,
+        unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+        entry_id="candidate-original-approval",
+        registered_by="operator",
+        run_id=run_id,
+        proposal_ids=resolved.candidate.proposal_ids,
+        base_config_content_hash=resolved.candidate.base_config_content_hash,
+    )
+    assert isinstance(entry.source, CandidateConfigRegistrySource)
+    original_event_id = entry.source.proposal_evidence[0].approval_event_id
+    later = review_parameter_change_proposal(
+        run_id=run_id,
+        selector=proposal.id,
+        services=embedded_workspace_services(tmp_path),
+        state="approved",
+        reviewer="second-reviewer",
+    )
+
+    loaded = load_config_registry_entry(
+        entry_id=entry.id,
+        unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+    )
+
+    assert loaded == entry
+    assert isinstance(loaded.source, CandidateConfigRegistrySource)
+    assert loaded.source.proposal_evidence[0].approval_event_id == original_event_id
+    assert later.event_id != original_event_id
 
 
 def test_candidate_activation_rejects_a_stale_base_config(tmp_path: Path) -> None:
@@ -722,6 +853,7 @@ def test_activation_generation_is_append_only_and_rejects_stale_writes(
     assert unchanged == second_state
     assert [record.generation for record in unchanged.history] == [1, 2]
     assert second_record.previous_entry_content_hash == first.content_hash
+    assert isinstance(first_source, ConfigRegistryRunConfigSource)
     assert first_source.entry_id == first.id
     assert first_source.content_hash == first.content_hash
     assert first_source.registry_generation == 1
@@ -962,7 +1094,13 @@ def test_candidate_load_revalidates_content_addressed_evidence(
         storage.write_model(
             run_id,
             decision_ref,
-            decision.model_copy(update={"actor": "tampered"}),
+            decision.model_copy(
+                update={
+                    "authority": decision.authority.model_copy(
+                        update={"actor": "tampered"}
+                    )
+                }
+            ),
         )
 
     with pytest.raises((Conflict, DataIntegrityError)) as error:

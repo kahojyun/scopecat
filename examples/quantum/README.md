@@ -3,7 +3,7 @@
 Executable examples for learning the Scopecat workflow:
 
 ```text
-Quantum Program -> Module -> Template/Scratch -> Prepared Experiment -> Run -> Data
+Default config -> Experiment -> Run -> Data -> Analysis -> Candidate -> Accept/Undo
 ```
 
 The `# %%` Python files under `notebooks/` are the user-facing learning path.
@@ -49,6 +49,24 @@ operator selection.
 System topology, connection resources, and virtual instrument behavior remain
 JSON assets because they are not the table-editing workflow demonstrated here.
 Scalar and table parameter values are ordinary reviewed Python source.
+After changing that source, use `scopecat config diff examples/quantum` and
+`scopecat config apply examples/quantum` to compare and publish it explicitly.
+The daemon does not hot-reload project code.
+
+Ordinary notebook code expresses intent rather than registry mechanics:
+
+```python
+draft = lab.edit_config().replace_scalar("repetitions", sc.Quantity(256, "count"))
+changed = lab.config.set_default(draft, note="increase averaging")
+accepted = lab.config.accept(analysis, note="fit passed")
+restored = lab.config.undo(note="restore the previous default")
+```
+
+These calls retain immutable revisions, acceptance decisions, and activation
+history. Candidate
+configuration can be used for one optional run without changing the default,
+or accepted directly from durable analysis evidence. Entry ids, registry
+generations, and explicit activation remain available in `advanced/`.
 
 ## Learning paths
 
@@ -58,8 +76,9 @@ Start with `getting_started/`, then choose a path by intent:
 |---|---|
 | `notebooks/getting_started/` | Project, template, run, data, analysis, and candidate-config lifecycle. |
 | `notebooks/authoring/` | Recommended decorator and function authoring, from template/scratch through recursive quantum programs. |
-| `notebooks/calibration/` | Longer end-to-end parameter calibration and review workflows. |
+| `notebooks/calibration/` | Longer parameter calibration workflows, including policy-based acceptance without mandatory verification. |
 | `notebooks/integration/` | The opaque collection escape hatch for a target without a domain compiler. |
+| `notebooks/advanced/` | Explicit registry, review, activation generation, and rollback controls. |
 
 For example:
 
@@ -69,6 +88,7 @@ uv run python examples/quantum/notebooks/getting_started/02_edit_config.py
 uv run python examples/quantum/notebooks/authoring/01_template_and_scratch.py
 uv run python examples/quantum/notebooks/authoring/03_point_bound_sequence.py
 uv run python examples/quantum/notebooks/calibration/01_drag_beta.py
+uv run python examples/quantum/notebooks/advanced/01_config_registry_controls.py
 ```
 
 ## Notebook map
@@ -76,20 +96,22 @@ uv run python examples/quantum/notebooks/calibration/01_drag_beta.py
 | File | What it teaches |
 |---|---|
 | `getting_started/01_open_project.py` | Open the demo project and connect its daemon client. |
-| `getting_started/02_edit_config.py` | Preview typed scalar and keyed-table edits, then register, activate, and roll back the config. |
+| `getting_started/02_edit_config.py` | Preview typed scalar and keyed-table edits, set the result as default, then undo. |
 | `getting_started/03_define_experiment.py` | Compose a reusable module into a template with a configurable scan. |
 | `getting_started/04_run_and_read_data.py` | Run an experiment and inspect `Run.data()`. |
 | `getting_started/05_manual_analysis.py` | Save one-off notebook analysis and candidate evidence. |
 | `getting_started/06_promote_analysis_step.py` | Promote repeated analysis with `@sc.analysis_step`. |
-| `getting_started/07_rerun_candidate_config.py` | Run a follow-up experiment with a candidate config. |
+| `getting_started/07_rerun_candidate_config.py` | Optionally run a durable candidate, accept it as default, and undo. |
 | `authoring/01_template_and_scratch.py` | Compare reusable `@sc.template` and caller-configured `@sc.scratch`. |
 | `authoring/02_instrument_composition.py` | Compose a scalar instrument with a programmable quantum scan. |
 | `authoring/03_point_bound_sequence.py` | Generate a composable `@q.fragment` after length and seed bind per scan point. |
 | `authoring/04_recursive_results.py` | Derive dense result axes from nested `parallel` and `repeat`. |
 | `authoring/05_mixed_gate_pulse.py` | Place standard-gate preparation and analysis around a direct multi-channel pulse layout. |
-| `calibration/01_drag_beta.py` | Fit, review, activate, and roll back a one-qubit gate parameter. |
+| `calibration/01_drag_beta.py` | Accept a high-confidence fit with a versioned automatic policy, then undo. |
 | `calibration/02_cz_phase.py` | Calibrate a two-qubit gate with an explicit coupler resource. |
 | `integration/01_opaque_collection.py` | Preserve one gate table as one opaque compute input when no domain compiler exists. |
+| `advanced/01_config_registry_controls.py` | Register, activate, and roll back with explicit entry ids and generations. |
+| `advanced/02_manual_candidate_review.py` | Review and activate an analysis proposal with explicit operator controls. |
 
 ## Support package responsibilities
 
@@ -133,15 +155,16 @@ objects.
 
 | Scale or boundary | Required capability | Minimal coverage |
 |---|---|---|
-| Scalar instrument workflow | Module, template, scan, analysis, candidate config | `getting_started/03`–`07` |
+| Scalar instrument workflow | Module, template, scan, analysis, optional candidate run, accept, and undo | `getting_started/03`–`07` |
 | Reusable versus one-off definition | `@sc.template` and `@sc.scratch` over the same semantics | `authoring/01_template_and_scratch.py` |
 | One qubit, generated sequence | Point-bound Python elaboration with length and seed scans | `authoring/03_point_bound_sequence.py` and `workflows/single_qubit_rb.py` |
 | Repeated multi-qubit acquisition | Recursive repeat and parallel result axes | `authoring/04_recursive_results.py` |
 | Realtime feedback | Retained loops, measurement branches, symbolic result layouts, and a statically claimed target | `workflows/active_reset.py` and `support/tests/unit/test_fake_realtime_domain_e2e.py` |
 | Low-level interaction characterization | Standard-gate preparation and basis rotation around a direct, offset multi-channel pulse layout; the same source program targets list and realtime hardware | `authoring/05_mixed_gate_pulse.py`, `workflows/interaction_tomography.py`, `support/tests/unit/test_interaction_tomography.py`, and `support/tests/unit/test_fake_realtime_domain_e2e.py` |
-| Pulse candidate | Explicit candidate pulses alongside accepted gate recipes | `calibration/01_drag_beta.py` |
+| Pulse candidate | Explicit candidate pulses plus policy-based parameter acceptance | `calibration/01_drag_beta.py` |
 | Two-qubit calibration | Gate semantics plus an explicit coupler resource | `calibration/02_cz_phase.py` |
 | No domain compiler | Preserve one collection as one opaque compute input | `integration/01_opaque_collection.py` |
+| Registry troubleshooting | Explicit registration, CAS activation, manual review, and rollback | `advanced/` |
 
 A program or circuit collection is not part of the normal model: static
 elements compose recursively, while experiment variation belongs to scan axes.

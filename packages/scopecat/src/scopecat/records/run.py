@@ -8,7 +8,7 @@ is known; an indeterminate run requires reconciliation before an unsafe retry.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -43,11 +43,11 @@ def utc_now() -> datetime:
     return datetime.now(tz=UTC)
 
 
-class RunConfigSource(BaseModel):
+class ConfigRegistryRunConfigSource(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.run_config_source.v2"] = (
-        "scopecat.run_config_source.v2"
+    schema_version: Literal["scopecat.config_registry_run_source.v1"] = (
+        "scopecat.config_registry_run_source.v1"
     )
     kind: Literal["config_registry"] = "config_registry"
     selector: str
@@ -55,6 +55,42 @@ class RunConfigSource(BaseModel):
     config_ref: str
     content_hash: ConfigContentHash
     registry_generation: int | None = Field(default=None, ge=1)
+
+
+class AnalysisCandidateRunConfigSource(BaseModel):
+    """Analysis candidate resolved for one run without becoming the default."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["scopecat.analysis_candidate_run_source.v1"] = (
+        "scopecat.analysis_candidate_run_source.v1"
+    )
+    kind: Literal["analysis_candidate"] = "analysis_candidate"
+    source_run_id: str
+    analysis_record_ids: tuple[str, ...] = Field(min_length=1)
+    proposal_ids: tuple[str, ...] = Field(min_length=1)
+    base_config_content_hash: ConfigContentHash
+    content_hash: ConfigContentHash
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> AnalysisCandidateRunConfigSource:
+        if (
+            not self.source_run_id
+            or any(not record_id for record_id in self.analysis_record_ids)
+            or any(not proposal_id for proposal_id in self.proposal_ids)
+        ):
+            raise ValueError("analysis candidate run source identity must be non-empty")
+        if len(self.analysis_record_ids) != len(set(self.analysis_record_ids)):
+            raise ValueError("analysis candidate run source analyses must be unique")
+        if len(self.proposal_ids) != len(set(self.proposal_ids)):
+            raise ValueError("analysis candidate run source proposals must be unique")
+        return self
+
+
+type RunConfigSource = Annotated[
+    ConfigRegistryRunConfigSource | AnalysisCandidateRunConfigSource,
+    Field(discriminator="kind"),
+]
 
 
 class RunOutcome(BaseModel):
@@ -125,7 +161,7 @@ class RunManifest(BaseModel):
         revalidate_instances="always",
     )
 
-    schema_version: Literal["scopecat.run_manifest.v10"] = "scopecat.run_manifest.v10"
+    schema_version: Literal["scopecat.run_manifest.v11"] = "scopecat.run_manifest.v11"
     run_id: str
     created_at: datetime = Field(default_factory=utc_now)
     lifecycle: RunLifecycle

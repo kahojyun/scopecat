@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from base64 import b64decode
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Event
@@ -29,6 +30,7 @@ from scopecat.config.registry.records import (
     DirectConfigRegistrySource,
     ManualConfigDraftRegistrySource,
 )
+from scopecat.config.resolution import config_revision_entry_id
 from scopecat.control.models import (
     ControlRun,
     DurableEvent,
@@ -63,13 +65,17 @@ from scopecat.daemon.wire import (
     AnalysisSaveCommand,
     AnalysisSaveReceipt,
     ConfigActivationReceipt,
+    ConfigDefaultReceipt,
     ConfigDraftCommand,
+    ConfigDraftDefaultCommand,
+    ConfigDraftDefaultReceipt,
     ConfigDraftRegistrationCommand,
     ConfigDraftRegistrationReceipt,
     ConfigEntryActivationCommand,
     ConfigImportReceipt,
     ConfigRollbackCommand,
     DeleteConfigParameterRows,
+    DirectConfigDefaultCommand,
     DirectConfigImportCommand,
     InsertConfigParameterRows,
     ReplaceConfigParameter,
@@ -83,7 +89,11 @@ from scopecat.planning.system import ExperimentSystem
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.parameter import Quantity
-from scopecat.records.run import RunManifest, RunOutcome
+from scopecat.records.run import (
+    ConfigRegistryRunConfigSource,
+    RunManifest,
+    RunOutcome,
+)
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.service import PlannedRun, plan_experiment
 from scopecat.sdk.instruments.contracts import InstrumentProvider
@@ -206,7 +216,17 @@ def test_execute_delegated_submits_complete_plan_and_heartbeats(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    planned = _planned(tmp_path)
+    planned_without_source = _planned(tmp_path)
+    planned = replace(
+        planned_without_source,
+        config_source=ConfigRegistryRunConfigSource(
+            selector="active",
+            entry_id="baseline",
+            config_ref="config-registry/configs/baseline.json",
+            content_hash=config_content_hash(planned_without_source.config),
+            registry_generation=3,
+        ),
+    )
     preview = build_run_program_preview(planned.program)
     heartbeat_seen = Event()
     heartbeat_count = 0
@@ -274,6 +294,7 @@ def test_execute_delegated_submits_complete_plan_and_heartbeats(
     [submission] = delegated_submissions
     assert submission.submission_id == "delegated-submission"
     assert submission.config == planned.config
+    assert submission.config_source == planned.config_source
     assert submission.request == planned.request
     assert submission.plan.experiment_id == preview.experiment_id
     assert submission.plan.experiment_kind == preview.experiment_kind
@@ -617,24 +638,23 @@ def test_lab_client_owns_local_config_draft_workflow() -> None:
         state=state,
         candidate_id="notebook-tuning",
     )
-    registrations: list[ConfigDraftRegistrationCommand] = []
+    defaults: list[ConfigDraftDefaultCommand] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path
+        if path == "/api/v1/config-registry":
+            return _model(ConfigRegistryView(entries=(entry,), active_state=state))
         if path == "/api/v1/config-registry/active" and request.method == "GET":
             return _model(
                 ActiveConfigView(entry=entry, active_state=state, config=config)
             )
         if path == "/api/v1/config-registry/drafts/preview":
             return _model(preview)
-        if path == "/api/v1/config-registry/drafts/register":
-            command = ConfigDraftRegistrationCommand.model_validate_json(
-                request.content
-            )
-            registrations.append(command)
+        if path == "/api/v1/config-registry/drafts/set-default":
+            command = ConfigDraftDefaultCommand.model_validate_json(request.content)
+            defaults.append(command)
             return _model(
-                _config_draft_registration_receipt(command, preview),
-                status_code=201,
+                _config_draft_default_receipt(command, preview, state),
             )
         raise AssertionError(f"unexpected request: {request.method} {path}")
 
@@ -646,19 +666,80 @@ def test_lab_client_owns_local_config_draft_workflow() -> None:
         "drive_frequency",
         Quantity(value=5.1, unit="GHz"),
     )
-    reviewed = lab.preview_config_draft(
+    receipt = lab.config.set_default(
         draft,
-        candidate_id="notebook-tuning",
-    )
-    receipt = lab.register_config_draft(
-        draft,
-        preview=reviewed,
         entry_id="notebook-tuning",
+        note="typed notebook edit",
     )
 
     assert receipt.entry.id == "notebook-tuning"
-    assert registrations[0].registered_by == "notebook-operator"
-    assert registrations[0].expected_result_content_hash == preview.result_content_hash
+    assert defaults[0].registration.registered_by == "notebook-operator"
+    assert (
+        defaults[0].registration.expected_result_content_hash
+        == preview.result_content_hash
+    )
+    assert defaults[0].operator == "notebook-operator"
+
+
+def test_lab_config_intents_hide_registry_coordination() -> None:
+    config = load_config()
+    entry, state = _config_registry_records(config)
+    seen: list[DirectConfigDefaultCommand | ConfigRollbackCommand] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/api/v1/config-registry":
+            return _model(ConfigRegistryView(entries=(entry,), active_state=state))
+        if path == "/api/v1/config-registry/active" and request.method == "GET":
+            return _model(
+                ActiveConfigView(entry=entry, active_state=state, config=config)
+            )
+        if path == "/api/v1/config-registry/default":
+            command = DirectConfigDefaultCommand.model_validate_json(request.content)
+            seen.append(command)
+            return _model(
+                ConfigDefaultReceipt(
+                    entry=entry,
+                    active_state=state,
+                    activation=state.history[-1],
+                )
+            )
+        if path == "/api/v1/config-registry/rollback":
+            command = ConfigRollbackCommand.model_validate_json(request.content)
+            seen.append(command)
+            return _model(
+                ConfigActivationReceipt(
+                    active_state=state,
+                    activation=state.history[-1],
+                )
+            )
+        raise AssertionError(f"unexpected request: {request.method} {path}")
+
+    lab = LabClient(
+        DaemonConnection(_client(handler)),
+        operator="notebook-operator",
+    )
+
+    set_receipt = lab.config.set_default(config, note="use tuned values")
+    undo_receipt = lab.config.undo(note="restore prior values")
+
+    assert set_receipt.entry == entry
+    assert undo_receipt.active_state == state
+    assert seen == [
+        DirectConfigDefaultCommand(
+            entry_id=config_revision_entry_id(config),
+            config=config,
+            registered_by="notebook-operator",
+            operator="notebook-operator",
+            expected_generation=state.generation,
+            note="use tuned values",
+        ),
+        ConfigRollbackCommand(
+            operator="notebook-operator",
+            expected_generation=state.generation,
+            note="restore prior values",
+        ),
+    ]
 
 
 def test_remote_analysis_artifacts_preserve_source_defaults() -> None:
@@ -1004,6 +1085,43 @@ def _config_draft_registration_receipt(
         ),
         result_content_hash=preview.result_content_hash,
         deltas=preview.deltas,
+    )
+
+
+def _config_draft_default_receipt(
+    command: ConfigDraftDefaultCommand,
+    preview: ConfigDraftPreview,
+    previous_state: ConfigRegistryActiveState,
+) -> ConfigDraftDefaultReceipt:
+    registration = _config_draft_registration_receipt(
+        command.registration,
+        preview,
+    )
+    activation = ConfigRegistryActivationRecord(
+        id="activation-2",
+        generation=previous_state.generation + 1,
+        action="activation",
+        entry_id=registration.entry.id,
+        entry_content_hash=registration.entry.content_hash,
+        previous_entry_id=previous_state.active_entry_id,
+        previous_entry_content_hash=previous_state.active_entry_content_hash,
+        operator=command.operator,
+        note=command.activation_note or command.registration.note,
+        recorded_at=_NOW + timedelta(seconds=1),
+    )
+    state = ConfigRegistryActiveState(
+        generation=activation.generation,
+        active_entry_id=activation.entry_id,
+        active_entry_content_hash=activation.entry_content_hash,
+        history=(*previous_state.history, activation),
+        updated_at=activation.recorded_at,
+    )
+    return ConfigDraftDefaultReceipt(
+        entry=registration.entry,
+        result_content_hash=registration.result_content_hash,
+        deltas=registration.deltas,
+        active_state=state,
+        activation=activation,
     )
 
 

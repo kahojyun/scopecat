@@ -490,7 +490,7 @@ def test_provider_builds_fresh_drivers() -> None:
         def describe(
             self, context: InstrumentProviderContext
         ) -> InstrumentProviderDescription:
-            assert context.config.workspace_id == "example-workspace"
+            assert context.config.id == "simple-scan-profile"
             return InstrumentProviderDescription(
                 provider_id=self.provider_id,
                 instruments=(SignalInstrumentDriver().describe(),),
@@ -501,7 +501,7 @@ def test_provider_builds_fresh_drivers() -> None:
         def provide(
             self, context: InstrumentProviderContext
         ) -> InstrumentProviderResult:
-            assert context.config.workspace_id == "example-workspace"
+            assert context.config.id == "simple-scan-profile"
             return InstrumentProviderResult(drivers=(SignalInstrumentDriver(),))
 
     provider = Provider()

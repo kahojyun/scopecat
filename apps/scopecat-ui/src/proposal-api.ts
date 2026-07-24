@@ -71,6 +71,8 @@ function normalizeProposalView(value: unknown): ParameterProposal {
     id: string(proposal.id) ?? "unidentified-proposal",
     sourceRunId:
       string(proposal.source_run_id) ?? "unidentified-source-run",
+    analysisRecordId:
+      string(proposal.analysis_record_id) ?? "unidentified-analysis-record",
     baseConfigId:
       string(proposal.base_config_id) ?? "unidentified-base-config",
     baseContentHash:
@@ -95,14 +97,25 @@ function normalizeDelta(value: unknown): ParameterProposalDelta {
 
 function normalizeDecision(value: unknown): ParameterProposalDecision {
   const source = record(value);
+  const authority = record(source.authority);
   const decision = string(source.decision);
+  const authorityKind =
+    string(authority.kind) === "automatic_policy"
+      ? "automatic_policy"
+      : "human";
   return {
     eventId: string(source.event_id) ?? "unidentified-decision",
     decision:
       decision === "approved" || decision === "rejected"
         ? decision
         : "invalidated",
-    actor: string(source.actor) ?? "unknown-operator",
+    actor:
+      string(authority.actor) ??
+      string(source.actor) ??
+      "unknown-operator",
+    authorityKind,
+    policyId: string(authority.policy_id),
+    policyVersion: string(authority.policy_version),
     note: string(source.note),
     decidedAt: string(source.decided_at),
   };

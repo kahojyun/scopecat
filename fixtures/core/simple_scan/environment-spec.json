@@ -1,7 +1,6 @@
 {
-  "schema_version": "scopecat.environment_spec.v1",
-  "id": "example-workspace-environment",
-  "workspace_id": "example-workspace",
+  "schema_version": "scopecat.environment_spec.v2",
+  "id": "simple-scan-environment",
   "connection_profile": {
     "connections": [
       {

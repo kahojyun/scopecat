@@ -8,6 +8,7 @@ from scopecat.compiler.relations.model import LiteralScalarExpr
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import TableParameterValue
+from scopecat.records.run import ConfigRegistryRunConfigSource
 from scopecat_quantum import (
     CircuitPulseEventProvenance,
     GateId,
@@ -173,29 +174,24 @@ def test_active_drag_beta_changes_program_and_compiler_segments(
     assert [point.coordinates for point in baseline_records] == [{}]
     assert [point.coordinates for point in active_records] == [{}]
     assert compiler.trace.physical_execution_count == 3
-    assert baseline_run.manifest.config_source is not None
-    assert active_run.manifest.config_source is not None
-    assert baseline_run.manifest.config_source.entry_id == baseline_activation.entry.id
-    assert active_run.manifest.config_source.entry_id == active_activation.entry.id
-    assert active_run.manifest.config_source.registry_generation == (
+    baseline_source = baseline_run.manifest.config_source
+    active_source = active_run.manifest.config_source
+    assert isinstance(baseline_source, ConfigRegistryRunConfigSource)
+    assert isinstance(active_source, ConfigRegistryRunConfigSource)
+    assert baseline_source.entry_id == baseline_activation.entry.id
+    assert active_source.entry_id == active_activation.entry.id
+    assert active_source.registry_generation == (
         active_activation.active_state.generation
     )
-    assert active_run.manifest.config_source.content_hash == (
-        active_activation.entry.content_hash
-    )
-    assert baseline_run.manifest.config_content_hash == (
-        baseline_run.manifest.config_source.content_hash
-    )
-    assert active_run.manifest.config_content_hash == (
-        active_run.manifest.config_source.content_hash
-    )
+    assert active_source.content_hash == active_activation.entry.content_hash
+    assert baseline_run.manifest.config_content_hash == (baseline_source.content_hash)
+    assert active_run.manifest.config_content_hash == active_source.content_hash
     assert rollback.active_state.active_entry_id == baseline_activation.entry.id
-    assert restored_run.manifest.config_source is not None
-    assert restored_run.manifest.config_source.entry_id == baseline_activation.entry.id
-    assert restored_run.manifest.config_source.registry_generation == 3
-    assert restored_run.manifest.config_content_hash == (
-        restored_run.manifest.config_source.content_hash
-    )
+    restored_source = restored_run.manifest.config_source
+    assert isinstance(restored_source, ConfigRegistryRunConfigSource)
+    assert restored_source.entry_id == baseline_activation.entry.id
+    assert restored_source.registry_generation == 3
+    assert restored_run.manifest.config_content_hash == (restored_source.content_hash)
     assert baseline.artifact_fingerprint != active.artifact_fingerprint
 
 

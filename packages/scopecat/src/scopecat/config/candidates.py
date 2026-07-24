@@ -51,6 +51,14 @@ class CandidateConfig:
     def proposal_ids(self) -> tuple[str, ...]:
         return tuple(proposal.id for proposal in self.parameter_proposals)
 
+    @property
+    def analysis_record_ids(self) -> tuple[str, ...]:
+        return tuple(
+            dict.fromkeys(
+                proposal.analysis_record_id for proposal in self.parameter_proposals
+            )
+        )
+
 
 def resolve_candidate_config_snapshot(
     candidate: CandidateConfig,

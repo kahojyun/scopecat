@@ -43,7 +43,7 @@ afterEach(() => {
 });
 
 describe("RunProposals", () => {
-  it("renders proposal deltas and appends an approval decision", async () => {
+  it("keeps approve-only as an advanced action", async () => {
     vi.mocked(getRunParameterProposals).mockResolvedValue(
       proposalList(pendingProposal()),
     );
@@ -58,7 +58,8 @@ describe("RunProposals", () => {
     fireEvent.change(screen.getByPlaceholderText("Evidence or rationale"), {
       target: { value: "Peak is clean" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(screen.getByText("Advanced"));
+    fireEvent.click(screen.getByRole("button", { name: "Approve only" }));
 
     await waitFor(() =>
       expect(reviewParameterProposal).toHaveBeenCalledWith(
@@ -73,7 +74,7 @@ describe("RunProposals", () => {
     );
   });
 
-  it("can activate each proposal whose latest decision is approved", async () => {
+  it("can accept each approved proposal as the default without exposing generations", async () => {
     const older = approvedProposal({
       id: "older-proposal",
       proposedAt: "2026-07-22T10:00:00Z",
@@ -98,15 +99,15 @@ describe("RunProposals", () => {
     vi.stubGlobal("confirm", vi.fn(() => true));
     renderProposals();
 
-    const activate = await screen.findAllByRole("button", {
-      name: "Activate config",
+    const setDefault = await screen.findAllByRole("button", {
+      name: "Accept as default",
     });
     expect(
       screen.getAllByText("Approved", { selector: ".proposal-state" }),
     ).toHaveLength(2);
-    expect(activate).toHaveLength(2);
-    await waitFor(() => expect(activate[1]).toBeEnabled());
-    fireEvent.click(activate[1]!);
+    expect(setDefault).toHaveLength(2);
+    await waitFor(() => expect(setDefault[1]).toBeEnabled());
+    fireEvent.click(setDefault[1]!);
 
     await waitFor(() =>
       expect(activateProposalCandidate).toHaveBeenCalledWith({
@@ -118,12 +119,15 @@ describe("RunProposals", () => {
         note: "",
       }),
     );
+    expect(window.confirm).toHaveBeenCalledWith(
+      "Accept proposal latest-proposal and set its configuration as the default?",
+    );
   });
 
-  it("shows an activation failure after a successful review", async () => {
-    vi.mocked(getRunParameterProposals)
-      .mockResolvedValueOnce(proposalList(pendingProposal()))
-      .mockResolvedValue(proposalList(approvedProposal()));
+  it("accepts a pending proposal in one action and reports publish failure", async () => {
+    vi.mocked(getRunParameterProposals).mockResolvedValue(
+      proposalList(pendingProposal()),
+    );
     vi.mocked(reviewParameterProposal).mockResolvedValue();
     vi.mocked(getConfigRegistry).mockResolvedValue({
       active: {
@@ -140,18 +144,26 @@ describe("RunProposals", () => {
     vi.stubGlobal("confirm", vi.fn(() => true));
     renderProposals();
 
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Approve" }),
-    );
-    const activate = await screen.findByRole("button", {
-      name: "Activate config",
+    const accept = await screen.findByRole("button", {
+      name: "Accept as default",
     });
-    await waitFor(() => expect(activate).toBeEnabled());
-    fireEvent.click(activate);
+    await waitFor(() => expect(accept).toBeEnabled());
+    fireEvent.click(accept);
 
     expect(
-      await screen.findByText("generation conflict"),
+      await screen.findByText(
+        "The proposal is accepted, but the default was not changed: generation conflict",
+      ),
     ).toBeInTheDocument();
+    expect(reviewParameterProposal).toHaveBeenCalledWith(
+      "run-1",
+      "drive-frequency",
+      {
+        reviewer: "local-operator",
+        note: "",
+        decision: "approved",
+      },
+    );
   });
 });
 
@@ -179,6 +191,7 @@ function pendingProposal(
   return {
     id: "drive-frequency",
     sourceRunId: "run-1",
+    analysisRecordId: "analysis-fit",
     baseConfigId: "baseline",
     baseContentHash: "sha256:base",
     reason: "Peak moved",
@@ -207,6 +220,7 @@ function approvedProposal(
         eventId: `decision-${proposal.id}`,
         decision: "approved",
         actor: "Ada",
+        authorityKind: "human",
         note: "Verified",
         decidedAt: proposal.proposedAt,
       },

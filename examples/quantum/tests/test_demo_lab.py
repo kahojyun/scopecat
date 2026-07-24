@@ -24,6 +24,14 @@ NOTEBOOK_CASES = (
     ("calibration/01_drag_beta.py", "drag_beta_summary"),
     ("calibration/02_cz_phase.py", "summary"),
     ("integration/01_opaque_collection.py", "opaque_collection_summary"),
+    (
+        "advanced/01_config_registry_controls.py",
+        "advanced_registry_summary",
+    ),
+    (
+        "advanced/02_manual_candidate_review.py",
+        "advanced_candidate_summary",
+    ),
 )
 
 

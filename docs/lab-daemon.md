@@ -50,11 +50,17 @@ The lower-level `sc.connect()` transport client exposes exact managed
 submission, delegated execution, event replay, and attention resolution for
 operator and infrastructure code.
 
-After execution, analysis records, parameter proposals, review decisions, and
-candidate activation use the same daemon boundary. A notebook may calculate
-with arbitrary local Python state, but `Analysis.save()`, proposal review, and
-configuration changes are durable daemon commands rather than direct storage
-writes.
+After execution, analysis records, parameter proposals, acceptance decisions,
+and default changes use the same daemon boundary. A notebook may calculate
+with arbitrary local Python state, but `Analysis.save()`,
+`lab.config.accept(...)`, and `lab.config.set_default(...)` cross into durable
+daemon commands rather than writing storage directly. Acceptance authority may
+be a person or a named, versioned automatic policy.
+
+A candidate may be used for one run without changing the default. That run
+records the producing run, analysis records, proposal ids, base config hash,
+and resolved candidate hash. Verification is optional evidence: acceptance may
+happen before it, after it, or without a dedicated verification run.
 
 If an executor disappears, its resources remain quarantined. The GUI or
 `lab.resolve_attention(run_id, action)` can explicitly:
@@ -122,14 +128,28 @@ belong to the daemon.
 | GUI and notebooks | Views and commands against the daemon; transient scratch computation may remain in the notebook process |
 
 Editing a Git-owned config file does not mutate the active registry entry.
-Load the edited profile into a snapshot, import it through the Python client or
-GUI, inspect the immutable entry, and then activate it with the current
-generation. This explicit handoff keeps reproducible source files separate from
-operator state.
+Use `scopecat config diff` to freshly evaluate that source and compare it with
+the daemon default, then `scopecat config apply` to validate it, save an
+immutable revision, and atomically move the default. Notebook code can express
+the same intent with `lab.config.set_default(snapshot)`. This keeps
+reproducible source files separate from operator state without requiring
+ordinary code to manage entry ids or generations.
+
+The daemon deliberately does not watch or hot-reload project Python. Executing
+changed source is an explicit CLI or notebook action, so an accidental edit
+cannot silently change later runs. `scopecat config export --output PATH`
+writes the complete active snapshot for review or backup; the generated JSON
+is not the primary authoring format.
 
 For an operator adjustment, the GUI can instead derive typed scalar and table
 operations from the active entry, ask the daemon to preview and validate the
-complete candidate, and register the valid result as another immutable entry.
-It does not rewrite the Git-owned source or activate the result automatically.
-Once an adjustment becomes the intended project default, make the equivalent
-change in the Python/config source and review it normally.
+complete candidate, and set the valid result as the default. It does not
+rewrite the Git-owned source. A runtime-derived default therefore points the
+operator to `scopecat config diff`; the browser cannot reliably infer whether
+the Python source has since been updated. Once an adjustment becomes the
+intended project default, make the equivalent source change and apply it.
+
+The explicit import, registration, activation, rollback, and expected-generation
+commands remain available for diagnostics and operator workflows. They are the
+mechanism beneath the intent-oriented API, not required ceremony for routine
+single-user experiments.

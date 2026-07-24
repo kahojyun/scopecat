@@ -2,20 +2,19 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from scopecat.analysis.service import AnalysisOutput, save_analysis
 from scopecat.composition.embedded import embedded_workspace_services
 from scopecat.config.candidates import CandidateConfig
 from scopecat.config.changes import (
     load_parameter_change_proposal,
     parameter_change_proposal_from_updates,
     review_parameter_change_proposal,
-    write_parameter_change_proposal_contents,
 )
 from scopecat.config.parameters import replace_scalar_parameter
 from scopecat.config.profiles import load_config_profile
 from scopecat.config.resolution import register_and_activate_candidate_config
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter import Quantity
-from scopecat.runs.manifest import write_manifest_records
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 from tests.testkit.signal_testkit import execute_signal_run
 from tests.testkit.workflow_fixtures import load_invocation
@@ -42,6 +41,7 @@ def seed_best_signal_parameter_change(*, tmp_path: Path, run_id: str) -> None:
         source_run_id=run_id,
         source_config=config,
         analysis_title="best signal fixture",
+        analysis_record_id="analysis-best-signal-fixture",
         proposal_id="best-signal",
         updates=(
             replace_scalar_parameter(
@@ -52,15 +52,22 @@ def seed_best_signal_parameter_change(*, tmp_path: Path, run_id: str) -> None:
         reason="Best signal fixture parameter change.",
         confidence=1.0,
     )
-    entries = write_parameter_change_proposal_contents(
-        storage=storage,
+    save_analysis(
+        services=embedded_workspace_services(tmp_path),
         run_id=run_id,
-        proposals=(proposal,),
-    )
-    write_manifest_records(
-        storage=storage,
-        manifest=storage.read_manifest(run_id),
-        records=entries,
+        title="best signal fixture",
+        analysis_key="best-signal-fixture",
+        step_id=None,
+        inputs=(),
+        outputs=(
+            AnalysisOutput(
+                kind="parameter_change_proposal",
+                title=proposal.id,
+                content=proposal,
+                metadata={},
+            ),
+        ),
+        parameter_proposals=(proposal,),
     )
 
 

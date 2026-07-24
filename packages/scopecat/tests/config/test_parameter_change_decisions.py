@@ -11,12 +11,14 @@ from scopecat.composition.embedded import (
     embedded_workspace_services,
 )
 from scopecat.config.changes import (
+    decide_parameter_change_proposal,
     invalidate_parameter_change_proposal,
     list_parameter_change_decisions,
     load_parameter_change_proposal,
     review_parameter_change_proposal,
 )
 from scopecat.kernel.errors import DataIntegrityError
+from scopecat.records.parameter_change import AutomaticPolicyDecisionAuthority
 from scopecat.runs.refs import record_content_ref
 from tests.testkit.config_registry import signal_run_with_parameter_change
 
@@ -40,11 +42,12 @@ def test_invalidate_parameter_change_records_decision_without_mutating_proposal(
         invalidated_by_refs=["config-profile.snapshot.json"],
     )
 
-    assert record.schema_version == "scopecat.parameter_change_decision_record.v3"
+    assert record.schema_version == "scopecat.parameter_change_decision_record.v4"
     assert record.proposal_id == "best-signal"
     assert record.decision == "invalidated"
     assert record.note == "active config changed before review"
     assert record.actor == "operator"
+    assert record.authority.kind == "human"
     assert record.related_refs == ("config-profile.snapshot.json",)
     assert (
         load_parameter_change_proposal(
@@ -107,6 +110,36 @@ def test_parameter_change_decisions_append_invalidation_after_approval(
         "approved",
         "invalidated",
     ]
+    assert approval.authority.kind == "human"
+    assert approval.actor == "operator"
+
+
+def test_automatic_policy_decision_authority_round_trips_without_verification(
+    tmp_path: Path,
+) -> None:
+    run_id = signal_run_with_parameter_change(tmp_path)
+    authority = AutomaticPolicyDecisionAuthority(
+        actor="nightly-calibration",
+        policy_id="high-confidence-fit",
+        policy_version="3",
+    )
+
+    decision = decide_parameter_change_proposal(
+        run_id=run_id,
+        selector="best-signal",
+        services=embedded_workspace_services(tmp_path),
+        decision="approved",
+        authority=authority,
+        note="fit confidence exceeded the automatic acceptance threshold",
+    )
+
+    assert decision.related_refs == ()
+    assert list_parameter_change_decisions(
+        run_id=run_id,
+        selector="best-signal",
+        storage=embedded_run_repository(tmp_path),
+    ) == [decision]
+    assert decision.authority == authority
 
 
 def test_parameter_change_decision_history_fails_closed_on_corruption(
@@ -182,6 +215,6 @@ def test_parameter_decision_validation_rejects_empty_actor(tmp_path: Path) -> No
     )
 
     invalid = decision.model_dump(mode="python")
-    invalid["actor"] = ""
+    invalid["authority"]["actor"] = ""
     with pytest.raises(ValidationError):
         type(decision).model_validate(invalid)

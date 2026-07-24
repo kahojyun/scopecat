@@ -173,10 +173,7 @@ export default function App() {
   );
 
   useEffect(() => {
-    if (
-      runs.length > 0 &&
-      (!selectedRunId || !runs.some((run) => run.runId === selectedRunId))
-    ) {
+    if (runs.length > 0 && selectedRunId === undefined) {
       setSelectedRunId(runs[0]?.runId);
     }
   }, [runs, selectedRunId]);
@@ -222,6 +219,12 @@ export default function App() {
       selected === "configuration" ? "#configuration" : window.location.pathname,
     );
     window.scrollTo({ top: 0, left: 0 });
+  };
+  const openConfigSourceRun = (runId: string) => {
+    setSelectedRunId(runId);
+    setSearch("");
+    setFilter("all");
+    selectView("runs");
   };
 
   return (
@@ -505,7 +508,10 @@ export default function App() {
             </div>
           </>
         ) : (
-          <ConfigWorkspace daemonUnavailable={daemonUnavailable} />
+          <ConfigWorkspace
+            daemonUnavailable={daemonUnavailable}
+            onOpenRun={openConfigSourceRun}
+          />
         )}
       </main>
     </div>

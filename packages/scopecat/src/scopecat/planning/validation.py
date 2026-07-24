@@ -229,15 +229,6 @@ def validate_config_profile(
 ) -> tuple[Problem, ...]:
     problems: list[Problem] = []
 
-    if config.environment.workspace_id != config.system.workspace_id:
-        problems.append(
-            _problem(
-                "config_profile_workspace_mismatch",
-                "environment workspace does not match system workspace",
-                ("environment", "workspace_id"),
-            )
-        )
-
     entity_ids = {entity.id for entity in config.topology.entities}
     instrument_ids = {
         instrument.id for instrument in config.instrument_registry.instruments

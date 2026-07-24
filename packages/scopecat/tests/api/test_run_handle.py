@@ -12,6 +12,7 @@ from scopecat.authoring import (
 from scopecat.composition.embedded import open_embedded_workspace
 from scopecat.execution.observation import RuntimeEvent, RuntimeTransitionEvent
 from scopecat.records.parameter import Quantity
+from scopecat.records.run import AnalysisCandidateRunConfigSource
 from tests.testkit.authoring import DRIVE_FREQUENCY_POINT
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
@@ -120,6 +121,11 @@ def test_workspace_closed_loop_uses_notebook_first_candidate_config(
         record.kind == "candidate_config" for record in baseline.manifest.records
     )
     assert candidate.manifest.status == "completed"
+    source = candidate.manifest.config_source
+    assert isinstance(source, AnalysisCandidateRunConfigSource)
+    assert source.source_run_id == baseline.id
+    assert source.analysis_record_ids == (saved.record.id,)
+    assert source.proposal_ids == candidate_config.proposal_ids
 
 
 def test_workspace_run_can_observe_transient_runtime_events(tmp_path: Path) -> None:
@@ -171,6 +177,7 @@ def test_workspace_provider_closed_loop_uses_candidate_config_shortcut(
         ),
         reason="manual center point",
     )
+    saved = analysis.save()
     candidate_config = analysis.candidate_config()
     candidate = lab.prepare(experiment, config=candidate_config).run()
 
@@ -182,3 +189,6 @@ def test_workspace_provider_closed_loop_uses_candidate_config_shortcut(
         == "drive_frequency"
     )
     assert candidate.manifest.status == "completed"
+    source = candidate.manifest.config_source
+    assert isinstance(source, AnalysisCandidateRunConfigSource)
+    assert source.analysis_record_ids == (saved.record.id,)

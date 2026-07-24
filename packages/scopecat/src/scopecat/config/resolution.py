@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 from scopecat.application.services import WorkspaceServices
 from scopecat.config.candidates import (
@@ -18,6 +19,7 @@ from scopecat.config.registry import (
 )
 from scopecat.config.registry import service as registry_service
 from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.ids import artifact_slug
 from scopecat.kernel.problems import (
     Problem,
     ProblemCategory,
@@ -27,10 +29,19 @@ from scopecat.kernel.problems import (
     model_location,
 )
 from scopecat.planning.validation import validate_config
-from scopecat.records.config import ConfigProfileSnapshot
-from scopecat.records.run import RunConfigSource
+from scopecat.records.analysis import AnalysisRecord
+from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
+from scopecat.records.run import AnalysisCandidateRunConfigSource, RunConfigSource
+from scopecat.runs.refs import record_content_ref
 
 type ConfigProfileInput = str | Path | ConfigProfileSnapshot
+
+
+def config_revision_entry_id(config: ConfigProfileSnapshot) -> str:
+    """Return a deterministic registry id for one immutable config revision."""
+
+    digest = config_content_hash(config).removeprefix("sha256:")[:12]
+    return f"{artifact_slug(config.id, fallback='config')}-{digest}"
 
 
 @dataclass(frozen=True)
@@ -125,8 +136,81 @@ def resolve_experiment_config(
                 ]
             )
         if isinstance(config, CandidateConfig):
+            resolved = resolve_candidate_config_snapshot(config, services=services)
+            manifest = services.runs.read_manifest(config.source_run_id)
+            durable_records = {(record.kind, record.id) for record in manifest.records}
+            required_records = {
+                *(("analysis", record_id) for record_id in config.analysis_record_ids),
+                *(
+                    ("parameter_change_proposal", proposal_id)
+                    for proposal_id in config.proposal_ids
+                ),
+            }
+            missing_records = sorted(required_records - durable_records)
+            if missing_records:
+                raise CheckFailed(
+                    [
+                        blocking_problem(
+                            "config.candidate_evidence_missing",
+                            (
+                                "save the producing analysis before using its "
+                                "candidate config"
+                            ),
+                            category=ProblemCategory.INVALID_INPUT,
+                            phase=ProblemPhase.CONFIGURATION,
+                            location=model_location("run_options", "config"),
+                            details={
+                                "missing_records": [
+                                    {"kind": kind, "id": record_id}
+                                    for kind, record_id in missing_records
+                                ]
+                            },
+                        )
+                    ]
+                )
+            mismatched_proposals: list[str] = []
+            for proposal in config.parameter_proposals:
+                analysis = services.runs.read_model(
+                    config.source_run_id,
+                    record_content_ref(
+                        record_id=proposal.analysis_record_id,
+                        kind="analysis",
+                    ),
+                    AnalysisRecord,
+                )
+                if not any(
+                    output.kind == "parameter_change_proposal"
+                    and isinstance(output.content, dict)
+                    and cast("dict[str, object]", output.content).get("proposal_id")
+                    == proposal.id
+                    for output in analysis.outputs
+                ):
+                    mismatched_proposals.append(proposal.id)
+            if mismatched_proposals:
+                raise CheckFailed(
+                    [
+                        blocking_problem(
+                            "config.candidate_analysis_mismatch",
+                            (
+                                "candidate proposals do not belong to their "
+                                "producing analyses"
+                            ),
+                            category=ProblemCategory.DATA_INTEGRITY,
+                            phase=ProblemPhase.CONFIGURATION,
+                            location=model_location("run_options", "config"),
+                            details={"proposal_ids": mismatched_proposals},
+                        )
+                    ]
+                )
             return ResolvedConfig(
-                config=resolve_candidate_config_snapshot(config, services=services)
+                config=resolved,
+                config_source=AnalysisCandidateRunConfigSource(
+                    source_run_id=config.source_run_id,
+                    analysis_record_ids=config.analysis_record_ids,
+                    proposal_ids=config.proposal_ids,
+                    base_config_content_hash=config.base_config_content_hash,
+                    content_hash=config_content_hash(resolved),
+                ),
             )
         return ResolvedConfig(config=config)
 

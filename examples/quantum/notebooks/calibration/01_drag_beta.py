@@ -1,4 +1,4 @@
-"""Run, review, activate, and roll back a DRAG beta calibration."""
+"""Accept a high-confidence DRAG fit with an automatic policy."""
 
 from __future__ import annotations
 
@@ -37,64 +37,39 @@ completed_run = experiment.run(
 )
 
 # %%
-# Analysis saves fit evidence and proposes a candidate without changing the
-# active configuration. The candidate can be previewed before review.
+# Analysis proposes a candidate only after the fit clears its local quality
+# checks. No separate verification run is required by the config lifecycle.
 result = analyze_drag_beta_run(completed_run)
-saved_analysis = result.analysis.save()
 if result.proposal_id is None:
     msg = "the DRAG fit did not produce an eligible proposal"
     raise RuntimeError(msg)
-candidate = result.analysis.candidate_config()
-candidate_preview = (
-    lab.prepare(drag_beta_template(), config=candidate).scan(parameter_scan).preview()
-)
 
 # %%
-# Import and select the source config as the daemon's rollback point, then
-# review and activate the candidate atomically.
-baseline_entry = lab.import_config(
-    completed_run.config,
-    entry_id=f"drag-beta-baseline-{completed_run.id}",
-    note="retain the accepted source snapshot as a rollback point",
+policy = sc.AutomaticPolicyDecisionAuthority(
+    actor="nightly-calibration",
+    policy_id="quantum_lab_demo.drag_beta.fit_quality",
+    policy_version="1",
 )
-baseline = lab.activate_config_entry(
-    baseline_entry.entry.id,
-    note="select the DRAG beta calibration baseline",
+accepted = lab.config.accept(
+    result.analysis,
+    authority=policy,
+    note="fit passed the versioned DRAG quality policy",
 )
-baseline_production_run = lab.prepare(
-    production_drag_template(),
-    config="active",
-).run(
-    name="Production X90 with baseline DRAG beta",
-    tags=("calibration", "production-gate", "baseline"),
-)
-review = lab.review_parameter_proposal(
-    completed_run,
-    result.proposal_id,
-    decision="approved",
-    note="fit evidence and scan coverage reviewed",
-)
-activation = lab.activate(
-    candidate,
-    entry_id=f"drag-beta-candidate-{completed_run.id}",
-    expected_generation=baseline.active_state.generation,
-    activation_note="select reviewed q0 DRAG beta",
-)
-active_production_run = lab.prepare(
-    production_drag_template(),
-    config="active",
-).run(
+
+# A later production experiment naturally exercises the accepted parameter,
+# but it is downstream evidence rather than a prerequisite for acceptance.
+production_run = lab.prepare(production_drag_template()).run(
     name="Production X90 with accepted DRAG beta",
     tags=("calibration", "production-gate", "active-config"),
 )
 
 # %%
-# Rollback keeps the proposal, review, and activation as durable evidence while
-# restoring the previous active entry.
-rollback = lab.rollback(
-    expected_generation=activation.active_state.generation,
-    note="restore baseline after production-gate verification",
+# Undo restores the previous default while retaining the fit, policy decision,
+# immutable revision, production run, and activation history.
+restored = lab.config.undo(
+    note="restore the previous default after the calibration example",
 )
+production_source = production_run.manifest.config_source
 
 drag_beta_summary = {
     "status": completed_run.manifest.status,
@@ -102,15 +77,17 @@ drag_beta_summary = {
     "beta_hat": result.fit.beta_hat,
     "fit_rmse": result.fit.rmse,
     "quality_score": result.assessment.quality_score,
-    "analysis_record_id": saved_analysis.record.id,
     "proposal_id": result.proposal_id,
-    "candidate_points": candidate_preview.point_count,
-    "review": review.decision,
-    "production_runs": (
-        baseline_production_run.id,
-        active_production_run.id,
+    "acceptance_authority": policy.kind,
+    "policy": f"{policy.policy_id}@{policy.policy_version}",
+    "production_run": production_run.id,
+    "accepted_as_default": (
+        production_source is not None
+        and production_source.content_hash == accepted.entry.content_hash
     ),
-    "active_entry": activation.entry.id,
-    "restored_entry": rollback.active_state.active_entry_id,
+    "default_restored": (
+        restored.active_state.active_entry_content_hash
+        == accepted.activation.previous_entry_content_hash
+    ),
 }
 print(drag_beta_summary)

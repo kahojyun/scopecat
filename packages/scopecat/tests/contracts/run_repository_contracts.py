@@ -11,7 +11,12 @@ from pydantic import BaseModel
 from scopecat.kernel.errors import CheckFailed, DataIntegrityError, NotFound
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
-from scopecat.records.run import RunConfigSource, RunManifest, RunOutcome
+from scopecat.records.run import (
+    ConfigRegistryRunConfigSource,
+    RunConfigSource,
+    RunManifest,
+    RunOutcome,
+)
 from scopecat.runs.refs import CONFIG_PROFILE_SNAPSHOT_REF, MANIFEST_REF
 from scopecat.runs.repository import (
     RunModelWrite,
@@ -43,7 +48,7 @@ def _manifest(run_id: str, day: int) -> RunManifest:
 
 
 def _config_source(content_hash: str) -> RunConfigSource:
-    return RunConfigSource(
+    return ConfigRegistryRunConfigSource(
         selector="active",
         entry_id="config-entry",
         config_ref="configs/config-entry.json",

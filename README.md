@@ -25,7 +25,32 @@ them.
 
 ## Start Here
 
-The quantum example is a complete local lab project. Its `scopecat.toml` and
+Create a runnable project with a local Python configuration source and a
+hardware-free first scratch experiment:
+
+```sh
+uv run scopecat init ./my-lab
+uv run scopecat config check ./my-lab
+uv run scopecat start ./my-lab
+uv run scopecat open ./my-lab
+uv run python ./my-lab/notebooks/01_first_run.py
+```
+
+The generated `src/scopecat_lab/configuration.py` is ordinary version-controlled
+Python. After editing it, compare and explicitly publish the result:
+
+```sh
+uv run scopecat config diff ./my-lab
+uv run scopecat config apply ./my-lab --actor operator-name
+uv run scopecat config export ./my-lab --output ./active-config.json
+```
+
+`diff` freshly evaluates the project source and compares it with the daemon
+default. `apply` validates the same snapshot and records one immutable default
+change; it does not make the daemon watch or rewrite Python. `export` produces
+a complete JSON snapshot for review or backup, not a primary editing format.
+
+The quantum example is the fuller local lab project. Its `scopecat.toml` and
 Python application—including construction of its bootstrap snapshot—are
 version controlled; one daemon owns its `.scopecat` state:
 
@@ -39,16 +64,24 @@ uv run scopecat open examples/quantum
 starting a daemon or creating project state. `start` selects an available
 loopback port and records it inside the project, so the GUI and notebook client
 discover the same daemon without a fixed URL. The GUI can browse immutable
-configuration history and turn scalar or table edits into a reviewed candidate;
-registration and activation remain separate actions.
+configuration history, parameter values, runs, data, and saved analysis.
 Run the notebook-style walkthrough in another terminal:
 
 ```sh
 uv run python examples/quantum/notebooks/getting_started/01_open_project.py
+uv run python examples/quantum/notebooks/getting_started/02_edit_config.py
 uv run python examples/quantum/notebooks/getting_started/04_run_and_read_data.py
+uv run python examples/quantum/notebooks/getting_started/07_rerun_candidate_config.py
 ```
 
 The run appears live in the GUI and remains available to later notebooks.
+Normal configuration changes are one intent: set an immutable revision as the
+default, accept an analysis candidate, or undo to the previous default. The
+daemon still records every revision, acceptance decision, and activation while
+keeping entry ids and concurrency generations out of the ordinary workflow.
+Verification runs are optional evidence rather than a prerequisite for
+acceptance.
+
 Explicitly local scratch code still executes in the notebook process when it
 cannot be sent reliably to another process. Admission, resource ownership,
 measurements, analysis, and configuration history are written only by the
@@ -59,9 +92,11 @@ A normal lab project follows the same small shape:
 ```text
 my-lab/
 ├── scopecat.toml
-├── config/
 ├── notebooks/
-└── src/my_lab/
+├── src/scopecat_lab/
+│   ├── application.py
+│   └── configuration.py
+└── config/                  # optional external infrastructure inputs
 ```
 
 See the [lab daemon model](docs/lab-daemon.md) and

@@ -8,6 +8,7 @@ import {
   previewConfigDraft,
   registerConfigDraft,
   rollbackConfig,
+  setConfigDraftDefault,
 } from "./config-api";
 import type { ConfigDraftCommand, JsonObject } from "./config-types";
 
@@ -91,7 +92,6 @@ describe("config registry reads", () => {
     expect(detail.entry.id).toBe("config-a");
     expect(detail.summary).toEqual({
       id: "profile-a",
-      labId: "lab",
       primaryEntityId: "q0",
       parameterCount: 3,
       instrumentCount: 1,
@@ -133,7 +133,7 @@ describe("config registry reads", () => {
       ],
     });
     expect(detail.config.raw.schema_version).toBe(
-      "scopecat.config_profile_snapshot.v2",
+      "scopecat.config_profile_snapshot.v3",
     );
   });
 
@@ -570,6 +570,110 @@ describe("typed config drafts", () => {
       },
     );
   });
+
+  it("atomically saves a reviewed draft and sets it as the default", async () => {
+    const entryId = "config-a-edit-bbbbbbbbbbbb";
+    const activation = {
+      schema_version: "scopecat.config.registry_activation_record.v2",
+      id: "activation-4",
+      generation: 4,
+      action: "activation",
+      entry_id: entryId,
+      entry_content_hash: HASH_B,
+      previous_entry_id: "config-a",
+      operator: "Ada",
+      note: "calibrated",
+      recorded_at: "2026-07-24T08:10:00Z",
+    };
+    const entry = {
+      ...registryEntry(entryId, HASH_B),
+      source: {
+        kind: "manual_parameter_updates",
+        base_entry_id: "config-a",
+        base_config_content_hash: HASH_A,
+        base_registry_generation: 3,
+      },
+    };
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(
+        jsonResponse({
+          schema_version: "scopecat.config_draft_default_receipt.v1",
+          entry,
+          result_content_hash: HASH_B,
+          deltas: [
+            {
+              parameter_id: "drive.frequency",
+              before: scalarValue(5),
+              after: scalarValue(5.2),
+            },
+          ],
+          active_state: {
+            schema_version: "scopecat.config.registry_active_state.v2",
+            generation: 4,
+            active_entry_id: entryId,
+            active_entry_content_hash: HASH_B,
+            updated_at: "2026-07-24T08:10:00Z",
+            history: [activation],
+          },
+          activation,
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const receipt = await setConfigDraftDefault({
+      registration: {
+        draft,
+        expectedResultContentHash: HASH_B,
+        entryId,
+        registeredBy: "Ada",
+        note: "calibrated",
+      },
+      operator: "Ada",
+      activationNote: "accepted edit",
+    });
+
+    expect(receipt).toMatchObject({
+      entry: { id: entryId },
+      resultContentHash: HASH_B,
+      activeState: {
+        generation: 4,
+        entryId,
+        contentHash: HASH_B,
+      },
+      activation: {
+        generation: 4,
+        entryId,
+        operator: "Ada",
+      },
+    });
+    expectRequest(
+      fetchMock,
+      0,
+      "/api/v1/config-registry/drafts/set-default",
+      {
+        schema_version: "scopecat.config_draft_default_command.v1",
+        registration: {
+          schema_version:
+            "scopecat.config_draft_registration_command.v1",
+          draft: expect.objectContaining({
+            schema_version: "scopecat.config_draft_command.v1",
+            base_entry_id: "config-a",
+            base_content_hash: HASH_A,
+            base_generation: 3,
+            candidate_id: "config-a-edit",
+            updates: expect.any(Array),
+          }),
+          expected_result_content_hash: HASH_B,
+          entry_id: entryId,
+          registered_by: "Ada",
+          note: "calibrated",
+        },
+        operator: "Ada",
+        activation_note: "accepted edit",
+      },
+    );
+  });
 });
 
 describe("config snapshot import boundary", () => {
@@ -666,12 +770,11 @@ function scalarValue(value: number) {
 
 function configProfile(id: string): JsonObject {
   return {
-    schema_version: "scopecat.config_profile_snapshot.v2",
+    schema_version: "scopecat.config_profile_snapshot.v3",
     id,
     system: {
-      schema_version: "scopecat.system_spec.v3",
+      schema_version: "scopecat.system_spec.v4",
       id: "system",
-      workspace_id: "lab",
       primary_entity_id: "q0",
       topology: {
         entities: [
@@ -743,9 +846,8 @@ function configProfile(id: string): JsonObject {
       },
     },
     environment: {
-      schema_version: "scopecat.environment_spec.v1",
+      schema_version: "scopecat.environment_spec.v2",
       id: "bench",
-      workspace_id: "lab",
       connection_profile: {
         connections: [
           {

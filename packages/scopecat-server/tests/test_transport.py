@@ -55,12 +55,16 @@ from scopecat.daemon.wire import (
     CollectionResolveCommand,
     CollectionResolveReceipt,
     ConfigActivationReceipt,
+    ConfigDefaultReceipt,
     ConfigDraftCommand,
+    ConfigDraftDefaultCommand,
+    ConfigDraftDefaultReceipt,
     ConfigDraftRegistrationCommand,
     ConfigDraftRegistrationReceipt,
     ConfigEntryActivationCommand,
     ConfigImportReceipt,
     ConfigRollbackCommand,
+    DirectConfigDefaultCommand,
     DirectConfigImportCommand,
     ExecutionRecoveryRequest,
     ExecutionRecoverySnapshot,
@@ -75,6 +79,7 @@ from scopecat.daemon.wire import (
     MeasurementAppendReceipt,
     MeasurementSealCommand,
     MeasurementSealReceipt,
+    ParameterProposalDecisionCommand,
     ParameterProposalReviewCommand,
     ParameterProposalReviewReceipt,
     PayloadCommitCommand,
@@ -94,7 +99,10 @@ from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.parameter import Quantity, ScalarParameterValue
-from scopecat.records.parameter_change import ParameterChangeDecisionRecord
+from scopecat.records.parameter_change import (
+    HumanDecisionAuthority,
+    ParameterChangeDecisionRecord,
+)
 from scopecat.records.run import RunManifest, RunOutcome
 from scopecat.records.run_request import RunRequest
 
@@ -161,7 +169,9 @@ class FakeBackend:
         self.last_batch: ExecutionTransitionBatch | None = None
         self.last_terminal: TerminalRunCommitCommand | None = None
         self.last_config_import: DirectConfigImportCommand | None = None
+        self.last_config_default: DirectConfigDefaultCommand | None = None
         self.last_config_draft: ConfigDraftCommand | None = None
+        self.last_config_draft_default: ConfigDraftDefaultCommand | None = None
         self.last_config_draft_registration: ConfigDraftRegistrationCommand | None = (
             None
         )
@@ -170,6 +180,7 @@ class FakeBackend:
         self.last_analysis: AnalysisSaveCommand | None = None
         self.last_attachment: RunAttachmentCommand | None = None
         self.last_review: ParameterProposalReviewCommand | None = None
+        self.last_decision: ParameterProposalDecisionCommand | None = None
         self.last_candidate: CandidateConfigActivationCommand | None = None
 
     def health(self) -> DaemonHealth:
@@ -218,6 +229,18 @@ class FakeBackend:
         entry, _state = _config_registry_records()
         return ConfigImportReceipt(entry=entry)
 
+    def set_direct_config_default(
+        self,
+        command: DirectConfigDefaultCommand,
+    ) -> ConfigDefaultReceipt:
+        self.last_config_default = command
+        entry, state = _config_registry_records()
+        return ConfigDefaultReceipt(
+            entry=entry,
+            active_state=state,
+            activation=state.history[-1],
+        )
+
     def preview_config_draft(
         self,
         command: ConfigDraftCommand,
@@ -248,6 +271,21 @@ class FakeBackend:
             entry=entry,
             result_content_hash=preview.result_content_hash,
             deltas=preview.deltas,
+        )
+
+    def set_config_draft_default(
+        self,
+        command: ConfigDraftDefaultCommand,
+    ) -> ConfigDraftDefaultReceipt:
+        self.last_config_draft_default = command
+        entry, state = _config_registry_records()
+        preview = _config_draft_preview(command.registration.draft)
+        return ConfigDraftDefaultReceipt(
+            entry=entry,
+            result_content_hash=entry.content_hash,
+            deltas=preview.deltas,
+            active_state=state,
+            activation=state.history[-1],
         )
 
     def activate_config_entry(
@@ -466,7 +504,24 @@ class FakeBackend:
                 run_id=run_id,
                 proposal_id=command.proposal_id,
                 decision=command.decision,
-                actor=command.reviewer,
+                authority=HumanDecisionAuthority(actor=command.reviewer),
+            )
+        )
+
+    def decide_parameter_proposal(
+        self,
+        run_id: str,
+        command: ParameterProposalDecisionCommand,
+    ) -> ParameterProposalReviewReceipt:
+        assert run_id == self.run.run_id
+        self.last_decision = command
+        return ParameterProposalReviewReceipt(
+            decision=ParameterChangeDecisionRecord(
+                event_id="decision-1",
+                run_id=run_id,
+                proposal_id=command.proposal_id,
+                decision=command.decision,
+                authority=command.authority,
             )
         )
 
@@ -1070,6 +1125,7 @@ def _proposal():
         source_run_id="run-1",
         source_config=_config(),
         analysis_title="fit",
+        analysis_record_id="analysis-fit",
         proposal_id="drive-frequency",
         updates=(
             replace_scalar_parameter(

@@ -46,13 +46,17 @@ from scopecat.daemon.wire import (
     CollectionResolveCommand,
     CollectionResolveReceipt,
     ConfigActivationReceipt,
+    ConfigDefaultReceipt,
     ConfigDraftCommand,
+    ConfigDraftDefaultCommand,
+    ConfigDraftDefaultReceipt,
     ConfigDraftRegistrationCommand,
     ConfigDraftRegistrationReceipt,
     ConfigEntryActivationCommand,
     ConfigImportReceipt,
     ConfigRollbackCommand,
     DelegatedRunSubmission,
+    DirectConfigDefaultCommand,
     DirectConfigImportCommand,
     ExecutionRecoveryRequest,
     ExecutionRecoverySnapshot,
@@ -67,6 +71,7 @@ from scopecat.daemon.wire import (
     MeasurementAppendReceipt,
     MeasurementSealCommand,
     MeasurementSealReceipt,
+    ParameterProposalDecisionCommand,
     ParameterProposalReviewCommand,
     ParameterProposalReviewReceipt,
     PayloadCommitCommand,
@@ -162,6 +167,16 @@ class DaemonClient:
             ConfigImportReceipt,
         )
 
+    def set_direct_config_default(
+        self,
+        command: DirectConfigDefaultCommand,
+    ) -> ConfigDefaultReceipt:
+        return self._post_model(
+            f"{_API_PREFIX}/config-registry/default",
+            command,
+            ConfigDefaultReceipt,
+        )
+
     def preview_config_draft(
         self,
         command: ConfigDraftCommand,
@@ -180,6 +195,16 @@ class DaemonClient:
             f"{_API_PREFIX}/config-registry/drafts/register",
             command,
             ConfigDraftRegistrationReceipt,
+        )
+
+    def set_config_draft_default(
+        self,
+        command: ConfigDraftDefaultCommand,
+    ) -> ConfigDraftDefaultReceipt:
+        return self._post_model(
+            f"{_API_PREFIX}/config-registry/drafts/set-default",
+            command,
+            ConfigDraftDefaultReceipt,
         )
 
     def activate_config_entry(
@@ -384,6 +409,18 @@ class DaemonClient:
         proposal_id = quote(command.proposal_id, safe="")
         return self._post_model(
             f"{_API_PREFIX}/runs/{run_id}/parameter-proposals/{proposal_id}/review",
+            command,
+            ParameterProposalReviewReceipt,
+        )
+
+    def decide_parameter_proposal(
+        self,
+        command: ParameterProposalDecisionCommand,
+    ) -> ParameterProposalReviewReceipt:
+        run_id = quote(command.run_id, safe="")
+        proposal_id = quote(command.proposal_id, safe="")
+        return self._post_model(
+            f"{_API_PREFIX}/runs/{run_id}/parameter-proposals/{proposal_id}/decision",
             command,
             ParameterProposalReviewReceipt,
         )

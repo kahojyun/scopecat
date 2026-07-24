@@ -1,8 +1,11 @@
 import { request } from "./api";
 import type {
+  ActiveConfigState,
   ConfigActivationRecord,
   ConfigCommand,
   ConfigDraftCommand,
+  ConfigDraftDefaultCommand,
+  ConfigDraftDefaultReceipt,
   ConfigDraftPreview,
   ConfigDraftRegistrationCommand,
   ConfigDraftRegistrationReceipt,
@@ -122,14 +125,7 @@ export async function registerConfigDraft(
     await request(
       `${CONFIG_API}/drafts/register`,
       undefined,
-      jsonRequest({
-        schema_version: "scopecat.config_draft_registration_command.v1",
-        draft: configDraftPayload(command.draft),
-        expected_result_content_hash: command.expectedResultContentHash,
-        entry_id: command.entryId,
-        registered_by: command.registeredBy,
-        note: command.note ?? "",
-      }),
+      jsonRequest(configDraftRegistrationPayload(command)),
     ),
     "config draft registration receipt",
   );
@@ -147,6 +143,44 @@ export async function registerConfigDraft(
     deltas: list(source.deltas, "config draft registration deltas").map(
       normalizeParameterDelta,
     ),
+  };
+}
+
+export async function setConfigDraftDefault(
+  command: ConfigDraftDefaultCommand,
+): Promise<ConfigDraftDefaultReceipt> {
+  const payload: JsonObject = {
+    schema_version: "scopecat.config_draft_default_command.v1",
+    registration: configDraftRegistrationPayload(command.registration),
+    operator: command.operator,
+  };
+  if (command.activationNote !== undefined) {
+    payload.activation_note = command.activationNote;
+  }
+  const source = object(
+    await request(
+      `${CONFIG_API}/drafts/set-default`,
+      undefined,
+      jsonRequest(payload),
+    ),
+    "config draft default receipt",
+  );
+  literal(
+    source.schema_version,
+    "scopecat.config_draft_default_receipt.v1",
+    "config draft default receipt schema",
+  );
+  return {
+    entry: normalizeEntry(source.entry),
+    resultContentHash: text(
+      source.result_content_hash,
+      "config draft default result hash",
+    ),
+    deltas: list(source.deltas, "config draft default deltas").map(
+      normalizeParameterDelta,
+    ),
+    activeState: normalizeActiveState(source.active_state),
+    activation: normalizeActivation(source.activation),
   };
 }
 
@@ -209,11 +243,7 @@ export function normalizeConfigRegistryOverview(
     return { active: undefined, entries, history: [] };
   }
   const activeState = object(envelope.active_state, "active config state");
-  literal(
-    activeState.schema_version,
-    "scopecat.config.registry_active_state.v2",
-    "active config state schema",
-  );
+  const active = normalizeActiveState(activeState);
   const history = list(
     activeState.history,
     "config activation history",
@@ -221,15 +251,7 @@ export function normalizeConfigRegistryOverview(
     .map(normalizeActivation)
     .sort(compareActivations);
   return {
-    active: {
-      generation: integer(activeState.generation, "active generation"),
-      entryId: text(activeState.active_entry_id, "active entry id"),
-      contentHash: text(
-        activeState.active_entry_content_hash,
-        "active content hash",
-      ),
-      updatedAt: optionalText(activeState.updated_at),
-    },
+    active,
     entries,
     history,
   };
@@ -241,7 +263,7 @@ export function normalizeConfigProfileSnapshot(
   const source = object(value, "config snapshot");
   literal(
     source.schema_version,
-    "scopecat.config_profile_snapshot.v2",
+    "scopecat.config_profile_snapshot.v3",
     "config snapshot schema",
   );
   return {
@@ -258,7 +280,6 @@ export function summarizeConfigSnapshot(
 ): ConfigSnapshotSummary {
   return {
     id: config.id,
-    labId: config.system.workspaceId,
     primaryEntityId: config.system.primaryEntityId,
     parameterCount: config.parameterSnapshot.values.length,
     instrumentCount: config.system.instruments.length,
@@ -277,10 +298,10 @@ export function parseConfigProfileJson(textValue: string): JsonObject {
   const schemaVersion = optionalText(profile.schema_version);
   if (schemaVersion === "scopecat.config_profile.v2") {
     throw new Error(
-      "This split config_profile.v2 file must be loaded by Python before importing its config_profile_snapshot.v2 result.",
+      "This split config_profile.v2 file must be loaded by Python before importing its config_profile_snapshot.v3 result.",
     );
   }
-  if (schemaVersion !== "scopecat.config_profile_snapshot.v2") {
+  if (schemaVersion !== "scopecat.config_profile_snapshot.v3") {
     throw new Error(
       `Unsupported config snapshot schema: ${schemaVersion ?? "missing schema_version"}.`,
     );
@@ -388,11 +409,29 @@ function normalizeActivation(value: unknown): ConfigActivationRecord {
   };
 }
 
+function normalizeActiveState(value: unknown): ActiveConfigState {
+  const source = object(value, "active config state");
+  literal(
+    source.schema_version,
+    "scopecat.config.registry_active_state.v2",
+    "active config state schema",
+  );
+  return {
+    generation: integer(source.generation, "active generation"),
+    entryId: text(source.active_entry_id, "active entry id"),
+    contentHash: text(
+      source.active_entry_content_hash,
+      "active content hash",
+    ),
+    updatedAt: optionalText(source.updated_at),
+  };
+}
+
 function normalizeSystem(value: unknown): SystemSpec {
   const source = object(value, "system spec");
   literal(
     source.schema_version,
-    "scopecat.system_spec.v3",
+    "scopecat.system_spec.v4",
     "system spec schema",
   );
   const instruments = object(
@@ -406,7 +445,6 @@ function normalizeSystem(value: unknown): SystemSpec {
       : object(source.domain_target, "domain target");
   return {
     id: text(source.id, "system id"),
-    workspaceId: text(source.workspace_id, "system workspace id"),
     primaryEntityId: text(
       source.primary_entity_id,
       "system primary entity id",
@@ -505,13 +543,12 @@ function normalizeEnvironment(value: unknown): EnvironmentSpec {
   const source = object(value, "environment spec");
   literal(
     source.schema_version,
-    "scopecat.environment_spec.v1",
+    "scopecat.environment_spec.v2",
     "environment spec schema",
   );
   const profile = object(source.connection_profile, "connection profile");
   return {
     id: text(source.id, "environment id"),
-    workspaceId: text(source.workspace_id, "environment workspace id"),
     connections: list(profile.connections ?? [], "connections").map((item) => {
       const connection = object(item, "connection");
       return {
@@ -799,6 +836,19 @@ function configDraftPayload(command: ConfigDraftCommand): JsonObject {
     base_generation: command.baseGeneration,
     candidate_id: command.candidateId,
     updates: command.updates.map(configParameterUpdatePayload),
+  };
+}
+
+function configDraftRegistrationPayload(
+  command: ConfigDraftRegistrationCommand,
+): JsonObject {
+  return {
+    schema_version: "scopecat.config_draft_registration_command.v1",
+    draft: configDraftPayload(command.draft),
+    expected_result_content_hash: command.expectedResultContentHash,
+    entry_id: command.entryId,
+    registered_by: command.registeredBy,
+    note: command.note ?? "",
   };
 }
 

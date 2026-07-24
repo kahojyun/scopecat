@@ -53,8 +53,8 @@ def test_prepared_check_returns_configuration_problems_without_preview(
     config = load_config()
     invalid_config = config.model_copy(
         update={
-            "environment": config.environment.model_copy(
-                update={"workspace_id": "different-workspace"}
+            "system": config.system.model_copy(
+                update={"primary_entity_id": "missing-entity"}
             )
         }
     )

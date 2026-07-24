@@ -36,14 +36,17 @@ from scopecat.daemon.wire import (
     CandidateConfigActivationCommand,
     CandidateConfigActivationReceipt,
     ConfigActivationReceipt,
+    ConfigDefaultReceipt,
     ConfigDraftCommand,
+    ConfigDraftDefaultCommand,
+    ConfigDraftDefaultReceipt,
     ConfigDraftRegistrationCommand,
-    ConfigDraftRegistrationReceipt,
     ConfigEntryActivationCommand,
     ConfigImportReceipt,
     ConfigRollbackCommand,
     DelegatedPlanSummary,
     DelegatedRunSubmission,
+    DirectConfigDefaultCommand,
     DirectConfigImportCommand,
     ExecutionRecoveryRequest,
     ExecutionTransitionBatch,
@@ -51,7 +54,7 @@ from scopecat.daemon.wire import (
     ExecutorStartRequest,
     ManagedRunSubmission,
     MeasurementAppendCommand,
-    ParameterProposalReviewCommand,
+    ParameterProposalDecisionCommand,
     ParameterProposalReviewReceipt,
     RegisteredExperimentDescriptor,
     ReplaceConfigParameter,
@@ -66,6 +69,7 @@ from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.measurement_recording import MeasurementDatasetAppend
 from scopecat.records.parameter import Quantity, ScalarParameterValue
+from scopecat.records.parameter_change import AutomaticPolicyDecisionAuthority
 from scopecat.records.run import RunOutcome
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
@@ -377,7 +381,78 @@ def test_config_registry_http_workflow_persists_and_publishes_events(
         assert events[-1].kind == "config_rolled_back"
 
 
-def test_config_draft_http_workflow_previews_registers_and_activates(
+def test_direct_config_set_default_is_atomic_idempotent_and_durable(
+    tmp_path: Path,
+) -> None:
+    baseline = _config()
+    tuned = baseline.model_copy(update={"id": "tuned"})
+    with LocalDaemonRuntime(tmp_path) as runtime:
+        client = TestClient(runtime.app())
+        initialized = client.post(
+            "/api/v1/config-registry/default",
+            json=DirectConfigDefaultCommand(
+                entry_id="baseline",
+                config=baseline,
+                registered_by="notebook",
+                operator="notebook",
+                expected_generation=0,
+                note="initialize the default",
+            ).model_dump(mode="json"),
+        )
+        imported = client.post(
+            "/api/v1/config-registry/entries",
+            json=DirectConfigImportCommand(
+                entry_id="tuned-existing",
+                config=tuned,
+                registered_by="earlier-notebook",
+                note="saved before it became the default",
+            ).model_dump(mode="json"),
+        )
+        command = DirectConfigDefaultCommand(
+            entry_id="tuned-generated",
+            config=tuned,
+            registered_by="notebook",
+            operator="notebook",
+            expected_generation=1,
+            note="use tuned values",
+        )
+
+        first_response = client.post(
+            "/api/v1/config-registry/default",
+            json=command.model_dump(mode="json"),
+        )
+        retry_response = client.post(
+            "/api/v1/config-registry/default",
+            json=command.model_dump(mode="json"),
+        )
+        first = ConfigDefaultReceipt.model_validate(first_response.json())
+        retry = ConfigDefaultReceipt.model_validate(retry_response.json())
+
+        assert first_response.status_code == 200
+        assert retry_response.status_code == 200
+        assert initialized.status_code == 200
+        assert imported.status_code == 201
+        assert retry == first
+        assert first.entry.id == "tuned-existing"
+        assert first.active_state.generation == 2
+        assert [
+            entry.id
+            for entry in runtime.backend.get_config_registry().entries
+            if entry.content_hash == config_content_hash(tuned)
+        ] == ["tuned-existing"]
+        assert [
+            event.kind
+            for event in runtime.control.list_events().items
+            if event.kind in {"config_imported", "config_activated"}
+        ][-2:] == ["config_imported", "config_activated"]
+
+    with LocalDaemonRuntime(tmp_path) as reopened:
+        active = reopened.backend.get_active_config()
+        assert active.entry.id == "tuned-existing"
+        assert active.config == tuned
+
+
+def test_config_draft_http_workflow_previews_and_atomically_sets_default(
     tmp_path: Path,
 ) -> None:
     with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
@@ -406,34 +481,26 @@ def test_config_draft_http_workflow_previews_registers_and_activates(
         )
         preview = ConfigDraftPreview.model_validate(preview_response.json())
         assert preview.result_content_hash is not None
-        registration_response = client.post(
-            "/api/v1/config-registry/drafts/register",
-            json=ConfigDraftRegistrationCommand(
-                draft=draft,
-                expected_result_content_hash=preview.result_content_hash,
-                entry_id="manual-tuning",
-                registered_by="operator",
-            ).model_dump(mode="json"),
-        )
-        registration = ConfigDraftRegistrationReceipt.model_validate(
-            registration_response.json()
-        )
-        activation_response = client.post(
-            "/api/v1/config-registry/active",
-            json=ConfigEntryActivationCommand(
-                entry_id=registration.entry.id,
+        default_response = client.post(
+            "/api/v1/config-registry/drafts/set-default",
+            json=ConfigDraftDefaultCommand(
+                registration=ConfigDraftRegistrationCommand(
+                    draft=draft,
+                    expected_result_content_hash=preview.result_content_hash,
+                    entry_id="manual-tuning",
+                    registered_by="operator",
+                ),
                 operator="operator",
-                expected_generation=active.active_state.generation,
             ).model_dump(mode="json"),
         )
-        activation = ConfigActivationReceipt.model_validate(activation_response.json())
+        default = ConfigDraftDefaultReceipt.model_validate(default_response.json())
 
         assert preview_response.status_code == 200
         assert preview.valid
-        assert registration_response.status_code == 201
-        assert registration.result_content_hash == preview.result_content_hash
-        assert activation.active_state.active_entry_id == "manual-tuning"
-        assert activation.active_state.generation == active.active_state.generation + 1
+        assert default_response.status_code == 200
+        assert default.result_content_hash == preview.result_content_hash
+        assert default.active_state.active_entry_id == "manual-tuning"
+        assert default.active_state.generation == active.active_state.generation + 1
 
     with LocalDaemonRuntime(tmp_path) as reopened:
         active = reopened.backend.get_active_config()
@@ -480,7 +547,7 @@ def test_delegated_admission_is_durably_idempotent(tmp_path: Path) -> None:
         assert persisted.run_id == run_id
 
 
-def test_post_run_analysis_review_and_candidate_activation_closed_loop(
+def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loop(
     tmp_path: Path,
 ) -> None:
     with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
@@ -490,6 +557,7 @@ def test_post_run_analysis_review_and_candidate_activation_closed_loop(
             source_run_id=admission.run_id,
             source_config=_config(),
             analysis_title="fit",
+            analysis_record_id="analysis-fit",
             proposal_id="drive-frequency",
             updates=(
                 replace_scalar_parameter(
@@ -592,18 +660,23 @@ def test_post_run_analysis_review_and_candidate_activation_closed_loop(
         proposals = ParameterProposalListView.model_validate(
             client.get(f"/api/v1/runs/{admission.run_id}/parameter-proposals").json()
         )
-        review_command = ParameterProposalReviewCommand(
+        decision_command = ParameterProposalDecisionCommand(
             run_id=admission.run_id,
             proposal_id=proposal.id,
             decision="approved",
-            reviewer="operator",
+            authority=AutomaticPolicyDecisionAuthority(
+                actor="nightly-calibration",
+                policy_id="fit-confidence",
+                policy_version="2",
+            ),
             note="fit evidence accepted",
         )
-        reviewed = client.post(
-            f"/api/v1/runs/{admission.run_id}/parameter-proposals/{proposal.id}/review",
-            json=review_command.model_dump(mode="json"),
+        decided = client.post(
+            f"/api/v1/runs/{admission.run_id}/parameter-proposals/"
+            f"{proposal.id}/decision",
+            json=decision_command.model_dump(mode="json"),
         )
-        reviewed_proposals = ParameterProposalListView.model_validate(
+        decided_proposals = ParameterProposalListView.model_validate(
             client.get(f"/api/v1/runs/{admission.run_id}/parameter-proposals").json()
         )
         activated = client.post(
@@ -620,7 +693,7 @@ def test_post_run_analysis_review_and_candidate_activation_closed_loop(
 
         saved = AnalysisSaveReceipt.model_validate(first_save.json())
         retry = AnalysisSaveReceipt.model_validate(retry_save.json())
-        decision = ParameterProposalReviewReceipt.model_validate(reviewed.json())
+        decision = ParameterProposalReviewReceipt.model_validate(decided.json())
         activation = CandidateConfigActivationReceipt.model_validate(activated.json())
         events = runtime.control.list_events(run_id=admission.run_id).items
 
@@ -645,7 +718,8 @@ def test_post_run_analysis_review_and_candidate_activation_closed_loop(
         assert proposals.items[0].proposal == proposal
         assert proposals.items[0].decisions == ()
         assert decision.decision.decision == "approved"
-        assert reviewed_proposals.items[0].decisions == (decision.decision,)
+        assert decision.decision.authority == decision_command.authority
+        assert decided_proposals.items[0].decisions == (decision.decision,)
         assert activation.entry.id == "candidate-fit"
         assert activation.active_state.generation == 2
         assert [
@@ -654,12 +728,12 @@ def test_post_run_analysis_review_and_candidate_activation_closed_loop(
             if event.kind
             in {
                 "analysis_saved",
-                "parameter_proposal_reviewed",
+                "parameter_proposal_decided",
                 "config_activated",
             }
         ] == [
             "analysis_saved",
-            "parameter_proposal_reviewed",
+            "parameter_proposal_decided",
             "config_activated",
         ]
 

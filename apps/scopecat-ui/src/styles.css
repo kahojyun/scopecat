@@ -1776,6 +1776,40 @@ main {
   gap: 10px;
 }
 
+.runtime-derived-default {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 11px 13px;
+  border: 1px solid rgb(120 184 255 / 22%);
+  border-radius: 9px;
+  color: var(--blue);
+  background: var(--blue-soft);
+}
+
+.runtime-derived-default > svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.runtime-derived-default strong {
+  display: block;
+  color: var(--text-soft);
+  font-size: 0.68rem;
+}
+
+.runtime-derived-default p {
+  margin: 3px 0 0;
+  color: var(--text-dim);
+  font-size: 0.62rem;
+  line-height: 1.5;
+}
+
+.runtime-derived-default code {
+  color: var(--blue);
+}
+
 .active-config-card,
 .config-metric,
 .rollback-card {
@@ -2163,6 +2197,11 @@ main {
   color: var(--purple);
 }
 
+.config-provenance > div {
+  min-width: 0;
+  flex: 1;
+}
+
 .config-provenance strong {
   font-size: 0.68rem;
 }
@@ -2172,6 +2211,89 @@ main {
   color: var(--text-dim);
   font-size: 0.61rem;
   line-height: 1.45;
+}
+
+.config-provenance-link {
+  padding: 0;
+  border: 0;
+  color: var(--purple);
+  background: transparent;
+  cursor: pointer;
+}
+
+.config-provenance-link:hover code {
+  text-decoration: underline;
+}
+
+.config-provenance-heading {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.config-provenance-heading .secondary-button {
+  min-height: 31px;
+  flex: none;
+}
+
+.candidate-evidence-status {
+  padding: 7px 9px;
+  border: 1px solid rgb(255 140 136 / 18%);
+  border-radius: 6px;
+  background: var(--red-soft);
+}
+
+.candidate-evidence-list {
+  display: grid;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.candidate-evidence-list article {
+  padding: 9px;
+  border: 1px solid rgb(182 156 255 / 14%);
+  border-radius: 7px;
+  background: rgb(0 0 0 / 12%);
+}
+
+.candidate-evidence-list dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  margin: 0;
+}
+
+.candidate-evidence-list dl > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.candidate-evidence-list dt {
+  color: var(--text-dim);
+  font-size: 0.52rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.candidate-evidence-list dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.61rem;
+  line-height: 1.4;
+}
+
+.candidate-evidence-list dd code {
+  overflow-wrap: anywhere;
+}
+
+.candidate-evidence-list dd span {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-dim);
 }
 
 .snapshot-summary {
@@ -3001,7 +3123,7 @@ main {
 
 .config-draft-review-form {
   display: grid;
-  grid-template-columns: minmax(180px, 0.65fr) minmax(240px, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 13px;
   padding: 15px 18px;
 }
@@ -3044,6 +3166,23 @@ main {
   margin-right: auto;
   color: var(--text-dim);
   font-size: 0.59rem;
+}
+
+.config-draft-advanced > div {
+  width: 285px;
+}
+
+.config-draft-advanced label {
+  display: grid;
+  gap: 6px;
+}
+
+.config-draft-advanced label > span {
+  color: var(--text-dim);
+  font-size: 0.54rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
 }
 
 .config-draft-preview {

@@ -21,6 +21,7 @@ describe("parameter proposal reads", () => {
               proposal: {
                 id: "drive-frequency",
                 source_run_id: "run/a",
+                analysis_record_id: "analysis-fit",
                 base_config_id: "baseline",
                 base_config_content_hash: "sha256:base",
                 reason: "Peak moved",
@@ -40,7 +41,12 @@ describe("parameter proposal reads", () => {
                   run_id: "run/a",
                   proposal_id: "drive-frequency",
                   decision: "approved",
-                  actor: "Ada",
+                  authority: {
+                    kind: "automatic_policy",
+                    actor: "nightly-calibration",
+                    policy_id: "fit-confidence",
+                    policy_version: "2",
+                  },
                   note: "Peak is clean",
                   decided_at: "2026-07-23T10:02:00Z",
                 },
@@ -63,6 +69,7 @@ describe("parameter proposal reads", () => {
         {
           id: "drive-frequency",
           sourceRunId: "run/a",
+          analysisRecordId: "analysis-fit",
           baseConfigId: "baseline",
           baseContentHash: "sha256:base",
           reason: "Peak moved",
@@ -79,7 +86,10 @@ describe("parameter proposal reads", () => {
             {
               eventId: "decision-1",
               decision: "approved",
-              actor: "Ada",
+              actor: "nightly-calibration",
+              authorityKind: "automatic_policy",
+              policyId: "fit-confidence",
+              policyVersion: "2",
               note: "Peak is clean",
               decidedAt: "2026-07-23T10:02:00Z",
             },

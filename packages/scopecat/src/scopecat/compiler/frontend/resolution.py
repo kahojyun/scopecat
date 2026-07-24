@@ -82,7 +82,7 @@ from scopecat.kernel.value_type_compatibility import (
 from scopecat.kernel.value_types import Scalar
 from scopecat.kernel.value_validation import ValueValidationError
 from scopecat.records.config import ConfigProfileSnapshot
-from scopecat.records.run import RunConfigSource
+from scopecat.records.run import ConfigRegistryRunConfigSource, RunConfigSource
 from scopecat.records.run_request import RunRequest
 
 
@@ -287,7 +287,7 @@ def link_assembly(
         update={
             "config_source": (
                 config_source.selector
-                if config_source is not None
+                if isinstance(config_source, ConfigRegistryRunConfigSource)
                 else request.config_source
             )
         }

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import shlex
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Annotated, Never
 
+import httpx
 import typer
 from rich.console import Console
 from scopecat.config.resolution import validate_config_profile
@@ -13,6 +15,11 @@ from scopecat.kernel.errors import ScopecatError
 from scopecat.project import ProjectManifestError, open_project
 from scopecat.records.config import config_content_hash
 
+from .config_commands import (
+    apply_project_config,
+    diff_project_config,
+    export_project_config,
+)
 from .lifecycle import (
     DaemonLifecycleError,
     initialize_project,
@@ -39,6 +46,17 @@ error_console = Console(stderr=True)
 _CURRENT_DIRECTORY = Path()
 _DEFAULT_STATIC_DIR = Path(__file__).with_name("static")
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
+_PROJECT_CONFIG_ERRORS = (
+    ScopecatError,
+    ProjectManifestError,
+    httpx.HTTPError,
+    ImportError,
+    AttributeError,
+    OSError,
+    RuntimeError,
+    TypeError,
+    ValueError,
+)
 
 
 def _validate_host(value: str) -> str:
@@ -54,13 +72,23 @@ def init_command(
         typer.Argument(help="Directory to initialize."),
     ] = _CURRENT_DIRECTORY,
 ) -> None:
-    """Initialize a minimal lab project."""
+    """Initialize a runnable local lab project."""
 
     try:
         initialized = initialize_project(project)
     except DaemonLifecycleError as error:
         _fail(error)
     console.print(f"[green]initialized[/green] {initialized.root}")
+    console.print(
+        f"[dim]config source[/dim] "
+        f"{initialized.root / 'src/scopecat_lab/configuration.py'}"
+    )
+    project_arg = shlex.quote(str(initialized.root))
+    notebook_arg = shlex.quote(str(initialized.root / "notebooks/01_first_run.py"))
+    console.print(f"[dim]next[/dim] scopecat config check {project_arg}")
+    console.print(f"[dim]next[/dim] scopecat start {project_arg}")
+    console.print(f"[dim]next[/dim] scopecat open {project_arg}")
+    console.print(f"[dim]first run[/dim] python {notebook_arg}")
 
 
 @config_app.command("check")
@@ -78,22 +106,110 @@ def config_check(
         if bootstrap_config is None:
             raise ValueError("project application does not define bootstrap_config")
         result = validate_config_profile(bootstrap_config())
-    except (
-        ScopecatError,
-        ProjectManifestError,
-        ImportError,
-        AttributeError,
-        OSError,
-        RuntimeError,
-        TypeError,
-        ValueError,
-    ) as error:
+    except _PROJECT_CONFIG_ERRORS as error:
         _fail(error)
 
     console.print(
         f"[green]valid[/green] snapshot={result.config.id} "
         f"content_hash={config_content_hash(result.config)} "
         f"warnings={len(result.problems)}",
+        soft_wrap=True,
+    )
+
+
+@config_app.command("diff")
+def config_diff(
+    project: Annotated[
+        Path,
+        typer.Argument(help="Project directory or scopecat.toml."),
+    ] = _CURRENT_DIRECTORY,
+) -> None:
+    """Compare executable project configuration with the daemon default."""
+
+    try:
+        result = diff_project_config(open_project(project))
+    except _PROJECT_CONFIG_ERRORS as error:
+        _fail(error)
+
+    if not result.has_drift:
+        console.print(
+            f"[green]in sync[/green] content_hash={result.source_content_hash}",
+            soft_wrap=True,
+        )
+        return
+
+    console.print(
+        f"[yellow]different[/yellow] source={result.source_content_hash} "
+        f"daemon={result.active_content_hash}",
+        soft_wrap=True,
+    )
+    for line in result.unified_json_diff():
+        console.print(line, markup=False, soft_wrap=True)
+
+
+@config_app.command("apply")
+def config_apply(
+    project: Annotated[
+        Path,
+        typer.Argument(help="Project directory or scopecat.toml."),
+    ] = _CURRENT_DIRECTORY,
+    actor: Annotated[
+        str,
+        typer.Option(help="Identity recorded for registration and activation."),
+    ] = "local-operator",
+    note: Annotated[
+        str,
+        typer.Option(help="Reason recorded with the immutable revision."),
+    ] = "apply project config source",
+) -> None:
+    """Validate project configuration and make it the daemon default."""
+
+    try:
+        result = apply_project_config(
+            open_project(project),
+            actor=actor,
+            note=note,
+        )
+    except _PROJECT_CONFIG_ERRORS as error:
+        _fail(error)
+
+    state = "[green]applied[/green]" if result.changed else "[green]in sync[/green]"
+    console.print(
+        f"{state} entry={result.receipt.entry.id} "
+        f"content_hash={result.source_content_hash}",
+        soft_wrap=True,
+    )
+
+
+@config_app.command("export")
+def config_export(
+    output: Annotated[
+        Path,
+        typer.Option("--output", "-o", help="Destination JSON snapshot."),
+    ],
+    project: Annotated[
+        Path,
+        typer.Argument(help="Project directory or scopecat.toml."),
+    ] = _CURRENT_DIRECTORY,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Replace an existing destination."),
+    ] = False,
+) -> None:
+    """Export the complete daemon default as generated JSON."""
+
+    try:
+        result = export_project_config(
+            open_project(project),
+            output,
+            overwrite=force,
+        )
+    except _PROJECT_CONFIG_ERRORS as error:
+        _fail(error)
+
+    console.print(
+        f"[green]exported[/green] {result.destination} "
+        f"content_hash={result.content_hash}",
         soft_wrap=True,
     )
 

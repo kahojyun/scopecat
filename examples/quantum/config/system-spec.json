@@ -1,7 +1,6 @@
 {
-  "schema_version": "scopecat.system_spec.v3",
+  "schema_version": "scopecat.system_spec.v4",
   "id": "templates-system",
-  "workspace_id": "templates",
   "primary_entity_id": "q0",
   "topology": {
     "entities": [

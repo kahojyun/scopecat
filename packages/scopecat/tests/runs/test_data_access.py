@@ -110,7 +110,7 @@ def test_workflow_run_data_access_reads_runs_artifacts_and_datasets(
     }
     assert details.outcome is not None
     assert details.outcome.result == "succeeded"
-    assert run_config.workspace_id == "example-workspace"
+    assert run_config.id == "simple-scan-profile"
     assert run_request is not None
     assert run_request.id == "test.workflow_scan.request"
     assert artifacts == ()

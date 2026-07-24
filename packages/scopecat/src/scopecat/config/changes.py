@@ -28,7 +28,9 @@ from scopecat.kernel.problems import (
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.parameter_change import (
+    HumanDecisionAuthority,
     ParameterChangeDecision,
+    ParameterChangeDecisionAuthority,
     ParameterChangeDecisionRecord,
     ParameterChangeProposal,
     ParameterChangeReviewState,
@@ -51,6 +53,7 @@ def parameter_change_proposal_from_updates(
     source_run_id: str,
     source_config: ConfigProfileSnapshot,
     analysis_title: str,
+    analysis_record_id: str,
     proposal_id: str,
     updates: Sequence[ParameterUpdate],
     reason: str,
@@ -88,6 +91,7 @@ def parameter_change_proposal_from_updates(
     return ParameterChangeProposal(
         id=selected_id,
         source_run_id=source_run_id,
+        analysis_record_id=analysis_record_id,
         base_config_id=source_config.id,
         base_config_content_hash=config_content_hash(source_config),
         reason=selected_reason,
@@ -140,7 +144,28 @@ def review_parameter_change_proposal(
         selector=selector,
         services=services,
         decision=state,
-        actor=reviewer,
+        authority=HumanDecisionAuthority(actor=reviewer),
+        note=note,
+    )
+
+
+def decide_parameter_change_proposal(
+    *,
+    run_id: str,
+    selector: str,
+    services: WorkspaceServices,
+    decision: ParameterChangeReviewState,
+    authority: ParameterChangeDecisionAuthority,
+    note: str = "",
+) -> ParameterChangeDecisionRecord:
+    """Record a human or automatic-policy acceptance decision."""
+
+    return _record_parameter_change_decision(
+        run_id=run_id,
+        selector=selector,
+        services=services,
+        decision=decision,
+        authority=authority,
         note=note,
     )
 
@@ -160,7 +185,7 @@ def invalidate_parameter_change_proposal(
         selector=selector,
         services=services,
         decision="invalidated",
-        actor=invalidated_by,
+        authority=HumanDecisionAuthority(actor=invalidated_by),
         note=reason,
         related_refs=related_refs,
     )
@@ -172,7 +197,7 @@ def _record_parameter_change_decision(
     selector: str,
     services: WorkspaceServices,
     decision: ParameterChangeDecision,
-    actor: str,
+    authority: ParameterChangeDecisionAuthority,
     note: str = "",
     related_refs: list[str] | None = None,
 ) -> ParameterChangeDecisionRecord:
@@ -182,18 +207,6 @@ def _record_parameter_change_decision(
         run_id=run_id,
         selector=selector,
     )
-    if not actor.strip():
-        raise CheckFailed(
-            [
-                _parameter_problem(
-                    "parameter_change_decision_actor_invalid",
-                    "parameter change decision actor must be non-empty",
-                    category=ProblemCategory.INVALID_INPUT,
-                    phase=ProblemPhase.ANALYSIS,
-                    location=model_location("parameter_change_decision", "actor"),
-                )
-            ]
-        )
     for ref in related_refs or ():
         _validate_selector_path(ref)
     event_id = uuid4().hex
@@ -202,7 +215,7 @@ def _record_parameter_change_decision(
         run_id=run_id,
         proposal_id=proposal.id,
         decision=decision,
-        actor=actor,
+        authority=authority,
         note=note,
         related_refs=tuple(related_refs or ()),
     )

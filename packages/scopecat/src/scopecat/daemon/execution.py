@@ -46,7 +46,7 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetReceipt,
     MeasurementDatasetSeal,
 )
-from scopecat.records.run import RunManifest
+from scopecat.records.run import RunConfigSource, RunManifest
 from scopecat.runs.repository import TerminalRunCommit
 
 _JSON_DOCUMENT = TypeAdapter(dict[str, JsonValue])
@@ -77,6 +77,7 @@ def delegated_execution_services(
     runs = _DelegatedRunStore(
         authority=authority,
         config=submission.config,
+        config_source=submission.config_source,
         admission=admission,
     )
     resources = _DelegatedResourceLeaseManager(authority=authority, runs=runs)
@@ -184,6 +185,7 @@ class _DelegatedRunStore:
         *,
         authority: _LeaseAuthority,
         config: ConfigProfileSnapshot,
+        config_source: RunConfigSource | None,
         admission: RunAdmission,
     ) -> None:
         self._authority = authority
@@ -193,6 +195,7 @@ class _DelegatedRunStore:
             created_at=admission.accepted_at,
             lifecycle="accepted",
             config_content_hash=admission.config_content_hash,
+            config_source=config_source,
         )
         self._running: RunManifest | None = None
 

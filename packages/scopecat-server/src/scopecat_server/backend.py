@@ -39,6 +39,7 @@ from scopecat.analysis.service import (
 from scopecat.application.services import WorkspaceServices
 from scopecat.config.candidates import CandidateConfig
 from scopecat.config.changes import (
+    decide_parameter_change_proposal,
     list_parameter_change_decisions,
     list_parameter_change_proposals,
     load_parameter_change_proposal,
@@ -106,7 +107,10 @@ from scopecat.daemon.wire import (
     CollectionResolveCommand,
     CollectionResolveReceipt,
     ConfigActivationReceipt,
+    ConfigDefaultReceipt,
     ConfigDraftCommand,
+    ConfigDraftDefaultCommand,
+    ConfigDraftDefaultReceipt,
     ConfigDraftRegistrationCommand,
     ConfigDraftRegistrationReceipt,
     ConfigEntryActivationCommand,
@@ -115,6 +119,7 @@ from scopecat.daemon.wire import (
     DelegatedPlanSummary,
     DelegatedRunSubmission,
     DeleteConfigParameterRows,
+    DirectConfigDefaultCommand,
     DirectConfigImportCommand,
     ExecutionRecoveryRequest,
     ExecutionRecoverySnapshot,
@@ -130,6 +135,7 @@ from scopecat.daemon.wire import (
     MeasurementAppendReceipt,
     MeasurementSealCommand,
     MeasurementSealReceipt,
+    ParameterProposalDecisionCommand,
     ParameterProposalReviewCommand,
     ParameterProposalReviewReceipt,
     PayloadCommitCommand,
@@ -386,12 +392,10 @@ class SQLiteDaemonBackend:
         command: DirectConfigImportCommand,
     ) -> ConfigImportReceipt:
         with self._config_lock, self._config_errors():
-            existing_ids = {
-                entry.id
-                for entry in config_registry_service.list_config_registry_entries(
-                    unit_of_work=self.config_registry.unit_of_work
-                )
-            }
+            existing_entries = config_registry_service.list_config_registry_entries(
+                unit_of_work=self.config_registry.unit_of_work
+            )
+            existing_ids = {entry.id for entry in existing_entries}
             config = validate_config_profile(command.config).config
             entry = config_registry_service.register_config_profile(
                 config=config,
@@ -409,6 +413,106 @@ class SQLiteDaemonBackend:
                     )
                 )
             return ConfigImportReceipt(entry=entry)
+
+    def set_direct_config_default(
+        self,
+        command: DirectConfigDefaultCommand,
+    ) -> ConfigDefaultReceipt:
+        with self._config_lock, self._config_errors():
+            existing_entries = config_registry_service.list_config_registry_entries(
+                unit_of_work=self.config_registry.unit_of_work
+            )
+            existing_ids = {entry.id for entry in existing_entries}
+            previous_generation = (
+                config_registry_service.current_config_registry_generation(
+                    unit_of_work=self.config_registry.unit_of_work
+                )
+            )
+            config = validate_config_profile(command.config).config
+            if previous_generation > 0 and config_content_hash(
+                config_registry_service.load_active_config_registry_config(
+                    unit_of_work=self.config_registry.unit_of_work
+                )
+            ) == config_content_hash(config):
+                state = config_registry_service.load_active_config_registry_state(
+                    unit_of_work=self.config_registry.unit_of_work
+                )
+                entry = config_registry_service.load_active_config_registry_entry(
+                    unit_of_work=self.config_registry.unit_of_work
+                )
+                return ConfigDefaultReceipt(
+                    entry=entry,
+                    active_state=state,
+                    activation=state.history[-1],
+                )
+            reusable = next(
+                (
+                    entry
+                    for entry in reversed(existing_entries)
+                    if entry.content_hash == config_content_hash(config)
+                ),
+                None,
+            )
+            if reusable is not None:
+                state, activation = (
+                    config_registry_service.activate_config_registry_entry(
+                        entry_id=reusable.id,
+                        unit_of_work=self.config_registry.unit_of_work,
+                        operator=command.operator,
+                        expected_generation=command.expected_generation,
+                        note=command.note,
+                    )
+                )
+                self.control.append_event(
+                    DurableEventInput(
+                        kind="config_activated",
+                        payload={
+                            "entry_id": reusable.id,
+                            "generation": state.generation,
+                        },
+                        occurred_at=activation.recorded_at,
+                    )
+                )
+                return ConfigDefaultReceipt(
+                    entry=reusable,
+                    active_state=state,
+                    activation=activation,
+                )
+            entry, state, activation = (
+                config_registry_service.register_and_activate_config_profile(
+                    config=config,
+                    unit_of_work=self.config_registry.unit_of_work,
+                    entry_id=command.entry_id,
+                    registered_by=command.registered_by,
+                    operator=command.operator,
+                    expected_generation=command.expected_generation,
+                    note=command.note,
+                )
+            )
+            if entry.id not in existing_ids:
+                self.control.append_event(
+                    DurableEventInput(
+                        kind="config_imported",
+                        payload={"entry_id": entry.id},
+                        occurred_at=entry.registered_at,
+                    )
+                )
+            if state.generation != previous_generation:
+                self.control.append_event(
+                    DurableEventInput(
+                        kind="config_activated",
+                        payload={
+                            "entry_id": entry.id,
+                            "generation": state.generation,
+                        },
+                        occurred_at=activation.recorded_at,
+                    )
+                )
+            return ConfigDefaultReceipt(
+                entry=entry,
+                active_state=state,
+                activation=activation,
+            )
 
     def preview_config_draft(
         self,
@@ -480,6 +584,74 @@ class SQLiteDaemonBackend:
                 entry=entry,
                 result_content_hash=entry.content_hash,
                 deltas=result.check.deltas,
+            )
+
+    def set_config_draft_default(
+        self,
+        command: ConfigDraftDefaultCommand,
+    ) -> ConfigDraftDefaultReceipt:
+        with self._config_lock, self._config_errors():
+            existing_ids = {
+                entry.id
+                for entry in config_registry_service.list_config_registry_entries(
+                    unit_of_work=self.config_registry.unit_of_work
+                )
+            }
+            previous_generation = (
+                config_registry_service.current_config_registry_generation(
+                    unit_of_work=self.config_registry.unit_of_work
+                )
+            )
+            registration = command.registration
+            draft = registration.draft
+            entry, result, state, activation = (
+                config_registry_service.register_and_activate_manual_config_draft(
+                    unit_of_work=self.config_registry.unit_of_work,
+                    base_entry_id=draft.base_entry_id,
+                    base_config_content_hash=draft.base_content_hash,
+                    base_generation=draft.base_generation,
+                    candidate_id=draft.candidate_id,
+                    updates=tuple(
+                        _config_parameter_update(update) for update in draft.updates
+                    ),
+                    expected_result_content_hash=(
+                        registration.expected_result_content_hash
+                    ),
+                    entry_id=registration.entry_id,
+                    registered_by=registration.registered_by,
+                    operator=command.operator,
+                    note=registration.note,
+                    activation_note=command.activation_note,
+                )
+            )
+            if entry.id not in existing_ids:
+                self.control.append_event(
+                    DurableEventInput(
+                        kind="config_draft_registered",
+                        payload={
+                            "entry_id": entry.id,
+                            "base_entry_id": draft.base_entry_id,
+                        },
+                        occurred_at=entry.registered_at,
+                    )
+                )
+            if state.generation != previous_generation:
+                self.control.append_event(
+                    DurableEventInput(
+                        kind="config_activated",
+                        payload={
+                            "entry_id": entry.id,
+                            "generation": state.generation,
+                        },
+                        occurred_at=activation.recorded_at,
+                    )
+                )
+            return ConfigDraftDefaultReceipt(
+                entry=entry,
+                result_content_hash=entry.content_hash,
+                deltas=result.check.deltas,
+                active_state=state,
+                activation=activation,
             )
 
     def activate_config_entry(
@@ -883,6 +1055,36 @@ class SQLiteDaemonBackend:
                     payload={
                         "proposal_id": decision.proposal_id,
                         "decision": decision.decision,
+                        "event_id": decision.event_id,
+                    },
+                    occurred_at=decision.decided_at,
+                )
+            )
+        return ParameterProposalReviewReceipt(decision=decision)
+
+    def decide_parameter_proposal(
+        self,
+        run_id: str,
+        command: ParameterProposalDecisionCommand,
+    ) -> ParameterProposalReviewReceipt:
+        self._control_run(run_id)
+        with self._run_content_lock, self._config_errors():
+            decision = decide_parameter_change_proposal(
+                run_id=run_id,
+                selector=command.proposal_id,
+                services=self.services,
+                decision=command.decision,
+                authority=command.authority,
+                note=command.note,
+            )
+            self.control.append_event(
+                DurableEventInput(
+                    run_id=run_id,
+                    kind="parameter_proposal_decided",
+                    payload={
+                        "proposal_id": decision.proposal_id,
+                        "decision": decision.decision,
+                        "authority_kind": decision.authority.kind,
                         "event_id": decision.event_id,
                     },
                     occurred_at=decision.decided_at,
@@ -1453,6 +1655,7 @@ class SQLiteDaemonBackend:
             run_id=new_run_id(),
             lifecycle="accepted",
             config_content_hash=submission.config_content_hash,
+            config_source=submission.config_source,
         )
         admission = RunAdmissionRecord(
             submission_id=submission.submission_id,
@@ -1596,6 +1799,11 @@ class SQLiteDaemonBackend:
         if isinstance(submission, DelegatedRunSubmission):
             return {
                 "executor_id": submission.executor_id,
+                "config_source": (
+                    None
+                    if submission.config_source is None
+                    else submission.config_source.model_dump(mode="json")
+                ),
                 "plan": submission.plan.model_dump(mode="json"),
             }
         return {

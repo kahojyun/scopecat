@@ -18,6 +18,7 @@ import json
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import cast
 
 from pydantic import BaseModel
 from pydantic_core import PydanticSerializationError
@@ -61,6 +62,7 @@ from scopecat.kernel.problems import (
     has_blocking_problems,
 )
 from scopecat.planning.validation import validate_config
+from scopecat.records.analysis import AnalysisRecord
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import (
     ConfigContentHash,
@@ -72,7 +74,11 @@ from scopecat.records.parameter_change import (
     ParameterChangeDecisionRecord,
     ParameterChangeProposal,
 )
-from scopecat.records.run import RunConfigSource, RunManifest
+from scopecat.records.run import (
+    ConfigRegistryRunConfigSource,
+    RunConfigSource,
+    RunManifest,
+)
 from scopecat.runs.refs import CONFIG_PROFILE_SNAPSHOT_REF, record_content_ref
 from scopecat.runs.repository import RunRepository
 
@@ -135,51 +141,127 @@ def register_manual_config_draft(
     _validate_entry_id(entry_id)
     _validate_required_text(registered_by, field="registered_by")
     with unit_of_work() as work:
-        result = _check_manual_config_draft_locked(
+        return _register_manual_config_draft_locked(
             work=work,
             base_entry_id=base_entry_id,
             base_config_content_hash=base_config_content_hash,
             base_generation=base_generation,
             candidate_id=candidate_id,
             updates=updates,
-        )
-        if not result.check.ok:
-            raise CheckFailed(result.check.problems)
-        candidate = result.check.candidate
-        assert candidate is not None  # noqa: S101
-        result_content_hash = config_content_hash(candidate)
-        if result_content_hash != expected_result_content_hash:
-            raise _registry_failure(
-                Conflict,
-                code="config_registry.config_draft_result_changed",
-                category=ProblemCategory.CONFLICT,
-                message="config draft result changed since it was previewed",
-                location=_registry_model_location("expected_result_content_hash"),
-                details={
-                    "expected_content_hash": expected_result_content_hash,
-                    "actual_content_hash": result_content_hash,
-                },
-            )
-        entry = ConfigRegistryEntry(
-            id=entry_id,
-            config_ref=work.registry.config_ref(entry_id),
-            content_hash=result_content_hash,
-            source=ManualConfigDraftRegistrySource(
-                base_entry_id=result.base_entry.id,
-                base_config_content_hash=result.base_entry.content_hash,
-                base_registry_generation=result.base_generation,
-            ),
+            expected_result_content_hash=expected_result_content_hash,
+            entry_id=entry_id,
             registered_by=registered_by,
             note=note,
         )
-        return (
-            _commit_registration_locked(
-                repository=work.registry,
-                requested_entry=entry,
-                config=candidate,
-            ),
-            result,
+
+
+def register_and_activate_manual_config_draft(
+    *,
+    unit_of_work: WorkspaceUnitOfWorkFactory,
+    base_entry_id: str,
+    base_config_content_hash: ConfigContentHash,
+    base_generation: int,
+    candidate_id: str,
+    updates: Sequence[ParameterUpdate],
+    expected_result_content_hash: ConfigContentHash,
+    entry_id: str,
+    registered_by: str,
+    operator: str,
+    note: str = "",
+    activation_note: str | None = None,
+) -> tuple[
+    ConfigRegistryEntry,
+    ManualConfigDraftResult,
+    ConfigRegistryActiveState,
+    ConfigRegistryActivationRecord,
+]:
+    """Recheck typed edits, save one revision, and select it as the default."""
+
+    _validate_entry_id(entry_id)
+    _validate_required_text(registered_by, field="registered_by")
+    _validate_required_text(operator, field="operator")
+    selected_activation_note = note if activation_note is None else activation_note
+    with unit_of_work() as work:
+        entry, result = _register_manual_config_draft_locked(
+            work=work,
+            base_entry_id=base_entry_id,
+            base_config_content_hash=base_config_content_hash,
+            base_generation=base_generation,
+            candidate_id=candidate_id,
+            updates=updates,
+            expected_result_content_hash=expected_result_content_hash,
+            entry_id=entry_id,
+            registered_by=registered_by,
+            note=note,
         )
+        state, activation = _activate_config_registry_entry_locked(
+            entry_id=entry.id,
+            work=work,
+            operator=operator,
+            expected_generation=base_generation,
+            note=selected_activation_note,
+        )
+        return entry, result, state, activation
+
+
+def _register_manual_config_draft_locked(
+    *,
+    work: WorkspaceUnitOfWork,
+    base_entry_id: str,
+    base_config_content_hash: ConfigContentHash,
+    base_generation: int,
+    candidate_id: str,
+    updates: Sequence[ParameterUpdate],
+    expected_result_content_hash: ConfigContentHash,
+    entry_id: str,
+    registered_by: str,
+    note: str,
+) -> tuple[ConfigRegistryEntry, ManualConfigDraftResult]:
+    result = _check_manual_config_draft_locked(
+        work=work,
+        base_entry_id=base_entry_id,
+        base_config_content_hash=base_config_content_hash,
+        base_generation=base_generation,
+        candidate_id=candidate_id,
+        updates=updates,
+    )
+    if not result.check.ok:
+        raise CheckFailed(result.check.problems)
+    candidate = result.check.candidate
+    assert candidate is not None  # noqa: S101
+    result_content_hash = config_content_hash(candidate)
+    if result_content_hash != expected_result_content_hash:
+        raise _registry_failure(
+            Conflict,
+            code="config_registry.config_draft_result_changed",
+            category=ProblemCategory.CONFLICT,
+            message="config draft result changed since it was previewed",
+            location=_registry_model_location("expected_result_content_hash"),
+            details={
+                "expected_content_hash": expected_result_content_hash,
+                "actual_content_hash": result_content_hash,
+            },
+        )
+    entry = ConfigRegistryEntry(
+        id=entry_id,
+        config_ref=work.registry.config_ref(entry_id),
+        content_hash=result_content_hash,
+        source=ManualConfigDraftRegistrySource(
+            base_entry_id=result.base_entry.id,
+            base_config_content_hash=result.base_entry.content_hash,
+            base_registry_generation=result.base_generation,
+        ),
+        registered_by=registered_by,
+        note=note,
+    )
+    return (
+        _commit_registration_locked(
+            repository=work.registry,
+            requested_entry=entry,
+            config=candidate,
+        ),
+        result,
+    )
 
 
 def _check_manual_config_draft_locked(
@@ -533,6 +615,38 @@ def _validate_candidate_source_records(
                 related_locations=(_registry_model_location("proposal_ids"),),
                 details={"proposal_id": proposal_id},
             )
+        analysis_record = _require_run_record(
+            source_manifest=source_manifest,
+            record_id=proposal.analysis_record_id,
+            kind="analysis",
+        )
+        analysis_ref = record_content_ref(
+            record_id=analysis_record.id,
+            kind=analysis_record.kind,
+        )
+        analysis = storage.read_model(run_id, analysis_ref, AnalysisRecord)
+        owns_proposal = False
+        for output in analysis.outputs:
+            if (
+                output.kind == "parameter_change_proposal"
+                and isinstance(output.content, dict)
+                and cast("dict[str, object]", output.content).get("proposal_id")
+                == proposal.id
+            ):
+                owns_proposal = True
+                break
+        if not owns_proposal:
+            raise _registry_failure(
+                DataIntegrityError,
+                code="config_registry.candidate_analysis_mismatch",
+                category=ProblemCategory.DATA_INTEGRITY,
+                message="candidate proposal is not owned by its producing analysis",
+                location=_registry_storage_location(analysis_ref, run_id=run_id),
+                related_locations=(
+                    _registry_storage_location(proposal_ref, run_id=run_id),
+                ),
+                details={"proposal_id": proposal_id},
+            )
         proposals.append(proposal)
         proposal_hashes[proposal_id] = _record_content_hash(proposal)
     approval_evidence = _candidate_approval_evidence(
@@ -688,16 +802,56 @@ def _validate_derived_entry_source_locked(
         base_config_content_hash=entry.source.base_config_content_hash,
         requested_config=config,
     )
-    if validated.source == entry.source:
-        return
-    raise _registry_failure(
-        DataIntegrityError,
-        code="config_registry.candidate_evidence_mismatch",
-        category=ProblemCategory.DATA_INTEGRITY,
-        message="candidate registry evidence no longer matches its durable source",
-        location=_registry_model_location("entries", entry.id, "source"),
-        details={"entry_id": entry.id},
-    )
+    current_evidence = {
+        evidence.proposal_id: evidence
+        for evidence in validated.source.proposal_evidence
+    }
+    for stored in entry.source.proposal_evidence:
+        current = current_evidence.get(stored.proposal_id)
+        if (
+            current is None
+            or current.proposal_record_content_hash
+            != stored.proposal_record_content_hash
+        ):
+            raise _registry_failure(
+                DataIntegrityError,
+                code="config_registry.candidate_evidence_mismatch",
+                category=ProblemCategory.DATA_INTEGRITY,
+                message="candidate registry evidence no longer matches its source",
+                location=_registry_model_location("entries", entry.id, "source"),
+                details={"entry_id": entry.id},
+            )
+        approval_id = f"{stored.proposal_id}-decision-{stored.approval_event_id}"
+        approval_entry = _require_run_record(
+            source_manifest=work.runs.read_manifest(entry.source.run_id),
+            record_id=approval_id,
+            kind="parameter_change_decision_record",
+        )
+        approval_ref = record_content_ref(
+            record_id=approval_entry.id,
+            kind=approval_entry.kind,
+        )
+        approval = work.runs.read_model(
+            entry.source.run_id,
+            approval_ref,
+            ParameterChangeDecisionRecord,
+        )
+        if (
+            approval.decision != "approved"
+            or approval.event_id != stored.approval_event_id
+            or _record_content_hash(approval) != stored.approval_record_content_hash
+        ):
+            raise _registry_failure(
+                DataIntegrityError,
+                code="config_registry.candidate_evidence_mismatch",
+                category=ProblemCategory.DATA_INTEGRITY,
+                message="candidate acceptance evidence no longer matches its source",
+                location=_registry_storage_location(
+                    approval_ref,
+                    run_id=entry.source.run_id,
+                ),
+                details={"entry_id": entry.id},
+            )
 
 
 def list_config_registry_entries(
@@ -1133,7 +1287,7 @@ def _resolve_entry_config_registry_config_source_locked(
         work=work,
     )
     config = _read_entry_config(work.registry, entry)
-    source = RunConfigSource(
+    source = ConfigRegistryRunConfigSource(
         selector=selector,
         entry_id=entry.id,
         config_ref=entry.config_ref,
@@ -1152,7 +1306,7 @@ def _resolve_active_config_registry_config_source_locked(
     )
     _validate_active_entry_identity(work.registry, state, entry)
     config = _read_entry_config(work.registry, entry)
-    source = RunConfigSource(
+    source = ConfigRegistryRunConfigSource(
         selector=ACTIVE_CONFIG_REGISTRY_ENTRY_SELECTOR,
         entry_id=entry.id,
         config_ref=entry.config_ref,
@@ -1642,6 +1796,7 @@ __all__ = [
     "preview_manual_config_draft",
     "register_and_activate_candidate_config",
     "register_and_activate_config_profile",
+    "register_and_activate_manual_config_draft",
     "register_candidate_config",
     "register_config_profile",
     "register_manual_config_draft",

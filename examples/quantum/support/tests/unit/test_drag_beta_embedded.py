@@ -11,6 +11,7 @@ from scopecat.compiler.linking.linked import LinkedPointMaterializer
 from scopecat.config.registry import CandidateConfigRegistrySource
 from scopecat.kernel.errors import Conflict
 from scopecat.records.parameter import TableParameterValue
+from scopecat.records.run import ConfigRegistryRunConfigSource
 from scopecat_quantum import authoring as quantum
 
 import quantum_lab_demo.workflows.drag_beta_analysis as analysis_module
@@ -380,9 +381,10 @@ def test_drag_beta_review_activate_active_replay_and_rollback(
     assert active_betas == pytest.approx(
         [fitted_beta + offset for offset in (-0.5, -0.25, 0.0, 0.25, 0.5)]
     )
-    assert active_run.manifest.config_source is not None
-    assert active_run.manifest.config_source.entry_id == activated.entry.id
-    assert active_run.manifest.config_source.registry_generation == 2
+    active_source = active_run.manifest.config_source
+    assert isinstance(active_source, ConfigRegistryRunConfigSource)
+    assert active_source.entry_id == activated.entry.id
+    assert active_source.registry_generation == 2
 
     restored = lab.rollback(
         expected_generation=activated.active_state.generation,

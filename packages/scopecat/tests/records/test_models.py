@@ -78,10 +78,14 @@ def test_config_profile_snapshot_round_trip() -> None:
     snapshot = load_config_profile(EXAMPLE_DIR / "config-profile.json")
     restored = assert_model_round_trip(
         snapshot,
-        schema_version="scopecat.config_profile_snapshot.v2",
+        schema_version="scopecat.config_profile_snapshot.v3",
     )
 
     assert "source" not in restored.model_dump(mode="python")
+    assert restored.system.schema_version == "scopecat.system_spec.v4"
+    assert restored.environment.schema_version == "scopecat.environment_spec.v2"
+    assert "workspace_id" not in restored.system.model_dump(mode="json")
+    assert "workspace_id" not in restored.environment.model_dump(mode="json")
     assert restored.parameter_catalog.schema_version == "scopecat.parameter_catalog.v4"
     assert restored.parameter_snapshot.get("drive_frequency") is not None
     assert restored.topology.entity("q0") is not None

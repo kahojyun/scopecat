@@ -18,6 +18,7 @@ from scopecat.config.registry.service import (
     resolve_config_registry_config_source,
 )
 from scopecat.kernel.errors import Conflict
+from scopecat.records.run import ConfigRegistryRunConfigSource
 from tests.testkit.paths import CORE_FIXTURE_DIR
 
 
@@ -98,6 +99,7 @@ class ConfigRegistryUnitOfWorkContract:
             unit_of_work=unit_of_work,
         )
         assert resolved == config
+        assert isinstance(source, ConfigRegistryRunConfigSource)
         assert source.entry_id == entry.id
 
         with pytest.raises(Conflict) as captured:

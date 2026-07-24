@@ -11,7 +11,8 @@ Scopecat should make it practical to:
 - describe and validate experiment intent before hardware effects;
 - preserve enough configuration, data, analysis, and execution evidence to
   understand and reproduce a run;
-- keep consequential configuration changes explicit and reviewable;
+- give consequential configuration changes an explicit, traceable acceptance
+  decision, whether made by a person or a named automatic policy;
 - let manual Python workflows grow into reusable experiments incrementally;
 - integrate laboratory-specific domain semantics and hardware without coupling
   them to the core platform.

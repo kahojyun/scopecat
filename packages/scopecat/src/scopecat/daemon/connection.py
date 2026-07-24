@@ -69,7 +69,10 @@ from scopecat.daemon.wire import (
     CandidateConfigActivationCommand,
     CandidateConfigActivationReceipt,
     ConfigActivationReceipt,
+    ConfigDefaultReceipt,
     ConfigDraftCommand,
+    ConfigDraftDefaultCommand,
+    ConfigDraftDefaultReceipt,
     ConfigDraftRegistrationCommand,
     ConfigDraftRegistrationReceipt,
     ConfigEntryActivationCommand,
@@ -78,11 +81,13 @@ from scopecat.daemon.wire import (
     DelegatedPlanSummary,
     DelegatedRunSubmission,
     DeleteConfigParameterRows,
+    DirectConfigDefaultCommand,
     DirectConfigImportCommand,
     ExecutorLease,
     ExperimentCatalog,
     InsertConfigParameterRows,
     ManagedRunSubmission,
+    ParameterProposalDecisionCommand,
     ParameterProposalReviewCommand,
     ParameterProposalReviewReceipt,
     ReplaceConfigParameter,
@@ -104,10 +109,15 @@ from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.data_artifact import DataArrayArtifact, DataTableArtifact
 from scopecat.records.parameter_change import (
+    ParameterChangeDecisionAuthority,
     ParameterChangeProposal,
     ParameterChangeReviewState,
 )
-from scopecat.records.run import RunManifest
+from scopecat.records.run import (
+    ConfigRegistryRunConfigSource,
+    RunConfigSource,
+    RunManifest,
+)
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.data import (
     RunArtifactBytesResult,
@@ -193,6 +203,32 @@ class DaemonConnection:
             )
         )
 
+    def set_direct_config_default(
+        self,
+        config: ConfigProfileSnapshot,
+        *,
+        entry_id: str,
+        registered_by: str,
+        operator: str,
+        expected_generation: int | None = None,
+        note: str = "",
+    ) -> ConfigDefaultReceipt:
+        generation = (
+            self._config_generation()
+            if expected_generation is None
+            else expected_generation
+        )
+        return self._client.set_direct_config_default(
+            DirectConfigDefaultCommand(
+                entry_id=entry_id,
+                config=config,
+                registered_by=registered_by,
+                operator=operator,
+                expected_generation=generation,
+                note=note,
+            )
+        )
+
     def preview_config_draft(
         self,
         draft: ConfigDraft,
@@ -245,6 +281,45 @@ class DaemonConnection:
             )
         )
 
+    def set_config_draft_default(
+        self,
+        draft: ConfigDraft,
+        *,
+        preview: ConfigDraftPreview,
+        entry_id: str,
+        registered_by: str,
+        operator: str,
+        note: str = "",
+        activation_note: str | None = None,
+    ) -> ConfigDraftDefaultReceipt:
+        if (
+            not preview.valid
+            or preview.config is None
+            or preview.result_content_hash is None
+        ):
+            raise ValueError("only a valid config draft preview can become the default")
+        if draft.base_content_hash != preview.base_content_hash:
+            raise ValueError("config draft does not match its reviewed preview base")
+        return self._client.set_config_draft_default(
+            ConfigDraftDefaultCommand(
+                registration=ConfigDraftRegistrationCommand(
+                    draft=ConfigDraftCommand(
+                        base_entry_id=preview.base_entry.id,
+                        base_content_hash=preview.base_content_hash,
+                        base_generation=preview.base_generation,
+                        candidate_id=preview.config.id,
+                        updates=_config_parameter_updates(draft.updates),
+                    ),
+                    expected_result_content_hash=preview.result_content_hash,
+                    entry_id=entry_id,
+                    registered_by=registered_by,
+                    note=note,
+                ),
+                operator=operator,
+                activation_note=activation_note,
+            )
+        )
+
     def activate_config_entry(
         self,
         entry_id: str,
@@ -271,13 +346,17 @@ class DaemonConnection:
         self,
         *,
         operator: str,
-        expected_generation: int,
+        expected_generation: int | None = None,
         note: str = "",
     ) -> ConfigActivationReceipt:
         return self._client.rollback_config(
             ConfigRollbackCommand(
                 operator=operator,
-                expected_generation=expected_generation,
+                expected_generation=(
+                    self._config_generation()
+                    if expected_generation is None
+                    else expected_generation
+                ),
                 note=note,
             )
         )
@@ -516,6 +595,25 @@ class DaemonConnection:
             )
         )
 
+    def decide_parameter_proposal(
+        self,
+        run_id: str,
+        proposal_id: str,
+        *,
+        authority: ParameterChangeDecisionAuthority,
+        decision: ParameterChangeReviewState = "approved",
+        note: str = "",
+    ) -> ParameterProposalReviewReceipt:
+        return self._client.decide_parameter_proposal(
+            ParameterProposalDecisionCommand(
+                run_id=run_id,
+                proposal_id=proposal_id,
+                decision=decision,
+                authority=authority,
+                note=note,
+            )
+        )
+
     def resolve_attention(
         self,
         run_id: str,
@@ -583,6 +681,7 @@ class DaemonConnection:
             submission_id=submission_id or uuid4().hex,
             executor_id=executor_id,
             config=planned.config,
+            config_source=planned.config_source,
             request=planned.request,
             plan=_delegated_plan_summary(planned),
         )
@@ -613,6 +712,7 @@ class DaemonConnection:
         experiment: ExperimentInvocation | PreparedInvocation,
         *,
         config: ConfigProfileSnapshot | None = None,
+        config_source: RunConfigSource | None = None,
         name: str | None = None,
         tags: tuple[str, ...] = (),
         description: str | None = None,
@@ -628,6 +728,7 @@ class DaemonConnection:
         planned = self._plan_scratch(
             experiment,
             config=config,
+            config_source=config_source,
             name=name,
             tags=tags,
             description=description,
@@ -658,6 +759,7 @@ class DaemonConnection:
         planned = self._plan_scratch(
             experiment,
             config=config,
+            config_source=None,
             name=name,
             tags=tags,
             description=description,
@@ -671,13 +773,26 @@ class DaemonConnection:
         experiment: ExperimentInvocation | PreparedInvocation,
         *,
         config: ConfigProfileSnapshot | None,
+        config_source: RunConfigSource | None,
         name: str | None,
         tags: tuple[str, ...],
         description: str | None,
         metadata: Mapping[str, MetadataValue] | None,
         operator: str | None,
     ) -> PlannedRun:
-        selected_config = self.active_config().config if config is None else config
+        selected_source = config_source
+        if config is None:
+            active = self.active_config()
+            selected_config = active.config
+            selected_source = selected_source or ConfigRegistryRunConfigSource(
+                selector="active",
+                entry_id=active.entry.id,
+                config_ref=active.entry.config_ref,
+                content_hash=active.entry.content_hash,
+                registry_generation=active.active_state.generation,
+            )
+        else:
+            selected_config = config
         selected_system = build_experiment_system(
             self._build_system,
             selected_config,
@@ -701,6 +816,7 @@ class DaemonConnection:
             prepared,
             config=selected_config,
             system=selected_system,
+            config_source=selected_source,
         )
 
     def _config_generation(self) -> int:

@@ -233,7 +233,6 @@ export interface DomainTargetBinding {
 
 export interface SystemSpec {
   id: string;
-  workspaceId: string;
   primaryEntityId: string;
   topology: Topology;
   instruments: InstrumentSpec[];
@@ -251,7 +250,6 @@ export interface ConnectionResource {
 
 export interface EnvironmentSpec {
   id: string;
-  workspaceId: string;
   connections: ConnectionResource[];
 }
 
@@ -266,7 +264,6 @@ export interface ConfigProfileSnapshot {
 
 export interface ConfigSnapshotSummary {
   id: string;
-  labId: string;
   primaryEntityId: string;
   parameterCount: number;
   instrumentCount: number;
@@ -414,4 +411,16 @@ export interface ConfigDraftRegistrationReceipt {
   entry: ConfigRegistryEntry;
   resultContentHash: string;
   deltas: ParameterValueDelta[];
+}
+
+export interface ConfigDraftDefaultCommand {
+  registration: ConfigDraftRegistrationCommand;
+  operator: string;
+  activationNote?: string;
+}
+
+export interface ConfigDraftDefaultReceipt
+  extends ConfigDraftRegistrationReceipt {
+  activeState: ActiveConfigState;
+  activation: ConfigActivationRecord;
 }

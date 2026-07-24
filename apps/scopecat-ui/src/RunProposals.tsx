@@ -37,19 +37,16 @@ export function RunProposals({ runId }: { runId: string }) {
   const queryClient = useQueryClient();
   const [reviewer, setReviewer] = useState("local-operator");
   const [notes, setNotes] = useState<Record<string, string>>({});
-  const [activatedProposalId, setActivatedProposalId] = useState<string>();
+  const [defaultedProposalId, setDefaultedProposalId] = useState<string>();
 
   const proposalsQuery = useQuery({
     queryKey: ["parameter-proposals", runId],
     queryFn: ({ signal }) => getRunParameterProposals(runId, signal),
   });
-  const hasApprovedProposal = proposalsQuery.data?.items.some(
-    (proposal) => latestProposalDecision(proposal)?.decision === "approved",
-  );
   const configQuery = useQuery({
     queryKey: ["config", "registry"],
     queryFn: ({ signal }) => getConfigRegistry(signal),
-    enabled: hasApprovedProposal === true,
+    enabled: (proposalsQuery.data?.items.length ?? 0) > 0,
   });
   const generation = configQuery.data?.active?.generation ?? 0;
 
@@ -65,28 +62,45 @@ export function RunProposals({ runId }: { runId: string }) {
       await invalidateProposalConsumers(queryClient, runId);
     },
   });
-  const candidateMutation = useMutation({
-    mutationFn: ({
-      proposalId,
+  const acceptMutation = useMutation({
+    mutationFn: async ({
+      proposal,
       note,
     }: {
-      proposalId: string;
+      proposal: ParameterProposal;
       note: string;
-    }) =>
-      activateProposalCandidate({
-        runId,
-        proposalIds: [proposalId],
-        registeredBy: reviewer.trim(),
-        operator: reviewer.trim(),
-        expectedGeneration: generation,
-        note,
-      }),
+    }) => {
+      if (latestProposalDecision(proposal)?.decision !== "approved") {
+        await reviewParameterProposal(runId, proposal.id, {
+          reviewer: reviewer.trim(),
+          note,
+          decision: "approved",
+        });
+      }
+      try {
+        await activateProposalCandidate({
+          runId,
+          proposalIds: [proposal.id],
+          registeredBy: reviewer.trim(),
+          operator: reviewer.trim(),
+          expectedGeneration: generation,
+          note,
+        });
+      } catch (error) {
+        throw new Error(
+          `The proposal is accepted, but the default was not changed: ${errorMessage(error)}`,
+        );
+      }
+    },
     onSuccess: async (_, input) => {
-      setActivatedProposalId(input.proposalId);
+      setDefaultedProposalId(input.proposal.id);
       await Promise.all([
         invalidateProposalConsumers(queryClient, runId),
         queryClient.invalidateQueries({ queryKey: ["config"] }),
       ]);
+    },
+    onError: async () => {
+      await invalidateProposalConsumers(queryClient, runId);
     },
   });
 
@@ -108,16 +122,16 @@ export function RunProposals({ runId }: { runId: string }) {
       note: notes[proposalId]?.trim() ?? "",
     });
   };
-  const activate = (proposal: ParameterProposal) => {
+  const setDefault = (proposal: ParameterProposal) => {
     if (
       !window.confirm(
-        `Build and activate a configuration from approved proposal ${proposal.id} at generation ${generation}?`,
+        `Accept proposal ${proposal.id} and set its configuration as the default?`,
       )
     ) {
       return;
     }
-    candidateMutation.mutate({
-      proposalId: proposal.id,
+    acceptMutation.mutate({
+      proposal,
       note: notes[proposal.id]?.trim() ?? "",
     });
   };
@@ -130,7 +144,10 @@ export function RunProposals({ runId }: { runId: string }) {
         </span>
         <div>
           <h3>Parameter proposals</h3>
-          <p>Review run-scoped changes before promoting one into the registry.</p>
+          <p>
+            Review run-scoped changes and keep an approved result as the
+            default when ready.
+          </p>
         </div>
         <label className="proposal-reviewer">
           <span>Reviewer</span>
@@ -173,16 +190,17 @@ export function RunProposals({ runId }: { runId: string }) {
               reviewMutation.isPending &&
               reviewMutation.variables?.proposalId === proposal.id;
             const activating =
-              candidateMutation.isPending &&
-              candidateMutation.variables?.proposalId === proposal.id;
-            const canActivate =
-              latest?.decision === "approved" &&
+              acceptMutation.isPending &&
+              acceptMutation.variables?.proposal.id === proposal.id;
+            const canSetDefault =
+              latest?.decision !== "rejected" &&
+              latest?.decision !== "invalidated" &&
               !configQuery.isPending &&
               !configQuery.isError;
             const proposalError =
-              candidateMutation.error &&
-              candidateMutation.variables?.proposalId === proposal.id
-                ? candidateMutation.error
+              acceptMutation.error &&
+              acceptMutation.variables?.proposal.id === proposal.id
+                ? acceptMutation.error
                 : reviewMutation.error &&
                     reviewMutation.variables?.proposalId === proposal.id
                   ? reviewMutation.error
@@ -247,54 +265,62 @@ export function RunProposals({ runId }: { runId: string }) {
                     )}
                     Reject
                   </button>
-                  <button
-                    className="proposal-approve"
-                    type="button"
-                    disabled={
-                      reviewing ||
-                      !reviewer.trim() ||
-                      latest?.decision === "approved" ||
-                      latest?.decision === "invalidated"
-                    }
-                    onClick={() => review(proposal.id, "approved")}
-                  >
-                    {reviewing &&
-                    reviewMutation.variables?.decision === "approved" ? (
-                      <LoaderCircle className="spin" size={14} />
-                    ) : (
-                      <CheckCircle2 size={14} />
-                    )}
-                    Approve
-                  </button>
-                  {latest?.decision === "approved" && (
+                  {latest?.decision !== "rejected" &&
+                    latest?.decision !== "invalidated" && (
                     <button
                       className="proposal-activate"
                       type="button"
                       disabled={
-                        !canActivate ||
+                        !canSetDefault ||
                         activating ||
                         !reviewer.trim() ||
-                        activatedProposalId === proposal.id
+                        defaultedProposalId === proposal.id
                       }
                       title={
                         configQuery.isError
-                          ? "The active config generation is unavailable."
+                          ? "The default configuration is unavailable."
                           : undefined
                       }
-                      onClick={() => activate(proposal)}
+                      onClick={() => setDefault(proposal)}
                     >
                       {activating ? (
                         <LoaderCircle className="spin" size={14} />
-                      ) : activatedProposalId === proposal.id ? (
+                      ) : defaultedProposalId === proposal.id ? (
                         <CheckCircle2 size={14} />
                       ) : (
                         <Settings2 size={14} />
                       )}
-                      {activatedProposalId === proposal.id
-                        ? "Activated"
-                        : "Activate config"}
+                      {defaultedProposalId === proposal.id
+                        ? "Default set"
+                        : "Accept as default"}
                     </button>
                   )}
+                  {latest?.decision !== "approved" &&
+                    latest?.decision !== "invalidated" && (
+                      <details className="config-advanced-menu">
+                        <summary>Advanced</summary>
+                        <div>
+                          <button
+                            className="proposal-approve"
+                            type="button"
+                            disabled={reviewing || !reviewer.trim()}
+                            onClick={() => review(proposal.id, "approved")}
+                          >
+                            {reviewing &&
+                            reviewMutation.variables?.decision ===
+                              "approved" ? (
+                              <LoaderCircle className="spin" size={14} />
+                            ) : (
+                              <CheckCircle2 size={14} />
+                            )}
+                            Approve only
+                          </button>
+                          <small>
+                            Record approval without changing the default.
+                          </small>
+                        </div>
+                      </details>
+                    )}
                 </div>
                 {proposalError ? (
                   <p className="proposal-error" role="status">
@@ -349,6 +375,14 @@ function ProposalDecisions({ proposal }: { proposal: ParameterProposal }) {
             <span className={`decision-dot ${decision.decision}`} />
             <strong>{titleCase(decision.decision)}</strong>
             <span>by {decision.actor}</span>
+            {decision.authorityKind === "automatic_policy" && (
+              <span>
+                via policy {decision.policyId ?? "unknown"}
+                {decision.policyVersion
+                  ? `@${decision.policyVersion}`
+                  : ""}
+              </span>
+            )}
             {decision.note && <p>{decision.note}</p>}
             {decision.decidedAt && (
               <time dateTime={decision.decidedAt}>

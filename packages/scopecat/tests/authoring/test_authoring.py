@@ -101,7 +101,7 @@ from scopecat.records.parameter import (
     Quantity,
     TableParameterValue,
 )
-from scopecat.records.run import RunConfigSource
+from scopecat.records.run import ConfigRegistryRunConfigSource
 from scopecat.records.run_request import RunRequest
 from tests.testkit.authoring import (
     DRIVE_FREQUENCY_POINT,
@@ -1980,7 +1980,7 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
 def test_explicit_config_source_survives_experiment_resolution() -> None:
     selected_instrument = "spare-awg"
     config = config_with_physical_resources({selected_instrument: ("drive.frequency",)})
-    source = RunConfigSource(
+    source = ConfigRegistryRunConfigSource(
         selector=selected_instrument,
         entry_id="entry-spare-awg",
         config_ref="configs/spare-awg.json",

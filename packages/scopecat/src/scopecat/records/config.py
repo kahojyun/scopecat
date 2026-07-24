@@ -256,9 +256,8 @@ class SystemSpec(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.system_spec.v3"] = "scopecat.system_spec.v3"
+    schema_version: Literal["scopecat.system_spec.v4"] = "scopecat.system_spec.v4"
     id: str
-    workspace_id: str
     primary_entity_id: str
     topology: Topology
     instrument_registry: InstrumentRegistry
@@ -285,11 +284,10 @@ class EnvironmentSpec(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.environment_spec.v1"] = (
-        "scopecat.environment_spec.v1"
+    schema_version: Literal["scopecat.environment_spec.v2"] = (
+        "scopecat.environment_spec.v2"
     )
     id: str
-    workspace_id: str
     connection_profile: ConnectionProfile = Field(default_factory=ConnectionProfile)
 
 
@@ -298,17 +296,13 @@ class ConfigProfileSnapshot(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.config_profile_snapshot.v2"] = (
-        "scopecat.config_profile_snapshot.v2"
+    schema_version: Literal["scopecat.config_profile_snapshot.v3"] = (
+        "scopecat.config_profile_snapshot.v3"
     )
     id: str
     system: SystemSpec
     environment: EnvironmentSpec
     parameter_snapshot: ParameterSnapshot
-
-    @property
-    def workspace_id(self) -> str:
-        return self.system.workspace_id
 
     @property
     def primary_entity_id(self) -> str:

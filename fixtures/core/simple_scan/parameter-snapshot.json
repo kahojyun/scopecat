@@ -1,6 +1,6 @@
 {
   "schema_version": "scopecat.parameter_snapshot.v2",
-  "id": "example-workspace-parameter-snapshot",
+  "id": "simple-scan-parameter-snapshot",
   "values": [
     {
       "id": "drive_frequency",

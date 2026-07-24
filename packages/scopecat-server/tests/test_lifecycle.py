@@ -1,17 +1,24 @@
 from __future__ import annotations
 
+import os
 import stat
+import subprocess
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
 import pytest
+from scopecat.config.resolution import validate_config_profile
 from scopecat.daemon.endpoint import (
+    DAEMON_URL_ENV,
     DaemonEndpointRecord,
     daemon_record_path,
     read_daemon_endpoint_record,
 )
 from scopecat.project import open_project
+from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.parameter import ScalarParameterValue
 from typer.testing import CliRunner
 
 from scopecat_server.cli import app
@@ -24,22 +31,59 @@ from scopecat_server.lifecycle import (
 )
 
 
-def test_init_creates_only_minimal_project_files_and_does_not_overwrite(
+def test_init_creates_runnable_python_project_and_does_not_overwrite(
     tmp_path: Path,
 ) -> None:
     (tmp_path / ".gitignore").write_text("results/\n", encoding="utf-8")
 
     project = initialize_project(tmp_path)
 
-    assert project.manifest.read_text(encoding="utf-8") == "[lab]\n"
+    assert project.manifest.read_text(encoding="utf-8") == (
+        '[lab]\napplication = "scopecat_lab.application:create_application"\n'
+    )
     assert (tmp_path / ".gitignore").read_text(encoding="utf-8") == (
         "results/\n.scopecat/\n"
     )
     assert not (tmp_path / ".scopecat").exists()
+    assert (tmp_path / "src/scopecat_lab/__init__.py").is_file()
+    assert (tmp_path / "src/scopecat_lab/application.py").is_file()
+    assert (tmp_path / "src/scopecat_lab/configuration.py").is_file()
+    notebook = tmp_path / "notebooks/01_first_run.py"
+    assert notebook.is_file()
+    assert "quantum_lab_demo" not in notebook.read_text(encoding="utf-8")
+
+    application = project.load_application()
+    assert application.bootstrap_config is not None
+    config = validate_config_profile(application.bootstrap_config()).config
+    assert config.id == "default"
+    assert config.primary_entity_id == "sample"
+    assert config.parameter_snapshot.get("repetitions") == ScalarParameterValue(
+        id="repetitions",
+        value=128,
+    )
+    assert application.build_system is not None
+    assert application.build_system(config).provider is not None
 
     with pytest.raises(DaemonLifecycleError, match="already initialized"):
         initialize_project(tmp_path)
-    assert project.manifest.read_text(encoding="utf-8") == "[lab]\n"
+    assert project.manifest.read_text(encoding="utf-8").startswith("[lab]\n")
+
+
+def test_init_rejects_scaffold_collision_before_writing_manifest(
+    tmp_path: Path,
+) -> None:
+    application = tmp_path / "src/scopecat_lab/application.py"
+    application.parent.mkdir(parents=True)
+    application.write_text("# user-owned\n", encoding="utf-8")
+
+    with pytest.raises(
+        DaemonLifecycleError,
+        match=r"scaffold path already exists: src/scopecat_lab/application.py",
+    ):
+        initialize_project(tmp_path)
+
+    assert application.read_text(encoding="utf-8") == "# user-owned\n"
+    assert not (tmp_path / "scopecat.toml").exists()
 
 
 def test_endpoint_record_is_private_and_round_trips(tmp_path: Path) -> None:
@@ -104,6 +148,9 @@ def test_cli_start_uses_actual_dynamic_port_and_stop_cleans_record(
     runner = CliRunner()
     initialized = runner.invoke(app, ["init", str(tmp_path)])
     assert initialized.exit_code == 0, initialized.output
+    assert "src/scopecat_lab/configuration.py" in initialized.output
+    assert "scopecat config check" in initialized.output
+    assert "notebooks/01_first_run.py" in initialized.output
 
     started = runner.invoke(app, ["start", str(tmp_path)])
     assert started.exit_code == 0, started.output
@@ -117,6 +164,60 @@ def test_cli_start_uses_actual_dynamic_port_and_stop_cleans_record(
         with httpx.Client(timeout=2, trust_env=False) as client:
             health = client.get(f"{record.base_url}/api/v1/health")
         assert health.status_code == 200
+
+        first_run = subprocess.run(  # noqa: S603
+            [sys.executable, str(tmp_path / "notebooks/01_first_run.py")],
+            cwd=tmp_path,
+            check=False,
+            capture_output=True,
+            text=True,
+            env=_project_subprocess_environment(),
+        )
+        assert first_run.returncode == 0, first_run.stderr
+        assert "'status': 'completed'" in first_run.stdout
+
+        in_sync = _run_cli("config", "diff", str(tmp_path), cwd=tmp_path)
+        assert in_sync.returncode == 0, in_sync.stderr
+        assert "in sync" in in_sync.stdout
+
+        configuration = tmp_path / "src/scopecat_lab/configuration.py"
+        configuration.write_text(
+            configuration.read_text(encoding="utf-8").replace(
+                "DEFAULT_REPETITIONS = 128",
+                "DEFAULT_REPETITIONS = 256",
+            ),
+            encoding="utf-8",
+        )
+        different = _run_cli("config", "diff", str(tmp_path), cwd=tmp_path)
+        assert different.returncode == 0, different.stderr
+        assert "different" in different.stdout
+        assert '"value": 128' in different.stdout
+        assert '"value": 256' in different.stdout
+
+        applied = _run_cli("config", "apply", str(tmp_path), cwd=tmp_path)
+        assert applied.returncode == 0, applied.stderr
+        assert "applied" in applied.stdout
+        reconciled = _run_cli("config", "diff", str(tmp_path), cwd=tmp_path)
+        assert reconciled.returncode == 0, reconciled.stderr
+        assert "in sync" in reconciled.stdout
+
+        exported_path = tmp_path / "active-config.json"
+        exported = _run_cli(
+            "config",
+            "export",
+            str(tmp_path),
+            "--output",
+            str(exported_path),
+            cwd=tmp_path,
+        )
+        assert exported.returncode == 0, exported.stderr
+        assert "exported" in exported.stdout
+        exported_config = ConfigProfileSnapshot.model_validate_json(
+            exported_path.read_text(encoding="utf-8")
+        )
+        assert exported_config.parameter_snapshot.get(
+            "repetitions"
+        ) == ScalarParameterValue(id="repetitions", value=256)
 
         status = runner.invoke(app, ["status", str(tmp_path)])
         assert status.exit_code == 0, status.output
@@ -143,6 +244,23 @@ def test_cli_start_uses_actual_dynamic_port_and_stop_cleans_record(
             stop_project(project)
 
     assert not daemon_record_path(tmp_path).exists()
+
+
+def _run_cli(*arguments: str, cwd: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(  # noqa: S603
+        [sys.executable, "-m", "scopecat_server.cli", *arguments],
+        cwd=cwd,
+        check=False,
+        capture_output=True,
+        text=True,
+        env=_project_subprocess_environment(),
+    )
+
+
+def _project_subprocess_environment() -> dict[str, str]:
+    environment = dict(os.environ)
+    environment.pop(DAEMON_URL_ENV, None)
+    return environment
 
 
 def _record(

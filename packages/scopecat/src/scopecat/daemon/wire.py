@@ -50,12 +50,13 @@ from scopecat.records.parameter import (
     StoredParameterValue,
 )
 from scopecat.records.parameter_change import (
+    ParameterChangeDecisionAuthority,
     ParameterChangeDecisionRecord,
     ParameterChangeProposal,
     ParameterChangeReviewState,
     ParameterValueDelta,
 )
-from scopecat.records.run import RunManifest
+from scopecat.records.run import RunConfigSource, RunManifest
 from scopecat.records.run_request import RunRequest
 
 type NonEmptyText = Annotated[str, Field(min_length=1)]
@@ -133,6 +134,39 @@ class ConfigImportReceipt(_WireModel):
         "scopecat.config_import_receipt.v1"
     )
     entry: ConfigRegistryEntry
+
+
+class DirectConfigDefaultCommand(_WireModel):
+    """Atomically save one direct snapshot and select it as the default."""
+
+    schema_version: Literal["scopecat.direct_config_default_command.v1"] = (
+        "scopecat.direct_config_default_command.v1"
+    )
+    entry_id: NonEmptyText
+    config: ConfigProfileSnapshot
+    registered_by: NonEmptyText
+    operator: NonEmptyText
+    expected_generation: int = Field(ge=0)
+    note: str = ""
+
+
+class ConfigDefaultReceipt(_WireModel):
+    schema_version: Literal["scopecat.config_default_receipt.v1"] = (
+        "scopecat.config_default_receipt.v1"
+    )
+    entry: ConfigRegistryEntry
+    active_state: ConfigRegistryActiveState
+    activation: ConfigRegistryActivationRecord
+
+    @model_validator(mode="after")
+    def validate_activation(self) -> ConfigDefaultReceipt:
+        if (
+            self.entry.id != self.activation.entry_id
+            or self.entry.content_hash != self.activation.entry_content_hash
+            or self.active_state.history[-1] != self.activation
+        ):
+            raise ValueError("config default receipt identity is inconsistent")
+        return self
 
 
 class ReplaceConfigParameter(_WireModel):
@@ -217,6 +251,39 @@ class ConfigDraftRegistrationReceipt(_WireModel):
     entry: ConfigRegistryEntry
     result_content_hash: ConfigContentHash
     deltas: tuple[ParameterValueDelta, ...] = Field(min_length=1)
+
+
+class ConfigDraftDefaultCommand(_WireModel):
+    """Register a reviewed draft and select it as the default in one transaction."""
+
+    schema_version: Literal["scopecat.config_draft_default_command.v1"] = (
+        "scopecat.config_draft_default_command.v1"
+    )
+    registration: ConfigDraftRegistrationCommand
+    operator: NonEmptyText
+    activation_note: str | None = None
+
+
+class ConfigDraftDefaultReceipt(_WireModel):
+    schema_version: Literal["scopecat.config_draft_default_receipt.v1"] = (
+        "scopecat.config_draft_default_receipt.v1"
+    )
+    entry: ConfigRegistryEntry
+    result_content_hash: ConfigContentHash
+    deltas: tuple[ParameterValueDelta, ...] = Field(min_length=1)
+    active_state: ConfigRegistryActiveState
+    activation: ConfigRegistryActivationRecord
+
+    @model_validator(mode="after")
+    def validate_activation(self) -> ConfigDraftDefaultReceipt:
+        if (
+            self.entry.content_hash != self.result_content_hash
+            or self.entry.id != self.activation.entry_id
+            or self.entry.content_hash != self.activation.entry_content_hash
+            or self.active_state.history[-1] != self.activation
+        ):
+            raise ValueError("config draft default receipt identity is inconsistent")
+        return self
 
 
 class ConfigEntryActivationCommand(_WireModel):
@@ -350,6 +417,12 @@ class AnalysisSaveCommand(_WireModel):
         )
         if any(proposal.source_run_id != self.run_id for proposal in proposals):
             raise ValueError("analysis proposal must belong to the command run")
+        expected_analysis_record_id = f"analysis-{self.analysis_key}"
+        if any(
+            proposal.analysis_record_id != expected_analysis_record_id
+            for proposal in proposals
+        ):
+            raise ValueError("analysis proposal must identify the command analysis")
         ids = tuple(proposal.id for proposal in proposals)
         if len(ids) != len(set(ids)):
             raise ValueError("analysis proposal ids must be unique")
@@ -425,6 +498,17 @@ class ParameterProposalReviewReceipt(_WireModel):
         "scopecat.parameter_proposal_review_receipt.v1"
     )
     decision: ParameterChangeDecisionRecord
+
+
+class ParameterProposalDecisionCommand(_WireModel):
+    schema_version: Literal["scopecat.parameter_proposal_decision_command.v1"] = (
+        "scopecat.parameter_proposal_decision_command.v1"
+    )
+    run_id: NonEmptyText
+    proposal_id: NonEmptyText
+    decision: ParameterChangeReviewState
+    authority: ParameterChangeDecisionAuthority
+    note: str = ""
 
 
 class CandidateConfigActivationCommand(_WireModel):
@@ -524,13 +608,14 @@ class ManagedRunSubmission(_WireModel):
 class DelegatedRunSubmission(_WireModel):
     """Admit a scratch plan while retaining its executable Python locally."""
 
-    schema_version: Literal["scopecat.delegated_run_submission.v1"] = (
-        "scopecat.delegated_run_submission.v1"
+    schema_version: Literal["scopecat.delegated_run_submission.v2"] = (
+        "scopecat.delegated_run_submission.v2"
     )
     execution_mode: Literal["delegated"] = "delegated"
     submission_id: NonEmptyText
     executor_id: NonEmptyText
     config: ConfigProfileSnapshot
+    config_source: RunConfigSource | None = None
     request: RunRequest
     plan: DelegatedPlanSummary
 
@@ -898,7 +983,10 @@ __all__ = [
     "CollectionResolveCommand",
     "CollectionResolveReceipt",
     "ConfigActivationReceipt",
+    "ConfigDefaultReceipt",
     "ConfigDraftCommand",
+    "ConfigDraftDefaultCommand",
+    "ConfigDraftDefaultReceipt",
     "ConfigDraftRegistrationCommand",
     "ConfigDraftRegistrationReceipt",
     "ConfigEntryActivationCommand",
@@ -908,6 +996,7 @@ __all__ = [
     "DelegatedPlanSummary",
     "DelegatedRunSubmission",
     "DeleteConfigParameterRows",
+    "DirectConfigDefaultCommand",
     "DirectConfigImportCommand",
     "ExecutionMode",
     "ExecutionRecoveryRequest",
@@ -924,6 +1013,7 @@ __all__ = [
     "MeasurementAppendReceipt",
     "MeasurementSealCommand",
     "MeasurementSealReceipt",
+    "ParameterProposalDecisionCommand",
     "ParameterProposalReviewCommand",
     "ParameterProposalReviewReceipt",
     "PayloadCommitCommand",

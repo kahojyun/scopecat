@@ -234,6 +234,7 @@ class Analysis:
                 source_run_id=self.run.id,
                 source_config=self.run.config,
                 analysis_title=self.title,
+                analysis_record_id=f"analysis-{self.analysis_key}",
                 proposal_id=proposal_id,
                 updates=updates,
                 reason=reason,

@@ -17,6 +17,7 @@ from scopecat.config.resolution import (
     validate_config_profile,
 )
 from scopecat.kernel.errors import CheckFailed
+from scopecat.records.run import ConfigRegistryRunConfigSource
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 from tests.testkit.workflow_fixtures import load_config
 
@@ -28,7 +29,7 @@ def test_resolve_config_source_loads_file_or_active_registry(
         services=embedded_workspace_services(tmp_path),
         config_profile=EXAMPLE_DIR / "config-profile.json",
     )
-    assert file_source.config.workspace_id == "example-workspace"
+    assert file_source.config.id == "simple-scan-profile"
     assert file_source.config_source is None
 
     registration = register_and_activate_config_profile(
@@ -44,9 +45,15 @@ def test_resolve_config_source_loads_file_or_active_registry(
     )
     loaded_active = load_active_config(services=embedded_workspace_services(tmp_path))
 
-    assert active_source.config_source is not None
+    assert isinstance(
+        active_source.config_source,
+        ConfigRegistryRunConfigSource,
+    )
     assert active_source.config_source.entry_id == entry.id
-    assert loaded_active.config_source is not None
+    assert isinstance(
+        loaded_active.config_source,
+        ConfigRegistryRunConfigSource,
+    )
     assert loaded_active.config_source.entry_id == entry.id
 
 
@@ -73,7 +80,7 @@ def test_config_workflow_validates_file_and_config_object() -> None:
     file_result = validate_config_profile(EXAMPLE_DIR / "config-profile.json")
     object_result = validate_config_profile(file_result.config)
 
-    assert file_result.config.workspace_id == "example-workspace"
+    assert file_result.config.id == "simple-scan-profile"
     assert object_result.config == file_result.config
     assert file_result.problems == ()
     assert object_result.problems == ()

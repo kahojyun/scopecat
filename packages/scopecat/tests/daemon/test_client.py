@@ -89,7 +89,10 @@ from scopecat.records.config import config_content_hash
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.parameter import Quantity, ScalarParameterValue
-from scopecat.records.parameter_change import ParameterChangeDecisionRecord
+from scopecat.records.parameter_change import (
+    HumanDecisionAuthority,
+    ParameterChangeDecisionRecord,
+)
 from scopecat.records.run import RunManifest, RunOutcome
 from scopecat.records.run_request import RunRequest
 from tests.testkit.workflow_fixtures import load_config
@@ -664,7 +667,7 @@ def _client(requests: list[httpx.Request]) -> DaemonClient:
                         run_id=command.run_id,
                         proposal_id=command.proposal_id,
                         decision=command.decision,
-                        actor=command.reviewer,
+                        authority=HumanDecisionAuthority(actor=command.reviewer),
                     )
                 )
             )
@@ -887,6 +890,7 @@ def _proposal():
         source_run_id="run-1",
         source_config=load_config(),
         analysis_title="fit",
+        analysis_record_id="analysis-fit",
         proposal_id="drive-frequency",
         updates=(
             replace_scalar_parameter(

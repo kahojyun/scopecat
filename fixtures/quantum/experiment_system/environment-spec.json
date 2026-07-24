@@ -1,7 +1,6 @@
 {
-  "schema_version": "scopecat.environment_spec.v1",
+  "schema_version": "scopecat.environment_spec.v2",
   "id": "templates-environment",
-  "workspace_id": "templates",
   "connection_profile": {
     "connections": [
       {

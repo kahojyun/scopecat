@@ -11,6 +11,9 @@ export interface ParameterProposalDecision {
   eventId: string;
   decision: ProposalDecision;
   actor: string;
+  authorityKind: "human" | "automatic_policy";
+  policyId?: string;
+  policyVersion?: string;
   note?: string;
   decidedAt?: string;
 }
@@ -18,6 +21,7 @@ export interface ParameterProposalDecision {
 export interface ParameterProposal {
   id: string;
   sourceRunId: string;
+  analysisRecordId: string;
   baseConfigId: string;
   baseContentHash: string;
   reason: string;

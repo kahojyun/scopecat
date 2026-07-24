@@ -113,7 +113,6 @@ function testConfig(): ConfigProfileSnapshot {
     id: "active",
     system: {
       id: "system",
-      workspaceId: "lab",
       primaryEntityId: "q0",
       topology: {
         entities,
@@ -196,7 +195,6 @@ function testConfig(): ConfigProfileSnapshot {
     },
     environment: {
       id: "bench",
-      workspaceId: "lab",
       connections: [],
     },
     parameterSnapshot: {

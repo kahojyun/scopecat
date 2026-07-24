@@ -213,8 +213,8 @@ def test_workflow_compiles_authoring_once(
     config = load_config()
     invalid_config = config.model_copy(
         update={
-            "environment": config.environment.model_copy(
-                update={"workspace_id": "different-workspace"}
+            "system": config.system.model_copy(
+                update={"primary_entity_id": "missing-entity"}
             )
         }
     )
@@ -226,9 +226,7 @@ def test_workflow_compiles_authoring_once(
             config=invalid_config,
             services=embedded_workspace_services(tmp_path),
         )
-        assert (
-            result.problems[0].code == "configuration.config_profile_workspace_mismatch"
-        )
+        assert result.problems[0].code == "configuration.unknown_primary_entity"
     else:
         terminal = {
             "start": lambda: start_run(
@@ -244,9 +242,6 @@ def test_workflow_compiles_authoring_once(
         }[workflow]
         with pytest.raises(CheckFailed) as error:
             terminal()
-        assert (
-            error.value.problems[0].code
-            == "configuration.config_profile_workspace_mismatch"
-        )
+        assert error.value.problems[0].code == "configuration.unknown_primary_entity"
 
     assert authoring_compiles == 1

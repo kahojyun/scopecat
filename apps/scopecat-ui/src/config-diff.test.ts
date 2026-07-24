@@ -103,12 +103,11 @@ function configSnapshot({
   primaryKey?: string[];
 }) {
   return normalizeConfigProfileSnapshot({
-    schema_version: "scopecat.config_profile_snapshot.v2",
+    schema_version: "scopecat.config_profile_snapshot.v3",
     id: `profile-${scalar.value}-${table.length}`,
     system: {
-      schema_version: "scopecat.system_spec.v3",
+      schema_version: "scopecat.system_spec.v4",
       id: "system",
-      workspace_id: "lab",
       primary_entity_id: "q0",
       topology: {
         entities: [],
@@ -156,9 +155,8 @@ function configSnapshot({
       },
     },
     environment: {
-      schema_version: "scopecat.environment_spec.v1",
+      schema_version: "scopecat.environment_spec.v2",
       id: "bench",
-      workspace_id: "lab",
       connection_profile: { connections: [] },
     },
     parameter_snapshot: {

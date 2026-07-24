@@ -1,16 +1,40 @@
 # Scopecat server
 
 `scopecat-server` provides the local FastAPI and SSE transport plus the default
-SQLite daemon runtime. Point it at a lab project containing `scopecat.toml`:
+SQLite daemon runtime. Create a runnable starter project or point it at an
+existing project containing `scopecat.toml`:
 
 ```console
+uv run scopecat init ./my-lab
 uv run scopecat config check ./my-lab
 uv run scopecat start ./my-lab
 uv run scopecat open ./my-lab
+uv run python ./my-lab/notebooks/01_first_run.py
 ```
+
+`init` writes a local `src/scopecat_lab` application, an editable Python
+configuration source with one typed parameter, and a hardware-free scratch
+experiment. It preflights every owned path and never replaces an existing
+project file.
 
 `config check` resolves and validates the application's bootstrap snapshot
 without starting a daemon or writing the configuration registry.
+
+After editing the Python source, reconcile it explicitly with the running
+daemon:
+
+```console
+uv run scopecat config diff ./my-lab
+uv run scopecat config apply ./my-lab --actor operator-name
+uv run scopecat config export ./my-lab --output ./active-config.json
+```
+
+`diff` and `apply` evaluate the source in the CLI process; the daemon does not
+watch or execute changing source automatically. `apply` uses the same
+intent-oriented, atomic default operation as notebooks. `export` writes the
+complete daemon default as generated JSON and refuses to overwrite by default.
+These project-management commands use the selected project's recorded daemon
+instead of a generic `SCOPECAT_DAEMON_URL` override.
 
 The daemon stores its database and immutable objects under
 `my-lab/.scopecat`, serves the bundled GUI, and selects an available loopback
@@ -20,9 +44,12 @@ The GUI reconnects through the daemon's replayable SSE event stream; it does
 not keep a separate database.
 
 The GUI also reads the daemon-owned configuration registry and the parameter
-proposals attached to each run. Imports create immutable entries; activation,
-review, rollback, and approved-candidate promotion are explicit
-generation-checked commands.
+proposals attached to each run. Routine actions are phrased as **Set as
+default**, **Accept as default**, and **Undo**. The daemon implements them with
+immutable entries, durable human or automatic-policy acceptance evidence, and
+generation-checked activation. Explicit import, registration, review, and
+activation remain available as lower-level operator commands. A dedicated
+verification run is optional evidence, not an activation prerequisite.
 
 The manifest names one importable application factory:
 

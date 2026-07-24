@@ -29,6 +29,7 @@ from scopecat.daemon.views import DaemonHealth
 from scopecat.project import Project, load_application_factory, open_project
 
 from .runtime import LocalDaemonRuntime
+from .scaffold import scaffold_paths, write_project_scaffold
 
 type DaemonState = Literal["running", "stopped", "stale", "degraded"]
 
@@ -50,14 +51,20 @@ class DaemonStatus:
 
 
 def initialize_project(target: str | Path) -> Project:
-    """Create the smallest project manifest and ignore daemon-owned state."""
+    """Create a runnable source-controlled project and ignore daemon state."""
 
     root = Path(target).resolve()
     root.mkdir(parents=True, exist_ok=True)
     manifest = root / "scopecat.toml"
     if manifest.exists():
         raise DaemonLifecycleError(f"project already initialized: {manifest}")
-    manifest.write_text("[lab]\n", encoding="utf-8")
+    collisions = tuple(path for path in scaffold_paths(root) if path.exists())
+    if collisions:
+        relative_paths = ", ".join(str(path.relative_to(root)) for path in collisions)
+        raise DaemonLifecycleError(
+            f"project scaffold path already exists: {relative_paths}"
+        )
+    write_project_scaffold(root)
 
     ignore = root / ".gitignore"
     existing = ignore.read_text(encoding="utf-8") if ignore.exists() else ""

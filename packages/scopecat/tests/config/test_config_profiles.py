@@ -24,7 +24,7 @@ def test_config_profile_file_round_trip() -> None:
 def test_load_config_profile_freezes_split_inputs() -> None:
     snapshot = load_config_profile(EXAMPLE_DIR / "config-profile.json")
 
-    assert snapshot.id == "example-workspace-profile"
+    assert snapshot.id == "simple-scan-profile"
     assert snapshot.parameter_snapshot.get("drive_frequency") is not None
 
 

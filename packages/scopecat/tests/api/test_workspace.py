@@ -186,7 +186,7 @@ def test_workspace_resolves_authoritative_active_config(tmp_path: Path) -> None:
         if instrument.id == "source-0"
     )
 
-    assert config.id == "example-workspace-profile"
+    assert config.id == "simple-scan-profile"
     assert config.primary_entity_id == "q0"
     assert len(config.topology.entities) == 3
     assert len(config.topology.channels) == 2
@@ -516,7 +516,7 @@ def test_scratch_lowers_to_runnable_spec(
         Quantity(value=5.1, unit="GHz"),
     ]
     assert dataset.dataset_schema.primary_observables == ["signal"]
-    assert run.config.workspace_id == "example-workspace"
+    assert run.config.id == "simple-scan-profile"
     assert run.request == persisted_request
 
 

@@ -20,11 +20,13 @@ from scopecat.daemon.wire import (
     AnalysisSaveCommand,
     CandidateConfigActivationCommand,
     ConfigActivationReceipt,
+    ConfigDefaultReceipt,
     ConfigEntryActivationCommand,
     ConfigImportReceipt,
     ConfigRollbackCommand,
     DelegatedPlanSummary,
     DelegatedRunSubmission,
+    DirectConfigDefaultCommand,
     DirectConfigImportCommand,
     ExecutionTransitionBatch,
     ExecutionTransitionBatchReceipt,
@@ -32,6 +34,7 @@ from scopecat.daemon.wire import (
     ExperimentCatalog,
     ManagedRunSubmission,
     MeasurementAppendCommand,
+    ParameterProposalDecisionCommand,
     PayloadCommitCommand,
     RegisteredExperimentDescriptor,
     ResourceClaimDescriptor,
@@ -43,7 +46,12 @@ from scopecat.records.execution_journal import ExecutionTransition, PayloadEvide
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.measurement_recording import MeasurementDatasetAppend
 from scopecat.records.parameter import Quantity
-from scopecat.records.run import RunManifest, RunOutcome
+from scopecat.records.parameter_change import AutomaticPolicyDecisionAuthority
+from scopecat.records.run import (
+    ConfigRegistryRunConfigSource,
+    RunManifest,
+    RunOutcome,
+)
 from scopecat.records.run_request import RunRequest
 from tests.testkit.workflow_fixtures import load_config
 
@@ -135,6 +143,11 @@ def test_config_registry_commands_are_closed_versioned_json() -> None:
         active_state=state,
         activation=activation,
     )
+    defaulted = ConfigDefaultReceipt(
+        entry=entry,
+        active_state=state,
+        activation=activation,
+    )
     import_command = DirectConfigImportCommand(
         entry_id=entry.id,
         config=config,
@@ -149,6 +162,13 @@ def test_config_registry_commands_are_closed_versioned_json() -> None:
         operator="operator",
         expected_generation=1,
     )
+    default_command = DirectConfigDefaultCommand(
+        entry_id=entry.id,
+        config=config,
+        registered_by="notebook",
+        operator="operator",
+        expected_generation=0,
+    )
 
     assert ConfigImportReceipt.model_validate_json(imported.model_dump_json()) == (
         imported
@@ -156,6 +176,10 @@ def test_config_registry_commands_are_closed_versioned_json() -> None:
     assert (
         ConfigActivationReceipt.model_validate_json(activated.model_dump_json())
         == activated
+    )
+    assert (
+        ConfigDefaultReceipt.model_validate_json(defaulted.model_dump_json())
+        == defaulted
     )
     assert (
         DirectConfigImportCommand.model_validate_json(import_command.model_dump_json())
@@ -171,6 +195,12 @@ def test_config_registry_commands_are_closed_versioned_json() -> None:
         ConfigRollbackCommand.model_validate_json(rollback_command.model_dump_json())
         == rollback_command
     )
+    assert (
+        DirectConfigDefaultCommand.model_validate_json(
+            default_command.model_dump_json()
+        )
+        == default_command
+    )
     with pytest.raises(ValidationError, match="history head"):
         ConfigActivationReceipt(
             active_state=state,
@@ -183,6 +213,7 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
         source_run_id="run-1",
         source_config=load_config(),
         analysis_title="fit",
+        analysis_record_id="analysis-fit",
         proposal_id="drive-frequency",
         updates=(
             replace_scalar_parameter(
@@ -223,6 +254,17 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
         operator="operator",
         expected_generation=1,
     )
+    decision = ParameterProposalDecisionCommand(
+        run_id="run-1",
+        proposal_id=proposal.id,
+        decision="approved",
+        authority=AutomaticPolicyDecisionAuthority(
+            actor="nightly-calibration",
+            policy_id="fit-confidence",
+            policy_version="2",
+        ),
+        note="fit passed policy",
+    )
 
     assert AnalysisSaveCommand.model_validate_json(command.model_dump_json()) == command
     assert (
@@ -230,6 +272,10 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
             activation.model_dump_json()
         )
         == activation
+    )
+    assert (
+        ParameterProposalDecisionCommand.model_validate_json(decision.model_dump_json())
+        == decision
     )
     with pytest.raises(ValidationError, match="command run"):
         AnalysisSaveCommand(
@@ -244,6 +290,14 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
 
 
 def test_run_submissions_are_discriminated_without_executable_state() -> None:
+    config = load_config()
+    source = ConfigRegistryRunConfigSource(
+        selector="active",
+        entry_id="baseline",
+        config_ref="config-registry/configs/baseline.json",
+        content_hash=config_content_hash(config),
+        registry_generation=2,
+    )
     managed = ManagedRunSubmission(
         submission_id="submit-managed",
         registration_id="scratch",
@@ -253,7 +307,8 @@ def test_run_submissions_are_discriminated_without_executable_state() -> None:
     delegated = DelegatedRunSubmission(
         submission_id="submit-delegated",
         executor_id="notebook-kernel-1",
-        config=load_config(),
+        config=config,
+        config_source=source,
         request=_request(),
         plan=DelegatedPlanSummary(
             experiment_id="scratch",
@@ -273,10 +328,9 @@ def test_run_submissions_are_discriminated_without_executable_state() -> None:
         adapter.validate_json(managed.model_dump_json()),
         ManagedRunSubmission,
     )
-    assert isinstance(
-        adapter.validate_json(delegated.model_dump_json()),
-        DelegatedRunSubmission,
-    )
+    restored_delegated = adapter.validate_json(delegated.model_dump_json())
+    assert isinstance(restored_delegated, DelegatedRunSubmission)
+    assert restored_delegated.config_source == source
     with pytest.raises(ValidationError, match="unique"):
         DelegatedPlanSummary(
             experiment_id="scratch",

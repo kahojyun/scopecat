@@ -67,13 +67,13 @@ def test_candidate_config_resolves_proposal_and_runs_follow_up(
     assert proposal.deltas[0].after == updated
 
 
-def test_candidate_checks_and_run_leave_source_run_unchanged(
+def test_unsaved_candidate_fails_closed_before_follow_up_run(
     tmp_path: Path,
 ) -> None:
     lab = _lab(tmp_path)
     source_run = lab.prepare(load_invocation()).run()
     candidate = (
-        source_run.analysis("read-only candidate")
+        source_run.analysis("unsaved candidate")
         .propose(
             "drive-frequency",
             sc.replace_scalar_parameter(
@@ -83,6 +83,30 @@ def test_candidate_checks_and_run_leave_source_run_unchanged(
         )
         .candidate_config()
     )
+    prepared = lab.prepare(load_invocation(), config=candidate)
+
+    check = prepared.check()
+    assert not check.ok
+    assert check.problems[0].code == "config.candidate_evidence_missing"
+    with pytest.raises(CheckFailed) as error:
+        prepared.run()
+    assert error.value.problems[0].code == "config.candidate_evidence_missing"
+
+
+def test_candidate_checks_and_run_leave_source_run_unchanged(
+    tmp_path: Path,
+) -> None:
+    lab = _lab(tmp_path)
+    source_run = lab.prepare(load_invocation()).run()
+    analysis = source_run.analysis("read-only candidate").propose(
+        "drive-frequency",
+        sc.replace_scalar_parameter(
+            "drive_frequency",
+            sc.Quantity(5.4, "GHz"),
+        ),
+    )
+    analysis.save()
+    candidate = analysis.candidate_config()
     prepared = lab.prepare(load_invocation(), config=candidate)
     storage = embedded_run_repository(tmp_path)
     manifest_before = storage.read_manifest(source_run.id)
@@ -321,7 +345,7 @@ def test_parameter_change_proposal_round_trips_and_is_persisted(
 
     assert restored == proposal
     assert persisted == proposal
-    assert persisted.schema_version == "scopecat.parameter_change_proposal.v2"
+    assert persisted.schema_version == "scopecat.parameter_change_proposal.v3"
     assert persisted.deltas == proposal.deltas
 
 

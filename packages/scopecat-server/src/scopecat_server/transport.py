@@ -46,12 +46,16 @@ from scopecat.daemon.wire import (
     CollectionResolveCommand,
     CollectionResolveReceipt,
     ConfigActivationReceipt,
+    ConfigDefaultReceipt,
     ConfigDraftCommand,
+    ConfigDraftDefaultCommand,
+    ConfigDraftDefaultReceipt,
     ConfigDraftRegistrationCommand,
     ConfigDraftRegistrationReceipt,
     ConfigEntryActivationCommand,
     ConfigImportReceipt,
     ConfigRollbackCommand,
+    DirectConfigDefaultCommand,
     DirectConfigImportCommand,
     ExecutionRecoveryRequest,
     ExecutionRecoverySnapshot,
@@ -65,6 +69,7 @@ from scopecat.daemon.wire import (
     MeasurementAppendReceipt,
     MeasurementSealCommand,
     MeasurementSealReceipt,
+    ParameterProposalDecisionCommand,
     ParameterProposalReviewCommand,
     ParameterProposalReviewReceipt,
     PayloadCommitCommand,
@@ -106,6 +111,11 @@ class DaemonBackend(Protocol):
         command: DirectConfigImportCommand,
     ) -> ConfigImportReceipt: ...
 
+    def set_direct_config_default(
+        self,
+        command: DirectConfigDefaultCommand,
+    ) -> ConfigDefaultReceipt: ...
+
     def preview_config_draft(
         self,
         command: ConfigDraftCommand,
@@ -115,6 +125,11 @@ class DaemonBackend(Protocol):
         self,
         command: ConfigDraftRegistrationCommand,
     ) -> ConfigDraftRegistrationReceipt: ...
+
+    def set_config_draft_default(
+        self,
+        command: ConfigDraftDefaultCommand,
+    ) -> ConfigDraftDefaultReceipt: ...
 
     def activate_config_entry(
         self,
@@ -206,6 +221,12 @@ class DaemonBackend(Protocol):
         self,
         run_id: str,
         command: ParameterProposalReviewCommand,
+    ) -> ParameterProposalReviewReceipt: ...
+
+    def decide_parameter_proposal(
+        self,
+        run_id: str,
+        command: ParameterProposalDecisionCommand,
     ) -> ParameterProposalReviewReceipt: ...
 
     def activate_candidate_config(
@@ -336,6 +357,12 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     ) -> ConfigImportReceipt:
         return backend.import_direct_config(command)
 
+    @app.post(f"{_API_PREFIX}/config-registry/default")
+    def set_direct_config_default(
+        command: DirectConfigDefaultCommand,
+    ) -> ConfigDefaultReceipt:
+        return backend.set_direct_config_default(command)
+
     @app.post(f"{_API_PREFIX}/config-registry/drafts/preview")
     def preview_config_draft(
         command: ConfigDraftCommand,
@@ -347,6 +374,12 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         command: ConfigDraftRegistrationCommand,
     ) -> ConfigDraftRegistrationReceipt:
         return backend.register_config_draft(command)
+
+    @app.post(f"{_API_PREFIX}/config-registry/drafts/set-default")
+    def set_config_draft_default(
+        command: ConfigDraftDefaultCommand,
+    ) -> ConfigDraftDefaultReceipt:
+        return backend.set_config_draft_default(command)
 
     @app.post(f"{_API_PREFIX}/config-registry/active")
     def activate_config_entry(
@@ -494,6 +527,22 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
                 detail="path proposal_id must match request body",
             )
         return backend.review_parameter_proposal(run_id, command)
+
+    @app.post(
+        f"{_API_PREFIX}/runs/{{run_id}}/parameter-proposals/{{proposal_id}}/decision"
+    )
+    def decide_parameter_proposal(
+        run_id: str,
+        proposal_id: str,
+        command: ParameterProposalDecisionCommand,
+    ) -> ParameterProposalReviewReceipt:
+        _require_run_id(run_id, command.run_id)
+        if proposal_id != command.proposal_id:
+            raise HTTPException(
+                status_code=422,
+                detail="path proposal_id must match request body",
+            )
+        return backend.decide_parameter_proposal(run_id, command)
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/attention")
     def resolve_attention(

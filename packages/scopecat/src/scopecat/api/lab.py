@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from types import TracebackType
-from typing import Self
+from typing import Self, cast, overload
 
 from pydantic import JsonValue
 
@@ -15,6 +15,7 @@ from scopecat.analysis.service import (
     AnalysisOutput,
     SavedAnalysis,
 )
+from scopecat.api.analysis import Analysis
 from scopecat.api.run import RunHandle, RunOperations, run_handle_id
 from scopecat.authoring._value_refs import ValueRef
 from scopecat.authoring.scans import Scan, ScanCenter, ScanValue
@@ -22,9 +23,11 @@ from scopecat.authoring.templates import ExperimentInvocation, ExperimentTemplat
 from scopecat.authoring.values import MetadataValue
 from scopecat.config.candidates import (
     CandidateConfig,
+    CandidateSelection,
     resolve_candidate_config_from_snapshot,
 )
 from scopecat.config.drafts import ConfigDraft
+from scopecat.config.resolution import config_revision_entry_id
 from scopecat.daemon.connection import DaemonConnection
 from scopecat.daemon.views import (
     ConfigDraftPreview,
@@ -37,19 +40,28 @@ from scopecat.daemon.views import (
 from scopecat.daemon.wire import (
     CandidateConfigActivationReceipt,
     ConfigActivationReceipt,
+    ConfigDefaultReceipt,
+    ConfigDraftDefaultReceipt,
     ConfigDraftRegistrationReceipt,
     ConfigImportReceipt,
 )
 from scopecat.planning.preview_models import ExperimentPreview
 from scopecat.records.artifact import RunContentEntry
-from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.parameter import Quantity
 from scopecat.records.parameter_change import (
+    HumanDecisionAuthority,
+    ParameterChangeDecisionAuthority,
     ParameterChangeDecisionRecord,
     ParameterChangeProposal,
     ParameterChangeReviewState,
 )
-from scopecat.records.run import RunManifest
+from scopecat.records.run import (
+    AnalysisCandidateRunConfigSource,
+    ConfigRegistryRunConfigSource,
+    RunConfigSource,
+    RunManifest,
+)
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.data import (
     RunArtifactBytesResult,
@@ -70,6 +82,7 @@ class PreparedLabExperiment:
     lab: LabClient
     invocation: ExperimentInvocation
     config: ConfigProfileSnapshot
+    config_source: RunConfigSource | None = None
 
     def scan(
         self,
@@ -124,12 +137,90 @@ class PreparedLabExperiment:
         return self.lab.execute_invocation(
             self.invocation,
             config=self.config,
+            config_source=self.config_source,
             name=name,
             tags=tags,
             description=description,
             metadata=metadata,
             operator=operator,
         )
+
+
+@dataclass(frozen=True, slots=True)
+class LabConfigOperations:
+    """Intent-oriented configuration operations for ordinary notebook work."""
+
+    lab: LabClient
+
+    @overload
+    def set_default(
+        self,
+        config: ConfigProfileSnapshot,
+        *,
+        entry_id: str | None = None,
+        registered_by: str | None = None,
+        operator: str | None = None,
+        note: str = "",
+    ) -> ConfigDefaultReceipt: ...
+
+    @overload
+    def set_default(
+        self,
+        config: ConfigDraft,
+        *,
+        entry_id: str | None = None,
+        registered_by: str | None = None,
+        operator: str | None = None,
+        note: str = "",
+    ) -> ConfigDraftDefaultReceipt: ...
+
+    def set_default(
+        self,
+        config: ConfigProfileSnapshot | ConfigDraft,
+        *,
+        entry_id: str | None = None,
+        registered_by: str | None = None,
+        operator: str | None = None,
+        note: str = "",
+    ) -> ConfigDefaultReceipt | ConfigDraftDefaultReceipt:
+        return self.lab.set_default(
+            config,
+            entry_id=entry_id,
+            registered_by=registered_by,
+            operator=operator,
+            note=note,
+        )
+
+    def accept(
+        self,
+        candidate: CandidateConfig | Analysis,
+        *,
+        selection: CandidateSelection = None,
+        authority: ParameterChangeDecisionAuthority | None = None,
+        entry_id: str | None = None,
+        registered_by: str | None = None,
+        operator: str | None = None,
+        note: str = "",
+    ) -> CandidateConfigActivationReceipt:
+        return self.lab.accept(
+            candidate,
+            selection=selection,
+            authority=authority,
+            entry_id=entry_id,
+            registered_by=registered_by,
+            operator=operator,
+            note=note,
+        )
+
+    def undo(
+        self,
+        *,
+        operator: str | None = None,
+        note: str = "",
+    ) -> ConfigActivationReceipt:
+        """Restore the previous distinct default; a second call toggles it back."""
+
+        return self.lab.undo(operator=operator, note=note)
 
 
 class LabClient:
@@ -166,6 +257,10 @@ class LabClient:
     @property
     def run_operations(self) -> RunOperations:
         return self
+
+    @property
+    def config(self) -> LabConfigOperations:
+        return LabConfigOperations(self)
 
     @property
     def reviewer(self) -> str:
@@ -232,19 +327,88 @@ class LabClient:
         self,
         config: str | ConfigProfileSnapshot | CandidateConfig | None = None,
     ) -> ConfigProfileSnapshot:
+        return self._resolve_config(config)[0]
+
+    def _resolve_config(
+        self,
+        config: str | ConfigProfileSnapshot | CandidateConfig | None = None,
+    ) -> tuple[ConfigProfileSnapshot, RunConfigSource | None]:
         selected = self._config if config is None else config
         if selected is None:
-            return self._daemon.active_config().config
+            active = self._daemon.active_config()
+            return (
+                active.config,
+                ConfigRegistryRunConfigSource(
+                    selector="active",
+                    entry_id=active.entry.id,
+                    config_ref=active.entry.config_ref,
+                    content_hash=active.entry.content_hash,
+                    registry_generation=active.active_state.generation,
+                ),
+            )
         if isinstance(selected, str):
             if selected == "active":
-                return self._daemon.active_config().config
+                active = self._daemon.active_config()
+                return (
+                    active.config,
+                    ConfigRegistryRunConfigSource(
+                        selector="active",
+                        entry_id=active.entry.id,
+                        config_ref=active.entry.config_ref,
+                        content_hash=active.entry.content_hash,
+                        registry_generation=active.active_state.generation,
+                    ),
+                )
             raise ValueError("daemon config selector must be 'active'")
         if isinstance(selected, CandidateConfig):
-            return resolve_candidate_config_from_snapshot(
+            proposals = {
+                item.proposal.id: item.proposal
+                for item in self._daemon.parameter_proposals(
+                    selected.source_run_id
+                ).items
+            }
+            if any(
+                proposals.get(proposal.id) != proposal
+                for proposal in selected.parameter_proposals
+            ):
+                raise ValueError(
+                    "save the producing analysis before using its candidate config"
+                )
+            analyses = {
+                analysis_record_id: self._daemon.analysis(
+                    selected.source_run_id,
+                    analysis_record_id,
+                )
+                for analysis_record_id in selected.analysis_record_ids
+            }
+            if any(
+                not any(
+                    output.kind == "parameter_change_proposal"
+                    and isinstance(output.content, dict)
+                    and cast("dict[str, object]", output.content).get("proposal_id")
+                    == proposal.id
+                    for output in analyses[proposal.analysis_record_id].analysis.outputs
+                )
+                for proposal in selected.parameter_proposals
+            ):
+                raise ValueError(
+                    "candidate proposals do not belong to their producing analyses"
+                )
+            resolved = resolve_candidate_config_from_snapshot(
                 selected,
                 source_config=self.load_config(selected.source_run_id),
             )
-        return selected
+            return (
+                resolved,
+                AnalysisCandidateRunConfigSource(
+                    source_run_id=selected.source_run_id,
+                    analysis_record_ids=selected.analysis_record_ids,
+                    proposal_ids=selected.proposal_ids,
+                    base_config_content_hash=selected.base_config_content_hash,
+                    content_hash=config_content_hash(resolved),
+                ),
+            )
+        return selected, None
 
     def prepare(
         self,
@@ -257,10 +421,12 @@ class LabClient:
             if isinstance(experiment, ExperimentTemplate)
             else experiment
         )
+        resolved_config, config_source = self._resolve_config(config)
         return PreparedLabExperiment(
             lab=self,
             invocation=invocation,
-            config=self.resolve_config(config),
+            config=resolved_config,
+            config_source=config_source,
         )
 
     def preview_invocation(
@@ -289,6 +455,7 @@ class LabClient:
         invocation: ExperimentInvocation,
         *,
         config: ConfigProfileSnapshot,
+        config_source: RunConfigSource | None = None,
         name: str | None = None,
         tags: tuple[str, ...] = (),
         description: str | None = None,
@@ -298,6 +465,7 @@ class LabClient:
         manifest = self._daemon.run_scratch(
             invocation,
             config=config,
+            config_source=config_source,
             name=name,
             tags=tags,
             description=description,
@@ -471,6 +639,65 @@ class LabClient:
             note=note,
         )
 
+    @overload
+    def set_default(
+        self,
+        config: ConfigProfileSnapshot,
+        *,
+        entry_id: str | None = None,
+        registered_by: str | None = None,
+        operator: str | None = None,
+        note: str = "",
+    ) -> ConfigDefaultReceipt: ...
+
+    @overload
+    def set_default(
+        self,
+        config: ConfigDraft,
+        *,
+        entry_id: str | None = None,
+        registered_by: str | None = None,
+        operator: str | None = None,
+        note: str = "",
+    ) -> ConfigDraftDefaultReceipt: ...
+
+    def set_default(
+        self,
+        config: ConfigProfileSnapshot | ConfigDraft,
+        *,
+        entry_id: str | None = None,
+        registered_by: str | None = None,
+        operator: str | None = None,
+        note: str = "",
+    ) -> ConfigDefaultReceipt | ConfigDraftDefaultReceipt:
+        """Save one immutable revision and atomically make it the default."""
+
+        selected_registered_by = registered_by or self.operator
+        selected_operator = operator or self.operator
+        if isinstance(config, ConfigDraft):
+            preview = self.preview_config_draft(config)
+            if (
+                not preview.valid
+                or preview.config is None
+                or preview.result_content_hash is None
+            ):
+                raise ValueError("only a valid config draft can become the default")
+            return self._daemon.set_config_draft_default(
+                config,
+                preview=preview,
+                entry_id=entry_id or config_revision_entry_id(preview.config),
+                registered_by=selected_registered_by,
+                operator=selected_operator,
+                note=note,
+            )
+        return self._daemon.set_direct_config_default(
+            config,
+            entry_id=entry_id or config_revision_entry_id(config),
+            registered_by=selected_registered_by,
+            operator=selected_operator,
+            note=note,
+        )
+
     def activate_config_entry(
         self,
         entry_id: str,
@@ -529,6 +756,69 @@ class LabClient:
             expected_generation=expected_generation,
             note=note,
             activation_note=activation_note,
+        )
+
+    def accept(
+        self,
+        candidate: CandidateConfig | Analysis,
+        *,
+        selection: CandidateSelection = None,
+        authority: ParameterChangeDecisionAuthority | None = None,
+        entry_id: str | None = None,
+        registered_by: str | None = None,
+        operator: str | None = None,
+        note: str = "",
+    ) -> CandidateConfigActivationReceipt:
+        """Persist an analysis if supplied, accept its proposals, and publish."""
+
+        if isinstance(candidate, Analysis):
+            candidate.save()
+            selected = candidate.candidate_config(selection)
+        else:
+            if selection is not None:
+                raise ValueError("proposal selection belongs on an Analysis")
+            selected = candidate
+        self._resolve_config(selected)
+        selected_authority = authority or HumanDecisionAuthority(
+            actor=operator or self.operator
+        )
+        proposal_views = {
+            item.proposal.id: item
+            for item in self._daemon.parameter_proposals(selected.source_run_id).items
+        }
+        for proposal_id in selected.proposal_ids:
+            decisions = proposal_views[proposal_id].decisions
+            if (
+                decisions
+                and decisions[-1].decision == "approved"
+                and (authority is None or decisions[-1].authority == selected_authority)
+            ):
+                continue
+            self._daemon.decide_parameter_proposal(
+                selected.source_run_id,
+                proposal_id,
+                authority=selected_authority,
+                note=note,
+            )
+        return self._daemon.activate_candidate_config(
+            selected,
+            entry_id=entry_id,
+            registered_by=registered_by or self.operator,
+            operator=operator or self.operator,
+            note=note,
+        )
+
+    def undo(
+        self,
+        *,
+        operator: str | None = None,
+        note: str = "",
+    ) -> ConfigActivationReceipt:
+        """Restore the previous distinct default; a second call toggles it back."""
+
+        return self._daemon.rollback_config(
+            operator=operator or self.operator,
+            note=note,
         )
 
     def rollback(

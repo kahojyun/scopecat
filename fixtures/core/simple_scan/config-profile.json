@@ -1,6 +1,6 @@
 {
   "schema_version": "scopecat.config_profile.v2",
-  "id": "example-workspace-profile",
+  "id": "simple-scan-profile",
   "system_ref": "system-spec.json",
   "environment_ref": "environment-spec.json",
   "parameter_snapshot_ref": "parameter-snapshot.json"

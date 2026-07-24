@@ -24,7 +24,7 @@ import {
   X,
   XCircle,
 } from "lucide-react";
-import { ApiError } from "./api";
+import { ApiError, getRunAnalyses } from "./api";
 import {
   activateConfigEntry,
   getConfigRegistry,
@@ -38,6 +38,10 @@ import {
   type ConfigDraftSeed,
 } from "./ConfigDraftEditor";
 import { ConfigParameters } from "./ConfigParameters";
+import {
+  getRunParameterProposals,
+  latestProposalDecision,
+} from "./proposal-api";
 import type {
   ConfigActivationRecord,
   ConfigProfileSnapshot,
@@ -46,6 +50,8 @@ import type {
   ConfigSnapshotSummary,
   JsonObject,
 } from "./config-types";
+import type { ParameterProposal } from "./proposal-types";
+import type { RunAnalysis } from "./types";
 
 type ConfigMutation =
   | { kind: "activate-entry"; entryId: string }
@@ -60,8 +66,10 @@ interface ImportDraft {
 
 export function ConfigWorkspace({
   daemonUnavailable,
+  onOpenRun,
 }: {
   daemonUnavailable: boolean;
+  onOpenRun?: (runId: string) => void;
 }) {
   const queryClient = useQueryClient();
   const fileInput = useRef<HTMLInputElement>(null);
@@ -167,6 +175,21 @@ export function ConfigWorkspace({
     enabled: activeEntry !== undefined,
     staleTime: Infinity,
   });
+  const candidateRunId =
+    selectedEntry?.source.kind === "candidate_config"
+      ? selectedEntry.source.runId
+      : undefined;
+  const candidateProposalsQuery = useQuery({
+    queryKey: ["parameter-proposals", candidateRunId],
+    queryFn: ({ signal }) =>
+      getRunParameterProposals(candidateRunId!, signal),
+    enabled: candidateRunId !== undefined,
+  });
+  const candidateAnalysesQuery = useQuery({
+    queryKey: ["analyses", candidateRunId],
+    queryFn: ({ signal }) => getRunAnalyses(candidateRunId!, signal),
+    enabled: candidateRunId !== undefined,
+  });
   const commandDisabled =
     mutation.isPending || !operator.trim();
 
@@ -210,8 +233,8 @@ export function ConfigWorkspace({
     return (
       <ConfigBoundaryMessage
         icon={<LoaderCircle className="spin" />}
-        title="Reading configuration registry"
-        detail="Loading the active snapshot, registered entries, and activation history."
+        title="Reading saved configurations"
+        detail="Loading the default snapshot, saved versions, and change history."
       />
     );
   }
@@ -250,11 +273,11 @@ export function ConfigWorkspace({
     <section className="config-workspace" aria-labelledby="config-heading">
       <header className="config-toolbar">
         <div>
-          <p className="eyebrow">Configuration registry</p>
-          <h2 id="config-heading">Lab configuration</h2>
+          <p className="eyebrow">Configuration history</p>
+          <h2 id="config-heading">Default configuration</h2>
           <p>
-            Browse typed parameter snapshots, compare entries, and make one
-            generation-checked change at a time.
+            Browse typed parameters, compare saved versions, and choose the
+            default used by new runs.
           </p>
         </div>
         <div className="config-toolbar-actions">
@@ -290,7 +313,7 @@ export function ConfigWorkspace({
                 Import raw snapshot
               </button>
               <small>
-                Direct JSON import bypasses the typed parameter workspace.
+                Direct JSON import bypasses the typed parameter editor.
               </small>
             </div>
           </details>
@@ -327,17 +350,19 @@ export function ConfigWorkspace({
         onRollback={() =>
           runAction(
             { kind: "rollback" },
-            `Roll back generation ${generation} to its previous registered configuration?`,
+            `Restore ${
+              overview.history[1]?.entryId ?? "the previous version"
+            } as the default configuration?`,
           )
         }
       />
 
       <div className="config-layout">
-        <aside className="config-registry-panel" aria-label="Config registry">
+        <aside className="config-registry-panel" aria-label="Saved versions">
           <div className="config-panel-heading">
             <div>
-              <span>Registry</span>
-              <strong>{overview.entries.length} entries</strong>
+              <span>Saved versions</span>
+              <strong>{overview.entries.length} versions</strong>
             </div>
             {registryQuery.isFetching && (
               <LoaderCircle
@@ -349,10 +374,10 @@ export function ConfigWorkspace({
           </div>
           <label className="config-search">
             <Search size={15} aria-hidden="true" />
-            <span className="visually-hidden">Search registry entries</span>
+            <span className="visually-hidden">Search saved versions</span>
             <input
               type="search"
-              placeholder="Find entry"
+              placeholder="Find version"
               value={registrySearch}
               onChange={(event) => setRegistrySearch(event.target.value)}
             />
@@ -360,7 +385,7 @@ export function ConfigWorkspace({
           <div className="config-entry-list">
             {overview.entries.length === 0 ? (
               <ConfigInlineEmpty
-                title="Registry is empty"
+                title="No saved versions"
                 detail="Bootstrap the project configuration, or use Advanced to import a complete snapshot."
               />
             ) : filteredEntries.length === 0 ? (
@@ -399,10 +424,18 @@ export function ConfigWorkspace({
               }
               actionDisabled={commandDisabled}
               onNoteChange={setNote}
+              onSelectEntry={selectEntry}
+              onOpenRun={onOpenRun}
+              candidateProposals={candidateProposalsQuery.data?.items}
+              candidateProposalsPending={candidateProposalsQuery.isPending}
+              candidateProposalsError={candidateProposalsQuery.error}
+              candidateAnalyses={candidateAnalysesQuery.data}
+              candidateAnalysesPending={candidateAnalysesQuery.isPending}
+              candidateAnalysesError={candidateAnalysesQuery.error}
               onActivate={() =>
                 runAction(
                   { kind: "activate-entry", entryId: selectedEntry.id },
-                  `Activate ${selectedEntry.id} as generation ${generation + 1}?`,
+                  `Set ${selectedEntry.id} as the default configuration?`,
                 )
               }
               onEdit={
@@ -422,7 +455,7 @@ export function ConfigWorkspace({
             <ConfigBoundaryMessage
               icon={<CircleDot />}
               title="Nothing selected"
-              detail="Choose a registered entry to inspect its immutable snapshot."
+              detail="Choose a saved version to inspect its immutable snapshot."
               compact
             />
           )}
@@ -479,6 +512,12 @@ function ConfigSummary({
   rollbackPending: boolean;
   onRollback: () => void;
 }) {
+  const defaultEntry = overview.entries.find(
+    (entry) => entry.id === overview.active?.entryId,
+  );
+  const runtimeDerived =
+    defaultEntry?.source.kind === "manual_parameter_updates" ||
+    defaultEntry?.source.kind === "candidate_config";
   return (
     <div className="config-summary-grid" aria-label="Configuration summary">
       <article className="active-config-card">
@@ -486,35 +525,32 @@ function ConfigSummary({
           <CheckCircle2 size={18} />
         </span>
         <div>
-          <span>Active configuration</span>
+          <span>Default configuration</span>
           <strong>{overview.active?.entryId ?? "Not configured"}</strong>
           <code title={overview.active?.contentHash}>
             {overview.active
               ? shorten(overview.active.contentHash, 23)
-              : "No active content hash"}
+              : "No default content hash"}
           </code>
         </div>
-        <span className="generation-badge">
-          Generation {overview.active?.generation ?? "—"}
-        </span>
       </article>
       <ConfigMetric
         icon={<Database size={17} />}
-        label="Registered"
+        label="Saved versions"
         value={String(overview.entries.length)}
-        detail="Immutable snapshots"
+        detail="Immutable history"
       />
       <ConfigMetric
         icon={<History size={17} />}
-        label="Activations"
+        label="Default changes"
         value={String(overview.history.length)}
-        detail="Durable generations"
+        detail="Durable history"
       />
       <article className="rollback-card">
         <div>
-          <span>Previous generation</span>
+          <span>Previous default</span>
           <strong>
-            {overview.history[1]?.entryId ?? "No rollback target"}
+            {overview.history[1]?.entryId ?? "Nothing to undo"}
           </strong>
         </div>
         <button
@@ -528,9 +564,22 @@ function ConfigSummary({
           ) : (
             <RotateCcw size={15} />
           )}
-          Roll back
+          Undo
         </button>
       </article>
+      {runtimeDerived && (
+        <aside className="runtime-derived-default" role="note">
+          <GitCompareArrows size={17} aria-hidden="true" />
+          <div>
+            <strong>Runtime-derived default</strong>
+            <p>
+              This console cannot tell whether the project&apos;s Git/Python
+              configuration source is synchronized. Run{" "}
+              <code>scopecat config diff .</code> to check.
+            </p>
+          </div>
+        </aside>
+      )}
     </div>
   );
 }
@@ -585,7 +634,7 @@ function RegistryEntryButton({
         </small>
         <code>{shorten(entry.contentHash, 22)}</code>
       </span>
-      {active && <span className="active-label">Active</span>}
+      {active && <span className="active-label">Default</span>}
     </button>
   );
 }
@@ -602,6 +651,14 @@ function EntryInspector({
   pending,
   actionDisabled,
   onNoteChange,
+  onSelectEntry,
+  onOpenRun,
+  candidateProposals,
+  candidateProposalsPending,
+  candidateProposalsError,
+  candidateAnalyses,
+  candidateAnalysesPending,
+  candidateAnalysesError,
   onActivate,
   onEdit,
 }: {
@@ -616,6 +673,14 @@ function EntryInspector({
   pending: boolean;
   actionDisabled: boolean;
   onNoteChange: (note: string) => void;
+  onSelectEntry: (entryId: string) => void;
+  onOpenRun?: (runId: string) => void;
+  candidateProposals?: ParameterProposal[];
+  candidateProposalsPending: boolean;
+  candidateProposalsError: Error | null;
+  candidateAnalyses?: RunAnalysis[];
+  candidateAnalysesPending: boolean;
+  candidateAnalysesError: Error | null;
   onActivate: () => void;
   onEdit?: () => void;
 }) {
@@ -625,7 +690,7 @@ function EntryInspector({
       <header className="config-inspector-heading">
         <div>
           <span className={active ? "config-state active" : "config-state"}>
-            {active ? "Active" : "Registered"}
+            {active ? "Default" : "Saved"}
           </span>
           <h3>{entry.id}</h3>
           <code title={entry.contentHash}>{entry.contentHash}</code>
@@ -652,18 +717,18 @@ function EntryInspector({
             ) : (
               <CheckCircle2 size={15} />
             )}
-            Activate
+            Set as default
           </button>
         )}
       </header>
       <div className="config-detail-facts">
         <ConfigFact label="Source" value={sourceLabel(entry)} />
         <ConfigFact
-          label="Registered by"
+          label="Saved by"
           value={entry.registeredBy ?? "Not reported"}
         />
         <ConfigFact
-          label="Registered"
+          label="Saved"
           value={
             entry.registeredAt
               ? formatDateTime(entry.registeredAt)
@@ -676,34 +741,17 @@ function EntryInspector({
           code
         />
       </div>
-      {entry.source.runId && (
-        <div className="config-provenance">
-          <GitCompareArrows size={16} aria-hidden="true" />
-          <div>
-            <strong>Candidate provenance</strong>
-            <p>
-              Resolved from run <code>{entry.source.runId}</code>
-              {entry.source.proposalIds.length > 0
-                ? ` using ${entry.source.proposalIds.length} approved proposals.`
-                : "."}
-            </p>
-          </div>
-        </div>
-      )}
-      {entry.source.kind === "manual_parameter_updates" && (
-        <div className="config-provenance">
-          <GitCompareArrows size={16} aria-hidden="true" />
-          <div>
-            <strong>Typed edit provenance</strong>
-            <p>
-              Derived from <code>{entry.source.baseEntryId}</code>
-              {entry.source.baseGeneration
-                ? ` at generation ${entry.source.baseGeneration}.`
-                : "."}
-            </p>
-          </div>
-        </div>
-      )}
+      <EntryProvenance
+        entry={entry}
+        onSelectEntry={onSelectEntry}
+        onOpenRun={onOpenRun}
+        candidateProposals={candidateProposals}
+        candidateProposalsPending={candidateProposalsPending}
+        candidateProposalsError={candidateProposalsError}
+        candidateAnalyses={candidateAnalyses}
+        candidateAnalysesPending={candidateAnalysesPending}
+        candidateAnalysesError={candidateAnalysesError}
+      />
       {selectedSnapshot ? (
         <>
           <SnapshotSummary snapshot={selectedSnapshot} />
@@ -729,7 +777,7 @@ function EntryInspector({
       )}
       {entry.note && (
         <div className="config-entry-note">
-          <span>Registration note</span>
+          <span>Save note</span>
           <p>{entry.note}</p>
         </div>
       )}
@@ -740,6 +788,219 @@ function EntryInspector({
   );
 }
 
+function EntryProvenance({
+  entry,
+  onSelectEntry,
+  onOpenRun,
+  candidateProposals,
+  candidateProposalsPending,
+  candidateProposalsError,
+  candidateAnalyses,
+  candidateAnalysesPending,
+  candidateAnalysesError,
+}: {
+  entry: ConfigRegistryEntry;
+  onSelectEntry: (entryId: string) => void;
+  onOpenRun?: (runId: string) => void;
+  candidateProposals?: ParameterProposal[];
+  candidateProposalsPending: boolean;
+  candidateProposalsError: Error | null;
+  candidateAnalyses?: RunAnalysis[];
+  candidateAnalysesPending: boolean;
+  candidateAnalysesError: Error | null;
+}) {
+  const source = entry.source;
+  if (source.kind === "direct_config_profile") {
+    return (
+      <div className="config-provenance">
+        <GitCompareArrows size={16} aria-hidden="true" />
+        <div>
+          <strong>Direct configuration profile</strong>
+          <p>Saved from one complete config snapshot.</p>
+        </div>
+      </div>
+    );
+  }
+  if (source.kind === "manual_parameter_updates") {
+    return (
+      <div className="config-provenance">
+        <GitCompareArrows size={16} aria-hidden="true" />
+        <div>
+          <strong>Manual parameter update</strong>
+          <p>
+            Derived from{" "}
+            {source.baseEntryId ? (
+              <button
+                className="config-provenance-link"
+                type="button"
+                aria-label={`Open base version ${source.baseEntryId}`}
+                onClick={() => onSelectEntry(source.baseEntryId!)}
+              >
+                <code>{source.baseEntryId}</code>
+              </button>
+            ) : (
+              "an unreported base version"
+            )}
+            {source.baseGeneration
+              ? ` at registry generation ${source.baseGeneration}.`
+              : "."}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const runId = source.runId;
+  const proposalsById = new Map(
+    (candidateProposals ?? []).map((proposal) => [proposal.id, proposal]),
+  );
+  const analysesById = new Map(
+    (candidateAnalyses ?? []).map((analysis) => [analysis.id, analysis]),
+  );
+  return (
+    <div className="config-provenance candidate-provenance">
+      <GitCompareArrows size={16} aria-hidden="true" />
+      <div>
+        <div className="config-provenance-heading">
+          <div>
+            <strong>Analysis candidate</strong>
+            <p>
+              Produced by run{" "}
+              <code>{runId ?? "unreported producing run"}</code>.
+            </p>
+          </div>
+          {runId && onOpenRun && (
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => onOpenRun(runId)}
+            >
+              Open producing run
+            </button>
+          )}
+        </div>
+
+        {candidateProposalsError && (
+          <p className="candidate-evidence-status">
+            Proposal evidence unavailable:{" "}
+            {errorMessage(candidateProposalsError)}
+          </p>
+        )}
+        {candidateAnalysesError && (
+          <p className="candidate-evidence-status">
+            Analysis details unavailable: {errorMessage(candidateAnalysesError)}
+          </p>
+        )}
+
+        <div className="candidate-evidence-list">
+          {source.proposalIds.length === 0 && (
+            <p className="candidate-evidence-status">
+              No proposal evidence is recorded for this candidate.
+            </p>
+          )}
+          {source.proposalIds.map((proposalId) => {
+            const proposal = proposalsById.get(proposalId);
+            const analysis = proposal
+              ? analysesById.get(proposal.analysisRecordId)
+              : undefined;
+            const decision = proposal
+              ? latestProposalDecision(proposal)
+              : undefined;
+            return (
+              <article
+                key={proposalId}
+                aria-label={`Proposal ${proposalId}`}
+              >
+                <dl>
+                  <div>
+                    <dt>Proposal</dt>
+                    <dd>
+                      <code>{proposalId}</code>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Analysis</dt>
+                    <dd>
+                      {proposal ? (
+                        <>
+                          <code>{proposal.analysisRecordId}</code>
+                          {analysis && <span>{analysis.title}</span>}
+                          {!analysis &&
+                            candidateAnalysesPending &&
+                            " · Loading details"}
+                        </>
+                      ) : candidateProposalsPending ? (
+                        "Loading proposal"
+                      ) : (
+                        "Proposal details unavailable"
+                      )}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>
+                      {decision?.decision === "approved"
+                        ? "Latest acceptance"
+                        : "Latest decision"}
+                    </dt>
+                    <dd>
+                      {decision
+                        ? `${displayDecision(decision.decision)} · ${decisionAuthorityLabel(
+                            decision,
+                          )}`
+                        : candidateProposalsPending
+                          ? "Loading decision"
+                          : "Decision unavailable"}
+                    </dd>
+                  </div>
+                  {decision && (
+                    <>
+                      <div>
+                        <dt>Note</dt>
+                        <dd>{decision.note || "No decision note"}</dd>
+                      </div>
+                      <div>
+                        <dt>Decided</dt>
+                        <dd>
+                          {decision.decidedAt ? (
+                            <time dateTime={decision.decidedAt}>
+                              {formatDateTime(decision.decidedAt)}
+                            </time>
+                          ) : (
+                            "Decision time unavailable"
+                          )}
+                        </dd>
+                      </div>
+                    </>
+                  )}
+                </dl>
+              </article>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function decisionAuthorityLabel(
+  decision: NonNullable<
+    ReturnType<typeof latestProposalDecision>
+  >,
+): string {
+  if (decision.authorityKind === "automatic_policy") {
+    const policy =
+      decision.policyId && decision.policyVersion
+        ? `${decision.policyId}@${decision.policyVersion}`
+        : "unidentified policy";
+    return `Automatic policy ${policy} · ${decision.actor}`;
+  }
+  return `Human · ${decision.actor}`;
+}
+
+function displayDecision(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1).replaceAll("_", " ");
+}
+
 function SnapshotSummary({ snapshot }: { snapshot: ConfigSnapshotSummary }) {
   return (
     <section className="snapshot-summary" aria-label="Snapshot summary">
@@ -747,7 +1008,7 @@ function SnapshotSummary({ snapshot }: { snapshot: ConfigSnapshotSummary }) {
         <SlidersHorizontal size={17} aria-hidden="true" />
         <span>
           <strong>{snapshot.id}</strong>
-          <small>{snapshot.labId ?? "Lab identity not reported"}</small>
+          <small>Immutable config snapshot</small>
         </span>
       </div>
       <div className="snapshot-metrics">
@@ -784,15 +1045,15 @@ function ActivationHistory({
           <History size={17} />
         </span>
         <div>
-          <h3 id="history-heading">Activation history</h3>
-          <p>Every active pointer change is retained as a generation.</p>
+          <h3 id="history-heading">Default history</h3>
+          <p>Every default change is retained and can be revisited.</p>
         </div>
         <span className="history-count">{history.length}</span>
       </header>
       {history.length === 0 ? (
         <ConfigInlineEmpty
-          title="No activation history"
-          detail="The first activation will establish generation 1."
+          title="No default history"
+          detail="The first default configuration will appear here."
         />
       ) : (
         <ol>

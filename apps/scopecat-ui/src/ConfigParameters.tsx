@@ -84,7 +84,7 @@ export function ConfigParameters({
           >
             <GitCompareArrows size={13} aria-hidden="true" />
             {changedCount === 0
-              ? "Matches active"
+              ? "Matches default"
               : `${changedCount} changed`}
           </span>
         )}
@@ -272,9 +272,9 @@ function ValueComparison({
   after: ParameterAtom;
 }) {
   return (
-    <div className="value-comparison" aria-label="Active to selected value">
+    <div className="value-comparison" aria-label="Default to selected value">
       <span>
-        <small>Active</small>
+        <small>Default</small>
         <ParameterAtomView value={before} />
       </span>
       <GitCompareArrows size={16} aria-hidden="true" />
@@ -301,7 +301,7 @@ function SeriesValueView({
             <tr>
               <th>Index</th>
               <th>Value</th>
-              {before && <th>Active</th>}
+              {before && <th>Default</th>}
             </tr>
           </thead>
           <tbody>

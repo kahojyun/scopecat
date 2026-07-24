@@ -1,7 +1,6 @@
 {
-  "schema_version": "scopecat.system_spec.v3",
-  "id": "example-workspace-system",
-  "workspace_id": "example-workspace",
+  "schema_version": "scopecat.system_spec.v4",
+  "id": "simple-scan-system",
   "primary_entity_id": "q0",
   "topology": {
     "entities": [
