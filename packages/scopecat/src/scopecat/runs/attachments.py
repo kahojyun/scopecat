@@ -100,6 +100,7 @@ def attach_run_artifact(
         id=key,
         kind=kind,
         media_type=selected_media_type,
+        filename=selected_filename,
         content_hash=stable_content_hash(content_fingerprint(selected_content)),
         produced_by="run.attach",
         metadata=dict(metadata or {}),

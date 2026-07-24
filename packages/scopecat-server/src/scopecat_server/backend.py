@@ -1,18 +1,19 @@
-"""Concrete SQLite application service for one daemon-owned workspace."""
+"""Concrete SQLite application service for one daemon-owned project."""
 
 from __future__ import annotations
 
 import logging
 import sqlite3
+from base64 import b64decode, b64encode
 from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
 from threading import Event, Lock, Thread
-from typing import cast
+from typing import Literal, cast
 
 from pydantic import JsonValue, RootModel, TypeAdapter
 from pydantic_core import to_jsonable_python
@@ -29,7 +30,12 @@ from scopecat.adapters.sqlite import (
     SQLiteRunRepository,
 )
 from scopecat.adapters.sqlite.execution import ExecutionJournalConflict
-from scopecat.analysis.service import AnalysisInput, AnalysisOutput, save_analysis
+from scopecat.analysis.service import (
+    AnalysisInput,
+    AnalysisOutput,
+    prepare_encoded_analysis_artifact,
+    save_analysis,
+)
 from scopecat.application.services import WorkspaceServices
 from scopecat.config.candidates import CandidateConfig
 from scopecat.config.changes import (
@@ -41,6 +47,7 @@ from scopecat.config.changes import (
 from scopecat.config.registry import service as config_registry_service
 from scopecat.config.resolution import (
     register_and_activate_candidate_config,
+    resolve_experiment_config,
     validate_config_profile,
 )
 from scopecat.control.models import (
@@ -64,11 +71,21 @@ from scopecat.daemon.views import (
     MeasurementPage,
     ParameterProposalListView,
     ParameterProposalView,
+    RunAnalysisListView,
+    RunAnalysisView,
+    RunArtifactBytesView,
+    RunArtifactJsonView,
+    RunArtifactTextView,
     RunConfigView,
+    RunDatasetContentView,
     RunDetail,
+    RunRecordJsonView,
+    RunRequestView,
     RunResourceView,
 )
 from scopecat.daemon.wire import (
+    AnalysisArtifactOutputPayload,
+    AnalysisOutputPayload,
     AnalysisParameterProposalOutputPayload,
     AnalysisSaveCommand,
     AnalysisSaveReceipt,
@@ -106,6 +123,8 @@ from scopecat.daemon.wire import (
     PayloadCommitReceipt,
     ResourceClaimDescriptor,
     RunAdmission,
+    RunAttachmentCommand,
+    RunAttachmentReceipt,
     RunSubmission,
     TerminalRunCommitCommand,
     TerminalRunCommitReceipt,
@@ -118,6 +137,7 @@ from scopecat.execution.services import ExecutionServices
 from scopecat.kernel.errors import (
     CheckFailed,
     Conflict,
+    DataIntegrityError,
     NotFound,
     RunFailed,
     RunIndeterminate,
@@ -130,7 +150,11 @@ from scopecat.kernel.problems import (
 )
 from scopecat.kernel.resource_identity import ResourceClaim
 from scopecat.measurements.results import MeasurementRecord
-from scopecat.planning.system import ExperimentSystem
+from scopecat.planning.system import (
+    ExperimentSystemBuilder,
+    build_experiment_system,
+)
+from scopecat.records.analysis import AnalysisRecord
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.execution_journal import (
     CollectionChunk,
@@ -147,12 +171,25 @@ from scopecat.records.measurement_recording import (
 )
 from scopecat.records.run import RunManifest, RunOutcome
 from scopecat.records.run_request import RunRequest
+from scopecat.runs.access import list_records, require_dataset
+from scopecat.runs.attachments import attach_run_artifact
 from scopecat.runs.repository import (
     RunModelWrite,
     RunRecordSetWrite,
     TerminalRunCommit,
 )
-from scopecat.runs.service import PlannedRun, plan_experiment
+from scopecat.runs.service import (
+    PlannedRun,
+    load_run_request,
+    plan_experiment,
+    read_run_artifact_bytes,
+    read_run_artifact_json,
+    read_run_artifact_text,
+    read_run_data_array,
+    read_run_data_table,
+    read_run_measurement_dataset,
+    read_run_record_json,
+)
 
 from .errors import BackendConflict, BackendNotFound
 
@@ -164,27 +201,52 @@ class _JsonDocument(RootModel[dict[str, JsonValue]]):
     pass
 
 
+def _analysis_output(item: AnalysisOutputPayload) -> AnalysisOutput:
+    if isinstance(item, AnalysisArtifactOutputPayload):
+        content = prepare_encoded_analysis_artifact(
+            title=item.title,
+            kind=item.artifact_kind,
+            artifact_id=item.artifact_id,
+            filename=item.filename,
+            content=b64decode(item.content_base64, validate=True),
+            media_type=item.media_type,
+            metadata=item.artifact_metadata,
+            source_default_filename=item.source_default_filename,
+            source_default_extension=item.source_default_extension,
+            source_default_media_type=item.source_default_media_type,
+            source_content_hash=item.source_content_hash,
+        )
+    else:
+        content = item.content
+    return AnalysisOutput(
+        kind=item.kind,
+        title=item.title,
+        content=content,
+        metadata=item.metadata,
+    )
+
+
 class SQLiteDaemonBackend:
     """Single-process scheduler and execution boundary over shared SQLite state."""
 
     def __init__(
         self,
         *,
-        workspace: str | Path,
+        project_root: str | Path,
         control: SQLiteControlPlane,
         runs: SQLiteRunRepository,
         config_registry: SQLiteConfigRegistryStore,
         catalog: RegisteredExperimentCatalog | None = None,
-        system: ExperimentSystem | None = None,
+        build_system: ExperimentSystemBuilder | None = None,
         lease_ttl: timedelta | None = None,
         supervisor_interval_seconds: float = 0.5,
     ) -> None:
-        self.workspace = Path(workspace).resolve()
+        self.project_root = Path(project_root).resolve()
         self.control = control
         self.runs = runs
         self.config_registry = config_registry
         self._catalog = catalog or RegisteredExperimentCatalog()
-        self._system = system
+        self._build_system = build_system
         self._lease_ttl = lease_ttl or timedelta(seconds=30)
         self._heartbeat_interval_seconds = self._lease_ttl.total_seconds() / 3
         self._supervisor_interval_seconds = supervisor_interval_seconds
@@ -222,16 +284,10 @@ class SQLiteDaemonBackend:
         try:
             self.control.schema_version()
         except Exception:
-            return DaemonHealth(
-                status="degraded",
-                workspace_id=self._workspace_id,
-            )
+            return self._health("degraded")
         if self._supervisor_failed or not self._supervisor.is_alive():
-            return DaemonHealth(
-                status="degraded",
-                workspace_id=self._workspace_id,
-            )
-        return DaemonHealth(status="ok", workspace_id=self._workspace_id)
+            return self._health("degraded")
+        return self._health("ok")
 
     def catalog(self) -> ExperimentCatalog:
         return self._catalog.snapshot
@@ -432,6 +488,44 @@ class SQLiteDaemonBackend:
             config=self.runs.read_config_profile_snapshot(run_id),
         )
 
+    def get_run_request(self, run_id: str) -> RunRequestView:
+        self._control_run(run_id)
+        with self._run_content_lock, self._config_errors():
+            return RunRequestView(
+                run_id=run_id,
+                request=load_run_request(run_id=run_id, services=self.services),
+            )
+
+    def list_run_analyses(self, run_id: str) -> RunAnalysisListView:
+        self._control_run(run_id)
+        with self._run_content_lock, self._config_errors():
+            manifest = self.runs.read_manifest(run_id)
+            return RunAnalysisListView(
+                run_id=run_id,
+                items=tuple(
+                    self._run_analysis_view(run_id, record.id)
+                    for record in list_records(manifest, kind="analysis")
+                ),
+            )
+
+    def get_run_analysis(self, run_id: str, selector: str) -> RunAnalysisView:
+        self._control_run(run_id)
+        with self._run_content_lock, self._config_errors():
+            return self._run_analysis_view(run_id, selector)
+
+    def _run_analysis_view(self, run_id: str, selector: str) -> RunAnalysisView:
+        result = read_run_record_json(
+            run_id=run_id,
+            selector=selector,
+            expected_kind="analysis",
+            services=self.services,
+        )
+        return RunAnalysisView(
+            run_id=run_id,
+            entry=result.record,
+            analysis=AnalysisRecord.model_validate(result.content),
+        )
+
     def save_run_analysis(
         self,
         run_id: str,
@@ -448,15 +542,7 @@ class SQLiteDaemonBackend:
             )
             for item in command.inputs
         )
-        outputs = tuple(
-            AnalysisOutput(
-                kind=item.kind,
-                title=item.title,
-                content=item.content,
-                metadata=item.metadata,
-            )
-            for item in command.outputs
-        )
+        outputs = tuple(_analysis_output(item) for item in command.outputs)
         proposals = tuple(
             item.content
             for item in command.outputs
@@ -494,6 +580,154 @@ class SQLiteDaemonBackend:
             inputs=command.inputs,
             output_artifacts=saved.output_artifacts,
         )
+
+    def get_run_artifact_bytes(
+        self,
+        run_id: str,
+        selector: str,
+        *,
+        expected_kind: str | None,
+    ) -> RunArtifactBytesView:
+        self._control_run(run_id)
+        with self._run_content_lock, self._config_errors():
+            result = read_run_artifact_bytes(
+                run_id=run_id,
+                selector=selector,
+                expected_kind=expected_kind,
+                services=self.services,
+            )
+            return RunArtifactBytesView(
+                run_id=run_id,
+                artifact=result.artifact,
+                content_base64=b64encode(result.content).decode("ascii"),
+            )
+
+    def get_run_artifact_text(
+        self,
+        run_id: str,
+        selector: str,
+        *,
+        expected_kind: str | None,
+    ) -> RunArtifactTextView:
+        self._control_run(run_id)
+        with self._run_content_lock, self._config_errors():
+            result = read_run_artifact_text(
+                run_id=run_id,
+                selector=selector,
+                expected_kind=expected_kind,
+                services=self.services,
+            )
+            return RunArtifactTextView(
+                run_id=run_id,
+                artifact=result.artifact,
+                content=result.content,
+            )
+
+    def get_run_artifact_json(
+        self,
+        run_id: str,
+        selector: str,
+        *,
+        expected_kind: str | None,
+    ) -> RunArtifactJsonView:
+        self._control_run(run_id)
+        with self._run_content_lock, self._config_errors():
+            result = read_run_artifact_json(
+                run_id=run_id,
+                selector=selector,
+                expected_kind=expected_kind,
+                services=self.services,
+            )
+            return RunArtifactJsonView(
+                run_id=run_id,
+                artifact=result.artifact,
+                content=dict(result.content),
+            )
+
+    def get_run_record_json(
+        self,
+        run_id: str,
+        selector: str,
+        *,
+        expected_kind: str | None,
+    ) -> RunRecordJsonView:
+        self._control_run(run_id)
+        with self._run_content_lock, self._config_errors():
+            result = read_run_record_json(
+                run_id=run_id,
+                selector=selector,
+                expected_kind=expected_kind,
+                services=self.services,
+            )
+            return RunRecordJsonView(
+                run_id=run_id,
+                record=result.record,
+                content=dict(result.content),
+            )
+
+    def get_run_dataset_content(
+        self,
+        run_id: str,
+        selector: str,
+    ) -> RunDatasetContentView:
+        self._control_run(run_id)
+        with self._run_content_lock, self._config_errors():
+            dataset = require_dataset(
+                manifest=self.runs.read_manifest(run_id),
+                selector=selector,
+            )
+            if dataset.kind == "measurement_dataset":
+                content = read_run_measurement_dataset(
+                    run_id=run_id,
+                    selector=selector,
+                    services=self.services,
+                ).dataset
+            elif dataset.kind == "data_table":
+                content = read_run_data_table(
+                    run_id=run_id,
+                    selector=selector,
+                    services=self.services,
+                ).table
+            elif dataset.kind == "data_array":
+                content = read_run_data_array(
+                    run_id=run_id,
+                    selector=selector,
+                    services=self.services,
+                ).array
+            else:
+                raise BackendConflict(
+                    f"run dataset kind does not support content access: {dataset.kind}"
+                )
+            return RunDatasetContentView(
+                run_id=run_id,
+                dataset=dataset,
+                content=content,
+            )
+
+    def attach_run_content(
+        self,
+        run_id: str,
+        command: RunAttachmentCommand,
+    ) -> RunAttachmentReceipt:
+        self._control_run(run_id)
+        content = (
+            None
+            if command.content_base64 is None
+            else b64decode(command.content_base64, validate=True)
+        )
+        with self._run_content_lock, self._config_errors():
+            artifact = attach_run_artifact(
+                services=self.services,
+                run_id=run_id,
+                key=command.key,
+                kind=command.kind,
+                text=command.text,
+                content=content,
+                filename=command.filename,
+                media_type=command.media_type,
+                metadata=command.metadata,
+            )
+        return RunAttachmentReceipt(run_id=run_id, artifact=artifact)
 
     def list_parameter_proposals(self, run_id: str) -> ParameterProposalListView:
         self._control_run(run_id)
@@ -754,7 +988,7 @@ class SQLiteDaemonBackend:
             yield
         except NotFound as error:
             raise BackendNotFound(str(error)) from error
-        except (CheckFailed, Conflict) as error:
+        except (CheckFailed, Conflict, DataIntegrityError) as error:
             raise BackendConflict(str(error)) from error
 
     def list_events(
@@ -1094,9 +1328,17 @@ class SQLiteDaemonBackend:
         )
 
     @property
-    def _workspace_id(self) -> str:
-        identity = sha256(str(self.workspace).encode()).hexdigest()[:16]
+    def _project_id(self) -> str:
+        identity = sha256(str(self.project_root).encode()).hexdigest()[:16]
         return f"local:{identity}"
+
+    def _health(self, status: Literal["ok", "degraded"]) -> DaemonHealth:
+        return DaemonHealth(
+            status=status,
+            project_id=self._project_id,
+            project_name=self.project_root.name,
+            project_root=str(self.project_root),
+        )
 
     def _admit_delegated(self, submission: DelegatedRunSubmission) -> ControlRun:
         accepted = RunManifest(
@@ -1176,12 +1418,21 @@ class SQLiteDaemonBackend:
     ) -> tuple[ControlRun, PlannedRun]:
         try:
             prepared = self._catalog.prepare(submission)
+            resolved_config = resolve_experiment_config(
+                services=self.services,
+                config=submission.request.config_source or "active",
+            )
+            system = build_experiment_system(
+                self._build_system,
+                resolved_config.config,
+            )
             planned = plan_experiment(
                 prepared,
                 services=self.services,
-                config=submission.request.config_source or "active",
-                system=self._system,
+                config=resolved_config.config,
+                system=system,
             )
+            planned = replace(planned, config_source=resolved_config.config_source)
         except KeyError as error:
             raise BackendNotFound(str(error)) from error
         except CheckFailed as error:
@@ -1465,7 +1716,7 @@ class SQLiteDaemonBackend:
         try:
             lease = self._start_execution(
                 run_id,
-                executor_id=f"daemon:{self._workspace_id}",
+                executor_id=f"daemon:{self._project_id}",
                 manifest=running,
             )
         except BackendConflict:
@@ -1500,7 +1751,7 @@ class SQLiteDaemonBackend:
                     ),
                 ),
                 instrument_provider=(
-                    None if self._system is None else self._system.provider
+                    None if planned.system is None else planned.system.provider
                 ),
                 event_sink=authority.observe,
             )
@@ -1591,11 +1842,17 @@ class SQLiteDaemonBackend:
             ),
             request=request,
         )
+        config = self.runs.read_config_profile_snapshot(run.run_id)
+        system = build_experiment_system(self._build_system, config)
         planned = plan_experiment(
             self._catalog.prepare(submission),
             services=self.services,
-            config=self.runs.read_config_profile_snapshot(run.run_id),
-            system=self._system,
+            config=config,
+            system=system,
+        )
+        planned = replace(
+            planned,
+            config_source=self.runs.read_manifest(run.run_id).config_source,
         )
         if (
             self._program_summary(planned).model_dump(mode="json")

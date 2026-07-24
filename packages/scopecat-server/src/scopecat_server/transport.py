@@ -22,8 +22,16 @@ from scopecat.daemon.views import (
     DaemonHealth,
     MeasurementPage,
     ParameterProposalListView,
+    RunAnalysisListView,
+    RunAnalysisView,
+    RunArtifactBytesView,
+    RunArtifactJsonView,
+    RunArtifactTextView,
     RunConfigView,
+    RunDatasetContentView,
     RunDetail,
+    RunRecordJsonView,
+    RunRequestView,
 )
 from scopecat.daemon.wire import (
     AnalysisSaveCommand,
@@ -58,6 +66,8 @@ from scopecat.daemon.wire import (
     PayloadCommitCommand,
     PayloadCommitReceipt,
     RunAdmission,
+    RunAttachmentCommand,
+    RunAttachmentReceipt,
     RunSubmission,
     TerminalRunCommitCommand,
     TerminalRunCommitReceipt,
@@ -117,11 +127,61 @@ class DaemonBackend(Protocol):
 
     def get_run_config(self, run_id: str) -> RunConfigView: ...
 
+    def get_run_request(self, run_id: str) -> RunRequestView: ...
+
+    def list_run_analyses(self, run_id: str) -> RunAnalysisListView: ...
+
+    def get_run_analysis(self, run_id: str, selector: str) -> RunAnalysisView: ...
+
     def save_run_analysis(
         self,
         run_id: str,
         command: AnalysisSaveCommand,
     ) -> AnalysisSaveReceipt: ...
+
+    def get_run_artifact_bytes(
+        self,
+        run_id: str,
+        selector: str,
+        *,
+        expected_kind: str | None,
+    ) -> RunArtifactBytesView: ...
+
+    def get_run_artifact_text(
+        self,
+        run_id: str,
+        selector: str,
+        *,
+        expected_kind: str | None,
+    ) -> RunArtifactTextView: ...
+
+    def get_run_artifact_json(
+        self,
+        run_id: str,
+        selector: str,
+        *,
+        expected_kind: str | None,
+    ) -> RunArtifactJsonView: ...
+
+    def get_run_record_json(
+        self,
+        run_id: str,
+        selector: str,
+        *,
+        expected_kind: str | None,
+    ) -> RunRecordJsonView: ...
+
+    def get_run_dataset_content(
+        self,
+        run_id: str,
+        selector: str,
+    ) -> RunDatasetContentView: ...
+
+    def attach_run_content(
+        self,
+        run_id: str,
+        command: RunAttachmentCommand,
+    ) -> RunAttachmentReceipt: ...
 
     def list_parameter_proposals(
         self,
@@ -306,6 +366,14 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     def get_run_config(run_id: str) -> RunConfigView:
         return backend.get_run_config(run_id)
 
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/request")
+    def get_run_request(run_id: str) -> RunRequestView:
+        return backend.get_run_request(run_id)
+
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/analyses")
+    def list_run_analyses(run_id: str) -> RunAnalysisListView:
+        return backend.list_run_analyses(run_id)
+
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/analyses", status_code=201)
     def save_run_analysis(
         run_id: str,
@@ -313,6 +381,73 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     ) -> AnalysisSaveReceipt:
         _require_run_id(run_id, command.run_id)
         return backend.save_run_analysis(run_id, command)
+
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/analyses/{{selector}}")
+    def get_run_analysis(run_id: str, selector: str) -> RunAnalysisView:
+        return backend.get_run_analysis(run_id, selector)
+
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/artifacts/{{selector}}/bytes")
+    def get_run_artifact_bytes(
+        run_id: str,
+        selector: str,
+        expected_kind: str | None = None,
+    ) -> RunArtifactBytesView:
+        return backend.get_run_artifact_bytes(
+            run_id,
+            selector,
+            expected_kind=expected_kind,
+        )
+
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/artifacts/{{selector}}/text")
+    def get_run_artifact_text(
+        run_id: str,
+        selector: str,
+        expected_kind: str | None = None,
+    ) -> RunArtifactTextView:
+        return backend.get_run_artifact_text(
+            run_id,
+            selector,
+            expected_kind=expected_kind,
+        )
+
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/artifacts/{{selector}}/json")
+    def get_run_artifact_json(
+        run_id: str,
+        selector: str,
+        expected_kind: str | None = None,
+    ) -> RunArtifactJsonView:
+        return backend.get_run_artifact_json(
+            run_id,
+            selector,
+            expected_kind=expected_kind,
+        )
+
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/records/{{selector}}/json")
+    def get_run_record_json(
+        run_id: str,
+        selector: str,
+        expected_kind: str | None = None,
+    ) -> RunRecordJsonView:
+        return backend.get_run_record_json(
+            run_id,
+            selector,
+            expected_kind=expected_kind,
+        )
+
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/datasets/{{selector}}")
+    def get_run_dataset_content(
+        run_id: str,
+        selector: str,
+    ) -> RunDatasetContentView:
+        return backend.get_run_dataset_content(run_id, selector)
+
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/attachments", status_code=201)
+    def attach_run_content(
+        run_id: str,
+        command: RunAttachmentCommand,
+    ) -> RunAttachmentReceipt:
+        _require_run_id(run_id, command.run_id)
+        return backend.attach_run_content(run_id, command)
 
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/parameter-proposals")
     def list_parameter_proposals(run_id: str) -> ParameterProposalListView:
@@ -529,7 +664,7 @@ async def _event_stream(
 
 
 def _encode_sse(event_id: int, data: str) -> str:
-    return f"id: {event_id}\nevent: workspace\ndata: {data}\n\n"
+    return f"id: {event_id}\nevent: project\ndata: {data}\n\n"
 
 
 def _require_run_id(path_run_id: str, body_run_id: str) -> None:

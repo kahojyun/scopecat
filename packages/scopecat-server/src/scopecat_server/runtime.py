@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from datetime import timedelta
 from pathlib import Path
 from typing import Self
@@ -15,7 +14,6 @@ from scopecat.adapters.sqlite import (
     SQLiteRunRepository,
     bootstrap_execution_schema,
 )
-from scopecat.application import LabApplication
 from scopecat.config.registry import list_config_registry_entries
 from scopecat.config.resolution import (
     ConfigProfileInput,
@@ -23,56 +21,54 @@ from scopecat.config.resolution import (
     validate_config_profile,
 )
 from scopecat.daemon.catalog import RegisteredExperimentCatalog
-from scopecat.planning.system import ExperimentSystem
+from scopecat.planning.system import ExperimentSystemBuilder
+from scopecat.project import LabApplicationFactory
 from scopecat.records.config import config_content_hash
 
 from .backend import SQLiteDaemonBackend
 from .transport import create_app
 
-type LabApplicationFactory = Callable[[Path], LabApplication]
-
 
 class LocalDaemonRuntime:
-    """Own all process-scoped services for one workspace."""
+    """Own all process-scoped services for one project."""
 
     def __init__(
         self,
-        workspace: str | Path,
+        project_root: str | Path,
         *,
         catalog: RegisteredExperimentCatalog | None = None,
-        system: ExperimentSystem | None = None,
+        build_system: ExperimentSystemBuilder | None = None,
         bootstrap_config: ConfigProfileInput | None = None,
         application_factory: LabApplicationFactory | None = None,
         lease_ttl: timedelta | None = None,
     ) -> None:
-        self.workspace = Path(workspace).resolve()
-        self.workspace.mkdir(parents=True, exist_ok=True)
-        self.state_dir = self.workspace / ".scopecat"
+        self.project_root = Path(project_root).resolve()
+        self.project_root.mkdir(parents=True, exist_ok=True)
+        self.state_dir = self.project_root / ".scopecat"
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self.state_dir.chmod(0o700)
-        self._workspace_lock = FileLock(self.state_dir / "daemon.lock")
+        self._owner_lock = FileLock(self.state_dir / "daemon.lock")
         try:
             # This lock establishes one process owner; SQLite remains the only
             # concurrency mechanism inside that process boundary.
-            self._workspace_lock.acquire(timeout=0)
+            self._owner_lock.acquire(timeout=0)
         except Timeout as error:
             raise RuntimeError(
-                f"workspace already has a running daemon: {self.workspace}"
+                f"project already has a running daemon: {self.project_root}"
             ) from error
-        database = self.state_dir / "workspace.sqlite3"
+        database = self.state_dir / "control.sqlite3"
         objects = self.state_dir / "objects"
 
         try:
             if application_factory is not None:
-                if catalog is not None or system is not None:
+                if catalog is not None or build_system is not None:
                     raise ValueError(
-                        "application_factory cannot be combined with catalog or system"
+                        "application_factory cannot be combined with catalog or "
+                        "build_system"
                     )
-                application = application_factory(self.workspace)
+                application = application_factory(self.project_root)
                 catalog = application.catalog
-                system = application.system
-                if bootstrap_config is None:
-                    bootstrap_config = application.bootstrap_config
+                build_system = application.build_system
 
             self.control = SQLiteControlPlane(database)
             self.runs = SQLiteRunRepository(database, objects)
@@ -89,12 +85,12 @@ class LocalDaemonRuntime:
             self.config_registry.bootstrap()
 
             backend = SQLiteDaemonBackend(
-                workspace=self.workspace,
+                project_root=self.project_root,
                 control=self.control,
                 runs=self.runs,
                 config_registry=self.config_registry,
                 catalog=catalog,
-                system=system,
+                build_system=build_system,
                 lease_ttl=lease_ttl,
             )
             try:
@@ -105,7 +101,7 @@ class LocalDaemonRuntime:
                 raise
             self.backend = backend
         except BaseException:
-            self._workspace_lock.release()
+            self._owner_lock.release()
             raise
 
     def app(self, *, static_dir: str | Path | None = None) -> FastAPI:
@@ -115,7 +111,7 @@ class LocalDaemonRuntime:
         try:
             self.backend.close()
         finally:
-            self._workspace_lock.release()
+            self._owner_lock.release()
 
     def __enter__(self) -> Self:
         return self
@@ -142,8 +138,8 @@ def _bootstrap_config_registry(
         config=validated,
         services=backend.services,
         entry_id=f"daemon-{digest}",
-        registered_by="scopecatd",
-        operator="scopecatd",
+        registered_by="scopecat",
+        operator="scopecat",
         note="imported while bootstrapping a new lab instance",
     )
 

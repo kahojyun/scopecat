@@ -15,6 +15,7 @@ if TYPE_CHECKING:
         AnalysisInvocation,
         analysis_step,
     )
+    from scopecat.api.lab import LabClient, PreparedLabExperiment
     from scopecat.api.workspace import (
         Analysis,
         AnalysisContext,
@@ -24,11 +25,9 @@ if TYPE_CHECKING:
         CandidateConfig,
         Data,
         EarlyStopDecision,
-        PreparedExperiment,
         Quantity,
         RunHandle,
         SavedAnalysis,
-        Workspace,
         decide_online_convergence,
     )
     from scopecat.application import LabApplication
@@ -117,7 +116,7 @@ if TYPE_CHECKING:
         replace_table_parameter,
         update_parameter_rows,
     )
-    from scopecat.daemon.workspace import DaemonWorkspace, connect
+    from scopecat.daemon.connection import DaemonConnection, connect
     from scopecat.execution.observation import (
         RunFinishedEvent,
         RunStartedEvent,
@@ -151,6 +150,7 @@ if TYPE_CHECKING:
     from scopecat.planning.check_results import ExperimentCheckResult
     from scopecat.planning.preview_models import ExperimentPreview
     from scopecat.planning.system import ExperimentSystem
+    from scopecat.project import Project, open_project
     from scopecat.records.entity import EntityRef, entity_ref
 
     Run = RunHandle
@@ -175,6 +175,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "InputDescription": ("scopecat.authoring", "InputDescription"),
     "IntType": ("scopecat.authoring", "IntType"),
     "LabApplication": ("scopecat.application", "LabApplication"),
+    "LabClient": ("scopecat.api.lab", "LabClient"),
     "MeasurementTransform": ("scopecat.authoring", "MeasurementTransform"),
     "MetadataValue": ("scopecat.authoring", "MetadataValue"),
     "ModuleBuilder": ("scopecat.authoring", "ModuleBuilder"),
@@ -234,6 +235,8 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "ExperimentCheckResult",
     ),
     "ExperimentSystem": ("scopecat.planning.system", "ExperimentSystem"),
+    "PreparedLabExperiment": ("scopecat.api.lab", "PreparedLabExperiment"),
+    "Project": ("scopecat.project", "Project"),
     "RunDomainJob": ("scopecat.execution.program", "RunDomainJob"),
     "RunHostBinding": ("scopecat.execution.program", "RunHostBinding"),
     "RunProgram": ("scopecat.execution.program", "RunProgram"),
@@ -300,18 +303,17 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "AnalysisStep": ("scopecat.api.analysis", "AnalysisStep"),
     "CandidateConfig": ("scopecat.config.candidates", "CandidateConfig"),
     "Data": ("scopecat.api.data", "Data"),
-    "DaemonWorkspace": ("scopecat.daemon.workspace", "DaemonWorkspace"),
+    "DaemonConnection": ("scopecat.daemon.connection", "DaemonConnection"),
     "EarlyStopDecision": ("scopecat.analysis.online", "EarlyStopDecision"),
-    "PreparedExperiment": ("scopecat.api.workspace", "PreparedExperiment"),
     "Quantity": ("scopecat.records.parameter", "Quantity"),
     "RunHandle": ("scopecat.api.run", "RunHandle"),
     "SavedAnalysis": ("scopecat.analysis.service", "SavedAnalysis"),
-    "Workspace": ("scopecat.api.workspace", "Workspace"),
     "decide_online_convergence": (
         "scopecat.analysis.online",
         "decide_online_convergence",
     ),
-    "connect": ("scopecat.daemon.workspace", "connect"),
+    "connect": ("scopecat.daemon.connection", "connect"),
+    "open_project": ("scopecat.project", "open_project"),
     "analysis_step": ("scopecat.api.analysis", "analysis_step"),
     "Run": ("scopecat.api.run", "RunHandle"),
 }
@@ -343,7 +345,7 @@ __all__ = [
     "CandidateConfig",
     "Compute",
     "ComputeInput",
-    "DaemonWorkspace",
+    "DaemonConnection",
     "Data",
     "DomainExecution",
     "DomainInputPort",
@@ -366,6 +368,7 @@ __all__ = [
     "InputDescription",
     "IntType",
     "LabApplication",
+    "LabClient",
     "MeasurementDatasetSchema",
     "MeasurementTransform",
     "MeasurementTransformSemanticContract",
@@ -379,7 +382,7 @@ __all__ = [
     "ParameterKeyInput",
     "ParameterRow",
     "PayloadType",
-    "PreparedExperiment",
+    "PreparedLabExperiment",
     "Problem",
     "ProblemCategory",
     "ProblemImpact",
@@ -388,6 +391,7 @@ __all__ = [
     "ProductAxis",
     "ProductOutputs",
     "ProductRef",
+    "Project",
     "Quantity",
     "QuantityType",
     "RecordField",
@@ -422,7 +426,6 @@ __all__ = [
     "TemplateDefinition",
     "ValueRef",
     "ValueType",
-    "Workspace",
     "analysis_step",
     "axis",
     "blocking_problem",
@@ -444,6 +447,7 @@ __all__ = [
     "model_location",
     "module",
     "module_body",
+    "open_project",
     "param_axis",
     "param_row",
     "parameter",

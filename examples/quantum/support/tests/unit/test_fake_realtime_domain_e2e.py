@@ -5,7 +5,7 @@ import scopecat as sc
 from scopecat.measurements.results import MeasurementArray
 from scopecat_quantum import authoring as q
 
-from quantum_lab_demo import quantum_lab, quantum_realtime_lab_compiler
+from quantum_lab_demo import quantum_realtime_lab_compiler
 from quantum_lab_demo.targets.fake_realtime import (
     RtDecrementAndJump,
     RtJumpIf,
@@ -24,6 +24,8 @@ from quantum_lab_demo.workflows.interaction_tomography import (
     interaction_tomography_program,
     interaction_tomography_template,
 )
+
+from .demo_lab_experiment_testkit import embedded_quantum_lab
 
 
 @q.program(id="domain-detector-history")
@@ -68,7 +70,7 @@ def test_active_reset_runs_through_the_domain_compiler_without_unrolling(
     compiler = quantum_realtime_lab_compiler(
         config_profile=config, measurement_bits={"reset_iq": (0, 1, 0, 1, 1, 0)}
     )
-    lab = quantum_lab(
+    lab = embedded_quantum_lab(
         workspace=tmp_path,
         config_profile=config,
         compiler=compiler,
@@ -98,7 +100,7 @@ def test_direct_interaction_layout_runs_on_the_realtime_target(
 ) -> None:
     config = quantum_wiring_config_profile(target="fake-realtime")
     compiler = quantum_realtime_lab_compiler(config_profile=config)
-    lab = quantum_lab(
+    lab = embedded_quantum_lab(
         workspace=tmp_path,
         config_profile=config,
         compiler=compiler,
@@ -143,7 +145,7 @@ def test_emitted_detector_is_a_typed_domain_result_with_ssa_provenance(
         config_profile=config, measurement_bits={"syndrome_iq": (0, 1, 0, 1, 1, 0)}
     )
     run = (
-        quantum_lab(
+        embedded_quantum_lab(
             workspace=tmp_path,
             config_profile=config,
             compiler=compiler,

@@ -8,6 +8,7 @@ import pytest
 from pydantic import BaseModel, ConfigDict
 
 import scopecat as sc
+from scopecat.api.workspace import Workspace
 from scopecat.composition.embedded import (
     embedded_run_repository,
     open_embedded_workspace,
@@ -158,7 +159,7 @@ def test_workspace_runs_and_reads_exploratory_data(tmp_path: Path) -> None:
     figure = data.figure("analysis-plot")
     schema = data.schema()
 
-    assert isinstance(lab, sc.Workspace)
+    assert isinstance(lab, Workspace)
     assert isinstance(run, sc.Run)
     assert raw.dataset_entry.id == "raw-measurements"
     assert [dataset.id for dataset in measurement_datasets] == ["raw-measurements"]

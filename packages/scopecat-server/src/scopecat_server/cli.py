@@ -1,117 +1,209 @@
-"""Command-line entry point for the local workspace daemon."""
+"""Project-oriented Scopecat command line."""
 
 from __future__ import annotations
 
-import argparse
 from collections.abc import Sequence
-from dataclasses import dataclass
-from importlib import import_module
 from pathlib import Path
-from typing import cast
+from typing import Annotated, Never
 
-import uvicorn
+import typer
+from rich.console import Console
+from scopecat.project import ProjectManifestError, open_project
 
-from .project import discover_lab_project
-from .runtime import LabApplicationFactory, LocalDaemonRuntime
+from .lifecycle import (
+    DaemonLifecycleError,
+    initialize_project,
+    inspect_daemon,
+    open_project_gui,
+    serve_project,
+    start_project,
+    stop_project,
+)
+
+app = typer.Typer(
+    name="scopecat",
+    help="Manage one local Scopecat lab project.",
+    no_args_is_help=True,
+)
+console = Console()
+error_console = Console(stderr=True)
+
+_CURRENT_DIRECTORY = Path()
+_DEFAULT_STATIC_DIR = Path(__file__).with_name("static")
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
+
+
+def _validate_host(value: str) -> str:
+    if value not in _LOOPBACK_HOSTS:
+        raise typer.BadParameter("must be a loopback host")
+    return value
+
+
+@app.command("init")
+def init_command(
+    project: Annotated[
+        Path,
+        typer.Argument(help="Directory to initialize."),
+    ] = _CURRENT_DIRECTORY,
+) -> None:
+    """Initialize a minimal lab project."""
+
+    try:
+        initialized = initialize_project(project)
+    except DaemonLifecycleError as error:
+        _fail(error)
+    console.print(f"[green]initialized[/green] {initialized.root}")
+
+
+@app.command()
+def serve(
+    project: Annotated[
+        Path,
+        typer.Argument(help="Project directory or scopecat.toml."),
+    ] = _CURRENT_DIRECTORY,
+    host: Annotated[
+        str,
+        typer.Option(help="Loopback listen address.", callback=_validate_host),
+    ] = "127.0.0.1",
+    port: Annotated[
+        int,
+        typer.Option(
+            help="Listen port; 0 selects an available port.",
+            min=0,
+            max=65535,
+        ),
+    ] = 0,
+) -> None:
+    """Run the project daemon in the foreground."""
+
+    try:
+        selected = open_project(project)
+        serve_project(
+            selected,
+            host=host,
+            port=port,
+            static_dir=_DEFAULT_STATIC_DIR,
+        )
+    except (DaemonLifecycleError, ProjectManifestError, OSError) as error:
+        _fail(error)
+
+
+@app.command()
+def start(
+    project: Annotated[
+        Path,
+        typer.Argument(help="Project directory or scopecat.toml."),
+    ] = _CURRENT_DIRECTORY,
+    host: Annotated[
+        str,
+        typer.Option(help="Loopback listen address.", callback=_validate_host),
+    ] = "127.0.0.1",
+    port: Annotated[
+        int,
+        typer.Option(
+            help="Listen port; 0 selects an available port.",
+            min=0,
+            max=65535,
+        ),
+    ] = 0,
+) -> None:
+    """Start the project daemon in the background."""
+
+    try:
+        selected = open_project(project)
+        record = start_project(selected, host=host, port=port)
+    except (DaemonLifecycleError, ProjectManifestError, OSError) as error:
+        _fail(error)
+    console.print(
+        f"[green]running[/green] {record.base_url} [dim](pid {record.pid})[/dim]"
+    )
+
+
+@app.command()
+def stop(
+    project: Annotated[
+        Path,
+        typer.Argument(help="Project directory or scopecat.toml."),
+    ] = _CURRENT_DIRECTORY,
+) -> None:
+    """Stop the project's recorded daemon process."""
+
+    try:
+        selected = open_project(project)
+        previous = stop_project(selected)
+    except (DaemonLifecycleError, ProjectManifestError, OSError) as error:
+        _fail(error)
+    if previous.state == "stale":
+        console.print("[yellow]stale[/yellow] record removed")
+    else:
+        console.print("[green]stopped[/green]")
+
+
+@app.command()
+def status(
+    project: Annotated[
+        Path,
+        typer.Argument(help="Project directory or scopecat.toml."),
+    ] = _CURRENT_DIRECTORY,
+) -> None:
+    """Show process identity and daemon health."""
+
+    try:
+        selected = open_project(project)
+        observed = inspect_daemon(selected)
+    except (ProjectManifestError, OSError) as error:
+        _fail(error)
+
+    if observed.state == "running" and observed.record is not None:
+        console.print(
+            f"[green]running[/green] {observed.record.base_url} "
+            f"[dim](pid {observed.record.pid})[/dim]"
+        )
+        return
+    if observed.state == "degraded" and observed.record is not None:
+        console.print(
+            f"[yellow]degraded[/yellow] {observed.record.base_url}: {observed.detail}"
+        )
+        return
+    if observed.state == "stale":
+        console.print(f"[yellow]stale[/yellow]: {observed.detail}")
+        return
+    console.print("[dim]stopped[/dim]")
+
+
+@app.command("open")
+def open_command(
+    project: Annotated[
+        Path,
+        typer.Argument(help="Project directory or scopecat.toml."),
+    ] = _CURRENT_DIRECTORY,
+) -> None:
+    """Open the project GUI in the system browser."""
+
+    try:
+        selected = open_project(project)
+        endpoint = open_project_gui(selected)
+    except (DaemonLifecycleError, ProjectManifestError, OSError) as error:
+        _fail(error)
+    console.print(f"[green]opened[/green] {endpoint}")
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    args = _parse_args(argv)
-    project = discover_lab_project(args.project)
-    application_spec = args.application or project.application
-    runtime = LocalDaemonRuntime(
-        project.root,
-        application_factory=(
-            None
-            if application_spec is None
-            else _load_application_factory(application_spec)
-        ),
-        bootstrap_config=args.bootstrap_config or project.bootstrap_config,
-    )
-    try:
-        uvicorn.run(
-            runtime.app(static_dir=args.ui_dir),
-            host=args.host,
-            port=args.port,
-        )
-    finally:
-        runtime.close()
+    """Run the Typer application."""
 
-
-def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="scopecatd",
-        description="Run the Scopecat daemon for one local lab project.",
-    )
-    parser.add_argument(
-        "project",
-        nargs="?",
-        type=Path,
-        default=Path.cwd(),
-        help="project directory or scopecat.toml (default: discover from cwd)",
-    )
-    parser.add_argument(
-        "--host",
-        default="127.0.0.1",
-        choices=("127.0.0.1", "::1", "localhost"),
-        help="listen address (default: 127.0.0.1)",
-    )
-    parser.add_argument(
-        "--port",
-        type=int,
-        default=8765,
-        help="listen port (default: 8765)",
-    )
-    parser.add_argument(
-        "--application",
-        default=None,
-        help="override the MODULE:CALLABLE LabApplication factory",
-    )
-    parser.add_argument(
-        "--bootstrap-config",
-        type=Path,
-        default=None,
-        help="seed config used only when the project registry is empty",
-    )
-    parser.add_argument(
-        "--ui-dir",
-        type=Path,
-        default=Path(__file__).with_name("static"),
-        help="built GUI directory containing index.html",
-    )
-    return parser
-
-
-@dataclass(frozen=True, slots=True)
-class _Arguments:
-    project: Path
-    host: str
-    port: int
-    application: str | None
-    bootstrap_config: Path | None
-    ui_dir: Path | None
-
-
-def _parse_args(argv: Sequence[str] | None) -> _Arguments:
-    parsed = _parser().parse_args(argv)
-    return _Arguments(
-        project=cast("Path", parsed.project),
-        host=cast("str", parsed.host),
-        port=cast("int", parsed.port),
-        application=cast("str | None", parsed.application),
-        bootstrap_config=cast("Path | None", parsed.bootstrap_config),
-        ui_dir=cast("Path | None", parsed.ui_dir),
+    app(
+        args=None if argv is None else list(argv),
+        prog_name="scopecat",
     )
 
 
-def _load_application_factory(spec: str) -> LabApplicationFactory:
-    module_name, separator, attribute_name = spec.partition(":")
-    if not separator or not module_name or not attribute_name:
-        raise ValueError("lab application must use MODULE:CALLABLE")
-    return cast(
-        "LabApplicationFactory",
-        getattr(import_module(module_name), attribute_name),
-    )
+def _fail(error: Exception) -> Never:
+    error_console.print(f"[red]error:[/red] {error}")
+    raise typer.Exit(code=1) from error
 
 
-__all__ = ["main"]
+if __name__ == "__main__":
+    main()
+
+
+__all__ = ["app", "main"]

@@ -18,7 +18,7 @@ from scopecat_quantum import (
 )
 from scopecat_quantum import authoring as quantum
 
-from quantum_lab_demo import quantum_lab, quantum_lab_compiler
+from quantum_lab_demo import quantum_lab_compiler
 from quantum_lab_demo.virtual_lab.parameters import (
     CZ_AMPLITUDE_PARAMETER_COLUMN,
     TWO_QUBIT_GATE_PARAMETER_TABLE,
@@ -46,7 +46,10 @@ from quantum_lab_demo.workflows.cz_phase_experiment import (
     cz_phase_template,
 )
 
-from .demo_lab_experiment_testkit import reject_program_input_binding
+from .demo_lab_experiment_testkit import (
+    embedded_quantum_lab,
+    reject_program_input_binding,
+)
 
 
 def _entity_id(value: object) -> str:
@@ -61,7 +64,7 @@ def _compiled_cz_point(
     analyzer_phase: Quantity,
 ):
     compiler = quantum_lab_compiler()
-    lab = quantum_lab(workspace=tmp_path, compiler=compiler)
+    lab = embedded_quantum_lab(workspace=tmp_path, compiler=compiler)
     scan = sc.cartesian(
         sc.param_axis(
             CZ_AMPLITUDE,
@@ -151,7 +154,7 @@ def test_cz_phase_point_compiles_coupler_flux_on_the_target_channel(
     }
 
 
-def test_cz_phase_workspace_run_fits_pi_and_authors_candidate_proposal(
+def test_cz_phase_embedded_run_fits_pi_and_authors_candidate_proposal(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -161,7 +164,7 @@ def test_cz_phase_workspace_run_fits_pi_and_authors_candidate_proposal(
         reject_program_input_binding,
     )
     compiler = quantum_lab_compiler()
-    lab = quantum_lab(workspace=tmp_path, compiler=compiler)
+    lab = embedded_quantum_lab(workspace=tmp_path, compiler=compiler)
     prepared = lab.prepare(cz_phase_template)
 
     preview = prepared.preview()

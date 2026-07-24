@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Annotated
 
 import scopecat as sc
-from quantum_lab_demo import notebook_workspace, quantum_lab
+from quantum_lab_demo import EXAMPLE_ROOT
 from scopecat_quantum import authoring as q
 
 
@@ -41,11 +41,8 @@ def recursive_readout_template(
 
 
 # %%
-lab = quantum_lab(workspace=notebook_workspace("authoring-recursive-results"))
-preview = lab.prepare(recursive_readout_template(rounds=3, shots=5)).preview(
-    name="repeated parallel readout",
-    tags=("authoring", "recursive", "parallel"),
-)
+lab = sc.open_project(EXAMPLE_ROOT).connect()
+preview = lab.prepare(recursive_readout_template(rounds=3, shots=5)).preview()
 
 # %%
 recursive_result_summary = {

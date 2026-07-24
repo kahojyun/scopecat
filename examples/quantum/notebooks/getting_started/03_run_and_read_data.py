@@ -1,20 +1,17 @@
-"""Notebook-style example: open a workspace, run an experiment, read data."""
+"""Notebook-style example: connect to a project, run an experiment, read data."""
 
 from __future__ import annotations
 
 # %%
-from quantum_lab_demo import notebook_workspace, quantum_lab
+import scopecat as sc
+from quantum_lab_demo import EXAMPLE_ROOT
 from quantum_lab_demo.workflows.readout_frequency import readout_frequency_template
 
 # %%
-workspace = notebook_workspace("03-run-and-read-data")
-lab = quantum_lab(workspace=workspace)
+lab = sc.open_project(EXAMPLE_ROOT).connect()
 
 # %%
-completed_run = lab.prepare(readout_frequency_template(qubit="q0")).run(
-    name="readout frequency",
-    tags=("notebook", "calibration"),
-)
+completed_run = lab.prepare(readout_frequency_template(qubit="q0")).run()
 data = completed_run.data()
 
 # %%

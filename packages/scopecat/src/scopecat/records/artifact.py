@@ -26,6 +26,7 @@ class RunContentEntry(BaseModel):
     kind: str
     title: str | None = None
     media_type: str | None = None
+    filename: str | None = None
     dataset_role: str | None = None
     data_schema: dict[str, object] | None = Field(default=None, alias="schema")
     content_hash: str = Field(min_length=1)
@@ -36,6 +37,18 @@ class RunContentEntry(BaseModel):
     @classmethod
     def validate_storage_segment(cls, value: str) -> str:
         return _validate_run_segment(value)
+
+    @field_validator("filename")
+    @classmethod
+    def validate_filename(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not value or "\\" in value:
+            raise ValueError("run content filename must be a basename")
+        path = PurePosixPath(value)
+        if path.name != value or path.is_absolute() or ".." in path.parts:
+            raise ValueError("run content filename must be a basename")
+        return value
 
 
 class CommandPayload(BaseModel):

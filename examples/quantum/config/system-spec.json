@@ -1,0 +1,557 @@
+{
+  "schema_version": "scopecat.system_spec.v3",
+  "id": "templates-system",
+  "workspace_id": "templates",
+  "primary_entity_id": "q0",
+  "topology": {
+    "entities": [
+      {
+        "id": "q0",
+        "kind": "logical_qubit"
+      },
+      {
+        "id": "q1",
+        "kind": "logical_qubit"
+      },
+      {
+        "id": "q2",
+        "kind": "logical_qubit"
+      },
+      {
+        "id": "q3",
+        "kind": "logical_qubit"
+      },
+      {
+        "id": "coupler-q0-q1",
+        "kind": "logical_coupler"
+      },
+      {
+        "id": "coupler-q2-q3",
+        "kind": "logical_coupler"
+      },
+      {
+        "id": "drive-q0",
+        "kind": "drive_channel"
+      },
+      {
+        "id": "readout-q0",
+        "kind": "readout_channel"
+      },
+      {
+        "id": "drive-q1",
+        "kind": "drive_channel"
+      },
+      {
+        "id": "readout-q1",
+        "kind": "readout_channel"
+      },
+      {
+        "id": "drive-q2",
+        "kind": "drive_channel"
+      },
+      {
+        "id": "readout-q2",
+        "kind": "readout_channel"
+      },
+      {
+        "id": "drive-q3",
+        "kind": "drive_channel"
+      },
+      {
+        "id": "readout-q3",
+        "kind": "readout_channel"
+      }
+    ],
+    "devices": [
+      {
+        "id": "q0",
+        "kind": "logical_qubit",
+        "channels": [
+          "drive-q0",
+          "readout-q0"
+        ]
+      },
+      {
+        "id": "q1",
+        "kind": "logical_qubit",
+        "channels": [
+          "drive-q1",
+          "readout-q1"
+        ]
+      },
+      {
+        "id": "q2",
+        "kind": "logical_qubit",
+        "channels": [
+          "drive-q2",
+          "readout-q2"
+        ]
+      },
+      {
+        "id": "q3",
+        "kind": "logical_qubit",
+        "channels": [
+          "drive-q3",
+          "readout-q3"
+        ]
+      },
+      {
+        "id": "coupler-q0-q1",
+        "kind": "logical_coupler",
+        "channels": [
+          "coupler-q0-q1"
+        ]
+      },
+      {
+        "id": "coupler-q2-q3",
+        "kind": "logical_coupler",
+        "channels": [
+          "coupler-q2-q3"
+        ]
+      }
+    ],
+    "links": [
+      {
+        "id": "q0-q1-coupling",
+        "endpoints": [
+          "q0",
+          "q1",
+          "coupler-q0-q1"
+        ],
+        "kind": "coupling"
+      },
+      {
+        "id": "q2-q3-coupling",
+        "endpoints": [
+          "q2",
+          "q3",
+          "coupler-q2-q3"
+        ],
+        "kind": "coupling"
+      }
+    ],
+    "channels": [
+      {
+        "id": "drive-q0",
+        "kind": "drive",
+        "device_id": "q0",
+        "direction": "control"
+      },
+      {
+        "id": "readout-q0",
+        "kind": "readout",
+        "device_id": "q0",
+        "direction": "readout"
+      },
+      {
+        "id": "drive-q1",
+        "kind": "drive",
+        "device_id": "q1",
+        "direction": "control"
+      },
+      {
+        "id": "readout-q1",
+        "kind": "readout",
+        "device_id": "q1",
+        "direction": "readout"
+      },
+      {
+        "id": "drive-q2",
+        "kind": "drive",
+        "device_id": "q2",
+        "direction": "control"
+      },
+      {
+        "id": "readout-q2",
+        "kind": "readout",
+        "device_id": "q2",
+        "direction": "readout"
+      },
+      {
+        "id": "drive-q3",
+        "kind": "drive",
+        "device_id": "q3",
+        "direction": "control"
+      },
+      {
+        "id": "readout-q3",
+        "kind": "readout",
+        "device_id": "q3",
+        "direction": "readout"
+      },
+      {
+        "id": "coupler-q0-q1",
+        "kind": "coupler",
+        "device_id": "coupler-q0-q1",
+        "direction": "control"
+      },
+      {
+        "id": "coupler-q2-q3",
+        "kind": "coupler",
+        "device_id": "coupler-q2-q3",
+        "direction": "control"
+      }
+    ]
+  },
+  "instrument_registry": {
+    "instruments": [
+      {
+        "id": "drive-stack",
+        "kind": "arbitrary_waveform_control"
+      },
+      {
+        "id": "readout-stack",
+        "kind": "iq_readout"
+      },
+      {
+        "id": "coupler-stack",
+        "kind": "coupler_control"
+      }
+    ]
+  },
+  "domain_target": {
+    "id": "quantum-lab-demo.fake-list-mode.v1",
+    "kind": "quantum_lab_demo.fake-list-mode",
+    "instrument_ids": [
+      "drive-stack",
+      "readout-stack",
+      "coupler-stack"
+    ]
+  },
+  "parameter_catalog": {
+    "schema_version": "scopecat.parameter_catalog.v4",
+    "id": "templates-parameter-definitions-catalog",
+    "definitions": [
+      {
+        "id": "repetitions",
+        "value_type": {
+          "shape": "scalar",
+          "atom": {
+            "type": "quantity",
+            "unit": "count",
+            "minimum": 1.0,
+            "maximum": 10000.0
+          }
+        },
+        "description": "Default acquisition repetitions."
+      },
+      {
+        "id": "qubits",
+        "value_type": {
+          "shape": "table",
+          "columns": [
+            {
+              "id": "qubit",
+              "value_type": {
+                "type": "entity",
+                "entity_kind": "logical_qubit"
+              }
+            },
+            {
+              "id": "rabi_pulse_length",
+              "value_type": {
+                "type": "quantity",
+                "unit": "ns"
+              }
+            },
+            {
+              "id": "rabi_drive_amplitude",
+              "value_type": {
+                "type": "quantity",
+                "unit": "arb"
+              }
+            },
+            {
+              "id": "drag_beta",
+              "value_type": {
+                "type": "quantity",
+                "unit": "ns"
+              }
+            },
+            {
+              "id": "drive_frequency",
+              "value_type": {
+                "type": "quantity",
+                "unit": "GHz"
+              }
+            },
+            {
+              "id": "readout_frequency",
+              "value_type": {
+                "type": "quantity",
+                "unit": "GHz"
+              }
+            },
+            {
+              "id": "readout_power",
+              "value_type": {
+                "type": "quantity",
+                "unit": "dBm"
+              }
+            },
+            {
+              "id": "x_duration",
+              "value_type": {
+                "type": "quantity",
+                "unit": "ns"
+              }
+            },
+            {
+              "id": "x_amplitude",
+              "value_type": {
+                "type": "quantity",
+                "unit": "arb"
+              }
+            },
+            {
+              "id": "quarter_turn_duration",
+              "value_type": {
+                "type": "quantity",
+                "unit": "ns"
+              }
+            },
+            {
+              "id": "quarter_turn_amplitude",
+              "value_type": {
+                "type": "quantity",
+                "unit": "arb"
+              }
+            },
+            {
+              "id": "quarter_turn_sigma",
+              "value_type": {
+                "type": "quantity",
+                "unit": "ns"
+              }
+            },
+            {
+              "id": "readout_duration",
+              "value_type": {
+                "type": "quantity",
+                "unit": "ns"
+              }
+            },
+            {
+              "id": "readout_amplitude",
+              "value_type": {
+                "type": "quantity",
+                "unit": "arb"
+              }
+            }
+          ],
+          "primary_key": [
+            "qubit"
+          ]
+        },
+        "description": "Qubit-keyed calibration values."
+      },
+      {
+        "id": "two_qubit_gates",
+        "value_type": {
+          "shape": "table",
+          "columns": [
+            {
+              "id": "control_qubit",
+              "value_type": {
+                "type": "entity",
+                "entity_kind": "logical_qubit"
+              }
+            },
+            {
+              "id": "partner_qubit",
+              "value_type": {
+                "type": "entity",
+                "entity_kind": "logical_qubit"
+              }
+            },
+            {
+              "id": "gate",
+              "value_type": {
+                "type": "string"
+              }
+            },
+            {
+              "id": "coupler",
+              "value_type": {
+                "type": "entity",
+                "entity_kind": "logical_coupler"
+              }
+            },
+            {
+              "id": "control_echo_amplitude",
+              "value_type": {
+                "type": "quantity",
+                "unit": "arb"
+              }
+            },
+            {
+              "id": "partner_echo_amplitude",
+              "value_type": {
+                "type": "quantity",
+                "unit": "arb"
+              }
+            },
+            {
+              "id": "coupler_parking_flux",
+              "value_type": {
+                "type": "quantity",
+                "unit": "arb"
+              }
+            },
+            {
+              "id": "coupler_amplitude",
+              "value_type": {
+                "type": "quantity",
+                "unit": "arb"
+              }
+            },
+            {
+              "id": "duration",
+              "value_type": {
+                "type": "quantity",
+                "unit": "ns"
+              }
+            },
+            {
+              "id": "sample_rate_hz",
+              "value_type": {
+                "type": "float"
+              }
+            }
+          ],
+          "primary_key": [
+            "control_qubit",
+            "partner_qubit",
+            "gate"
+          ]
+        },
+        "description": "Two-qubit gate calibration values used by unified gate and pulse programs."
+      }
+    ],
+    "metadata": {}
+  },
+  "routing": {
+    "bindings": [
+      {
+        "instrument_id": "drive-stack",
+        "capability": "play_pulse_program",
+        "entity_id": "q0",
+        "channel_id": "drive-q0"
+      },
+      {
+        "instrument_id": "drive-stack",
+        "capability": "play_gate_sequence",
+        "entity_id": "q0",
+        "channel_id": "drive-q0"
+      },
+      {
+        "instrument_id": "drive-stack",
+        "capability": "play_pulse_program",
+        "entity_id": "q1",
+        "channel_id": "drive-q1"
+      },
+      {
+        "instrument_id": "drive-stack",
+        "capability": "play_gate_sequence",
+        "entity_id": "q1",
+        "channel_id": "drive-q1"
+      },
+      {
+        "instrument_id": "drive-stack",
+        "capability": "play_pulse_program",
+        "entity_id": "q2",
+        "channel_id": "drive-q2"
+      },
+      {
+        "instrument_id": "drive-stack",
+        "capability": "play_gate_sequence",
+        "entity_id": "q2",
+        "channel_id": "drive-q2"
+      },
+      {
+        "instrument_id": "drive-stack",
+        "capability": "play_pulse_program",
+        "entity_id": "q3",
+        "channel_id": "drive-q3"
+      },
+      {
+        "instrument_id": "drive-stack",
+        "capability": "play_gate_sequence",
+        "entity_id": "q3",
+        "channel_id": "drive-q3"
+      },
+      {
+        "instrument_id": "readout-stack",
+        "capability": "readout_pulse",
+        "entity_id": "q0",
+        "channel_id": "readout-q0"
+      },
+      {
+        "instrument_id": "readout-stack",
+        "capability": "acquire_iq",
+        "entity_id": "q0",
+        "channel_id": "readout-q0"
+      },
+      {
+        "instrument_id": "readout-stack",
+        "capability": "readout_pulse",
+        "entity_id": "q1",
+        "channel_id": "readout-q1"
+      },
+      {
+        "instrument_id": "readout-stack",
+        "capability": "acquire_iq",
+        "entity_id": "q1",
+        "channel_id": "readout-q1"
+      },
+      {
+        "instrument_id": "readout-stack",
+        "capability": "readout_pulse",
+        "entity_id": "q2",
+        "channel_id": "readout-q2"
+      },
+      {
+        "instrument_id": "readout-stack",
+        "capability": "acquire_iq",
+        "entity_id": "q2",
+        "channel_id": "readout-q2"
+      },
+      {
+        "instrument_id": "readout-stack",
+        "capability": "readout_pulse",
+        "entity_id": "q3",
+        "channel_id": "readout-q3"
+      },
+      {
+        "instrument_id": "readout-stack",
+        "capability": "acquire_iq",
+        "entity_id": "q3",
+        "channel_id": "readout-q3"
+      },
+      {
+        "instrument_id": "coupler-stack",
+        "capability": "play_coupler_pulse",
+        "entity_id": "coupler-q0-q1",
+        "channel_id": "coupler-q0-q1"
+      },
+      {
+        "instrument_id": "coupler-stack",
+        "capability": "set_flux_bias",
+        "entity_id": "coupler-q0-q1",
+        "channel_id": "coupler-q0-q1"
+      },
+      {
+        "instrument_id": "coupler-stack",
+        "capability": "play_coupler_pulse",
+        "entity_id": "coupler-q2-q3",
+        "channel_id": "coupler-q2-q3"
+      },
+      {
+        "instrument_id": "coupler-stack",
+        "capability": "set_flux_bias",
+        "entity_id": "coupler-q2-q3",
+        "channel_id": "coupler-q2-q3"
+      }
+    ]
+  }
+}

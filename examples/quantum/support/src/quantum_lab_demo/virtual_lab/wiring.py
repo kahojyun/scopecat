@@ -21,7 +21,7 @@ from scopecat.records.config import (
 )
 from scopecat.records.entity import EntityRef
 
-from quantum_lab_demo.fixtures import EXPERIMENT_FIXTURE_DIR
+from quantum_lab_demo.configuration import DEMO_CONFIG_PROFILE
 from quantum_lab_demo.targets.configuration import (
     FAKE_LIST_TARGET_KIND,
     FAKE_REALTIME_TARGET_KIND,
@@ -223,7 +223,7 @@ def quantum_wiring_config_profile(
 ) -> ConfigProfileSnapshot:
     """Build one accepted wiring snapshot with an explicit target family."""
 
-    base = load_config_profile(EXPERIMENT_FIXTURE_DIR / "config-profile.json")
+    base = load_config_profile(DEMO_CONFIG_PROFILE)
     domain_target = base.system.domain_target
     if domain_target is None:
         raise ValueError("quantum demo configuration requires a domain target")

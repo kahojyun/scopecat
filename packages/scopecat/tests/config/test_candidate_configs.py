@@ -7,13 +7,18 @@ import pytest
 from pydantic import ValidationError
 
 import scopecat as sc
+from scopecat.api.workspace import Workspace
 from scopecat.composition.embedded import (
     embedded_config_registry_unit_of_work,
     embedded_run_repository,
     embedded_workspace_services,
     open_embedded_workspace,
 )
-from scopecat.config.candidates import resolve_candidate_config_snapshot
+from scopecat.config.candidates import (
+    CandidateConfig,
+    resolve_candidate_config_from_snapshot,
+    resolve_candidate_config_snapshot,
+)
 from scopecat.config.changes import (
     list_parameter_change_decisions,
     load_parameter_change_proposal,
@@ -154,6 +159,101 @@ def test_candidate_config_rejects_overlapping_proposals(tmp_path: Path) -> None:
 
     assert error.value.problems[0].code == ("parameter_change_proposal_merge_invalid")
     assert "overlap" in error.value.problems[0].message
+
+
+def test_candidate_config_from_snapshot_rejects_stale_base_hash(
+    tmp_path: Path,
+) -> None:
+    run = _lab(tmp_path).prepare(load_invocation()).run()
+    candidate = (
+        run.analysis("stale hash")
+        .propose(
+            "drive-frequency",
+            sc.replace_scalar_parameter(
+                "drive_frequency",
+                sc.Quantity(5.4, "GHz"),
+            ),
+        )
+        .candidate_config()
+    )
+    changed_source = run.config.model_copy(
+        update={
+            "environment": run.config.environment.model_copy(
+                update={"id": "changed-environment"}
+            )
+        }
+    )
+
+    with pytest.raises(Conflict) as error:
+        resolve_candidate_config_from_snapshot(
+            candidate,
+            source_config=changed_source,
+        )
+
+    assert error.value.problems[0].code == ("parameter_change_proposal_base_mismatch")
+
+
+def test_candidate_config_from_snapshot_rejects_stale_base_id(
+    tmp_path: Path,
+) -> None:
+    run = _lab(tmp_path).prepare(load_invocation()).run()
+    proposal = (
+        run.analysis("stale id")
+        .propose(
+            "drive-frequency",
+            sc.replace_scalar_parameter(
+                "drive_frequency",
+                sc.Quantity(5.4, "GHz"),
+            ),
+        )
+        .parameter_proposals[0]
+    )
+    candidate = CandidateConfig(
+        parameter_proposals=(
+            proposal.model_copy(update={"base_config_id": "different-config"}),
+        )
+    )
+
+    with pytest.raises(Conflict) as error:
+        resolve_candidate_config_from_snapshot(
+            candidate,
+            source_config=run.config,
+        )
+
+    assert error.value.problems[0].code == (
+        "parameter_change_proposal_base_id_mismatch"
+    )
+
+
+def test_candidate_config_from_snapshot_validates_proposal_merge(
+    tmp_path: Path,
+) -> None:
+    run = _lab(tmp_path).prepare(load_invocation()).run()
+    analysis = (
+        run.analysis("competing fits")
+        .propose(
+            "fit-a",
+            sc.replace_scalar_parameter(
+                "drive_frequency",
+                sc.Quantity(5.4, "GHz"),
+            ),
+        )
+        .propose(
+            "fit-b",
+            sc.replace_scalar_parameter(
+                "drive_frequency",
+                sc.Quantity(5.5, "GHz"),
+            ),
+        )
+    )
+
+    with pytest.raises(CheckFailed) as error:
+        resolve_candidate_config_from_snapshot(
+            analysis.candidate_config(("fit-a", "fit-b")),
+            source_config=run.config,
+        )
+
+    assert error.value.problems[0].code == ("parameter_change_proposal_merge_invalid")
 
 
 def test_candidate_config_rejects_drifted_source_snapshot_before_registration(
@@ -318,7 +418,7 @@ def test_proposal_records_are_immutable_but_idempotent(tmp_path: Path) -> None:
     assert [event.event_id for event in decisions] == [decision.event_id]
 
 
-def _lab(tmp_path: Path) -> sc.Workspace:
+def _lab(tmp_path: Path) -> Workspace:
     return open_embedded_workspace(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",

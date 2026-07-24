@@ -4,7 +4,7 @@ from __future__ import annotations
 
 # %%
 import scopecat as sc
-from quantum_lab_demo import notebook_workspace, quantum_lab
+from quantum_lab_demo import EXAMPLE_ROOT
 from quantum_lab_demo.virtual_lab import (
     CZ_AMPLITUDE_PARAMETER_COLUMN,
     q0_q1_cz_row,
@@ -33,7 +33,7 @@ authoring_summary = {
 print(authoring_summary)
 
 # %%
-lab = quantum_lab(workspace=notebook_workspace("calibration-cz-conditional-phase"))
+lab = sc.open_project(EXAMPLE_ROOT).connect()
 cz_parameter_scan = sc.param_axis(
     CZ_AMPLITUDE,
     q0_q1_cz_row(),

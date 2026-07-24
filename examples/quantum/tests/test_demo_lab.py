@@ -5,13 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from quantum_lab_demo import NOTEBOOK_WORKSPACE_ROOT_ENV
-
 EXAMPLE_ROOT = Path(__file__).parents[1]
 NOTEBOOKS_DIR = EXAMPLE_ROOT / "notebooks"
 
 NOTEBOOK_CASES = (
-    ("getting_started/01_open_workspace.py", "summary"),
+    ("getting_started/01_open_project.py", "summary"),
     ("getting_started/02_define_experiment.py", "summary"),
     ("getting_started/03_run_and_read_data.py", "summary"),
     ("getting_started/04_manual_analysis.py", "summary"),
@@ -30,14 +28,10 @@ NOTEBOOK_CASES = (
 
 @pytest.mark.parametrize(("relative_path", "completion_marker"), NOTEBOOK_CASES)
 def test_notebook_executes(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     relative_path: str,
     completion_marker: str,
 ) -> None:
     """Notebooks are executable documentation; exact contracts live in unit tests."""
-
-    monkeypatch.setenv(NOTEBOOK_WORKSPACE_ROOT_ENV, str(tmp_path))
 
     namespace = runpy.run_path(str(NOTEBOOKS_DIR / relative_path))
 

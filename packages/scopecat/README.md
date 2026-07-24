@@ -1,50 +1,49 @@
 # Scopecat
 
 Scopecat is a local-first, domain-neutral experiment authoring, planning,
-execution, and measurement package. Its notebook-facing entry point is the
-lazy `scopecat` facade; laboratory integrations use the public instrument and
-domain SDK boundaries.
+execution, and measurement package. A user project owns its Python code,
+`scopecat.toml`, and bootstrap configuration; the resident daemon owns accepted
+configuration and run records.
 
-Connect to the resident workspace daemon instead of opening its storage in the
-notebook process:
+Open the project and connect its high-level notebook client:
 
 ```python
 import scopecat as sc
 
-with sc.connect() as workspace:
-    health = workspace.health()
-    runs = workspace.runs()
+project = sc.open_project("./my-lab")
+with project.connect() as lab:
+    health = lab.health()
+    runs = lab.runs()
 ```
 
-`DaemonWorkspace` also exposes catalog, run-detail, measurement, and durable
-event reads. Runs whose executor was lost remain quarantined until
-`resolve_attention(run_id, "release" | "requeue" | "abort")` records an
-operator decision.
+Project discovery loads the same version-controlled `LabApplication` used by
+the daemon. The application supplies a catalog and a config-aware system
+builder; planning always passes it the accepted config snapshot selected for
+that run.
 
-Use `submit_managed(registration_id, registration_version, request)` when the
-daemon definition contains that exact catalog registration. Start the daemon
-with an active configuration through `--config-profile`, or provide
-`DaemonDefinition.active_config`. The daemon validates and activates that
-snapshot, then plans, acquires resources, and executes the run.
+A new project may seed its registry through `scopecat.toml`. Later imports,
+activations, analysis, proposal review, and run data all go through the daemon
+and survive notebook and daemon restarts.
 
-Scratch code can stay in the notebook:
+Transient scratch code can stay in the notebook when a closure or interactive
+object cannot be reconstructed reliably in the daemon:
 
 ```python
-with sc.connect() as workspace:
-    manifest = workspace.run_scratch(
-        invocation,
-        config=config_snapshot,
-        system=experiment_system,
-    )
+with project.connect() as lab:
+    run = lab.prepare(scratch_invocation).run()
 ```
 
-`run_scratch` plans and executes the transient Python invocation locally, but
-admission, resource claims, measurements, evidence, and terminal state are
-committed through the daemon. For an already planned run,
-`execute_delegated(planned, ...)` provides the lower-level equivalent.
+Scratch planning and Python closures stay in the notebook process. Admission,
+resource ownership, measurements, terminal state, saved analysis, proposal
+review, and configuration changes still go through the daemon.
+
+`sc.connect()` remains the lower-level daemon transport client for operator and
+infrastructure workflows such as exact catalog submission, event replay, and
+attention resolution. Normal notebook code should start from
+`sc.open_project(...)`.
 
 See the [repository README](../../README.md) for the runnable introduction and
 development commands, and the
-[daemon design](../../docs/workspace-daemon.md) for ownership and fencing
+[daemon design](../../docs/lab-daemon.md) for ownership and fencing
 semantics. Implementation contracts and rationale are documented in the owning
 modules' docstrings.

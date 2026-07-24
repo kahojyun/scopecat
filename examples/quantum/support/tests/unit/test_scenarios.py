@@ -9,7 +9,6 @@ from scopecat.planning.authoring import resolve_experiment
 from scopecat.records.artifact import CommandPayload
 from scopecat.records.parameter import Quantity
 
-from quantum_lab_demo.lab import quantum_lab
 from quantum_lab_demo.scenarios.opaque_collection import (
     GATE_DURATION,
     PARALLEL_GATE_SET_TEMPLATE_ID,
@@ -20,6 +19,7 @@ from quantum_lab_demo.scenarios.opaque_collection import (
 )
 
 from .demo_lab_experiment_testkit import (
+    embedded_quantum_lab,
     load_experiment_config,
     measurement_projection_and_points,
 )
@@ -177,7 +177,7 @@ def _run_observed_payloads(
     invocation: ExperimentInvocation,
 ) -> list[CommandPayload]:
     observations: list[RuntimePayloadObservation] = []
-    quantum_lab(workspace=tmp_path).prepare(invocation).run(
+    embedded_quantum_lab(workspace=tmp_path).prepare(invocation).run(
         payload_observer=observations.append,
     )
     return [observation.payload for observation in observations]

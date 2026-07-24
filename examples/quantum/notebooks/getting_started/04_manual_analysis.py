@@ -4,12 +4,11 @@ from __future__ import annotations
 
 # %%
 import scopecat as sc
-from quantum_lab_demo import notebook_workspace, quantum_lab
+from quantum_lab_demo import EXAMPLE_ROOT
 from quantum_lab_demo.workflows.readout_frequency import readout_frequency_template
 
 # %%
-workspace = notebook_workspace("04-manual-analysis")
-lab = quantum_lab(workspace=workspace)
+lab = sc.open_project(EXAMPLE_ROOT).connect()
 
 # %%
 baseline = lab.prepare(readout_frequency_template(qubit="q0")).run(
@@ -43,6 +42,7 @@ analysis = (
     )
 )
 saved_analysis = analysis.save()
+durable_proposals = lab.parameter_proposals(baseline)
 
 # %%
 candidate = analysis.candidate_config()
@@ -54,6 +54,7 @@ summary = {
     "baseline": baseline.id,
     "measurements": len(raw.dataset.records),
     "saved_analysis": saved_analysis.record.id,
+    "durable_proposals": len(durable_proposals.items),
     "candidate_proposals": candidate.proposal_ids,
     "parameter_change": f"{delta.parameter_id} = {delta.after}",
 }

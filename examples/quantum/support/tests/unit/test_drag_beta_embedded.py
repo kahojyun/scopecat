@@ -14,7 +14,7 @@ from scopecat.records.parameter import TableParameterValue
 from scopecat_quantum import authoring as quantum
 
 import quantum_lab_demo.workflows.drag_beta_analysis as analysis_module
-from quantum_lab_demo import quantum_lab, quantum_lab_compiler
+from quantum_lab_demo import quantum_lab_compiler
 from quantum_lab_demo.targets.fake_list_mode import default_fake_list_target
 from quantum_lab_demo.virtual_lab.parameters import (
     DRAG_BETA_PARAMETER_COLUMN,
@@ -42,7 +42,10 @@ from quantum_lab_demo.workflows.drag_beta_experiment import (
     drag_beta_template,
 )
 
-from .demo_lab_experiment_testkit import reject_program_input_binding
+from .demo_lab_experiment_testkit import (
+    embedded_quantum_lab,
+    reject_program_input_binding,
+)
 
 
 def _entity_id(value: object) -> str:
@@ -92,7 +95,7 @@ def test_drag_beta_authors_one_mixed_program_for_both_scan_axes() -> None:
 def test_drag_beta_template_and_scratch_share_the_2d_point_model(
     tmp_path: Path,
 ) -> None:
-    lab = quantum_lab(workspace=tmp_path)
+    lab = embedded_quantum_lab(workspace=tmp_path)
     template_preview = lab.prepare(drag_beta_template).preview()
     scratch_preview = lab.prepare(drag_beta_scratch_experiment()).preview()
 
@@ -114,7 +117,7 @@ def test_drag_beta_template_and_scratch_share_the_2d_point_model(
     assert [point.coordinates for point in scratch_preview.points] == expected
 
 
-def test_drag_beta_workspace_analysis_authors_typed_native_proposal(
+def test_drag_beta_embedded_analysis_authors_typed_native_proposal(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -124,7 +127,7 @@ def test_drag_beta_workspace_analysis_authors_typed_native_proposal(
         reject_program_input_binding,
     )
     compiler = quantum_lab_compiler()
-    lab = quantum_lab(workspace=tmp_path, compiler=compiler)
+    lab = embedded_quantum_lab(workspace=tmp_path, compiler=compiler)
     experiment = lab.prepare(drag_beta_template)
 
     run = experiment.run()
@@ -196,7 +199,7 @@ def test_drag_beta_low_quality_fit_saves_evidence_without_a_proposal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     compiler = quantum_lab_compiler()
-    lab = quantum_lab(workspace=tmp_path)
+    lab = embedded_quantum_lab(workspace=tmp_path)
     run = lab.prepare(
         drag_beta_template,
         system=sc.ExperimentSystem(domain_compiler=compiler),
@@ -300,7 +303,7 @@ def test_synthetic_joint_quadratic_recovers_beta_optimum() -> None:
 def test_drag_beta_review_activate_active_replay_and_rollback(
     tmp_path: Path,
 ) -> None:
-    lab = quantum_lab(workspace=tmp_path)
+    lab = embedded_quantum_lab(workspace=tmp_path)
     source_compiler = quantum_lab_compiler()
     source_run = lab.prepare(
         drag_beta_template,
@@ -408,7 +411,7 @@ def test_drag_beta_review_activate_active_replay_and_rollback(
 def test_drag_beta_response_and_evidence_remain_batch_local(tmp_path: Path) -> None:
     target = replace(default_fake_list_target(), max_list_entries=4)
     compiler = quantum_lab_compiler(target=target)
-    lab = quantum_lab(workspace=tmp_path, compiler=compiler)
+    lab = embedded_quantum_lab(workspace=tmp_path, compiler=compiler)
 
     run = lab.prepare(drag_beta_template).run()
     analysis = analyze_drag_beta_run(run)

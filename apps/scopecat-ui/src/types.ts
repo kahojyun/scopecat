@@ -17,8 +17,11 @@ export interface ResourceClaim {
 export interface ContentEntry {
   id: string;
   role: string;
+  kind: string;
   label: string;
   detail?: string;
+  mediaType?: string;
+  filename?: string;
 }
 
 export interface RunPlanSummary {
@@ -27,7 +30,7 @@ export interface RunPlanSummary {
   recordIds: string[];
 }
 
-export interface WorkspaceRun {
+export interface ProjectRun {
   sequence?: number;
   runId: string;
   experimentId: string;
@@ -46,7 +49,7 @@ export interface WorkspaceRun {
   contents: ContentEntry[];
 }
 
-export interface WorkspaceEvent {
+export interface ProjectEvent {
   id: number;
   runId?: string;
   kind: string;
@@ -67,16 +70,35 @@ export interface ExperimentCatalog {
   experiments: ExperimentDescriptor[];
 }
 
-export interface WorkspaceHealth {
+export interface ProjectHealth {
   status: string;
-  workspace?: string;
-  version?: string;
-  startedAt?: string;
-  uptimeSeconds?: number;
+  projectId: string;
+  projectName: string;
+  projectRoot: string;
   details: Record<string, unknown>;
 }
 
 export interface MeasurementPreview {
   items: Array<Record<string, unknown>>;
   nextOffset?: number;
+}
+
+export interface RunAnalysisOutput {
+  kind: string;
+  title: string;
+  content: unknown;
+}
+
+export interface RunAnalysis {
+  id: string;
+  title: string;
+  key?: string;
+  stepId?: string;
+  outputs: RunAnalysisOutput[];
+}
+
+export interface RunContentPreview {
+  entry: ContentEntry;
+  format: "text" | "json";
+  content: unknown;
 }

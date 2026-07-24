@@ -4,7 +4,7 @@ from __future__ import annotations
 
 # %%
 import scopecat as sc
-from quantum_lab_demo import notebook_workspace, quantum_lab
+from quantum_lab_demo import EXAMPLE_ROOT
 from quantum_lab_demo.virtual_lab import (
     DRAG_BETA_PARAMETER_COLUMN,
     q0_drag_beta_row,
@@ -21,7 +21,7 @@ from quantum_lab_demo.workflows.production_drag_gate import production_drag_temp
 # %%
 # The active DRAG beta centers this parameter-table scan. Each point binds the
 # same Program input used later by the production X90 gate.
-lab = quantum_lab(workspace=notebook_workspace("calibration-drag-beta"))
+lab = sc.open_project(EXAMPLE_ROOT).connect()
 parameter_scan = sc.param_axis(
     BETA,
     q0_drag_beta_row(),
@@ -50,11 +50,16 @@ candidate_preview = (
 )
 
 # %%
-# Install the source config as this isolated demo workspace's rollback point,
-# then review and activate the candidate atomically.
-baseline = lab.activate_config(
+# Import and select the source config as the daemon's rollback point, then
+# review and activate the candidate atomically.
+baseline_entry = lab.import_config(
     completed_run.config,
     entry_id=f"drag-beta-baseline-{completed_run.id}",
+    note="retain the accepted source snapshot as a rollback point",
+)
+baseline = lab.activate_config_entry(
+    baseline_entry.entry.id,
+    note="select the DRAG beta calibration baseline",
 )
 baseline_production_run = lab.prepare(
     production_drag_template(),

@@ -15,12 +15,14 @@ import {
   FlaskConical,
   Gauge,
   Layers3,
+  LayoutDashboard,
   ListFilter,
   LoaderCircle,
   Radio,
   RefreshCw,
   Search,
   Server,
+  Settings2,
   ShieldAlert,
   SquareStack,
   Unlock,
@@ -28,25 +30,33 @@ import {
   Play,
   XCircle,
 } from "lucide-react";
+import { ConfigWorkspace } from "./ConfigWorkspace";
+import { RunProposals } from "./RunProposals";
 import {
+  canPreviewRunContent,
   getCatalog,
   getEvents,
   getHealth,
   getMeasurementPreview,
   getRun,
+  getRunAnalyses,
+  getRunContent,
   getRuns,
   resolveAttention,
   type AttentionAction,
 } from "./api";
 import type {
+  ContentEntry,
   ExperimentCatalog,
   MeasurementPreview,
-  WorkspaceEvent,
-  WorkspaceHealth,
-  WorkspaceRun,
+  ProjectEvent,
+  ProjectHealth,
+  ProjectRun,
+  RunAnalysis,
 } from "./types";
 
 type FilterKey = "all" | "active" | "attention" | "complete";
+type ProjectView = "runs" | "configuration";
 
 const FILTERS: Array<{ key: FilterKey; label: string }> = [
   { key: "all", label: "All" },
@@ -57,6 +67,9 @@ const FILTERS: Array<{ key: FilterKey; label: string }> = [
 
 export default function App() {
   const queryClient = useQueryClient();
+  const [view, setView] = useState<ProjectView>(() =>
+    window.location.hash === "#configuration" ? "configuration" : "runs",
+  );
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<FilterKey>("all");
   const [selectedRunId, setSelectedRunId] = useState<string>();
@@ -90,6 +103,11 @@ export default function App() {
   const measurementsQuery = useQuery({
     queryKey: ["measurements", selectedRunId],
     queryFn: ({ signal }) => getMeasurementPreview(selectedRunId!, signal),
+    enabled: selectedRunId !== undefined,
+  });
+  const analysesQuery = useQuery({
+    queryKey: ["analyses", selectedRunId],
+    queryFn: ({ signal }) => getRunAnalyses(selectedRunId!, signal),
     enabled: selectedRunId !== undefined,
   });
   const attentionMutation = useMutation({
@@ -130,12 +148,18 @@ export default function App() {
         void queryClient.invalidateQueries({ queryKey: ["events"] });
         void queryClient.invalidateQueries({ queryKey: ["run"] });
         void queryClient.invalidateQueries({ queryKey: ["measurements"] });
+        void queryClient.invalidateQueries({ queryKey: ["analyses"] });
+        void queryClient.invalidateQueries({ queryKey: ["run-content"] });
+        void queryClient.invalidateQueries({ queryKey: ["config"] });
+        void queryClient.invalidateQueries({
+          queryKey: ["parameter-proposals"],
+        });
       }, 100);
     };
-    events.addEventListener("workspace", refresh);
+    events.addEventListener("project", refresh);
     return () => {
       if (refreshTimer !== undefined) window.clearTimeout(refreshTimer);
-      events.removeEventListener("workspace", refresh);
+      events.removeEventListener("project", refresh);
       events.close();
     };
   }, [eventsQuery.isSuccess, queryClient]);
@@ -190,19 +214,48 @@ export default function App() {
   const refresh = () => {
     void queryClient.invalidateQueries();
   };
+  const selectView = (selected: ProjectView) => {
+    setView(selected);
+    window.history.replaceState(
+      null,
+      "",
+      selected === "configuration" ? "#configuration" : window.location.pathname,
+    );
+    window.scrollTo({ top: 0, left: 0 });
+  };
 
   return (
     <div className="app-shell">
       <header className="topbar">
-        <a className="brand" href="/" aria-label="Scopecat workspace console">
+        <a className="brand" href="/" aria-label="Scopecat project console">
           <span className="brand-mark" aria-hidden="true">
             <Atom size={20} strokeWidth={1.8} />
           </span>
           <span>
             <strong>Scopecat</strong>
-            <small>Workspace console</small>
+            <small>Project console</small>
           </span>
         </a>
+        <nav className="workspace-nav" aria-label="Project sections">
+          <button
+            type="button"
+            className={view === "runs" ? "active" : undefined}
+            aria-current={view === "runs" ? "page" : undefined}
+            onClick={() => selectView("runs")}
+          >
+            <LayoutDashboard size={15} aria-hidden="true" />
+            Runs
+          </button>
+          <button
+            type="button"
+            className={view === "configuration" ? "active" : undefined}
+            aria-current={view === "configuration" ? "page" : undefined}
+            onClick={() => selectView("configuration")}
+          >
+            <Settings2 size={15} aria-hidden="true" />
+            Configuration
+          </button>
+        </nav>
         <div className="topbar-actions">
           <ConnectionState
             reachable={daemonReachable}
@@ -213,8 +266,8 @@ export default function App() {
             className="icon-button"
             type="button"
             onClick={refresh}
-            aria-label="Refresh workspace data"
-            title="Refresh workspace data"
+            aria-label="Refresh project data"
+            title="Refresh project data"
           >
             <RefreshCw
               size={17}
@@ -228,12 +281,23 @@ export default function App() {
       <main>
         <section className="workspace-heading" aria-labelledby="workspace-title">
           <div>
-            <p className="eyebrow">Local control plane</p>
+            <p className="eyebrow">
+              {view === "runs"
+                ? "Local control plane"
+                : "Durable configuration"}
+            </p>
             <h1 id="workspace-title">
-              {healthQuery.data?.workspace ?? "Workspace"}
+              {healthQuery.data?.projectName ?? "Scopecat project"}
             </h1>
+            {healthQuery.data?.projectRoot && (
+              <code className="project-root">
+                {healthQuery.data.projectRoot}
+              </code>
+            )}
             <p className="workspace-subtitle">
-              Observe experiments, resources, and durable execution events.
+              {view === "runs"
+                ? "Observe experiments, resources, and durable execution events."
+                : "Review active state, immutable snapshots, and registry history."}
             </p>
           </div>
           <div className="sync-note" aria-live="polite">
@@ -249,12 +313,14 @@ export default function App() {
             <Unplug size={18} aria-hidden="true" />
             <span>
               <strong>Daemon unavailable.</strong> Start the local Scopecat
-              daemon, then refresh this page. No cached workspace data is shown.
+              daemon, then refresh this page. No cached project data is shown.
             </span>
           </div>
         )}
 
-        <section className="status-grid" aria-label="Workspace status">
+        {view === "runs" ? (
+          <>
+            <section className="status-grid" aria-label="Project status">
           <StatusCard
             icon={<Server size={18} />}
             label="Daemon"
@@ -303,9 +369,9 @@ export default function App() {
             }
             tone="muted"
           />
-        </section>
+            </section>
 
-        <div className="console-grid">
+            <div className="console-grid">
           <aside className="run-browser" aria-labelledby="runs-heading">
             <div className="panel-heading">
               <div>
@@ -353,7 +419,7 @@ export default function App() {
               {runsQuery.isPending && (
                 <PanelMessage
                   icon={<LoaderCircle className="spin" />}
-                  title="Reading workspace"
+                  title="Reading project"
                   detail="Waiting for the daemon to return its run index."
                 />
               )}
@@ -396,7 +462,7 @@ export default function App() {
               <DetailEmpty
                 icon={<Unplug />}
                 title="Connect to the local daemon"
-                detail="Workspace status and run data are read directly from the daemon. This console does not maintain an offline copy."
+                detail="Project status and run data are read directly from the daemon. This console does not maintain an offline copy."
               />
             ) : selectedRun ? (
               <RunDetail
@@ -408,6 +474,9 @@ export default function App() {
                 measurements={measurementsQuery.data}
                 measurementsError={measurementsQuery.error}
                 measurementsPending={measurementsQuery.isPending}
+                analyses={analysesQuery.data}
+                analysesError={analysesQuery.error}
+                analysesPending={analysesQuery.isPending}
                 attentionAction={attentionMutation.variables?.action}
                 attentionError={attentionMutation.error}
                 attentionPending={attentionMutation.isPending}
@@ -423,7 +492,7 @@ export default function App() {
               <DetailEmpty
                 icon={<LoaderCircle className="spin" />}
                 title="Loading run details"
-                detail="The workspace index is being read."
+                detail="The project run index is being read."
               />
             ) : (
               <DetailEmpty
@@ -433,7 +502,11 @@ export default function App() {
               />
             )}
           </section>
-        </div>
+            </div>
+          </>
+        ) : (
+          <ConfigWorkspace daemonUnavailable={daemonUnavailable} />
+        )}
       </main>
     </div>
   );
@@ -496,7 +569,7 @@ function RunListItem({
   selected,
   onSelect,
 }: {
-  run: WorkspaceRun;
+  run: ProjectRun;
   selected: boolean;
   onSelect: () => void;
 }) {
@@ -539,19 +612,25 @@ function RunDetail({
   measurements,
   measurementsError,
   measurementsPending,
+  analyses,
+  analysesError,
+  analysesPending,
   attentionAction,
   attentionError,
   attentionPending,
   onResolveAttention,
 }: {
-  run: WorkspaceRun;
-  events: WorkspaceEvent[];
+  run: ProjectRun;
+  events: ProjectEvent[];
   eventsError: Error | null;
   catalog?: ExperimentCatalog;
   catalogError: Error | null;
   measurements?: MeasurementPreview;
   measurementsError: Error | null;
   measurementsPending: boolean;
+  analyses?: RunAnalysis[];
+  analysesError: Error | null;
+  analysesPending: boolean;
   attentionAction?: AttentionAction;
   attentionError: Error | null;
   attentionPending: boolean;
@@ -649,6 +728,12 @@ function RunDetail({
 
       <div className="detail-grid">
         <ProgressCard run={run} events={events} />
+        <RunProposals key={run.runId} runId={run.runId} />
+        <AnalysisCard
+          analyses={analyses}
+          error={analysesError}
+          pending={analysesPending}
+        />
         <ResourceCard run={run} />
         <TimelineCard events={events} error={eventsError} />
         <DataCard
@@ -671,8 +756,8 @@ function ProgressCard({
   run,
   events,
 }: {
-  run: WorkspaceRun;
-  events: WorkspaceEvent[];
+  run: ProjectRun;
+  events: ProjectEvent[];
 }) {
   const expected = run.plan.pointCount;
   const completed = completedPoints(run, events);
@@ -751,7 +836,72 @@ function ProgressCard({
   );
 }
 
-function ResourceCard({ run }: { run: WorkspaceRun }) {
+function AnalysisCard({
+  analyses,
+  error,
+  pending,
+}: {
+  analyses?: RunAnalysis[];
+  error: Error | null;
+  pending: boolean;
+}) {
+  return (
+    <article className="detail-card analysis-card">
+      <CardHeading
+        icon={<Atom size={17} />}
+        title="Analyses"
+        accessory={<span className="count-badge">{analyses?.length ?? 0}</span>}
+      />
+      {error ? (
+        <InlineEmpty
+          title="Analyses unavailable"
+          detail={errorMessage(error)}
+          warning
+        />
+      ) : pending ? (
+        <InlineEmpty
+          title="Reading analyses"
+          detail="Waiting for the daemon's persisted analysis records."
+        />
+      ) : !analyses || analyses.length === 0 ? (
+        <InlineEmpty
+          title="No analyses saved"
+          detail="Notebook and automated analysis outputs will appear here."
+        />
+      ) : (
+        <div className="analysis-list">
+          {analyses.map((analysis) => (
+            <details key={analysis.id}>
+              <summary>
+                <span>
+                  <strong>{analysis.title}</strong>
+                  <small>
+                    {analysis.key ?? analysis.id}
+                    {analysis.stepId ? ` · ${analysis.stepId}` : ""}
+                  </small>
+                </span>
+                <span className="count-badge">{analysis.outputs.length}</span>
+              </summary>
+              <div className="analysis-outputs">
+                {analysis.outputs.map((output, index) => (
+                  <section key={`${output.kind}:${output.title}:${index}`}>
+                    <header>
+                      <strong>{output.title}</strong>
+                      <span>{titleCase(output.kind)}</span>
+                    </header>
+                    <pre>{formatPreviewContent(output.content)}</pre>
+                  </section>
+                ))}
+              </div>
+            </details>
+          ))}
+        </div>
+      )}
+    </article>
+  );
+}
+
+function ResourceCard({ run }: { run: ProjectRun }) {
   return (
     <article className="detail-card resource-card">
       <CardHeading
@@ -792,7 +942,7 @@ function TimelineCard({
   events,
   error,
 }: {
-  events: WorkspaceEvent[];
+  events: ProjectEvent[];
   error: Error | null;
 }) {
   return (
@@ -846,11 +996,36 @@ function DataCard({
   error,
   pending,
 }: {
-  run: WorkspaceRun;
+  run: ProjectRun;
   measurements?: MeasurementPreview;
   error: Error | null;
   pending: boolean;
 }) {
+  const [selectedContentKey, setSelectedContentKey] = useState<string>();
+  useEffect(() => {
+    setSelectedContentKey((current) => {
+      if (run.contents.some((entry) => contentKey(entry) === current)) {
+        return current;
+      }
+      const preferred = run.contents.find(canPreviewRunContent) ?? run.contents[0];
+      return preferred ? contentKey(preferred) : undefined;
+    });
+  }, [run.runId, run.contents]);
+  const selectedContent = run.contents.find(
+    (entry) => contentKey(entry) === selectedContentKey,
+  );
+  const contentQuery = useQuery({
+    queryKey: [
+      "run-content",
+      run.runId,
+      selectedContent?.role,
+      selectedContent?.id,
+      selectedContent?.kind,
+    ],
+    queryFn: ({ signal }) => getRunContent(run.runId, selectedContent!, signal),
+    enabled:
+      selectedContent !== undefined && canPreviewRunContent(selectedContent),
+  });
   const hasPlanMetadata =
     run.plan.pointCount !== undefined ||
     run.plan.coordinateIds.length > 0 ||
@@ -888,21 +1063,39 @@ function DataCard({
       {run.contents.length > 0 ? (
         <ul className="content-list">
           {run.contents.map((content) => (
-            <li key={content.id}>
-              <span className="content-role" aria-hidden="true">
-                {content.role === "dataset" ? (
-                  <Database size={15} />
-                ) : (
-                  <SquareStack size={15} />
+            <li
+              key={contentKey(content)}
+              className={
+                contentKey(content) === selectedContentKey
+                  ? "selected"
+                  : undefined
+              }
+            >
+              <button
+                type="button"
+                onClick={() => setSelectedContentKey(contentKey(content))}
+                aria-current={
+                  contentKey(content) === selectedContentKey ? "true" : undefined
+                }
+              >
+                <span className="content-role" aria-hidden="true">
+                  {content.role === "dataset" ? (
+                    <Database size={15} />
+                  ) : (
+                    <SquareStack size={15} />
+                  )}
+                </span>
+                <span>
+                  <strong>{content.label}</strong>
+                  <small>
+                    {titleCase(content.role)}
+                    {content.detail ? ` · ${content.detail}` : ""}
+                  </small>
+                </span>
+                {canPreviewRunContent(content) && (
+                  <ChevronRight size={15} aria-hidden="true" />
                 )}
-              </span>
-              <span>
-                <strong>{content.label}</strong>
-                <small>
-                  {titleCase(content.role)}
-                  {content.detail ? ` · ${content.detail}` : ""}
-                </small>
-              </span>
+              </button>
             </li>
           ))}
         </ul>
@@ -912,12 +1105,86 @@ function DataCard({
           detail="Dataset, record, and artifact metadata will appear after the daemon publishes it."
         />
       )}
+      {selectedContent && (
+        <RunContentPanel
+          entry={selectedContent}
+          content={contentQuery.data?.content}
+          format={contentQuery.data?.format}
+          error={contentQuery.error}
+          pending={contentQuery.isPending}
+        />
+      )}
       <MeasurementRecords
         preview={measurements}
         error={error}
         pending={pending}
       />
     </article>
+  );
+}
+
+function RunContentPanel({
+  entry,
+  content,
+  format,
+  error,
+  pending,
+}: {
+  entry: ContentEntry;
+  content?: unknown;
+  format?: "text" | "json";
+  error: Error | null;
+  pending: boolean;
+}) {
+  if (!canPreviewRunContent(entry)) {
+    if (entry.role === "dataset") {
+      return (
+        <InlineEmpty
+          title={
+            entry.kind === "measurement_dataset"
+              ? "Measurement dataset"
+              : "Dataset preview unavailable"
+          }
+          detail={
+            entry.kind === "measurement_dataset"
+              ? "Use the bounded measurement preview below while records are still arriving."
+              : `The daemon does not expose ${entry.kind} through the typed dataset preview.`
+          }
+        />
+      );
+    }
+    return (
+      <InlineEmpty
+        title="Binary artifact"
+        detail={`${entry.filename ?? entry.id} is recorded, but has no text or JSON preview.`}
+      />
+    );
+  }
+  if (error) {
+    return (
+      <InlineEmpty
+        title="Content unavailable"
+        detail={errorMessage(error)}
+        warning
+      />
+    );
+  }
+  if (pending || content === undefined) {
+    return (
+      <InlineEmpty
+        title="Reading content"
+        detail={`Loading ${entry.label} from the daemon.`}
+      />
+    );
+  }
+  return (
+    <div className="content-preview">
+      <div className="measurement-preview-heading">
+        <strong>{entry.label}</strong>
+        <span>{format === "text" ? "Text" : "JSON"}</span>
+      </div>
+      <pre>{formatPreviewContent(content)}</pre>
+    </div>
   );
 }
 
@@ -1141,10 +1408,10 @@ function InlineEmpty({
 }
 
 function filterRuns(
-  runs: WorkspaceRun[],
+  runs: ProjectRun[],
   filter: FilterKey,
   search: string,
-): WorkspaceRun[] {
+): ProjectRun[] {
   const query = search.trim().toLocaleLowerCase();
   return runs.filter((run) => {
     const matchesFilter =
@@ -1169,8 +1436,8 @@ function filterRuns(
 }
 
 function completedPoints(
-  run: WorkspaceRun,
-  events: WorkspaceEvent[],
+  run: ProjectRun,
+  events: ProjectEvent[],
 ): number {
   let completed = run.progressCompleted ?? 0;
   for (const event of events) {
@@ -1203,7 +1470,7 @@ function eventIcon(kind: string): ReactNode {
   return <CircleDot size={14} />;
 }
 
-function eventDescription(event: WorkspaceEvent): string {
+function eventDescription(event: ProjectEvent): string {
   const primitiveEntries = Object.entries(event.payload)
     .filter(
       ([key, value]) =>
@@ -1214,7 +1481,7 @@ function eventDescription(event: WorkspaceEvent): string {
     )
     .slice(0, 3);
   if (primitiveEntries.length === 0) {
-    return "Durable workspace event committed by the daemon.";
+    return "Durable project event committed by the daemon.";
   }
   return primitiveEntries
     .map(([key, value]) => `${titleCase(key)}: ${String(value)}`)
@@ -1235,13 +1502,18 @@ function humanizeEvent(kind: string): string {
   return specific[kind] ?? titleCase(kind);
 }
 
-function healthDetail(health?: WorkspaceHealth): string {
+function healthDetail(health?: ProjectHealth): string {
   if (!health) return "No health response";
-  if (health.uptimeSeconds !== undefined) {
-    return `Up ${formatDuration(health.uptimeSeconds)}`;
-  }
-  if (health.version) return `Version ${health.version}`;
-  return "Local service reachable";
+  return `Project ${shorten(health.projectId, 18)}`;
+}
+
+function contentKey(entry: ContentEntry): string {
+  return `${entry.role}:${entry.id}`;
+}
+
+function formatPreviewContent(value: unknown): string {
+  if (typeof value === "string") return value;
+  return JSON.stringify(value, null, 2) ?? String(value);
 }
 
 function formatDateTime(value: string): string {
@@ -1274,13 +1546,6 @@ function formatRelative(value: string): string {
   const hours = Math.round(minutes / 60);
   if (Math.abs(hours) < 24) return formatter.format(hours, "hour");
   return formatter.format(Math.round(hours / 24), "day");
-}
-
-function formatDuration(seconds: number): string {
-  if (seconds < 60) return `${Math.floor(seconds)}s`;
-  if (seconds < 3_600) return `${Math.floor(seconds / 60)}m`;
-  if (seconds < 86_400) return `${Math.floor(seconds / 3_600)}h`;
-  return `${Math.floor(seconds / 86_400)}d`;
 }
 
 function shorten(value: string, maxLength: number): string {

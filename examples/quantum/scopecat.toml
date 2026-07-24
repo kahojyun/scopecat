@@ -1,0 +1,3 @@
+[lab]
+application = "quantum_lab_demo.application:quantum_lab_application"
+bootstrap-config = "config/config-profile.json"

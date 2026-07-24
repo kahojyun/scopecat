@@ -3,11 +3,13 @@ import type {
   ExperimentCatalog,
   ExperimentDescriptor,
   MeasurementPreview,
+  ProjectEvent,
+  ProjectHealth,
+  ProjectRun,
   ResourceClaim,
+  RunAnalysis,
+  RunContentPreview,
   RunStatus,
-  WorkspaceEvent,
-  WorkspaceHealth,
-  WorkspaceRun,
 } from "./types";
 
 const API = {
@@ -27,7 +29,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request(
+export async function request(
   path: string,
   signal?: AbortSignal,
   init?: RequestInit,
@@ -46,8 +48,15 @@ async function request(
     throw new ApiError("The local daemon did not respond.");
   }
   if (!response.ok) {
+    let detail: string | undefined;
+    try {
+      detail = string(record(await response.json()).detail);
+    } catch {
+      // Some intermediaries return an empty or non-JSON error response.
+    }
     throw new ApiError(
-      `The daemon returned ${response.status} ${response.statusText}.`,
+      detail ??
+        `The daemon returned ${response.status} ${response.statusText}.`,
       response.status,
     );
   }
@@ -71,31 +80,19 @@ export async function resolveAttention(
   });
 }
 
-export async function getHealth(
-  signal?: AbortSignal,
-): Promise<WorkspaceHealth> {
+export async function getHealth(signal?: AbortSignal): Promise<ProjectHealth> {
   const raw = await request(API.health, signal);
   const details = record(raw);
   return {
-    status:
-      string(details.status) ??
-      string(details.state) ??
-      (details.healthy === false ? "unhealthy" : "available"),
-    workspace:
-      nestedString(details, "workspace", "name") ??
-      nestedString(details, "workspace", "path") ??
-      string(details.workspace_name) ??
-      string(details.workspace_id) ??
-      string(details.workspace),
-    version: string(details.version) ?? string(details.daemon_version),
-    startedAt: string(details.started_at),
-    uptimeSeconds:
-      number(details.uptime_seconds) ?? number(details.uptime),
+    status: requiredString(details.status, "status"),
+    projectId: requiredString(details.project_id, "project_id"),
+    projectName: requiredString(details.project_name, "project_name"),
+    projectRoot: requiredString(details.project_root, "project_root"),
     details,
   };
 }
 
-export async function getRuns(signal?: AbortSignal): Promise<WorkspaceRun[]> {
+export async function getRuns(signal?: AbortSignal): Promise<ProjectRun[]> {
   const raw = await request(API.runs, signal);
   const envelope = record(raw);
   const values = Array.isArray(raw)
@@ -107,7 +104,7 @@ export async function getRuns(signal?: AbortSignal): Promise<WorkspaceRun[]> {
 export async function getRun(
   runId: string,
   signal?: AbortSignal,
-): Promise<WorkspaceRun> {
+): Promise<ProjectRun> {
   const raw = await request(`/api/v1/runs/${encodeURIComponent(runId)}`, signal);
   const envelope = record(raw);
   const control = hasKeys(record(envelope.control))
@@ -138,9 +135,86 @@ export async function getMeasurementPreview(
   };
 }
 
-export async function getEvents(
+export async function getRunAnalyses(
+  runId: string,
   signal?: AbortSignal,
-): Promise<WorkspaceEvent[]> {
+): Promise<RunAnalysis[]> {
+  const envelope = record(
+    await request(
+      `/api/v1/runs/${encodeURIComponent(runId)}/analyses`,
+      signal,
+    ),
+  );
+  return (array(envelope.items) ?? []).map((value) => {
+    const item = record(value);
+    const analysis = record(item.analysis);
+    return {
+      id:
+        string(record(item.entry).id) ??
+        string(analysis.key) ??
+        "unidentified-analysis",
+      title: string(analysis.title) ?? "Untitled analysis",
+      key: string(analysis.key),
+      stepId: string(analysis.step_id),
+      outputs: (array(analysis.outputs) ?? []).map((output) => {
+        const source = record(output);
+        return {
+          kind: string(source.kind) ?? "output",
+          title: string(source.title) ?? "Untitled output",
+          content: source.content,
+        };
+      }),
+    };
+  });
+}
+
+export function canPreviewRunContent(entry: ContentEntry): boolean {
+  return (
+    entry.role === "record" ||
+    (entry.role === "dataset" &&
+      ["data_table", "data_array"].includes(entry.kind)) ||
+    (entry.role === "artifact" && artifactFormat(entry) !== undefined)
+  );
+}
+
+export async function getRunContent(
+  runId: string,
+  entry: ContentEntry,
+  signal?: AbortSignal,
+): Promise<RunContentPreview> {
+  const run = encodeURIComponent(runId);
+  const selector = encodeURIComponent(entry.id);
+  let path: string;
+  let format: RunContentPreview["format"] = "json";
+  if (entry.role === "record") {
+    path =
+      `/api/v1/runs/${run}/records/${selector}/json` +
+      `?expected_kind=${encodeURIComponent(entry.kind)}`;
+  } else if (entry.role === "dataset") {
+    path = `/api/v1/runs/${run}/datasets/${selector}`;
+  } else {
+    const artifactContentFormat = artifactFormat(entry);
+    if (!artifactContentFormat) {
+      throw new ApiError("This artifact does not have a browser-readable format.");
+    }
+    format = artifactContentFormat;
+    const expectedKind = encodeURIComponent(entry.kind);
+    path =
+      `/api/v1/runs/${run}/artifacts/${selector}/${format}` +
+      `?expected_kind=${expectedKind}`;
+  }
+  const envelope = record(await request(path, signal));
+  return {
+    entry: normalizeContentEntry(
+      envelope.artifact ?? envelope.record ?? envelope.dataset ?? entry,
+      0,
+    ),
+    format,
+    content: envelope.content,
+  };
+}
+
+export async function getEvents(signal?: AbortSignal): Promise<ProjectEvent[]> {
   const raw = await request(API.events, signal);
   const envelope = record(raw);
   const values = Array.isArray(raw)
@@ -161,7 +235,7 @@ export async function getCatalog(
   };
 }
 
-function normalizeRun(value: unknown): WorkspaceRun {
+function normalizeRun(value: unknown): ProjectRun {
   const source = record(value);
   const admission = record(source.admission);
   const outcome = record(source.outcome);
@@ -233,7 +307,7 @@ function normalizeRun(value: unknown): WorkspaceRun {
   };
 }
 
-function normalizeEvent(value: unknown, index: number): WorkspaceEvent {
+function normalizeEvent(value: unknown, index: number): ProjectEvent {
   const source = record(value);
   const data = record(source.data);
   const manifest = record(data.manifest);
@@ -255,7 +329,7 @@ function normalizeEvent(value: unknown, index: number): WorkspaceEvent {
       string(source.kind) ??
       string(data.kind) ??
       string(transition.kind) ??
-      "workspace_event",
+      "project_event",
     occurredAt:
       string(source.occurred_at) ??
       string(data.occurred_at) ??
@@ -293,32 +367,62 @@ function normalizeResources(value: unknown): ResourceClaim[] {
 }
 
 function normalizeContents(value: unknown): ContentEntry[] {
-  return (array(value) ?? []).map((item, index) => {
-    const source = record(item);
-    const content = record(source.content);
-    const role = string(source.role) ?? "content";
-    return {
-      id:
-        string(source.id) ??
-        string(source.content_id) ??
-        string(source.ref) ??
-        `${role}-${index + 1}`,
-      role,
-      label:
-        string(source.label) ??
-        string(source.title) ??
-        string(source.name) ??
-        string(content.name) ??
-        string(source.content_id) ??
-        `${titleCase(role)} ${index + 1}`,
-      detail:
-        string(source.media_type) ??
-        string(source.content_type) ??
-        string(content.media_type) ??
-        string(source.kind) ??
-        string(source.ref),
-    };
-  });
+  return (array(value) ?? []).map(normalizeContentEntry);
+}
+
+function normalizeContentEntry(value: unknown, index: number): ContentEntry {
+  const source = record(value);
+  const content = record(source.content);
+  const role = string(source.role) ?? "content";
+  const kind = string(source.kind) ?? "content";
+  const mediaType =
+    string(source.media_type) ??
+    string(source.content_type) ??
+    string(content.media_type);
+  const filename = string(source.filename);
+  return {
+    id:
+      string(source.id) ??
+      string(source.content_id) ??
+      string(source.ref) ??
+      `${role}-${index + 1}`,
+    role,
+    kind,
+    label:
+      string(source.label) ??
+      string(source.title) ??
+      filename ??
+      string(source.name) ??
+      string(content.name) ??
+      string(source.content_id) ??
+      `${titleCase(role)} ${index + 1}`,
+    detail: mediaType ?? kind,
+    mediaType,
+    filename,
+  };
+}
+
+function artifactFormat(
+  entry: ContentEntry,
+): RunContentPreview["format"] | undefined {
+  const mediaType = entry.mediaType?.toLocaleLowerCase();
+  const filename = entry.filename?.toLocaleLowerCase();
+  if (
+    mediaType === "application/json" ||
+    mediaType?.endsWith("+json") ||
+    filename?.endsWith(".json")
+  ) {
+    return "json";
+  }
+  if (
+    mediaType?.startsWith("text/") ||
+    filename?.endsWith(".txt") ||
+    filename?.endsWith(".md") ||
+    filename?.endsWith(".csv")
+  ) {
+    return "text";
+  }
+  return undefined;
 }
 
 function normalizeStatus(rawState?: string, result?: string): RunStatus {
@@ -359,7 +463,7 @@ function statusLabel(status: RunStatus): string {
   }
 }
 
-function compareRuns(left: WorkspaceRun, right: WorkspaceRun): number {
+function compareRuns(left: ProjectRun, right: ProjectRun): number {
   if (left.sequence !== undefined && right.sequence !== undefined) {
     return right.sequence - left.sequence;
   }
@@ -390,12 +494,12 @@ function strings(value: unknown): string[] {
   );
 }
 
-function nestedString(
-  source: Record<string, unknown>,
-  key: string,
-  nestedKey: string,
-): string | undefined {
-  return string(record(source[key])[nestedKey]);
+function requiredString(value: unknown, field: string): string {
+  const result = string(value);
+  if (!result) {
+    throw new ApiError(`The daemon response is missing ${field}.`);
+  }
+  return result;
 }
 
 function hasKeys(value: Record<string, unknown>): boolean {

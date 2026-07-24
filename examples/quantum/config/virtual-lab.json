@@ -1,0 +1,31 @@
+{
+  "schema_version": "quantum_lab_demo.virtual_lab_profile.v1",
+  "id": "quantum_lab_demo.virtual_lab",
+  "devices": [
+    {
+      "id": "drive-stack",
+      "kind": "drive_stack",
+      "metadata": {
+        "boundary": "virtual_hardware"
+      }
+    },
+    {
+      "id": "readout-stack",
+      "kind": "readout_stack",
+      "metadata": {
+        "boundary": "virtual_hardware"
+      }
+    },
+    {
+      "id": "coupler-stack",
+      "kind": "coupler_stack",
+      "metadata": {
+        "boundary": "virtual_hardware"
+      }
+    }
+  ],
+  "response_models": [],
+  "metadata": {
+    "category": "experiment_system"
+  }
+}

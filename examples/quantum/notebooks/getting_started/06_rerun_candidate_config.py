@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 # %%
-from quantum_lab_demo import notebook_workspace, quantum_lab
+import scopecat as sc
+from quantum_lab_demo import EXAMPLE_ROOT
 from quantum_lab_demo.workflows.readout_frequency import (
     readout_frequency_analysis,
     readout_frequency_template,
 )
 
 # %%
-workspace = notebook_workspace("06-rerun-candidate-config")
-lab = quantum_lab(workspace=workspace)
+lab = sc.open_project(EXAMPLE_ROOT).connect()
 
 # %%
 baseline = lab.prepare(readout_frequency_template(qubit="q0")).run(

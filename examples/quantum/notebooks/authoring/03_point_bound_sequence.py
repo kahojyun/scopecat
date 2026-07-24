@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Annotated
 
 import scopecat as sc
-from quantum_lab_demo import notebook_workspace, quantum_lab
+from quantum_lab_demo import EXAMPLE_ROOT
 from quantum_lab_demo.workflows.single_qubit_rb import (
     CLIFFORD_LENGTH,
     RB_SEED,
@@ -54,12 +54,12 @@ bound_example = q.bind(
     {"qubit": "q0", "length": 4, "seed": 1},
 )
 
-lab = quantum_lab(workspace=notebook_workspace("authoring-point-bound-sequence"))
+lab = sc.open_project(EXAMPLE_ROOT).connect()
 preview = (
     lab.prepare(single_qubit_rb_template())
     .scan(CLIFFORD_LENGTH, (4, 16))
     .scan(RB_SEED, (0, 1, 2))
-    .preview(name="single-qubit Clifford RB")
+    .preview()
 )
 
 # %%

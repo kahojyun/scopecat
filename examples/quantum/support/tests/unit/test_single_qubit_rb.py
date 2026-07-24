@@ -9,7 +9,9 @@ from scopecat_quantum import GateCall
 from scopecat_quantum import authoring as q
 
 import quantum_lab_demo.workflows.single_qubit_rb as rb
-from quantum_lab_demo.lab import quantum_lab, quantum_lab_compiler
+from quantum_lab_demo.lab import quantum_lab_compiler
+
+from .demo_lab_experiment_testkit import embedded_quantum_lab
 
 
 def test_seeded_clifford_fragment_appends_an_exact_inverse() -> None:
@@ -54,7 +56,11 @@ def test_single_qubit_rb_runs_as_one_domain_program_with_two_scan_axes(
         seeds=(0, 1),
     )
 
-    run = quantum_lab(workspace=tmp_path, compiler=compiler).prepare(invocation).run()
+    run = (
+        embedded_quantum_lab(workspace=tmp_path, compiler=compiler)
+        .prepare(invocation)
+        .run()
+    )
     dataset = run.data().measurements().dataset
     survival_by_length: dict[int, list[float]] = defaultdict(list)
     for record in dataset.records:

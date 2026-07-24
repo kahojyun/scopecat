@@ -1,4 +1,4 @@
-"""Workspace execution for conditional-phase Ramsey CZ calibration."""
+"""Conditional-phase Ramsey experiment for CZ calibration."""
 
 from __future__ import annotations
 

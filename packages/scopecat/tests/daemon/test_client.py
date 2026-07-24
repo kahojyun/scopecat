@@ -49,7 +49,15 @@ from scopecat.daemon.views import (
     ConfigRegistryView,
     ParameterProposalListView,
     ParameterProposalView,
+    RunAnalysisListView,
+    RunAnalysisView,
+    RunArtifactBytesView,
+    RunArtifactJsonView,
+    RunArtifactTextView,
     RunConfigView,
+    RunDatasetContentView,
+    RunRecordJsonView,
+    RunRequestView,
 )
 from scopecat.daemon.wire import (
     AnalysisNoteOutputPayload,
@@ -64,7 +72,11 @@ from scopecat.daemon.wire import (
     DirectConfigImportCommand,
     ParameterProposalReviewCommand,
     ParameterProposalReviewReceipt,
+    RunAttachmentCommand,
+    RunAttachmentReceipt,
 )
+from scopecat.measurements.results import MeasurementDataset, MeasurementDatasetSchema
+from scopecat.records.analysis import AnalysisRecord
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import config_content_hash
 from scopecat.records.execution_journal import ExecutionTransition
@@ -94,7 +106,9 @@ def test_queries_and_run_submissions_use_typed_wire_models() -> None:
     delegated = client.submit_delegated(_delegated_submission())
 
     assert health.status == "ok"
-    assert health.workspace_id == "workspace-1"
+    assert health.project_id == "project-1"
+    assert health.project_name == "test-lab"
+    assert health.project_root == "/projects/test-lab"
     assert isinstance(catalog, ExperimentCatalog)
     assert catalog.experiments[0].id == "ramsey"
     assert isinstance(runs, RunPage)
@@ -287,6 +301,65 @@ def test_post_run_client_uses_run_scoped_typed_routes() -> None:
     ]
 
 
+def test_run_content_client_uses_symmetric_typed_routes() -> None:
+    requests: list[httpx.Request] = []
+    client = _client(requests)
+    attachment = RunAttachmentCommand(
+        run_id="run-1",
+        key="notes",
+        text="hello",
+        filename="notes.txt",
+    )
+
+    request = client.run_request("run-1")
+    analyses = client.analyses("run-1")
+    analysis = client.analysis("run-1", "analysis-fit")
+    artifact_bytes = client.artifact_bytes(
+        "run-1",
+        "notes",
+        expected_kind="attachment",
+    )
+    artifact_text = client.artifact_text(
+        "run-1",
+        "notes",
+        expected_kind="attachment",
+    )
+    artifact_json = client.artifact_json(
+        "run-1",
+        "result",
+        expected_kind="result",
+    )
+    record = client.record_json(
+        "run-1",
+        "analysis-fit",
+        expected_kind="analysis",
+    )
+    dataset = client.dataset_content("run-1", "raw-measurements")
+    attached = client.attach(attachment)
+
+    assert request.request == _REQUEST
+    assert analyses.items[0] == analysis
+    assert artifact_bytes.content_bytes() == b"hello"
+    assert artifact_text.content == "hello"
+    assert artifact_json.content == {"ok": True}
+    assert record.content == {"run_id": "run-1"}
+    assert isinstance(dataset.content, MeasurementDataset)
+    assert attached.artifact.filename == "notes.txt"
+    assert [request.url.path for request in requests] == [
+        "/api/v1/runs/run-1/request",
+        "/api/v1/runs/run-1/analyses",
+        "/api/v1/runs/run-1/analyses/analysis-fit",
+        "/api/v1/runs/run-1/artifacts/notes/bytes",
+        "/api/v1/runs/run-1/artifacts/notes/text",
+        "/api/v1/runs/run-1/artifacts/result/json",
+        "/api/v1/runs/run-1/records/analysis-fit/json",
+        "/api/v1/runs/run-1/datasets/raw-measurements",
+        "/api/v1/runs/run-1/attachments",
+    ]
+    assert dict(requests[3].url.params) == {"expected_kind": "attachment"}
+    assert RunAttachmentCommand.model_validate_json(requests[-1].content) == attachment
+
+
 def test_not_found_and_conflict_are_typed_and_other_http_errors_raise() -> None:
     client = _client([])
 
@@ -303,6 +376,125 @@ def test_not_found_and_conflict_are_typed_and_other_http_errors_raise() -> None:
     assert conflict.value.response.status_code == 409
 
 
+def _content_entry(
+    role: Literal["artifact", "dataset", "record"],
+    entry_id: str,
+    kind: str,
+    *,
+    filename: str | None = None,
+) -> RunContentEntry:
+    return RunContentEntry(
+        role=role,
+        id=entry_id,
+        kind=kind,
+        filename=filename,
+        content_hash=f"sha256:{entry_id}",
+    )
+
+
+def _analysis_view() -> RunAnalysisView:
+    return RunAnalysisView(
+        run_id="run-1",
+        entry=_content_entry("record", "analysis-fit", "analysis"),
+        analysis=AnalysisRecord(
+            run_id="run-1",
+            title="fit",
+            key="fit",
+            outputs=[],
+        ),
+    )
+
+
+def _run_content_response(request: httpx.Request) -> httpx.Response | None:
+    path = request.url.path
+    if path == "/api/v1/runs/run-1/request":
+        return _model(RunRequestView(run_id="run-1", request=_REQUEST))
+    if path == "/api/v1/runs/run-1/analyses" and request.method == "GET":
+        return _model(RunAnalysisListView(run_id="run-1", items=(_analysis_view(),)))
+    if path == "/api/v1/runs/run-1/analyses/analysis-fit":
+        return _model(_analysis_view())
+    if path == "/api/v1/runs/run-1/analyses" and request.method == "POST":
+        command = AnalysisSaveCommand.model_validate_json(request.content)
+        return _model(
+            AnalysisSaveReceipt(
+                record=_content_entry(
+                    "record",
+                    f"analysis-{command.analysis_key}",
+                    "analysis",
+                ),
+                analysis_key=command.analysis_key,
+                inputs=command.inputs,
+            ),
+            status_code=201,
+        )
+    if path == "/api/v1/runs/run-1/artifacts/notes/bytes":
+        return _model(
+            RunArtifactBytesView(
+                run_id="run-1",
+                artifact=_content_entry("artifact", "notes", "attachment"),
+                content_base64="aGVsbG8=",
+            )
+        )
+    if path == "/api/v1/runs/run-1/artifacts/notes/text":
+        return _model(
+            RunArtifactTextView(
+                run_id="run-1",
+                artifact=_content_entry("artifact", "notes", "attachment"),
+                content="hello",
+            )
+        )
+    if path == "/api/v1/runs/run-1/artifacts/result/json":
+        return _model(
+            RunArtifactJsonView(
+                run_id="run-1",
+                artifact=_content_entry("artifact", "result", "result"),
+                content={"ok": True},
+            )
+        )
+    if path == "/api/v1/runs/run-1/records/analysis-fit/json":
+        return _model(
+            RunRecordJsonView(
+                run_id="run-1",
+                record=_content_entry("record", "analysis-fit", "analysis"),
+                content={"run_id": "run-1"},
+            )
+        )
+    if path == "/api/v1/runs/run-1/datasets/raw-measurements":
+        return _model(
+            RunDatasetContentView(
+                run_id="run-1",
+                dataset=_content_entry(
+                    "dataset",
+                    "raw-measurements",
+                    "measurement_dataset",
+                ),
+                content=MeasurementDataset(
+                    dataset_id="raw-measurements",
+                    schema=MeasurementDatasetSchema(
+                        dataset_id="raw-measurements",
+                        dataset_role="raw",
+                    ),
+                    records=[],
+                ),
+            )
+        )
+    if path == "/api/v1/runs/run-1/attachments":
+        command = RunAttachmentCommand.model_validate_json(request.content)
+        return _model(
+            RunAttachmentReceipt(
+                run_id="run-1",
+                artifact=_content_entry(
+                    "artifact",
+                    command.key,
+                    command.kind,
+                    filename=command.filename,
+                ),
+            ),
+            status_code=201,
+        )
+    return None
+
+
 def _client(requests: list[httpx.Request]) -> DaemonClient:
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
@@ -310,9 +502,11 @@ def _client(requests: list[httpx.Request]) -> DaemonClient:
         if path == "/api/v1/health":
             return _json(
                 {
-                    "schema_version": "scopecat.daemon_health.v1",
+                    "schema_version": "scopecat.daemon_health.v2",
                     "status": "ok",
-                    "workspace_id": "workspace-1",
+                    "project_id": "project-1",
+                    "project_name": "test-lab",
+                    "project_root": "/projects/test-lab",
                 }
             )
         if path == "/api/v1/catalog":
@@ -391,21 +585,8 @@ def _client(requests: list[httpx.Request]) -> DaemonClient:
                     config=config,
                 )
             )
-        if path == "/api/v1/runs/run-1/analyses":
-            command = AnalysisSaveCommand.model_validate_json(request.content)
-            return _model(
-                AnalysisSaveReceipt(
-                    record=RunContentEntry(
-                        role="record",
-                        id=f"analysis-{command.analysis_key}",
-                        kind="analysis",
-                        content_hash="sha256:analysis",
-                    ),
-                    analysis_key=command.analysis_key,
-                    inputs=command.inputs,
-                ),
-                status_code=201,
-            )
+        if (content_response := _run_content_response(request)) is not None:
+            return content_response
         if path == "/api/v1/runs/run-1/parameter-proposals":
             return _model(
                 ParameterProposalListView(

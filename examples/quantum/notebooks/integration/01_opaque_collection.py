@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Annotated
 
 import scopecat as sc
-from quantum_lab_demo import notebook_workspace, quantum_lab
+from quantum_lab_demo import EXAMPLE_ROOT
 from quantum_lab_demo.scenarios.opaque_collection import (
     GATE_DURATION,
     PARALLEL_GATE_TABLE_TYPE,
@@ -69,14 +69,10 @@ parallel_gate_collection = (
     {"control_qubit": "q0", "partner_qubit": "q1", "gate": "cz"},
     {"control_qubit": "q2", "partner_qubit": "q3", "gate": "cz"},
 )
-lab = quantum_lab(workspace=notebook_workspace("integration-opaque-collection"))
+lab = sc.open_project(EXAMPLE_ROOT).connect()
 parallel_gate_preview = lab.prepare(
     opaque_parallel_gate_template(gates=parallel_gate_collection)
-).preview(
-    name="opaque parallel gate collection",
-    tags=("integration", "escape-hatch"),
-    description="compile one table value when no domain compiler is available",
-)
+).preview()
 
 # %%
 opaque_collection_summary = {

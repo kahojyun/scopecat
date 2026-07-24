@@ -1,4 +1,4 @@
-"""Synchronous Python client for a workspace daemon."""
+"""Synchronous transport client for one project daemon."""
 
 from __future__ import annotations
 
@@ -21,8 +21,16 @@ from scopecat.daemon.views import (
     DaemonHealth,
     MeasurementPage,
     ParameterProposalListView,
+    RunAnalysisListView,
+    RunAnalysisView,
+    RunArtifactBytesView,
+    RunArtifactJsonView,
+    RunArtifactTextView,
     RunConfigView,
+    RunDatasetContentView,
     RunDetail,
+    RunRecordJsonView,
+    RunRequestView,
 )
 from scopecat.daemon.wire import (
     AnalysisSaveCommand,
@@ -60,6 +68,8 @@ from scopecat.daemon.wire import (
     PayloadCommitCommand,
     PayloadCommitReceipt,
     RunAdmission,
+    RunAttachmentCommand,
+    RunAttachmentReceipt,
     TerminalRunCommitCommand,
     TerminalRunCommitReceipt,
 )
@@ -204,11 +214,136 @@ class DaemonClient:
             RunConfigView,
         )
 
+    def run_request(self, run_id: str) -> RunRequestView:
+        return self._get_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/request",
+            RunRequestView,
+        )
+
+    def analyses(self, run_id: str) -> RunAnalysisListView:
+        return self._get_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/analyses",
+            RunAnalysisListView,
+        )
+
+    def analysis(self, run_id: str, selector: str) -> RunAnalysisView:
+        selected_run = quote(run_id, safe="")
+        selected_analysis = quote(selector, safe="")
+        return self._get_model(
+            f"{_API_PREFIX}/runs/{selected_run}/analyses/{selected_analysis}",
+            RunAnalysisView,
+        )
+
     def save_analysis(self, command: AnalysisSaveCommand) -> AnalysisSaveReceipt:
         return self._post_model(
             f"{_API_PREFIX}/runs/{quote(command.run_id, safe='')}/analyses",
             command,
             AnalysisSaveReceipt,
+        )
+
+    def artifact_bytes(
+        self,
+        run_id: str,
+        selector: str,
+        *,
+        expected_kind: str | None = None,
+    ) -> RunArtifactBytesView:
+        return self._artifact_content(
+            run_id,
+            selector,
+            representation="bytes",
+            expected_kind=expected_kind,
+            model=RunArtifactBytesView,
+        )
+
+    def artifact_text(
+        self,
+        run_id: str,
+        selector: str,
+        *,
+        expected_kind: str | None = None,
+    ) -> RunArtifactTextView:
+        return self._artifact_content(
+            run_id,
+            selector,
+            representation="text",
+            expected_kind=expected_kind,
+            model=RunArtifactTextView,
+        )
+
+    def artifact_json(
+        self,
+        run_id: str,
+        selector: str,
+        *,
+        expected_kind: str | None = None,
+    ) -> RunArtifactJsonView:
+        return self._artifact_content(
+            run_id,
+            selector,
+            representation="json",
+            expected_kind=expected_kind,
+            model=RunArtifactJsonView,
+        )
+
+    def _artifact_content[ArtifactViewT: BaseModel](
+        self,
+        run_id: str,
+        selector: str,
+        *,
+        representation: str,
+        expected_kind: str | None,
+        model: type[ArtifactViewT],
+    ) -> ArtifactViewT:
+        selected_run = quote(run_id, safe="")
+        selected_artifact = quote(selector, safe="")
+        params: dict[str, str | int] | None = (
+            None if expected_kind is None else {"expected_kind": expected_kind}
+        )
+        return self._get_model(
+            (
+                f"{_API_PREFIX}/runs/{selected_run}/artifacts/"
+                f"{selected_artifact}/{representation}"
+            ),
+            model,
+            params=params,
+        )
+
+    def record_json(
+        self,
+        run_id: str,
+        selector: str,
+        *,
+        expected_kind: str | None = None,
+    ) -> RunRecordJsonView:
+        selected_run = quote(run_id, safe="")
+        selected_record = quote(selector, safe="")
+        params: dict[str, str | int] | None = (
+            None if expected_kind is None else {"expected_kind": expected_kind}
+        )
+        return self._get_model(
+            f"{_API_PREFIX}/runs/{selected_run}/records/{selected_record}/json",
+            RunRecordJsonView,
+            params=params,
+        )
+
+    def dataset_content(
+        self,
+        run_id: str,
+        selector: str,
+    ) -> RunDatasetContentView:
+        selected_run = quote(run_id, safe="")
+        selected_dataset = quote(selector, safe="")
+        return self._get_model(
+            f"{_API_PREFIX}/runs/{selected_run}/datasets/{selected_dataset}",
+            RunDatasetContentView,
+        )
+
+    def attach(self, command: RunAttachmentCommand) -> RunAttachmentReceipt:
+        return self._post_model(
+            f"{_API_PREFIX}/runs/{quote(command.run_id, safe='')}/attachments",
+            command,
+            RunAttachmentReceipt,
         )
 
     def parameter_proposals(self, run_id: str) -> ParameterProposalListView:

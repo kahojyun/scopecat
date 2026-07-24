@@ -11,13 +11,63 @@ Run them top to bottom in an editor or as ordinary Python files. Reusable demo
 lab code lives in `support/` as `quantum_lab_demo`; it is copyable example code,
 not a stable product API.
 
+Start the project daemon once from the repository root:
+
+```sh
+uv run scopecat start examples/quantum
+uv run scopecat open examples/quantum
+```
+
+The daemon selects an available loopback port and records it in the project.
+Notebook code discovers that shared instance; scratch Python remains in the
+notebook process while all durable effects pass through the daemon. Set
+`SCOPECAT_DAEMON_URL` only to override discovery with another loopback URL.
+
+## Configuration ownership
+
+Keep the split profile under `config/` in Git. Python resolves its referenced
+system, environment, and parameter files into one immutable snapshot before
+crossing the daemon boundary:
+
+```python
+import scopecat as sc
+from quantum_lab_demo import (
+    DEMO_CONFIG_PROFILE,
+    EXAMPLE_ROOT,
+    quantum_lab_config_profile,
+)
+
+snapshot = quantum_lab_config_profile(DEMO_CONFIG_PROFILE)
+project = sc.open_project(EXAMPLE_ROOT)
+
+with project.connect() as lab:
+    imported = lab.import_config(
+        snapshot,
+        entry_id="reviewed-lab-config",
+        note="assembled from the reviewed Git profile",
+    )
+    activated = lab.activate_config_entry(
+        imported.entry.id,
+        note="select the reviewed snapshot for new runs",
+    )
+```
+
+The source files remain user-owned code and configuration. The daemon owns the
+imported snapshots, active selection, activation history, and the exact
+snapshot accepted by each run. Restarting the daemon does not reapply the
+bootstrap profile over a later operator selection.
+
+The GUI imports a complete `ConfigProfileSnapshot`; it does not resolve local
+file references. Use the Python loader above for a split Git profile, then
+import and activate the resulting snapshot through the daemon.
+
 ## Learning paths
 
 Start with `getting_started/`, then choose a path by intent:
 
 | Directory | Responsibility |
 |---|---|
-| `notebooks/getting_started/` | Workspace, template, run, data, analysis, and candidate-config lifecycle. |
+| `notebooks/getting_started/` | Project, template, run, data, analysis, and candidate-config lifecycle. |
 | `notebooks/authoring/` | Recommended decorator and function authoring, from template/scratch through recursive quantum programs. |
 | `notebooks/calibration/` | Longer end-to-end parameter calibration and review workflows. |
 | `notebooks/integration/` | The opaque collection escape hatch for a target without a domain compiler. |
@@ -25,7 +75,7 @@ Start with `getting_started/`, then choose a path by intent:
 For example:
 
 ```sh
-uv run python examples/quantum/notebooks/getting_started/01_open_workspace.py
+uv run python examples/quantum/notebooks/getting_started/01_open_project.py
 uv run python examples/quantum/notebooks/authoring/01_template_and_scratch.py
 uv run python examples/quantum/notebooks/authoring/03_point_bound_sequence.py
 uv run python examples/quantum/notebooks/calibration/01_drag_beta.py
@@ -35,7 +85,7 @@ uv run python examples/quantum/notebooks/calibration/01_drag_beta.py
 
 | File | What it teaches |
 |---|---|
-| `getting_started/01_open_workspace.py` | Open the demo lab and inspect the workspace. |
+| `getting_started/01_open_project.py` | Open the demo project and connect its daemon client. |
 | `getting_started/02_define_experiment.py` | Compose a reusable module into a template with a configurable scan. |
 | `getting_started/03_run_and_read_data.py` | Run an experiment and inspect `Run.data()`. |
 | `getting_started/04_manual_analysis.py` | Save one-off notebook analysis and candidate evidence. |
@@ -58,6 +108,8 @@ The support package separates code by why it exists:
 |---|---|
 | `quantum_lab_demo.workflows` | Recommended, user-copyable vertical workflows. Import a specific workflow module rather than a package-wide barrel. |
 | `quantum_lab_demo.scenarios` | Integration boundaries that intentionally depart from normal domain authoring. |
+| `quantum_lab_demo.application` | Version-controlled daemon composition loaded from `scopecat.toml`. |
+| `scopecat.open_project` | Core notebook client discovery and delegated execution against the shared daemon. |
 | `scopecat_quantum.standard_gates` | Opt-in conventional hardware-independent gate semantics. |
 | `quantum_lab_demo.virtual_lab.compiler_parameters` | Materialize typed point-effective compiler values from parameter collections. |
 | `quantum_lab_demo.virtual_lab.pulse_profile` | Declare compiler-owned recipes and map them over those values. |
@@ -65,8 +117,9 @@ The support package separates code by why it exists:
 | `quantum_lab_demo.targets` | Target compiler/runtime adapters. |
 
 Tests have a separate job. Notebook tests only execute every learning-path file
-as documentation smoke tests. Exact artifact, provenance, shape, response, and
-configuration assertions live in `support/tests/`, so notebooks remain readable.
+as documentation smoke tests against one real HTTP daemon. Exact artifact,
+provenance, shape, response, and configuration assertions live in
+`support/tests/`, so notebooks remain readable.
 
 ## Capability matrix
 

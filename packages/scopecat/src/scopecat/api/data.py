@@ -18,12 +18,6 @@ from scopecat.runs.data import (
     RunDataTableResult,
     RunMeasurementDatasetResult,
 )
-from scopecat.runs.service import (
-    load_run,
-    read_run_artifact_bytes,
-    read_run_data_array,
-    read_run_data_table,
-)
 
 if TYPE_CHECKING:
     from scopecat.api.run import RunHandle
@@ -88,18 +82,10 @@ class Data:
         return dict(self.measurements(selector).dataset.metadata)
 
     def table(self, selector: str) -> RunDataTableResult:
-        return read_run_data_table(
-            run_id=self.run.id,
-            services=self.run.session.services,
-            selector=selector,
-        )
+        return self.run.session.run_operations.data_table(self.run.id, selector)
 
     def array(self, selector: str) -> RunDataArrayResult:
-        return read_run_data_array(
-            run_id=self.run.id,
-            services=self.run.session.services,
-            selector=selector,
-        )
+        return self.run.session.run_operations.data_array(self.run.id, selector)
 
     def figure(
         self,
@@ -112,10 +98,9 @@ class Data:
             self.artifact(selector, expected_kind=expected_kind)
         elif artifact.kind not in {"figure", "plot"}:
             self.artifact(selector, expected_kind="figure")
-        return read_run_artifact_bytes(
-            run_id=self.run.id,
-            services=self.run.session.services,
-            selector=selector,
+        return self.run.session.run_operations.artifact_bytes(
+            self.run.id,
+            selector,
             expected_kind=expected_kind,
         )
 
@@ -141,15 +126,11 @@ class Data:
         *,
         expected_kind: str | None = None,
     ) -> RunArtifactBytesResult:
-        return read_run_artifact_bytes(
-            run_id=self.run.id,
-            services=self.run.session.services,
-            selector=selector,
+        return self.run.session.run_operations.artifact_bytes(
+            self.run.id,
+            selector,
             expected_kind=expected_kind,
         )
 
     def _manifest(self) -> RunManifest:
-        return load_run(
-            run_id=self.run.id,
-            services=self.run.session.services,
-        )
+        return self.run.manifest

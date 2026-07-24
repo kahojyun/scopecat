@@ -16,7 +16,7 @@ from scopecat_quantum import (
 )
 from scopecat_quantum import authoring as quantum
 
-from quantum_lab_demo import quantum_lab, quantum_lab_compiler
+from quantum_lab_demo import quantum_lab_compiler
 from quantum_lab_demo.virtual_lab.parameters import q0_drag_beta_lookup
 from quantum_lab_demo.virtual_lab.pulse_profile import xm90_pulse_recipe
 from quantum_lab_demo.virtual_lab.wiring import quantum_wiring_config_profile
@@ -28,6 +28,8 @@ from quantum_lab_demo.workflows.production_drag_gate import (
     production_x90,
     production_x90_event_id,
 )
+
+from .demo_lab_experiment_testkit import embedded_quantum_lab
 
 
 def _entity_id(value: object) -> str:
@@ -62,7 +64,7 @@ def test_active_drag_beta_changes_program_and_compiler_segments(
     active_beta = Quantity(0.8, "ns")
     active_config = _with_q0_drag_beta(baseline_config, active_beta)
     compiler = quantum_lab_compiler()
-    lab = quantum_lab(
+    lab = embedded_quantum_lab(
         workspace=tmp_path,
         config_profile=baseline_config,
         compiler=compiler,

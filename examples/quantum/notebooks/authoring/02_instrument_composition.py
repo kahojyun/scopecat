@@ -5,7 +5,7 @@ from __future__ import annotations
 # %%
 import scopecat as sc
 from quantum_lab_demo import (
-    notebook_workspace,
+    EXAMPLE_ROOT,
     quantum_lab_compiler,
 )
 from quantum_lab_demo.workflows.fake_x_count_bias import (
@@ -13,29 +13,23 @@ from quantum_lab_demo.workflows.fake_x_count_bias import (
     fake_x_count_bias_config,
     fake_x_count_bias_template,
 )
-from scopecat.composition.embedded import open_embedded_workspace
 
 # %%
-workspace = notebook_workspace("authoring-instrument-composition")
 voltage_source = FakeBiasVoltageProvider()
-lab = open_embedded_workspace(
-    workspace,
-    config_profile=fake_x_count_bias_config(),
-    system=sc.ExperimentSystem(
-        provider=voltage_source,
-        domain_compiler=quantum_lab_compiler(),
+project = sc.open_project(EXAMPLE_ROOT)
+lab = project.connect(
+    build_system=lambda _config: sc.ExperimentSystem(
+        provider=voltage_source, domain_compiler=quantum_lab_compiler()
     ),
 )
 
 # %%
 experiment = lab.prepare(
     fake_x_count_bias_template(),
+    config=fake_x_count_bias_config(),
 )
 preview = experiment.preview()
-completed_run = experiment.run(
-    name="fake AWG X-count with scalar DC bias",
-    tags=("authoring", "fake-hardware", "mixed-execution"),
-)
+completed_run = experiment.run()
 measurements = completed_run.data().measurements().dataset.records
 
 # %%

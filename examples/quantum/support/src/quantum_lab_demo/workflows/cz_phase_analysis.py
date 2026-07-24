@@ -248,7 +248,7 @@ def analyze_cz_phase_run(run: sc.RunHandle) -> CzPhaseRunAnalysis:
                 "kind": "cz_conditional_phase_ramsey",
                 "x": "analyzer_phase",
                 "y": "target_probability_1",
-                "series": ("coupler_amplitude", "control_state"),
+                "series": ["coupler_amplitude", "control_state"],
                 "source_dataset": measurements.dataset_entry.id,
                 "model_id": CZ_PHASE_FIT_MODEL_ID,
             },

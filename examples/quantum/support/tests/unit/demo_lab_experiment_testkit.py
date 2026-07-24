@@ -3,8 +3,10 @@ from __future__ import annotations
 from collections.abc import Sequence
 from copy import deepcopy
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Literal
 
+from scopecat.api.workspace import Workspace
 from scopecat.authoring import ExperimentInvocation
 from scopecat.compiler.frontend.environment import (
     ValidatedConfigEnvironment,
@@ -18,6 +20,7 @@ from scopecat.compiler.linking.linked import (
 )
 from scopecat.compiler.typed.program import CoreProgram
 from scopecat.compiler.typed.verification import seal_typed_program
+from scopecat.composition.embedded import open_embedded_workspace
 from scopecat.config.profiles import load_config_profile
 from scopecat.execution.local.program import ComputeOperation, LocalOperation
 from scopecat.execution.points import RunPoint
@@ -43,7 +46,36 @@ from scopecat.planning.local_materialization import (
 )
 from scopecat.records.config import ConfigProfileSnapshot
 
+from quantum_lab_demo.compiler import QuantumLabCompiler, QuantumRealtimeLabCompiler
+from quantum_lab_demo.lab import quantum_lab_config_profile, quantum_lab_system
+
 from .demo_lab_test_paths import EXPERIMENT_FIXTURE_DIR
+from .demo_lab_test_paths import (
+    EXPERIMENT_VIRTUAL_LAB_PROFILE as TEST_VIRTUAL_LAB_PROFILE,
+)
+
+PathInput = str | Path
+
+
+def embedded_quantum_lab(
+    *,
+    workspace: PathInput,
+    config_profile: PathInput | ConfigProfileSnapshot | None = None,
+    virtual_lab_profile: PathInput = TEST_VIRTUAL_LAB_PROFILE,
+    compiler: QuantumLabCompiler | QuantumRealtimeLabCompiler | None = None,
+) -> Workspace:
+    """Compose isolated storage for unit tests that do not exercise the daemon."""
+
+    config = quantum_lab_config_profile(config_profile)
+    return open_embedded_workspace(
+        workspace,
+        config_profile=config,
+        system=quantum_lab_system(
+            config=config,
+            virtual_lab_profile=virtual_lab_profile,
+            compiler=compiler,
+        ),
+    )
 
 
 @dataclass(frozen=True, slots=True)

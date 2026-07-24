@@ -24,6 +24,7 @@ from scopecat.daemon.views import (
     RunConfigView,
 )
 from scopecat.daemon.wire import (
+    AnalysisArtifactOutputPayload,
     AnalysisJsonOutputPayload,
     AnalysisNoteOutputPayload,
     AnalysisParameterProposalOutputPayload,
@@ -50,6 +51,7 @@ from scopecat.daemon.wire import (
     RegisteredExperimentDescriptor,
     ResourceClaimDescriptor,
     RunAdmission,
+    RunAttachmentCommand,
     TerminalRunCommitCommand,
 )
 from scopecat.planning.system import ExperimentSystem
@@ -60,7 +62,6 @@ from scopecat.records.measurement_recording import MeasurementDatasetAppend
 from scopecat.records.parameter import Quantity
 from scopecat.records.run import RunOutcome
 from scopecat.records.run_request import RunRequest
-from scopecat.runs.service import PlannedRun
 from scopecat.sdk.instruments import (
     InstrumentProviderContext,
     InstrumentProviderDescription,
@@ -126,26 +127,28 @@ def _submission(
     )
 
 
-def test_runtime_bootstraps_shared_workspace_and_health(tmp_path: Path) -> None:
+def test_runtime_bootstraps_project_control_plane_and_health(tmp_path: Path) -> None:
     with LocalDaemonRuntime(tmp_path) as runtime:
         response = TestClient(runtime.app()).get("/api/v1/health")
 
         assert response.status_code == 200
         assert response.json()["status"] == "ok"
-        assert response.json()["workspace_id"].startswith("local:")
+        assert response.json()["project_id"].startswith("local:")
+        assert response.json()["project_name"] == tmp_path.name
+        assert response.json()["project_root"] == str(tmp_path)
         assert runtime.control.path == runtime.runs.database
         assert runtime.control.path == runtime.config_registry.database
-        assert runtime.control.path == tmp_path / ".scopecat" / "workspace.sqlite3"
+        assert runtime.control.path == tmp_path / ".scopecat" / "control.sqlite3"
         assert runtime.runs.objects.root == tmp_path / ".scopecat" / "objects"
 
 
-def test_runtime_exclusively_owns_one_workspace(tmp_path: Path) -> None:
+def test_runtime_exclusively_owns_one_project(tmp_path: Path) -> None:
     factory_calls = 0
 
-    def application_factory(_workspace: Path) -> Never:
+    def application_factory(_project_root: Path) -> Never:
         nonlocal factory_calls
         factory_calls += 1
-        raise AssertionError("factory must not run before workspace ownership")
+        raise AssertionError("factory must not run before project ownership")
 
     with (
         LocalDaemonRuntime(tmp_path),
@@ -410,6 +413,24 @@ def test_post_run_analysis_review_and_candidate_activation_closed_loop(
                     title=proposal.id,
                     content=proposal,
                 ),
+                AnalysisArtifactOutputPayload(
+                    kind="artifact",
+                    title="fit report",
+                    artifact_kind="fit_report",
+                    artifact_id="fit-report",
+                    content_base64="eyJvayI6IHRydWV9Cg==",
+                    source_default_extension=".json",
+                    source_default_media_type="application/json",
+                ),
+                AnalysisArtifactOutputPayload(
+                    kind="artifact",
+                    title="fit summary",
+                    artifact_kind="fit_summary",
+                    artifact_id="fit-summary",
+                    content_base64="Zml0IGNvbnZlcmdlZAo=",
+                    source_default_extension=".txt",
+                    source_default_media_type="text/plain",
+                ),
             ),
         )
         analysis_url = f"/api/v1/runs/{admission.run_id}/analyses"
@@ -420,6 +441,38 @@ def test_post_run_analysis_review_and_candidate_activation_closed_loop(
         retry_save = client.post(
             analysis_url,
             json=analysis_command.model_dump(mode="json"),
+        )
+        analyses = client.get(analysis_url)
+        analysis_detail = client.get(
+            f"{analysis_url}/analysis-{analysis_command.analysis_key}"
+        )
+        analysis_record = client.get(
+            f"/api/v1/runs/{admission.run_id}/records/"
+            f"analysis-{analysis_command.analysis_key}/json",
+            params={"expected_kind": "analysis"},
+        )
+        analysis_artifact = client.get(
+            f"/api/v1/runs/{admission.run_id}/artifacts/fit-report/json",
+            params={"expected_kind": "fit_report"},
+        )
+        analysis_summary = client.get(
+            f"/api/v1/runs/{admission.run_id}/artifacts/fit-summary/text",
+            params={"expected_kind": "fit_summary"},
+        )
+        attachment_command = RunAttachmentCommand(
+            run_id=admission.run_id,
+            key="notebook-notes",
+            text="operator notes",
+            filename="notes.md",
+            media_type="text/markdown",
+        )
+        attachment = client.post(
+            f"/api/v1/runs/{admission.run_id}/attachments",
+            json=attachment_command.model_dump(mode="json"),
+        )
+        attachment_text = client.get(
+            f"/api/v1/runs/{admission.run_id}/artifacts/notebook-notes/text",
+            params={"expected_kind": "attachment"},
         )
         config = RunConfigView.model_validate(
             client.get(f"/api/v1/runs/{admission.run_id}/config").json()
@@ -461,6 +514,21 @@ def test_post_run_analysis_review_and_candidate_activation_closed_loop(
 
         assert first_save.status_code == 201
         assert retry == saved
+        assert analyses.json()["items"][0]["analysis"]["key"] == "fit"
+        assert analysis_detail.json()["entry"]["id"] == "analysis-fit"
+        assert analysis_record.json()["content"]["title"] == "fit"
+        assert analysis_artifact.json()["content"] == {"ok": True}
+        assert [artifact.filename for artifact in saved.output_artifacts] == [
+            "fit-report.json",
+            "fit-summary.txt",
+        ]
+        assert [artifact.media_type for artifact in saved.output_artifacts] == [
+            "application/json",
+            "text/plain",
+        ]
+        assert analysis_summary.json()["content"] == "fit converged\n"
+        assert attachment.json()["artifact"]["filename"] == "notes.md"
+        assert attachment_text.json()["content"] == "operator notes\n"
         assert config.config == _config()
         assert proposals.items[0].proposal == proposal
         assert proposals.items[0].decisions == ()
@@ -552,7 +620,9 @@ def test_managed_submission_executes_registered_experiment(tmp_path: Path) -> No
     with LocalDaemonRuntime(
         tmp_path,
         catalog=catalog,
-        system=ExperimentSystem(provider=_EmptyInstrumentProvider()),
+        build_system=lambda _config: ExperimentSystem(
+            provider=_EmptyInstrumentProvider()
+        ),
         bootstrap_config=_config(),
     ) as runtime:
         client = TestClient(runtime.app())
@@ -612,11 +682,13 @@ def test_unbuildable_managed_run_is_failed_durably_on_restart(
     with LocalDaemonRuntime(
         tmp_path,
         catalog=catalog,
-        system=ExperimentSystem(provider=_EmptyInstrumentProvider()),
+        build_system=lambda _config: ExperimentSystem(
+            provider=_EmptyInstrumentProvider()
+        ),
         bootstrap_config=_config(),
     ) as runtime:
 
-        def skip_schedule(_run_id: str, _planned: PlannedRun) -> None:
+        def skip_schedule(_run_id: str, _managed: object) -> None:
             return
 
         monkeypatch.setattr(
@@ -650,7 +722,9 @@ def test_unbuildable_managed_run_is_failed_durably_on_restart(
     with LocalDaemonRuntime(
         tmp_path,
         catalog=broken_catalog,
-        system=ExperimentSystem(provider=_EmptyInstrumentProvider()),
+        build_system=lambda _config: ExperimentSystem(
+            provider=_EmptyInstrumentProvider()
+        ),
     ) as reopened:
         control = reopened.control.get_run(admission.run_id)
 
@@ -658,6 +732,83 @@ def test_unbuildable_managed_run_is_failed_durably_on_restart(
         assert control.outcome is not None
         assert control.outcome.problems[0].code == "daemon.managed_plan_unavailable"
         assert reopened.runs.read_manifest(admission.run_id).lifecycle == "terminal"
+
+
+def test_restarted_managed_run_builds_from_its_admitted_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    accepted_config = _config().model_copy(update={"id": "accepted-config"})
+    later_config = accepted_config.model_copy(update={"id": "later-config"})
+    catalog = RegisteredExperimentCatalog(
+        (
+            RegisteredExperiment(
+                id="simple-scan",
+                version="1",
+                descriptor=RegisteredExperimentDescriptor(
+                    id="simple-scan",
+                    version="1",
+                    experiment_kind="managed",
+                ),
+                factory=lambda _request: _managed_experiment(),
+            ),
+        )
+    )
+    with LocalDaemonRuntime(
+        tmp_path,
+        catalog=catalog,
+        build_system=lambda _config: ExperimentSystem(
+            provider=_EmptyInstrumentProvider()
+        ),
+        bootstrap_config=accepted_config,
+    ) as runtime:
+
+        def skip_schedule(_run_id: str, _planned: object) -> None:
+            return
+
+        monkeypatch.setattr(runtime.backend, "_schedule_managed", skip_schedule)
+        admission = runtime.backend.submit_run(
+            ManagedRunSubmission(
+                submission_id="managed-config-restart",
+                registration_id="simple-scan",
+                registration_version="1",
+                request=RunRequest(id="managed-request"),
+            )
+        )
+        register_and_activate_config_profile(
+            config=later_config,
+            services=runtime.backend.services,
+            entry_id="later-config",
+            registered_by="operator",
+            operator="operator",
+        )
+
+    built_from: list[ConfigProfileSnapshot] = []
+
+    def build_system(config: ConfigProfileSnapshot) -> ExperimentSystem:
+        built_from.append(config)
+        return ExperimentSystem(provider=_EmptyInstrumentProvider())
+
+    with LocalDaemonRuntime(
+        tmp_path,
+        catalog=catalog,
+        build_system=build_system,
+    ) as reopened:
+        deadline = time.monotonic() + 3
+        while (
+            reopened.control.get_run(admission.run_id).state != "terminal"
+            and time.monotonic() < deadline
+        ):
+            time.sleep(0.01)
+
+        assert reopened.control.get_run(admission.run_id).state == "terminal"
+        assert built_from == [accepted_config]
+        assert (
+            load_active_config_registry_state(
+                unit_of_work=reopened.config_registry.unit_of_work
+            ).active_entry_id
+            == "later-config"
+        )
 
 
 def test_delegated_effect_is_fenced_and_terminal_updates_control(

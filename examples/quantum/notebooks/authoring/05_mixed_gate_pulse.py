@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 # %%
-from quantum_lab_demo import notebook_workspace, quantum_lab
+import scopecat as sc
+from quantum_lab_demo import EXAMPLE_ROOT
 from quantum_lab_demo.workflows.interaction_tomography import (
     interaction_pulse_layout,
     interaction_tomography_program,
@@ -17,13 +18,10 @@ print(interaction_tomography_program.describe())
 print(interaction_tomography_program.draw())
 
 # %%
-lab = quantum_lab(workspace=notebook_workspace("authoring-mixed-gate-pulse"))
+lab = sc.open_project(EXAMPLE_ROOT).connect()
 experiment = lab.prepare(interaction_tomography_template())
 preview = experiment.preview()
-run = experiment.run(
-    name="direct interaction tomography",
-    tags=("authoring", "gate-pulse", "tomography"),
-)
+run = experiment.run()
 
 # %%
 compiled_summary = {

@@ -8,7 +8,7 @@ accepted by execution.
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Literal
 
@@ -148,6 +148,33 @@ class ExperimentSystem:
             linked=linked,
             config=config,
         )
+
+
+type ExperimentSystemBuilder = Callable[[ConfigProfileSnapshot], ExperimentSystem]
+
+
+def build_experiment_system(
+    builder: ExperimentSystemBuilder | None,
+    config: ConfigProfileSnapshot,
+) -> ExperimentSystem | None:
+    """Build config-bound capabilities at the planning boundary."""
+
+    if builder is None:
+        return None
+    try:
+        return builder(config)
+    except CheckFailed:
+        raise
+    except Exception as error:
+        raise CheckFailed(
+            (
+                _planning_problem(
+                    "experiment_system_build_failed",
+                    "experiment system could not be built from the selected config",
+                    details={"exception_type": type(error).__qualname__},
+                ),
+            )
+        ) from error
 
 
 def _compile_system_program(

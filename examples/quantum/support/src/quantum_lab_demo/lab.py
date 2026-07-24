@@ -1,20 +1,16 @@
-"""Workspace factories for the demo quantum lab workflows."""
+"""Quantum demo configuration, compiler, and experiment-system composition."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-import scopecat as sc
-from scopecat.composition.embedded import open_embedded_workspace
 from scopecat.config.profiles import load_config_profile
+from scopecat.planning.system import ExperimentSystem
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat_quantum import PulseRecipeProfile
 
 from quantum_lab_demo.compiler import QuantumLabCompiler, QuantumRealtimeLabCompiler
-from quantum_lab_demo.fixtures import (
-    DEFAULT_EXPERIMENT_WORKSPACE,
-    EXPERIMENT_VIRTUAL_LAB_PROFILE,
-)
+from quantum_lab_demo.configuration import DEMO_VIRTUAL_LAB_PROFILE
 from quantum_lab_demo.response_registry import QuantumLabResponseRegistry
 from quantum_lab_demo.targets.configuration import (
     FAKE_LIST_TARGET_KIND,
@@ -116,21 +112,27 @@ def quantum_realtime_lab_compiler(
     )
 
 
-def quantum_lab(
-    *,
-    workspace: PathInput = DEFAULT_EXPERIMENT_WORKSPACE,
+def quantum_lab_config_profile(
     config_profile: ConfigProfileInput | None = None,
-    virtual_lab_profile: PathInput = EXPERIMENT_VIRTUAL_LAB_PROFILE,
+) -> ConfigProfileSnapshot:
+    """Resolve the demo's explicit configuration snapshot."""
+
+    return _config_snapshot(config_profile, default_target="fake-list")
+
+
+def quantum_lab_system(
+    *,
+    config: ConfigProfileSnapshot,
+    virtual_lab_profile: PathInput = DEMO_VIRTUAL_LAB_PROFILE,
     compiler: QuantumLabCompiler | QuantumRealtimeLabCompiler | None = None,
-) -> sc.Workspace:
-    """Open the demo environment with one compiler for all quantum Programs.
+) -> ExperimentSystem:
+    """Compose one process-local system for daemon or delegated execution.
 
     Keeping domain dispatch at this single boundary gives every example the
     same routing, resource model, and target pipeline while each operation
     still specializes its own accepted parameter snapshot.
     """
 
-    config = _config_snapshot(config_profile, default_target="fake-list")
     provider = QuantumLabVirtualProvider(profile=virtual_lab_profile)
     selected_compiler = _compiler_for_config(config) if compiler is None else compiler
     _validate_target_selection(
@@ -138,13 +140,9 @@ def quantum_lab(
         target_id=selected_compiler.target_id,
         target_kind=selected_compiler.target_kind,
     )
-    return open_embedded_workspace(
-        workspace,
-        config_profile=config,
-        system=sc.ExperimentSystem(
-            provider=provider,
-            domain_compiler=selected_compiler,
-        ),
+    return ExperimentSystem(
+        provider=provider,
+        domain_compiler=selected_compiler,
     )
 
 
@@ -191,7 +189,8 @@ def _validate_target_selection(
 __all__ = [
     "ConfigProfileInput",
     "PathInput",
-    "quantum_lab",
     "quantum_lab_compiler",
+    "quantum_lab_config_profile",
+    "quantum_lab_system",
     "quantum_realtime_lab_compiler",
 ]

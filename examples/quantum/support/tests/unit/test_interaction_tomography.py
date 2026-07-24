@@ -11,7 +11,7 @@ from scopecat_quantum import (
     QubitId,
 )
 
-from quantum_lab_demo import quantum_lab, quantum_lab_compiler
+from quantum_lab_demo import quantum_lab_compiler
 from quantum_lab_demo.virtual_lab.pulse_profile import (
     y90_pulse_recipe,
     ym90_pulse_recipe,
@@ -25,6 +25,8 @@ from quantum_lab_demo.workflows.interaction_tomography import (
     interaction_tomography_template,
 )
 
+from .demo_lab_experiment_testkit import embedded_quantum_lab
+
 
 def _compile_point(
     tmp_path: Path,
@@ -34,7 +36,7 @@ def _compile_point(
 ):
     compiler = quantum_lab_compiler()
     run = (
-        quantum_lab(workspace=tmp_path, compiler=compiler)
+        embedded_quantum_lab(workspace=tmp_path, compiler=compiler)
         .prepare(interaction_tomography_template.bind(shots=2))
         .scan(PREPARATION, (preparation,))
         .scan(ANALYSIS_BASIS, (analysis_basis,))

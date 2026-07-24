@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from base64 import b64decode
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -10,7 +11,8 @@ import httpx
 import pytest
 from pydantic import BaseModel
 
-import scopecat.daemon.workspace as workspace_module
+import scopecat.daemon.connection as connection_module
+from scopecat.analysis.service import AnalysisOutput, prepare_analysis_artifact
 from scopecat.composition.embedded import embedded_workspace_services
 from scopecat.config.registry.records import (
     ConfigRegistryActivationRecord,
@@ -28,8 +30,8 @@ from scopecat.control.models import (
 from scopecat.daemon import (
     DaemonClient,
     DaemonConflictError,
+    DaemonConnection,
     DaemonHealth,
-    DaemonWorkspace,
     DelegatedExecutorLeaseLostError,
     DelegatedRunSubmission,
     ExecutionRecoverySnapshot,
@@ -47,6 +49,9 @@ from scopecat.daemon.views import (
     ConfigRegistryView,
 )
 from scopecat.daemon.wire import (
+    AnalysisArtifactOutputPayload,
+    AnalysisSaveCommand,
+    AnalysisSaveReceipt,
     ConfigActivationReceipt,
     ConfigEntryActivationCommand,
     ConfigImportReceipt,
@@ -58,6 +63,7 @@ from scopecat.execution.program import RunProgram
 from scopecat.execution.services import ExecutionServices
 from scopecat.planning.preview import build_run_program_preview
 from scopecat.planning.system import ExperimentSystem
+from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.run import RunManifest, RunOutcome
 from scopecat.records.run_request import RunRequest
@@ -73,7 +79,7 @@ from tests.testkit.workflow_fixtures import (
 _NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
 
 
-def test_workspace_exposes_browsing_and_managed_submission() -> None:
+def test_connection_exposes_browsing_and_managed_submission() -> None:
     request = RunRequest(id="managed-request")
     admission_record = RunAdmissionRecord(
         submission_id="existing-submission",
@@ -102,7 +108,14 @@ def test_workspace_exposes_browsing_and_managed_submission() -> None:
     def handler(http_request: httpx.Request) -> httpx.Response:
         path = http_request.url.path
         if path.endswith("/health"):
-            return _model(DaemonHealth(status="ok", workspace_id="workspace-1"))
+            return _model(
+                DaemonHealth(
+                    status="ok",
+                    project_id="project-1",
+                    project_name="test-lab",
+                    project_root="/projects/test-lab",
+                )
+            )
         if path.endswith("/catalog"):
             return _model(
                 ExperimentCatalog(
@@ -151,14 +164,14 @@ def test_workspace_exposes_browsing_and_managed_submission() -> None:
         raise AssertionError(f"unexpected request: {http_request.method} {path}")
 
     client = _client(handler)
-    workspace = DaemonWorkspace(client)
+    connection = DaemonConnection(client)
 
-    assert workspace.health().workspace_id == "workspace-1"
-    assert workspace.catalog().experiments[0].id == "ramsey"
-    assert workspace.runs(state="accepted").items == (run,)
-    assert workspace.get_run(run.run_id).control == run
-    assert workspace.events(run_id=run.run_id).items == (event,)
-    admission = workspace.submit_managed(
+    assert connection.health().project_id == "project-1"
+    assert connection.catalog().experiments[0].id == "ramsey"
+    assert connection.runs(state="accepted").items == (run,)
+    assert connection.get_run(run.run_id).control == run
+    assert connection.events(run_id=run.run_id).items == (event,)
+    admission = connection.submit_managed(
         "ramsey",
         "1",
         request,
@@ -167,7 +180,7 @@ def test_workspace_exposes_browsing_and_managed_submission() -> None:
 
     assert admission.submission_id == "managed-submission"
     assert seen_submission_ids == ["managed-submission"]
-    workspace.close()
+    connection.close()
     assert client.health().status == "ok"
 
 
@@ -222,8 +235,7 @@ def test_execute_delegated_submits_complete_plan_and_heartbeats(
             assert heartbeat_seen.wait(timeout=1)
         return _terminal_manifest(accepted)
 
-    monkeypatch.setattr(workspace_module, "execute_admitted_run", execute)
-    provider = TestSignalInstrumentProvider()
+    monkeypatch.setattr(connection_module, "execute_admitted_run", execute)
 
     def event_sink(_event: RuntimeEvent) -> None:
         pass
@@ -231,11 +243,10 @@ def test_execute_delegated_submits_complete_plan_and_heartbeats(
     def payload_observer(_event: RuntimePayloadObservation) -> None:
         pass
 
-    result = DaemonWorkspace(_client(handler)).execute_delegated(
+    result = DaemonConnection(_client(handler)).execute_delegated(
         planned,
         executor_id="notebook-1",
         submission_id="delegated-submission",
-        instrument_provider=provider,
         event_sink=event_sink,
         payload_observer=payload_observer,
     )
@@ -257,7 +268,9 @@ def test_execute_delegated_submits_complete_plan_and_heartbeats(
     )
     assert forwarded == {
         "program": planned.program,
-        "instrument_provider": provider,
+        "instrument_provider": (
+            None if planned.system is None else planned.system.provider
+        ),
         "event_sink": event_sink,
         "payload_observer": payload_observer,
     }
@@ -315,13 +328,13 @@ def test_execute_delegated_fences_effects_after_heartbeat_loses_lease(
                     raise AssertionError("heartbeat failure did not fence effects")
                 time.sleep(0.001)
 
-    monkeypatch.setattr(workspace_module, "execute_admitted_run", execute)
+    monkeypatch.setattr(connection_module, "execute_admitted_run", execute)
 
     with pytest.raises(
         DelegatedExecutorLeaseLostError,
         match="generation 7 is no longer live",
     ) as error:
-        DaemonWorkspace(_client(handler)).execute_delegated(
+        DaemonConnection(_client(handler)).execute_delegated(
             planned,
             executor_id="notebook-1",
         )
@@ -331,10 +344,10 @@ def test_execute_delegated_fences_effects_after_heartbeat_loses_lease(
 
 def test_execute_delegated_requires_a_durable_request(tmp_path: Path) -> None:
     planned = _planned(tmp_path)
-    workspace = DaemonWorkspace(_client(lambda _request: httpx.Response(500)))
+    connection = DaemonConnection(_client(lambda _request: httpx.Response(500)))
 
     with pytest.raises(ValueError, match="durable run request"):
-        workspace.execute_delegated(
+        connection.execute_delegated(
             PlannedRun(
                 config=planned.config,
                 request=None,
@@ -344,7 +357,7 @@ def test_execute_delegated_requires_a_durable_request(tmp_path: Path) -> None:
         )
 
 
-def test_workspace_composes_config_registry_commands() -> None:
+def test_connection_composes_config_registry_commands() -> None:
     config = load_config()
     entry, state = _config_registry_records(config)
     seen: list[object] = []
@@ -387,13 +400,13 @@ def test_workspace_composes_config_registry_commands() -> None:
             )
         raise AssertionError(f"unexpected request: {http_request.method} {path}")
 
-    workspace = DaemonWorkspace(_client(handler))
+    connection = DaemonConnection(_client(handler))
 
-    assert workspace.config_registry().active_state == state
-    assert workspace.active_config().config == config
-    assert workspace.config_entry("baseline").config == config
+    assert connection.config_registry().active_state == state
+    assert connection.active_config().config == config
+    assert connection.config_entry("baseline").config == config
     assert (
-        workspace.import_direct_config(
+        connection.import_direct_config(
             config,
             entry_id="baseline",
             registered_by="notebook",
@@ -401,14 +414,14 @@ def test_workspace_composes_config_registry_commands() -> None:
         == entry
     )
     assert (
-        workspace.activate_config_entry(
+        connection.activate_config_entry(
             "baseline",
             operator="operator",
         ).active_state
         == state
     )
     assert (
-        workspace.rollback_config(
+        connection.rollback_config(
             operator="operator",
             expected_generation=1,
         ).active_state
@@ -433,6 +446,91 @@ def test_workspace_composes_config_registry_commands() -> None:
     ]
 
 
+def test_remote_analysis_artifacts_preserve_source_defaults() -> None:
+    commands: list[AnalysisSaveCommand] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        command = AnalysisSaveCommand.model_validate_json(request.content)
+        commands.append(command)
+        return _model(
+            AnalysisSaveReceipt(
+                record=RunContentEntry(
+                    role="record",
+                    id="analysis-fit",
+                    kind="analysis",
+                    content_hash="sha256:analysis",
+                ),
+                analysis_key=command.analysis_key,
+            ),
+            status_code=201,
+        )
+
+    json_spec = prepare_analysis_artifact(
+        title="JSON result",
+        kind="fit_json",
+        artifact_id="fit-json",
+        filename=None,
+        model=None,
+        json_content={"ok": True},
+        text=None,
+        content=None,
+        path=None,
+        media_type=None,
+        metadata=None,
+    )
+    text_spec = prepare_analysis_artifact(
+        title="Text result",
+        kind="fit_text",
+        artifact_id="fit-text",
+        filename=None,
+        model=None,
+        json_content=None,
+        text="fit converged",
+        content=None,
+        path=None,
+        media_type=None,
+        metadata=None,
+    )
+
+    DaemonConnection(_client(handler)).save_analysis(
+        run_id="run-1",
+        title="fit",
+        analysis_key="fit",
+        step_id=None,
+        inputs=(),
+        outputs=(
+            AnalysisOutput(
+                kind="artifact",
+                title=json_spec.title,
+                content=json_spec,
+                metadata={},
+            ),
+            AnalysisOutput(
+                kind="artifact",
+                title=text_spec.title,
+                content=text_spec,
+                metadata={},
+            ),
+        ),
+        parameter_proposals=(),
+    )
+
+    [command] = commands
+    json_output, text_output = command.outputs
+    assert isinstance(json_output, AnalysisArtifactOutputPayload)
+    assert isinstance(text_output, AnalysisArtifactOutputPayload)
+    assert (
+        json_output.source_default_extension,
+        json_output.source_default_media_type,
+        b64decode(json_output.content_base64),
+    ) == (".json", "application/json", b'{\n  "ok": true\n}\n')
+    assert (
+        text_output.source_default_extension,
+        text_output.source_default_media_type,
+        b64decode(text_output.content_base64),
+    ) == (".txt", "text/plain", b"fit converged\n")
+
+
 @pytest.mark.parametrize("prepared", [False, True])
 def test_run_scratch_plans_against_explicit_snapshot_without_local_storage(
     monkeypatch: pytest.MonkeyPatch,
@@ -445,12 +543,11 @@ def test_run_scratch_plans_against_explicit_snapshot_without_local_storage(
     captured: dict[str, object] = {}
 
     def execute_delegated(
-        self: DaemonWorkspace,
+        self: DaemonConnection,
         planned: PlannedRun,
         *,
         executor_id: str,
         submission_id: str | None = None,
-        instrument_provider: InstrumentProvider | None = None,
         event_sink: Callable[[RuntimeEvent], None] | None = None,
         payload_observer: Callable[[RuntimePayloadObservation], None] | None = None,
     ) -> RunManifest:
@@ -459,7 +556,6 @@ def test_run_scratch_plans_against_explicit_snapshot_without_local_storage(
             planned=planned,
             executor_id=executor_id,
             submission_id=submission_id,
-            instrument_provider=instrument_provider,
         )
         accepted = RunManifest(
             run_id="run-scratch",
@@ -468,13 +564,15 @@ def test_run_scratch_plans_against_explicit_snapshot_without_local_storage(
         )
         return _terminal_manifest(accepted)
 
-    monkeypatch.setattr(DaemonWorkspace, "execute_delegated", execute_delegated)
+    monkeypatch.setattr(DaemonConnection, "execute_delegated", execute_delegated)
 
     experiment = load_prepared_invocation() if prepared else load_invocation()
-    result = DaemonWorkspace(_client(lambda _request: httpx.Response(500))).run_scratch(
+    result = DaemonConnection(
+        _client(lambda _request: httpx.Response(500)),
+        build_system=lambda _config: system,
+    ).run_scratch(
         experiment,
         config=config,
-        system=system,
         name="scratch fit",
         tags=("calibration", "demo"),
         description="fit one trace",
@@ -497,7 +595,10 @@ def test_run_scratch_plans_against_explicit_snapshot_without_local_storage(
     }
     assert captured["executor_id"] == "notebook-1"
     assert captured["submission_id"] == "scratch-submission"
-    assert captured["instrument_provider"] is provider
+    planned_system = planned.system
+    assert planned_system is not None
+    assert planned_system is system
+    assert planned_system.provider is provider
     assert result.status == "completed"
 
 
@@ -509,26 +610,23 @@ def test_run_scratch_uses_active_config_and_bound_system(
     provider = TestSignalInstrumentProvider()
     system = ExperimentSystem(provider=provider)
     captured: dict[str, object] = {}
+    built_from: list[ConfigProfileSnapshot] = []
 
     def handler(http_request: httpx.Request) -> httpx.Response:
         assert http_request.url.path == "/api/v1/config-registry/active"
         return _model(ActiveConfigView(entry=entry, active_state=state, config=config))
 
     def execute_delegated(
-        self: DaemonWorkspace,
+        self: DaemonConnection,
         planned: PlannedRun,
         *,
         executor_id: str,
         submission_id: str | None = None,
-        instrument_provider: InstrumentProvider | None = None,
         event_sink: Callable[[RuntimeEvent], None] | None = None,
         payload_observer: Callable[[RuntimePayloadObservation], None] | None = None,
     ) -> RunManifest:
         del self, executor_id, submission_id, event_sink, payload_observer
-        captured.update(
-            planned=planned,
-            instrument_provider=instrument_provider,
-        )
+        captured["planned"] = planned
         return _terminal_manifest(
             RunManifest(
                 run_id="run-scratch",
@@ -537,22 +635,30 @@ def test_run_scratch_uses_active_config_and_bound_system(
             )
         )
 
-    monkeypatch.setattr(DaemonWorkspace, "execute_delegated", execute_delegated)
+    monkeypatch.setattr(DaemonConnection, "execute_delegated", execute_delegated)
 
-    result = DaemonWorkspace(
+    def build_system(selected: ConfigProfileSnapshot) -> ExperimentSystem:
+        built_from.append(selected)
+        return system
+
+    result = DaemonConnection(
         _client(handler),
-        system=system,
+        build_system=build_system,
     ).run_scratch(load_invocation())
 
     planned = captured["planned"]
     assert isinstance(planned, PlannedRun)
     assert planned.config == config
-    assert captured["instrument_provider"] is provider
+    planned_system = planned.system
+    assert planned_system is not None
+    assert planned_system is system
+    assert planned_system.provider is provider
+    assert built_from == [config]
     assert result.status == "completed"
 
 
 def test_run_scratch_requires_an_explicit_or_bound_system() -> None:
-    workspace = DaemonWorkspace(
+    connection = DaemonConnection(
         _client(
             lambda request: pytest.fail(
                 f"unexpected daemon request: {request.method} {request.url.path}"
@@ -561,7 +667,7 @@ def test_run_scratch_requires_an_explicit_or_bound_system() -> None:
     )
 
     with pytest.raises(ValueError, match="requires an experiment system"):
-        workspace.run_scratch(load_invocation(), config=load_config())
+        connection.run_scratch(load_invocation(), config=load_config())
 
 
 def test_preview_scratch_uses_active_config_without_admission() -> None:
@@ -573,9 +679,11 @@ def test_preview_scratch_uses_active_config_without_admission() -> None:
         requests.append(request)
         return _model(ActiveConfigView(entry=entry, active_state=state, config=config))
 
-    preview = DaemonWorkspace(
+    preview = DaemonConnection(
         _client(handler),
-        system=ExperimentSystem(provider=TestSignalInstrumentProvider()),
+        build_system=lambda _config: ExperimentSystem(
+            provider=TestSignalInstrumentProvider()
+        ),
     ).preview_scratch(load_invocation())
 
     assert preview.point_count > 0

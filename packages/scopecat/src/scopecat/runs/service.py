@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import cast
 
 from scopecat.application.services import WorkspaceServices
@@ -75,12 +75,17 @@ from scopecat.runs.repository import RunRepository
 
 @dataclass(frozen=True, slots=True)
 class PlannedRun:
-    """Transient program paired with the durable facts required for admission."""
+    """Transient program paired with the facts and capabilities used to plan it.
+
+    Keeping the system here ensures execution uses the provider built from the
+    same accepted config that compiled the program.
+    """
 
     config: ConfigProfileSnapshot
     request: RunRequest | None
     program: RunProgram
     config_source: RunConfigSource | None = None
+    system: ExperimentSystem | None = field(default=None, repr=False, compare=False)
 
 
 def list_runs(*, services: WorkspaceServices) -> list[RunManifest]:
@@ -348,7 +353,6 @@ def start_run(
     return _execute_planned_run(
         planned,
         services=services,
-        system=system,
         event_sink=event_sink,
         payload_observer=payload_observer,
     )
@@ -382,6 +386,7 @@ def _plan_compiled_run(
         request=resolved.request,
         program=program,
         config_source=config_source,
+        system=system,
     )
 
 
@@ -389,7 +394,6 @@ def _execute_planned_run(
     planned: PlannedRun,
     *,
     services: WorkspaceServices,
-    system: ExperimentSystem | None,
     event_sink: RuntimeEventSink | None,
     payload_observer: RuntimePayloadObserver | None,
 ) -> RunManifest:
@@ -403,7 +407,9 @@ def _execute_planned_run(
         run_id=accepted.run_id,
         program=planned.program,
         services=services.execution,
-        instrument_provider=None if system is None else system.provider,
+        instrument_provider=(
+            None if planned.system is None else planned.system.provider
+        ),
         event_sink=event_sink,
         payload_observer=payload_observer,
     )
@@ -469,7 +475,6 @@ def run_experiment(
     return _execute_planned_run(
         planned,
         services=services,
-        system=system,
         event_sink=event_sink,
         payload_observer=payload_observer,
     )

@@ -149,24 +149,24 @@ def test_analysis_save_recovers_after_output_write_failure(
         .get_run(run.run_id)
         .analyze(SummaryStatsAnalysisStep())
     )
-    original_write_text = SQLiteRunRepository.write_text
+    original_write_bytes = SQLiteRunRepository.write_bytes
     failed = False
 
     def fail_first_summary_write(
         storage: SQLiteRunRepository,
         run_id: str,
         ref: str,
-        content: str,
+        content: bytes,
     ) -> None:
         nonlocal failed
         if not failed and ref == SUMMARY_STATS_SUMMARY_REF:
             failed = True
             raise OSError("injected analysis output failure")
-        original_write_text(storage, run_id, ref, content)
+        original_write_bytes(storage, run_id, ref, content)
 
     monkeypatch.setattr(
         SQLiteRunRepository,
-        "write_text",
+        "write_bytes",
         fail_first_summary_write,
     )
 

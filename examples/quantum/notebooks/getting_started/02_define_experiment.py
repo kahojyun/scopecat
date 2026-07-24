@@ -4,7 +4,7 @@ from __future__ import annotations
 
 # %%
 import scopecat as sc
-from quantum_lab_demo import notebook_workspace, quantum_lab
+from quantum_lab_demo import EXAMPLE_ROOT
 from quantum_lab_demo.workflows.readout_frequency import (
     READOUT_FREQUENCY,
     readout_module,
@@ -33,8 +33,7 @@ def readout_frequency(
 
 
 # %%
-workspace = notebook_workspace("02-define-experiment")
-lab = quantum_lab(workspace=workspace)
+lab = sc.open_project(EXAMPLE_ROOT).connect()
 
 # %%
 qubit = "q0"
@@ -44,11 +43,7 @@ scan_span = sc.Quantity(value=60.0, unit="MHz")
 preview = (
     lab.prepare(readout_frequency(qubit=qubit))
     .scan(READOUT_FREQUENCY, span=scan_span, points=scan_points)
-    .preview(
-        name="readout frequency",
-        tags=("notebook", "calibration"),
-        description="narrow scan selected interactively in the notebook",
-    )
+    .preview()
 )
 
 # %%

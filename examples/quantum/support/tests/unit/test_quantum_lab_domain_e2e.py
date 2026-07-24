@@ -36,7 +36,6 @@ from scopecat.sdk.domain.runtime import (
 
 from quantum_lab_demo import (
     QuantumLabCompiler,
-    quantum_lab,
     quantum_lab_compiler,
 )
 from quantum_lab_demo.targets.fake_list_mode import (
@@ -62,7 +61,10 @@ from quantum_lab_demo.workflows.fake_x_count_experiment import (
     x_count_program,
 )
 
-from .demo_lab_experiment_testkit import reject_program_input_binding
+from .demo_lab_experiment_testkit import (
+    embedded_quantum_lab,
+    reject_program_input_binding,
+)
 
 
 class _UnknownFetchFakeListDomainRuntime(FakeListDomainRuntime):
@@ -202,7 +204,7 @@ def test_fake_x_count_authoring_paths_share_one_standard_domain_semantics(
     semantics: dict[str, object] = {}
     for authoring in ("template", "scratch"):
         compiler = quantum_lab_compiler()
-        lab = quantum_lab(workspace=tmp_path / authoring, compiler=compiler)
+        lab = embedded_quantum_lab(workspace=tmp_path / authoring, compiler=compiler)
         experiment = (
             lab.prepare(fake_x_count_template)
             if authoring == "template"
@@ -278,7 +280,7 @@ def test_fake_x_count_compiler_absorbs_affine_point_input_without_binding(
         )
 
     compiler = quantum_lab_compiler()
-    lab = quantum_lab(workspace=tmp_path)
+    lab = embedded_quantum_lab(workspace=tmp_path)
 
     run = lab.prepare(affine_template, system=_domain_only(compiler)).run()
     records = run.data().measurements().dataset.records
@@ -317,7 +319,7 @@ def test_fake_x_count_compiler_projects_zipped_axis_without_binding(
         )
 
     compiler = quantum_lab_compiler()
-    lab = quantum_lab(workspace=tmp_path)
+    lab = embedded_quantum_lab(workspace=tmp_path)
 
     run = lab.prepare(zipped_template, system=_domain_only(compiler)).run()
 
@@ -353,7 +355,7 @@ def test_fake_x_count_scans_compiler_qubit_collection(tmp_path: Path) -> None:
 
     compiler = quantum_lab_compiler()
     run = (
-        quantum_lab(workspace=tmp_path, compiler=compiler)
+        embedded_quantum_lab(workspace=tmp_path, compiler=compiler)
         .prepare(compiler_scan())
         .run()
     )
@@ -382,7 +384,7 @@ def test_two_ordered_domain_calls_share_target_and_produce_canonical_results(
         )
 
     compiler = quantum_lab_compiler()
-    lab = quantum_lab(workspace=tmp_path)
+    lab = embedded_quantum_lab(workspace=tmp_path)
 
     run = lab.prepare(
         two_call_template,
@@ -411,7 +413,7 @@ def test_compiler_boundary_normalizes_deferred_contract_defects_during_run(
     compiler: object,
     tmp_path: Path,
 ) -> None:
-    lab = quantum_lab(workspace=tmp_path)
+    lab = embedded_quantum_lab(workspace=tmp_path)
     experiment = lab.prepare(
         fake_x_count_template,
         system=_domain_only(
@@ -436,7 +438,7 @@ def test_indeterminate_submit_retains_durable_target_correlation_context(
     tmp_path: Path,
 ) -> None:
     compiler = quantum_lab_compiler(runtime=_IndeterminateFakeListDomainRuntime())
-    lab = quantum_lab(workspace=tmp_path)
+    lab = embedded_quantum_lab(workspace=tmp_path)
     experiment = lab.prepare(
         fake_x_count_template,
         system=_domain_only(compiler),
@@ -497,7 +499,7 @@ def test_later_domain_job_failure_preserves_points_from_earlier_jobs(
         target=target,
         runtime=runtime,
     )
-    lab = quantum_lab(workspace=tmp_path)
+    lab = embedded_quantum_lab(workspace=tmp_path)
     events: list[RuntimeEvent] = []
 
     with pytest.raises(RunIndeterminate):
@@ -532,7 +534,7 @@ def test_unknown_fetch_terminalizes_as_indeterminate_with_known_job_context(
     tmp_path: Path,
 ) -> None:
     compiler = quantum_lab_compiler(runtime=_UnknownFetchFakeListDomainRuntime())
-    lab = quantum_lab(workspace=tmp_path)
+    lab = embedded_quantum_lab(workspace=tmp_path)
     experiment = lab.prepare(
         fake_x_count_template,
         system=_domain_only(compiler),
@@ -573,7 +575,7 @@ def test_uncertain_measurement_write_retains_durable_correlation(
         fail_record_write,
     )
     compiler = quantum_lab_compiler()
-    lab = quantum_lab(workspace=tmp_path)
+    lab = embedded_quantum_lab(workspace=tmp_path)
     experiment = lab.prepare(
         fake_x_count_template,
         system=_domain_only(compiler),
@@ -609,7 +611,7 @@ def test_successful_recording_does_not_reload_committed_measurements(
         fail_measurement_reload,
     )
     compiler = quantum_lab_compiler()
-    lab = quantum_lab(workspace=tmp_path)
+    lab = embedded_quantum_lab(workspace=tmp_path)
     experiment = lab.prepare(
         fake_x_count_template,
         system=_domain_only(compiler),

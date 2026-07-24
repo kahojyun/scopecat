@@ -1,9 +1,11 @@
-"""Notebook-facing workspace client for a local Scopecat daemon."""
+"""Notebook-facing client connection to one local Scopecat project daemon."""
 
 from __future__ import annotations
 
+from base64 import b64encode
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
+from pathlib import Path
 from threading import Event, Lock, Thread
 from types import TracebackType
 from typing import Literal, Self, cast, override
@@ -12,6 +14,7 @@ from uuid import uuid4
 from pydantic import JsonValue, RootModel, TypeAdapter
 
 from scopecat.analysis.service import (
+    AnalysisArtifactSpec,
     AnalysisInput,
     AnalysisOutput,
     SavedAnalysis,
@@ -40,10 +43,13 @@ from scopecat.daemon.views import (
     DaemonHealth,
     MeasurementPage,
     ParameterProposalListView,
+    RunAnalysisListView,
+    RunAnalysisView,
     RunConfigView,
     RunDetail,
 )
 from scopecat.daemon.wire import (
+    AnalysisArtifactOutputPayload,
     AnalysisInputPayload,
     AnalysisJsonOutputPayload,
     AnalysisNoteOutputPayload,
@@ -68,21 +74,36 @@ from scopecat.daemon.wire import (
     ParameterProposalReviewReceipt,
     ResourceClaimDescriptor,
     RunAdmission,
+    RunAttachmentCommand,
 )
 from scopecat.execution.interpreter import execute_admitted_run
 from scopecat.execution.observation import RuntimeEventSink, RuntimePayloadObserver
+from scopecat.measurements.results import MeasurementDataset
 from scopecat.planning.preview import build_run_program_preview
 from scopecat.planning.preview_models import ExperimentPreview
-from scopecat.planning.system import ExperimentSystem
+from scopecat.planning.system import (
+    ExperimentSystemBuilder,
+    build_experiment_system,
+)
+from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.data_artifact import DataArrayArtifact, DataTableArtifact
 from scopecat.records.parameter_change import (
     ParameterChangeProposal,
     ParameterChangeReviewState,
 )
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
+from scopecat.runs.data import (
+    RunArtifactBytesResult,
+    RunArtifactJsonResult,
+    RunArtifactTextResult,
+    RunDataArrayResult,
+    RunDataTableResult,
+    RunMeasurementDatasetResult,
+    RunRecordJsonResult,
+)
 from scopecat.runs.service import PlannedRun, plan_scratch_experiment
-from scopecat.sdk.instruments.contracts import InstrumentProvider
 
 
 class DelegatedExecutorLeaseLostError(RuntimeError):
@@ -97,18 +118,18 @@ class DelegatedExecutorLeaseLostError(RuntimeError):
         self.cause = cause
 
 
-class DaemonWorkspace:
-    """High-level synchronous client for daemon-backed notebook workflows."""
+class DaemonConnection:
+    """Synchronous project-daemon connection for operator and execution APIs."""
 
     def __init__(
         self,
         daemon: str | DaemonClient,
         *,
-        system: ExperimentSystem | None = None,
+        build_system: ExperimentSystemBuilder | None = None,
     ) -> None:
         self._owns_client = isinstance(daemon, str)
         self._client = DaemonClient(daemon) if isinstance(daemon, str) else daemon
-        self._system = system
+        self._build_system = build_system
 
     def __enter__(self) -> Self:
         return self
@@ -244,6 +265,132 @@ class DaemonWorkspace:
     def run_config(self, run_id: str) -> RunConfigView:
         return self._client.run_config(run_id)
 
+    def run_request(self, run_id: str) -> RunRequest | None:
+        return self._client.run_request(run_id).request
+
+    def analyses(self, run_id: str) -> RunAnalysisListView:
+        return self._client.analyses(run_id)
+
+    def analysis(self, run_id: str, selector: str) -> RunAnalysisView:
+        return self._client.analysis(run_id, selector)
+
+    def attach(
+        self,
+        *,
+        run_id: str,
+        path: str | Path | None = None,
+        key: str,
+        kind: str = "attachment",
+        text: str | None = None,
+        content: bytes | None = None,
+        filename: str | None = None,
+        media_type: str | None = None,
+        metadata: Mapping[str, JsonValue] | None = None,
+    ) -> RunContentEntry:
+        source_path = None if path is None else Path(path)
+        if source_path is not None:
+            if text is not None or content is not None:
+                raise ValueError("run attachment requires exactly one content source")
+            content = source_path.read_bytes()
+            filename = filename or source_path.name
+        encoded = None if content is None else b64encode(content).decode("ascii")
+        return self._client.attach(
+            RunAttachmentCommand(
+                run_id=run_id,
+                key=key,
+                kind=kind,
+                text=text,
+                content_base64=encoded,
+                filename=filename,
+                media_type=media_type,
+                metadata=dict(metadata or {}),
+            )
+        ).artifact
+
+    def artifact_bytes(
+        self,
+        run_id: str,
+        selector: str,
+        *,
+        expected_kind: str | None = None,
+    ) -> RunArtifactBytesResult:
+        view = self._client.artifact_bytes(
+            run_id,
+            selector,
+            expected_kind=expected_kind,
+        )
+        return RunArtifactBytesResult(
+            artifact=view.artifact,
+            content=view.content_bytes(),
+        )
+
+    def artifact_text(
+        self,
+        run_id: str,
+        selector: str,
+        *,
+        expected_kind: str | None = None,
+    ) -> RunArtifactTextResult:
+        view = self._client.artifact_text(
+            run_id,
+            selector,
+            expected_kind=expected_kind,
+        )
+        return RunArtifactTextResult(artifact=view.artifact, content=view.content)
+
+    def artifact_json(
+        self,
+        run_id: str,
+        selector: str,
+        *,
+        expected_kind: str | None = None,
+    ) -> RunArtifactJsonResult:
+        view = self._client.artifact_json(
+            run_id,
+            selector,
+            expected_kind=expected_kind,
+        )
+        return RunArtifactJsonResult(artifact=view.artifact, content=view.content)
+
+    def record_json(
+        self,
+        run_id: str,
+        selector: str,
+        *,
+        expected_kind: str | None = None,
+    ) -> RunRecordJsonResult:
+        view = self._client.record_json(
+            run_id,
+            selector,
+            expected_kind=expected_kind,
+        )
+        return RunRecordJsonResult(record=view.record, content=view.content)
+
+    def measurement_dataset(
+        self,
+        run_id: str,
+        selector: str = "raw-measurements",
+    ) -> RunMeasurementDatasetResult:
+        view = self._client.dataset_content(run_id, selector)
+        if not isinstance(view.content, MeasurementDataset):
+            raise ValueError("run dataset is not a measurement dataset")
+        return RunMeasurementDatasetResult(
+            dataset_entry=view.dataset,
+            dataset=view.content,
+        )
+
+    def data_table(self, run_id: str, selector: str) -> RunDataTableResult:
+        view = self._client.dataset_content(run_id, selector)
+        if not isinstance(view.content, DataTableArtifact):
+            raise ValueError("run dataset is not a data table")
+        return RunDataTableResult(dataset_entry=view.dataset, table=view.content)
+
+    def data_array(self, run_id: str, selector: str) -> RunDataArrayResult:
+        view = self._client.dataset_content(run_id, selector)
+        if not isinstance(view.content, DataArrayArtifact):
+            raise ValueError("run dataset is not a data array")
+        return RunDataArrayResult(dataset_entry=view.dataset, array=view.content)
+
     def save_analysis(
         self,
         *,
@@ -358,7 +505,6 @@ class DaemonWorkspace:
         *,
         executor_id: str = "notebook",
         submission_id: str | None = None,
-        instrument_provider: InstrumentProvider | None = None,
         event_sink: RuntimeEventSink | None = None,
         payload_observer: RuntimePayloadObserver | None = None,
     ) -> RunManifest:
@@ -386,7 +532,9 @@ class DaemonWorkspace:
                 run_id=admission.run_id,
                 program=planned.program,
                 services=services,
-                instrument_provider=instrument_provider,
+                instrument_provider=(
+                    None if planned.system is None else planned.system.provider
+                ),
                 event_sink=event_sink,
                 payload_observer=payload_observer,
             )
@@ -398,7 +546,6 @@ class DaemonWorkspace:
         experiment: ExperimentInvocation | PreparedInvocation,
         *,
         config: ConfigProfileSnapshot | None = None,
-        system: ExperimentSystem | None = None,
         name: str | None = None,
         tags: tuple[str, ...] = (),
         description: str | None = None,
@@ -411,10 +558,9 @@ class DaemonWorkspace:
     ) -> RunManifest:
         """Plan notebook code locally and persist all run effects through the daemon."""
 
-        planned, selected_system = self._plan_scratch(
+        planned = self._plan_scratch(
             experiment,
             config=config,
-            system=system,
             name=name,
             tags=tags,
             description=description,
@@ -425,7 +571,6 @@ class DaemonWorkspace:
             planned,
             executor_id=executor_id,
             submission_id=submission_id,
-            instrument_provider=selected_system.provider,
             event_sink=event_sink,
             payload_observer=payload_observer,
         )
@@ -435,7 +580,6 @@ class DaemonWorkspace:
         experiment: ExperimentInvocation | PreparedInvocation,
         *,
         config: ConfigProfileSnapshot | None = None,
-        system: ExperimentSystem | None = None,
         name: str | None = None,
         tags: tuple[str, ...] = (),
         description: str | None = None,
@@ -444,10 +588,9 @@ class DaemonWorkspace:
     ) -> ExperimentPreview:
         """Plan notebook code without admission or durable effects."""
 
-        planned, _selected_system = self._plan_scratch(
+        planned = self._plan_scratch(
             experiment,
             config=config,
-            system=system,
             name=name,
             tags=tags,
             description=description,
@@ -461,17 +604,19 @@ class DaemonWorkspace:
         experiment: ExperimentInvocation | PreparedInvocation,
         *,
         config: ConfigProfileSnapshot | None,
-        system: ExperimentSystem | None,
         name: str | None,
         tags: tuple[str, ...],
         description: str | None,
         metadata: Mapping[str, MetadataValue] | None,
         operator: str | None,
-    ) -> tuple[PlannedRun, ExperimentSystem]:
-        selected_system = self._system if system is None else system
+    ) -> PlannedRun:
+        selected_config = self.active_config().config if config is None else config
+        selected_system = build_experiment_system(
+            self._build_system,
+            selected_config,
+        )
         if selected_system is None:
             raise ValueError("scratch execution requires an experiment system")
-        selected_config = self.active_config().config if config is None else config
         prepared = (
             experiment
             if isinstance(experiment, PreparedInvocation)
@@ -485,13 +630,10 @@ class DaemonWorkspace:
             metadata=metadata,
             operator=operator,
         )
-        return (
-            plan_scratch_experiment(
-                prepared,
-                config=selected_config,
-                system=selected_system,
-            ),
-            selected_system,
+        return plan_scratch_experiment(
+            prepared,
+            config=selected_config,
+            system=selected_system,
         )
 
     def _config_generation(self) -> int:
@@ -567,6 +709,24 @@ def _analysis_output_payload(value: AnalysisOutput) -> AnalysisOutputPayload:
             content=_JsonValue.model_validate(value.content).root,
             metadata=metadata,
         )
+    if value.kind == "artifact":
+        if not isinstance(value.content, AnalysisArtifactSpec):
+            raise ValueError("remote analysis artifact output has invalid content")
+        return AnalysisArtifactOutputPayload(
+            kind=value.kind,
+            title=value.title,
+            artifact_kind=value.content.kind,
+            content_base64=b64encode(value.content.content_bytes()).decode("ascii"),
+            artifact_id=value.content.artifact_id,
+            filename=value.content.filename,
+            media_type=value.content.media_type,
+            source_default_filename=value.content.source_default_filename(),
+            source_default_extension=value.content.source_default_extension(),
+            source_default_media_type=value.content.source_default_media_type(),
+            source_content_hash=value.content.source_content_hash(),
+            artifact_metadata=_JSON_MAPPING.validate_python(value.content.metadata),
+            metadata=metadata,
+        )
     if value.kind == "parameter_change_proposal":
         if not isinstance(value.content, ParameterChangeProposal):
             raise ValueError("remote analysis proposal output has invalid content")
@@ -577,19 +737,19 @@ def _analysis_output_payload(value: AnalysisOutput) -> AnalysisOutputPayload:
             metadata=metadata,
         )
     raise ValueError(
-        "remote analysis supports note, table, array, figure, "
+        "remote analysis supports note, table, array, figure, artifact, "
         "and parameter change proposal outputs"
     )
 
 
 def connect(
-    daemon: str = "http://127.0.0.1:8765",
+    daemon: str,
     *,
-    system: ExperimentSystem | None = None,
-) -> DaemonWorkspace:
-    """Connect notebook code to the workspace daemon."""
+    build_system: ExperimentSystemBuilder | None = None,
+) -> DaemonConnection:
+    """Connect low-level notebook code to an explicit daemon endpoint."""
 
-    return DaemonWorkspace(daemon, system=system)
+    return DaemonConnection(daemon, build_system=build_system)
 
 
 class _LeaseHeartbeat(DelegatedLeaseSupervisor):
@@ -656,4 +816,4 @@ def _delegated_plan_summary(planned: PlannedRun) -> DelegatedPlanSummary:
     )
 
 
-__all__ = ["DaemonWorkspace", "DelegatedExecutorLeaseLostError", "connect"]
+__all__ = ["DaemonConnection", "DelegatedExecutorLeaseLostError", "connect"]

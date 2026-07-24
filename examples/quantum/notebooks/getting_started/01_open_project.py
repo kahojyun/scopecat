@@ -1,18 +1,20 @@
-"""Notebook-style example: open the demo lab workspace."""
+"""Notebook-style example: open the demo project and connect its daemon."""
 
 from __future__ import annotations
 
 # %%
-from quantum_lab_demo import notebook_workspace, quantum_lab
+import scopecat as sc
+from quantum_lab_demo import EXAMPLE_ROOT
 
 # %%
-workspace = notebook_workspace("01-open-workspace")
-lab = quantum_lab(workspace=workspace)
+project = sc.open_project(EXAMPLE_ROOT)
+lab = project.connect()
 
 # %%
 system = lab.resolve_config().system
 summary = {
-    "workspace": lab.workspace,
+    "project": project.root.name,
+    "daemon_project": lab.health().project_id,
     "run_count": len(lab.runs()),
     "primary_entity": system.primary_entity_id,
     "entities": [entity.id for entity in system.topology.entities],

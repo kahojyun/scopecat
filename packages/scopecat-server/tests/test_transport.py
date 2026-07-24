@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Literal
 
 from fastapi.testclient import TestClient
 from scopecat.config.changes import parameter_change_proposal_from_updates
@@ -27,8 +28,16 @@ from scopecat.daemon.views import (
     MeasurementPage,
     ParameterProposalListView,
     ParameterProposalView,
+    RunAnalysisListView,
+    RunAnalysisView,
+    RunArtifactBytesView,
+    RunArtifactJsonView,
+    RunArtifactTextView,
     RunConfigView,
+    RunDatasetContentView,
     RunDetail,
+    RunRecordJsonView,
+    RunRequestView,
 )
 from scopecat.daemon.wire import (
     AnalysisNoteOutputPayload,
@@ -66,10 +75,14 @@ from scopecat.daemon.wire import (
     PayloadCommitReceipt,
     RegisteredExperimentDescriptor,
     RunAdmission,
+    RunAttachmentCommand,
+    RunAttachmentReceipt,
     RunSubmission,
     TerminalRunCommitCommand,
     TerminalRunCommitReceipt,
 )
+from scopecat.measurements.results import MeasurementDataset, MeasurementDatasetSchema
+from scopecat.records.analysis import AnalysisRecord
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.execution_journal import ExecutionTransition
@@ -96,6 +109,22 @@ _CONFIG_FIXTURE = (
     / "simple_scan"
     / "config-profile.json"
 )
+
+
+def _content_entry(
+    role: Literal["artifact", "dataset", "record"],
+    entry_id: str,
+    kind: str,
+    *,
+    filename: str | None = None,
+) -> RunContentEntry:
+    return RunContentEntry(
+        role=role,
+        id=entry_id,
+        kind=kind,
+        filename=filename,
+        content_hash=f"sha256:{entry_id}",
+    )
 
 
 class FakeBackend:
@@ -128,11 +157,17 @@ class FakeBackend:
         self.last_config_activation: ConfigEntryActivationCommand | None = None
         self.last_config_rollback: ConfigRollbackCommand | None = None
         self.last_analysis: AnalysisSaveCommand | None = None
+        self.last_attachment: RunAttachmentCommand | None = None
         self.last_review: ParameterProposalReviewCommand | None = None
         self.last_candidate: CandidateConfigActivationCommand | None = None
 
     def health(self) -> DaemonHealth:
-        return DaemonHealth(status="ok", workspace_id="test-workspace")
+        return DaemonHealth(
+            status="ok",
+            project_id="test-project",
+            project_name="test-lab",
+            project_root="/projects/test-lab",
+        )
 
     def catalog(self) -> ExperimentCatalog:
         return ExperimentCatalog(
@@ -229,6 +264,30 @@ class FakeBackend:
             config=config,
         )
 
+    def get_run_request(self, run_id: str) -> RunRequestView:
+        assert run_id == self.run.run_id
+        return RunRequestView(run_id=run_id, request=_REQUEST)
+
+    def list_run_analyses(self, run_id: str) -> RunAnalysisListView:
+        return RunAnalysisListView(
+            run_id=run_id,
+            items=(self.get_run_analysis(run_id, "analysis-fit"),),
+        )
+
+    def get_run_analysis(self, run_id: str, selector: str) -> RunAnalysisView:
+        assert run_id == self.run.run_id
+        assert selector == "analysis-fit"
+        return RunAnalysisView(
+            run_id=run_id,
+            entry=_content_entry("record", selector, "analysis"),
+            analysis=AnalysisRecord(
+                run_id=run_id,
+                title="fit",
+                key="fit",
+                outputs=[],
+            ),
+        )
+
     def save_run_analysis(
         self,
         run_id: str,
@@ -245,6 +304,103 @@ class FakeBackend:
             ),
             analysis_key=command.analysis_key,
             inputs=command.inputs,
+        )
+
+    def get_run_artifact_bytes(
+        self,
+        run_id: str,
+        selector: str,
+        *,
+        expected_kind: str | None,
+    ) -> RunArtifactBytesView:
+        assert run_id == self.run.run_id
+        assert expected_kind == "attachment"
+        return RunArtifactBytesView(
+            run_id=run_id,
+            artifact=_content_entry("artifact", selector, "attachment"),
+            content_base64="aGVsbG8=",
+        )
+
+    def get_run_artifact_text(
+        self,
+        run_id: str,
+        selector: str,
+        *,
+        expected_kind: str | None,
+    ) -> RunArtifactTextView:
+        assert run_id == self.run.run_id
+        assert expected_kind == "attachment"
+        return RunArtifactTextView(
+            run_id=run_id,
+            artifact=_content_entry("artifact", selector, "attachment"),
+            content="hello",
+        )
+
+    def get_run_artifact_json(
+        self,
+        run_id: str,
+        selector: str,
+        *,
+        expected_kind: str | None,
+    ) -> RunArtifactJsonView:
+        assert run_id == self.run.run_id
+        assert expected_kind == "result"
+        return RunArtifactJsonView(
+            run_id=run_id,
+            artifact=_content_entry("artifact", selector, "result"),
+            content={"ok": True},
+        )
+
+    def get_run_record_json(
+        self,
+        run_id: str,
+        selector: str,
+        *,
+        expected_kind: str | None,
+    ) -> RunRecordJsonView:
+        assert run_id == self.run.run_id
+        assert expected_kind == "analysis"
+        return RunRecordJsonView(
+            run_id=run_id,
+            record=_content_entry("record", selector, "analysis"),
+            content={"run_id": run_id},
+        )
+
+    def get_run_dataset_content(
+        self,
+        run_id: str,
+        selector: str,
+    ) -> RunDatasetContentView:
+        assert run_id == self.run.run_id
+        dataset = MeasurementDataset(
+            dataset_id=selector,
+            schema=MeasurementDatasetSchema(
+                dataset_id=selector,
+                dataset_role="raw",
+            ),
+            records=[],
+        )
+        return RunDatasetContentView(
+            run_id=run_id,
+            dataset=_content_entry("dataset", selector, "measurement_dataset"),
+            content=dataset,
+        )
+
+    def attach_run_content(
+        self,
+        run_id: str,
+        command: RunAttachmentCommand,
+    ) -> RunAttachmentReceipt:
+        assert run_id == self.run.run_id
+        self.last_attachment = command
+        return RunAttachmentReceipt(
+            run_id=run_id,
+            artifact=_content_entry(
+                "artifact",
+                command.key,
+                command.kind,
+                filename=command.filename,
+            ),
         )
 
     def list_parameter_proposals(self, run_id: str) -> ParameterProposalListView:
@@ -435,7 +591,13 @@ def test_health_catalog_and_run_queries() -> None:
     )
 
     assert health.status_code == 200
-    assert health.json()["workspace_id"] == "test-workspace"
+    assert health.json() == {
+        "schema_version": "scopecat.daemon_health.v2",
+        "status": "ok",
+        "project_id": "test-project",
+        "project_name": "test-lab",
+        "project_root": "/projects/test-lab",
+    }
     assert catalog.json()["experiments"][0]["id"] == "ramsey"
     assert runs.json()["items"][0]["admission"]["run_id"] == "run-1"
     assert run.json()["control"]["state"] == "accepted"
@@ -575,6 +737,59 @@ def test_post_run_routes_use_typed_commands_and_views() -> None:
     assert backend.last_candidate == candidate
 
 
+def test_run_content_routes_are_typed_and_run_scoped() -> None:
+    backend = FakeBackend()
+    client = TestClient(create_app(backend))
+    attachment = RunAttachmentCommand(
+        run_id="run-1",
+        key="notes",
+        text="hello",
+        filename="notes.txt",
+    )
+
+    request = client.get("/api/v1/runs/run-1/request")
+    analyses = client.get("/api/v1/runs/run-1/analyses")
+    analysis = client.get("/api/v1/runs/run-1/analyses/analysis-fit")
+    artifact_bytes = client.get(
+        "/api/v1/runs/run-1/artifacts/notes/bytes",
+        params={"expected_kind": "attachment"},
+    )
+    artifact_text = client.get(
+        "/api/v1/runs/run-1/artifacts/notes/text",
+        params={"expected_kind": "attachment"},
+    )
+    artifact_json = client.get(
+        "/api/v1/runs/run-1/artifacts/result/json",
+        params={"expected_kind": "result"},
+    )
+    record = client.get(
+        "/api/v1/runs/run-1/records/analysis-fit/json",
+        params={"expected_kind": "analysis"},
+    )
+    dataset = client.get("/api/v1/runs/run-1/datasets/raw-measurements")
+    attached = client.post(
+        "/api/v1/runs/run-1/attachments",
+        json=attachment.model_dump(mode="json"),
+    )
+    mismatch = client.post(
+        "/api/v1/runs/other/attachments",
+        json=attachment.model_dump(mode="json"),
+    )
+
+    assert request.json()["request"]["id"] == _REQUEST.id
+    assert analyses.json()["items"][0]["analysis"]["key"] == "fit"
+    assert analysis.json()["entry"]["id"] == "analysis-fit"
+    assert artifact_bytes.json()["content_base64"] == "aGVsbG8="
+    assert artifact_text.json()["content"] == "hello"
+    assert artifact_json.json()["content"] == {"ok": True}
+    assert record.json()["content"] == {"run_id": "run-1"}
+    assert dataset.json()["content"]["dataset_id"] == "raw-measurements"
+    assert attached.status_code == 201
+    assert attached.json()["artifact"]["filename"] == "notes.txt"
+    assert mismatch.status_code == 422
+    assert backend.last_attachment == attachment
+
+
 def test_attention_resolution_route() -> None:
     backend = FakeBackend()
     client = TestClient(create_app(backend))
@@ -608,7 +823,7 @@ def test_event_replay_and_sse_resume_from_durable_event_id() -> None:
 
     assert [item["event_id"] for item in replay.json()["items"]] == [2]
     assert stream.headers["content-type"].startswith("text/event-stream")
-    assert "id: 2\nevent: workspace\ndata: " in stream.text
+    assert "id: 2\nevent: project\ndata: " in stream.text
     assert '"event_id":2' in stream.text
     assert reconnect.text == ""
     assert backend.event_afters[-1] == 2

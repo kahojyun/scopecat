@@ -2,58 +2,64 @@
 
 <p align="center"><img src="assets/branding/app-icon.svg" alt="Scopecat app icon" width="160"></p>
 
-Scopecat is a local-first Python workspace for describing experiments and
+Scopecat is a local-first Python control plane for describing experiments and
 keeping their accepted inputs, execution evidence, measurements, analysis, and
 candidate configuration changes together.
 
 The long-term direction is captured in the
 [project charter](docs/project-charter.md) and the
 [experiment execution semantics](docs/experiment-execution-model.md). The
-[workspace daemon model](docs/workspace-daemon.md) defines durable ownership
+[lab daemon model](docs/lab-daemon.md) defines durable ownership
 across the GUI, notebooks, and executors.
 Implementation contracts and design rationale live beside the code that owns
 them.
 
-## Workspace
+## Repository
 
 - `packages/scopecat`: domain-neutral authoring, planning, execution, data, and
-  workspace APIs.
+  daemon client APIs.
 - `packages/scopecat-quantum`: hardware-independent quantum building blocks.
 - `examples/quantum`: notebook-first examples and a local demonstration lab.
-- `fixtures`: sample inputs shared by tests and examples.
+- `fixtures`: test-only inputs; runnable projects own their bootstrap config.
 - `docs`: long-term product direction.
 
 ## Start Here
 
-Start one daemon for a workspace. It owns the SQLite database and immutable
-object store and serves the local GUI at <http://127.0.0.1:8765>:
+The quantum example is a complete local lab project. Its `scopecat.toml`,
+Python application, and bootstrap configuration are version controlled; one
+daemon owns its `.scopecat` state:
 
 ```sh
-uv run scopecatd --workspace ./my-workspace
+uv run scopecat start examples/quantum
+uv run scopecat open examples/quantum
 ```
 
-Connect from Python or a notebook:
-
-```python
-import scopecat as sc
-
-with sc.connect() as workspace:
-    print(workspace.health())
-    print(workspace.runs())
-```
-
-The daemon can execute registered experiments itself, or a notebook can execute
-transient scratch code while sending every durable effect back to the daemon.
-For managed execution, start it with a lab definition and configuration:
+`start` selects an available loopback port and records it inside the project,
+so the GUI and notebook client discover the same daemon without a fixed URL.
+Run the notebook-style walkthrough in another terminal:
 
 ```sh
-uv run scopecatd \
-  --workspace ./my-workspace \
-  --definition my_lab.daemon:daemon \
-  --config-profile ./config-profile.json
+uv run python examples/quantum/notebooks/getting_started/01_open_project.py
+uv run python examples/quantum/notebooks/getting_started/03_run_and_read_data.py
 ```
 
-See the [workspace daemon model](docs/workspace-daemon.md) and
+The run appears live in the GUI and remains available to later notebooks.
+Explicitly local scratch code still executes in the notebook process when it
+cannot be sent reliably to another process. Admission, resource ownership,
+measurements, analysis, and configuration history are written only by the
+daemon.
+
+A normal lab project follows the same small shape:
+
+```text
+my-lab/
+├── scopecat.toml
+├── config/
+├── notebooks/
+└── src/my_lab/
+```
+
+See the [lab daemon model](docs/lab-daemon.md) and
 [`scopecat-server` setup](packages/scopecat-server/README.md), then continue
 with [the quantum examples](examples/quantum/README.md). The package READMEs
 describe the smaller public entry points for
@@ -62,7 +68,7 @@ describe the smaller public entry points for
 
 ## Development
 
-Run the workspace checks from the repository root:
+Run the repository checks from the repository root:
 
 ```sh
 uv run pytest

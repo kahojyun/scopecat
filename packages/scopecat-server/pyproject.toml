@@ -1,18 +1,22 @@
 [project]
 name = "scopecat-server"
 version = "0.1.0"
-description = "Local HTTP and SSE transport for a Scopecat workspace daemon."
+description = "Local HTTP and SSE transport for a Scopecat project daemon."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.116,<1",
   "filelock>=3.18,<4",
+  "httpx>=0.28,<1",
+  "psutil>=7,<8",
+  "rich>=14,<15",
   "scopecat",
+  "typer>=0.20,<1",
   "uvicorn>=0.35,<1",
 ]
 
 [project.scripts]
-scopecatd = "scopecat_server.cli:main"
+scopecat = "scopecat_server.cli:main"
 
 [dependency-groups]
 test = [

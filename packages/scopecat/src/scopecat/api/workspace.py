@@ -19,6 +19,8 @@ from scopecat.api.analysis import (
 from scopecat.api.data import Data
 from scopecat.api.run import (
     RunHandle,
+    RunOperations,
+    ServiceRunOperations,
     run_handle_id,
 )
 from scopecat.application.services import WorkspaceServices
@@ -287,6 +289,10 @@ class Workspace:
     _system: ExperimentSystem | None
     _reviewer: str
     _operator: str
+
+    @property
+    def run_operations(self) -> RunOperations:
+        return ServiceRunOperations(self.services)
 
     def __copy__(self) -> Workspace:
         return self

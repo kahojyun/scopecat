@@ -10,6 +10,7 @@ import scopecat.composition as composition
 import scopecat.kernel.payloads as value_models
 import scopecat.kernel.problems as problems
 import scopecat.measurements.results as results
+from scopecat.api.workspace import PreparedExperiment, Workspace
 from scopecat.authoring._value_refs import internal_lower_scalar_value_ref
 from scopecat.compiler.relations.evaluation import EvalContext
 from tests.testkit.relation_plans import evaluate_scalar
@@ -40,7 +41,11 @@ def test_product_composition_does_not_export_embedded_writers() -> None:
 
 def test_user_facing_facades_expose_entry_points() -> None:
     assert callable(sc.connect)
-    assert sc.DaemonWorkspace
+    assert callable(sc.open_project)
+    assert sc.DaemonConnection
+    assert not hasattr(sc, "DaemonWorkspace")
+    assert sc.LabClient
+    assert sc.Project
     assert sc.Problem is problems.Problem
     assert callable(sc.blocking_problem)
     assert callable(sc.model_location)
@@ -250,11 +255,13 @@ def test_scans_reject_non_finite_durable_values_at_capture() -> None:
         )
 
 
-def test_workspace_terminals_require_a_prepared_invocation() -> None:
-    assert callable(sc.Workspace.prepare)
-    assert not hasattr(sc.Workspace, "experiment")
+def test_embedded_workspace_types_are_not_root_exports() -> None:
+    assert not hasattr(sc, "Workspace")
+    assert not hasattr(sc, "PreparedExperiment")
     assert not hasattr(sc, "Experiment")
 
-    assert callable(sc.PreparedExperiment.run)
-    assert callable(sc.PreparedExperiment.preview)
-    assert callable(sc.PreparedExperiment.check)
+    assert callable(Workspace.prepare)
+    assert not hasattr(Workspace, "experiment")
+    assert callable(PreparedExperiment.run)
+    assert callable(PreparedExperiment.preview)
+    assert callable(PreparedExperiment.check)

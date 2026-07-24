@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import mimetypes
 from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import asdict, dataclass, is_dataclass
+from dataclasses import asdict, dataclass, is_dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import Literal, NoReturn, Protocol, cast
 
@@ -82,6 +82,8 @@ class _AnalysisArtifactSource(Protocol):
 
     def content_hash(self) -> str: ...
 
+    def content_bytes(self) -> bytes: ...
+
     def write(self, *, storage: RunRepository, run_id: str, ref: str) -> None: ...
 
 
@@ -101,12 +103,17 @@ class _AnalysisModelArtifactSource:
     def content_hash(self) -> str:
         return model_wire_content_hash(self.model)
 
-    def write(self, *, storage: RunRepository, run_id: str, ref: str) -> None:
-        storage.write_text(
-            run_id,
-            ref,
-            json.dumps(self.model.model_dump(mode="json"), indent=2, sort_keys=True),
+    def content_bytes(self) -> bytes:
+        return _text_storage_bytes(
+            json.dumps(
+                self.model.model_dump(mode="json"),
+                indent=2,
+                sort_keys=True,
+            )
         )
+
+    def write(self, *, storage: RunRepository, run_id: str, ref: str) -> None:
+        storage.write_bytes(run_id, ref, self.content_bytes())
 
 
 @dataclass(frozen=True)
@@ -125,12 +132,17 @@ class _AnalysisJsonArtifactSource:
     def content_hash(self) -> str:
         return stable_content_hash(content_fingerprint(_json_safe(self.content)))
 
-    def write(self, *, storage: RunRepository, run_id: str, ref: str) -> None:
-        storage.write_text(
-            run_id,
-            ref,
-            json.dumps(_json_safe(self.content), indent=2, sort_keys=True),
+    def content_bytes(self) -> bytes:
+        return _text_storage_bytes(
+            json.dumps(
+                _json_safe(self.content),
+                indent=2,
+                sort_keys=True,
+            )
         )
+
+    def write(self, *, storage: RunRepository, run_id: str, ref: str) -> None:
+        storage.write_bytes(run_id, ref, self.content_bytes())
 
 
 @dataclass(frozen=True)
@@ -149,8 +161,11 @@ class _AnalysisTextArtifactSource:
     def content_hash(self) -> str:
         return stable_content_hash(content_fingerprint(self.content))
 
+    def content_bytes(self) -> bytes:
+        return _text_storage_bytes(self.content)
+
     def write(self, *, storage: RunRepository, run_id: str, ref: str) -> None:
-        storage.write_text(run_id, ref, self.content)
+        storage.write_bytes(run_id, ref, self.content_bytes())
 
 
 @dataclass(frozen=True)
@@ -169,8 +184,11 @@ class _AnalysisBytesArtifactSource:
     def content_hash(self) -> str:
         return stable_content_hash(content_fingerprint(self.content))
 
+    def content_bytes(self) -> bytes:
+        return self.content
+
     def write(self, *, storage: RunRepository, run_id: str, ref: str) -> None:
-        storage.write_bytes(run_id, ref, self.content)
+        storage.write_bytes(run_id, ref, self.content_bytes())
 
 
 @dataclass(frozen=True)
@@ -189,8 +207,40 @@ class _AnalysisFileArtifactSource:
     def content_hash(self) -> str:
         return stable_content_hash(content_fingerprint(self.path.read_bytes()))
 
+    def content_bytes(self) -> bytes:
+        return self.path.read_bytes()
+
     def write(self, *, storage: RunRepository, run_id: str, ref: str) -> None:
-        storage.write_bytes(run_id, ref, self.path.read_bytes())
+        storage.write_bytes(run_id, ref, self.content_bytes())
+
+
+@dataclass(frozen=True)
+class _EncodedAnalysisArtifactSource:
+    content: bytes
+    filename: str | None
+    extension: str
+    media_type: str
+    declared_content_hash: str | None
+
+    def default_filename(self) -> str | None:
+        return self.filename
+
+    def default_extension(self) -> str:
+        return self.extension
+
+    def default_media_type(self) -> str:
+        return self.media_type
+
+    def content_hash(self) -> str:
+        return self.declared_content_hash or stable_content_hash(
+            content_fingerprint(self.content)
+        )
+
+    def content_bytes(self) -> bytes:
+        return self.content
+
+    def write(self, *, storage: RunRepository, run_id: str, ref: str) -> None:
+        storage.write_bytes(run_id, ref, self.content)
 
 
 @dataclass(frozen=True)
@@ -202,6 +252,21 @@ class AnalysisArtifactSpec:
     filename: str | None
     media_type: str | None
     metadata: Mapping[str, object]
+
+    def content_bytes(self) -> bytes:
+        return self.source.content_bytes()
+
+    def source_default_filename(self) -> str | None:
+        return self.source.default_filename()
+
+    def source_default_extension(self) -> str:
+        return self.source.default_extension()
+
+    def source_default_media_type(self) -> str:
+        return self.source.default_media_type()
+
+    def source_content_hash(self) -> str:
+        return self.source.content_hash()
 
 
 @dataclass(frozen=True)
@@ -309,6 +374,47 @@ def prepare_analysis_artifact(
         filename=filename,
         media_type=media_type,
         metadata=metadata or {},
+    )
+
+
+def prepare_encoded_analysis_artifact(
+    *,
+    title: str,
+    kind: str,
+    artifact_id: str | None,
+    filename: str | None,
+    content: bytes,
+    media_type: str | None,
+    metadata: Mapping[str, object] | None,
+    source_default_filename: str | None,
+    source_default_extension: str,
+    source_default_media_type: str,
+    source_content_hash: str | None,
+) -> AnalysisArtifactSpec:
+    """Rebuild a client-prepared artifact without losing its source defaults."""
+
+    spec = prepare_analysis_artifact(
+        title=title,
+        kind=kind,
+        artifact_id=artifact_id,
+        filename=filename,
+        model=None,
+        json_content=None,
+        text=None,
+        content=content,
+        path=None,
+        media_type=media_type,
+        metadata=metadata,
+    )
+    return replace(
+        spec,
+        source=_EncodedAnalysisArtifactSource(
+            content=content,
+            filename=source_default_filename,
+            extension=source_default_extension,
+            media_type=source_default_media_type,
+            declared_content_hash=source_content_hash,
+        ),
     )
 
 
@@ -476,6 +582,7 @@ def _prepare_analysis_output_artifacts(
             kind=spec.kind,
             title=spec.title,
             media_type=media_type,
+            filename=selected_filename,
             content_hash=spec.source.content_hash(),
             produced_by=(
                 f"analysis_step:{step_id}"
@@ -620,3 +727,9 @@ def _json_safe(value: object) -> JsonValue:
 
 def _json_mapping(value: Mapping[object, object]) -> dict[str, JsonValue]:
     return {str(key): _json_safe(item) for key, item in value.items()}
+
+
+def _text_storage_bytes(content: str) -> bytes:
+    if content and not content.endswith("\n"):
+        content = f"{content}\n"
+    return content.encode()

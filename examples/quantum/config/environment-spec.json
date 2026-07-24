@@ -1,0 +1,24 @@
+{
+  "schema_version": "scopecat.environment_spec.v1",
+  "id": "templates-environment",
+  "workspace_id": "templates",
+  "connection_profile": {
+    "connections": [
+      {
+        "id": "drive-stack-offline",
+        "instrument_id": "drive-stack",
+        "kind": "offline"
+      },
+      {
+        "id": "readout-stack-offline",
+        "instrument_id": "readout-stack",
+        "kind": "offline"
+      },
+      {
+        "id": "coupler-stack-offline",
+        "instrument_id": "coupler-stack",
+        "kind": "offline"
+      }
+    ]
+  }
+}

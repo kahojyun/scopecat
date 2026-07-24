@@ -36,7 +36,6 @@ from scopecat.sdk.instruments import (
 )
 from scopecat_quantum import AcquireSignal, DriveSignal, QubitId
 
-from quantum_lab_demo.fixtures import EXPERIMENT_FIXTURE_DIR
 from quantum_lab_demo.scenarios.opaque_collection import (
     GATE_DURATION,
     parallel_gate_set_template,
@@ -50,7 +49,10 @@ from quantum_lab_demo.virtual_lab.wiring import (
     quantum_wiring_config_profile,
 )
 
-from .demo_lab_test_paths import EXPERIMENT_VIRTUAL_LAB_PROFILE
+from .demo_lab_test_paths import (
+    EXPERIMENT_FIXTURE_DIR,
+    EXPERIMENT_VIRTUAL_LAB_PROFILE,
+)
 
 
 def test_quantum_wiring_builder_compiles_lab_vocabulary_to_core_config() -> None:

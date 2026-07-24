@@ -572,13 +572,14 @@ def test_activation_runs_full_config_semantic_validation(tmp_path: Path) -> None
 
 
 def test_concurrent_registrations_preserve_every_index_entry(tmp_path: Path) -> None:
+    unit_of_work = embedded_config_registry_unit_of_work(tmp_path)
     barrier = Barrier(2)
 
     def register(entry_id: str) -> str:
         barrier.wait()
         return register_config_profile(
             config=load_config(),
-            unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+            unit_of_work=unit_of_work,
             entry_id=entry_id,
             registered_by="operator",
         ).id
@@ -588,19 +589,17 @@ def test_concurrent_registrations_preserve_every_index_entry(tmp_path: Path) -> 
 
     assert registered == {"seed-a", "seed-b"}
     assert {
-        entry.id
-        for entry in list_config_registry_entries(
-            unit_of_work=embedded_config_registry_unit_of_work(tmp_path)
-        )
+        entry.id for entry in list_config_registry_entries(unit_of_work=unit_of_work)
     } == (registered)
 
 
 def test_concurrent_composite_activations_apply_one_generation(
     tmp_path: Path,
 ) -> None:
+    unit_of_work = embedded_config_registry_unit_of_work(tmp_path)
     _seed, initial_state, _activation = register_and_activate_config_profile(
         config=load_config(),
-        unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+        unit_of_work=unit_of_work,
         entry_id="seed",
         registered_by="operator",
         operator="operator",
@@ -612,7 +611,7 @@ def test_concurrent_composite_activations_apply_one_generation(
         try:
             result = register_and_activate_config_profile(
                 config=load_config().model_copy(update={"id": entry_id}),
-                unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+                unit_of_work=unit_of_work,
                 entry_id=entry_id,
                 registered_by="operator",
                 operator="operator",
@@ -629,18 +628,9 @@ def test_concurrent_composite_activations_apply_one_generation(
     assert next(detail for status, detail in outcomes if status == "error") == (
         "config_registry.conflict"
     )
-    state = load_active_config_registry_state(
-        unit_of_work=embedded_config_registry_unit_of_work(tmp_path)
-    )
+    state = load_active_config_registry_state(unit_of_work=unit_of_work)
     assert state.generation == initial_state.generation + 1
-    assert (
-        len(
-            list_config_registry_entries(
-                unit_of_work=embedded_config_registry_unit_of_work(tmp_path)
-            )
-        )
-        == 2
-    )
+    assert len(list_config_registry_entries(unit_of_work=unit_of_work)) == 2
 
 
 def test_candidate_registration_rejects_changes_not_derived_from_proposals(

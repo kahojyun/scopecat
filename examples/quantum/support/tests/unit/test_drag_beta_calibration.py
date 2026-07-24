@@ -18,7 +18,7 @@ from scopecat_quantum import (
     program_port_type,
 )
 
-from quantum_lab_demo import quantum_lab, quantum_lab_compiler
+from quantum_lab_demo import quantum_lab_compiler
 from quantum_lab_demo.virtual_lab.parameters import (
     DRAG_BETA_PARAMETER_COLUMN,
     q0_drag_beta_lookup,
@@ -42,10 +42,12 @@ from quantum_lab_demo.workflows.drag_beta_experiment import (
     drag_beta_template,
 )
 
+from .demo_lab_experiment_testkit import embedded_quantum_lab
+
 
 def _golden_point(tmp_path: Path):
     compiler = quantum_lab_compiler()
-    lab = quantum_lab(workspace=tmp_path, compiler=compiler)
+    lab = embedded_quantum_lab(workspace=tmp_path, compiler=compiler)
     scan = sc.cartesian(
         sc.param_axis(
             BETA,

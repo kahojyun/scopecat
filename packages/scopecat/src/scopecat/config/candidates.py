@@ -61,6 +61,20 @@ def resolve_candidate_config_snapshot(
 
     _validate_candidate(candidate)
     source_config = services.runs.read_config_profile_snapshot(candidate.source_run_id)
+    return resolve_candidate_config_from_snapshot(
+        candidate,
+        source_config=source_config,
+    )
+
+
+def resolve_candidate_config_from_snapshot(
+    candidate: CandidateConfig,
+    *,
+    source_config: ConfigProfileSnapshot,
+) -> ConfigProfileSnapshot:
+    """Resolve a candidate against its known source snapshot."""
+
+    _validate_candidate(candidate)
     return _build_candidate_config_snapshot(
         config=source_config,
         candidate=candidate,

@@ -7,7 +7,9 @@ from scopecat import Quantity
 from scopecat.measurements.results import MeasurementArray
 from scopecat_quantum import authoring as q
 
-from quantum_lab_demo.lab import quantum_lab, quantum_lab_compiler
+from quantum_lab_demo.lab import quantum_lab_compiler
+
+from .demo_lab_experiment_testkit import embedded_quantum_lab
 
 _SAMPLES = 8
 _SHOTS = 3
@@ -33,7 +35,7 @@ def test_raw_trace_contract_runs_through_domain_compiler(tmp_path: Path) -> None
     compiler = quantum_lab_compiler()
 
     run = (
-        quantum_lab(workspace=tmp_path, compiler=compiler)
+        embedded_quantum_lab(workspace=tmp_path, compiler=compiler)
         .prepare(_raw_trace_experiment())
         .run()
     )

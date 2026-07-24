@@ -6,6 +6,8 @@ The models contain durable data only. In particular, delegated execution keeps
 
 from __future__ import annotations
 
+from base64 import b64decode
+from binascii import Error as BinasciiError
 from datetime import datetime
 from typing import Annotated, Literal
 
@@ -189,6 +191,38 @@ class AnalysisJsonOutputPayload(_WireModel):
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
 
+class AnalysisArtifactOutputPayload(_WireModel):
+    """One binary analysis artifact encoded for JSON transport."""
+
+    kind: Literal["artifact"]
+    title: NonEmptyText
+    artifact_kind: NonEmptyText
+    content_base64: str
+    artifact_id: NonEmptyText | None = None
+    filename: NonEmptyText | None = None
+    media_type: NonEmptyText | None = None
+    source_default_filename: NonEmptyText | None = None
+    source_default_extension: str = ".bin"
+    source_default_media_type: NonEmptyText = "application/octet-stream"
+    source_content_hash: NonEmptyText | None = None
+    artifact_metadata: dict[str, JsonValue] = Field(default_factory=dict)
+    metadata: dict[str, JsonValue] = Field(default_factory=dict)
+
+    @field_validator("content_base64")
+    @classmethod
+    def validate_content_base64(cls, value: str) -> str:
+        return _validated_base64(value)
+
+    @field_validator("source_default_extension")
+    @classmethod
+    def validate_source_default_extension(cls, value: str) -> str:
+        if value and (
+            not value.startswith(".") or "/" in value or "\\" in value or ".." in value
+        ):
+            raise ValueError("source_default_extension must be empty or a suffix")
+        return value
+
+
 class AnalysisParameterProposalOutputPayload(_WireModel):
     kind: Literal["parameter_change_proposal"]
     title: NonEmptyText
@@ -197,7 +231,8 @@ class AnalysisParameterProposalOutputPayload(_WireModel):
 
 
 type AnalysisOutputPayload = Annotated[
-    AnalysisNoteOutputPayload
+    AnalysisArtifactOutputPayload
+    | AnalysisNoteOutputPayload
     | AnalysisJsonOutputPayload
     | AnalysisParameterProposalOutputPayload,
     Field(discriminator="kind"),
@@ -240,6 +275,49 @@ class AnalysisSaveReceipt(_WireModel):
     analysis_key: NonEmptyText
     inputs: tuple[AnalysisInputPayload, ...] = ()
     output_artifacts: tuple[RunContentEntry, ...] = ()
+
+
+class RunAttachmentCommand(_WireModel):
+    """Ingest client-owned content without exposing a client filesystem path."""
+
+    schema_version: Literal["scopecat.run_attachment_command.v1"] = (
+        "scopecat.run_attachment_command.v1"
+    )
+    run_id: NonEmptyText
+    key: NonEmptyText
+    kind: NonEmptyText = "attachment"
+    text: str | None = None
+    content_base64: str | None = None
+    filename: NonEmptyText | None = None
+    media_type: NonEmptyText | None = None
+    metadata: dict[str, JsonValue] = Field(default_factory=dict)
+
+    @field_validator("content_base64")
+    @classmethod
+    def validate_content_base64(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return _validated_base64(value)
+
+    @model_validator(mode="after")
+    def validate_source(self) -> RunAttachmentCommand:
+        if (self.text is None) == (self.content_base64 is None):
+            raise ValueError("run attachment requires exactly one content source")
+        return self
+
+
+class RunAttachmentReceipt(_WireModel):
+    schema_version: Literal["scopecat.run_attachment_receipt.v1"] = (
+        "scopecat.run_attachment_receipt.v1"
+    )
+    run_id: NonEmptyText
+    artifact: RunContentEntry
+
+    @model_validator(mode="after")
+    def validate_artifact(self) -> RunAttachmentReceipt:
+        if self.artifact.role != "artifact":
+            raise ValueError("run attachment receipt requires an artifact")
+        return self
 
 
 class ParameterProposalReviewCommand(_WireModel):
@@ -704,7 +782,16 @@ def _aware_datetime(value: datetime, *, field_name: str) -> datetime:
     return value
 
 
+def _validated_base64(value: str) -> str:
+    try:
+        b64decode(value, validate=True)
+    except (BinasciiError, ValueError) as error:
+        raise ValueError("content_base64 must be valid base64") from error
+    return value
+
+
 __all__ = [
+    "AnalysisArtifactOutputPayload",
     "AnalysisInputPayload",
     "AnalysisJsonOutputPayload",
     "AnalysisNoteOutputPayload",
@@ -750,6 +837,8 @@ __all__ = [
     "ResourceClaimDescriptor",
     "ResourceClaimKind",
     "RunAdmission",
+    "RunAttachmentCommand",
+    "RunAttachmentReceipt",
     "RunSubmission",
     "TerminalModelWrite",
     "TerminalRecordSetWrite",

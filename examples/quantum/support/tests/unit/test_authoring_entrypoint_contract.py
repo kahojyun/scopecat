@@ -7,6 +7,7 @@ from typing import Annotated, cast
 
 import pytest
 import scopecat as sc
+from scopecat.api.workspace import Workspace
 from scopecat.authoring._products import RecordSelection
 from scopecat.authoring._value_refs import (
     ValueRef,
@@ -108,7 +109,7 @@ def test_template_and_scratch_compile_to_equivalent_execution_semantics(
 
 
 def _compile_through_workspace(
-    workspace: sc.Workspace,
+    workspace: Workspace,
     experiment: sc.ExperimentInvocation,
 ) -> CompiledInvocation:
     prepared_handle = workspace.prepare(experiment)

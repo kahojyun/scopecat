@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from base64 import b64decode
+from binascii import Error as BinasciiError
 from datetime import datetime
 from typing import Literal
 
@@ -12,17 +14,23 @@ from scopecat.config.registry.records import (
     ConfigRegistryEntry,
 )
 from scopecat.control.models import ControlRun, ResourceKey
+from scopecat.kernel.json_types import JsonValue
+from scopecat.measurements.results import MeasurementDataset
+from scopecat.records.analysis import AnalysisRecord
+from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import (
     ConfigContentHash,
     ConfigProfileSnapshot,
     config_content_hash,
 )
+from scopecat.records.data_artifact import DataArrayArtifact, DataTableArtifact
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.parameter_change import (
     ParameterChangeDecisionRecord,
     ParameterChangeProposal,
 )
 from scopecat.records.run import RunManifest
+from scopecat.records.run_request import RunRequest
 
 
 class _ViewModel(BaseModel):
@@ -34,11 +42,13 @@ class _ViewModel(BaseModel):
 
 
 class DaemonHealth(_ViewModel):
-    """Process and workspace readiness."""
+    """Daemon readiness and the one project owned by this process."""
 
-    schema_version: Literal["scopecat.daemon_health.v1"] = "scopecat.daemon_health.v1"
+    schema_version: Literal["scopecat.daemon_health.v2"] = "scopecat.daemon_health.v2"
     status: Literal["ok", "degraded"]
-    workspace_id: str
+    project_id: str
+    project_name: str
+    project_root: str
 
 
 class ConfigRegistryView(_ViewModel):
@@ -122,6 +132,152 @@ class RunConfigView(_ViewModel):
         return self
 
 
+class RunRequestView(_ViewModel):
+    """The independently persisted operator request, when one was accepted."""
+
+    schema_version: Literal["scopecat.run_request_view.v1"] = (
+        "scopecat.run_request_view.v1"
+    )
+    run_id: str
+    request: RunRequest | None = None
+
+
+class RunAnalysisView(_ViewModel):
+    """One persisted analysis record and its manifest identity."""
+
+    schema_version: Literal["scopecat.run_analysis_view.v1"] = (
+        "scopecat.run_analysis_view.v1"
+    )
+    run_id: str
+    entry: RunContentEntry
+    analysis: AnalysisRecord
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> RunAnalysisView:
+        if (
+            self.entry.role != "record"
+            or self.entry.kind != "analysis"
+            or self.analysis.run_id != self.run_id
+        ):
+            raise ValueError("run analysis view identity is inconsistent")
+        return self
+
+
+class RunAnalysisListView(_ViewModel):
+    schema_version: Literal["scopecat.run_analysis_list_view.v1"] = (
+        "scopecat.run_analysis_list_view.v1"
+    )
+    run_id: str
+    items: tuple[RunAnalysisView, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> RunAnalysisListView:
+        if any(item.run_id != self.run_id for item in self.items):
+            raise ValueError("run analysis list contains a different run")
+        return self
+
+
+class RunArtifactBytesView(_ViewModel):
+    schema_version: Literal["scopecat.run_artifact_bytes_view.v1"] = (
+        "scopecat.run_artifact_bytes_view.v1"
+    )
+    run_id: str
+    artifact: RunContentEntry
+    content_base64: str
+
+    @model_validator(mode="after")
+    def validate_content(self) -> RunArtifactBytesView:
+        _require_entry_role(self.artifact, "artifact")
+        _validate_base64(self.content_base64)
+        return self
+
+    def content_bytes(self) -> bytes:
+        return b64decode(self.content_base64, validate=True)
+
+
+class RunArtifactTextView(_ViewModel):
+    schema_version: Literal["scopecat.run_artifact_text_view.v1"] = (
+        "scopecat.run_artifact_text_view.v1"
+    )
+    run_id: str
+    artifact: RunContentEntry
+    content: str
+
+    @model_validator(mode="after")
+    def validate_content(self) -> RunArtifactTextView:
+        _require_entry_role(self.artifact, "artifact")
+        return self
+
+
+class RunArtifactJsonView(_ViewModel):
+    schema_version: Literal["scopecat.run_artifact_json_view.v1"] = (
+        "scopecat.run_artifact_json_view.v1"
+    )
+    run_id: str
+    artifact: RunContentEntry
+    content: dict[str, JsonValue]
+
+    @model_validator(mode="after")
+    def validate_content(self) -> RunArtifactJsonView:
+        _require_entry_role(self.artifact, "artifact")
+        return self
+
+
+class RunRecordJsonView(_ViewModel):
+    schema_version: Literal["scopecat.run_record_json_view.v1"] = (
+        "scopecat.run_record_json_view.v1"
+    )
+    run_id: str
+    record: RunContentEntry
+    content: dict[str, JsonValue]
+
+    @model_validator(mode="after")
+    def validate_content(self) -> RunRecordJsonView:
+        _require_entry_role(self.record, "record")
+        return self
+
+
+type RunDatasetContent = MeasurementDataset | DataTableArtifact | DataArrayArtifact
+
+
+class RunDatasetContentView(_ViewModel):
+    schema_version: Literal["scopecat.run_dataset_content_view.v1"] = (
+        "scopecat.run_dataset_content_view.v1"
+    )
+    run_id: str
+    dataset: RunContentEntry
+    content: RunDatasetContent
+
+    @model_validator(mode="after")
+    def validate_content(self) -> RunDatasetContentView:
+        _require_entry_role(self.dataset, "dataset")
+        mismatched = (
+            (
+                self.dataset.kind == "measurement_dataset"
+                and not isinstance(self.content, MeasurementDataset)
+            )
+            or (
+                self.dataset.kind == "data_table"
+                and not isinstance(self.content, DataTableArtifact)
+            )
+            or (
+                self.dataset.kind == "data_array"
+                and not isinstance(self.content, DataArrayArtifact)
+            )
+        )
+        if (
+            self.dataset.kind
+            not in {
+                "measurement_dataset",
+                "data_table",
+                "data_array",
+            }
+            or mismatched
+        ):
+            raise ValueError("run dataset content does not match its manifest kind")
+        return self
+
+
 class ParameterProposalView(_ViewModel):
     """One proposal and its append-only operator review history."""
 
@@ -163,6 +319,21 @@ class MeasurementPage(_ViewModel):
     next_offset: int | None = Field(default=None, ge=0)
 
 
+def _require_entry_role(
+    entry: RunContentEntry,
+    role: Literal["artifact", "dataset", "record"],
+) -> None:
+    if entry.role != role:
+        raise ValueError(f"run content view requires a {role}")
+
+
+def _validate_base64(value: str) -> None:
+    try:
+        b64decode(value, validate=True)
+    except (BinasciiError, ValueError) as error:
+        raise ValueError("content_base64 must be valid base64") from error
+
+
 __all__ = [
     "ActiveConfigView",
     "ConfigEntryView",
@@ -171,7 +342,16 @@ __all__ = [
     "MeasurementPage",
     "ParameterProposalListView",
     "ParameterProposalView",
+    "RunAnalysisListView",
+    "RunAnalysisView",
+    "RunArtifactBytesView",
+    "RunArtifactJsonView",
+    "RunArtifactTextView",
     "RunConfigView",
+    "RunDatasetContent",
+    "RunDatasetContentView",
     "RunDetail",
+    "RunRecordJsonView",
+    "RunRequestView",
     "RunResourceView",
 ]

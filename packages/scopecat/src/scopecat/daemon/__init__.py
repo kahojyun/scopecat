@@ -1,10 +1,15 @@
-"""Transport-neutral contracts for a workspace daemon."""
+"""Transport-neutral contracts for one project daemon."""
 
 from scopecat.daemon.client import (
     DaemonClient,
     DaemonClientError,
     DaemonConflictError,
     DaemonNotFoundError,
+)
+from scopecat.daemon.connection import (
+    DaemonConnection,
+    DelegatedExecutorLeaseLostError,
+    connect,
 )
 from scopecat.daemon.execution import (
     DelegatedLeaseSupervisor,
@@ -18,11 +23,21 @@ from scopecat.daemon.views import (
     MeasurementPage,
     ParameterProposalListView,
     ParameterProposalView,
+    RunAnalysisListView,
+    RunAnalysisView,
+    RunArtifactBytesView,
+    RunArtifactJsonView,
+    RunArtifactTextView,
     RunConfigView,
+    RunDatasetContent,
+    RunDatasetContentView,
     RunDetail,
+    RunRecordJsonView,
+    RunRequestView,
     RunResourceView,
 )
 from scopecat.daemon.wire import (
+    AnalysisArtifactOutputPayload,
     AnalysisInputPayload,
     AnalysisJsonOutputPayload,
     AnalysisNoteOutputPayload,
@@ -66,19 +81,17 @@ from scopecat.daemon.wire import (
     RegisteredExperimentDescriptor,
     ResourceClaimDescriptor,
     RunAdmission,
+    RunAttachmentCommand,
+    RunAttachmentReceipt,
     TerminalModelWrite,
     TerminalRecordSetWrite,
     TerminalRunCommitCommand,
     TerminalRunCommitReceipt,
 )
-from scopecat.daemon.workspace import (
-    DaemonWorkspace,
-    DelegatedExecutorLeaseLostError,
-    connect,
-)
 
 __all__ = [
     "ActiveConfigView",
+    "AnalysisArtifactOutputPayload",
     "AnalysisInputPayload",
     "AnalysisJsonOutputPayload",
     "AnalysisNoteOutputPayload",
@@ -104,9 +117,9 @@ __all__ = [
     "DaemonClient",
     "DaemonClientError",
     "DaemonConflictError",
+    "DaemonConnection",
     "DaemonHealth",
     "DaemonNotFoundError",
-    "DaemonWorkspace",
     "DelegatedExecutorLeaseLostError",
     "DelegatedLeaseSupervisor",
     "DelegatedPlanSummary",
@@ -135,8 +148,19 @@ __all__ = [
     "RegisteredExperimentDescriptor",
     "ResourceClaimDescriptor",
     "RunAdmission",
+    "RunAnalysisListView",
+    "RunAnalysisView",
+    "RunArtifactBytesView",
+    "RunArtifactJsonView",
+    "RunArtifactTextView",
+    "RunAttachmentCommand",
+    "RunAttachmentReceipt",
     "RunConfigView",
+    "RunDatasetContent",
+    "RunDatasetContentView",
     "RunDetail",
+    "RunRecordJsonView",
+    "RunRequestView",
     "RunResourceView",
     "TerminalModelWrite",
     "TerminalRecordSetWrite",
