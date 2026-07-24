@@ -12,8 +12,11 @@ from scopecat.execution.evidence import (
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.execution import InstrumentStateEvidence
 from scopecat.records.run import RunManifest, RunOutcome
-from scopecat.runs.manifest import write_manifest_artifacts, write_manifest_records
-from scopecat.runs.repository import RunModelWrite, TerminalRunCommit
+from scopecat.runs.repository import (
+    RunContentPublication,
+    RunModelWrite,
+    TerminalRunCommit,
+)
 
 _CONFIG_HASH = "sha256:" + "0" * 64
 
@@ -115,15 +118,11 @@ def test_terminal_manifest_preserves_existing_attachments(tmp_path: Path) -> Non
         kind="workflow_decision",
         content_hash="approval-content",
     )
-    write_manifest_artifacts(
-        storage=storage,
-        manifest=storage.read_manifest(run_id),
-        artifacts=[attachment],
-    )
-    write_manifest_records(
-        storage=storage,
-        manifest=storage.read_manifest(run_id),
-        records=[workflow_record],
+    storage.publish_content(
+        RunContentPublication(
+            run_id=run_id,
+            entries=(attachment, workflow_record),
+        )
     )
     committed = storage.commit_terminal(
         TerminalRunCommit(

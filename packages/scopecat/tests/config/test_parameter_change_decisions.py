@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -15,12 +16,51 @@ from scopecat.config.changes import (
     invalidate_parameter_change_proposal,
     list_parameter_change_decisions,
     load_parameter_change_proposal,
+    prepare_parameter_change_proposal_contents,
     review_parameter_change_proposal,
 )
-from scopecat.kernel.errors import DataIntegrityError
+from scopecat.kernel.errors import Conflict, DataIntegrityError
 from scopecat.records.parameter_change import AutomaticPolicyDecisionAuthority
 from scopecat.runs.refs import record_content_ref
 from tests.testkit.config_registry import signal_run_with_parameter_change
+
+
+def test_same_proposal_intent_retry_reuses_durable_entry_hash(
+    tmp_path: Path,
+) -> None:
+    run_id = signal_run_with_parameter_change(tmp_path)
+    services = embedded_workspace_services(tmp_path)
+    proposal = load_parameter_change_proposal(
+        run_id=run_id,
+        selector="best-signal",
+        services=services,
+    )
+    durable_entry = next(
+        entry
+        for entry in services.runs.read_manifest(run_id).records
+        if entry.id == proposal.id
+    )
+
+    prepared = prepare_parameter_change_proposal_contents(
+        storage=services.runs,
+        run_id=run_id,
+        proposals=(
+            proposal.model_copy(
+                update={"proposed_at": proposal.proposed_at + timedelta(seconds=1)}
+            ),
+        ),
+    )
+
+    assert prepared.entries == (durable_entry,)
+    assert prepared.writes == ()
+    with pytest.raises(Conflict):
+        prepare_parameter_change_proposal_contents(
+            storage=services.runs,
+            run_id=run_id,
+            proposals=(
+                proposal.model_copy(update={"reason": "different scientific intent"}),
+            ),
+        )
 
 
 def test_invalidate_parameter_change_records_decision_without_mutating_proposal(

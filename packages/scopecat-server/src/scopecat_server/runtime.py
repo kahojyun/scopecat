@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from hashlib import sha256
 from pathlib import Path
+from threading import Lock
 from typing import Self
 
 from fastapi import FastAPI
@@ -15,18 +17,22 @@ from scopecat.adapters.sqlite import (
     bootstrap_execution_schema,
 )
 from scopecat.application.lab import BootstrapConfigFactory
-from scopecat.config.registry import list_config_registry_entries
-from scopecat.config.resolution import (
-    ConfigProfileInput,
-    register_and_activate_config_profile,
-    validate_config_profile,
-)
+from scopecat.application.services import WorkspaceStateServices
+from scopecat.config.resolution import ConfigProfileInput, validate_config_profile
 from scopecat.daemon.catalog import RegisteredExperimentCatalog
+from scopecat.daemon.wire import DirectConfigDefaultCommand
 from scopecat.planning.system import ExperimentSystemBuilder
 from scopecat.project import LabApplicationFactory
 from scopecat.records.config import config_content_hash
 
-from .backend import SQLiteDaemonBackend
+from .services import (
+    AdmissionService,
+    ConfigService,
+    DaemonApplication,
+    ExecutorService,
+    ManagedRunSupervisor,
+    RunService,
+)
 from .transport import create_app
 
 
@@ -73,28 +79,68 @@ class LocalDaemonRuntime:
                 build_system = application.build_system
                 application_bootstrap = application.bootstrap_config
 
-            self.control = SQLiteControlPlane(database)
-            self.runs = SQLiteRunRepository(database, objects)
-            self.config_registry = SQLiteConfigRegistryStore(
+            control = SQLiteControlPlane(database)
+            runs = SQLiteRunRepository(database, objects)
+            config_registry = SQLiteConfigRegistryStore(
                 database,
-                runs=self.runs,
+                runs=runs,
             )
 
             # Every adapter refuses unknown schemas; bootstrap is deliberately
             # explicit so opening a runtime never implies a migration.
-            self.control.bootstrap()
-            self.runs.bootstrap()
-            bootstrap_execution_schema(self.runs)
-            self.config_registry.bootstrap()
+            control.bootstrap()
+            runs.bootstrap()
+            bootstrap_execution_schema(runs)
+            config_registry.bootstrap()
 
-            backend = SQLiteDaemonBackend(
-                project_root=self.project_root,
-                control=self.control,
-                runs=self.runs,
-                config_registry=self.config_registry,
-                catalog=catalog,
-                build_system=build_system,
+            selected_catalog = catalog or RegisteredExperimentCatalog()
+            executor = ExecutorService(
+                control=control,
+                runs=runs,
                 lease_ttl=lease_ttl,
+            )
+            services = WorkspaceStateServices(
+                runs=runs,
+                config_registry=config_registry.unit_of_work,
+            )
+            content_lock = Lock()
+            config_service = ConfigService(
+                control=control,
+                config_registry=config_registry,
+                services=services,
+                run_content_lock=content_lock,
+            )
+            run_service = RunService(
+                control=control,
+                runs=runs,
+                services=services,
+                content_lock=content_lock,
+            )
+            admission = AdmissionService(
+                control=control,
+                runs=runs,
+                services=services,
+                catalog=selected_catalog,
+                build_system=build_system,
+            )
+            project_id = _project_id(self.project_root)
+            managed = ManagedRunSupervisor(
+                project_id=project_id,
+                control=control,
+                runs=runs,
+                admission=admission,
+                executor=executor,
+            )
+            application = DaemonApplication(
+                project_root=self.project_root,
+                project_id=project_id,
+                control=control,
+                catalog=selected_catalog,
+                config=config_service,
+                runs=run_service,
+                admission=admission,
+                executor=executor,
+                managed=managed,
             )
             try:
                 bootstrap_source = (
@@ -103,21 +149,25 @@ class LocalDaemonRuntime:
                     else application_bootstrap
                 )
                 if bootstrap_source is not None:
-                    _bootstrap_config_registry(backend, bootstrap_source)
+                    _bootstrap_config_registry(
+                        config_service,
+                        bootstrap_source,
+                    )
+                application.start()
             except BaseException:
-                backend.close()
+                application.close()
                 raise
-            self.backend = backend
+            self.application = application
         except BaseException:
             self._owner_lock.release()
             raise
 
     def app(self, *, static_dir: str | Path | None = None) -> FastAPI:
-        return create_app(self.backend, static_dir=static_dir)
+        return create_app(self.application, static_dir=static_dir)
 
     def close(self) -> None:
         try:
-            self.backend.close()
+            self.application.close()
         finally:
             self._owner_lock.release()
 
@@ -135,23 +185,30 @@ class LocalDaemonRuntime:
 
 
 def _bootstrap_config_registry(
-    backend: SQLiteDaemonBackend,
+    config_service: ConfigService,
     config: ConfigProfileInput | BootstrapConfigFactory,
 ) -> None:
-    if list_config_registry_entries(unit_of_work=backend.config_registry.unit_of_work):
+    if config_service.get_config_registry().entries:
         return
     # Resolve application-owned inputs only for a genuinely empty registry.
     selected = config() if callable(config) else config
     validated = validate_config_profile(selected).config
     digest = config_content_hash(validated).removeprefix("sha256:")
-    register_and_activate_config_profile(
-        config=validated,
-        services=backend.services,
-        entry_id=f"daemon-{digest}",
-        registered_by="scopecat",
-        operator="scopecat",
-        note="imported while bootstrapping a new lab instance",
+    config_service.set_direct_config_default(
+        DirectConfigDefaultCommand(
+            entry_id=f"daemon-{digest}",
+            config=validated,
+            registered_by="scopecat",
+            operator="scopecat",
+            expected_generation=0,
+            note="imported while bootstrapping a new lab instance",
+        )
     )
+
+
+def _project_id(project_root: Path) -> str:
+    identity = sha256(str(project_root).encode()).hexdigest()[:16]
+    return f"local:{identity}"
 
 
 __all__ = ["LabApplicationFactory", "LocalDaemonRuntime"]

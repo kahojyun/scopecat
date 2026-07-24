@@ -11,10 +11,10 @@ from typing import Literal, NoReturn, Protocol, cast
 
 from pydantic import BaseModel, JsonValue
 
-from scopecat.application.services import WorkspaceServices
+from scopecat.application.services import WorkspaceStateServices
 from scopecat.config.changes import (
     parameter_change_proposal_record_ref,
-    write_parameter_change_proposal_contents,
+    prepare_parameter_change_proposal_contents,
 )
 from scopecat.kernel.content_identity import (
     content_fingerprint,
@@ -40,10 +40,13 @@ from scopecat.records.artifact import RunContentEntry
 from scopecat.records.parameter_change import ParameterChangeProposal
 from scopecat.runs.access import (
     artifact_storage_ref,
-    upsert_contents,
 )
 from scopecat.runs.refs import record_content_ref
-from scopecat.runs.repository import RunRepository
+from scopecat.runs.repository import (
+    RunBytesWrite,
+    RunContentPublication,
+    RunModelWrite,
+)
 
 AnalysisOutputKind = AnalysisRecordOutputKind
 
@@ -73,6 +76,12 @@ class SavedAnalysis:
     output_artifacts: tuple[RunContentEntry, ...] = ()
 
 
+@dataclass(frozen=True, slots=True)
+class PreparedAnalysis:
+    saved: SavedAnalysis
+    publication: RunContentPublication
+
+
 class _AnalysisArtifactSource(Protocol):
     def default_filename(self) -> str | None: ...
 
@@ -83,8 +92,6 @@ class _AnalysisArtifactSource(Protocol):
     def content_hash(self) -> str: ...
 
     def content_bytes(self) -> bytes: ...
-
-    def write(self, *, storage: RunRepository, run_id: str, ref: str) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -112,9 +119,6 @@ class _AnalysisModelArtifactSource:
             )
         )
 
-    def write(self, *, storage: RunRepository, run_id: str, ref: str) -> None:
-        storage.write_bytes(run_id, ref, self.content_bytes())
-
 
 @dataclass(frozen=True)
 class _AnalysisJsonArtifactSource:
@@ -141,9 +145,6 @@ class _AnalysisJsonArtifactSource:
             )
         )
 
-    def write(self, *, storage: RunRepository, run_id: str, ref: str) -> None:
-        storage.write_bytes(run_id, ref, self.content_bytes())
-
 
 @dataclass(frozen=True)
 class _AnalysisTextArtifactSource:
@@ -163,9 +164,6 @@ class _AnalysisTextArtifactSource:
 
     def content_bytes(self) -> bytes:
         return _text_storage_bytes(self.content)
-
-    def write(self, *, storage: RunRepository, run_id: str, ref: str) -> None:
-        storage.write_bytes(run_id, ref, self.content_bytes())
 
 
 @dataclass(frozen=True)
@@ -187,9 +185,6 @@ class _AnalysisBytesArtifactSource:
     def content_bytes(self) -> bytes:
         return self.content
 
-    def write(self, *, storage: RunRepository, run_id: str, ref: str) -> None:
-        storage.write_bytes(run_id, ref, self.content_bytes())
-
 
 @dataclass(frozen=True)
 class _AnalysisFileArtifactSource:
@@ -209,9 +204,6 @@ class _AnalysisFileArtifactSource:
 
     def content_bytes(self) -> bytes:
         return self.path.read_bytes()
-
-    def write(self, *, storage: RunRepository, run_id: str, ref: str) -> None:
-        storage.write_bytes(run_id, ref, self.content_bytes())
 
 
 @dataclass(frozen=True)
@@ -238,9 +230,6 @@ class _EncodedAnalysisArtifactSource:
 
     def content_bytes(self) -> bytes:
         return self.content
-
-    def write(self, *, storage: RunRepository, run_id: str, ref: str) -> None:
-        storage.write_bytes(run_id, ref, self.content)
 
 
 @dataclass(frozen=True)
@@ -420,7 +409,7 @@ def prepare_encoded_analysis_artifact(
 
 def save_analysis(
     *,
-    services: WorkspaceServices,
+    services: WorkspaceStateServices,
     run_id: str,
     title: str,
     analysis_key: str,
@@ -429,7 +418,34 @@ def save_analysis(
     outputs: Sequence[AnalysisOutput],
     parameter_proposals: Sequence[ParameterChangeProposal],
 ) -> SavedAnalysis:
-    """Persist one analysis record and its owned durable evidence."""
+    """Prepare and publish one analysis using the repository's local unit."""
+
+    prepared = prepare_analysis(
+        services=services,
+        run_id=run_id,
+        title=title,
+        analysis_key=analysis_key,
+        step_id=step_id,
+        inputs=inputs,
+        outputs=outputs,
+        parameter_proposals=parameter_proposals,
+    )
+    services.runs.publish_content(prepared.publication)
+    return prepared.saved
+
+
+def prepare_analysis(
+    *,
+    services: WorkspaceStateServices,
+    run_id: str,
+    title: str,
+    analysis_key: str,
+    step_id: str | None,
+    inputs: Sequence[AnalysisInput],
+    outputs: Sequence[AnalysisOutput],
+    parameter_proposals: Sequence[ParameterChangeProposal],
+) -> PreparedAnalysis:
+    """Prepare analysis content for publication in a caller-owned unit."""
 
     selected_record_id = f"analysis-{analysis_key}"
     if any(
@@ -469,35 +485,38 @@ def save_analysis(
         media_type="application/json",
         content_hash=model_wire_content_hash(analysis_record),
     )
-    manifest = storage.read_manifest(run_id)
-    proposal_records = write_parameter_change_proposal_contents(
+    prepared_proposals = prepare_parameter_change_proposal_contents(
         storage=storage,
         run_id=run_id,
         proposals=parameter_proposals,
     )
-    _write_prepared_analysis_output_artifacts(
-        storage=storage,
-        run_id=run_id,
-        prepared_artifacts=prepared_artifacts,
-    )
-    storage.write_model(run_id, ref, analysis_record)
-
-    # The manifest commits newly published content above. A failure before
-    # this write leaves retryable, uncommitted content.
-    updated_manifest = manifest.model_copy(
-        update={
-            "contents": upsert_contents(
-                manifest.contents,
-                (*proposal_records, record, *output_artifacts),
-            ),
-        }
-    )
-    storage.write_manifest(updated_manifest)
-    return SavedAnalysis(
+    saved = SavedAnalysis(
         record=record,
         analysis_key=analysis_key,
         inputs=tuple(inputs),
         output_artifacts=tuple(output_artifacts),
+    )
+    return PreparedAnalysis(
+        saved=saved,
+        publication=RunContentPublication(
+            run_id=run_id,
+            entries=(
+                *prepared_proposals.entries,
+                record,
+                *output_artifacts,
+            ),
+            models=(
+                *prepared_proposals.writes,
+                RunModelWrite(ref=ref, value=analysis_record),
+            ),
+            bytes=tuple(
+                RunBytesWrite(
+                    ref=artifact_storage_ref(prepared.artifact),
+                    content=prepared.spec.source.content_bytes(),
+                )
+                for prepared in prepared_artifacts
+            ),
+        ),
     )
 
 
@@ -608,20 +627,6 @@ def _prepare_analysis_output_artifacts(
             )
         )
     return prepared_artifacts
-
-
-def _write_prepared_analysis_output_artifacts(
-    *,
-    storage: RunRepository,
-    run_id: str,
-    prepared_artifacts: Sequence[_PreparedAnalysisArtifact],
-) -> None:
-    for prepared in prepared_artifacts:
-        prepared.spec.source.write(
-            storage=storage,
-            run_id=run_id,
-            ref=artifact_storage_ref(prepared.artifact),
-        )
 
 
 def _analysis_artifact_specs(

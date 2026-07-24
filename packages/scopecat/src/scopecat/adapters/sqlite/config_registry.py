@@ -308,10 +308,12 @@ class SQLiteWorkspaceUnitOfWork:
         *,
         runs: RunRepository,
         busy_timeout_seconds: float = 5,
+        _borrowed_connection: sqlite3.Connection | None = None,
     ) -> None:
         self.database = Path(database)
         self.runs = runs
         self._busy_timeout_seconds = busy_timeout_seconds
+        self._borrowed_connection = _borrowed_connection
         self._connection: sqlite3.Connection | None = None
         self._registry: SQLiteConfigRegistryRepository | None = None
 
@@ -326,15 +328,17 @@ class SQLiteWorkspaceUnitOfWork:
         if self._connection is not None:
             msg = "workspace unit of work cannot be entered twice"
             raise RuntimeError(msg)
-        connection = _connect(
-            self.database,
-            busy_timeout_seconds=self._busy_timeout_seconds,
-        )
-        try:
-            connection.execute("BEGIN IMMEDIATE")
-        except sqlite3.Error as error:
-            connection.close()
-            raise _storage_failure(CONFIG_REGISTRY_ROOT) from error
+        connection = self._borrowed_connection
+        if connection is None:
+            connection = _connect(
+                self.database,
+                busy_timeout_seconds=self._busy_timeout_seconds,
+            )
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+            except sqlite3.Error as error:
+                connection.close()
+                raise _storage_failure(CONFIG_REGISTRY_ROOT) from error
         self._connection = connection
         self._registry = SQLiteConfigRegistryRepository(connection)
         return self
@@ -352,6 +356,8 @@ class SQLiteWorkspaceUnitOfWork:
             raise RuntimeError(msg)
         self._connection = None
         self._registry = None
+        if self._borrowed_connection is not None:
+            return
         try:
             if exc_type is None:
                 connection.commit()
@@ -408,6 +414,19 @@ class SQLiteConfigRegistryStore:
             self.database,
             runs=self.runs,
             busy_timeout_seconds=self._busy_timeout_seconds,
+        )
+
+    def borrowed_unit_of_work(
+        self,
+        connection: sqlite3.Connection,
+    ) -> SQLiteWorkspaceUnitOfWork:
+        """Bind registry operations to a caller-owned SQLite transaction."""
+
+        return SQLiteWorkspaceUnitOfWork(
+            self.database,
+            runs=self.runs,
+            busy_timeout_seconds=self._busy_timeout_seconds,
+            _borrowed_connection=connection,
         )
 
 

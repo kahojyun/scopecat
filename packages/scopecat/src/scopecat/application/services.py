@@ -10,9 +10,15 @@ from scopecat.runs.repository import RunRepository
 
 
 @dataclass(frozen=True, slots=True)
-class WorkspaceServices:
-    """All durable and execution ports selected for one workspace."""
+class WorkspaceStateServices:
+    """Durable ports used by planning, config, and run-content workflows."""
 
     runs: RunRepository
-    execution: ExecutionServices
     config_registry: WorkspaceUnitOfWorkFactory
+
+
+@dataclass(frozen=True, slots=True)
+class WorkspaceServices(WorkspaceStateServices):
+    """Workspace state plus the effects required for local execution."""
+
+    execution: ExecutionServices

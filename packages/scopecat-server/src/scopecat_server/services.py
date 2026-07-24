@@ -1,4 +1,4 @@
-"""Concrete SQLite application service for one daemon-owned project."""
+"""Daemon application services with explicit SQLite state ownership."""
 
 from __future__ import annotations
 
@@ -8,9 +8,8 @@ from base64 import b64decode, b64encode
 from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from dataclasses import asdict, replace
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime, timedelta
-from hashlib import sha256
 from pathlib import Path
 from threading import Event, Lock, Thread
 from typing import Literal, cast
@@ -33,17 +32,17 @@ from scopecat.adapters.sqlite.execution import ExecutionJournalConflict
 from scopecat.analysis.service import (
     AnalysisInput,
     AnalysisOutput,
+    prepare_analysis,
     prepare_encoded_analysis_artifact,
-    save_analysis,
 )
-from scopecat.application.services import WorkspaceServices
+from scopecat.application.services import WorkspaceStateServices
 from scopecat.config.candidates import CandidateConfig
 from scopecat.config.changes import (
-    decide_parameter_change_proposal,
     list_parameter_change_decisions,
     list_parameter_change_proposals,
     load_parameter_change_proposal,
-    review_parameter_change_proposal,
+    prepare_parameter_change_decision,
+    prepare_parameter_change_review,
 )
 from scopecat.config.parameter_updates import (
     ParameterUpdate,
@@ -270,90 +269,41 @@ def _config_parameter_update(
     return delete_parameter_rows(item.parameter_id, key=item.key)
 
 
-class SQLiteDaemonBackend:
-    """Single-process scheduler and execution boundary over shared SQLite state."""
+class ConfigService:
+    """Own config-registry commands and their in-process serialization."""
 
     def __init__(
         self,
         *,
-        project_root: str | Path,
         control: SQLiteControlPlane,
-        runs: SQLiteRunRepository,
         config_registry: SQLiteConfigRegistryStore,
-        catalog: RegisteredExperimentCatalog | None = None,
-        build_system: ExperimentSystemBuilder | None = None,
-        lease_ttl: timedelta | None = None,
-        supervisor_interval_seconds: float = 0.5,
+        services: WorkspaceStateServices,
+        run_content_lock: Lock,
     ) -> None:
-        self.project_root = Path(project_root).resolve()
-        self.control = control
-        self.runs = runs
-        self.config_registry = config_registry
-        self._catalog = catalog or RegisteredExperimentCatalog()
-        self._build_system = build_system
-        self._lease_ttl = lease_ttl or timedelta(seconds=30)
-        self._heartbeat_interval_seconds = self._lease_ttl.total_seconds() / 3
-        self._supervisor_interval_seconds = supervisor_interval_seconds
+        self._control = control
+        self._config_registry = config_registry
+        self._services = services
         self._config_lock = Lock()
-        self._run_content_lock = Lock()
-        self._submission_lock = Lock()
-        self._managed_lock = Lock()
-        self._managed_plans: dict[str, PlannedRun] = {}
-        self._managed_active: set[str] = set()
-        self._stop = Event()
-        self._supervisor_failed = False
-        self._workers = ThreadPoolExecutor(
-            max_workers=4,
-            thread_name_prefix="scopecat-run",
-        )
-        self.services = WorkspaceServices(
-            runs=runs,
-            execution=self._execution_services(_UnavailableResources()),
-            config_registry=config_registry.unit_of_work,
-        )
-        self._reconcile_startup()
-        self._supervisor = Thread(
-            target=self._supervise,
-            name="scopecat-supervisor",
-            daemon=True,
-        )
-        self._supervisor.start()
-
-    def close(self) -> None:
-        self._stop.set()
-        self._supervisor.join()
-        self._workers.shutdown(wait=True, cancel_futures=False)
-
-    def health(self) -> DaemonHealth:
-        try:
-            self.control.schema_version()
-        except Exception:
-            return self._health("degraded")
-        if self._supervisor_failed or not self._supervisor.is_alive():
-            return self._health("degraded")
-        return self._health("ok")
-
-    def catalog(self) -> ExperimentCatalog:
-        return self._catalog.snapshot
+        self._run_content_lock = run_content_lock
 
     def get_config_registry(self) -> ConfigRegistryView:
         with self._config_lock, self._config_errors():
             entries = config_registry_service.list_config_registry_entries(
-                unit_of_work=self.config_registry.unit_of_work
+                unit_of_work=self._config_registry.unit_of_work
             )
             generation = config_registry_service.current_config_registry_generation(
-                unit_of_work=self.config_registry.unit_of_work
+                unit_of_work=self._config_registry.unit_of_work
             )
             if generation == 0:
                 active_state = None
             else:
                 active_state = (
                     config_registry_service.load_active_config_registry_state(
-                        unit_of_work=self.config_registry.unit_of_work
+                        unit_of_work=self._config_registry.unit_of_work
                     )
                 )
                 config_registry_service.load_active_config_registry_entry(
-                    unit_of_work=self.config_registry.unit_of_work
+                    unit_of_work=self._config_registry.unit_of_work
                 )
             return ConfigRegistryView(
                 entries=tuple(entries),
@@ -363,13 +313,13 @@ class SQLiteDaemonBackend:
     def get_active_config(self) -> ActiveConfigView:
         with self._config_lock, self._config_errors():
             state = config_registry_service.load_active_config_registry_state(
-                unit_of_work=self.config_registry.unit_of_work
+                unit_of_work=self._config_registry.unit_of_work
             )
             entry = config_registry_service.load_active_config_registry_entry(
-                unit_of_work=self.config_registry.unit_of_work
+                unit_of_work=self._config_registry.unit_of_work
             )
             config = config_registry_service.load_active_config_registry_config(
-                unit_of_work=self.config_registry.unit_of_work
+                unit_of_work=self._config_registry.unit_of_work
             )
             return ActiveConfigView(
                 entry=entry,
@@ -381,11 +331,11 @@ class SQLiteDaemonBackend:
         with self._config_lock, self._config_errors():
             entry = config_registry_service.load_config_registry_entry(
                 entry_id=entry_id,
-                unit_of_work=self.config_registry.unit_of_work,
+                unit_of_work=self._config_registry.unit_of_work,
             )
             config = config_registry_service.load_config_registry_config(
                 entry_id=entry_id,
-                unit_of_work=self.config_registry.unit_of_work,
+                unit_of_work=self._config_registry.unit_of_work,
             )
             return ConfigEntryView(entry=entry, config=config)
 
@@ -393,26 +343,32 @@ class SQLiteDaemonBackend:
         self,
         command: DirectConfigImportCommand,
     ) -> ConfigImportReceipt:
-        with self._config_lock, self._config_errors():
+        with (
+            self._config_lock,
+            self._config_errors(),
+            self._config_transaction() as transaction,
+        ):
+            connection, services = transaction
             existing_entries = config_registry_service.list_config_registry_entries(
-                unit_of_work=self.config_registry.unit_of_work
+                unit_of_work=services.config_registry
             )
             existing_ids = {entry.id for entry in existing_entries}
             config = validate_config_profile(command.config).config
             entry = config_registry_service.register_config_profile(
                 config=config,
-                unit_of_work=self.config_registry.unit_of_work,
+                unit_of_work=services.config_registry,
                 entry_id=command.entry_id,
                 registered_by=command.registered_by,
                 note=command.note,
             )
             if entry.id not in existing_ids:
-                self.control.append_event(
+                self._control.append_event_in_transaction(
+                    connection,
                     DurableEventInput(
                         kind="config_imported",
                         payload={"entry_id": entry.id},
                         occurred_at=entry.registered_at,
-                    )
+                    ),
                 )
             return ConfigImportReceipt(entry=entry)
 
@@ -420,27 +376,32 @@ class SQLiteDaemonBackend:
         self,
         command: DirectConfigDefaultCommand,
     ) -> ConfigDefaultReceipt:
-        with self._config_lock, self._config_errors():
+        with (
+            self._config_lock,
+            self._config_errors(),
+            self._config_transaction() as transaction,
+        ):
+            connection, services = transaction
             existing_entries = config_registry_service.list_config_registry_entries(
-                unit_of_work=self.config_registry.unit_of_work
+                unit_of_work=services.config_registry
             )
             existing_ids = {entry.id for entry in existing_entries}
             previous_generation = (
                 config_registry_service.current_config_registry_generation(
-                    unit_of_work=self.config_registry.unit_of_work
+                    unit_of_work=services.config_registry
                 )
             )
             config = validate_config_profile(command.config).config
             if previous_generation > 0 and config_content_hash(
                 config_registry_service.load_active_config_registry_config(
-                    unit_of_work=self.config_registry.unit_of_work
+                    unit_of_work=services.config_registry
                 )
             ) == config_content_hash(config):
                 state = config_registry_service.load_active_config_registry_state(
-                    unit_of_work=self.config_registry.unit_of_work
+                    unit_of_work=services.config_registry
                 )
                 entry = config_registry_service.load_active_config_registry_entry(
-                    unit_of_work=self.config_registry.unit_of_work
+                    unit_of_work=services.config_registry
                 )
                 return ConfigDefaultReceipt(
                     entry=entry,
@@ -459,13 +420,14 @@ class SQLiteDaemonBackend:
                 state, activation = (
                     config_registry_service.activate_config_registry_entry(
                         entry_id=reusable.id,
-                        unit_of_work=self.config_registry.unit_of_work,
+                        unit_of_work=services.config_registry,
                         operator=command.operator,
                         expected_generation=command.expected_generation,
                         note=command.note,
                     )
                 )
-                self.control.append_event(
+                self._control.append_event_in_transaction(
+                    connection,
                     DurableEventInput(
                         kind="config_activated",
                         payload={
@@ -473,7 +435,7 @@ class SQLiteDaemonBackend:
                             "generation": state.generation,
                         },
                         occurred_at=activation.recorded_at,
-                    )
+                    ),
                 )
                 return ConfigDefaultReceipt(
                     entry=reusable,
@@ -483,7 +445,7 @@ class SQLiteDaemonBackend:
             entry, state, activation = (
                 config_registry_service.register_and_activate_config_profile(
                     config=config,
-                    unit_of_work=self.config_registry.unit_of_work,
+                    unit_of_work=services.config_registry,
                     entry_id=command.entry_id,
                     registered_by=command.registered_by,
                     operator=command.operator,
@@ -492,15 +454,17 @@ class SQLiteDaemonBackend:
                 )
             )
             if entry.id not in existing_ids:
-                self.control.append_event(
+                self._control.append_event_in_transaction(
+                    connection,
                     DurableEventInput(
                         kind="config_imported",
                         payload={"entry_id": entry.id},
                         occurred_at=entry.registered_at,
-                    )
+                    ),
                 )
             if state.generation != previous_generation:
-                self.control.append_event(
+                self._control.append_event_in_transaction(
+                    connection,
                     DurableEventInput(
                         kind="config_activated",
                         payload={
@@ -508,7 +472,7 @@ class SQLiteDaemonBackend:
                             "generation": state.generation,
                         },
                         occurred_at=activation.recorded_at,
-                    )
+                    ),
                 )
             return ConfigDefaultReceipt(
                 entry=entry,
@@ -522,7 +486,7 @@ class SQLiteDaemonBackend:
     ) -> ConfigDraftPreview:
         with self._config_lock, self._config_errors():
             result = config_registry_service.preview_manual_config_draft(
-                unit_of_work=self.config_registry.unit_of_work,
+                unit_of_work=self._config_registry.unit_of_work,
                 base_entry_id=command.base_entry_id,
                 base_config_content_hash=command.base_content_hash,
                 base_generation=command.base_generation,
@@ -549,16 +513,21 @@ class SQLiteDaemonBackend:
         self,
         command: ConfigDraftRegistrationCommand,
     ) -> ConfigDraftRegistrationReceipt:
-        with self._config_lock, self._config_errors():
+        with (
+            self._config_lock,
+            self._config_errors(),
+            self._config_transaction() as transaction,
+        ):
+            connection, services = transaction
             existing_ids = {
                 entry.id
                 for entry in config_registry_service.list_config_registry_entries(
-                    unit_of_work=self.config_registry.unit_of_work
+                    unit_of_work=services.config_registry
                 )
             }
             draft = command.draft
             entry, result = config_registry_service.register_manual_config_draft(
-                unit_of_work=self.config_registry.unit_of_work,
+                unit_of_work=services.config_registry,
                 base_entry_id=draft.base_entry_id,
                 base_config_content_hash=draft.base_content_hash,
                 base_generation=draft.base_generation,
@@ -572,7 +541,8 @@ class SQLiteDaemonBackend:
                 note=command.note,
             )
             if entry.id not in existing_ids:
-                self.control.append_event(
+                self._control.append_event_in_transaction(
+                    connection,
                     DurableEventInput(
                         kind="config_draft_registered",
                         payload={
@@ -580,7 +550,7 @@ class SQLiteDaemonBackend:
                             "base_entry_id": draft.base_entry_id,
                         },
                         occurred_at=entry.registered_at,
-                    )
+                    ),
                 )
             return ConfigDraftRegistrationReceipt(
                 entry=entry,
@@ -592,23 +562,28 @@ class SQLiteDaemonBackend:
         self,
         command: ConfigDraftDefaultCommand,
     ) -> ConfigDraftDefaultReceipt:
-        with self._config_lock, self._config_errors():
+        with (
+            self._config_lock,
+            self._config_errors(),
+            self._config_transaction() as transaction,
+        ):
+            connection, services = transaction
             existing_ids = {
                 entry.id
                 for entry in config_registry_service.list_config_registry_entries(
-                    unit_of_work=self.config_registry.unit_of_work
+                    unit_of_work=services.config_registry
                 )
             }
             previous_generation = (
                 config_registry_service.current_config_registry_generation(
-                    unit_of_work=self.config_registry.unit_of_work
+                    unit_of_work=services.config_registry
                 )
             )
             registration = command.registration
             draft = registration.draft
             entry, result, state, activation = (
                 config_registry_service.register_and_activate_manual_config_draft(
-                    unit_of_work=self.config_registry.unit_of_work,
+                    unit_of_work=services.config_registry,
                     base_entry_id=draft.base_entry_id,
                     base_config_content_hash=draft.base_content_hash,
                     base_generation=draft.base_generation,
@@ -627,7 +602,8 @@ class SQLiteDaemonBackend:
                 )
             )
             if entry.id not in existing_ids:
-                self.control.append_event(
+                self._control.append_event_in_transaction(
+                    connection,
                     DurableEventInput(
                         kind="config_draft_registered",
                         payload={
@@ -635,10 +611,11 @@ class SQLiteDaemonBackend:
                             "base_entry_id": draft.base_entry_id,
                         },
                         occurred_at=entry.registered_at,
-                    )
+                    ),
                 )
             if state.generation != previous_generation:
-                self.control.append_event(
+                self._control.append_event_in_transaction(
+                    connection,
                     DurableEventInput(
                         kind="config_activated",
                         payload={
@@ -646,7 +623,7 @@ class SQLiteDaemonBackend:
                             "generation": state.generation,
                         },
                         occurred_at=activation.recorded_at,
-                    )
+                    ),
                 )
             return ConfigDraftDefaultReceipt(
                 entry=entry,
@@ -660,21 +637,27 @@ class SQLiteDaemonBackend:
         self,
         command: ConfigEntryActivationCommand,
     ) -> ConfigActivationReceipt:
-        with self._config_lock, self._config_errors():
+        with (
+            self._config_lock,
+            self._config_errors(),
+            self._config_transaction() as transaction,
+        ):
+            connection, services = transaction
             previous_generation = (
                 config_registry_service.current_config_registry_generation(
-                    unit_of_work=self.config_registry.unit_of_work
+                    unit_of_work=services.config_registry
                 )
             )
             state, activation = config_registry_service.activate_config_registry_entry(
                 entry_id=command.entry_id,
-                unit_of_work=self.config_registry.unit_of_work,
+                unit_of_work=services.config_registry,
                 operator=command.operator,
                 expected_generation=command.expected_generation,
                 note=command.note,
             )
             if state.generation != previous_generation:
-                self.control.append_event(
+                self._control.append_event_in_transaction(
+                    connection,
                     DurableEventInput(
                         kind="config_activated",
                         payload={
@@ -682,7 +665,7 @@ class SQLiteDaemonBackend:
                             "generation": activation.generation,
                         },
                         occurred_at=activation.recorded_at,
-                    )
+                    ),
                 )
             return ConfigActivationReceipt(
                 active_state=state,
@@ -693,20 +676,26 @@ class SQLiteDaemonBackend:
         self,
         command: ConfigRollbackCommand,
     ) -> ConfigActivationReceipt:
-        with self._config_lock, self._config_errors():
+        with (
+            self._config_lock,
+            self._config_errors(),
+            self._config_transaction() as transaction,
+        ):
+            connection, services = transaction
             previous_generation = (
                 config_registry_service.current_config_registry_generation(
-                    unit_of_work=self.config_registry.unit_of_work
+                    unit_of_work=services.config_registry
                 )
             )
             state, activation = config_registry_service.rollback_config_registry(
-                unit_of_work=self.config_registry.unit_of_work,
+                unit_of_work=services.config_registry,
                 operator=command.operator,
                 expected_generation=command.expected_generation,
                 note=command.note,
             )
             if state.generation != previous_generation:
-                self.control.append_event(
+                self._control.append_event_in_transaction(
+                    connection,
                     DurableEventInput(
                         kind="config_rolled_back",
                         payload={
@@ -714,12 +703,117 @@ class SQLiteDaemonBackend:
                             "generation": activation.generation,
                         },
                         occurred_at=activation.recorded_at,
-                    )
+                    ),
                 )
             return ConfigActivationReceipt(
                 active_state=state,
                 activation=activation,
             )
+
+    def activate_candidate_config(
+        self,
+        command: CandidateConfigActivationCommand,
+    ) -> CandidateConfigActivationReceipt:
+        self._require_run(command.run_id)
+        with (
+            self._config_lock,
+            self._run_content_lock,
+            self._config_errors(),
+            self._config_transaction() as transaction,
+        ):
+            connection, services = transaction
+            previous_generation = (
+                config_registry_service.current_config_registry_generation(
+                    unit_of_work=services.config_registry
+                )
+            )
+            candidate = CandidateConfig(
+                parameter_proposals=tuple(
+                    load_parameter_change_proposal(
+                        run_id=command.run_id,
+                        selector=proposal_id,
+                        services=services,
+                    )
+                    for proposal_id in command.proposal_ids
+                )
+            )
+            result = register_and_activate_candidate_config(
+                candidate=candidate,
+                services=services,
+                entry_id=command.entry_id,
+                registered_by=command.registered_by,
+                operator=command.operator,
+                note=command.note,
+                activation_note=command.activation_note,
+                expected_generation=command.expected_generation,
+            )
+            if result.active_state.generation != previous_generation:
+                self._control.append_event_in_transaction(
+                    connection,
+                    DurableEventInput(
+                        run_id=command.run_id,
+                        kind="config_activated",
+                        payload={
+                            "entry_id": result.entry.id,
+                            "generation": result.active_state.generation,
+                            "source_run_id": command.run_id,
+                            "proposal_ids": list(command.proposal_ids),
+                        },
+                        occurred_at=result.activation.recorded_at,
+                    ),
+                )
+            return CandidateConfigActivationReceipt(
+                entry=result.entry,
+                active_state=result.active_state,
+                activation=result.activation,
+            )
+
+    @contextmanager
+    def _config_transaction(
+        self,
+    ) -> Generator[tuple[sqlite3.Connection, WorkspaceStateServices]]:
+        """Commit registry state and replay events through one SQLite writer."""
+
+        with self._control.transaction() as connection:
+            services = replace(
+                self._services,
+                config_registry=lambda: self._config_registry.borrowed_unit_of_work(
+                    connection
+                ),
+            )
+            yield connection, services
+
+    def _require_run(self, run_id: str) -> ControlRun:
+        try:
+            return self._control.get_run(run_id)
+        except ControlPlaneNotFound as error:
+            raise BackendNotFound(str(error)) from error
+
+    @contextmanager
+    def _config_errors(self) -> Generator[None]:
+        try:
+            yield
+        except NotFound as error:
+            raise BackendNotFound(str(error)) from error
+        except (CheckFailed, Conflict, DataIntegrityError) as error:
+            raise BackendConflict(str(error)) from error
+
+
+class RunService:
+    """Own run records, analysis content, and read-side queries."""
+
+    def __init__(
+        self,
+        *,
+        control: SQLiteControlPlane,
+        runs: SQLiteRunRepository,
+        services: WorkspaceStateServices,
+        content_lock: Lock,
+    ) -> None:
+        self._control = control
+        self._runs = runs
+        self._services = services
+        self._run_content_lock = content_lock
 
     def list_runs(
         self,
@@ -730,7 +824,7 @@ class SQLiteDaemonBackend:
         state: ControlRunState | None,
         latest: bool = False,
     ) -> RunPage:
-        return self.control.list_runs(
+        return self._control.list_runs(
             limit=limit,
             after=after,
             before=before,
@@ -742,7 +836,7 @@ class SQLiteDaemonBackend:
         control = self._control_run(run_id)
         leases = {
             (lease.resource.kind, lease.resource.id): lease
-            for lease in self.control.list_resource_leases()
+            for lease in self._control.list_resource_leases()
             if lease.run_id == run_id
         }
         resources = tuple(
@@ -759,17 +853,17 @@ class SQLiteDaemonBackend:
         )
         return RunDetail(
             control=control,
-            manifest=self.runs.read_manifest(run_id),
+            manifest=self._runs.read_manifest(run_id),
             resources=resources,
         )
 
     def get_run_config(self, run_id: str) -> RunConfigView:
         self._control_run(run_id)
-        manifest = self.runs.read_manifest(run_id)
+        manifest = self._runs.read_manifest(run_id)
         return RunConfigView(
             run_id=run_id,
             config_content_hash=manifest.config_content_hash,
-            config=self.runs.read_config_profile_snapshot(run_id),
+            config=self._runs.read_config_profile_snapshot(run_id),
         )
 
     def get_run_request(self, run_id: str) -> RunRequestView:
@@ -777,13 +871,13 @@ class SQLiteDaemonBackend:
         with self._run_content_lock, self._config_errors():
             return RunRequestView(
                 run_id=run_id,
-                request=load_run_request(run_id=run_id, services=self.services),
+                request=load_run_request(run_id=run_id, services=self._services),
             )
 
     def list_run_analyses(self, run_id: str) -> RunAnalysisListView:
         self._control_run(run_id)
         with self._run_content_lock, self._config_errors():
-            manifest = self.runs.read_manifest(run_id)
+            manifest = self._runs.read_manifest(run_id)
             return RunAnalysisListView(
                 run_id=run_id,
                 items=tuple(
@@ -802,7 +896,7 @@ class SQLiteDaemonBackend:
             run_id=run_id,
             selector=selector,
             expected_kind="analysis",
-            services=self.services,
+            services=self._services,
         )
         return RunAnalysisView(
             run_id=run_id,
@@ -833,12 +927,8 @@ class SQLiteDaemonBackend:
             if isinstance(item, AnalysisParameterProposalOutputPayload)
         )
         with self._run_content_lock, self._config_errors():
-            existing = {
-                entry.id: entry.content_hash
-                for entry in self.runs.read_manifest(run_id).records
-            }
-            saved = save_analysis(
-                services=self.services,
+            prepared = prepare_analysis(
+                services=self._services,
                 run_id=run_id,
                 title=command.title,
                 analysis_key=command.analysis_key,
@@ -847,22 +937,39 @@ class SQLiteDaemonBackend:
                 outputs=outputs,
                 parameter_proposals=proposals,
             )
-            if existing.get(saved.record.id) != saved.record.content_hash:
-                self.control.append_event(
-                    DurableEventInput(
-                        run_id=run_id,
-                        kind="analysis_saved",
-                        payload={
-                            "analysis_key": saved.analysis_key,
-                            "record_id": saved.record.id,
-                        },
-                    )
+            publication = self._runs.prepare_content_publication(prepared.publication)
+            with self._control.transaction() as connection:
+                existing = {
+                    entry.id: entry.content_hash
+                    for entry in self._runs.read_manifest_in_transaction(
+                        connection,
+                        run_id,
+                    ).records
+                }
+                self._runs.publish_prepared_content_in_transaction(
+                    connection,
+                    publication,
                 )
+                if (
+                    existing.get(prepared.saved.record.id)
+                    != prepared.saved.record.content_hash
+                ):
+                    self._control.append_event_in_transaction(
+                        connection,
+                        DurableEventInput(
+                            run_id=run_id,
+                            kind="analysis_saved",
+                            payload={
+                                "analysis_key": prepared.saved.analysis_key,
+                                "record_id": prepared.saved.record.id,
+                            },
+                        ),
+                    )
         return AnalysisSaveReceipt(
-            record=saved.record,
-            analysis_key=saved.analysis_key,
+            record=prepared.saved.record,
+            analysis_key=prepared.saved.analysis_key,
             inputs=command.inputs,
-            output_artifacts=saved.output_artifacts,
+            output_artifacts=prepared.saved.output_artifacts,
         )
 
     def get_run_artifact_bytes(
@@ -878,7 +985,7 @@ class SQLiteDaemonBackend:
                 run_id=run_id,
                 selector=selector,
                 expected_kind=expected_kind,
-                services=self.services,
+                services=self._services,
             )
             return RunArtifactBytesView(
                 run_id=run_id,
@@ -899,7 +1006,7 @@ class SQLiteDaemonBackend:
                 run_id=run_id,
                 selector=selector,
                 expected_kind=expected_kind,
-                services=self.services,
+                services=self._services,
             )
             return RunArtifactTextView(
                 run_id=run_id,
@@ -920,7 +1027,7 @@ class SQLiteDaemonBackend:
                 run_id=run_id,
                 selector=selector,
                 expected_kind=expected_kind,
-                services=self.services,
+                services=self._services,
             )
             return RunArtifactJsonView(
                 run_id=run_id,
@@ -941,7 +1048,7 @@ class SQLiteDaemonBackend:
                 run_id=run_id,
                 selector=selector,
                 expected_kind=expected_kind,
-                services=self.services,
+                services=self._services,
             )
             return RunRecordJsonView(
                 run_id=run_id,
@@ -957,26 +1064,26 @@ class SQLiteDaemonBackend:
         self._control_run(run_id)
         with self._run_content_lock, self._config_errors():
             dataset = require_dataset(
-                manifest=self.runs.read_manifest(run_id),
+                manifest=self._runs.read_manifest(run_id),
                 selector=selector,
             )
             if dataset.kind == "measurement_dataset":
                 content = read_run_measurement_dataset(
                     run_id=run_id,
                     selector=selector,
-                    services=self.services,
+                    services=self._services,
                 ).dataset
             elif dataset.kind == "data_table":
                 content = read_run_data_table(
                     run_id=run_id,
                     selector=selector,
-                    services=self.services,
+                    services=self._services,
                 ).table
             elif dataset.kind == "data_array":
                 content = read_run_data_array(
                     run_id=run_id,
                     selector=selector,
-                    services=self.services,
+                    services=self._services,
                 ).array
             else:
                 raise BackendConflict(
@@ -1001,7 +1108,7 @@ class SQLiteDaemonBackend:
         )
         with self._run_content_lock, self._config_errors():
             artifact = attach_run_artifact(
-                services=self.services,
+                services=self._services,
                 run_id=run_id,
                 key=command.key,
                 kind=command.kind,
@@ -1018,7 +1125,7 @@ class SQLiteDaemonBackend:
         with self._run_content_lock, self._config_errors():
             proposals = list_parameter_change_proposals(
                 run_id=run_id,
-                services=self.services,
+                services=self._services,
             )
             return ParameterProposalListView(
                 run_id=run_id,
@@ -1029,7 +1136,7 @@ class SQLiteDaemonBackend:
                             list_parameter_change_decisions(
                                 run_id=run_id,
                                 selector=proposal.id,
-                                storage=self.runs,
+                                storage=self._runs,
                             )
                         ),
                     )
@@ -1044,27 +1151,34 @@ class SQLiteDaemonBackend:
     ) -> ParameterProposalReviewReceipt:
         self._control_run(run_id)
         with self._run_content_lock, self._config_errors():
-            decision = review_parameter_change_proposal(
+            prepared = prepare_parameter_change_review(
                 run_id=run_id,
                 selector=command.proposal_id,
-                services=self.services,
+                services=self._services,
                 state=command.decision,
                 reviewer=command.reviewer,
                 note=command.note,
             )
-            self.control.append_event(
-                DurableEventInput(
-                    run_id=run_id,
-                    kind="parameter_proposal_reviewed",
-                    payload={
-                        "proposal_id": decision.proposal_id,
-                        "decision": decision.decision,
-                        "event_id": decision.event_id,
-                    },
-                    occurred_at=decision.decided_at,
+            publication = self._runs.prepare_content_publication(prepared.publication)
+            with self._control.transaction() as connection:
+                self._runs.publish_prepared_content_in_transaction(
+                    connection,
+                    publication,
                 )
-            )
-        return ParameterProposalReviewReceipt(decision=decision)
+                self._control.append_event_in_transaction(
+                    connection,
+                    DurableEventInput(
+                        run_id=run_id,
+                        kind="parameter_proposal_reviewed",
+                        payload={
+                            "proposal_id": prepared.decision.proposal_id,
+                            "decision": prepared.decision.decision,
+                            "event_id": prepared.decision.event_id,
+                        },
+                        occurred_at=prepared.decision.decided_at,
+                    ),
+                )
+        return ParameterProposalReviewReceipt(decision=prepared.decision)
 
     def decide_parameter_proposal(
         self,
@@ -1073,114 +1187,201 @@ class SQLiteDaemonBackend:
     ) -> ParameterProposalReviewReceipt:
         self._control_run(run_id)
         with self._run_content_lock, self._config_errors():
-            decision = decide_parameter_change_proposal(
+            prepared = prepare_parameter_change_decision(
                 run_id=run_id,
                 selector=command.proposal_id,
-                services=self.services,
+                services=self._services,
                 decision=command.decision,
                 authority=command.authority,
                 note=command.note,
             )
-            self.control.append_event(
-                DurableEventInput(
-                    run_id=run_id,
-                    kind="parameter_proposal_decided",
-                    payload={
-                        "proposal_id": decision.proposal_id,
-                        "decision": decision.decision,
-                        "authority_kind": decision.authority.kind,
-                        "event_id": decision.event_id,
-                    },
-                    occurred_at=decision.decided_at,
+            publication = self._runs.prepare_content_publication(prepared.publication)
+            with self._control.transaction() as connection:
+                self._runs.publish_prepared_content_in_transaction(
+                    connection,
+                    publication,
                 )
-            )
-        return ParameterProposalReviewReceipt(decision=decision)
-
-    def activate_candidate_config(
-        self,
-        command: CandidateConfigActivationCommand,
-    ) -> CandidateConfigActivationReceipt:
-        self._control_run(command.run_id)
-        with (
-            self._config_lock,
-            self._run_content_lock,
-            self._config_errors(),
-        ):
-            previous_generation = (
-                config_registry_service.current_config_registry_generation(
-                    unit_of_work=self.config_registry.unit_of_work
-                )
-            )
-            candidate = CandidateConfig(
-                parameter_proposals=tuple(
-                    load_parameter_change_proposal(
-                        run_id=command.run_id,
-                        selector=proposal_id,
-                        services=self.services,
-                    )
-                    for proposal_id in command.proposal_ids
-                )
-            )
-            result = register_and_activate_candidate_config(
-                candidate=candidate,
-                services=self.services,
-                entry_id=command.entry_id,
-                registered_by=command.registered_by,
-                operator=command.operator,
-                note=command.note,
-                activation_note=command.activation_note,
-                expected_generation=command.expected_generation,
-            )
-            if result.active_state.generation != previous_generation:
-                self.control.append_event(
+                self._control.append_event_in_transaction(
+                    connection,
                     DurableEventInput(
-                        run_id=command.run_id,
-                        kind="config_activated",
+                        run_id=run_id,
+                        kind="parameter_proposal_decided",
                         payload={
-                            "entry_id": result.entry.id,
-                            "generation": result.active_state.generation,
-                            "source_run_id": command.run_id,
-                            "proposal_ids": list(command.proposal_ids),
+                            "proposal_id": prepared.decision.proposal_id,
+                            "decision": prepared.decision.decision,
+                            "authority_kind": prepared.decision.authority.kind,
+                            "event_id": prepared.decision.event_id,
                         },
-                        occurred_at=result.activation.recorded_at,
-                    )
+                        occurred_at=prepared.decision.decided_at,
+                    ),
                 )
-            return CandidateConfigActivationReceipt(
-                entry=result.entry,
-                active_state=result.active_state,
-                activation=result.activation,
+        return ParameterProposalReviewReceipt(decision=prepared.decision)
+
+    def measurements(
+        self,
+        run_id: str,
+        *,
+        limit: int,
+        offset: int,
+    ) -> MeasurementPage:
+        self._control_run(run_id)
+        records = SQLiteMeasurementDatasetRepository(
+            self._runs,
+            run_id=run_id,
+        ).measurements(dataset_id=RAW_MEASUREMENTS_DATASET_ID)
+        items = records[offset : offset + limit]
+        next_offset = (
+            offset + len(items) if offset + len(items) < len(records) else None
+        )
+        return MeasurementPage(items=items, next_offset=next_offset)
+
+    def _control_run(self, run_id: str) -> ControlRun:
+        try:
+            return self._control.get_run(run_id)
+        except ControlPlaneNotFound as error:
+            raise BackendNotFound(str(error)) from error
+
+    @contextmanager
+    def _config_errors(self) -> Generator[None]:
+        try:
+            yield
+        except NotFound as error:
+            raise BackendNotFound(str(error)) from error
+        except (CheckFailed, Conflict, DataIntegrityError) as error:
+            raise BackendConflict(str(error)) from error
+
+    def list_events(
+        self,
+        *,
+        limit: int,
+        after: int | None,
+        run_id: str | None,
+        latest: bool = False,
+    ) -> EventPage:
+        return self._control.list_events(
+            limit=limit,
+            after=after,
+            run_id=run_id,
+            latest=latest,
+        )
+
+
+@dataclass(frozen=True)
+class AdmissionResult:
+    receipt: RunAdmission
+    managed_plan: PlannedRun | None = None
+
+
+@dataclass(frozen=True)
+class AttentionResult:
+    receipt: AttentionResolutionReceipt
+    managed_plan: PlannedRun | None = None
+    forget_managed_run: bool = False
+
+
+class AdmissionService:
+    """Own planning, idempotent admission, and admitted snapshots."""
+
+    def __init__(
+        self,
+        *,
+        control: SQLiteControlPlane,
+        runs: SQLiteRunRepository,
+        services: WorkspaceStateServices,
+        catalog: RegisteredExperimentCatalog,
+        build_system: ExperimentSystemBuilder | None,
+    ) -> None:
+        self._control = control
+        self._runs = runs
+        self._services = services
+        self._catalog = catalog
+        self._build_system = build_system
+        self._submission_lock = Lock()
+
+    def submit_run(self, submission: RunSubmission) -> AdmissionResult:
+        with self._submission_lock:
+            existing = self._existing_submission(submission)
+            if existing is not None:
+                return AdmissionResult(receipt=self._wire_admission(existing))
+            if isinstance(submission, DelegatedRunSubmission):
+                run = self._admit_delegated(submission)
+                managed_plan = None
+            else:
+                run, managed_plan = self._admit_managed(submission)
+            return AdmissionResult(
+                receipt=self._wire_admission(run),
+                managed_plan=managed_plan,
             )
+
+    def rebuild_managed_plan(self, run: ControlRun) -> PlannedRun:
+        submission_data = cast(
+            "dict[str, JsonValue]",
+            run.admission.plan_summary["submission"],
+        )
+        request = run.admission.request
+        if request is None:
+            raise ValueError("managed admission is missing its run request")
+        submission = ManagedRunSubmission(
+            submission_id=run.admission.submission_id,
+            registration_id=cast("str", submission_data["registration_id"]),
+            registration_version=cast(
+                "str",
+                submission_data["registration_version"],
+            ),
+            request=request,
+        )
+        config = self._runs.read_config_profile_snapshot(run.run_id)
+        system = build_experiment_system(self._build_system, config)
+        planned = plan_experiment(
+            self._catalog.prepare(submission),
+            services=self._services,
+            config=config,
+            system=system,
+        )
+        planned = replace(
+            planned,
+            config_source=self._runs.read_manifest(run.run_id).config_source,
+        )
+        if (
+            self._program_summary(planned).model_dump(mode="json")
+            != run.admission.plan_summary.get("plan")
+            or config_content_hash(planned.config) != run.admission.config_content_hash
+        ):
+            raise ValueError("managed plan changed since admission")
+        return planned
 
     def resolve_attention(
         self,
         run_id: str,
         command: AttentionResolutionCommand,
-    ) -> AttentionResolutionReceipt:
+    ) -> AttentionResult:
         run = self._control_run(run_id)
         if run.state != "attention_required":
             raise BackendConflict("run does not require operator attention")
         if command.action == "release":
             try:
-                released = self.control.release_run_resources(run_id)
+                released = self._control.release_run_resources(run_id)
             except ControlPlaneConflict as error:
                 raise BackendConflict(str(error)) from error
-            return AttentionResolutionReceipt(
-                run_id=run_id,
-                action=command.action,
-                state="attention_required",
-                released_resource_count=released,
+            return AttentionResult(
+                receipt=AttentionResolutionReceipt(
+                    run_id=run_id,
+                    action=command.action,
+                    state="attention_required",
+                    released_resource_count=released,
+                )
             )
 
         planned = None
         if command.action == "requeue" and run.admission.execution_mode == "managed":
             try:
-                planned = self._rebuild_managed_plan(run)
+                planned = self.rebuild_managed_plan(run)
             except Exception as error:
                 raise BackendConflict(
                     "managed run no longer matches its admitted plan"
                 ) from error
 
-        manifest = self.runs.read_manifest(run_id)
+        manifest = self._runs.read_manifest(run_id)
         if command.action == "requeue":
             accepted = RunManifest.model_validate(
                 {
@@ -1190,13 +1391,13 @@ class SQLiteDaemonBackend:
                 }
             )
             try:
-                with self.control.transaction() as connection:
-                    released = self.control.release_run_resources_in_transaction(
+                with self._control.transaction() as connection:
+                    released = self._control.release_run_resources_in_transaction(
                         connection,
                         run_id,
                     )
-                    self.runs.write_manifest_in_transaction(connection, accepted)
-                    self.control.transition_run_in_transaction(
+                    self._runs.write_manifest_in_transaction(connection, accepted)
+                    self._control.transition_run_in_transaction(
                         connection,
                         run_id,
                         expected_state="attention_required",
@@ -1204,13 +1405,14 @@ class SQLiteDaemonBackend:
                     )
             except ControlPlaneConflict as error:
                 raise BackendConflict(str(error)) from error
-            if planned is not None:
-                self._schedule_managed(run_id, planned)
-            return AttentionResolutionReceipt(
-                run_id=run_id,
-                action=command.action,
-                state="accepted",
-                released_resource_count=released,
+            return AttentionResult(
+                receipt=AttentionResolutionReceipt(
+                    run_id=run_id,
+                    action=command.action,
+                    state="accepted",
+                    released_resource_count=released,
+                ),
+                managed_plan=planned,
             )
 
         outcome = RunOutcome(
@@ -1234,7 +1436,7 @@ class SQLiteDaemonBackend:
                 "outcome": outcome,
             }
         )
-        prepared = self.runs.prepare_terminal_commit(
+        prepared = self._runs.prepare_terminal_commit(
             TerminalRunCommit(
                 manifest=terminal,
                 models=(
@@ -1246,16 +1448,16 @@ class SQLiteDaemonBackend:
             )
         )
         try:
-            with self.control.transaction() as connection:
-                released = self.control.release_run_resources_in_transaction(
+            with self._control.transaction() as connection:
+                released = self._control.release_run_resources_in_transaction(
                     connection,
                     run_id,
                 )
-                self.runs.commit_prepared_terminal_in_transaction(
+                self._runs.commit_prepared_terminal_in_transaction(
                     connection,
                     prepared,
                 )
-                self.control.transition_run_in_transaction(
+                self._control.transition_run_in_transaction(
                     connection,
                     run_id,
                     expected_state="attention_required",
@@ -1264,422 +1466,21 @@ class SQLiteDaemonBackend:
                 )
         except ControlPlaneConflict as error:
             raise BackendConflict(str(error)) from error
-        self._managed_finished(run_id, terminal=True)
-        return AttentionResolutionReceipt(
-            run_id=run_id,
-            action=command.action,
-            state="terminal",
-            released_resource_count=released,
+        return AttentionResult(
+            receipt=AttentionResolutionReceipt(
+                run_id=run_id,
+                action=command.action,
+                state="terminal",
+                released_resource_count=released,
+            ),
+            forget_managed_run=run.admission.execution_mode == "managed",
         )
-
-    def measurements(
-        self,
-        run_id: str,
-        *,
-        limit: int,
-        offset: int,
-    ) -> MeasurementPage:
-        self._control_run(run_id)
-        records = SQLiteMeasurementDatasetRepository(
-            self.runs,
-            run_id=run_id,
-        ).measurements(dataset_id=RAW_MEASUREMENTS_DATASET_ID)
-        items = records[offset : offset + limit]
-        next_offset = (
-            offset + len(items) if offset + len(items) < len(records) else None
-        )
-        return MeasurementPage(items=items, next_offset=next_offset)
 
     def _control_run(self, run_id: str) -> ControlRun:
         try:
-            return self.control.get_run(run_id)
+            return self._control.get_run(run_id)
         except ControlPlaneNotFound as error:
             raise BackendNotFound(str(error)) from error
-
-    @contextmanager
-    def _config_errors(self) -> Generator[None]:
-        try:
-            yield
-        except NotFound as error:
-            raise BackendNotFound(str(error)) from error
-        except (CheckFailed, Conflict, DataIntegrityError) as error:
-            raise BackendConflict(str(error)) from error
-
-    def list_events(
-        self,
-        *,
-        limit: int,
-        after: int | None,
-        run_id: str | None,
-        latest: bool = False,
-    ) -> EventPage:
-        return self.control.list_events(
-            limit=limit,
-            after=after,
-            run_id=run_id,
-            latest=latest,
-        )
-
-    def submit_run(self, submission: RunSubmission) -> RunAdmission:
-        with self._submission_lock:
-            existing = self._existing_submission(submission)
-            if existing is not None:
-                return self._wire_admission(existing)
-            if isinstance(submission, DelegatedRunSubmission):
-                run = self._admit_delegated(submission)
-            else:
-                run, planned = self._admit_managed(submission)
-                self._schedule_managed(run.run_id, planned)
-            return self._wire_admission(run)
-
-    def start_executor(
-        self,
-        run_id: str,
-        request: ExecutorStartRequest,
-    ) -> ExecutorLease:
-        run = self._control_run(run_id)
-        if run.admission.execution_mode != "delegated":
-            raise BackendConflict("only delegated runs accept external executors")
-        accepted = self.runs.read_manifest(run_id)
-        expected = accepted.model_copy(update={"lifecycle": "running"})
-        if request.manifest != expected:
-            raise BackendConflict(
-                "running manifest does not match the admitted run snapshot"
-            )
-        lease = self._start_execution(
-            run_id,
-            executor_id=request.executor_id,
-            manifest=request.manifest,
-        )
-        return self._wire_lease(lease)
-
-    def heartbeat_executor(
-        self,
-        run_id: str,
-        heartbeat: ExecutorHeartbeat,
-    ) -> ExecutorLease:
-        self.fence_executor(run_id, heartbeat.lease_id, heartbeat.generation)
-        try:
-            renewed = self.control.renew_executor_lease(
-                heartbeat.lease_id,
-                ttl=self._lease_ttl,
-            )
-        except ControlPlaneConflict as error:
-            raise BackendConflict(str(error)) from error
-        return self._wire_lease(renewed)
-
-    def append_transitions(
-        self,
-        run_id: str,
-        batch: ExecutionTransitionBatch,
-    ) -> ExecutionTransitionBatchReceipt:
-        self.fence_executor(run_id, batch.lease_id, batch.generation)
-        journal = SQLiteExecutionJournal(self.runs, run_id=run_id)
-        with self.fenced_write(
-            run_id,
-            token=batch.lease_id,
-            generation=batch.generation,
-        ) as connection:
-            commit = journal.append_batch_in_transaction(
-                connection,
-                batch.batch_id,
-                batch.transitions,
-            )
-            if commit.created:
-                for transition in commit.transitions:
-                    self.control.append_event_in_transaction(
-                        connection,
-                        DurableEventInput(
-                            run_id=run_id,
-                            kind="execution_transition_committed",
-                            payload={
-                                "sequence": transition.sequence,
-                                "operation_id": transition.operation_id,
-                                "stage": transition.stage,
-                                "effect": transition.effect,
-                                "state": transition.state,
-                            },
-                        ),
-                    )
-        return ExecutionTransitionBatchReceipt(
-            batch_id=batch.batch_id,
-            committed=commit.transitions,
-        )
-
-    def publish_runtime_event(
-        self,
-        run_id: str,
-        command: RuntimeEventPublishCommand,
-    ) -> RuntimeEventPublishReceipt:
-        with self.fenced_write(
-            run_id,
-            token=command.lease_id,
-            generation=command.generation,
-        ) as connection:
-            durable = self.control.append_event_in_transaction(
-                connection,
-                DurableEventInput(
-                    run_id=run_id,
-                    kind=f"runtime_{command.event.kind}",
-                    payload=_JSON_OBJECT.validate_python(
-                        command.event.model_dump(mode="json"),
-                    ),
-                    occurred_at=command.event.observed_at,
-                ),
-            )
-        return RuntimeEventPublishReceipt(
-            event_id=durable.event_id,
-            run_id=run_id,
-            kind=command.event.kind,
-        )
-
-    def recover_execution(
-        self,
-        run_id: str,
-        request: ExecutionRecoveryRequest,
-    ) -> ExecutionRecoverySnapshot:
-        self.fence_executor(run_id, request.lease_id, request.generation)
-        return ExecutionRecoverySnapshot(
-            transitions=SQLiteExecutionJournal(
-                self.runs,
-                run_id=run_id,
-            ).entries(),
-            measurements=SQLiteMeasurementDatasetRepository(
-                self.runs,
-                run_id=run_id,
-            ).measurements(),
-            measurement_append_indices=SQLiteMeasurementDatasetRepository(
-                self.runs,
-                run_id=run_id,
-            ).append_indices(),
-            collection_receipts=SQLiteCollectionRecordRepository(
-                self.runs,
-                run_id=run_id,
-            ).receipts(),
-        )
-
-    def append_measurements(
-        self,
-        run_id: str,
-        command: MeasurementAppendCommand,
-    ) -> MeasurementAppendReceipt:
-        self.fence_executor(run_id, command.lease_id, command.generation)
-        repository = SQLiteMeasurementDatasetRepository(
-            self.runs,
-            run_id=run_id,
-        )
-        try:
-            prepared = repository.prepare_append(command.append)
-        except ExecutionJournalConflict as error:
-            raise BackendConflict(
-                "measurement command conflicts with durable state"
-            ) from error
-        with self.fenced_write(
-            run_id,
-            token=command.lease_id,
-            generation=command.generation,
-        ) as connection:
-            receipt, created = repository.append_prepared_in_transaction(
-                connection,
-                prepared,
-            )
-            if created:
-                self.append_effect_event_in_transaction(
-                    connection,
-                    run_id,
-                    "measurements_appended",
-                    command.command_id,
-                )
-        return MeasurementAppendReceipt(
-            command_id=command.command_id,
-            receipt=receipt,
-        )
-
-    def seal_measurements(
-        self,
-        run_id: str,
-        command: MeasurementSealCommand,
-    ) -> MeasurementSealReceipt:
-        self.fence_executor(run_id, command.lease_id, command.generation)
-        repository = SQLiteMeasurementDatasetRepository(
-            self.runs,
-            run_id=run_id,
-        )
-        try:
-            prepared = repository.prepare_seal(command.seal)
-        except ExecutionJournalConflict as error:
-            raise BackendConflict(
-                "measurement command conflicts with durable state"
-            ) from error
-        with self.fenced_write(
-            run_id,
-            token=command.lease_id,
-            generation=command.generation,
-        ) as connection:
-            receipt, created = repository.seal_prepared_in_transaction(
-                connection,
-                prepared,
-            )
-            if created:
-                self.append_effect_event_in_transaction(
-                    connection,
-                    run_id,
-                    "measurements_sealed",
-                    command.command_id,
-                )
-        return MeasurementSealReceipt(
-            command_id=command.command_id,
-            receipt=receipt,
-        )
-
-    def commit_collection(
-        self,
-        run_id: str,
-        command: CollectionCommitCommand,
-    ) -> CollectionCommitReceipt:
-        self.fence_executor(run_id, command.lease_id, command.generation)
-        repository = SQLiteCollectionRecordRepository(
-            self.runs,
-            run_id=run_id,
-        )
-        try:
-            prepared = repository.prepare_commit(command.chunk)
-        except ExecutionJournalConflict as error:
-            raise BackendConflict(
-                "collection command conflicts with durable state"
-            ) from error
-        with self.fenced_write(
-            run_id,
-            token=command.lease_id,
-            generation=command.generation,
-        ) as connection:
-            receipt, created = repository.commit_prepared_in_transaction(
-                connection,
-                prepared,
-            )
-            if created:
-                self.append_effect_event_in_transaction(
-                    connection,
-                    run_id,
-                    "collection_committed",
-                    command.command_id,
-                )
-        return CollectionCommitReceipt(
-            command_id=command.command_id,
-            receipt=receipt,
-        )
-
-    def resolve_collection(
-        self,
-        run_id: str,
-        command: CollectionResolveCommand,
-    ) -> CollectionResolveReceipt:
-        self.fence_executor(run_id, command.lease_id, command.generation)
-        chunk = SQLiteCollectionRecordRepository(
-            self.runs,
-            run_id=run_id,
-        ).resolve(command.receipt)
-        return CollectionResolveReceipt(chunk=chunk)
-
-    def commit_payload(
-        self,
-        run_id: str,
-        command: PayloadCommitCommand,
-    ) -> PayloadCommitReceipt:
-        self.fence_executor(run_id, command.lease_id, command.generation)
-        repository = SQLitePayloadEvidenceCommitter(
-            self.runs,
-            run_id=run_id,
-        )
-        try:
-            prepared = repository.prepare_commit(command.evidence)
-        except ExecutionJournalConflict as error:
-            raise BackendConflict(
-                "payload command conflicts with durable state"
-            ) from error
-        with self.fenced_write(
-            run_id,
-            token=command.lease_id,
-            generation=command.generation,
-        ) as connection:
-            evidence, created = repository.commit_prepared_in_transaction(
-                connection,
-                prepared,
-            )
-            if created:
-                self.append_effect_event_in_transaction(
-                    connection,
-                    run_id,
-                    "payload_committed",
-                    command.command_id,
-                )
-        return PayloadCommitReceipt(
-            command_id=command.command_id,
-            evidence=evidence,
-        )
-
-    def commit_terminal(
-        self,
-        run_id: str,
-        command: TerminalRunCommitCommand,
-    ) -> TerminalRunCommitReceipt:
-        control_run = self._control_run(run_id)
-        if control_run.state == "terminal":
-            manifest = self.runs.read_manifest(run_id)
-            if manifest != command.manifest:
-                raise BackendConflict("run already has a different terminal manifest")
-            return TerminalRunCommitReceipt(
-                command_id=command.command_id,
-                manifest=manifest,
-            )
-        commit = TerminalRunCommit(
-            manifest=command.manifest,
-            models=tuple(
-                RunModelWrite(
-                    ref=write.ref,
-                    value=_JsonDocument(root=write.value),
-                )
-                for write in command.models
-            ),
-            record_sets=tuple(
-                RunRecordSetWrite(
-                    ref=write.ref,
-                    records=tuple(
-                        _JsonDocument(root=record) for record in write.records
-                    ),
-                )
-                for write in command.record_sets
-            ),
-        )
-        try:
-            manifest = self.commit_terminal_with_authority(
-                run_id,
-                token=command.lease_id,
-                generation=command.generation,
-                commit=commit,
-            )
-        except BackendConflict:
-            current = self._control_run(run_id)
-            manifest = self.runs.read_manifest(run_id)
-            if current.state != "terminal" or manifest != command.manifest:
-                raise
-        return TerminalRunCommitReceipt(
-            command_id=command.command_id,
-            manifest=manifest,
-        )
-
-    @property
-    def _project_id(self) -> str:
-        identity = sha256(str(self.project_root).encode()).hexdigest()[:16]
-        return f"local:{identity}"
-
-    def _health(self, status: Literal["ok", "degraded"]) -> DaemonHealth:
-        return DaemonHealth(
-            status=status,
-            project_id=self._project_id,
-            project_name=self.project_root.name,
-            project_root=str(self.project_root),
-        )
 
     def _admit_delegated(self, submission: DelegatedRunSubmission) -> ControlRun:
         accepted = RunManifest(
@@ -1720,14 +1521,14 @@ class SQLiteDaemonBackend:
         request: RunRequest | None,
         admission: RunAdmissionRecord,
     ) -> ControlRun:
-        prepared = self.runs.prepare_run_skeleton(
+        prepared = self._runs.prepare_run_skeleton(
             manifest=accepted,
             request=request,
             config=config,
         )
-        with self.control.transaction() as connection:
-            self.runs.commit_run_skeleton_in_transaction(connection, prepared)
-            return self.control.admit_run_in_transaction(connection, admission)
+        with self._control.transaction() as connection:
+            self._runs.commit_run_skeleton_in_transaction(connection, prepared)
+            return self._control.admit_run_in_transaction(connection, admission)
 
     def _managed_admission(
         self,
@@ -1761,7 +1562,7 @@ class SQLiteDaemonBackend:
         try:
             prepared = self._catalog.prepare(submission)
             resolved_config = resolve_experiment_config(
-                services=self.services,
+                services=self._services,
                 config=submission.request.config_source or "active",
             )
             system = build_experiment_system(
@@ -1770,7 +1571,7 @@ class SQLiteDaemonBackend:
             )
             planned = plan_experiment(
                 prepared,
-                services=self.services,
+                services=self._services,
                 config=resolved_config.config,
                 system=system,
             )
@@ -1804,7 +1605,7 @@ class SQLiteDaemonBackend:
         submission: RunSubmission,
     ) -> ControlRun | None:
         try:
-            existing = self.control.get_run_by_submission_id(submission.submission_id)
+            existing = self._control.get_run_by_submission_id(submission.submission_id)
         except ControlPlaneNotFound:
             return None
         stored = existing.admission.plan_summary.get("submission")
@@ -1843,7 +1644,7 @@ class SQLiteDaemonBackend:
         }
 
     def _wire_admission(self, run: ControlRun) -> RunAdmission:
-        events = self.control.list_events(limit=1, run_id=run.run_id).items
+        events = self._control.list_events(limit=1, run_id=run.run_id).items
         if not events:
             raise RuntimeError("admitted run is missing its first durable event")
         return RunAdmission(
@@ -1869,7 +1670,375 @@ class SQLiteDaemonBackend:
             ),
         )
 
-    def _start_execution(
+
+class ExecutorService:
+    """Own executor leases and every fenced durable execution write."""
+
+    def __init__(
+        self,
+        *,
+        control: SQLiteControlPlane,
+        runs: SQLiteRunRepository,
+        lease_ttl: timedelta | None = None,
+    ) -> None:
+        self._control = control
+        self._runs = runs
+        self._lease_ttl = lease_ttl or timedelta(seconds=30)
+        self._heartbeat_interval_seconds = self._lease_ttl.total_seconds() / 3
+
+    @property
+    def heartbeat_interval_seconds(self) -> float:
+        return self._heartbeat_interval_seconds
+
+    def renew_lease(self, token: str) -> None:
+        try:
+            self._control.renew_executor_lease(token, ttl=self._lease_ttl)
+        except ControlPlaneConflict as error:
+            raise BackendConflict(str(error)) from error
+
+    def _control_run(self, run_id: str) -> ControlRun:
+        try:
+            return self._control.get_run(run_id)
+        except ControlPlaneNotFound as error:
+            raise BackendNotFound(str(error)) from error
+
+    def start_executor(
+        self,
+        run_id: str,
+        request: ExecutorStartRequest,
+    ) -> ExecutorLease:
+        run = self._control_run(run_id)
+        if run.admission.execution_mode != "delegated":
+            raise BackendConflict("only delegated runs accept external executors")
+        accepted = self._runs.read_manifest(run_id)
+        expected = accepted.model_copy(update={"lifecycle": "running"})
+        if request.manifest != expected:
+            raise BackendConflict(
+                "running manifest does not match the admitted run snapshot"
+            )
+        lease = self.start_execution(
+            run_id,
+            executor_id=request.executor_id,
+            manifest=request.manifest,
+        )
+        return self._wire_lease(lease)
+
+    def heartbeat_executor(
+        self,
+        run_id: str,
+        heartbeat: ExecutorHeartbeat,
+    ) -> ExecutorLease:
+        self.fence_executor(run_id, heartbeat.lease_id, heartbeat.generation)
+        try:
+            renewed = self._control.renew_executor_lease(
+                heartbeat.lease_id,
+                ttl=self._lease_ttl,
+            )
+        except ControlPlaneConflict as error:
+            raise BackendConflict(str(error)) from error
+        return self._wire_lease(renewed)
+
+    def append_transitions(
+        self,
+        run_id: str,
+        batch: ExecutionTransitionBatch,
+    ) -> ExecutionTransitionBatchReceipt:
+        self.fence_executor(run_id, batch.lease_id, batch.generation)
+        journal = SQLiteExecutionJournal(self._runs, run_id=run_id)
+        with self.fenced_write(
+            run_id,
+            token=batch.lease_id,
+            generation=batch.generation,
+        ) as connection:
+            commit = journal.append_batch_in_transaction(
+                connection,
+                batch.batch_id,
+                batch.transitions,
+            )
+            if commit.created:
+                for transition in commit.transitions:
+                    self._control.append_event_in_transaction(
+                        connection,
+                        DurableEventInput(
+                            run_id=run_id,
+                            kind="execution_transition_committed",
+                            payload={
+                                "sequence": transition.sequence,
+                                "operation_id": transition.operation_id,
+                                "stage": transition.stage,
+                                "effect": transition.effect,
+                                "state": transition.state,
+                            },
+                        ),
+                    )
+        return ExecutionTransitionBatchReceipt(
+            batch_id=batch.batch_id,
+            committed=commit.transitions,
+        )
+
+    def publish_runtime_event(
+        self,
+        run_id: str,
+        command: RuntimeEventPublishCommand,
+    ) -> RuntimeEventPublishReceipt:
+        with self.fenced_write(
+            run_id,
+            token=command.lease_id,
+            generation=command.generation,
+        ) as connection:
+            durable = self._control.append_event_in_transaction(
+                connection,
+                DurableEventInput(
+                    run_id=run_id,
+                    kind=f"runtime_{command.event.kind}",
+                    payload=_JSON_OBJECT.validate_python(
+                        command.event.model_dump(mode="json"),
+                    ),
+                    occurred_at=command.event.observed_at,
+                ),
+            )
+        return RuntimeEventPublishReceipt(
+            event_id=durable.event_id,
+            run_id=run_id,
+            kind=command.event.kind,
+        )
+
+    def recover_execution(
+        self,
+        run_id: str,
+        request: ExecutionRecoveryRequest,
+    ) -> ExecutionRecoverySnapshot:
+        self.fence_executor(run_id, request.lease_id, request.generation)
+        return ExecutionRecoverySnapshot(
+            transitions=SQLiteExecutionJournal(
+                self._runs,
+                run_id=run_id,
+            ).entries(),
+            measurements=SQLiteMeasurementDatasetRepository(
+                self._runs,
+                run_id=run_id,
+            ).measurements(),
+            measurement_append_indices=SQLiteMeasurementDatasetRepository(
+                self._runs,
+                run_id=run_id,
+            ).append_indices(),
+            collection_receipts=SQLiteCollectionRecordRepository(
+                self._runs,
+                run_id=run_id,
+            ).receipts(),
+        )
+
+    def append_measurements(
+        self,
+        run_id: str,
+        command: MeasurementAppendCommand,
+    ) -> MeasurementAppendReceipt:
+        self.fence_executor(run_id, command.lease_id, command.generation)
+        repository = SQLiteMeasurementDatasetRepository(
+            self._runs,
+            run_id=run_id,
+        )
+        try:
+            prepared = repository.prepare_append(command.append)
+        except ExecutionJournalConflict as error:
+            raise BackendConflict(
+                "measurement command conflicts with durable state"
+            ) from error
+        with self.fenced_write(
+            run_id,
+            token=command.lease_id,
+            generation=command.generation,
+        ) as connection:
+            receipt, created = repository.append_prepared_in_transaction(
+                connection,
+                prepared,
+            )
+            if created:
+                self.append_effect_event_in_transaction(
+                    connection,
+                    run_id,
+                    "measurements_appended",
+                    command.command_id,
+                )
+        return MeasurementAppendReceipt(
+            command_id=command.command_id,
+            receipt=receipt,
+        )
+
+    def seal_measurements(
+        self,
+        run_id: str,
+        command: MeasurementSealCommand,
+    ) -> MeasurementSealReceipt:
+        self.fence_executor(run_id, command.lease_id, command.generation)
+        repository = SQLiteMeasurementDatasetRepository(
+            self._runs,
+            run_id=run_id,
+        )
+        try:
+            prepared = repository.prepare_seal(command.seal)
+        except ExecutionJournalConflict as error:
+            raise BackendConflict(
+                "measurement command conflicts with durable state"
+            ) from error
+        with self.fenced_write(
+            run_id,
+            token=command.lease_id,
+            generation=command.generation,
+        ) as connection:
+            receipt, created = repository.seal_prepared_in_transaction(
+                connection,
+                prepared,
+            )
+            if created:
+                self.append_effect_event_in_transaction(
+                    connection,
+                    run_id,
+                    "measurements_sealed",
+                    command.command_id,
+                )
+        return MeasurementSealReceipt(
+            command_id=command.command_id,
+            receipt=receipt,
+        )
+
+    def commit_collection(
+        self,
+        run_id: str,
+        command: CollectionCommitCommand,
+    ) -> CollectionCommitReceipt:
+        self.fence_executor(run_id, command.lease_id, command.generation)
+        repository = SQLiteCollectionRecordRepository(
+            self._runs,
+            run_id=run_id,
+        )
+        try:
+            prepared = repository.prepare_commit(command.chunk)
+        except ExecutionJournalConflict as error:
+            raise BackendConflict(
+                "collection command conflicts with durable state"
+            ) from error
+        with self.fenced_write(
+            run_id,
+            token=command.lease_id,
+            generation=command.generation,
+        ) as connection:
+            receipt, created = repository.commit_prepared_in_transaction(
+                connection,
+                prepared,
+            )
+            if created:
+                self.append_effect_event_in_transaction(
+                    connection,
+                    run_id,
+                    "collection_committed",
+                    command.command_id,
+                )
+        return CollectionCommitReceipt(
+            command_id=command.command_id,
+            receipt=receipt,
+        )
+
+    def resolve_collection(
+        self,
+        run_id: str,
+        command: CollectionResolveCommand,
+    ) -> CollectionResolveReceipt:
+        self.fence_executor(run_id, command.lease_id, command.generation)
+        chunk = SQLiteCollectionRecordRepository(
+            self._runs,
+            run_id=run_id,
+        ).resolve(command.receipt)
+        return CollectionResolveReceipt(chunk=chunk)
+
+    def commit_payload(
+        self,
+        run_id: str,
+        command: PayloadCommitCommand,
+    ) -> PayloadCommitReceipt:
+        self.fence_executor(run_id, command.lease_id, command.generation)
+        repository = SQLitePayloadEvidenceCommitter(
+            self._runs,
+            run_id=run_id,
+        )
+        try:
+            prepared = repository.prepare_commit(command.evidence)
+        except ExecutionJournalConflict as error:
+            raise BackendConflict(
+                "payload command conflicts with durable state"
+            ) from error
+        with self.fenced_write(
+            run_id,
+            token=command.lease_id,
+            generation=command.generation,
+        ) as connection:
+            evidence, created = repository.commit_prepared_in_transaction(
+                connection,
+                prepared,
+            )
+            if created:
+                self.append_effect_event_in_transaction(
+                    connection,
+                    run_id,
+                    "payload_committed",
+                    command.command_id,
+                )
+        return PayloadCommitReceipt(
+            command_id=command.command_id,
+            evidence=evidence,
+        )
+
+    def commit_terminal(
+        self,
+        run_id: str,
+        command: TerminalRunCommitCommand,
+    ) -> TerminalRunCommitReceipt:
+        control_run = self._control_run(run_id)
+        if control_run.state == "terminal":
+            manifest = self._runs.read_manifest(run_id)
+            if manifest != command.manifest:
+                raise BackendConflict("run already has a different terminal manifest")
+            return TerminalRunCommitReceipt(
+                command_id=command.command_id,
+                manifest=manifest,
+            )
+        commit = TerminalRunCommit(
+            manifest=command.manifest,
+            models=tuple(
+                RunModelWrite(
+                    ref=write.ref,
+                    value=_JsonDocument(root=write.value),
+                )
+                for write in command.models
+            ),
+            record_sets=tuple(
+                RunRecordSetWrite(
+                    ref=write.ref,
+                    records=tuple(
+                        _JsonDocument(root=record) for record in write.records
+                    ),
+                )
+                for write in command.record_sets
+            ),
+        )
+        try:
+            manifest = self.commit_terminal_with_authority(
+                run_id,
+                token=command.lease_id,
+                generation=command.generation,
+                commit=commit,
+            )
+        except BackendConflict:
+            current = self._control_run(run_id)
+            manifest = self._runs.read_manifest(run_id)
+            if current.state != "terminal" or manifest != command.manifest:
+                raise
+        return TerminalRunCommitReceipt(
+            command_id=command.command_id,
+            manifest=manifest,
+        )
+
+    def start_execution(
         self,
         run_id: str,
         *,
@@ -1877,10 +2046,19 @@ class SQLiteDaemonBackend:
         manifest: RunManifest,
     ) -> ControlExecutorLease:
         try:
-            with self.control.transaction() as connection:
-                current = self.control.get_run_in_transaction(connection, run_id)
+            with self._control.transaction() as connection:
+                current = self._control.get_run_in_transaction(connection, run_id)
+                latest_manifest = self._runs.read_manifest_in_transaction(
+                    connection,
+                    run_id,
+                )
+                # Starting execution changes lifecycle, not concurrently published
+                # run content. Rebase the caller's intent under the writer lock.
+                running_manifest = manifest.model_copy(
+                    update={"contents": latest_manifest.contents}
+                )
                 if current.state == "running":
-                    lease = self.control.executor_lease_for_run_in_transaction(
+                    lease = self._control.executor_lease_for_run_in_transaction(
                         connection,
                         run_id,
                     )
@@ -1888,30 +2066,26 @@ class SQLiteDaemonBackend:
                         lease is None
                         or lease.expires_at <= datetime.now(tz=UTC)
                         or lease.executor_id != executor_id
-                        or self.runs.read_manifest_in_transaction(
-                            connection,
-                            run_id,
-                        )
-                        != manifest
+                        or latest_manifest != running_manifest
                     ):
                         raise ControlPlaneConflict(
                             "run is already owned by a different executor intent"
                         )
                     return lease
-                lease = self.control.start_execution_in_transaction(
+                lease = self._control.start_execution_in_transaction(
                     connection,
                     run_id,
                     executor_id=executor_id,
                     ttl=self._lease_ttl,
                 )
-                self.runs.write_manifest_in_transaction(connection, manifest)
+                self._runs.write_manifest_in_transaction(connection, running_manifest)
                 return lease
         except ControlPlaneConflict as error:
             raise BackendConflict(str(error)) from error
 
     def fence_executor(self, run_id: str, token: str, generation: int) -> str:
         try:
-            self.control.validate_executor_lease(
+            self._control.validate_executor_lease(
                 run_id,
                 token=token,
                 generation=generation,
@@ -1931,7 +2105,7 @@ class SQLiteDaemonBackend:
         generation: int,
     ) -> Generator[sqlite3.Connection]:
         try:
-            with self.control.fenced_transaction(
+            with self._control.fenced_transaction(
                 run_id,
                 token=token,
                 generation=generation,
@@ -1963,7 +2137,7 @@ class SQLiteDaemonBackend:
         kind: str,
         command_id: str,
     ) -> None:
-        self.control.append_event_in_transaction(
+        self._control.append_event_in_transaction(
             connection,
             DurableEventInput(
                 run_id=run_id,
@@ -1981,19 +2155,19 @@ class SQLiteDaemonBackend:
         commit: TerminalRunCommit,
     ) -> RunManifest:
         self.fence_executor(run_id, token, generation)
-        prepared = self.runs.prepare_terminal_commit(commit)
+        prepared = self._runs.prepare_terminal_commit(commit)
         with self.fenced_write(
             run_id,
             token=token,
             generation=generation,
         ) as connection:
-            manifest = self.runs.commit_prepared_terminal_in_transaction(
+            manifest = self._runs.commit_prepared_terminal_in_transaction(
                 connection,
                 prepared,
             )
             if manifest.outcome is None:
                 raise ValueError("terminal manifest requires an outcome")
-            self.control.transition_run_in_transaction(
+            self._control.transition_run_in_transaction(
                 connection,
                 run_id,
                 expected_state="running",
@@ -2003,32 +2177,7 @@ class SQLiteDaemonBackend:
             )
             return manifest
 
-    def _execution_services(
-        self,
-        resources: ResourceLeaseManager,
-    ) -> ExecutionServices:
-        return ExecutionServices(
-            runs=self.runs,
-            resources=resources,
-            journal_for=lambda run_id: SQLiteExecutionJournal(
-                self.runs,
-                run_id=run_id,
-            ),
-            measurements_for=lambda run_id: SQLiteMeasurementDatasetRepository(
-                self.runs,
-                run_id=run_id,
-            ),
-            collections_for=lambda run_id: SQLiteCollectionRecordRepository(
-                self.runs,
-                run_id=run_id,
-            ),
-            payloads_for=lambda run_id: SQLitePayloadEvidenceCommitter(
-                self.runs,
-                run_id=run_id,
-            ),
-        )
-
-    def _managed_execution_services(
+    def managed_execution_services(
         self,
         authority: _ManagedExecutionAuthority,
         resources: ResourceLeaseManager,
@@ -2048,72 +2197,161 @@ class SQLiteDaemonBackend:
             payloads_for=lambda run_id: _ManagedPayloads(authority.for_run(run_id)),
         )
 
-    def _schedule_managed(self, run_id: str, planned: PlannedRun) -> None:
+
+class ManagedRunSupervisor:
+    """Own managed worker lifecycle and startup reconciliation."""
+
+    def __init__(
+        self,
+        *,
+        project_id: str,
+        control: SQLiteControlPlane,
+        runs: SQLiteRunRepository,
+        admission: AdmissionService,
+        executor: ExecutorService,
+        supervisor_interval_seconds: float = 0.5,
+    ) -> None:
+        self._project_id = project_id
+        self._control = control
+        self._runs = runs
+        self._admission = admission
+        self._executor = executor
+        self._supervisor_interval_seconds = supervisor_interval_seconds
+        self._managed_lock = Lock()
+        self._managed_plans: dict[str, PlannedRun] = {}
+        self._managed_active: set[str] = set()
+        self._stop = Event()
+        self._supervisor_failed = False
+        self._workers: ThreadPoolExecutor | None = None
+        self._supervisor: Thread | None = None
+
+    @property
+    def healthy(self) -> bool:
+        supervisor = self._supervisor
+        return (
+            supervisor is not None
+            and supervisor.is_alive()
+            and not self._supervisor_failed
+        )
+
+    def start(self) -> None:
+        if self._supervisor is not None:
+            raise RuntimeError("managed run supervisor already started")
+        self._stop.clear()
+        self._workers = ThreadPoolExecutor(
+            max_workers=4,
+            thread_name_prefix="scopecat-run",
+        )
+        self._reconcile_startup()
+        supervisor = Thread(
+            target=self._supervise,
+            name="scopecat-supervisor",
+            daemon=True,
+        )
+        supervisor.start()
+        self._supervisor = supervisor
+
+    def close(self) -> None:
+        supervisor = self._supervisor
+        workers = self._workers
+        self._stop.set()
+        if supervisor is not None:
+            supervisor.join()
+        if workers is not None:
+            workers.shutdown(wait=True, cancel_futures=False)
+        self._supervisor = None
+        self._workers = None
+
+    def schedule(self, run_id: str, planned: PlannedRun) -> None:
         with self._managed_lock:
             self._managed_plans[run_id] = planned
             if run_id in self._managed_active:
                 return
             self._managed_active.add(run_id)
-        self._workers.submit(self._execute_managed, run_id, planned)
+        workers = self._workers
+        if workers is None:
+            self._managed_finished(run_id, terminal=False)
+            raise RuntimeError("managed run supervisor is not started")
+        workers.submit(self._execute_managed, run_id, planned)
+
+    def forget_terminal(self, run_id: str) -> None:
+        self._managed_finished(run_id, terminal=True)
 
     def _execute_managed(self, run_id: str, planned: PlannedRun) -> None:
         terminal = False
-        accepted = self.runs.read_manifest(run_id)
-        running = accepted.model_copy(update={"lifecycle": "running"})
+        authority: _ManagedExecutionAuthority | None = None
         try:
-            lease = self._start_execution(
-                run_id,
-                executor_id=f"daemon:{self._project_id}",
-                manifest=running,
-            )
-        except BackendConflict:
-            self._managed_finished(run_id, terminal=False)
-            return
-        authority = _ManagedExecutionAuthority(
-            backend=self,
-            run_id=run_id,
-            token=lease.token,
-            generation=lease.generation,
-        )
-        heartbeat_stop = Event()
-        heartbeat = Thread(
-            target=self._heartbeat_managed,
-            args=(lease.token, heartbeat_stop),
-            name=f"scopecat-heartbeat-{run_id}",
-            daemon=True,
-        )
-        heartbeat.start()
-        try:
-            execute_running_run(
+            accepted = self._runs.read_manifest(run_id)
+            running = accepted.model_copy(update={"lifecycle": "running"})
+            try:
+                lease = self._executor.start_execution(
+                    run_id,
+                    executor_id=f"daemon:{self._project_id}",
+                    manifest=running,
+                )
+            except BackendConflict:
+                return
+            authority = _ManagedExecutionAuthority(
+                executor=self._executor,
+                control=self._control,
+                runs=self._runs,
                 run_id=run_id,
-                program=planned.program,
-                services=self._managed_execution_services(
-                    authority,
-                    _PreclaimedResources(
-                        control=self.control,
-                        run_id=run_id,
-                        token=lease.token,
-                        generation=lease.generation,
-                        claims=planned.program.resource_claims,
-                    ),
-                ),
-                instrument_provider=(
-                    None if planned.system is None else planned.system.provider
-                ),
-                event_sink=authority.observe,
+                token=lease.token,
+                generation=lease.generation,
             )
-        except (RunFailed, RunIndeterminate):
-            logger.info("managed run reached a durable non-success outcome: %s", run_id)
+            heartbeat_stop = Event()
+            heartbeat = Thread(
+                target=self._heartbeat_managed,
+                args=(lease.token, heartbeat_stop),
+                name=f"scopecat-heartbeat-{run_id}",
+                daemon=True,
+            )
+            heartbeat.start()
+            try:
+                execute_running_run(
+                    run_id=run_id,
+                    program=planned.program,
+                    services=self._executor.managed_execution_services(
+                        authority,
+                        _PreclaimedResources(
+                            control=self._control,
+                            run_id=run_id,
+                            token=lease.token,
+                            generation=lease.generation,
+                            claims=planned.program.resource_claims,
+                        ),
+                    ),
+                    instrument_provider=(
+                        None if planned.system is None else planned.system.provider
+                    ),
+                    event_sink=authority.observe,
+                )
+            except (RunFailed, RunIndeterminate):
+                logger.info(
+                    "managed run reached a durable non-success outcome: %s",
+                    run_id,
+                )
+            except BaseException:
+                logger.exception("managed executor stopped unexpectedly: %s", run_id)
+            finally:
+                heartbeat_stop.set()
+                heartbeat.join(timeout=2)
+            # Preserve the durable terminal fact if the following state read fails.
+            terminal = authority.terminal_committed
+            if self._control.get_run(run_id).state == "terminal":
+                terminal = True
+            elif not terminal:
+                self._require_attention(
+                    run_id,
+                    lease.token,
+                    "managed_executor_stopped",
+                )
         except BaseException:
-            logger.exception("managed executor stopped unexpectedly: %s", run_id)
+            logger.exception("managed worker stopped unexpectedly: %s", run_id)
         finally:
-            heartbeat_stop.set()
-            heartbeat.join(timeout=2)
-        if self.control.get_run(run_id).state == "terminal":
-            terminal = True
-        else:
-            self._require_attention(run_id, lease.token, "managed_executor_stopped")
-        self._managed_finished(run_id, terminal=terminal)
+            if authority is not None and authority.terminal_committed:
+                terminal = True
+            self._managed_finished(run_id, terminal=terminal)
 
     def _managed_finished(self, run_id: str, *, terminal: bool) -> None:
         with self._managed_lock:
@@ -2122,17 +2360,17 @@ class SQLiteDaemonBackend:
                 self._managed_plans.pop(run_id, None)
 
     def _heartbeat_managed(self, token: str, stop: Event) -> None:
-        while not stop.wait(self._heartbeat_interval_seconds):
+        while not stop.wait(self._executor.heartbeat_interval_seconds):
             try:
-                self.control.renew_executor_lease(token, ttl=self._lease_ttl)
-            except ControlPlaneConflict:
+                self._executor.renew_lease(token)
+            except BackendConflict:
                 return
 
     def _require_attention(self, run_id: str, token: str, reason: str) -> None:
         try:
-            run = self.control.get_run(run_id)
+            run = self._control.get_run(run_id)
             if run.state == "running":
-                self.control.transition_run(
+                self._control.transition_run(
                     run_id,
                     expected_state="running",
                     state="attention_required",
@@ -2145,23 +2383,26 @@ class SQLiteDaemonBackend:
     def _supervise(self) -> None:
         while not self._stop.wait(self._supervisor_interval_seconds):
             try:
-                self.control.expire_executor_leases()
+                self._control.expire_executor_leases()
                 with self._managed_lock:
                     pending = tuple(self._managed_plans.items())
                 for run_id, planned in pending:
-                    if self.control.get_run(run_id).state == "accepted":
-                        self._schedule_managed(run_id, planned)
+                    state = self._control.get_run(run_id).state
+                    if state == "accepted":
+                        self.schedule(run_id, planned)
+                    elif state == "terminal":
+                        self.forget_terminal(run_id)
             except Exception:
                 self._supervisor_failed = True
                 logger.exception("daemon supervisor iteration failed")
 
     def _reconcile_startup(self) -> None:
-        self.control.abandon_executor_leases()
+        self._control.abandon_executor_leases()
         for run in self._all_control_runs():
             if run.state != "accepted" or run.admission.execution_mode != "managed":
                 continue
             try:
-                planned = self._rebuild_managed_plan(run)
+                planned = self._admission.rebuild_managed_plan(run)
             except Exception as error:
                 logger.warning(
                     "managed run could not be rebuilt at startup: %s",
@@ -2170,51 +2411,14 @@ class SQLiteDaemonBackend:
                 )
                 self._fail_unstartable_managed(run, error)
                 continue
-            self._schedule_managed(run.run_id, planned)
-
-    def _rebuild_managed_plan(self, run: ControlRun) -> PlannedRun:
-        submission_data = cast(
-            "dict[str, JsonValue]",
-            run.admission.plan_summary["submission"],
-        )
-        request = run.admission.request
-        if request is None:
-            raise ValueError("managed admission is missing its run request")
-        submission = ManagedRunSubmission(
-            submission_id=run.admission.submission_id,
-            registration_id=cast("str", submission_data["registration_id"]),
-            registration_version=cast(
-                "str",
-                submission_data["registration_version"],
-            ),
-            request=request,
-        )
-        config = self.runs.read_config_profile_snapshot(run.run_id)
-        system = build_experiment_system(self._build_system, config)
-        planned = plan_experiment(
-            self._catalog.prepare(submission),
-            services=self.services,
-            config=config,
-            system=system,
-        )
-        planned = replace(
-            planned,
-            config_source=self.runs.read_manifest(run.run_id).config_source,
-        )
-        if (
-            self._program_summary(planned).model_dump(mode="json")
-            != run.admission.plan_summary.get("plan")
-            or config_content_hash(planned.config) != run.admission.config_content_hash
-        ):
-            raise ValueError("managed plan changed since admission")
-        return planned
+            self.schedule(run.run_id, planned)
 
     def _fail_unstartable_managed(
         self,
         run: ControlRun,
         error: Exception,
     ) -> None:
-        manifest = self.runs.read_manifest(run.run_id)
+        manifest = self._runs.read_manifest(run.run_id)
         outcome = RunOutcome(
             run_id=run.run_id,
             result="failed",
@@ -2237,7 +2441,7 @@ class SQLiteDaemonBackend:
                 "outcome": outcome,
             }
         )
-        prepared = self.runs.prepare_terminal_commit(
+        prepared = self._runs.prepare_terminal_commit(
             TerminalRunCommit(
                 manifest=terminal,
                 models=(
@@ -2249,12 +2453,12 @@ class SQLiteDaemonBackend:
             )
         )
         try:
-            with self.control.transaction() as connection:
-                self.runs.commit_prepared_terminal_in_transaction(
+            with self._control.transaction() as connection:
+                self._runs.commit_prepared_terminal_in_transaction(
                     connection,
                     prepared,
                 )
-                self.control.transition_run_in_transaction(
+                self._control.transition_run_in_transaction(
                     connection,
                     run.run_id,
                     expected_state="accepted",
@@ -2271,11 +2475,79 @@ class SQLiteDaemonBackend:
         selected: list[ControlRun] = []
         cursor: int | None = None
         while True:
-            page = self.control.list_runs(limit=500, after=cursor)
+            page = self._control.list_runs(limit=500, after=cursor)
             selected.extend(page.items)
             if page.next_cursor is None:
                 return tuple(selected)
             cursor = page.next_cursor
+
+
+class DaemonApplication:
+    """Composition root exposing narrow services to the transport."""
+
+    def __init__(
+        self,
+        *,
+        project_root: str | Path,
+        project_id: str,
+        control: SQLiteControlPlane,
+        catalog: RegisteredExperimentCatalog,
+        config: ConfigService,
+        runs: RunService,
+        admission: AdmissionService,
+        executor: ExecutorService,
+        managed: ManagedRunSupervisor,
+    ) -> None:
+        self.project_root = Path(project_root).resolve()
+        self.project_id = project_id
+        self._control = control
+        self.config = config
+        self.runs = runs
+        self._admission = admission
+        self.executor = executor
+        self._managed = managed
+        self._catalog = catalog
+
+    def start(self) -> None:
+        self._managed.start()
+
+    def close(self) -> None:
+        self._managed.close()
+
+    def health(self) -> DaemonHealth:
+        try:
+            self._control.schema_version()
+        except Exception:
+            status: Literal["ok", "degraded"] = "degraded"
+        else:
+            status = "ok" if self._managed.healthy else "degraded"
+        return DaemonHealth(
+            status=status,
+            project_id=self.project_id,
+            project_name=self.project_root.name,
+            project_root=str(self.project_root),
+        )
+
+    def catalog(self) -> ExperimentCatalog:
+        return self._catalog.snapshot
+
+    def submit_run(self, submission: RunSubmission) -> RunAdmission:
+        result = self._admission.submit_run(submission)
+        if result.managed_plan is not None:
+            self._managed.schedule(result.receipt.run_id, result.managed_plan)
+        return result.receipt
+
+    def resolve_attention(
+        self,
+        run_id: str,
+        command: AttentionResolutionCommand,
+    ) -> AttentionResolutionReceipt:
+        result = self._admission.resolve_attention(run_id, command)
+        if result.managed_plan is not None:
+            self._managed.schedule(run_id, result.managed_plan)
+        if result.forget_managed_run:
+            self._managed.forget_terminal(run_id)
+        return result.receipt
 
 
 class _ManagedExecutionAuthority:
@@ -2284,12 +2556,16 @@ class _ManagedExecutionAuthority:
     def __init__(
         self,
         *,
-        backend: SQLiteDaemonBackend,
+        executor: ExecutorService,
+        control: SQLiteControlPlane,
+        runs: SQLiteRunRepository,
         run_id: str,
         token: str,
         generation: int,
     ) -> None:
-        self.backend = backend
+        self._executor = executor
+        self._control = control
+        self.runs = runs
         self.run_id = run_id
         self.token = token
         self.generation = generation
@@ -2301,11 +2577,11 @@ class _ManagedExecutionAuthority:
         return self
 
     def fence(self) -> None:
-        self.backend.fence_executor(self.run_id, self.token, self.generation)
+        self._executor.fence_executor(self.run_id, self.token, self.generation)
 
     @contextmanager
     def write(self) -> Generator[sqlite3.Connection]:
-        with self.backend.fenced_write(
+        with self._executor.fenced_write(
             self.run_id,
             token=self.token,
             generation=self.generation,
@@ -2318,7 +2594,7 @@ class _ManagedExecutionAuthority:
         kind: str,
         command_id: str,
     ) -> None:
-        self.backend.append_effect_event_in_transaction(
+        self._executor.append_effect_event_in_transaction(
             connection,
             self.run_id,
             kind,
@@ -2326,7 +2602,7 @@ class _ManagedExecutionAuthority:
         )
 
     def commit_terminal(self, commit: TerminalRunCommit) -> RunManifest:
-        manifest = self.backend.commit_terminal_with_authority(
+        manifest = self._executor.commit_terminal_with_authority(
             self.run_id,
             token=self.token,
             generation=self.generation,
@@ -2347,10 +2623,10 @@ class _ManagedExecutionAuthority:
             occurred_at=event.observed_at,
         )
         if event.kind == "run_finished" and self.terminal_committed:
-            self.backend.control.append_event(durable)
+            self._control.append_event(durable)
             return
         with self.write() as connection:
-            self.backend.control.append_event_in_transaction(connection, durable)
+            self._control.append_event_in_transaction(connection, durable)
 
 
 class _ManagedRunStore:
@@ -2359,19 +2635,19 @@ class _ManagedRunStore:
 
     def read_manifest(self, run_id: str) -> RunManifest:
         self._authority.for_run(run_id).fence()
-        return self._authority.backend.runs.read_manifest(run_id)
+        return self._authority.runs.read_manifest(run_id)
 
     def write_manifest(self, manifest: RunManifest) -> None:
         self._authority.for_run(manifest.run_id).fence()
         with self._authority.write() as connection:
-            self._authority.backend.runs.write_manifest_in_transaction(
+            self._authority.runs.write_manifest_in_transaction(
                 connection,
                 manifest,
             )
 
     def read_config_profile_snapshot(self, run_id: str) -> ConfigProfileSnapshot:
         self._authority.for_run(run_id).fence()
-        return self._authority.backend.runs.read_config_profile_snapshot(run_id)
+        return self._authority.runs.read_config_profile_snapshot(run_id)
 
     def commit_terminal(self, commit: TerminalRunCommit) -> RunManifest:
         self._authority.for_run(commit.manifest.run_id)
@@ -2382,7 +2658,7 @@ class _ManagedExecutionJournal:
     def __init__(self, authority: _ManagedExecutionAuthority) -> None:
         self._authority = authority
         self._repository = SQLiteExecutionJournal(
-            authority.backend.runs,
+            authority.runs,
             run_id=authority.run_id,
         )
 
@@ -2410,7 +2686,7 @@ class _ManagedMeasurements:
     def __init__(self, authority: _ManagedExecutionAuthority) -> None:
         self._authority = authority
         self._repository = SQLiteMeasurementDatasetRepository(
-            authority.backend.runs,
+            authority.runs,
             run_id=authority.run_id,
         )
 
@@ -2462,7 +2738,7 @@ class _ManagedCollections:
     def __init__(self, authority: _ManagedExecutionAuthority) -> None:
         self._authority = authority
         self._repository = SQLiteCollectionRecordRepository(
-            authority.backend.runs,
+            authority.runs,
             run_id=authority.run_id,
         )
 
@@ -2495,7 +2771,7 @@ class _ManagedPayloads:
     def __init__(self, authority: _ManagedExecutionAuthority) -> None:
         self._authority = authority
         self._repository = SQLitePayloadEvidenceCommitter(
-            authority.backend.runs,
+            authority.runs,
             run_id=authority.run_id,
         )
 
@@ -2514,17 +2790,6 @@ class _ManagedPayloads:
                     evidence.operation_id,
                 )
             return committed
-
-
-class _UnavailableResources:
-    @contextmanager
-    def acquire(
-        self,
-        claims: tuple[ResourceClaim, ...],
-    ) -> Generator[None]:
-        del claims
-        raise RuntimeError("planning services cannot execute a run")
-        yield
 
 
 class _PreclaimedResources:
@@ -2558,4 +2823,11 @@ class _PreclaimedResources:
         yield
 
 
-__all__ = ["SQLiteDaemonBackend"]
+__all__ = [
+    "AdmissionService",
+    "ConfigService",
+    "DaemonApplication",
+    "ExecutorService",
+    "ManagedRunSupervisor",
+    "RunService",
+]

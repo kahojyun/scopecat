@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import PurePosixPath
 from uuid import uuid4
 
-from scopecat.application.services import WorkspaceServices
+from scopecat.application.services import WorkspaceStateServices
 from scopecat.config.parameter_resolution import validate_parameter_snapshot
 from scopecat.config.parameter_updates import (
     ParameterUpdate,
@@ -37,11 +38,26 @@ from scopecat.records.parameter_change import (
 )
 from scopecat.records.run import RunManifest
 from scopecat.runs.access import list_records
-from scopecat.runs.manifest import write_manifest_records
 from scopecat.runs.refs import record_content_ref
-from scopecat.runs.repository import RunRepository
+from scopecat.runs.repository import (
+    RunContentPublication,
+    RunModelWrite,
+    RunRepository,
+)
 
 SAFE_PARAMETER_CHANGE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedParameterChangeProposals:
+    entries: tuple[RunContentEntry, ...]
+    writes: tuple[RunModelWrite, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedParameterChangeDecision:
+    decision: ParameterChangeDecisionRecord
+    publication: RunContentPublication
 
 
 def is_safe_parameter_change_id(value: str) -> bool:
@@ -101,7 +117,7 @@ def parameter_change_proposal_from_updates(
 
 
 def load_parameter_change_proposal(
-    *, run_id: str, selector: str, services: WorkspaceServices
+    *, run_id: str, selector: str, services: WorkspaceStateServices
 ) -> ParameterChangeProposal:
     storage = services.runs
     proposal, _record = _resolve_proposal_ref(
@@ -115,7 +131,7 @@ def load_parameter_change_proposal(
 def list_parameter_change_proposals(
     *,
     run_id: str,
-    services: WorkspaceServices,
+    services: WorkspaceStateServices,
 ) -> tuple[ParameterChangeProposal, ...]:
     """Load every durable parameter proposal published by one run."""
 
@@ -134,12 +150,33 @@ def review_parameter_change_proposal(
     *,
     run_id: str,
     selector: str,
-    services: WorkspaceServices,
+    services: WorkspaceStateServices,
     state: ParameterChangeReviewState,
     reviewer: str,
     note: str = "",
 ) -> ParameterChangeDecisionRecord:
-    return _record_parameter_change_decision(
+    prepared = prepare_parameter_change_review(
+        run_id=run_id,
+        selector=selector,
+        services=services,
+        state=state,
+        reviewer=reviewer,
+        note=note,
+    )
+    services.runs.publish_content(prepared.publication)
+    return prepared.decision
+
+
+def prepare_parameter_change_review(
+    *,
+    run_id: str,
+    selector: str,
+    services: WorkspaceStateServices,
+    state: ParameterChangeReviewState,
+    reviewer: str,
+    note: str = "",
+) -> PreparedParameterChangeDecision:
+    return _prepare_parameter_change_decision(
         run_id=run_id,
         selector=selector,
         services=services,
@@ -153,14 +190,37 @@ def decide_parameter_change_proposal(
     *,
     run_id: str,
     selector: str,
-    services: WorkspaceServices,
+    services: WorkspaceStateServices,
     decision: ParameterChangeReviewState,
     authority: ParameterChangeDecisionAuthority,
     note: str = "",
 ) -> ParameterChangeDecisionRecord:
     """Record a human or automatic-policy acceptance decision."""
 
-    return _record_parameter_change_decision(
+    prepared = prepare_parameter_change_decision(
+        run_id=run_id,
+        selector=selector,
+        services=services,
+        decision=decision,
+        authority=authority,
+        note=note,
+    )
+    services.runs.publish_content(prepared.publication)
+    return prepared.decision
+
+
+def prepare_parameter_change_decision(
+    *,
+    run_id: str,
+    selector: str,
+    services: WorkspaceStateServices,
+    decision: ParameterChangeReviewState,
+    authority: ParameterChangeDecisionAuthority,
+    note: str = "",
+) -> PreparedParameterChangeDecision:
+    """Prepare one append-only decision for caller-owned publication."""
+
+    return _prepare_parameter_change_decision(
         run_id=run_id,
         selector=selector,
         services=services,
@@ -174,13 +234,13 @@ def invalidate_parameter_change_proposal(
     *,
     run_id: str,
     selector: str,
-    services: WorkspaceServices,
+    services: WorkspaceStateServices,
     reason: str,
     invalidated_by: str,
     invalidated_by_refs: list[str] | None = None,
 ) -> ParameterChangeDecisionRecord:
     related_refs = list(invalidated_by_refs or [])
-    return _record_parameter_change_decision(
+    prepared = _prepare_parameter_change_decision(
         run_id=run_id,
         selector=selector,
         services=services,
@@ -189,18 +249,20 @@ def invalidate_parameter_change_proposal(
         note=reason,
         related_refs=related_refs,
     )
+    services.runs.publish_content(prepared.publication)
+    return prepared.decision
 
 
-def _record_parameter_change_decision(
+def _prepare_parameter_change_decision(
     *,
     run_id: str,
     selector: str,
-    services: WorkspaceServices,
+    services: WorkspaceStateServices,
     decision: ParameterChangeDecision,
     authority: ParameterChangeDecisionAuthority,
     note: str = "",
     related_refs: list[str] | None = None,
-) -> ParameterChangeDecisionRecord:
+) -> PreparedParameterChangeDecision:
     storage = services.runs
     proposal, _proposal_record = _resolve_proposal_ref(
         storage=storage,
@@ -224,25 +286,20 @@ def _record_parameter_change_decision(
         record_id=decision_entry.id,
         kind=decision_entry.kind,
     )
-    if not storage.write_model_if_absent(run_id, decision_ref, record):
-        raise Conflict(
-            [
-                _parameter_problem(
-                    "parameter_change_decision_conflict",
-                    "parameter change decision event already exists",
-                    category=ProblemCategory.CONFLICT,
-                    phase=ProblemPhase.PERSISTENCE,
-                    location=StorageLocation(run_id=run_id, ref=decision_ref),
-                    details={"event_id": event_id},
-                )
-            ]
-        )
-    write_manifest_records(
-        storage=storage,
-        manifest=storage.read_manifest(run_id),
-        records=[decision_entry],
+    return PreparedParameterChangeDecision(
+        decision=record,
+        publication=RunContentPublication(
+            run_id=run_id,
+            entries=(decision_entry,),
+            models=(
+                RunModelWrite(
+                    ref=decision_ref,
+                    value=record,
+                    replace=False,
+                ),
+            ),
+        ),
     )
-    return record
 
 
 def list_parameter_change_decisions(
@@ -347,18 +404,18 @@ def _parameter_change_decision_record_entry(
     )
 
 
-def write_parameter_change_proposal_contents(
+def prepare_parameter_change_proposal_contents(
     *,
     storage: RunRepository,
     run_id: str,
     proposals: Sequence[ParameterChangeProposal],
-) -> tuple[RunContentEntry, ...]:
-    """Publish immutable proposal content."""
+) -> PreparedParameterChangeProposals:
+    """Prepare immutable proposals, reusing durable entries on retries."""
 
-    entries = tuple(
-        _parameter_change_proposal_record(proposal=proposal) for proposal in proposals
-    )
-    for proposal, entry in zip(proposals, entries, strict=True):
+    entries: list[RunContentEntry] = []
+    writes: list[RunModelWrite] = []
+    for proposal in proposals:
+        candidate_entry = _parameter_change_proposal_record(proposal=proposal)
         if proposal.source_run_id != run_id:
             raise CheckFailed(
                 [
@@ -378,12 +435,15 @@ def write_parameter_change_proposal_contents(
                     )
                 ]
             )
-        proposal_ref = record_content_ref(record_id=entry.id, kind=entry.kind)
-        if not storage.write_model_if_absent(run_id, proposal_ref, proposal):
+        proposal_ref = record_content_ref(
+            record_id=candidate_entry.id,
+            kind=candidate_entry.kind,
+        )
+        if storage.exists(run_id, proposal_ref):
             existing = _load_proposal_record(
                 storage=storage,
                 run_id=run_id,
-                proposal_record=entry,
+                proposal_record=candidate_entry,
             )
             if not _same_parameter_change_proposal(existing, proposal):
                 raise Conflict(
@@ -399,7 +459,20 @@ def write_parameter_change_proposal_contents(
                         )
                     ]
                 )
-    return entries
+            entries.append(_parameter_change_proposal_record(proposal=existing))
+            continue
+        entries.append(candidate_entry)
+        writes.append(
+            RunModelWrite(
+                ref=proposal_ref,
+                value=proposal,
+                replace=False,
+            )
+        )
+    return PreparedParameterChangeProposals(
+        entries=tuple(entries),
+        writes=tuple(writes),
+    )
 
 
 def _same_parameter_change_proposal(

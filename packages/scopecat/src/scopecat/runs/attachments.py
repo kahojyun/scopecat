@@ -9,7 +9,7 @@ from typing import NoReturn
 
 from pydantic import JsonValue
 
-from scopecat.application.services import WorkspaceServices
+from scopecat.application.services import WorkspaceStateServices
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
@@ -20,13 +20,13 @@ from scopecat.kernel.problems import (
     model_location,
 )
 from scopecat.records.artifact import RunContentEntry
-from scopecat.runs.manifest import write_manifest_artifacts
 from scopecat.runs.refs import artifact_content_ref
+from scopecat.runs.repository import RunBytesWrite, RunContentPublication
 
 
 def attach_run_artifact(
     *,
-    services: WorkspaceServices,
+    services: WorkspaceStateServices,
     run_id: str,
     path: str | Path | None = None,
     key: str,
@@ -86,13 +86,14 @@ def attach_run_artifact(
     storage = services.runs
     if source_path is not None:
         selected_content: str | bytes = source_path.read_bytes()
-        storage.write_bytes(run_id, ref, selected_content)
+        stored_content = selected_content
     elif text is not None:
         selected_content = text
-        storage.write_text(run_id, ref, text)
+        stored_text = text if not text or text.endswith("\n") else f"{text}\n"
+        stored_content = stored_text.encode()
     elif content is not None:
         selected_content = content
-        storage.write_bytes(run_id, ref, content)
+        stored_content = content
     else:
         raise AssertionError("validated attachment source is missing")
     artifact = RunContentEntry(
@@ -105,10 +106,12 @@ def attach_run_artifact(
         produced_by="run.attach",
         metadata=dict(metadata or {}),
     )
-    write_manifest_artifacts(
-        storage=storage,
-        manifest=storage.read_manifest(run_id),
-        artifacts=[artifact],
+    storage.publish_content(
+        RunContentPublication(
+            run_id=run_id,
+            entries=(artifact,),
+            bytes=(RunBytesWrite(ref=ref, content=stored_content),),
+        )
     )
     return artifact
 

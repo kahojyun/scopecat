@@ -7,7 +7,7 @@ import re
 import sqlite3
 from collections.abc import Generator, Iterable
 from contextlib import closing, contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC
 from pathlib import Path, PurePosixPath
 from typing import cast
@@ -25,6 +25,7 @@ from scopecat.adapters.sqlite.object_store import (
 from scopecat.adapters.sqlite.run_schema import RUN_SCHEMA_SQL, RUN_SCHEMA_VERSION
 from scopecat.kernel.errors import (
     CheckFailed,
+    Conflict,
     DataIntegrityError,
     NotFound,
     StorageError,
@@ -48,7 +49,7 @@ from scopecat.runs.refs import (
     MANIFEST_REF,
     RUN_REQUEST_REF,
 )
-from scopecat.runs.repository import TerminalRunCommit
+from scopecat.runs.repository import RunContentPublication, TerminalRunCommit
 
 _SAFE_RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 
@@ -57,6 +58,7 @@ _SAFE_RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 class _PreparedRef:
     ref: str
     object: StoredObject
+    replace: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +76,14 @@ class PreparedRunSkeleton:
     manifest: RunManifest
     refs: tuple[_PreparedRef, ...]
     manifest_digest: str
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedContentPublication:
+    """Immutable content objects prepared before manifest publication."""
+
+    publication: RunContentPublication
+    refs: tuple[_PreparedRef, ...]
 
 
 class SQLiteRunRepository:
@@ -337,6 +347,74 @@ class SQLiteRunRepository:
         )
         return manifest
 
+    def publish_content(
+        self,
+        publication: RunContentPublication,
+    ) -> RunManifest:
+        prepared = self.prepare_content_publication(publication)
+        try:
+            with self._transaction() as connection:
+                return self.publish_prepared_content_in_transaction(
+                    connection,
+                    prepared,
+                )
+        except sqlite3.Error as error:
+            raise _storage_failure(
+                run_id=publication.run_id,
+                ref=MANIFEST_REF,
+            ) from error
+
+    def prepare_content_publication(
+        self,
+        publication: RunContentPublication,
+    ) -> PreparedContentPublication:
+        """Write immutable objects without publishing their logical refs."""
+
+        run_id = publication.run_id
+        refs = [
+            replace(
+                self._prepare_model(run_id, write.ref, write.value),
+                replace=write.replace,
+            )
+            for write in publication.models
+        ]
+        refs.extend(
+            self._prepare_bytes(
+                run_id,
+                write.ref,
+                write.content,
+                replace=write.replace,
+            )
+            for write in publication.bytes
+        )
+        return PreparedContentPublication(
+            publication=publication,
+            refs=tuple(refs),
+        )
+
+    def publish_prepared_content_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        prepared: PreparedContentPublication,
+    ) -> RunManifest:
+        """Publish prepared refs and a latest-manifest merge in one transaction."""
+
+        publication = prepared.publication
+        run_id = publication.run_id
+        current = self._read_manifest_with_connection(connection, run_id)
+        manifest = current.model_copy(
+            update={
+                "contents": upsert_contents(
+                    current.contents,
+                    publication.entries,
+                )
+            }
+        )
+        manifest_ref = self._prepare_model(run_id, MANIFEST_REF, manifest)
+        self._publish_refs(connection, run_id, (*prepared.refs, manifest_ref))
+        self._publish_manifest(connection, manifest, manifest_ref.object.digest)
+        return manifest
+
     def read_config_profile_snapshot(self, run_id: str) -> ConfigProfileSnapshot:
         manifest = self.read_manifest(run_id)
         config = self.read_model(
@@ -499,6 +577,21 @@ class SQLiteRunRepository:
             raise _serialization_failure(run_id, ref) from error
         return _PreparedRef(ref=ref, object=stored)
 
+    def _prepare_bytes(
+        self,
+        run_id: str,
+        ref: str,
+        content: bytes,
+        *,
+        replace: bool = True,
+    ) -> _PreparedRef:
+        _validate_identity(run_id, ref)
+        try:
+            stored = self.objects.put(content)
+        except ObjectStoreError as error:
+            raise _storage_failure(run_id=run_id, ref=ref) from error
+        return _PreparedRef(ref=ref, object=stored, replace=replace)
+
     def _write_prepared(self, run_id: str, prepared: _PreparedRef) -> None:
         try:
             with self._transaction() as connection:
@@ -512,19 +605,40 @@ class SQLiteRunRepository:
         run_id: str,
         prepared: Iterable[_PreparedRef],
     ) -> None:
-        connection.executemany(
-            """
-            INSERT INTO run_repository_refs(run_id, ref, digest, size)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(run_id, ref) DO UPDATE SET
-                digest = excluded.digest,
-                size = excluded.size
-            """,
-            [
-                (run_id, item.ref, item.object.digest, item.object.size)
-                for item in prepared
-            ],
-        )
+        for item in prepared:
+            if item.replace:
+                connection.execute(
+                    """
+                    INSERT INTO run_repository_refs(run_id, ref, digest, size)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(run_id, ref) DO UPDATE SET
+                        digest = excluded.digest,
+                        size = excluded.size
+                    """,
+                    (run_id, item.ref, item.object.digest, item.object.size),
+                )
+                continue
+            inserted = connection.execute(
+                """
+                INSERT INTO run_repository_refs(run_id, ref, digest, size)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(run_id, ref) DO NOTHING
+                """,
+                (run_id, item.ref, item.object.digest, item.object.size),
+            )
+            if inserted.rowcount == 1:
+                continue
+            existing = _one(
+                connection.execute(
+                    """
+                    SELECT digest FROM run_repository_refs
+                    WHERE run_id = ? AND ref = ?
+                    """,
+                    (run_id, item.ref),
+                )
+            )
+            if existing is None or _text(existing, "digest") != item.object.digest:
+                raise _ref_conflict(run_id, item.ref)
 
     @staticmethod
     def _publish_manifest(
@@ -708,6 +822,20 @@ def _invalid_ref(run_id: str, ref: str) -> DataIntegrityError:
         ref=ref,
         code="run.ref_invalid",
         message="run record does not match its durable schema",
+    )
+
+
+def _ref_conflict(run_id: str, ref: str) -> Conflict:
+    return Conflict(
+        [
+            blocking_problem(
+                "run.ref_conflict",
+                "immutable run content already contains different data",
+                category=ProblemCategory.CONFLICT,
+                phase=ProblemPhase.PERSISTENCE,
+                location=StorageLocation(run_id=run_id, ref=ref),
+            )
+        ]
     )
 
 

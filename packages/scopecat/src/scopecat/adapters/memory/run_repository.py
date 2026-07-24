@@ -12,7 +12,7 @@ from threading import RLock
 from pydantic import BaseModel, ValidationError
 from pydantic_core import PydanticSerializationError
 
-from scopecat.kernel.errors import CheckFailed, DataIntegrityError, NotFound
+from scopecat.kernel.errors import CheckFailed, Conflict, DataIntegrityError, NotFound
 from scopecat.kernel.problems import (
     ModelLocation,
     Problem,
@@ -33,7 +33,7 @@ from scopecat.runs.refs import (
     MANIFEST_REF,
     RUN_REQUEST_REF,
 )
-from scopecat.runs.repository import TerminalRunCommit
+from scopecat.runs.repository import RunContentPublication, TerminalRunCommit
 
 _SAFE_RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 
@@ -123,6 +123,55 @@ class MemoryRunRepository:
         )
         self.write_manifest(manifest)
         return manifest
+
+    def publish_content(
+        self,
+        publication: RunContentPublication,
+    ) -> RunManifest:
+        """Publish refs and their manifest entries under one run lock."""
+
+        run_id = publication.run_id
+        prepared = [
+            (
+                self._key(run_id, write.ref),
+                _serialize_model(write.value, run_id=run_id, ref=write.ref),
+                write.replace,
+            )
+            for write in publication.models
+        ]
+        prepared.extend(
+            (
+                self._key(run_id, write.ref),
+                bytes(write.content),
+                write.replace,
+            )
+            for write in publication.bytes
+        )
+        with self._locks[run_id]:
+            current = self.read_manifest(run_id)
+            staged: dict[tuple[str, str], bytes] = {}
+            for key, content, replace in prepared:
+                existing = staged.get(key, self._content.get(key))
+                if not replace and existing is not None and existing != content:
+                    raise _ref_conflict(run_id, key[1])
+                if replace or existing is None:
+                    staged[key] = content
+            manifest = current.model_copy(
+                update={
+                    "contents": upsert_contents(
+                        current.contents,
+                        publication.entries,
+                    )
+                }
+            )
+            manifest_content = _serialize_model(
+                manifest,
+                run_id=run_id,
+                ref=MANIFEST_REF,
+            )
+            self._content.update(staged)
+            self._content[(run_id, MANIFEST_REF)] = manifest_content
+            return manifest
 
     def read_config_profile_snapshot(self, run_id: str) -> ConfigProfileSnapshot:
         manifest = self.read_manifest(run_id)
@@ -355,6 +404,20 @@ def _serialization_failure(*, run_id: str, ref: str) -> DataIntegrityError:
         ref=ref,
         code="run.ref_not_serializable",
         message="run record cannot be represented by the durable format",
+    )
+
+
+def _ref_conflict(run_id: str, ref: str) -> Conflict:
+    return Conflict(
+        [
+            _problem(
+                run_id=run_id,
+                ref=ref,
+                code="run.ref_conflict",
+                category=ProblemCategory.CONFLICT,
+                message="immutable run content already contains different data",
+            )
+        ]
     )
 
 

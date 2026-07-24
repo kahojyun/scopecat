@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
-from scopecat.kernel.errors import CheckFailed, DataIntegrityError, NotFound
+from scopecat.kernel.errors import CheckFailed, Conflict, DataIntegrityError, NotFound
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.run import (
@@ -19,6 +19,8 @@ from scopecat.records.run import (
 )
 from scopecat.runs.refs import CONFIG_PROFILE_SNAPSHOT_REF, MANIFEST_REF
 from scopecat.runs.repository import (
+    RunBytesWrite,
+    RunContentPublication,
     RunModelWrite,
     RunRecordSetWrite,
     RunRepository,
@@ -205,6 +207,174 @@ class RunRepositoryContract:
             "records/events.jsonl",
             _ContractRecord,
         ) == [_ContractRecord(message="complete")]
+
+    def test_content_publication_merges_entries_and_refs(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        repository = self.make_repository(tmp_path)
+        run_id = "run-content-publication"
+        existing = RunContentEntry(
+            role="artifact",
+            id="existing",
+            kind="attachment",
+            content_hash="existing-content",
+        )
+        published = RunContentEntry(
+            role="record",
+            id="analysis",
+            kind="analysis",
+            content_hash="analysis-content",
+        )
+        repository.write_manifest(
+            _manifest(run_id, 1).model_copy(update={"contents": (existing,)})
+        )
+
+        manifest = repository.publish_content(
+            RunContentPublication(
+                run_id=run_id,
+                entries=(published,),
+                models=(
+                    RunModelWrite(
+                        ref="records/analysis.json",
+                        value=_ContractRecord(message="analysis"),
+                    ),
+                ),
+                bytes=(
+                    RunBytesWrite(
+                        ref="artifacts/summary.txt",
+                        content=b"summary\n",
+                    ),
+                ),
+            )
+        )
+
+        assert manifest.contents == (existing, published)
+        assert repository.read_manifest(run_id) == manifest
+        assert repository.read_model(
+            run_id,
+            "records/analysis.json",
+            _ContractRecord,
+        ) == _ContractRecord(message="analysis")
+        assert repository.read_bytes(run_id, "artifacts/summary.txt") == b"summary\n"
+
+    def test_immutable_content_conflict_does_not_partially_publish(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        repository = self.make_repository(tmp_path)
+        run_id = "run-content-conflict"
+        original = RunContentEntry(
+            role="record",
+            id="proposal",
+            kind="parameter_change_proposal",
+            content_hash="original-content",
+        )
+        repository.write_manifest(_manifest(run_id, 1))
+        repository.publish_content(
+            RunContentPublication(
+                run_id=run_id,
+                entries=(original,),
+                models=(
+                    RunModelWrite(
+                        ref="records/proposal.json",
+                        value=_ContractRecord(message="original"),
+                        replace=False,
+                    ),
+                ),
+            )
+        )
+        repository.publish_content(
+            RunContentPublication(
+                run_id=run_id,
+                entries=(original,),
+                models=(
+                    RunModelWrite(
+                        ref="records/proposal.json",
+                        value=_ContractRecord(message="original"),
+                        replace=False,
+                    ),
+                ),
+            )
+        )
+        before = repository.read_manifest(run_id)
+
+        with pytest.raises(Conflict) as captured:
+            repository.publish_content(
+                RunContentPublication(
+                    run_id=run_id,
+                    entries=(
+                        RunContentEntry(
+                            role="record",
+                            id="other",
+                            kind="analysis",
+                            content_hash="other-content",
+                        ),
+                    ),
+                    models=(
+                        RunModelWrite(
+                            ref="records/proposal.json",
+                            value=_ContractRecord(message="different"),
+                            replace=False,
+                        ),
+                    ),
+                    bytes=(
+                        RunBytesWrite(
+                            ref="artifacts/should-not-publish.txt",
+                            content=b"uncommitted",
+                        ),
+                    ),
+                )
+            )
+
+        assert captured.value.problems[0].code == "run.ref_conflict"
+        assert repository.read_manifest(run_id) == before
+        assert not repository.exists(run_id, "artifacts/should-not-publish.txt")
+        assert repository.read_model(
+            run_id,
+            "records/proposal.json",
+            _ContractRecord,
+        ) == _ContractRecord(message="original")
+
+    def test_duplicate_immutable_refs_conflict_within_one_publication(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        repository = self.make_repository(tmp_path)
+        run_id = "run-content-duplicate-immutable"
+        repository.write_manifest(_manifest(run_id, 1))
+        before = repository.read_manifest(run_id)
+
+        with pytest.raises(Conflict) as captured:
+            repository.publish_content(
+                RunContentPublication(
+                    run_id=run_id,
+                    entries=(
+                        RunContentEntry(
+                            role="record",
+                            id="proposal",
+                            kind="parameter_change_proposal",
+                            content_hash="second-content",
+                        ),
+                    ),
+                    models=(
+                        RunModelWrite(
+                            ref="records/proposal.json",
+                            value=_ContractRecord(message="first"),
+                            replace=False,
+                        ),
+                        RunModelWrite(
+                            ref="records/proposal.json",
+                            value=_ContractRecord(message="second"),
+                            replace=False,
+                        ),
+                    ),
+                )
+            )
+
+        assert captured.value.problems[0].code == "run.ref_conflict"
+        assert repository.read_manifest(run_id) == before
+        assert not repository.exists(run_id, "records/proposal.json")
 
     def test_run_skeleton_requires_an_accepted_manifest(self, tmp_path: Path) -> None:
         repository = self.make_repository(tmp_path)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from functools import partial
 from pathlib import Path
 from typing import override
 
@@ -100,6 +101,57 @@ def test_registration_and_activation_roll_back_together(tmp_path: Path) -> None:
         )
 
     assert list_config_registry_entries(unit_of_work=store.unit_of_work) == []
+
+
+def test_borrowed_unit_of_work_leaves_transaction_and_connection_owned_by_caller(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    config = load_config_profile(CORE_FIXTURE_DIR / "config-profile.json")
+    connection = sqlite3.connect(store.database, isolation_level=None)
+    connection.row_factory = sqlite3.Row
+    with store.borrowed_unit_of_work(connection) as work:
+        assert work.registry.list_entries() == ()
+    assert not connection.in_transaction
+
+    connection.execute("BEGIN IMMEDIATE")
+
+    register_config_profile(
+        config=config,
+        unit_of_work=partial(store.borrowed_unit_of_work, connection),
+        entry_id="borrowed",
+        registered_by="test",
+    )
+
+    assert connection.in_transaction
+    assert (
+        connection.execute("SELECT COUNT(*) FROM config_registry_entries").fetchone()[0]
+        == 1
+    )
+    connection.rollback()
+    assert (
+        connection.execute("SELECT COUNT(*) FROM config_registry_entries").fetchone()[0]
+        == 0
+    )
+    connection.close()
+
+
+def test_borrowed_unit_of_work_only_scopes_registry_access(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    connection = sqlite3.connect(store.database, isolation_level=None)
+    connection.row_factory = sqlite3.Row
+    connection.execute("BEGIN IMMEDIATE")
+    work = store.borrowed_unit_of_work(connection)
+
+    with pytest.raises(RuntimeError, match="entered twice"), work:
+        assert work.registry.list_entries() == ()
+        work.__enter__()
+
+    assert connection.in_transaction
+    with pytest.raises(RuntimeError, match="has not been entered"):
+        _ = work.registry
+    connection.rollback()
+    connection.close()
 
 
 def test_rollback_persists_contiguous_activation_generations(

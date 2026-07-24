@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from scopecat.application.services import WorkspaceServices
+from scopecat.application.services import WorkspaceStateServices
 from scopecat.config.changes import is_safe_parameter_change_id
 from scopecat.config.parameter_resolution import validate_parameter_snapshot
 from scopecat.config.parameter_updates import merge_parameter_change_deltas
@@ -63,7 +63,7 @@ class CandidateConfig:
 def resolve_candidate_config_snapshot(
     candidate: CandidateConfig,
     *,
-    services: WorkspaceServices,
+    services: WorkspaceStateServices,
 ) -> ConfigProfileSnapshot:
     """Resolve a candidate into a config snapshot without writing run state."""
 

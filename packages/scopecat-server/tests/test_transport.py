@@ -113,10 +113,10 @@ from scopecat.records.run_request import RunRequest
 from scopecat_server import (
     BackendConflict,
     BackendNotFound,
-    DaemonBackend,
     DaemonHealth,
     create_app,
 )
+from scopecat_server.transport import DaemonApplicationContract
 
 _NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
 _HASH = f"sha256:{'a' * 64}"
@@ -146,10 +146,10 @@ def _content_entry(
     )
 
 
-class FakeBackend:
+class FakeApplication:
     def __init__(self) -> None:
         self.run = _control_run()
-        self.events = (
+        events = (
             DurableEvent(
                 event_id=1,
                 run_id="run-1",
@@ -165,28 +165,11 @@ class FakeBackend:
                 occurred_at=_NOW + timedelta(seconds=1),
             ),
         )
-        self.event_afters: list[int | None] = []
+        self.config = FakeConfig()
+        self.runs = FakeRuns(run=self.run, events=events)
+        self.executor = FakeExecutor(run=self.run)
         self.last_submission: RunSubmission | None = None
         self.last_attention: AttentionResolutionCommand | None = None
-        self.last_start: ExecutorStartRequest | None = None
-        self.last_heartbeat: ExecutorHeartbeat | None = None
-        self.last_batch: ExecutionTransitionBatch | None = None
-        self.last_runtime_event: RuntimeEventPublishCommand | None = None
-        self.last_terminal: TerminalRunCommitCommand | None = None
-        self.last_config_import: DirectConfigImportCommand | None = None
-        self.last_config_default: DirectConfigDefaultCommand | None = None
-        self.last_config_draft: ConfigDraftCommand | None = None
-        self.last_config_draft_default: ConfigDraftDefaultCommand | None = None
-        self.last_config_draft_registration: ConfigDraftRegistrationCommand | None = (
-            None
-        )
-        self.last_config_activation: ConfigEntryActivationCommand | None = None
-        self.last_config_rollback: ConfigRollbackCommand | None = None
-        self.last_analysis: AnalysisSaveCommand | None = None
-        self.last_attachment: RunAttachmentCommand | None = None
-        self.last_review: ParameterProposalReviewCommand | None = None
-        self.last_decision: ParameterProposalDecisionCommand | None = None
-        self.last_candidate: CandidateConfigActivationCommand | None = None
 
     def health(self) -> DaemonHealth:
         return DaemonHealth(
@@ -208,6 +191,40 @@ class FakeBackend:
                 ),
             ),
         )
+
+    def submit_run(self, submission: RunSubmission) -> RunAdmission:
+        if submission.submission_id == "duplicate":
+            raise BackendConflict("submission already exists")
+        self.last_submission = submission
+        return _wire_admission(submission.submission_id)
+
+    def resolve_attention(
+        self,
+        run_id: str,
+        command: AttentionResolutionCommand,
+    ) -> AttentionResolutionReceipt:
+        assert run_id == self.run.run_id
+        self.last_attention = command
+        return AttentionResolutionReceipt(
+            run_id=run_id,
+            action=command.action,
+            state="accepted",
+            released_resource_count=1,
+        )
+
+
+class FakeConfig:
+    def __init__(self) -> None:
+        self.last_config_import: DirectConfigImportCommand | None = None
+        self.last_config_default: DirectConfigDefaultCommand | None = None
+        self.last_config_draft: ConfigDraftCommand | None = None
+        self.last_config_draft_default: ConfigDraftDefaultCommand | None = None
+        self.last_config_draft_registration: ConfigDraftRegistrationCommand | None = (
+            None
+        )
+        self.last_config_activation: ConfigEntryActivationCommand | None = None
+        self.last_config_rollback: ConfigRollbackCommand | None = None
+        self.last_candidate: CandidateConfigActivationCommand | None = None
 
     def get_config_registry(self) -> ConfigRegistryView:
         entry, state = _config_registry_records()
@@ -315,6 +332,34 @@ class FakeBackend:
             activation=state.history[-1],
         )
 
+    def activate_candidate_config(
+        self,
+        command: CandidateConfigActivationCommand,
+    ) -> CandidateConfigActivationReceipt:
+        self.last_candidate = command
+        entry, state = _config_registry_records()
+        return CandidateConfigActivationReceipt(
+            entry=entry,
+            active_state=state,
+            activation=state.history[-1],
+        )
+
+
+class FakeRuns:
+    def __init__(
+        self,
+        *,
+        run: ControlRun,
+        events: tuple[DurableEvent, ...],
+    ) -> None:
+        self.run = run
+        self.events = events
+        self.event_afters: list[int | None] = []
+        self.last_analysis: AnalysisSaveCommand | None = None
+        self.last_attachment: RunAttachmentCommand | None = None
+        self.last_review: ParameterProposalReviewCommand | None = None
+        self.last_decision: ParameterProposalDecisionCommand | None = None
+
     def list_runs(
         self,
         *,
@@ -332,12 +377,6 @@ class FakeBackend:
         if before is not None and before <= self.run.sequence:
             return RunPage(items=())
         return RunPage(items=(self.run,)[:limit])
-
-    def submit_run(self, submission: RunSubmission) -> RunAdmission:
-        if submission.submission_id == "duplicate":
-            raise BackendConflict("submission already exists")
-        self.last_submission = submission
-        return _wire_admission(submission.submission_id)
 
     def get_run(self, run_id: str) -> RunDetail:
         if run_id != self.run.run_id:
@@ -533,32 +572,6 @@ class FakeBackend:
             )
         )
 
-    def activate_candidate_config(
-        self,
-        command: CandidateConfigActivationCommand,
-    ) -> CandidateConfigActivationReceipt:
-        self.last_candidate = command
-        entry, state = _config_registry_records()
-        return CandidateConfigActivationReceipt(
-            entry=entry,
-            active_state=state,
-            activation=state.history[-1],
-        )
-
-    def resolve_attention(
-        self,
-        run_id: str,
-        command: AttentionResolutionCommand,
-    ) -> AttentionResolutionReceipt:
-        assert run_id == self.run.run_id
-        self.last_attention = command
-        return AttentionResolutionReceipt(
-            run_id=run_id,
-            action=command.action,
-            state="accepted",
-            released_resource_count=1,
-        )
-
     def measurements(
         self,
         run_id: str,
@@ -588,6 +601,16 @@ class FakeBackend:
             and (run_id is None or event.run_id == run_id)
         )
         return EventPage(items=selected[:limit])
+
+
+class FakeExecutor:
+    def __init__(self, *, run: ControlRun) -> None:
+        self.run = run
+        self.last_start: ExecutorStartRequest | None = None
+        self.last_heartbeat: ExecutorHeartbeat | None = None
+        self.last_batch: ExecutionTransitionBatch | None = None
+        self.last_runtime_event: RuntimeEventPublishCommand | None = None
+        self.last_terminal: TerminalRunCommitCommand | None = None
 
     def start_executor(
         self,
@@ -696,8 +719,8 @@ class FakeBackend:
 
 
 def test_health_catalog_and_run_queries() -> None:
-    backend = FakeBackend()
-    checked_backend: DaemonBackend = backend
+    backend = FakeApplication()
+    checked_backend: DaemonApplicationContract = backend
     client = TestClient(create_app(checked_backend))
 
     health = client.get("/api/v1/health")
@@ -726,7 +749,7 @@ def test_health_catalog_and_run_queries() -> None:
 
 
 def test_run_queries_reject_conflicting_page_modes() -> None:
-    client = TestClient(create_app(FakeBackend()))
+    client = TestClient(create_app(FakeApplication()))
 
     both_cursors = client.get(
         "/api/v1/runs",
@@ -742,7 +765,7 @@ def test_run_queries_reject_conflicting_page_modes() -> None:
 
 
 def test_config_registry_routes_use_typed_commands_and_views() -> None:
-    backend = FakeBackend()
+    backend = FakeApplication()
     client = TestClient(create_app(backend))
     config = _config()
     import_command = DirectConfigImportCommand(
@@ -823,15 +846,15 @@ def test_config_registry_routes_use_typed_commands_and_views() -> None:
     assert registered.json()["entry"]["id"] == "manual-tuning"
     assert activated.json()["active_state"]["generation"] == 1
     assert rolled_back.status_code == 200
-    assert backend.last_config_import == import_command
-    assert backend.last_config_draft == draft_command
-    assert backend.last_config_draft_registration == registration_command
-    assert backend.last_config_activation == activation_command
-    assert backend.last_config_rollback == rollback_command
+    assert backend.config.last_config_import == import_command
+    assert backend.config.last_config_draft == draft_command
+    assert backend.config.last_config_draft_registration == registration_command
+    assert backend.config.last_config_activation == activation_command
+    assert backend.config.last_config_rollback == rollback_command
 
 
 def test_run_submission_and_backend_error_mapping() -> None:
-    backend = FakeBackend()
+    backend = FakeApplication()
     client = TestClient(create_app(backend))
 
     response = client.post("/api/v1/runs", json=_managed_submission("submission-1"))
@@ -852,7 +875,7 @@ def test_run_submission_and_backend_error_mapping() -> None:
 
 
 def test_post_run_routes_use_typed_commands_and_views() -> None:
-    backend = FakeBackend()
+    backend = FakeApplication()
     client = TestClient(create_app(backend))
     analysis = AnalysisSaveCommand(
         run_id="run-1",
@@ -906,13 +929,13 @@ def test_post_run_routes_use_typed_commands_and_views() -> None:
     assert reviewed.json()["decision"]["decision"] == "approved"
     assert activated.json()["entry"]["id"] == "baseline"
     assert mismatch.status_code == 422
-    assert backend.last_analysis == analysis
-    assert backend.last_review == review
-    assert backend.last_candidate == candidate
+    assert backend.runs.last_analysis == analysis
+    assert backend.runs.last_review == review
+    assert backend.config.last_candidate == candidate
 
 
 def test_run_content_routes_are_typed_and_run_scoped() -> None:
-    backend = FakeBackend()
+    backend = FakeApplication()
     client = TestClient(create_app(backend))
     attachment = RunAttachmentCommand(
         run_id="run-1",
@@ -961,11 +984,11 @@ def test_run_content_routes_are_typed_and_run_scoped() -> None:
     assert attached.status_code == 201
     assert attached.json()["artifact"]["filename"] == "notes.txt"
     assert mismatch.status_code == 422
-    assert backend.last_attachment == attachment
+    assert backend.runs.last_attachment == attachment
 
 
 def test_attention_resolution_route() -> None:
-    backend = FakeBackend()
+    backend = FakeApplication()
     client = TestClient(create_app(backend))
     command = AttentionResolutionCommand(run_id="run-1", action="requeue")
 
@@ -980,7 +1003,7 @@ def test_attention_resolution_route() -> None:
 
 
 def test_event_replay_and_sse_resume_from_durable_event_id() -> None:
-    backend = FakeBackend()
+    backend = FakeApplication()
     client = TestClient(create_app(backend))
 
     replay = client.get("/api/v1/events", params={"after": 1, "run_id": "run-1"})
@@ -1000,11 +1023,11 @@ def test_event_replay_and_sse_resume_from_durable_event_id() -> None:
     assert "id: 2\nevent: project\ndata: " in stream.text
     assert '"event_id":2' in stream.text
     assert reconnect.text == ""
-    assert backend.event_afters[-1] == 2
+    assert backend.runs.event_afters[-1] == 2
 
 
 def test_delegated_executor_routes() -> None:
-    backend = FakeBackend()
+    backend = FakeApplication()
     client = TestClient(create_app(backend))
     transition = _transition()
     runtime_event = RuntimeEventPublishCommand(
@@ -1073,15 +1096,15 @@ def test_delegated_executor_routes() -> None:
     assert published.status_code == 200
     assert published.json()["event_id"] == 3
     assert completed.json()["manifest"]["lifecycle"] == "terminal"
-    assert backend.last_start is not None
-    assert backend.last_heartbeat is not None
-    assert backend.last_batch is not None
-    assert backend.last_runtime_event == runtime_event
-    assert backend.last_terminal == terminal
+    assert backend.executor.last_start is not None
+    assert backend.executor.last_heartbeat is not None
+    assert backend.executor.last_batch is not None
+    assert backend.executor.last_runtime_event == runtime_event
+    assert backend.executor.last_terminal == terminal
 
 
 def test_delegated_path_and_body_run_ids_must_match() -> None:
-    backend = FakeBackend()
+    backend = FakeApplication()
     client = TestClient(create_app(backend))
 
     response = client.post(
@@ -1094,7 +1117,7 @@ def test_delegated_path_and_body_run_ids_must_match() -> None:
     )
 
     assert response.status_code == 422
-    assert backend.last_start is None
+    assert backend.executor.last_start is None
 
 
 def test_static_dist_serves_files_and_spa_without_shadowing_api(
@@ -1102,7 +1125,7 @@ def test_static_dist_serves_files_and_spa_without_shadowing_api(
 ) -> None:
     (tmp_path / "index.html").write_text("<main>Scopecat GUI</main>")
     (tmp_path / "app.js").write_text("window.SCOPECAT = true")
-    client = TestClient(create_app(FakeBackend(), static_dir=tmp_path))
+    client = TestClient(create_app(FakeApplication(), static_dir=tmp_path))
 
     assert client.get("/").text == "<main>Scopecat GUI</main>"
     assert client.get("/runs/run-1").text == "<main>Scopecat GUI</main>"

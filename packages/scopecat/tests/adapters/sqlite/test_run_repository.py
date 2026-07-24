@@ -14,7 +14,12 @@ from scopecat.adapters.sqlite import SQLiteControlPlane, SQLiteRunRepository
 from scopecat.kernel.errors import DataIntegrityError, StorageError
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.run import RunManifest, RunOutcome
-from scopecat.runs.repository import RunModelWrite, TerminalRunCommit
+from scopecat.runs.repository import (
+    RunBytesWrite,
+    RunContentPublication,
+    RunModelWrite,
+    TerminalRunCommit,
+)
 from tests.contracts.run_repository_contracts import RunRepositoryContract
 
 
@@ -293,6 +298,107 @@ def test_terminal_commit_primitive_uses_and_leaves_the_callers_transaction(
     assert not repository.exists(run_id, "records/first.json")
     assert not repository.exists(run_id, "records/second.json")
     assert len(_object_files(repository)) > len(objects_before)
+
+
+def test_prepared_content_uses_and_leaves_the_callers_transaction(
+    tmp_path: Path,
+) -> None:
+    repository = _repository(tmp_path)
+    run_id = "run-prepared-content"
+    repository.write_manifest(_manifest(run_id))
+    objects_before = _object_files(repository)
+    publication = RunContentPublication(
+        run_id=run_id,
+        entries=(_content("prepared"),),
+        bytes=(
+            RunBytesWrite(
+                ref="artifacts/prepared.bin",
+                content=b"prepared",
+            ),
+        ),
+    )
+
+    prepared = repository.prepare_content_publication(publication)
+
+    assert len(_object_files(repository)) > len(objects_before)
+    assert not repository.exists(run_id, "artifacts/prepared.bin")
+    with sqlite3.connect(
+        repository.database,
+        isolation_level=None,
+    ) as connection:
+        connection.row_factory = sqlite3.Row
+        connection.execute("BEGIN IMMEDIATE")
+        manifest = repository.publish_prepared_content_in_transaction(
+            connection,
+            prepared,
+        )
+
+        assert connection.in_transaction
+        assert _content("prepared") in manifest.contents
+        assert (
+            connection.execute(
+                """
+                SELECT COUNT(*) FROM run_repository_refs
+                WHERE run_id = ? AND ref = ?
+                """,
+                (run_id, "artifacts/prepared.bin"),
+            ).fetchone()[0]
+            == 1
+        )
+        connection.rollback()
+
+    assert repository.read_manifest(run_id).contents == ()
+    assert not repository.exists(run_id, "artifacts/prepared.bin")
+
+
+def test_content_publications_merge_the_latest_manifest_across_writers(
+    tmp_path: Path,
+) -> None:
+    repository = _repository(tmp_path)
+    run_id = "run-concurrent-content"
+    repository.write_manifest(
+        _manifest(run_id).model_copy(update={"contents": (_content("existing"),)})
+    )
+    peer = SQLiteRunRepository(repository.database, repository.objects.root)
+    ready = Barrier(2)
+
+    def publish(selected: SQLiteRunRepository, content_id: str) -> None:
+        prepared = selected.prepare_content_publication(
+            RunContentPublication(
+                run_id=run_id,
+                entries=(_content(content_id),),
+                bytes=(
+                    RunBytesWrite(
+                        ref=f"artifacts/{content_id}.bin",
+                        content=content_id.encode(),
+                    ),
+                ),
+            )
+        )
+        ready.wait(timeout=5)
+        with sqlite3.connect(
+            selected.database,
+            isolation_level=None,
+            timeout=5,
+        ) as connection:
+            connection.row_factory = sqlite3.Row
+            connection.execute("BEGIN IMMEDIATE")
+            selected.publish_prepared_content_in_transaction(connection, prepared)
+            connection.commit()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = (
+            pool.submit(publish, repository, "first"),
+            pool.submit(publish, peer, "second"),
+        )
+        for future in futures:
+            future.result()
+
+    assert {entry.id for entry in repository.read_manifest(run_id).contents} == {
+        "existing",
+        "first",
+        "second",
+    }
 
 
 def test_corrupt_indexed_object_is_data_integrity_failure(tmp_path: Path) -> None:
