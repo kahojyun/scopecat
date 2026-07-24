@@ -78,17 +78,33 @@ def init_command(
         initialized = initialize_project(project)
     except DaemonLifecycleError as error:
         _fail(error)
-    console.print(f"[green]initialized[/green] {initialized.root}")
+    console.print(
+        f"[green]initialized[/green] {initialized.root}",
+        soft_wrap=True,
+    )
     console.print(
         f"[dim]config source[/dim] "
-        f"{initialized.root / 'src/scopecat_lab/configuration.py'}"
+        f"{initialized.root / 'src/scopecat_lab/configuration.py'}",
+        soft_wrap=True,
     )
     project_arg = shlex.quote(str(initialized.root))
     notebook_arg = shlex.quote(str(initialized.root / "notebooks/01_first_run.py"))
-    console.print(f"[dim]next[/dim] scopecat config check {project_arg}")
-    console.print(f"[dim]next[/dim] scopecat start {project_arg}")
-    console.print(f"[dim]next[/dim] scopecat open {project_arg}")
-    console.print(f"[dim]first run[/dim] python {notebook_arg}")
+    console.print(
+        f"[dim]next[/dim] scopecat config check {project_arg}",
+        soft_wrap=True,
+    )
+    console.print(
+        f"[dim]next[/dim] scopecat start {project_arg}",
+        soft_wrap=True,
+    )
+    console.print(
+        f"[dim]next[/dim] scopecat open {project_arg}",
+        soft_wrap=True,
+    )
+    console.print(
+        f"[dim]first run[/dim] python {notebook_arg}",
+        soft_wrap=True,
+    )
 
 
 @config_app.command("check")
@@ -404,7 +420,10 @@ def main(argv: Sequence[str] | None = None) -> None:
 
 
 def _fail(error: Exception) -> Never:
-    error_console.print(f"[red]error:[/red] {error}")
+    error_console.print(
+        f"[red]error:[/red] {error}",
+        soft_wrap=True,
+    )
     raise typer.Exit(code=1) from error
 
 

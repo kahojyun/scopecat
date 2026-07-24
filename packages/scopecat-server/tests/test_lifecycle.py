@@ -141,17 +141,26 @@ def test_matching_process_with_unreachable_health_is_degraded(
     assert observed.record == record
 
 
-def test_cli_start_uses_actual_dynamic_port_and_stop_cleans_record(
+def test_cli_init_prints_copyable_next_steps_at_narrow_width(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("COLUMNS", "40")
+
+    initialized = CliRunner().invoke(app, ["init", str(tmp_path)])
+
+    assert initialized.exit_code == 0, initialized.output
+    assert str(tmp_path / "src/scopecat_lab/configuration.py") in initialized.output
+    assert f"scopecat config check {tmp_path}" in initialized.output
+    assert f"python {tmp_path / 'notebooks/01_first_run.py'}" in initialized.output
+
+
+def test_cli_daemon_first_use_loop_uses_dynamic_port_and_cleans_record(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     runner = CliRunner()
-    initialized = runner.invoke(app, ["init", str(tmp_path)])
-    assert initialized.exit_code == 0, initialized.output
-    assert "src/scopecat_lab/configuration.py" in initialized.output
-    assert "scopecat config check" in initialized.output
-    assert "notebooks/01_first_run.py" in initialized.output
-
+    initialize_project(tmp_path)
     static_dir = tmp_path / "test-ui"
     static_dir.mkdir()
     (static_dir / "index.html").write_text("<main>test GUI</main>")
