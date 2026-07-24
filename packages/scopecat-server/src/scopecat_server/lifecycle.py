@@ -181,6 +181,7 @@ def start_project(
     host: str = "127.0.0.1",
     port: int = 0,
     timeout: float = 10.0,
+    static_dir: str | Path | None = None,
 ) -> DaemonEndpointRecord:
     """Start a detached daemon with the current Python interpreter."""
 
@@ -210,6 +211,10 @@ def start_project(
         "--port",
         str(port),
     ]
+    if static_dir is None:
+        command.append("--api-only")
+    else:
+        command.extend(("--static-dir", str(Path(static_dir).resolve())))
     with os.fdopen(log_fd, "a", encoding="utf-8") as log:
         process = subprocess.Popen(  # noqa: S603 - fixed interpreter/module command
             command,

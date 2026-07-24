@@ -51,6 +51,7 @@ interface ControlledExperiment {
 
 const UI_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const REPOSITORY_ROOT = resolve(UI_ROOT, "../..");
+const UI_DIST = resolve(UI_ROOT, "dist");
 const LIVE_EXPERIMENT_ID =
   "quantum_lab_demo.workflows.readout_frequency";
 const CONTROLLED_EXPERIMENT_SOURCE = `\
@@ -98,8 +99,7 @@ def build_system(selected):
 
 project = sc.open_project(PROJECT_ROOT)
 with project.connect(build_system=build_system) as lab:
-    connection = lab._daemon
-    client = connection._client
+    client = lab._client
     original_submit = client.submit_delegated
     original_start = client.start_executor
     original_append = client.append_measurements
@@ -155,7 +155,15 @@ const test = base.extend<{}, { daemon: ProjectDaemon }>({
         runUv(["scopecat", "init", projectRoot], REPOSITORY_ROOT);
         initialized = true;
         runUv(
-          ["scopecat", "start", projectRoot, "--port", "0"],
+          [
+            "scopecat",
+            "start",
+            projectRoot,
+            "--port",
+            "0",
+            "--static-dir",
+            UI_DIST,
+          ],
           projectRoot,
         );
         const endpoint = await readEndpoint(projectRoot);
@@ -491,17 +499,17 @@ async function waitForMarker(
     .poll(
       async () => {
         const marker = await readFile(path, "utf8").catch(() => "");
+        const earlyExit = await processResultWithin(experiment, 0);
+        if (earlyExit !== undefined) {
+          expectProcessOk(earlyExit);
+          throw new Error(`controlled experiment exited before ${path}`);
+        }
         return marker.trim();
       },
       { message: `waiting for controlled experiment marker ${path}` },
     )
     .not.toBe("");
-  const marker = (await readFile(path, "utf8")).trim();
-  const earlyExit = await processResultWithin(experiment, 0);
-  if (earlyExit !== undefined && earlyExit.code !== 0) {
-    expectProcessOk(earlyExit);
-  }
-  return marker;
+  return (await readFile(path, "utf8")).trim();
 }
 
 function expectProcessOk(completion: ProcessCompletion): void {

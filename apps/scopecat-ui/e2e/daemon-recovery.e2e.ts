@@ -70,6 +70,7 @@ interface HttpResponse {
 
 const UI_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const REPOSITORY_ROOT = resolve(UI_ROOT, "../..");
+const UI_DIST = resolve(UI_ROOT, "dist");
 
 const test = base.extend<{}, { daemon: ProjectDaemon }>({
   daemon: [
@@ -82,7 +83,15 @@ const test = base.extend<{}, { daemon: ProjectDaemon }>({
         runUv(["scopecat", "init", projectRoot], REPOSITORY_ROOT);
         initialized = true;
         runUv(
-          ["scopecat", "start", projectRoot, "--port", "0"],
+          [
+            "scopecat",
+            "start",
+            projectRoot,
+            "--port",
+            "0",
+            "--static-dir",
+            UI_DIST,
+          ],
           projectRoot,
         );
         const endpoint = await readEndpoint(projectRoot);

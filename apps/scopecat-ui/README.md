@@ -5,30 +5,47 @@ designed to be served by the daemon so all API calls stay on relative
 `/api/v1/*` paths.
 
 ```sh
-npm install
-npm run dev
-npm run build
+pnpm install
 ```
 
-During development, Vite proxies `/api` to `http://127.0.0.1:8765`. Set
+For frontend development, run an API-only daemon and Vite in separate
+terminals:
+
+```sh
+uv run --project ../.. scopecat serve <project> --api-only --port 8765
+pnpm run dev
+```
+
+Vite proxies `/api` to `http://127.0.0.1:8765`. Set
 `SCOPECAT_DAEMON_ORIGIN` to use a different local daemon address.
+
+`pnpm run build` writes only to this application's ignored `dist/` directory.
+From the repository root, use that bundle for a source-checkout preview with
+`scopecat start <project> --static-dir apps/scopecat-ui/dist`.
+The repository-level `scripts/build_server_distribution.py` assembles the
+server in a temporary directory and verifies that its wheel and source
+distribution contain the same bundle.
+
+`pnpm-workspace.yaml` applies the same 14-day minimum release age as Renovate
+to direct and transitive dependency resolution.
 
 ## API contract
 
 `src/api-schema.d.ts` is generated from the daemon's FastAPI schema. Run
-`npm run generate:api` after changing a UI-used transport model; CI runs
-`npm run check:api` so the generated contract cannot drift. Keep presentation
+`pnpm run generate:api` after changing a UI-used transport model; CI runs
+`pnpm run check:api` so the generated contract cannot drift. Keep presentation
 mapping in `src/api.ts` and do not add compatibility parsing for old local
 daemon responses.
 
 ## Browser end-to-end test
 
 ```sh
-npm run test:e2e:install
-npm run test:e2e
+pnpm run test:e2e:install
+pnpm run test:e2e
 ```
 
-The test first builds the current UI into the daemon's static bundle. It then
+The test first builds the current UI into `dist/` and passes that directory
+explicitly to the daemon. It then
 creates a temporary starter project, starts its daemon on a dynamic port,
 executes the generated first notebook, and drives the daemon-served GUI through
 a parameter default and undo. The fixture removes the daemon and project after

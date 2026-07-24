@@ -31,6 +31,16 @@ def test_cli_project_serves_gui_and_lightweight_config_loop(
     project.mkdir()
     shutil.copy2(EXAMPLE_ROOT / "scopecat.toml", project / "scopecat.toml")
     shutil.copytree(EXAMPLE_ROOT / "config", project / "config")
+    static_dir = tmp_path / "test-ui"
+    (static_dir / "assets").mkdir(parents=True)
+    (static_dir / "index.html").write_text(
+        '<div id="root"></div><script src="/assets/app.js"></script>',
+        encoding="utf-8",
+    )
+    (static_dir / "assets/app.js").write_text(
+        '"Parameter proposals"; "Set as default"; "Undo"; "/api/v1/config-registry";',
+        encoding="utf-8",
+    )
     daemon_url = f"http://127.0.0.1:{free_tcp_port}"
     process = subprocess.Popen(  # noqa: S603 - fixed interpreter and argv
         [
@@ -41,6 +51,8 @@ def test_cli_project_serves_gui_and_lightweight_config_loop(
             str(project),
             "--port",
             str(free_tcp_port),
+            "--static-dir",
+            str(static_dir),
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,

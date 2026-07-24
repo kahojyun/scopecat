@@ -34,6 +34,7 @@ include = [
   "examples/quantum/support/src",
   "examples/quantum/support/tests",
   "examples/quantum",
+  "scripts",
 ]
 exclude = [
   "**/__pycache__",
@@ -125,6 +126,7 @@ src = [
   "examples/quantum/support/src",
   "examples/quantum/support/tests",
   "examples/quantum",
+  "scripts",
 ]
 
 [tool.ruff.lint]

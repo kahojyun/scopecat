@@ -108,8 +108,13 @@ application:
 application = "my_lab.application:create_application"
 ```
 
-Start it with `uv run scopecat start ./my-lab`, then use
-`uv run scopecat open ./my-lab` to open the GUI. The daemon selects an available
+Installed server distributions contain the GUI bundle. In a source checkout,
+`pnpm run build` writes the generated assets only to
+`apps/scopecat-ui/dist`; pass that path with
+`uv run scopecat start ./my-lab --static-dir apps/scopecat-ui/dist`.
+Then use `uv run scopecat open ./my-lab` to open the bundled preview. For live
+frontend development, run the daemon with `--api-only --port 8765`, start the
+Vite development server, and use its URL. The daemon selects an available
 loopback port, publishes it in `.scopecat/daemon.json`, and stores durable state
 below `my-lab/.scopecat`.
 

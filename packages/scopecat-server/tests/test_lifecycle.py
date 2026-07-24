@@ -152,7 +152,13 @@ def test_cli_start_uses_actual_dynamic_port_and_stop_cleans_record(
     assert "scopecat config check" in initialized.output
     assert "notebooks/01_first_run.py" in initialized.output
 
-    started = runner.invoke(app, ["start", str(tmp_path)])
+    static_dir = tmp_path / "test-ui"
+    static_dir.mkdir()
+    (static_dir / "index.html").write_text("<main>test GUI</main>")
+    started = runner.invoke(
+        app,
+        ["start", str(tmp_path), "--static-dir", str(static_dir)],
+    )
     assert started.exit_code == 0, started.output
     project = open_project(tmp_path)
     record = read_daemon_endpoint_record(tmp_path)
@@ -163,7 +169,9 @@ def test_cli_start_uses_actual_dynamic_port_and_stop_cleans_record(
         assert stat.S_IMODE(daemon_record_path(tmp_path).stat().st_mode) == 0o600
         with httpx2.Client(timeout=2, trust_env=False) as client:
             health = client.get(f"{record.base_url}/api/v1/health")
+            gui = client.get(record.base_url)
         assert health.status_code == 200
+        assert gui.text == "<main>test GUI</main>"
 
         first_run = subprocess.run(  # noqa: S603
             [sys.executable, str(tmp_path / "notebooks/01_first_run.py")],
@@ -244,6 +252,45 @@ def test_cli_start_uses_actual_dynamic_port_and_stop_cleans_record(
             stop_project(project)
 
     assert not daemon_record_path(tmp_path).exists()
+
+
+def test_cli_start_rejects_conflicting_gui_modes(tmp_path: Path) -> None:
+    initialize_project(tmp_path)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "start",
+            str(tmp_path),
+            "--api-only",
+            "--static-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "--api-only and --static-dir cannot be used together" in result.output
+    assert read_daemon_endpoint_record(tmp_path) is None
+
+
+def test_cli_start_explains_missing_source_gui_bundle(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    initialize_project(tmp_path)
+    monkeypatch.setattr(
+        "scopecat_server.cli._DEFAULT_STATIC_DIR",
+        tmp_path / "missing-ui",
+    )
+
+    result = CliRunner().invoke(app, ["start", str(tmp_path)])
+
+    output = " ".join(result.output.split())
+    assert result.exit_code == 1
+    assert "GUI bundle is not installed" in output
+    assert "--static-dir" in output
+    assert "--api-only" in output
+    assert read_daemon_endpoint_record(tmp_path) is None
 
 
 def _run_cli(*arguments: str, cwd: Path) -> subprocess.CompletedProcess[str]:

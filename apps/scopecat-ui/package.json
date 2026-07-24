@@ -2,36 +2,37 @@
   "name": "scopecat-ui",
   "private": true,
   "version": "0.1.0",
+  "packageManager": "pnpm@11.1.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "generate:api": "uv run --project ../.. python scripts/export-openapi.py && json2ts -i .generated/ui-api.schema.json -o src/api-schema.d.ts",
-    "check:api": "npm run generate:api && git diff --exit-code -- src/api-schema.d.ts",
+    "check:api": "pnpm run generate:api && git diff --exit-code -- src/api-schema.d.ts",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:e2e": "npm run build && playwright test",
+    "test:e2e": "pnpm run build && playwright test",
     "test:e2e:install": "playwright install chromium",
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
-    "@tanstack/react-query": "^5.101.4",
-    "lucide-react": "^1.26.0",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "@tanstack/react-query": "5.101.2",
+    "lucide-react": "1.24.0",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
   },
   "devDependencies": {
-    "@playwright/test": "^1.61.1",
-    "@testing-library/jest-dom": "^7.0.0",
-    "@testing-library/react": "^16.3.2",
-    "@types/node": "^26.1.1",
-    "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^6.0.4",
-    "jsdom": "^29.1.1",
+    "@playwright/test": "1.61.1",
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "16.3.2",
+    "@types/node": "24.13.3",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.3",
+    "jsdom": "29.1.1",
     "json-schema-to-typescript": "15.0.4",
-    "typescript": "^7.0.2",
-    "vite": "^8.1.5",
-    "vitest": "^4.1.10"
+    "typescript": "7.0.2",
+    "vite": "8.1.4",
+    "vitest": "4.1.10"
   }
 }

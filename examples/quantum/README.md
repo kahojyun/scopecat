@@ -14,7 +14,8 @@ not a stable product API.
 Start the project daemon once from the repository root:
 
 ```sh
-uv run scopecat start examples/quantum
+cd apps/scopecat-ui && pnpm install --frozen-lockfile && pnpm run build && cd ../..
+uv run scopecat start examples/quantum --static-dir apps/scopecat-ui/dist
 uv run scopecat open examples/quantum
 ```
 

@@ -25,13 +25,23 @@ them.
 
 ## Start Here
 
+An installed distribution already contains the GUI. When running from a source
+checkout, build the UI into its own ignored output directory:
+
+```sh
+cd apps/scopecat-ui
+pnpm install --frozen-lockfile
+pnpm run build
+cd ../..
+```
+
 Create a runnable project with a local Python configuration source and a
 hardware-free first scratch experiment:
 
 ```sh
 uv run scopecat init ./my-lab
 uv run scopecat config check ./my-lab
-uv run scopecat start ./my-lab
+uv run scopecat start ./my-lab --static-dir apps/scopecat-ui/dist
 uv run scopecat open ./my-lab
 uv run python ./my-lab/notebooks/01_first_run.py
 ```
@@ -56,7 +66,7 @@ version controlled; one daemon owns its `.scopecat` state:
 
 ```sh
 uv run scopecat config check examples/quantum
-uv run scopecat start examples/quantum
+uv run scopecat start examples/quantum --static-dir apps/scopecat-ui/dist
 uv run scopecat open examples/quantum
 ```
 
@@ -113,6 +123,15 @@ Run the repository checks from the repository root:
 ```sh
 uv run pytest
 uv run basedpyright
-uv run ruff check packages examples
-uv run ruff format --check packages examples
+uv run ruff check packages examples docs scripts
+uv run ruff format --check packages examples docs scripts
+```
+
+To assemble release artifacts without modifying either source tree:
+
+```sh
+cd apps/scopecat-ui
+pnpm run build
+cd ../..
+uv run python scripts/build_server_distribution.py
 ```

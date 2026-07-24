@@ -1,13 +1,17 @@
 # Scopecat server
 
 `scopecat-server` provides the local FastAPI and SSE transport plus the default
-SQLite daemon runtime. Create a runnable starter project or point it at an
-existing project containing `scopecat.toml`:
+SQLite daemon runtime. Published distributions include the project GUI. In a
+source checkout, use `--api-only` with the Vite development server, or pass a
+built `apps/scopecat-ui/dist` with `--static-dir`.
+
+Create a runnable starter project or point it at an existing project
+containing `scopecat.toml`:
 
 ```console
 uv run scopecat init ./my-lab
 uv run scopecat config check ./my-lab
-uv run scopecat start ./my-lab
+uv run scopecat start ./my-lab --static-dir apps/scopecat-ui/dist
 uv run scopecat open ./my-lab
 uv run python ./my-lab/notebooks/01_first_run.py
 ```

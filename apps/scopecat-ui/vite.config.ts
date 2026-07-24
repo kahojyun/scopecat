@@ -17,7 +17,7 @@ export default defineConfig(({ mode }) => {
       },
     },
     build: {
-      outDir: "../../packages/scopecat-server/src/scopecat_server/static",
+      outDir: "dist",
       emptyOutDir: true,
       sourcemap: false,
     },

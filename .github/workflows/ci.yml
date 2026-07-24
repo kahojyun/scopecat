@@ -30,10 +30,10 @@ jobs:
         run: uv run --locked basedpyright
 
       - name: Run lint
-        run: uv run --locked ruff check packages examples docs
+        run: uv run --locked ruff check packages examples docs scripts
 
       - name: Check formatting
-        run: uv run --locked ruff format --check packages examples docs
+        run: uv run --locked ruff format --check packages examples docs scripts
 
   ui:
     name: UI
@@ -58,27 +58,40 @@ jobs:
       - name: Install Python dependencies
         run: uv sync --locked --project ../..
 
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          package_json_file: apps/scopecat-ui/package.json
+          cache: true
+          cache_dependency_path: apps/scopecat-ui/pnpm-lock.yaml
+
       - name: Set up Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: "24"
-          cache: npm
-          cache-dependency-path: apps/scopecat-ui/package-lock.json
 
       - name: Install UI dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Check generated daemon API types
-        run: npm run check:api
+        run: pnpm run check:api
 
       - name: Run UI tests
-        run: npm test
+        run: pnpm test
 
       - name: Run UI type check
-        run: npm run typecheck
+        run: pnpm run typecheck
+
+      - name: Build UI
+        run: pnpm run build
+
+      - name: Assemble and verify server distributions
+        run: |
+          uv run --project ../.. python ../../scripts/build_server_distribution.py
+          test ! -e ../../packages/scopecat-server/src/scopecat_server/static
 
       - name: Install Playwright Chromium
-        run: npx playwright install --with-deps chromium
+        run: pnpm exec playwright install --with-deps chromium
 
       - name: Run browser end-to-end test
-        run: npm run test:e2e
+        run: pnpm run test:e2e

@@ -232,18 +232,30 @@ def serve(
             max=65535,
         ),
     ] = 0,
+    static_dir: Annotated[
+        Path | None,
+        typer.Option(help="Generated GUI bundle to serve."),
+    ] = None,
+    api_only: Annotated[
+        bool,
+        typer.Option(help="Serve the API without the project GUI."),
+    ] = False,
 ) -> None:
     """Run the project daemon in the foreground."""
 
     try:
         selected = open_project(project)
+        selected_static_dir = _select_static_dir(
+            static_dir=static_dir,
+            api_only=api_only,
+        )
         serve_project(
             selected,
             host=host,
             port=port,
-            static_dir=_DEFAULT_STATIC_DIR,
+            static_dir=selected_static_dir,
         )
-    except (DaemonLifecycleError, ProjectManifestError, OSError) as error:
+    except (DaemonLifecycleError, ProjectManifestError, OSError, ValueError) as error:
         _fail(error)
 
 
@@ -265,17 +277,52 @@ def start(
             max=65535,
         ),
     ] = 0,
+    static_dir: Annotated[
+        Path | None,
+        typer.Option(help="Generated GUI bundle to serve."),
+    ] = None,
+    api_only: Annotated[
+        bool,
+        typer.Option(help="Start the daemon without the project GUI."),
+    ] = False,
 ) -> None:
     """Start the project daemon in the background."""
 
     try:
         selected = open_project(project)
-        record = start_project(selected, host=host, port=port)
-    except (DaemonLifecycleError, ProjectManifestError, OSError) as error:
+        selected_static_dir = _select_static_dir(
+            static_dir=static_dir,
+            api_only=api_only,
+        )
+        record = start_project(
+            selected,
+            host=host,
+            port=port,
+            static_dir=selected_static_dir,
+        )
+    except (DaemonLifecycleError, ProjectManifestError, OSError, ValueError) as error:
         _fail(error)
     console.print(
         f"[green]running[/green] {record.base_url} [dim](pid {record.pid})[/dim]"
     )
+
+
+def _select_static_dir(
+    *,
+    static_dir: Path | None,
+    api_only: bool,
+) -> Path | None:
+    if api_only:
+        if static_dir is not None:
+            raise ValueError("--api-only and --static-dir cannot be used together")
+        return None
+    selected = _DEFAULT_STATIC_DIR if static_dir is None else static_dir.resolve()
+    if not (selected / "index.html").is_file():
+        raise ValueError(
+            "GUI bundle is not installed; pass its directory with --static-dir "
+            "or use --api-only"
+        )
+    return selected
 
 
 @app.command()
