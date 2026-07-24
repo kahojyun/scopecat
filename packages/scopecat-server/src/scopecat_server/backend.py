@@ -44,6 +44,13 @@ from scopecat.config.changes import (
     load_parameter_change_proposal,
     review_parameter_change_proposal,
 )
+from scopecat.config.parameter_updates import (
+    ParameterUpdate,
+    ReplaceParameter,
+    delete_parameter_rows,
+    insert_parameter_rows,
+    update_parameter_rows,
+)
 from scopecat.config.registry import service as config_registry_service
 from scopecat.config.resolution import (
     register_and_activate_candidate_config,
@@ -65,6 +72,7 @@ from scopecat.control.models import (
 from scopecat.daemon.catalog import RegisteredExperimentCatalog
 from scopecat.daemon.views import (
     ActiveConfigView,
+    ConfigDraftPreview,
     ConfigEntryView,
     ConfigRegistryView,
     DaemonHealth,
@@ -98,11 +106,15 @@ from scopecat.daemon.wire import (
     CollectionResolveCommand,
     CollectionResolveReceipt,
     ConfigActivationReceipt,
+    ConfigDraftCommand,
+    ConfigDraftRegistrationCommand,
+    ConfigDraftRegistrationReceipt,
     ConfigEntryActivationCommand,
     ConfigImportReceipt,
     ConfigRollbackCommand,
     DelegatedPlanSummary,
     DelegatedRunSubmission,
+    DeleteConfigParameterRows,
     DirectConfigImportCommand,
     ExecutionRecoveryRequest,
     ExecutionRecoverySnapshot,
@@ -112,6 +124,7 @@ from scopecat.daemon.wire import (
     ExecutorLease,
     ExecutorStartRequest,
     ExperimentCatalog,
+    InsertConfigParameterRows,
     ManagedRunSubmission,
     MeasurementAppendCommand,
     MeasurementAppendReceipt,
@@ -121,6 +134,7 @@ from scopecat.daemon.wire import (
     ParameterProposalReviewReceipt,
     PayloadCommitCommand,
     PayloadCommitReceipt,
+    ReplaceConfigParameter,
     ResourceClaimDescriptor,
     RunAdmission,
     RunAttachmentCommand,
@@ -128,6 +142,7 @@ from scopecat.daemon.wire import (
     RunSubmission,
     TerminalRunCommitCommand,
     TerminalRunCommitReceipt,
+    UpdateConfigParameterRows,
 )
 from scopecat.execution.evidence import run_outcome_ref
 from scopecat.execution.interpreter import execute_running_run
@@ -224,6 +239,27 @@ def _analysis_output(item: AnalysisOutputPayload) -> AnalysisOutput:
         content=content,
         metadata=item.metadata,
     )
+
+
+def _config_parameter_update(
+    item: (
+        ReplaceConfigParameter
+        | UpdateConfigParameterRows
+        | InsertConfigParameterRows
+        | DeleteConfigParameterRows
+    ),
+) -> ParameterUpdate:
+    if isinstance(item, ReplaceConfigParameter):
+        return ReplaceParameter(value=item.value)
+    if isinstance(item, UpdateConfigParameterRows):
+        return update_parameter_rows(
+            item.parameter_id,
+            key=item.key,
+            values=item.values,
+        )
+    if isinstance(item, InsertConfigParameterRows):
+        return insert_parameter_rows(item.parameter_id, item.rows)
+    return delete_parameter_rows(item.parameter_id, key=item.key)
 
 
 class SQLiteDaemonBackend:
@@ -373,6 +409,78 @@ class SQLiteDaemonBackend:
                     )
                 )
             return ConfigImportReceipt(entry=entry)
+
+    def preview_config_draft(
+        self,
+        command: ConfigDraftCommand,
+    ) -> ConfigDraftPreview:
+        with self._config_lock, self._config_errors():
+            result = config_registry_service.preview_manual_config_draft(
+                unit_of_work=self.config_registry.unit_of_work,
+                base_entry_id=command.base_entry_id,
+                base_config_content_hash=command.base_content_hash,
+                base_generation=command.base_generation,
+                candidate_id=command.candidate_id,
+                updates=tuple(
+                    _config_parameter_update(update) for update in command.updates
+                ),
+            )
+            candidate = result.check.candidate
+            return ConfigDraftPreview(
+                valid=result.check.ok,
+                base_entry=result.base_entry,
+                base_generation=result.base_generation,
+                base_content_hash=result.base_entry.content_hash,
+                config=candidate,
+                result_content_hash=(
+                    None if candidate is None else config_content_hash(candidate)
+                ),
+                deltas=result.check.deltas,
+                problems=result.check.problems,
+            )
+
+    def register_config_draft(
+        self,
+        command: ConfigDraftRegistrationCommand,
+    ) -> ConfigDraftRegistrationReceipt:
+        with self._config_lock, self._config_errors():
+            existing_ids = {
+                entry.id
+                for entry in config_registry_service.list_config_registry_entries(
+                    unit_of_work=self.config_registry.unit_of_work
+                )
+            }
+            draft = command.draft
+            entry, result = config_registry_service.register_manual_config_draft(
+                unit_of_work=self.config_registry.unit_of_work,
+                base_entry_id=draft.base_entry_id,
+                base_config_content_hash=draft.base_content_hash,
+                base_generation=draft.base_generation,
+                candidate_id=draft.candidate_id,
+                updates=tuple(
+                    _config_parameter_update(update) for update in draft.updates
+                ),
+                expected_result_content_hash=command.expected_result_content_hash,
+                entry_id=command.entry_id,
+                registered_by=command.registered_by,
+                note=command.note,
+            )
+            if entry.id not in existing_ids:
+                self.control.append_event(
+                    DurableEventInput(
+                        kind="config_draft_registered",
+                        payload={
+                            "entry_id": entry.id,
+                            "base_entry_id": draft.base_entry_id,
+                        },
+                        occurred_at=entry.registered_at,
+                    )
+                )
+            return ConfigDraftRegistrationReceipt(
+                entry=entry,
+                result_content_hash=entry.content_hash,
+                deltas=result.check.deltas,
+            )
 
     def activate_config_entry(
         self,

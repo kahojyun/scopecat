@@ -8,12 +8,14 @@ import pytest
 from pydantic import BaseModel
 
 from scopecat.config.changes import parameter_change_proposal_from_updates
+from scopecat.config.drafts import ConfigDraft
 from scopecat.config.parameters import replace_scalar_parameter
 from scopecat.config.registry.records import (
     ConfigRegistryActivationRecord,
     ConfigRegistryActiveState,
     ConfigRegistryEntry,
     DirectConfigRegistrySource,
+    ManualConfigDraftRegistrySource,
 )
 from scopecat.control.models import (
     ControlRun,
@@ -45,6 +47,7 @@ from scopecat.daemon import (
 )
 from scopecat.daemon.views import (
     ActiveConfigView,
+    ConfigDraftPreview,
     ConfigEntryView,
     ConfigRegistryView,
     ParameterProposalListView,
@@ -66,12 +69,16 @@ from scopecat.daemon.wire import (
     CandidateConfigActivationCommand,
     CandidateConfigActivationReceipt,
     ConfigActivationReceipt,
+    ConfigDraftCommand,
+    ConfigDraftRegistrationCommand,
+    ConfigDraftRegistrationReceipt,
     ConfigEntryActivationCommand,
     ConfigImportReceipt,
     ConfigRollbackCommand,
     DirectConfigImportCommand,
     ParameterProposalReviewCommand,
     ParameterProposalReviewReceipt,
+    ReplaceConfigParameter,
     RunAttachmentCommand,
     RunAttachmentReceipt,
 )
@@ -81,7 +88,7 @@ from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import config_content_hash
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.measurement import MeasurementRecord
-from scopecat.records.parameter import Quantity
+from scopecat.records.parameter import Quantity, ScalarParameterValue
 from scopecat.records.parameter_change import ParameterChangeDecisionRecord
 from scopecat.records.run import RunManifest, RunOutcome
 from scopecat.records.run_request import RunRequest
@@ -214,11 +221,23 @@ def test_config_registry_client_uses_typed_routes() -> None:
         operator="operator",
         expected_generation=1,
     )
+    base_entry, base_state = _config_registry_records()
+    draft_command = _config_draft_command(base_entry, base_state)
+    draft_preview = _config_draft_preview(draft_command)
+    assert draft_preview.result_content_hash is not None
+    registration_command = ConfigDraftRegistrationCommand(
+        draft=draft_command,
+        expected_result_content_hash=draft_preview.result_content_hash,
+        entry_id="manual-tuning",
+        registered_by="notebook",
+    )
 
     registry = client.config_registry()
     active = client.active_config()
     entry = client.config_entry("baseline")
     imported = client.import_direct_config(import_command)
+    previewed = client.preview_config_draft(draft_command)
+    registered = client.register_config_draft(registration_command)
     activated = client.activate_config_entry(activation_command)
     rolled_back = client.rollback_config(rollback_command)
 
@@ -226,6 +245,9 @@ def test_config_registry_client_uses_typed_routes() -> None:
     assert active.config == config
     assert entry == ConfigEntryView(entry=registry.entries[0], config=config)
     assert imported.entry == registry.entries[0]
+    assert previewed == draft_preview
+    assert registered.entry.id == "manual-tuning"
+    assert registered.result_content_hash == draft_preview.result_content_hash
     assert activated.active_state == registry.active_state
     assert rolled_back.active_state == registry.active_state
     assert [request.url.path for request in requests] == [
@@ -233,6 +255,8 @@ def test_config_registry_client_uses_typed_routes() -> None:
         "/api/v1/config-registry/active",
         "/api/v1/config-registry/entries/baseline",
         "/api/v1/config-registry/entries",
+        "/api/v1/config-registry/drafts/preview",
+        "/api/v1/config-registry/drafts/register",
         "/api/v1/config-registry/active",
         "/api/v1/config-registry/rollback",
     ]
@@ -240,12 +264,17 @@ def test_config_registry_client_uses_typed_routes() -> None:
         DirectConfigImportCommand.model_validate_json(requests[3].content)
         == import_command
     )
+    assert ConfigDraftCommand.model_validate_json(requests[4].content) == draft_command
     assert (
-        ConfigEntryActivationCommand.model_validate_json(requests[4].content)
+        ConfigDraftRegistrationCommand.model_validate_json(requests[5].content)
+        == registration_command
+    )
+    assert (
+        ConfigEntryActivationCommand.model_validate_json(requests[6].content)
         == activation_command
     )
     assert (
-        ConfigRollbackCommand.model_validate_json(requests[5].content)
+        ConfigRollbackCommand.model_validate_json(requests[7].content)
         == rollback_command
     )
 
@@ -529,6 +558,36 @@ def _client(requests: list[httpx.Request]) -> DaemonClient:
         if path == "/api/v1/config-registry/entries":
             entry, _state = _config_registry_records()
             return _model(ConfigImportReceipt(entry=entry), status_code=201)
+        if path == "/api/v1/config-registry/drafts/preview":
+            command = ConfigDraftCommand.model_validate_json(request.content)
+            return _model(_config_draft_preview(command))
+        if path == "/api/v1/config-registry/drafts/register":
+            command = ConfigDraftRegistrationCommand.model_validate_json(
+                request.content
+            )
+            preview = _config_draft_preview(command.draft)
+            assert preview.result_content_hash is not None
+            return _model(
+                ConfigDraftRegistrationReceipt(
+                    entry=ConfigRegistryEntry(
+                        id=command.entry_id,
+                        config_ref=(
+                            f"config-registry/entries/{command.entry_id}/config.json"
+                        ),
+                        content_hash=preview.result_content_hash,
+                        source=ManualConfigDraftRegistrySource(
+                            base_entry_id=command.draft.base_entry_id,
+                            base_config_content_hash=command.draft.base_content_hash,
+                            base_registry_generation=command.draft.base_generation,
+                        ),
+                        registered_by=command.registered_by,
+                        note=command.note,
+                    ),
+                    result_content_hash=preview.result_content_hash,
+                    deltas=preview.deltas,
+                ),
+                status_code=201,
+            )
         if path == "/api/v1/config-registry/candidates/activate":
             entry, state = _config_registry_records()
             return _model(
@@ -741,6 +800,49 @@ def _config_registry_records() -> tuple[
         updated_at=_NOW,
     )
     return entry, state
+
+
+def _config_draft_command(
+    entry: ConfigRegistryEntry,
+    state: ConfigRegistryActiveState,
+) -> ConfigDraftCommand:
+    return ConfigDraftCommand(
+        base_entry_id=entry.id,
+        base_content_hash=entry.content_hash,
+        base_generation=state.generation,
+        candidate_id="manual-tuning",
+        updates=(
+            ReplaceConfigParameter(
+                value=ScalarParameterValue(
+                    id="drive_frequency",
+                    value=Quantity(value=5.1, unit="GHz"),
+                )
+            ),
+        ),
+    )
+
+
+def _config_draft_preview(command: ConfigDraftCommand) -> ConfigDraftPreview:
+    entry, _state = _config_registry_records()
+    check = (
+        ConfigDraft(load_config())
+        .replace_scalar(
+            "drive_frequency",
+            Quantity(value=5.1, unit="GHz"),
+        )
+        .check(candidate_id=command.candidate_id)
+    )
+    assert check.candidate is not None
+    return ConfigDraftPreview(
+        valid=True,
+        base_entry=entry,
+        base_generation=command.base_generation,
+        base_content_hash=command.base_content_hash,
+        config=check.candidate,
+        result_content_hash=config_content_hash(check.candidate),
+        deltas=check.deltas,
+        problems=check.problems,
+    )
 
 
 def _admission(

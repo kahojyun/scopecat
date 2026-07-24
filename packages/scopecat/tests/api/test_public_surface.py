@@ -42,6 +42,7 @@ def test_product_composition_does_not_export_embedded_writers() -> None:
 def test_user_facing_facades_expose_entry_points() -> None:
     assert callable(sc.connect)
     assert callable(sc.open_project)
+    assert sc.ConfigDraft
     assert sc.DaemonConnection
     assert not hasattr(sc, "DaemonWorkspace")
     assert sc.LabClient

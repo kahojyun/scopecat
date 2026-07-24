@@ -20,9 +20,11 @@ if TYPE_CHECKING:
         ConfigRegistryEntrySource,
         ConfigRegistryIndex,
         DirectConfigRegistrySource,
+        ManualConfigDraftRegistrySource,
     )
     from scopecat.config.registry.service import (
         ACTIVE_CONFIG_REGISTRY_ENTRY_SELECTOR,
+        ManualConfigDraftResult,
         activate_config_registry_entry,
         current_config_registry_generation,
         list_config_registry_entries,
@@ -31,10 +33,12 @@ if TYPE_CHECKING:
         load_active_config_registry_state,
         load_config_registry_config,
         load_config_registry_entry,
+        preview_manual_config_draft,
         register_and_activate_candidate_config,
         register_and_activate_config_profile,
         register_candidate_config,
         register_config_profile,
+        register_manual_config_draft,
         resolve_config_registry_config_source,
         rollback_config_registry,
     )
@@ -49,6 +53,7 @@ _RECORD_EXPORTS = (
     "ConfigRegistryEntrySource",
     "ConfigRegistryIndex",
     "DirectConfigRegistrySource",
+    "ManualConfigDraftRegistrySource",
 )
 _PORT_EXPORTS = (
     "ConfigRegistryRepository",
@@ -57,6 +62,7 @@ _PORT_EXPORTS = (
 )
 _SERVICE_EXPORTS = (
     "ACTIVE_CONFIG_REGISTRY_ENTRY_SELECTOR",
+    "ManualConfigDraftResult",
     "activate_config_registry_entry",
     "current_config_registry_generation",
     "list_config_registry_entries",
@@ -65,10 +71,12 @@ _SERVICE_EXPORTS = (
     "load_active_config_registry_state",
     "load_config_registry_config",
     "load_config_registry_entry",
+    "preview_manual_config_draft",
     "register_and_activate_candidate_config",
     "register_and_activate_config_profile",
     "register_candidate_config",
     "register_config_profile",
+    "register_manual_config_draft",
     "resolve_config_registry_config_source",
     "rollback_config_registry",
 )
@@ -104,6 +112,8 @@ __all__ = [
     "ConfigRegistryIndex",
     "ConfigRegistryRepository",
     "DirectConfigRegistrySource",
+    "ManualConfigDraftRegistrySource",
+    "ManualConfigDraftResult",
     "WorkspaceUnitOfWork",
     "WorkspaceUnitOfWorkFactory",
     "activate_config_registry_entry",
@@ -114,10 +124,12 @@ __all__ = [
     "load_active_config_registry_state",
     "load_config_registry_config",
     "load_config_registry_entry",
+    "preview_manual_config_draft",
     "register_and_activate_candidate_config",
     "register_and_activate_config_profile",
     "register_candidate_config",
     "register_config_profile",
+    "register_manual_config_draft",
     "resolve_config_registry_config_source",
     "rollback_config_registry",
 ]

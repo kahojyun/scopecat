@@ -13,12 +13,21 @@ from pydantic import BaseModel
 
 import scopecat.daemon.connection as connection_module
 from scopecat.analysis.service import AnalysisOutput, prepare_analysis_artifact
+from scopecat.api.lab import LabClient
 from scopecat.composition.embedded import embedded_workspace_services
+from scopecat.config.drafts import ConfigDraft
+from scopecat.config.parameters import (
+    delete_parameter_rows,
+    insert_parameter_rows,
+    replace_scalar_parameter,
+    update_parameter_rows,
+)
 from scopecat.config.registry.records import (
     ConfigRegistryActivationRecord,
     ConfigRegistryActiveState,
     ConfigRegistryEntry,
     DirectConfigRegistrySource,
+    ManualConfigDraftRegistrySource,
 )
 from scopecat.control.models import (
     ControlRun,
@@ -45,6 +54,7 @@ from scopecat.daemon import (
 )
 from scopecat.daemon.views import (
     ActiveConfigView,
+    ConfigDraftPreview,
     ConfigEntryView,
     ConfigRegistryView,
 )
@@ -53,10 +63,17 @@ from scopecat.daemon.wire import (
     AnalysisSaveCommand,
     AnalysisSaveReceipt,
     ConfigActivationReceipt,
+    ConfigDraftCommand,
+    ConfigDraftRegistrationCommand,
+    ConfigDraftRegistrationReceipt,
     ConfigEntryActivationCommand,
     ConfigImportReceipt,
     ConfigRollbackCommand,
+    DeleteConfigParameterRows,
     DirectConfigImportCommand,
+    InsertConfigParameterRows,
+    ReplaceConfigParameter,
+    UpdateConfigParameterRows,
 )
 from scopecat.execution.observation import RuntimeEvent, RuntimePayloadObservation
 from scopecat.execution.program import RunProgram
@@ -65,6 +82,7 @@ from scopecat.planning.preview import build_run_program_preview
 from scopecat.planning.system import ExperimentSystem
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
+from scopecat.records.parameter import Quantity
 from scopecat.records.run import RunManifest, RunOutcome
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.service import PlannedRun, plan_experiment
@@ -361,6 +379,18 @@ def test_connection_composes_config_registry_commands() -> None:
     config = load_config()
     entry, state = _config_registry_records(config)
     seen: list[object] = []
+    scalar_update = replace_scalar_parameter(
+        "drive_frequency",
+        Quantity(value=5.1, unit="GHz"),
+    )
+    draft = ConfigDraft(config).apply(scalar_update)
+    draft_preview = _config_draft_preview(
+        config=config,
+        entry=entry,
+        state=state,
+        candidate_id="manual-tuning",
+    )
+    assert draft_preview.result_content_hash is not None
 
     def handler(http_request: httpx.Request) -> httpx.Response:
         path = http_request.url.path
@@ -378,6 +408,19 @@ def test_connection_composes_config_registry_commands() -> None:
             )
             seen.append(command)
             return _model(ConfigImportReceipt(entry=entry), status_code=201)
+        if path == "/api/v1/config-registry/drafts/preview":
+            command = ConfigDraftCommand.model_validate_json(http_request.content)
+            seen.append(command)
+            return _model(draft_preview)
+        if path == "/api/v1/config-registry/drafts/register":
+            command = ConfigDraftRegistrationCommand.model_validate_json(
+                http_request.content
+            )
+            seen.append(command)
+            return _model(
+                _config_draft_registration_receipt(command, draft_preview),
+                status_code=201,
+            )
         if path == "/api/v1/config-registry/active":
             command = ConfigEntryActivationCommand.model_validate_json(
                 http_request.content
@@ -413,6 +456,17 @@ def test_connection_composes_config_registry_commands() -> None:
         ).entry
         == entry
     )
+    previewed = connection.preview_config_draft(
+        draft,
+        candidate_id="manual-tuning",
+    )
+    registered = connection.register_config_draft(
+        draft,
+        preview=previewed,
+        entry_id="manual-tuning",
+        registered_by="notebook",
+    )
+    assert registered.entry.id == "manual-tuning"
     assert (
         connection.activate_config_entry(
             "baseline",
@@ -434,6 +488,33 @@ def test_connection_composes_config_registry_commands() -> None:
             config=config,
             registered_by="notebook",
         ),
+        ConfigDraftCommand(
+            base_entry_id=entry.id,
+            base_content_hash=entry.content_hash,
+            base_generation=state.generation,
+            candidate_id="manual-tuning",
+            updates=(
+                ReplaceConfigParameter(
+                    value=scalar_update.value,
+                ),
+            ),
+        ),
+        ConfigDraftRegistrationCommand(
+            draft=ConfigDraftCommand(
+                base_entry_id=entry.id,
+                base_content_hash=entry.content_hash,
+                base_generation=state.generation,
+                candidate_id="manual-tuning",
+                updates=(
+                    ReplaceConfigParameter(
+                        value=scalar_update.value,
+                    ),
+                ),
+            ),
+            expected_result_content_hash=draft_preview.result_content_hash,
+            entry_id="manual-tuning",
+            registered_by="notebook",
+        ),
         ConfigEntryActivationCommand(
             entry_id="baseline",
             operator="operator",
@@ -444,6 +525,140 @@ def test_connection_composes_config_registry_commands() -> None:
             expected_generation=1,
         ),
     ]
+
+
+def test_connection_serializes_each_config_draft_update_shape() -> None:
+    config = load_config()
+    entry, state = _config_registry_records(config)
+    seen: list[ConfigDraftCommand] = []
+    preview = _config_draft_preview(
+        config=config,
+        entry=entry,
+        state=state,
+        candidate_id="all-update-shapes",
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if (
+            request.url.path == "/api/v1/config-registry/active"
+            and request.method == "GET"
+        ):
+            return _model(
+                ActiveConfigView(entry=entry, active_state=state, config=config)
+            )
+        command = ConfigDraftCommand.model_validate_json(request.content)
+        seen.append(command)
+        return _model(preview)
+
+    draft = ConfigDraft(config).apply(
+        replace_scalar_parameter(
+            "drive_frequency",
+            Quantity(value=5.1, unit="GHz"),
+        ),
+        update_parameter_rows(
+            "channels",
+            key={"id": "q0"},
+            values={"gain": 0.75},
+        ),
+        insert_parameter_rows(
+            "channels",
+            rows=[{"id": "q1", "gain": 0.25}],
+        ),
+        delete_parameter_rows("channels", key={"id": "q2"}),
+    )
+
+    DaemonConnection(_client(handler)).preview_config_draft(
+        draft,
+        candidate_id="all-update-shapes",
+    )
+
+    assert [type(update) for update in seen[0].updates] == [
+        ReplaceConfigParameter,
+        UpdateConfigParameterRows,
+        InsertConfigParameterRows,
+        DeleteConfigParameterRows,
+    ]
+
+
+def test_connection_rejects_a_draft_from_a_different_active_snapshot() -> None:
+    active_config = load_config()
+    stale_config = active_config.model_copy(update={"id": "stale-config"})
+    entry, state = _config_registry_records(active_config)
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        assert request.url.path == "/api/v1/config-registry/active"
+        return _model(
+            ActiveConfigView(
+                entry=entry,
+                active_state=state,
+                config=active_config,
+            )
+        )
+
+    draft = ConfigDraft(stale_config).replace_scalar(
+        "drive_frequency",
+        Quantity(value=5.1, unit="GHz"),
+    )
+
+    with pytest.raises(ValueError, match="no longer the active"):
+        DaemonConnection(_client(handler)).preview_config_draft(draft)
+
+    assert len(requests) == 1
+
+
+def test_lab_client_owns_local_config_draft_workflow() -> None:
+    config = load_config()
+    entry, state = _config_registry_records(config)
+    preview = _config_draft_preview(
+        config=config,
+        entry=entry,
+        state=state,
+        candidate_id="notebook-tuning",
+    )
+    registrations: list[ConfigDraftRegistrationCommand] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/api/v1/config-registry/active" and request.method == "GET":
+            return _model(
+                ActiveConfigView(entry=entry, active_state=state, config=config)
+            )
+        if path == "/api/v1/config-registry/drafts/preview":
+            return _model(preview)
+        if path == "/api/v1/config-registry/drafts/register":
+            command = ConfigDraftRegistrationCommand.model_validate_json(
+                request.content
+            )
+            registrations.append(command)
+            return _model(
+                _config_draft_registration_receipt(command, preview),
+                status_code=201,
+            )
+        raise AssertionError(f"unexpected request: {request.method} {path}")
+
+    lab = LabClient(
+        DaemonConnection(_client(handler)),
+        operator="notebook-operator",
+    )
+    draft = lab.edit_config().replace_scalar(
+        "drive_frequency",
+        Quantity(value=5.1, unit="GHz"),
+    )
+    reviewed = lab.preview_config_draft(
+        draft,
+        candidate_id="notebook-tuning",
+    )
+    receipt = lab.register_config_draft(
+        draft,
+        preview=reviewed,
+        entry_id="notebook-tuning",
+    )
+
+    assert receipt.entry.id == "notebook-tuning"
+    assert registrations[0].registered_by == "notebook-operator"
+    assert registrations[0].expected_result_content_hash == preview.result_content_hash
 
 
 def test_remote_analysis_artifacts_preserve_source_defaults() -> None:
@@ -739,6 +954,57 @@ def _config_registry_records(
         updated_at=_NOW,
     )
     return entry, state
+
+
+def _config_draft_preview(
+    *,
+    config: ConfigProfileSnapshot,
+    entry: ConfigRegistryEntry,
+    state: ConfigRegistryActiveState,
+    candidate_id: str,
+) -> ConfigDraftPreview:
+    check = (
+        ConfigDraft(config)
+        .replace_scalar(
+            "drive_frequency",
+            Quantity(value=5.1, unit="GHz"),
+        )
+        .check(candidate_id=candidate_id)
+    )
+    assert check.candidate is not None
+    return ConfigDraftPreview(
+        valid=True,
+        base_entry=entry,
+        base_generation=state.generation,
+        base_content_hash=entry.content_hash,
+        config=check.candidate,
+        result_content_hash=config_content_hash(check.candidate),
+        deltas=check.deltas,
+        problems=check.problems,
+    )
+
+
+def _config_draft_registration_receipt(
+    command: ConfigDraftRegistrationCommand,
+    preview: ConfigDraftPreview,
+) -> ConfigDraftRegistrationReceipt:
+    assert preview.result_content_hash is not None
+    return ConfigDraftRegistrationReceipt(
+        entry=ConfigRegistryEntry(
+            id=command.entry_id,
+            config_ref=f"config-registry/entries/{command.entry_id}/config.json",
+            content_hash=preview.result_content_hash,
+            source=ManualConfigDraftRegistrySource(
+                base_entry_id=command.draft.base_entry_id,
+                base_config_content_hash=command.draft.base_content_hash,
+                base_registry_generation=command.draft.base_generation,
+            ),
+            registered_by=command.registered_by,
+            note=command.note,
+        ),
+        result_content_hash=preview.result_content_hash,
+        deltas=preview.deltas,
+    )
 
 
 def _admission(submission: DelegatedRunSubmission) -> RunAdmission:

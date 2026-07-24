@@ -6,6 +6,7 @@ from typing import Literal
 
 from fastapi.testclient import TestClient
 from scopecat.config.changes import parameter_change_proposal_from_updates
+from scopecat.config.drafts import ConfigDraft
 from scopecat.config.parameters import replace_scalar_parameter
 from scopecat.config.profiles import load_config_profile
 from scopecat.config.registry.records import (
@@ -13,6 +14,7 @@ from scopecat.config.registry.records import (
     ConfigRegistryActiveState,
     ConfigRegistryEntry,
     DirectConfigRegistrySource,
+    ManualConfigDraftRegistrySource,
 )
 from scopecat.control.models import (
     ControlRun,
@@ -23,6 +25,7 @@ from scopecat.control.models import (
 )
 from scopecat.daemon.views import (
     ActiveConfigView,
+    ConfigDraftPreview,
     ConfigEntryView,
     ConfigRegistryView,
     MeasurementPage,
@@ -52,6 +55,9 @@ from scopecat.daemon.wire import (
     CollectionResolveCommand,
     CollectionResolveReceipt,
     ConfigActivationReceipt,
+    ConfigDraftCommand,
+    ConfigDraftRegistrationCommand,
+    ConfigDraftRegistrationReceipt,
     ConfigEntryActivationCommand,
     ConfigImportReceipt,
     ConfigRollbackCommand,
@@ -74,6 +80,7 @@ from scopecat.daemon.wire import (
     PayloadCommitCommand,
     PayloadCommitReceipt,
     RegisteredExperimentDescriptor,
+    ReplaceConfigParameter,
     RunAdmission,
     RunAttachmentCommand,
     RunAttachmentReceipt,
@@ -86,7 +93,7 @@ from scopecat.records.analysis import AnalysisRecord
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.execution_journal import ExecutionTransition
-from scopecat.records.parameter import Quantity
+from scopecat.records.parameter import Quantity, ScalarParameterValue
 from scopecat.records.parameter_change import ParameterChangeDecisionRecord
 from scopecat.records.run import RunManifest, RunOutcome
 from scopecat.records.run_request import RunRequest
@@ -154,6 +161,10 @@ class FakeBackend:
         self.last_batch: ExecutionTransitionBatch | None = None
         self.last_terminal: TerminalRunCommitCommand | None = None
         self.last_config_import: DirectConfigImportCommand | None = None
+        self.last_config_draft: ConfigDraftCommand | None = None
+        self.last_config_draft_registration: ConfigDraftRegistrationCommand | None = (
+            None
+        )
         self.last_config_activation: ConfigEntryActivationCommand | None = None
         self.last_config_rollback: ConfigRollbackCommand | None = None
         self.last_analysis: AnalysisSaveCommand | None = None
@@ -206,6 +217,38 @@ class FakeBackend:
         self.last_config_import = command
         entry, _state = _config_registry_records()
         return ConfigImportReceipt(entry=entry)
+
+    def preview_config_draft(
+        self,
+        command: ConfigDraftCommand,
+    ) -> ConfigDraftPreview:
+        self.last_config_draft = command
+        return _config_draft_preview(command)
+
+    def register_config_draft(
+        self,
+        command: ConfigDraftRegistrationCommand,
+    ) -> ConfigDraftRegistrationReceipt:
+        self.last_config_draft_registration = command
+        preview = _config_draft_preview(command.draft)
+        assert preview.result_content_hash is not None
+        entry = ConfigRegistryEntry(
+            id=command.entry_id,
+            config_ref=f"config-registry/entries/{command.entry_id}/config.json",
+            content_hash=preview.result_content_hash,
+            source=ManualConfigDraftRegistrySource(
+                base_entry_id=command.draft.base_entry_id,
+                base_config_content_hash=command.draft.base_content_hash,
+                base_registry_generation=command.draft.base_generation,
+            ),
+            registered_by=command.registered_by,
+            note=command.note,
+        )
+        return ConfigDraftRegistrationReceipt(
+            entry=entry,
+            result_content_hash=preview.result_content_hash,
+            deltas=preview.deltas,
+        )
 
     def activate_config_entry(
         self,
@@ -622,6 +665,29 @@ def test_config_registry_routes_use_typed_commands_and_views() -> None:
         operator="operator",
         expected_generation=1,
     )
+    base_entry, base_state = _config_registry_records()
+    draft_command = ConfigDraftCommand(
+        base_entry_id=base_entry.id,
+        base_content_hash=base_entry.content_hash,
+        base_generation=base_state.generation,
+        candidate_id="manual-tuning",
+        updates=(
+            ReplaceConfigParameter(
+                value=ScalarParameterValue(
+                    id="drive_frequency",
+                    value=Quantity(value=5.1, unit="GHz"),
+                )
+            ),
+        ),
+    )
+    draft_preview = _config_draft_preview(draft_command)
+    assert draft_preview.result_content_hash is not None
+    registration_command = ConfigDraftRegistrationCommand(
+        draft=draft_command,
+        expected_result_content_hash=draft_preview.result_content_hash,
+        entry_id="manual-tuning",
+        registered_by="operator",
+    )
 
     registry = client.get("/api/v1/config-registry")
     active = client.get("/api/v1/config-registry/active")
@@ -629,6 +695,14 @@ def test_config_registry_routes_use_typed_commands_and_views() -> None:
     imported = client.post(
         "/api/v1/config-registry/entries",
         json=import_command.model_dump(mode="json"),
+    )
+    previewed = client.post(
+        "/api/v1/config-registry/drafts/preview",
+        json=draft_command.model_dump(mode="json"),
+    )
+    registered = client.post(
+        "/api/v1/config-registry/drafts/register",
+        json=registration_command.model_dump(mode="json"),
     )
     activated = client.post(
         "/api/v1/config-registry/active",
@@ -649,9 +723,15 @@ def test_config_registry_routes_use_typed_commands_and_views() -> None:
     assert entry.json()["config"]["id"] == config.id
     assert imported.status_code == 201
     assert imported.json()["entry"]["id"] == "baseline"
+    assert previewed.status_code == 200
+    assert previewed.json()["config"]["id"] == "manual-tuning"
+    assert registered.status_code == 201
+    assert registered.json()["entry"]["id"] == "manual-tuning"
     assert activated.json()["active_state"]["generation"] == 1
     assert rolled_back.status_code == 200
     assert backend.last_config_import == import_command
+    assert backend.last_config_draft == draft_command
+    assert backend.last_config_draft_registration == registration_command
     assert backend.last_config_activation == activation_command
     assert backend.last_config_rollback == rollback_command
 
@@ -959,6 +1039,30 @@ def _config_registry_records() -> tuple[
         updated_at=_NOW,
     )
     return entry, state
+
+
+def _config_draft_preview(command: ConfigDraftCommand) -> ConfigDraftPreview:
+    base_entry, _state = _config_registry_records()
+    check = (
+        ConfigDraft(_config())
+        .replace_scalar(
+            "drive_frequency",
+            Quantity(value=5.1, unit="GHz"),
+        )
+        .check(candidate_id=command.candidate_id)
+    )
+    assert check.candidate is not None
+    result_content_hash = config_content_hash(check.candidate)
+    return ConfigDraftPreview(
+        valid=True,
+        base_entry=base_entry,
+        base_generation=command.base_generation,
+        base_content_hash=command.base_content_hash,
+        config=check.candidate,
+        result_content_hash=result_content_hash,
+        deltas=check.deltas,
+        problems=check.problems,
+    )
 
 
 def _proposal():

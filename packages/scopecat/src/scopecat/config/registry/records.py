@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from scopecat.records.config import ConfigContentHash
 from scopecat.records.run import utc_now
 
-CONFIG_REGISTRY_ENTRY_SCHEMA_VERSION = "scopecat.config.registry_entry.v6"
+CONFIG_REGISTRY_ENTRY_SCHEMA_VERSION = "scopecat.config.registry_entry.v7"
 CONFIG_REGISTRY_INDEX_SCHEMA_VERSION = "scopecat.config.registry_index.v2"
 CONFIG_REGISTRY_ACTIVE_STATE_SCHEMA_VERSION = "scopecat.config.registry_active_state.v2"
 CONFIG_REGISTRY_ACTIVATION_RECORD_SCHEMA_VERSION = (
@@ -33,6 +33,21 @@ class _FrozenRegistryModel(BaseModel):
 
 class DirectConfigRegistrySource(_FrozenRegistryModel):
     kind: Literal["direct_config_profile"] = "direct_config_profile"
+
+
+class ManualConfigDraftRegistrySource(_FrozenRegistryModel):
+    """Provenance for typed parameter edits derived from an active entry."""
+
+    kind: Literal["manual_parameter_updates"] = "manual_parameter_updates"
+    base_entry_id: str
+    base_config_content_hash: ConfigContentHash
+    base_registry_generation: int = Field(ge=1)
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> ManualConfigDraftRegistrySource:
+        if not self.base_entry_id:
+            raise ValueError("manual config draft base entry id must be non-empty")
+        return self
 
 
 class CandidateProposalRegistryEvidence(_FrozenRegistryModel):
@@ -74,13 +89,15 @@ class CandidateConfigRegistrySource(_FrozenRegistryModel):
 
 
 ConfigRegistryEntrySource = Annotated[
-    DirectConfigRegistrySource | CandidateConfigRegistrySource,
+    DirectConfigRegistrySource
+    | ManualConfigDraftRegistrySource
+    | CandidateConfigRegistrySource,
     Field(discriminator="kind"),
 ]
 
 
 class ConfigRegistryEntry(_FrozenRegistryModel):
-    schema_version: Literal["scopecat.config.registry_entry.v6"] = (
+    schema_version: Literal["scopecat.config.registry_entry.v7"] = (
         CONFIG_REGISTRY_ENTRY_SCHEMA_VERSION
     )
     id: str

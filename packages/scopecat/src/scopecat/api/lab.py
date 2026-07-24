@@ -24,8 +24,10 @@ from scopecat.config.candidates import (
     CandidateConfig,
     resolve_candidate_config_from_snapshot,
 )
+from scopecat.config.drafts import ConfigDraft
 from scopecat.daemon.connection import DaemonConnection
 from scopecat.daemon.views import (
+    ConfigDraftPreview,
     ConfigRegistryView,
     DaemonHealth,
     ParameterProposalListView,
@@ -35,6 +37,7 @@ from scopecat.daemon.views import (
 from scopecat.daemon.wire import (
     CandidateConfigActivationReceipt,
     ConfigActivationReceipt,
+    ConfigDraftRegistrationReceipt,
     ConfigImportReceipt,
 )
 from scopecat.planning.preview_models import ExperimentPreview
@@ -177,6 +180,42 @@ class LabClient:
 
     def config_registry(self) -> ConfigRegistryView:
         return self._daemon.config_registry()
+
+    def edit_config(
+        self,
+        config: str | ConfigProfileSnapshot | CandidateConfig | None = None,
+    ) -> ConfigDraft:
+        """Create a process-local draft without previewing or registering it."""
+
+        return ConfigDraft.from_snapshot(self.resolve_config(config))
+
+    def preview_config_draft(
+        self,
+        draft: ConfigDraft,
+        *,
+        candidate_id: str | None = None,
+    ) -> ConfigDraftPreview:
+        return self._daemon.preview_config_draft(
+            draft,
+            candidate_id=candidate_id,
+        )
+
+    def register_config_draft(
+        self,
+        draft: ConfigDraft,
+        *,
+        preview: ConfigDraftPreview,
+        entry_id: str,
+        registered_by: str | None = None,
+        note: str = "",
+    ) -> ConfigDraftRegistrationReceipt:
+        return self._daemon.register_config_draft(
+            draft,
+            preview=preview,
+            entry_id=entry_id,
+            registered_by=registered_by or self.operator,
+            note=note,
+        )
 
     def runs(self) -> tuple[RunHandle, ...]:
         return tuple(

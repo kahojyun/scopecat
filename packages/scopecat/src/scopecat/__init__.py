@@ -108,6 +108,7 @@ if TYPE_CHECKING:
         param_row,
     )
     from scopecat.authoring.scans import zip as zip  # noqa: A004
+    from scopecat.config.drafts import ConfigDraft
     from scopecat.config.parameters import (
         delete_parameter_rows,
         insert_parameter_rows,
@@ -160,6 +161,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "BoolType": ("scopecat.authoring", "BoolType"),
     "Compute": ("scopecat.authoring", "Compute"),
     "ComputeInput": ("scopecat.authoring", "ComputeInput"),
+    "ConfigDraft": ("scopecat.config.drafts", "ConfigDraft"),
     "DomainExecution": ("scopecat.authoring", "DomainExecution"),
     "DomainInputPort": ("scopecat.authoring", "DomainInputPort"),
     "DomainProgramDef": ("scopecat.authoring", "DomainProgramDef"),
@@ -345,6 +347,7 @@ __all__ = [
     "CandidateConfig",
     "Compute",
     "ComputeInput",
+    "ConfigDraft",
     "DaemonConnection",
     "Data",
     "DomainExecution",

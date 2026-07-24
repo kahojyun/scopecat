@@ -16,6 +16,7 @@ from scopecat.control.models import (
 )
 from scopecat.daemon.views import (
     ActiveConfigView,
+    ConfigDraftPreview,
     ConfigEntryView,
     ConfigRegistryView,
     DaemonHealth,
@@ -45,6 +46,9 @@ from scopecat.daemon.wire import (
     CollectionResolveCommand,
     CollectionResolveReceipt,
     ConfigActivationReceipt,
+    ConfigDraftCommand,
+    ConfigDraftRegistrationCommand,
+    ConfigDraftRegistrationReceipt,
     ConfigEntryActivationCommand,
     ConfigImportReceipt,
     ConfigRollbackCommand,
@@ -156,6 +160,26 @@ class DaemonClient:
             f"{_API_PREFIX}/config-registry/entries",
             command,
             ConfigImportReceipt,
+        )
+
+    def preview_config_draft(
+        self,
+        command: ConfigDraftCommand,
+    ) -> ConfigDraftPreview:
+        return self._post_model(
+            f"{_API_PREFIX}/config-registry/drafts/preview",
+            command,
+            ConfigDraftPreview,
+        )
+
+    def register_config_draft(
+        self,
+        command: ConfigDraftRegistrationCommand,
+    ) -> ConfigDraftRegistrationReceipt:
+        return self._post_model(
+            f"{_API_PREFIX}/config-registry/drafts/register",
+            command,
+            ConfigDraftRegistrationReceipt,
         )
 
     def activate_config_entry(

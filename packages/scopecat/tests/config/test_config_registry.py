@@ -24,9 +24,15 @@ from scopecat.config.changes import (
     load_parameter_change_proposal,
     review_parameter_change_proposal,
 )
+from scopecat.config.parameter_updates import ParameterUpdate
+from scopecat.config.parameters import replace_scalar_parameter
 from scopecat.config.registry import (
     CandidateConfigRegistrySource,
+    ConfigRegistryActiveState,
+    ConfigRegistryEntry,
     DirectConfigRegistrySource,
+    ManualConfigDraftRegistrySource,
+    ManualConfigDraftResult,
     activate_config_registry_entry,
     current_config_registry_generation,
     list_config_registry_entries,
@@ -35,9 +41,11 @@ from scopecat.config.registry import (
     load_active_config_registry_state,
     load_config_registry_config,
     load_config_registry_entry,
+    preview_manual_config_draft,
     register_and_activate_config_profile,
     register_candidate_config,
     register_config_profile,
+    register_manual_config_draft,
     resolve_config_registry_config_source,
     rollback_config_registry,
 )
@@ -49,6 +57,7 @@ from scopecat.kernel.errors import (
     NotFound,
 )
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
+from scopecat.records.parameter import Quantity, ScalarParameterValue
 from scopecat.records.parameter_change import (
     ParameterChangeDecisionRecord,
     ParameterChangeProposal,
@@ -134,6 +143,206 @@ def test_registry_rejects_invalid_registration_before_storage(tmp_path: Path) ->
         )
         == []
     )
+
+
+def test_manual_config_draft_preview_is_read_only_and_registration_records_source(
+    tmp_path: Path,
+) -> None:
+    unit_of_work = embedded_config_registry_unit_of_work(tmp_path)
+    base, active_state = _seed_active_config_registry(tmp_path)
+    entries_before = list_config_registry_entries(unit_of_work=unit_of_work)
+
+    preview = preview_manual_config_draft(
+        unit_of_work=unit_of_work,
+        base_entry_id=base.id,
+        base_config_content_hash=base.content_hash,
+        base_generation=active_state.generation,
+        candidate_id="manual-preview",
+        updates=_manual_config_updates(),
+    )
+
+    assert isinstance(preview, ManualConfigDraftResult)
+    assert preview.base_entry == base
+    assert preview.base_generation == active_state.generation
+    assert preview.check.ok
+    assert preview.check.candidate is not None
+    assert preview.check.candidate.id == "manual-preview"
+    frequency = preview.check.candidate.parameter_snapshot.get("drive_frequency")
+    assert frequency == ScalarParameterValue(
+        id="drive_frequency",
+        value=Quantity(value=5.2, unit="GHz"),
+    )
+    assert list_config_registry_entries(unit_of_work=unit_of_work) == entries_before
+    assert load_active_config_registry_state(unit_of_work=unit_of_work) == active_state
+
+    entry, registered = register_manual_config_draft(
+        unit_of_work=unit_of_work,
+        base_entry_id=base.id,
+        base_config_content_hash=base.content_hash,
+        base_generation=active_state.generation,
+        candidate_id="manual-preview",
+        updates=_manual_config_updates(),
+        expected_result_content_hash=config_content_hash(
+            preview.check.candidate,
+        ),
+        entry_id="manual-entry",
+        registered_by="operator",
+        note="adjust drive frequency",
+    )
+
+    assert registered.check.candidate == preview.check.candidate
+    assert isinstance(entry.source, ManualConfigDraftRegistrySource)
+    assert entry.source.base_entry_id == base.id
+    assert entry.source.base_config_content_hash == base.content_hash
+    assert entry.source.base_registry_generation == active_state.generation
+    persisted = load_config_registry_entry(
+        entry_id=entry.id,
+        unit_of_work=unit_of_work,
+    )
+    assert persisted == entry
+    assert isinstance(persisted.source, ManualConfigDraftRegistrySource)
+    assert (
+        load_config_registry_config(
+            entry_id=entry.id,
+            unit_of_work=unit_of_work,
+        )
+        == registered.check.candidate
+    )
+    assert load_active_config_registry_state(unit_of_work=unit_of_work) == active_state
+
+
+@pytest.mark.parametrize(
+    ("stale_field", "expected_code"),
+    (
+        ("generation", "config_registry.conflict"),
+        ("content_hash", "config_registry.config_draft_base_changed"),
+    ),
+)
+def test_manual_config_draft_registration_rejects_stale_base_identity(
+    tmp_path: Path,
+    stale_field: Literal["generation", "content_hash"],
+    expected_code: str,
+) -> None:
+    unit_of_work = embedded_config_registry_unit_of_work(tmp_path)
+    base, active_state = _seed_active_config_registry(tmp_path)
+    preview = preview_manual_config_draft(
+        unit_of_work=unit_of_work,
+        base_entry_id=base.id,
+        base_config_content_hash=base.content_hash,
+        base_generation=active_state.generation,
+        candidate_id="stale-preview",
+        updates=_manual_config_updates(),
+    )
+    assert preview.check.candidate is not None
+    base_generation = active_state.generation
+    base_content_hash = base.content_hash
+    if stale_field == "generation":
+        _newer, newer_state, _activation = register_and_activate_config_profile(
+            config=load_config().model_copy(update={"id": "newer-config"}),
+            unit_of_work=unit_of_work,
+            entry_id="newer-entry",
+            registered_by="operator",
+            operator="operator",
+            expected_generation=active_state.generation,
+        )
+        assert newer_state.generation == active_state.generation + 1
+    else:
+        base_content_hash = "sha256:" + ("0" * 64)
+
+    with pytest.raises(Conflict) as error:
+        register_manual_config_draft(
+            unit_of_work=unit_of_work,
+            base_entry_id=base.id,
+            base_config_content_hash=base_content_hash,
+            base_generation=base_generation,
+            candidate_id="stale-preview",
+            updates=_manual_config_updates(),
+            expected_result_content_hash=config_content_hash(
+                preview.check.candidate,
+            ),
+            entry_id=f"stale-{stale_field}",
+            registered_by="operator",
+        )
+
+    assert error.value.problems[0].code == expected_code
+    assert f"stale-{stale_field}" not in {
+        entry.id for entry in list_config_registry_entries(unit_of_work=unit_of_work)
+    }
+
+
+def test_manual_config_draft_registration_rejects_changed_preview_result(
+    tmp_path: Path,
+) -> None:
+    unit_of_work = embedded_config_registry_unit_of_work(tmp_path)
+    base, active_state = _seed_active_config_registry(tmp_path)
+
+    with pytest.raises(Conflict) as error:
+        register_manual_config_draft(
+            unit_of_work=unit_of_work,
+            base_entry_id=base.id,
+            base_config_content_hash=base.content_hash,
+            base_generation=active_state.generation,
+            candidate_id="changed-result",
+            updates=_manual_config_updates(),
+            expected_result_content_hash="sha256:" + ("0" * 64),
+            entry_id="changed-result",
+            registered_by="operator",
+        )
+
+    assert error.value.problems[0].code == (
+        "config_registry.config_draft_result_changed"
+    )
+    assert [
+        entry.id for entry in list_config_registry_entries(unit_of_work=unit_of_work)
+    ] == [base.id]
+    assert load_active_config_registry_state(unit_of_work=unit_of_work) == active_state
+
+
+def test_manual_config_draft_activation_rejects_a_stale_base(
+    tmp_path: Path,
+) -> None:
+    unit_of_work = embedded_config_registry_unit_of_work(tmp_path)
+    base, active_state = _seed_active_config_registry(tmp_path)
+    preview = preview_manual_config_draft(
+        unit_of_work=unit_of_work,
+        base_entry_id=base.id,
+        base_config_content_hash=base.content_hash,
+        base_generation=active_state.generation,
+        candidate_id="manual-candidate",
+        updates=_manual_config_updates(),
+    )
+    assert preview.check.candidate is not None
+    manual, _registered = register_manual_config_draft(
+        unit_of_work=unit_of_work,
+        base_entry_id=base.id,
+        base_config_content_hash=base.content_hash,
+        base_generation=active_state.generation,
+        candidate_id="manual-candidate",
+        updates=_manual_config_updates(),
+        expected_result_content_hash=config_content_hash(preview.check.candidate),
+        entry_id="manual-candidate",
+        registered_by="operator",
+    )
+    newer, newer_state, _activation = register_and_activate_config_profile(
+        config=load_config().model_copy(update={"id": "newer-config"}),
+        unit_of_work=unit_of_work,
+        entry_id="newer-entry",
+        registered_by="operator",
+        operator="operator",
+        expected_generation=active_state.generation,
+    )
+
+    with pytest.raises(Conflict) as error:
+        activate_config_registry_entry(
+            entry_id=manual.id,
+            unit_of_work=unit_of_work,
+            operator="operator",
+            expected_generation=newer_state.generation,
+        )
+
+    assert error.value.problems[0].code == "config_registry.stale_candidate"
+    assert load_active_config_registry_state(unit_of_work=unit_of_work) == newer_state
+    assert newer_state.active_entry_id == newer.id
 
 
 def test_candidate_config_registers_and_activates_parameter_proposal(
@@ -884,5 +1093,27 @@ def _resolved_candidate(
                 candidate,
                 services=embedded_workspace_services(workspace),
             ),
+        ),
+    )
+
+
+def _seed_active_config_registry(
+    workspace: Path,
+) -> tuple[ConfigRegistryEntry, ConfigRegistryActiveState]:
+    entry, state, _activation = register_and_activate_config_profile(
+        config=load_config(),
+        unit_of_work=embedded_config_registry_unit_of_work(workspace),
+        entry_id="manual-base",
+        registered_by="operator",
+        operator="operator",
+    )
+    return entry, state
+
+
+def _manual_config_updates() -> tuple[ParameterUpdate, ...]:
+    return (
+        replace_scalar_parameter(
+            "drive_frequency",
+            Quantity(value=5.2, unit="GHz"),
         ),
     )

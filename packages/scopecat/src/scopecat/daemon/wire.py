@@ -45,10 +45,15 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetReceipt,
     MeasurementDatasetSeal,
 )
+from scopecat.records.parameter import (
+    ParameterAtomValue,
+    StoredParameterValue,
+)
 from scopecat.records.parameter_change import (
     ParameterChangeDecisionRecord,
     ParameterChangeProposal,
     ParameterChangeReviewState,
+    ParameterValueDelta,
 )
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
@@ -128,6 +133,90 @@ class ConfigImportReceipt(_WireModel):
         "scopecat.config_import_receipt.v1"
     )
     entry: ConfigRegistryEntry
+
+
+class ReplaceConfigParameter(_WireModel):
+    kind: Literal["replace_parameter"] = "replace_parameter"
+    value: StoredParameterValue
+
+
+class UpdateConfigParameterRows(_WireModel):
+    kind: Literal["update_parameter_rows"] = "update_parameter_rows"
+    parameter_id: NonEmptyText
+    key: dict[str, ParameterAtomValue]
+    values: dict[str, ParameterAtomValue]
+
+    @model_validator(mode="after")
+    def validate_values(self) -> UpdateConfigParameterRows:
+        if not self.key or not self.values:
+            raise ValueError("parameter row update requires key and values")
+        return self
+
+
+class InsertConfigParameterRows(_WireModel):
+    kind: Literal["insert_parameter_rows"] = "insert_parameter_rows"
+    parameter_id: NonEmptyText
+    rows: tuple[dict[str, ParameterAtomValue], ...] = Field(min_length=1)
+
+
+class DeleteConfigParameterRows(_WireModel):
+    kind: Literal["delete_parameter_rows"] = "delete_parameter_rows"
+    parameter_id: NonEmptyText
+    key: dict[str, ParameterAtomValue]
+
+    @field_validator("key")
+    @classmethod
+    def validate_key(
+        cls,
+        value: dict[str, ParameterAtomValue],
+    ) -> dict[str, ParameterAtomValue]:
+        if not value:
+            raise ValueError("parameter row deletion requires a key")
+        return value
+
+
+type ConfigParameterUpdate = Annotated[
+    ReplaceConfigParameter
+    | UpdateConfigParameterRows
+    | InsertConfigParameterRows
+    | DeleteConfigParameterRows,
+    Field(discriminator="kind"),
+]
+
+
+class ConfigDraftCommand(_WireModel):
+    """Typed parameter edits against one observed active registry generation."""
+
+    schema_version: Literal["scopecat.config_draft_command.v1"] = (
+        "scopecat.config_draft_command.v1"
+    )
+    base_entry_id: NonEmptyText
+    base_content_hash: ConfigContentHash
+    base_generation: int = Field(ge=1)
+    candidate_id: NonEmptyText
+    updates: tuple[ConfigParameterUpdate, ...] = Field(min_length=1)
+
+
+class ConfigDraftRegistrationCommand(_WireModel):
+    """Register a revalidated draft without changing the active entry."""
+
+    schema_version: Literal["scopecat.config_draft_registration_command.v1"] = (
+        "scopecat.config_draft_registration_command.v1"
+    )
+    draft: ConfigDraftCommand
+    expected_result_content_hash: ConfigContentHash
+    entry_id: NonEmptyText
+    registered_by: NonEmptyText
+    note: str = ""
+
+
+class ConfigDraftRegistrationReceipt(_WireModel):
+    schema_version: Literal["scopecat.config_draft_registration_receipt.v1"] = (
+        "scopecat.config_draft_registration_receipt.v1"
+    )
+    entry: ConfigRegistryEntry
+    result_content_hash: ConfigContentHash
+    deltas: tuple[ParameterValueDelta, ...] = Field(min_length=1)
 
 
 class ConfigEntryActivationCommand(_WireModel):
@@ -809,11 +898,16 @@ __all__ = [
     "CollectionResolveCommand",
     "CollectionResolveReceipt",
     "ConfigActivationReceipt",
+    "ConfigDraftCommand",
+    "ConfigDraftRegistrationCommand",
+    "ConfigDraftRegistrationReceipt",
     "ConfigEntryActivationCommand",
     "ConfigImportReceipt",
+    "ConfigParameterUpdate",
     "ConfigRollbackCommand",
     "DelegatedPlanSummary",
     "DelegatedRunSubmission",
+    "DeleteConfigParameterRows",
     "DirectConfigImportCommand",
     "ExecutionMode",
     "ExecutionRecoveryRequest",
@@ -824,6 +918,7 @@ __all__ = [
     "ExecutorLease",
     "ExecutorStartRequest",
     "ExperimentCatalog",
+    "InsertConfigParameterRows",
     "ManagedRunSubmission",
     "MeasurementAppendCommand",
     "MeasurementAppendReceipt",
@@ -834,6 +929,7 @@ __all__ = [
     "PayloadCommitCommand",
     "PayloadCommitReceipt",
     "RegisteredExperimentDescriptor",
+    "ReplaceConfigParameter",
     "ResourceClaimDescriptor",
     "ResourceClaimKind",
     "RunAdmission",
@@ -844,4 +940,5 @@ __all__ = [
     "TerminalRecordSetWrite",
     "TerminalRunCommitCommand",
     "TerminalRunCommitReceipt",
+    "UpdateConfigParameterRows",
 ]

@@ -17,6 +17,7 @@ from scopecat.control.models import (
 )
 from scopecat.daemon.views import (
     ActiveConfigView,
+    ConfigDraftPreview,
     ConfigEntryView,
     ConfigRegistryView,
     DaemonHealth,
@@ -45,6 +46,9 @@ from scopecat.daemon.wire import (
     CollectionResolveCommand,
     CollectionResolveReceipt,
     ConfigActivationReceipt,
+    ConfigDraftCommand,
+    ConfigDraftRegistrationCommand,
+    ConfigDraftRegistrationReceipt,
     ConfigEntryActivationCommand,
     ConfigImportReceipt,
     ConfigRollbackCommand,
@@ -101,6 +105,16 @@ class DaemonBackend(Protocol):
         self,
         command: DirectConfigImportCommand,
     ) -> ConfigImportReceipt: ...
+
+    def preview_config_draft(
+        self,
+        command: ConfigDraftCommand,
+    ) -> ConfigDraftPreview: ...
+
+    def register_config_draft(
+        self,
+        command: ConfigDraftRegistrationCommand,
+    ) -> ConfigDraftRegistrationReceipt: ...
 
     def activate_config_entry(
         self,
@@ -321,6 +335,18 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         command: DirectConfigImportCommand,
     ) -> ConfigImportReceipt:
         return backend.import_direct_config(command)
+
+    @app.post(f"{_API_PREFIX}/config-registry/drafts/preview")
+    def preview_config_draft(
+        command: ConfigDraftCommand,
+    ) -> ConfigDraftPreview:
+        return backend.preview_config_draft(command)
+
+    @app.post(f"{_API_PREFIX}/config-registry/drafts/register", status_code=201)
+    def register_config_draft(
+        command: ConfigDraftRegistrationCommand,
+    ) -> ConfigDraftRegistrationReceipt:
+        return backend.register_config_draft(command)
 
     @app.post(f"{_API_PREFIX}/config-registry/active")
     def activate_config_entry(

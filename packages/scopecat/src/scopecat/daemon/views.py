@@ -15,6 +15,7 @@ from scopecat.config.registry.records import (
 )
 from scopecat.control.models import ControlRun, ResourceKey
 from scopecat.kernel.json_types import JsonValue
+from scopecat.kernel.problems import Problem, has_blocking_problems
 from scopecat.measurements.results import MeasurementDataset
 from scopecat.records.analysis import AnalysisRecord
 from scopecat.records.artifact import RunContentEntry
@@ -28,6 +29,7 @@ from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.parameter_change import (
     ParameterChangeDecisionRecord,
     ParameterChangeProposal,
+    ParameterValueDelta,
 )
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
@@ -95,6 +97,39 @@ class ConfigEntryView(_ViewModel):
     def validate_identity(self) -> ConfigEntryView:
         if config_content_hash(self.config) != self.entry.content_hash:
             raise ValueError("config entry view identity is inconsistent")
+        return self
+
+
+class ConfigDraftPreview(_ViewModel):
+    """Normalized result of transient typed edits against an active config."""
+
+    schema_version: Literal["scopecat.config_draft_preview.v1"] = (
+        "scopecat.config_draft_preview.v1"
+    )
+    valid: bool
+    base_entry: ConfigRegistryEntry
+    base_generation: int
+    base_content_hash: ConfigContentHash
+    config: ConfigProfileSnapshot | None = None
+    result_content_hash: ConfigContentHash | None = None
+    deltas: tuple[ParameterValueDelta, ...] = ()
+    problems: tuple[Problem, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_result(self) -> ConfigDraftPreview:
+        if self.base_entry.content_hash != self.base_content_hash:
+            raise ValueError("config draft preview base identity is inconsistent")
+        if self.valid:
+            if (
+                self.config is None
+                or self.result_content_hash is None
+                or not self.deltas
+                or config_content_hash(self.config) != self.result_content_hash
+                or has_blocking_problems(self.problems)
+            ):
+                raise ValueError("valid config draft preview is incomplete")
+        elif self.config is not None or self.result_content_hash is not None:
+            raise ValueError("invalid config draft preview cannot expose a candidate")
         return self
 
 
@@ -336,6 +371,7 @@ def _validate_base64(value: str) -> None:
 
 __all__ = [
     "ActiveConfigView",
+    "ConfigDraftPreview",
     "ConfigEntryView",
     "ConfigRegistryView",
     "DaemonHealth",

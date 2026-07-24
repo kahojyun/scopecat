@@ -26,6 +26,13 @@ from scopecat.compiler.frontend.invocation import (
     prepare_invocation,
 )
 from scopecat.config.candidates import CandidateConfig
+from scopecat.config.drafts import ConfigDraft
+from scopecat.config.parameter_updates import (
+    InsertParameterRows,
+    ParameterUpdate,
+    ReplaceParameter,
+    UpdateParameterRows,
+)
 from scopecat.control.models import (
     ControlRunState,
     EventPage,
@@ -38,6 +45,7 @@ from scopecat.daemon.execution import (
 )
 from scopecat.daemon.views import (
     ActiveConfigView,
+    ConfigDraftPreview,
     ConfigEntryView,
     ConfigRegistryView,
     DaemonHealth,
@@ -61,20 +69,27 @@ from scopecat.daemon.wire import (
     CandidateConfigActivationCommand,
     CandidateConfigActivationReceipt,
     ConfigActivationReceipt,
+    ConfigDraftCommand,
+    ConfigDraftRegistrationCommand,
+    ConfigDraftRegistrationReceipt,
     ConfigEntryActivationCommand,
     ConfigImportReceipt,
     ConfigRollbackCommand,
     DelegatedPlanSummary,
     DelegatedRunSubmission,
+    DeleteConfigParameterRows,
     DirectConfigImportCommand,
     ExecutorLease,
     ExperimentCatalog,
+    InsertConfigParameterRows,
     ManagedRunSubmission,
     ParameterProposalReviewCommand,
     ParameterProposalReviewReceipt,
+    ReplaceConfigParameter,
     ResourceClaimDescriptor,
     RunAdmission,
     RunAttachmentCommand,
+    UpdateConfigParameterRows,
 )
 from scopecat.execution.interpreter import execute_admitted_run
 from scopecat.execution.observation import RuntimeEventSink, RuntimePayloadObserver
@@ -173,6 +188,58 @@ class DaemonConnection:
             DirectConfigImportCommand(
                 entry_id=entry_id,
                 config=config,
+                registered_by=registered_by,
+                note=note,
+            )
+        )
+
+    def preview_config_draft(
+        self,
+        draft: ConfigDraft,
+        *,
+        candidate_id: str | None = None,
+    ) -> ConfigDraftPreview:
+        active = self.active_config()
+        if draft.base_content_hash != active.entry.content_hash:
+            raise ValueError("config draft base is no longer the active configuration")
+        return self._client.preview_config_draft(
+            ConfigDraftCommand(
+                base_entry_id=active.entry.id,
+                base_content_hash=active.entry.content_hash,
+                base_generation=active.active_state.generation,
+                candidate_id=candidate_id or f"{active.config.id}.draft",
+                updates=_config_parameter_updates(draft.updates),
+            )
+        )
+
+    def register_config_draft(
+        self,
+        draft: ConfigDraft,
+        *,
+        preview: ConfigDraftPreview,
+        entry_id: str,
+        registered_by: str,
+        note: str = "",
+    ) -> ConfigDraftRegistrationReceipt:
+        if (
+            not preview.valid
+            or preview.config is None
+            or preview.result_content_hash is None
+        ):
+            raise ValueError("only a valid config draft preview can be registered")
+        if draft.base_content_hash != preview.base_content_hash:
+            raise ValueError("config draft does not match its reviewed preview base")
+        return self._client.register_config_draft(
+            ConfigDraftRegistrationCommand(
+                draft=ConfigDraftCommand(
+                    base_entry_id=preview.base_entry.id,
+                    base_content_hash=preview.base_content_hash,
+                    base_generation=preview.base_generation,
+                    candidate_id=preview.config.id,
+                    updates=_config_parameter_updates(draft.updates),
+                ),
+                expected_result_content_hash=preview.result_content_hash,
+                entry_id=entry_id,
                 registered_by=registered_by,
                 note=note,
             )
@@ -639,6 +706,49 @@ class DaemonConnection:
     def _config_generation(self) -> int:
         state = self.config_registry().active_state
         return 0 if state is None else state.generation
+
+
+def _config_parameter_updates(
+    updates: Sequence[ParameterUpdate],
+) -> tuple[
+    ReplaceConfigParameter
+    | UpdateConfigParameterRows
+    | InsertConfigParameterRows
+    | DeleteConfigParameterRows,
+    ...,
+]:
+    payloads: list[
+        ReplaceConfigParameter
+        | UpdateConfigParameterRows
+        | InsertConfigParameterRows
+        | DeleteConfigParameterRows
+    ] = []
+    for update in updates:
+        if isinstance(update, ReplaceParameter):
+            payloads.append(ReplaceConfigParameter(value=update.value))
+        elif isinstance(update, UpdateParameterRows):
+            payloads.append(
+                UpdateConfigParameterRows(
+                    parameter_id=update.parameter_id,
+                    key=dict(update.key),
+                    values=dict(update.values),
+                )
+            )
+        elif isinstance(update, InsertParameterRows):
+            payloads.append(
+                InsertConfigParameterRows(
+                    parameter_id=update.parameter_id,
+                    rows=tuple(dict(row) for row in update.rows),
+                )
+            )
+        else:
+            payloads.append(
+                DeleteConfigParameterRows(
+                    parameter_id=update.parameter_id,
+                    key=dict(update.key),
+                )
+            )
+    return tuple(payloads)
 
 
 _JSON_MAPPING = TypeAdapter(dict[str, JsonValue])

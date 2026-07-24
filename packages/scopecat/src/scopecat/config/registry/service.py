@@ -22,7 +22,11 @@ from dataclasses import dataclass
 from pydantic import BaseModel
 from pydantic_core import PydanticSerializationError
 
-from scopecat.config.parameter_updates import merge_parameter_change_deltas
+from scopecat.config.drafts import ConfigDraft, ConfigDraftCheckResult
+from scopecat.config.parameter_updates import (
+    ParameterUpdate,
+    merge_parameter_change_deltas,
+)
 from scopecat.config.registry.ports import (
     ConfigRegistryRepository,
     WorkspaceUnitOfWork,
@@ -37,6 +41,7 @@ from scopecat.config.registry.records import (
     ConfigRegistryIndex,
     DirectConfigRegistrySource,
     EvidenceContentHash,
+    ManualConfigDraftRegistrySource,
 )
 from scopecat.kernel.errors import (
     CheckFailed,
@@ -79,6 +84,146 @@ SAFE_ENTRY_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 class _ValidatedCandidateSource:
     config: ConfigProfileSnapshot
     source: CandidateConfigRegistrySource
+
+
+@dataclass(frozen=True, slots=True)
+class ManualConfigDraftResult:
+    """One daemon-authoritative check against an observed active entry."""
+
+    base_entry: ConfigRegistryEntry
+    base_generation: int
+    check: ConfigDraftCheckResult
+
+
+def preview_manual_config_draft(
+    *,
+    unit_of_work: WorkspaceUnitOfWorkFactory,
+    base_entry_id: str,
+    base_config_content_hash: ConfigContentHash,
+    base_generation: int,
+    candidate_id: str,
+    updates: Sequence[ParameterUpdate],
+) -> ManualConfigDraftResult:
+    """Check transient typed edits without committing registry state."""
+
+    with unit_of_work() as work:
+        return _check_manual_config_draft_locked(
+            work=work,
+            base_entry_id=base_entry_id,
+            base_config_content_hash=base_config_content_hash,
+            base_generation=base_generation,
+            candidate_id=candidate_id,
+            updates=updates,
+        )
+
+
+def register_manual_config_draft(
+    *,
+    unit_of_work: WorkspaceUnitOfWorkFactory,
+    base_entry_id: str,
+    base_config_content_hash: ConfigContentHash,
+    base_generation: int,
+    candidate_id: str,
+    updates: Sequence[ParameterUpdate],
+    expected_result_content_hash: ConfigContentHash,
+    entry_id: str,
+    registered_by: str,
+    note: str = "",
+) -> tuple[ConfigRegistryEntry, ManualConfigDraftResult]:
+    """Recheck and atomically register typed edits without activating them."""
+
+    _validate_entry_id(entry_id)
+    _validate_required_text(registered_by, field="registered_by")
+    with unit_of_work() as work:
+        result = _check_manual_config_draft_locked(
+            work=work,
+            base_entry_id=base_entry_id,
+            base_config_content_hash=base_config_content_hash,
+            base_generation=base_generation,
+            candidate_id=candidate_id,
+            updates=updates,
+        )
+        if not result.check.ok:
+            raise CheckFailed(result.check.problems)
+        candidate = result.check.candidate
+        assert candidate is not None  # noqa: S101
+        result_content_hash = config_content_hash(candidate)
+        if result_content_hash != expected_result_content_hash:
+            raise _registry_failure(
+                Conflict,
+                code="config_registry.config_draft_result_changed",
+                category=ProblemCategory.CONFLICT,
+                message="config draft result changed since it was previewed",
+                location=_registry_model_location("expected_result_content_hash"),
+                details={
+                    "expected_content_hash": expected_result_content_hash,
+                    "actual_content_hash": result_content_hash,
+                },
+            )
+        entry = ConfigRegistryEntry(
+            id=entry_id,
+            config_ref=work.registry.config_ref(entry_id),
+            content_hash=result_content_hash,
+            source=ManualConfigDraftRegistrySource(
+                base_entry_id=result.base_entry.id,
+                base_config_content_hash=result.base_entry.content_hash,
+                base_registry_generation=result.base_generation,
+            ),
+            registered_by=registered_by,
+            note=note,
+        )
+        return (
+            _commit_registration_locked(
+                repository=work.registry,
+                requested_entry=entry,
+                config=candidate,
+            ),
+            result,
+        )
+
+
+def _check_manual_config_draft_locked(
+    *,
+    work: WorkspaceUnitOfWork,
+    base_entry_id: str,
+    base_config_content_hash: ConfigContentHash,
+    base_generation: int,
+    candidate_id: str,
+    updates: Sequence[ParameterUpdate],
+) -> ManualConfigDraftResult:
+    state = _load_active_config_registry_state_locked(work.registry)
+    _require_expected_generation(
+        state,
+        base_generation,
+        active_ref=work.registry.active_ref,
+    )
+    if (
+        state.active_entry_id != base_entry_id
+        or state.active_entry_content_hash != base_config_content_hash
+    ):
+        raise _registry_failure(
+            Conflict,
+            code="config_registry.config_draft_base_changed",
+            category=ProblemCategory.CONFLICT,
+            message="config draft base is no longer the active entry",
+            location=_registry_model_location("base_entry_id"),
+            related_locations=(_registry_storage_location(work.registry.active_ref),),
+            details={
+                "expected_entry_id": base_entry_id,
+                "actual_entry_id": state.active_entry_id,
+                "expected_content_hash": base_config_content_hash,
+                "actual_content_hash": state.active_entry_content_hash,
+            },
+        )
+    entry = _load_config_registry_entry_locked(entry_id=base_entry_id, work=work)
+    _validate_active_entry_identity(work.registry, state, entry)
+    base = _read_entry_config(work.registry, entry)
+    check = ConfigDraft(base).apply(*updates).check(candidate_id=candidate_id)
+    return ManualConfigDraftResult(
+        base_entry=entry,
+        base_generation=state.generation,
+        check=check,
+    )
 
 
 def register_config_profile(
@@ -512,12 +657,28 @@ def _record_content_hash(model: BaseModel) -> EvidenceContentHash:
     return "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
-def _validate_candidate_entry_evidence_locked(
+def _validate_derived_entry_source_locked(
     *,
     work: WorkspaceUnitOfWork,
     entry: ConfigRegistryEntry,
     config: ConfigProfileSnapshot,
 ) -> None:
+    if isinstance(entry.source, ManualConfigDraftRegistrySource):
+        base_entry = _load_committed_config_registry_entry_locked(
+            entry_id=entry.source.base_entry_id,
+            work=work,
+        )
+        if base_entry.content_hash != entry.source.base_config_content_hash:
+            raise _registry_failure(
+                DataIntegrityError,
+                code="config_registry.config_draft_base_mismatch",
+                category=ProblemCategory.DATA_INTEGRITY,
+                message="manual config draft base no longer matches its source",
+                location=_registry_model_location("entries", entry.id, "source"),
+                details={"entry_id": entry.id},
+            )
+        _read_entry_config(work.registry, base_entry)
+        return
     if not isinstance(entry.source, CandidateConfigRegistrySource):
         return
     validated = _validate_candidate_source_records(
@@ -573,7 +734,7 @@ def _load_config_registry_entry_locked(
         work=work,
     )
     config = _read_entry_config(work.registry, entry)
-    _validate_candidate_entry_evidence_locked(
+    _validate_derived_entry_source_locked(
         work=work,
         entry=entry,
         config=config,
@@ -627,7 +788,7 @@ def _validate_indexed_entry_locked(
         indexed_entry=indexed_entry,
     )
     config = _read_entry_config(work.registry, entry)
-    _validate_candidate_entry_evidence_locked(
+    _validate_derived_entry_source_locked(
         work=work,
         entry=entry,
         config=config,
@@ -783,7 +944,7 @@ def _activate_config_registry_entry_locked(
         entry_id=entry_id,
         work=work,
     )
-    _validate_candidate_base(current_state, entry, work)
+    _validate_derived_entry_base(current_state, entry, work)
     _validate_entry_config(work.registry, entry)
     previous_entry_id = (
         current_state.active_entry_id if current_state is not None else None
@@ -1178,6 +1339,14 @@ def _same_registration(
             existing.registered_by == requested.registered_by
             and existing.note == requested.note
         )
+    if isinstance(existing.source, ManualConfigDraftRegistrySource) and isinstance(
+        requested.source, ManualConfigDraftRegistrySource
+    ):
+        return (
+            existing.source == requested.source
+            and existing.registered_by == requested.registered_by
+            and existing.note == requested.note
+        )
     if isinstance(existing.source, CandidateConfigRegistrySource) and isinstance(
         requested.source, CandidateConfigRegistrySource
     ):
@@ -1344,7 +1513,7 @@ def _validate_active_entry_identity(
     )
 
 
-def _validate_candidate_base(
+def _validate_derived_entry_base(
     state: ConfigRegistryActiveState | None,
     entry: ConfigRegistryEntry,
     work: WorkspaceUnitOfWork,
@@ -1359,9 +1528,14 @@ def _validate_candidate_base(
     _read_entry_config(work.registry, active_entry)
     if state.active_entry_id == entry.id:
         return
-    if not isinstance(entry.source, CandidateConfigRegistrySource):
+    if isinstance(
+        entry.source,
+        (CandidateConfigRegistrySource, ManualConfigDraftRegistrySource),
+    ):
+        base_content_hash = entry.source.base_config_content_hash
+    else:
         return
-    if entry.source.base_config_content_hash == active_entry.content_hash:
+    if base_content_hash == active_entry.content_hash:
         return
     raise _registry_failure(
         Conflict,
@@ -1377,7 +1551,7 @@ def _validate_candidate_base(
         related_locations=(_registry_storage_location(work.registry.active_ref),),
         details={
             "entry_id": entry.id,
-            "candidate_base_content_hash": entry.source.base_config_content_hash,
+            "candidate_base_content_hash": base_content_hash,
             "active_content_hash": active_entry.content_hash,
         },
     )
@@ -1454,6 +1628,7 @@ def _registry_storage_location(
 __all__ = [
     "ACTIVE_CONFIG_REGISTRY_ENTRY_SELECTOR",
     "ConfigRegistryRepository",
+    "ManualConfigDraftResult",
     "WorkspaceUnitOfWork",
     "WorkspaceUnitOfWorkFactory",
     "activate_config_registry_entry",
@@ -1464,10 +1639,12 @@ __all__ = [
     "load_active_config_registry_state",
     "load_config_registry_config",
     "load_config_registry_entry",
+    "preview_manual_config_draft",
     "register_and_activate_candidate_config",
     "register_and_activate_config_profile",
     "register_candidate_config",
     "register_config_profile",
+    "register_manual_config_draft",
     "resolve_config_registry_config_source",
     "rollback_config_registry",
 ]
