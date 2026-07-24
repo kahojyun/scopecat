@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import json
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from threading import Barrier
 
 import pytest
 from pydantic import ValidationError
@@ -145,24 +143,18 @@ def test_parameter_change_decision_history_fails_closed_on_corruption(
     )
 
 
-def test_concurrent_parameter_decisions_preserve_every_append(
-    tmp_path: Path,
-) -> None:
+def test_parameter_decisions_preserve_every_append(tmp_path: Path) -> None:
     run_id = signal_run_with_parameter_change(tmp_path)
-    barrier = Barrier(2)
-
-    def approve(actor: str) -> str:
-        barrier.wait()
-        return review_parameter_change_proposal(
+    event_ids = {
+        review_parameter_change_proposal(
             run_id=run_id,
             selector="best-signal",
             services=local_workspace_services(tmp_path),
             state="approved",
             reviewer=actor,
         ).event_id
-
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        event_ids = set(executor.map(approve, ("reviewer-a", "reviewer-b")))
+        for actor in ("reviewer-a", "reviewer-b")
+    }
 
     decisions = list_parameter_change_decisions(
         run_id=run_id,

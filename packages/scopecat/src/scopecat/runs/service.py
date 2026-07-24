@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import cast
 
 from scopecat.application.services import WorkspaceServices
@@ -22,7 +23,7 @@ from scopecat.config.resolution import (
     ConfigProfileInput,
     resolve_experiment_config,
 )
-from scopecat.execution.interpreter import interpret_run_program
+from scopecat.execution.interpreter import admit_run, execute_admitted_run
 from scopecat.execution.observation import RuntimeEventSink, RuntimePayloadObserver
 from scopecat.execution.program import RunProgram
 from scopecat.kernel.errors import CheckFailed, DataIntegrityError, ProblemFailure
@@ -70,6 +71,16 @@ from scopecat.runs.refs import (
     RUN_REQUEST_REF,
 )
 from scopecat.runs.repository import RunRepository
+
+
+@dataclass(frozen=True, slots=True)
+class PlannedRun:
+    """Transient program paired with the durable facts required for admission."""
+
+    config: ConfigProfileSnapshot
+    request: RunRequest | None
+    program: RunProgram
+    config_source: RunConfigSource | None = None
 
 
 def list_runs(*, services: WorkspaceServices) -> list[RunManifest]:
@@ -328,27 +339,28 @@ def start_run(
     payload_observer: RuntimePayloadObserver | None = None,
 ) -> RunManifest:
     compiled_invocation = compile_prepared_invocation(experiment)
-    return _start_compiled_run(
+    planned = _plan_compiled_run(
         config=config,
         experiment=compiled_invocation,
-        services=services,
         system=system,
         config_source=config_source,
+    )
+    return _execute_planned_run(
+        planned,
+        services=services,
+        system=system,
         event_sink=event_sink,
         payload_observer=payload_observer,
     )
 
 
-def _start_compiled_run(
+def _plan_compiled_run(
     *,
     config: ConfigProfileSnapshot,
     experiment: CompiledInvocation,
-    services: WorkspaceServices,
     system: ExperimentSystem | None,
     config_source: RunConfigSource | None,
-    event_sink: RuntimeEventSink | None,
-    payload_observer: RuntimePayloadObserver | None,
-) -> RunManifest:
+) -> PlannedRun:
     environment = validate_config_environment(config)
     if not environment.valid:
         raise CheckFailed(environment.problems)
@@ -365,17 +377,60 @@ def _start_compiled_run(
         config=config,
         linked=linked,
     )
-    manifest = interpret_run_program(
+    return PlannedRun(
         config=config,
-        program=program,
         request=resolved.request,
+        program=program,
+        config_source=config_source,
+    )
+
+
+def _execute_planned_run(
+    planned: PlannedRun,
+    *,
+    services: WorkspaceServices,
+    system: ExperimentSystem | None,
+    event_sink: RuntimeEventSink | None,
+    payload_observer: RuntimePayloadObserver | None,
+) -> RunManifest:
+    accepted = admit_run(
+        config=planned.config,
+        request=planned.request,
+        repository=services.runs,
+        config_source=planned.config_source,
+    )
+    return execute_admitted_run(
+        run_id=accepted.run_id,
+        program=planned.program,
         services=services.execution,
         instrument_provider=None if system is None else system.provider,
-        config_source=config_source,
         event_sink=event_sink,
         payload_observer=payload_observer,
     )
-    return manifest
+
+
+def plan_experiment(
+    experiment: PreparedInvocation,
+    *,
+    services: WorkspaceServices,
+    config: str | ConfigProfileSnapshot | CandidateConfig = "active",
+    config_profile: ConfigProfileInput | None = None,
+    system: ExperimentSystem | None = None,
+) -> PlannedRun:
+    """Compile a runnable program without creating durable run state."""
+
+    compiled_invocation = compile_prepared_invocation(experiment)
+    config_result = resolve_experiment_config(
+        services=services,
+        config=config,
+        config_profile=config_profile,
+    )
+    return _plan_compiled_run(
+        config=config_result.config,
+        experiment=compiled_invocation,
+        system=system,
+        config_source=config_result.config_source,
+    )
 
 
 def run_experiment(
@@ -388,18 +443,17 @@ def run_experiment(
     event_sink: RuntimeEventSink | None = None,
     payload_observer: RuntimePayloadObserver | None = None,
 ) -> RunManifest:
-    compiled_invocation = compile_prepared_invocation(experiment)
-    config_result = resolve_experiment_config(
+    planned = plan_experiment(
+        experiment,
         services=services,
         config=config,
         config_profile=config_profile,
+        system=system,
     )
-    return _start_compiled_run(
-        config=config_result.config,
-        experiment=compiled_invocation,
+    return _execute_planned_run(
+        planned,
         services=services,
         system=system,
-        config_source=config_result.config_source,
         event_sink=event_sink,
         payload_observer=payload_observer,
     )

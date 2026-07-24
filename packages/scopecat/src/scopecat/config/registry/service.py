@@ -294,49 +294,30 @@ def _register_candidate_config_locked(
             message="candidate config registration requires parameter proposals",
             location=_registry_model_location("proposal_ids"),
         )
-    with work.runs.run_lock(run_id):
-        validated = _validate_candidate_source_records_locked(
-            storage=work.runs,
-            run_id=run_id,
-            proposal_ids=proposal_ids,
-            base_config_content_hash=base_config_content_hash,
-            requested_config=config,
-        )
-        durable_config = validated.config
-        entry = ConfigRegistryEntry(
-            id=entry_id,
-            config_ref=work.registry.config_ref(entry_id),
-            content_hash=config_content_hash(durable_config),
-            source=validated.source,
-            registered_by=registered_by,
-            note=note,
-        )
-        return _commit_registration_locked(
-            repository=work.registry,
-            requested_entry=entry,
-            config=durable_config,
-        )
+    validated = _validate_candidate_source_records(
+        storage=work.runs,
+        run_id=run_id,
+        proposal_ids=proposal_ids,
+        base_config_content_hash=base_config_content_hash,
+        requested_config=config,
+    )
+    durable_config = validated.config
+    entry = ConfigRegistryEntry(
+        id=entry_id,
+        config_ref=work.registry.config_ref(entry_id),
+        content_hash=config_content_hash(durable_config),
+        source=validated.source,
+        registered_by=registered_by,
+        note=note,
+    )
+    return _commit_registration_locked(
+        repository=work.registry,
+        requested_entry=entry,
+        config=durable_config,
+    )
 
 
 def _validate_candidate_source_records(
-    *,
-    work: WorkspaceUnitOfWork,
-    run_id: str,
-    proposal_ids: Sequence[str],
-    base_config_content_hash: ConfigContentHash,
-    requested_config: ConfigProfileSnapshot,
-) -> _ValidatedCandidateSource:
-    with work.runs.run_lock(run_id):
-        return _validate_candidate_source_records_locked(
-            storage=work.runs,
-            run_id=run_id,
-            proposal_ids=proposal_ids,
-            base_config_content_hash=base_config_content_hash,
-            requested_config=requested_config,
-        )
-
-
-def _validate_candidate_source_records_locked(
     *,
     storage: RunRepository,
     run_id: str,
@@ -538,7 +519,7 @@ def _validate_candidate_entry_evidence_locked(
     if not isinstance(entry.source, CandidateConfigRegistrySource):
         return
     validated = _validate_candidate_source_records(
-        work=work,
+        storage=work.runs,
         run_id=entry.source.run_id,
         proposal_ids=entry.source.proposal_ids,
         base_config_content_hash=entry.source.base_config_content_hash,

@@ -2,18 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Generator, Iterable
-from contextlib import contextmanager, suppress
-from fcntl import LOCK_EX, LOCK_UN, flock
+from collections.abc import Iterable
 from pathlib import Path
 from stat import S_ISDIR
 
 from pydantic import BaseModel, ValidationError
 from pydantic_core import PydanticSerializationError
 
-from scopecat.adapters.filesystem.io import (
-    ensure_durable_directory,
-)
 from scopecat.adapters.filesystem.io import (
     read_jsonl as _read_jsonl,
 )
@@ -114,20 +109,6 @@ class FilesystemRunRepository:
     def write_manifest(self, manifest: RunManifest) -> None:
         self.write_model(manifest.run_id, MANIFEST_REF, manifest)
 
-    @contextmanager
-    def run_lock(self, run_id: str) -> Generator[None]:
-        """Serialize mutations of one run's content and manifest.
-
-        Callers that also hold the config-registry lock must acquire that lock
-        first. This lock is intentionally not re-entrant; locked helpers avoid
-        acquiring it a second time.
-        """
-
-        lock_ref = ".run.lock"
-        lock_path = self.ref_path(run_id, lock_ref)
-        with _exclusive_lock(lock_path, run_id=run_id, ref=lock_ref):
-            yield
-
     def list_runs(self) -> list[RunManifest]:
         runs_root = self.layout.validated_runs_root()
         try:
@@ -183,17 +164,16 @@ class FilesystemRunRepository:
             self.write_model(run_id, write.ref, write.value)
         for write in commit.record_sets:
             self.write_jsonl(run_id, write.ref, write.records)
-        with self.run_lock(run_id):
-            current = self.read_manifest(run_id)
-            manifest = commit.manifest.model_copy(
-                update={
-                    "contents": upsert_contents(
-                        current.contents,
-                        commit.manifest.contents,
-                    )
-                }
-            )
-            self.write_manifest(manifest)
+        current = self.read_manifest(run_id)
+        manifest = commit.manifest.model_copy(
+            update={
+                "contents": upsert_contents(
+                    current.contents,
+                    commit.manifest.contents,
+                )
+            }
+        )
+        self.write_manifest(manifest)
         return manifest
 
     def read_config_profile_snapshot(self, run_id: str) -> ConfigProfileSnapshot:
@@ -360,34 +340,6 @@ class FilesystemRunRepository:
         path = self.ref_path(run_id, ref)
         try:
             _write_bytes_atomic(path, content)
-        except OSError as error:
-            raise _storage_failure(run_id=run_id, ref=ref) from error
-
-
-@contextmanager
-def _exclusive_lock(
-    path: Path,
-    *,
-    ref: str,
-    run_id: str | None = None,
-) -> Generator[None]:
-    lock_file = None
-    try:
-        ensure_durable_directory(path.parent)
-        lock_file = path.open("a+b")
-        flock(lock_file.fileno(), LOCK_EX)
-    except OSError as error:
-        if lock_file is not None:
-            with suppress(OSError):
-                lock_file.close()
-        raise _storage_failure(run_id=run_id, ref=ref) from error
-    assert lock_file is not None  # noqa: S101
-    try:
-        yield
-    finally:
-        try:
-            flock(lock_file.fileno(), LOCK_UN)
-            lock_file.close()
         except OSError as error:
             raise _storage_failure(run_id=run_id, ref=ref) from error
 

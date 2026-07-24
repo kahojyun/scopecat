@@ -7,7 +7,6 @@ are selected by a composition root, never by a use case or executor.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -48,8 +47,6 @@ class RunRepository(Protocol):
     def read_manifest(self, run_id: str) -> RunManifest: ...
 
     def write_manifest(self, manifest: RunManifest) -> None: ...
-
-    def run_lock(self, run_id: str) -> AbstractContextManager[None]: ...
 
     def list_runs(self) -> list[RunManifest]: ...
 

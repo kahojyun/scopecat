@@ -1,9 +1,7 @@
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from threading import Event
 
 import pytest
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 
 from scopecat.adapters.filesystem.run_repository import FilesystemRunRepository
 from scopecat.execution.evidence import (
@@ -81,11 +79,8 @@ def test_terminal_evidence_can_omit_instrument_state(tmp_path: Path) -> None:
     assert storage.read_manifest(run_id) == committed
 
 
-def test_terminal_manifest_preserves_a_concurrent_attachment(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    run_id = "run-concurrent-attachment"
+def test_terminal_manifest_preserves_existing_attachments(tmp_path: Path) -> None:
+    run_id = "run-existing-attachment"
     outcome = _successful_outcome(run_id)
     terminal = build_execution_manifest(
         run_id=run_id,
@@ -120,51 +115,22 @@ def test_terminal_manifest_preserves_a_concurrent_attachment(
         kind="workflow_decision",
         content_hash="approval-content",
     )
-    terminal_content_ready = Event()
-    attachment_committed = Event()
-    original_write_model = storage.write_model
-
-    def synchronized_write_model(
-        selected_run_id: str,
-        ref: str,
-        model: BaseModel,
-    ) -> None:
-        original_write_model(selected_run_id, ref, model)
-        if selected_run_id == run_id and ref == run_outcome_ref():
-            terminal_content_ready.set()
-            if not attachment_committed.wait(timeout=5):
-                raise TimeoutError("concurrent attachment did not commit")
-
-    monkeypatch.setattr(storage, "write_model", synchronized_write_model)
-
-    def attach() -> None:
-        if not terminal_content_ready.wait(timeout=5):
-            raise TimeoutError("terminal content was not ready")
-        try:
-            write_manifest_artifacts(
-                storage=storage,
-                manifest=storage.read_manifest(run_id),
-                artifacts=[attachment],
-            )
-            write_manifest_records(
-                storage=storage,
-                manifest=storage.read_manifest(run_id),
-                records=[workflow_record],
-            )
-        finally:
-            attachment_committed.set()
-
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        attachment_future = executor.submit(attach)
-        terminal_future = executor.submit(
-            storage.commit_terminal,
-            TerminalRunCommit(
-                manifest=terminal,
-                models=(RunModelWrite(ref=run_outcome_ref(), value=outcome),),
-            ),
+    write_manifest_artifacts(
+        storage=storage,
+        manifest=storage.read_manifest(run_id),
+        artifacts=[attachment],
+    )
+    write_manifest_records(
+        storage=storage,
+        manifest=storage.read_manifest(run_id),
+        records=[workflow_record],
+    )
+    committed = storage.commit_terminal(
+        TerminalRunCommit(
+            manifest=terminal,
+            models=(RunModelWrite(ref=run_outcome_ref(), value=outcome),),
         )
-        committed = terminal_future.result(timeout=10)
-        attachment_future.result(timeout=10)
+    )
 
     assert committed.artifacts == (attachment,)
     assert workflow_record in committed.records

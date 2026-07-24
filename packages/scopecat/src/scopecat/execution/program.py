@@ -14,6 +14,7 @@ from scopecat.execution.local.program import ComputeOperation, LocalOperation
 from scopecat.execution.points import RunPoint, RunPointCatalog
 from scopecat.kernel.resource_identity import ResourceClaim
 from scopecat.measurements.projection import MeasurementProjection
+from scopecat.records.config import ConfigContentHash
 from scopecat.sdk.domain.execution import PreparedDomainExecution
 from scopecat.sdk.instruments.contracts import (
     InstrumentDescription,
@@ -115,13 +116,14 @@ type RunOperation = RunCompute | RunCoverageBlock
 
 @dataclass(frozen=True, slots=True)
 class RunProgram:
-    """Closed, single-use residual effect program for one accepted run.
+    """Closed, single-use residual effect program awaiting durable admission.
 
     Logical point identity and measurement correlation are independent of how
     ``coverage`` partitions physical work. Concrete providers remain outside
     the program and are provisioned by the run boundary.
     """
 
+    config_content_hash: ConfigContentHash
     host: RunHostBinding | None
     preamble: tuple[RunCompute, ...]
     coverage: Iterator[RunCoverageBlock] = field(repr=False, compare=False)

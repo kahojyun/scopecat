@@ -8,14 +8,14 @@ from scopecat.config.changes import (
     load_parameter_change_proposal,
     parameter_change_proposal_from_updates,
     review_parameter_change_proposal,
-    write_parameter_change_proposal_contents_locked,
+    write_parameter_change_proposal_contents,
 )
 from scopecat.config.parameters import replace_scalar_parameter
 from scopecat.config.profiles import load_config_profile
 from scopecat.config.resolution import register_and_activate_candidate_config
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter import Quantity
-from scopecat.runs.manifest import write_manifest_records_locked
+from scopecat.runs.manifest import write_manifest_records
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 from tests.testkit.signal_testkit import execute_signal_run
 from tests.testkit.workflow_fixtures import load_invocation
@@ -52,17 +52,16 @@ def seed_best_signal_parameter_change(*, tmp_path: Path, run_id: str) -> None:
         reason="Best signal fixture parameter change.",
         confidence=1.0,
     )
-    with storage.run_lock(run_id):
-        entries = write_parameter_change_proposal_contents_locked(
-            storage=storage,
-            run_id=run_id,
-            proposals=(proposal,),
-        )
-        write_manifest_records_locked(
-            storage=storage,
-            run_id=run_id,
-            records=entries,
-        )
+    entries = write_parameter_change_proposal_contents(
+        storage=storage,
+        run_id=run_id,
+        proposals=(proposal,),
+    )
+    write_manifest_records(
+        storage=storage,
+        manifest=storage.read_manifest(run_id),
+        records=entries,
+    )
 
 
 def activate_best_signal(

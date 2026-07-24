@@ -277,6 +277,7 @@ def _compile_system_program(
             yield from materialize_region(region)
 
     return RunProgram(
+        config_content_hash=config_content_hash(config),
         host=host,
         preamble=tuple(
             RunCompute(operation)

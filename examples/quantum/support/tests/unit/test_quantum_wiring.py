@@ -11,7 +11,7 @@ from scopecat.compiler.linking.linked import (
 )
 from scopecat.composition.local import local_execution_services
 from scopecat.config.profiles import load_config_profile
-from scopecat.execution.interpreter import interpret_run_program
+from scopecat.execution.interpreter import admit_run, execute_admitted_run
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.planning.authoring import resolve_experiment
 from scopecat.planning.routing import RoutingView
@@ -248,13 +248,18 @@ def test_default_quantum_wiring_runtime_commands_include_channel_bindings(
     )
     program = sc.ExperimentSystem(provider=provider).compile(linked, config=config)
 
-    manifest = interpret_run_program(
+    services = local_execution_services(tmp_path)
+    accepted = admit_run(
         config=config,
-        program=program,
         request=resolved.request,
-        services=local_execution_services(tmp_path),
-        instrument_provider=provider,
+        repository=services.runs,
         config_source=resolved.config_source,
+    )
+    manifest = execute_admitted_run(
+        run_id=accepted.run_id,
+        program=program,
+        services=services,
+        instrument_provider=provider,
     )
 
     drive = next(

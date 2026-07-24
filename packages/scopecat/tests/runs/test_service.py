@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Literal
 
@@ -12,17 +13,90 @@ from scopecat.compiler.frontend.resolution import (
     compile_prepared_invocation,
 )
 from scopecat.composition.local import local_workspace_services
+from scopecat.execution.interpreter import admit_run, execute_admitted_run
 from scopecat.kernel.errors import CheckFailed
 from scopecat.planning.system import ExperimentSystem
-from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.runs.service import (
     check_experiment,
+    load_run_config,
+    load_run_request,
+    plan_experiment,
     run_experiment,
     start_run,
 )
 from tests.testkit.authoring import simple_template
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.workflow_fixtures import load_config, load_prepared_invocation
+
+
+def test_plan_admit_and_execute_are_separate_run_stages(tmp_path: Path) -> None:
+    services = local_workspace_services(tmp_path)
+    system = ExperimentSystem(provider=TestSignalInstrumentProvider())
+    planned = plan_experiment(
+        load_prepared_invocation(),
+        config=load_config(),
+        services=services,
+        system=system,
+    )
+
+    assert services.runs.list_runs() == []
+
+    accepted = admit_run(
+        config=planned.config,
+        request=planned.request,
+        repository=services.runs,
+        config_source=planned.config_source,
+    )
+
+    assert accepted.lifecycle == "accepted"
+    assert services.runs.read_manifest(accepted.run_id) == accepted
+    assert load_run_config(run_id=accepted.run_id, services=services) == planned.config
+    assert (
+        load_run_request(run_id=accepted.run_id, services=services) == planned.request
+    )
+
+    completed = execute_admitted_run(
+        run_id=accepted.run_id,
+        program=planned.program,
+        services=services.execution,
+        instrument_provider=system.provider,
+    )
+
+    assert completed.run_id == accepted.run_id
+    assert completed.status == "completed"
+    assert completed.config_content_hash == config_content_hash(planned.config)
+
+
+def test_admitted_execution_rejects_a_program_for_another_config(
+    tmp_path: Path,
+) -> None:
+    services = local_workspace_services(tmp_path)
+    system = ExperimentSystem(provider=TestSignalInstrumentProvider())
+    planned = plan_experiment(
+        load_prepared_invocation(),
+        config=load_config(),
+        services=services,
+        system=system,
+    )
+    accepted = admit_run(
+        config=planned.config,
+        request=planned.request,
+        repository=services.runs,
+    )
+
+    with pytest.raises(ValueError, match="does not match"):
+        execute_admitted_run(
+            run_id=accepted.run_id,
+            program=replace(
+                planned.program,
+                config_content_hash=f"sha256:{'0' * 64}",
+            ),
+            services=services.execution,
+            instrument_provider=system.provider,
+        )
+
+    assert services.runs.read_manifest(accepted.run_id).lifecycle == "accepted"
 
 
 def test_check_and_start_run_use_separate_paths(

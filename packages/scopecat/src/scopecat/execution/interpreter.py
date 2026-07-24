@@ -71,44 +71,74 @@ from scopecat.records.run import RunConfigSource, RunManifest, RunOutcome
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.repository import (
     RunModelWrite,
+    RunRepository,
     TerminalRunCommit,
 )
 from scopecat.sdk.instruments.contracts import InstrumentProvider
 
 
-def interpret_run_program(
+def admit_run(
     *,
     config: ConfigProfileSnapshot,
-    program: RunProgram,
     request: RunRequest | None,
+    repository: RunRepository,
+    config_source: RunConfigSource | None = None,
+) -> RunManifest:
+    """Persist operator intent and its exact config before execution is possible."""
+
+    accepted = RunManifest(
+        run_id=new_run_id(),
+        lifecycle="accepted",
+        config_content_hash=config_content_hash(config),
+        config_source=config_source,
+    )
+    repository.write_run_skeleton(
+        manifest=accepted,
+        request=request,
+        config=config,
+    )
+    return accepted
+
+
+def execute_admitted_run(
+    *,
+    run_id: str,
+    program: RunProgram,
     services: ExecutionServices,
     instrument_provider: InstrumentProvider | None = None,
-    config_source: RunConfigSource | None = None,
     event_sink: RuntimeEventSink | None = None,
     payload_observer: RuntimePayloadObserver | None = None,
 ) -> RunManifest:
-    """Interpret one closed residual effect program."""
+    """Execute a transient program against its authoritative accepted snapshot."""
 
-    return _interpret_run(
+    storage = services.runs
+    accepted = storage.read_manifest(run_id)
+    if accepted.lifecycle != "accepted":
+        msg = "run must be accepted before execution"
+        raise ValueError(msg)
+    if accepted.config_content_hash != program.config_content_hash:
+        msg = "run program config does not match the admitted snapshot"
+        raise ValueError(msg)
+    config = storage.read_config_profile_snapshot(run_id)
+    storage.write_manifest(accepted.model_copy(update={"lifecycle": "running"}))
+    return _execute_run(
+        accepted=accepted,
         config=config,
         program=program,
-        request=request,
         services=services,
         instrument_provider=instrument_provider,
-        config_source=config_source,
         event_sink=event_sink,
         payload_observer=payload_observer,
     )
 
 
-def _interpret_run(
+def _execute_run(
     *,
+    accepted: RunManifest,
     config: ConfigProfileSnapshot,
     program: RunProgram,
-    request: RunRequest | None,
     services: ExecutionServices,
     instrument_provider: InstrumentProvider | None,
-    config_source: RunConfigSource | None,
     event_sink: RuntimeEventSink | None,
     payload_observer: RuntimePayloadObserver | None,
 ) -> RunManifest:
@@ -116,20 +146,8 @@ def _interpret_run(
     projection = program.measurements
     point_count = len(program.points.points)
     experiment_id = program.experiment_id
-    run_id = new_run_id()
+    run_id = accepted.run_id
     storage = services.runs
-    accepted = RunManifest(
-        run_id=run_id,
-        lifecycle="accepted",
-        config_content_hash=config_content_hash(config),
-        config_source=config_source,
-    )
-    storage.write_run_skeleton(
-        manifest=accepted,
-        request=request,
-        config=config,
-    )
-    storage.write_manifest(accepted.model_copy(update={"lifecycle": "running"}))
 
     instrument_ids = [] if host is None else list(host.instrument_order)
     emit_run_started(
@@ -398,7 +416,7 @@ def _interpret_run(
         dataset_schema=dataset_schema,
         expected_record_count=(point_count if projection.records else None),
         config_content_hash=accepted.config_content_hash,
-        config_source=config_source,
+        config_source=accepted.config_source,
         instrument_state=instrument_state,
     ).model_copy(update={"created_at": accepted.created_at})
     models = [RunModelWrite(ref=run_outcome_ref(), value=outcome)]

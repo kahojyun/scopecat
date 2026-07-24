@@ -5,8 +5,7 @@ from __future__ import annotations
 import json
 import re
 from collections import defaultdict
-from collections.abc import Generator, Iterable
-from contextlib import contextmanager
+from collections.abc import Iterable
 from pathlib import PurePosixPath
 from threading import RLock
 
@@ -40,7 +39,7 @@ _SAFE_RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 
 
 class MemoryRunRepository:
-    """Serialized in-memory run state used by contracts and pure use-case tests."""
+    """In-memory run state used by contracts and pure use-case tests."""
 
     def __init__(self) -> None:
         self._content: dict[tuple[str, str], bytes] = {}
@@ -81,12 +80,6 @@ class MemoryRunRepository:
     def write_manifest(self, manifest: RunManifest) -> None:
         self.write_model(manifest.run_id, MANIFEST_REF, manifest)
 
-    @contextmanager
-    def run_lock(self, run_id: str) -> Generator[None]:
-        _validate_run_id(run_id)
-        with self._locks[run_id]:
-            yield
-
     def list_runs(self) -> list[RunManifest]:
         run_ids = {run_id for run_id, ref in self._content if ref == MANIFEST_REF}
         return sorted(
@@ -119,17 +112,16 @@ class MemoryRunRepository:
             self.write_model(run_id, write.ref, write.value)
         for write in commit.record_sets:
             self.write_jsonl(run_id, write.ref, write.records)
-        with self.run_lock(run_id):
-            current = self.read_manifest(run_id)
-            manifest = commit.manifest.model_copy(
-                update={
-                    "contents": upsert_contents(
-                        current.contents,
-                        commit.manifest.contents,
-                    )
-                }
-            )
-            self.write_manifest(manifest)
+        current = self.read_manifest(run_id)
+        manifest = commit.manifest.model_copy(
+            update={
+                "contents": upsert_contents(
+                    current.contents,
+                    commit.manifest.contents,
+                )
+            }
+        )
+        self.write_manifest(manifest)
         return manifest
 
     def read_config_profile_snapshot(self, run_id: str) -> ConfigProfileSnapshot:

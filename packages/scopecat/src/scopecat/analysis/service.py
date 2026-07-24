@@ -14,7 +14,7 @@ from pydantic import BaseModel, JsonValue
 from scopecat.application.services import WorkspaceServices
 from scopecat.config.changes import (
     parameter_change_proposal_record_ref,
-    write_parameter_change_proposal_contents_locked,
+    write_parameter_change_proposal_contents,
 )
 from scopecat.kernel.content_identity import (
     content_fingerprint,
@@ -354,31 +354,30 @@ def save_analysis(
         media_type="application/json",
         content_hash=model_wire_content_hash(analysis_record),
     )
-    with storage.run_lock(run_id):
-        manifest = storage.read_manifest(run_id)
-        proposal_records = write_parameter_change_proposal_contents_locked(
-            storage=storage,
-            run_id=run_id,
-            proposals=parameter_proposals,
-        )
-        _write_prepared_analysis_output_artifacts(
-            storage=storage,
-            run_id=run_id,
-            prepared_artifacts=prepared_artifacts,
-        )
-        storage.write_model(run_id, ref, analysis_record)
+    manifest = storage.read_manifest(run_id)
+    proposal_records = write_parameter_change_proposal_contents(
+        storage=storage,
+        run_id=run_id,
+        proposals=parameter_proposals,
+    )
+    _write_prepared_analysis_output_artifacts(
+        storage=storage,
+        run_id=run_id,
+        prepared_artifacts=prepared_artifacts,
+    )
+    storage.write_model(run_id, ref, analysis_record)
 
-        # The manifest commits newly published content above. A failure before
-        # this write leaves retryable, uncommitted content.
-        updated_manifest = manifest.model_copy(
-            update={
-                "contents": upsert_contents(
-                    manifest.contents,
-                    (*proposal_records, record, *output_artifacts),
-                ),
-            }
-        )
-        storage.write_manifest(updated_manifest)
+    # The manifest commits newly published content above. A failure before
+    # this write leaves retryable, uncommitted content.
+    updated_manifest = manifest.model_copy(
+        update={
+            "contents": upsert_contents(
+                manifest.contents,
+                (*proposal_records, record, *output_artifacts),
+            ),
+        }
+    )
+    storage.write_manifest(updated_manifest)
     return SavedAnalysis(
         record=record,
         analysis_key=analysis_key,

@@ -10,7 +10,7 @@ from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.linked import specialize_linked_program
 from scopecat.compiler.typed.program import CoreProgram
 from scopecat.composition.local import local_execution_services
-from scopecat.execution.interpreter import interpret_run_program
+from scopecat.execution.interpreter import admit_run, execute_admitted_run
 from scopecat.execution.observation import RuntimeEventSink, RuntimePayloadObserver
 from scopecat.execution.ports.resources import ResourceLeaseManager
 from scopecat.planning.system import ExperimentSystem
@@ -100,13 +100,17 @@ def execute_program_run(
     services = local_execution_services(workspace)
     if resource_leases is not None:
         services = replace(services, resources=resource_leases)
-    manifest = interpret_run_program(
+    accepted = admit_run(
         config=config,
-        program=program,
         request=request,
+        repository=services.runs,
+        config_source=config_source,
+    )
+    manifest = execute_admitted_run(
+        run_id=accepted.run_id,
+        program=program,
         services=services,
         instrument_provider=instrument_provider,
-        config_source=config_source,
         event_sink=event_sink,
         payload_observer=payload_observer,
     )

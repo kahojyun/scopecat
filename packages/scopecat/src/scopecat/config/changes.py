@@ -34,7 +34,7 @@ from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.parameter_change import ParameterChangeProposal
 from scopecat.records.run import RunManifest, utc_now
 from scopecat.runs.access import list_records
-from scopecat.runs.manifest import write_manifest_records_locked
+from scopecat.runs.manifest import write_manifest_records
 from scopecat.runs.refs import record_content_ref
 from scopecat.runs.repository import RunRepository
 
@@ -198,61 +198,60 @@ def _record_parameter_change_decision(
     note: str = "",
     related_refs: list[str] | None = None,
 ) -> ParameterChangeDecisionRecord:
-    with services.config_registry() as work, work.runs.run_lock(run_id):
-        storage = work.runs
-        proposal, _proposal_record = _resolve_proposal_ref(
-            storage=storage,
-            run_id=run_id,
-            selector=selector,
+    storage = services.runs
+    proposal, _proposal_record = _resolve_proposal_ref(
+        storage=storage,
+        run_id=run_id,
+        selector=selector,
+    )
+    if not actor.strip():
+        raise CheckFailed(
+            [
+                _parameter_problem(
+                    "parameter_change_decision_actor_invalid",
+                    "parameter change decision actor must be non-empty",
+                    category=ProblemCategory.INVALID_INPUT,
+                    phase=ProblemPhase.ANALYSIS,
+                    location=model_location("parameter_change_decision", "actor"),
+                )
+            ]
         )
-        if not actor.strip():
-            raise CheckFailed(
-                [
-                    _parameter_problem(
-                        "parameter_change_decision_actor_invalid",
-                        "parameter change decision actor must be non-empty",
-                        category=ProblemCategory.INVALID_INPUT,
-                        phase=ProblemPhase.ANALYSIS,
-                        location=model_location("parameter_change_decision", "actor"),
-                    )
-                ]
-            )
-        for ref in related_refs or ():
-            _validate_selector_path(ref)
-        event_id = uuid4().hex
-        record = ParameterChangeDecisionRecord(
-            event_id=event_id,
-            run_id=run_id,
-            proposal_id=proposal.id,
-            decision=decision,
-            actor=actor,
-            note=note,
-            related_refs=tuple(related_refs or ()),
+    for ref in related_refs or ():
+        _validate_selector_path(ref)
+    event_id = uuid4().hex
+    record = ParameterChangeDecisionRecord(
+        event_id=event_id,
+        run_id=run_id,
+        proposal_id=proposal.id,
+        decision=decision,
+        actor=actor,
+        note=note,
+        related_refs=tuple(related_refs or ()),
+    )
+    decision_entry = _parameter_change_decision_record_entry(record)
+    decision_ref = record_content_ref(
+        record_id=decision_entry.id,
+        kind=decision_entry.kind,
+    )
+    if not storage.write_model_if_absent(run_id, decision_ref, record):
+        raise Conflict(
+            [
+                _parameter_problem(
+                    "parameter_change_decision_conflict",
+                    "parameter change decision event already exists",
+                    category=ProblemCategory.CONFLICT,
+                    phase=ProblemPhase.PERSISTENCE,
+                    location=StorageLocation(run_id=run_id, ref=decision_ref),
+                    details={"event_id": event_id},
+                )
+            ]
         )
-        decision_entry = _parameter_change_decision_record_entry(record)
-        decision_ref = record_content_ref(
-            record_id=decision_entry.id,
-            kind=decision_entry.kind,
-        )
-        if not storage.write_model_if_absent(run_id, decision_ref, record):
-            raise Conflict(
-                [
-                    _parameter_problem(
-                        "parameter_change_decision_conflict",
-                        "parameter change decision event already exists",
-                        category=ProblemCategory.CONFLICT,
-                        phase=ProblemPhase.PERSISTENCE,
-                        location=StorageLocation(run_id=run_id, ref=decision_ref),
-                        details={"event_id": event_id},
-                    )
-                ]
-            )
-        write_manifest_records_locked(
-            storage=storage,
-            run_id=run_id,
-            records=[decision_entry],
-        )
-        return record
+    write_manifest_records(
+        storage=storage,
+        manifest=storage.read_manifest(run_id),
+        records=[decision_entry],
+    )
+    return record
 
 
 def list_parameter_change_decisions(
@@ -357,13 +356,13 @@ def _parameter_change_decision_record_entry(
     )
 
 
-def write_parameter_change_proposal_contents_locked(
+def write_parameter_change_proposal_contents(
     *,
     storage: RunRepository,
     run_id: str,
     proposals: Sequence[ParameterChangeProposal],
 ) -> tuple[RunContentEntry, ...]:
-    """Publish immutable proposal content while the caller holds the run lock."""
+    """Publish immutable proposal content."""
 
     entries = tuple(
         _parameter_change_proposal_record(proposal=proposal) for proposal in proposals

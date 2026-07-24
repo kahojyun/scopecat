@@ -50,7 +50,7 @@ class ConfigRegistryRepository(Protocol):
 
 
 class WorkspaceUnitOfWork(Protocol):
-    """One registry transaction with registry-before-run lock ordering."""
+    """One configuration-registry transaction with run evidence access."""
 
     @property
     def registry(self) -> ConfigRegistryRepository: ...
