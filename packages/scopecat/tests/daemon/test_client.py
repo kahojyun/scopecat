@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
-import httpx
+import httpx2
 import pytest
 from pydantic import BaseModel
 
@@ -107,7 +107,7 @@ _REQUEST = RunRequest(id="request-1")
 
 
 def test_queries_and_run_submissions_use_typed_wire_models() -> None:
-    requests: list[httpx.Request] = []
+    requests: list[httpx2.Request] = []
     client = _client(requests)
 
     health = client.health()
@@ -156,7 +156,7 @@ def test_queries_and_run_submissions_use_typed_wire_models() -> None:
 
 
 def test_run_queries_serialize_the_older_page_cursor() -> None:
-    requests: list[httpx.Request] = []
+    requests: list[httpx2.Request] = []
     client = _client(requests)
 
     page = client.list_runs(limit=5, before=10)
@@ -169,7 +169,7 @@ def test_run_queries_serialize_the_older_page_cursor() -> None:
 
 
 def test_delegated_executor_commands_follow_run_scoped_routes() -> None:
-    requests: list[httpx.Request] = []
+    requests: list[httpx2.Request] = []
     client = _client(requests)
     start_request = ExecutorStartRequest(
         run_id="run-1",
@@ -232,7 +232,7 @@ def test_delegated_executor_commands_follow_run_scoped_routes() -> None:
 
 
 def test_attention_resolution_uses_operator_route() -> None:
-    requests: list[httpx.Request] = []
+    requests: list[httpx2.Request] = []
     client = _client(requests)
 
     receipt = client.resolve_attention("run-1", "requeue")
@@ -247,7 +247,7 @@ def test_attention_resolution_uses_operator_route() -> None:
 
 
 def test_config_registry_client_uses_typed_routes() -> None:
-    requests: list[httpx.Request] = []
+    requests: list[httpx2.Request] = []
     client = _client(requests)
     config = load_config()
     import_command = DirectConfigImportCommand(
@@ -323,7 +323,7 @@ def test_config_registry_client_uses_typed_routes() -> None:
 
 
 def test_post_run_client_uses_run_scoped_typed_routes() -> None:
-    requests: list[httpx.Request] = []
+    requests: list[httpx2.Request] = []
     client = _client(requests)
     proposal = _proposal()
     analysis = AnalysisSaveCommand(
@@ -374,7 +374,7 @@ def test_post_run_client_uses_run_scoped_typed_routes() -> None:
 
 
 def test_run_content_client_uses_symmetric_typed_routes() -> None:
-    requests: list[httpx.Request] = []
+    requests: list[httpx2.Request] = []
     client = _client(requests)
     attachment = RunAttachmentCommand(
         run_id="run-1",
@@ -439,7 +439,7 @@ def test_not_found_and_conflict_are_typed_and_other_http_errors_raise() -> None:
         client.get_run("missing")
     with pytest.raises(DaemonConflictError) as conflict:
         client.submit_managed(_managed_submission("duplicate"))
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(httpx2.HTTPStatusError):
         client.get_run("invalid")
 
     assert missing.value.detail == "run was not found: missing"
@@ -477,7 +477,7 @@ def _analysis_view() -> RunAnalysisView:
     )
 
 
-def _run_content_response(request: httpx.Request) -> httpx.Response | None:
+def _run_content_response(request: httpx2.Request) -> httpx2.Response | None:
     path = request.url.path
     if path == "/api/v1/runs/run-1/request":
         return _model(RunRequestView(run_id="run-1", request=_REQUEST))
@@ -567,8 +567,8 @@ def _run_content_response(request: httpx.Request) -> httpx.Response | None:
     return None
 
 
-def _client(requests: list[httpx.Request]) -> DaemonClient:
-    def handler(request: httpx.Request) -> httpx.Response:
+def _client(requests: list[httpx2.Request]) -> DaemonClient:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         requests.append(request)
         path = request.url.path
         if path == "/api/v1/health":
@@ -778,16 +778,16 @@ def _client(requests: list[httpx.Request]) -> DaemonClient:
 
     return DaemonClient(
         "http://daemon.local/",
-        transport=httpx.MockTransport(handler),
+        transport=httpx2.MockTransport(handler),
     )
 
 
-def _model(model: BaseModel, *, status_code: int = 200) -> httpx.Response:
+def _model(model: BaseModel, *, status_code: int = 200) -> httpx2.Response:
     return _json(model.model_dump(mode="json"), status_code=status_code)
 
 
-def _json(content: object, *, status_code: int = 200) -> httpx.Response:
-    return httpx.Response(status_code, json=content)
+def _json(content: object, *, status_code: int = 200) -> httpx2.Response:
+    return httpx2.Response(status_code, json=content)
 
 
 def _catalog() -> ExperimentCatalog:

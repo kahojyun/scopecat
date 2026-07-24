@@ -4,7 +4,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
-import httpx
+import httpx2
 from pydantic import BaseModel
 
 from scopecat.daemon.client import DaemonClient
@@ -99,7 +99,7 @@ def test_delegated_execution_ports_round_trip_through_fenced_http_commands() -> 
     fences: list[tuple[str, str, int]] = []
     terminal_commands: list[TerminalRunCommitCommand] = []
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         path = request.url.path
         if path.endswith("/executor/start"):
             command = ExecutorStartRequest.model_validate_json(request.content)
@@ -236,11 +236,11 @@ def test_delegated_execution_ports_round_trip_through_fenced_http_commands() -> 
 
 
 def _client(
-    handler: Callable[[httpx.Request], httpx.Response],
+    handler: Callable[[httpx2.Request], httpx2.Response],
 ) -> DaemonClient:
     return DaemonClient(
         "http://daemon.local",
-        transport=httpx.MockTransport(handler),
+        transport=httpx2.MockTransport(handler),
     )
 
 
@@ -257,8 +257,8 @@ def _remember_fence(
     fences.append((command.run_id, command.lease_id, command.generation))
 
 
-def _model(model: BaseModel) -> httpx.Response:
-    return httpx.Response(200, json=model.model_dump(mode="json"))
+def _model(model: BaseModel) -> httpx2.Response:
+    return httpx2.Response(200, json=model.model_dump(mode="json"))
 
 
 def _lease() -> ExecutorLease:

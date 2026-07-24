@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Annotated, Never
 
-import httpx
+import httpx2
 import typer
 from rich.console import Console
 from scopecat.config.resolution import validate_config_profile
@@ -49,7 +49,7 @@ _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 _PROJECT_CONFIG_ERRORS = (
     ScopecatError,
     ProjectManifestError,
-    httpx.HTTPError,
+    httpx2.HTTPError,
     ImportError,
     AttributeError,
     OSError,

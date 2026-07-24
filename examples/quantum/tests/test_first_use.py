@@ -7,7 +7,7 @@ import sys
 import time
 from pathlib import Path
 
-import httpx
+import httpx2
 
 import scopecat as sc
 from quantum_lab_demo import EXAMPLE_ROOT
@@ -121,10 +121,10 @@ def _wait_for_text(url: str) -> str:
     last_error: Exception | None = None
     while time.monotonic() < deadline:
         try:
-            response = httpx.get(url, timeout=1)
+            response = httpx2.get(url, timeout=1)
             response.raise_for_status()
             return response.text
-        except (OSError, httpx.HTTPError) as error:
+        except (OSError, httpx2.HTTPError) as error:
             last_error = error
             time.sleep(0.05)
     raise RuntimeError(f"daemon did not become ready: {last_error}")

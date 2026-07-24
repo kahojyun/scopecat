@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, cast
 
-import httpx
+import httpx2
 import psutil
 import uvicorn
 from pydantic import ValidationError
@@ -103,7 +103,7 @@ def inspect_daemon(project: Project, *, health_timeout: float = 0.5) -> DaemonSt
 
     try:
         health = _read_health(record.base_url, timeout=health_timeout)
-    except (httpx.HTTPError, ValueError, ValidationError) as error:
+    except (httpx2.HTTPError, ValueError, ValidationError) as error:
         return DaemonStatus(
             state="degraded",
             record=record,
@@ -339,7 +339,7 @@ def _matching_process(record: DaemonEndpointRecord) -> psutil.Process | None:
 
 
 def _read_health(base_url: str, *, timeout: float) -> DaemonHealth:
-    with httpx.Client(timeout=timeout, trust_env=False) as client:
+    with httpx2.Client(timeout=timeout, trust_env=False) as client:
         response = client.get(f"{base_url.rstrip('/')}{_HEALTH_PATH}")
         response.raise_for_status()
         return DaemonHealth.model_validate(response.json())

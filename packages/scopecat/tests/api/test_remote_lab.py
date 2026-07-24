@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Event
 
-import httpx
+import httpx2
 import pytest
 from pydantic import BaseModel
 
@@ -138,7 +138,7 @@ def test_control_operations_expose_browsing_and_managed_submission() -> None:
     )
     seen_submission_ids: list[str] = []
 
-    def handler(http_request: httpx.Request) -> httpx.Response:
+    def handler(http_request: httpx2.Request) -> httpx2.Response:
         path = http_request.url.path
         if path.endswith("/health"):
             return _model(
@@ -263,7 +263,7 @@ def test_execute_delegated_submits_complete_plan_and_heartbeats(
         stage="compute",
     )
 
-    def handler(http_request: httpx.Request) -> httpx.Response:
+    def handler(http_request: httpx2.Request) -> httpx2.Response:
         nonlocal heartbeat_count
         path = http_request.url.path
         if path.endswith("/runs"):
@@ -372,7 +372,7 @@ def test_execute_delegated_fences_effects_after_heartbeat_loses_lease(
     planned = _planned(tmp_path)
     heartbeat_attempted = Event()
 
-    def handler(http_request: httpx.Request) -> httpx.Response:
+    def handler(http_request: httpx2.Request) -> httpx2.Response:
         path = http_request.url.path
         if path.endswith("/runs"):
             submission = DelegatedRunSubmission.model_validate_json(
@@ -383,7 +383,7 @@ def test_execute_delegated_fences_effects_after_heartbeat_loses_lease(
             return _model(_lease(heartbeat_interval=0.005))
         if path.endswith("/executor/heartbeat"):
             heartbeat_attempted.set()
-            return httpx.Response(409, json={"detail": "executor lease expired"})
+            return httpx2.Response(409, json={"detail": "executor lease expired"})
         if path.endswith("/execution/recovery"):
             return _model(ExecutionRecoverySnapshot())
         raise AssertionError(f"unexpected request: {http_request.method} {path}")
@@ -431,7 +431,7 @@ def test_execute_delegated_fences_effects_after_heartbeat_loses_lease(
 def test_execute_delegated_requires_a_durable_request(tmp_path: Path) -> None:
     planned = _planned(tmp_path)
     runner = _DelegatedRunner(
-        _client(lambda _request: httpx.Response(500)),
+        _client(lambda _request: httpx2.Response(500)),
         None,
     )
 
@@ -463,7 +463,7 @@ def test_config_operations_compose_registry_commands() -> None:
     )
     assert draft_preview.result_content_hash is not None
 
-    def handler(http_request: httpx.Request) -> httpx.Response:
+    def handler(http_request: httpx2.Request) -> httpx2.Response:
         path = http_request.url.path
         if path == "/api/v1/config-registry":
             return _model(ConfigRegistryView(entries=(entry,), active_state=state))
@@ -609,7 +609,7 @@ def test_config_operations_serialize_each_draft_update_shape() -> None:
         candidate_id="all-update-shapes",
     )
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         if (
             request.url.path == "/api/v1/config-registry/active"
             and request.method == "GET"
@@ -655,9 +655,9 @@ def test_config_operations_reject_a_draft_from_a_different_active_snapshot() -> 
     active_config = load_config()
     stale_config = active_config.model_copy(update={"id": "stale-config"})
     entry, state = _config_registry_records(active_config)
-    requests: list[httpx.Request] = []
+    requests: list[httpx2.Request] = []
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         requests.append(request)
         assert request.url.path == "/api/v1/config-registry/active"
         return _model(
@@ -690,7 +690,7 @@ def test_lab_client_owns_local_config_draft_workflow() -> None:
     )
     defaults: list[ConfigDraftDefaultCommand] = []
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         path = request.url.path
         if path == "/api/v1/config-registry":
             return _model(ConfigRegistryView(entries=(entry,), active_state=state))
@@ -733,7 +733,7 @@ def test_lab_config_intents_hide_registry_coordination() -> None:
     entry, state = _config_registry_records(config)
     seen: list[DirectConfigDefaultCommand | ConfigRollbackCommand] = []
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         path = request.url.path
         if path == "/api/v1/config-registry":
             return _model(ConfigRegistryView(entries=(entry,), active_state=state))
@@ -789,7 +789,7 @@ def test_lab_config_intents_hide_registry_coordination() -> None:
 def test_remote_analysis_artifacts_preserve_source_defaults() -> None:
     commands: list[AnalysisSaveCommand] = []
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         command = AnalysisSaveCommand.model_validate_json(request.content)
         commands.append(command)
         return _model(
@@ -908,7 +908,7 @@ def test_run_scratch_plans_against_explicit_snapshot_without_local_storage(
 
     experiment = load_prepared_invocation() if prepared else load_invocation()
     result = _DelegatedRunner(
-        _client(lambda _request: httpx.Response(500)),
+        _client(lambda _request: httpx2.Response(500)),
         lambda _config: system,
     ).run(
         experiment,
@@ -952,7 +952,7 @@ def test_run_scratch_uses_active_config_and_bound_system(
     captured: dict[str, object] = {}
     built_from: list[ConfigProfileSnapshot] = []
 
-    def handler(http_request: httpx.Request) -> httpx.Response:
+    def handler(http_request: httpx2.Request) -> httpx2.Response:
         assert http_request.url.path == "/api/v1/config-registry/active"
         return _model(ActiveConfigView(entry=entry, active_state=state, config=config))
 
@@ -1014,17 +1014,15 @@ def test_run_scratch_requires_an_explicit_or_bound_system() -> None:
 def test_preview_scratch_uses_active_config_without_admission() -> None:
     config = load_config()
     entry, state = _config_registry_records(config)
-    requests: list[httpx.Request] = []
+    requests: list[httpx2.Request] = []
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         requests.append(request)
         return _model(ActiveConfigView(entry=entry, active_state=state, config=config))
 
     preview = _DelegatedRunner(
         _client(handler),
-        lambda _config: ExperimentSystem(
-            provider=TestSignalInstrumentProvider()
-        ),
+        lambda _config: ExperimentSystem(provider=TestSignalInstrumentProvider()),
     ).preview(load_invocation())
 
     assert preview.point_count > 0
@@ -1044,11 +1042,11 @@ def _planned(tmp_path: Path) -> PlannedRun:
 
 
 def _client(
-    handler: Callable[[httpx.Request], httpx.Response],
+    handler: Callable[[httpx2.Request], httpx2.Response],
 ) -> DaemonClient:
     return DaemonClient(
         "http://daemon.local",
-        transport=httpx.MockTransport(handler),
+        transport=httpx2.MockTransport(handler),
     )
 
 
@@ -1208,5 +1206,5 @@ def _terminal_manifest(accepted: RunManifest) -> RunManifest:
     )
 
 
-def _model(model: BaseModel, *, status_code: int = 200) -> httpx.Response:
-    return httpx.Response(status_code, json=model.model_dump(mode="json"))
+def _model(model: BaseModel, *, status_code: int = 200) -> httpx2.Response:
+    return httpx2.Response(status_code, json=model.model_dump(mode="json"))

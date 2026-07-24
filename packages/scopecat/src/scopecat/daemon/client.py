@@ -6,7 +6,7 @@ from types import TracebackType
 from typing import Self
 from urllib.parse import quote
 
-import httpx
+import httpx2
 from pydantic import BaseModel, ValidationError
 
 from scopecat.control.models import (
@@ -91,7 +91,7 @@ _API_PREFIX = "/api/v1"
 class DaemonClientError(RuntimeError):
     """Base class for errors translated from daemon responses."""
 
-    def __init__(self, detail: str, *, response: httpx.Response) -> None:
+    def __init__(self, detail: str, *, response: httpx2.Response) -> None:
         super().__init__(detail)
         self.detail = detail
         self.response = response
@@ -112,10 +112,10 @@ class DaemonClient:
         self,
         base_url: str,
         *,
-        timeout: float | httpx.Timeout | None = 10.0,
-        transport: httpx.BaseTransport | None = None,
+        timeout: float | httpx2.Timeout | None = 10.0,
+        transport: httpx2.BaseTransport | None = None,
     ) -> None:
-        self._http = httpx.Client(
+        self._http = httpx2.Client(
             base_url=base_url.rstrip("/"),
             timeout=timeout,
             transport=transport,
@@ -626,7 +626,7 @@ class DaemonClient:
         *,
         params: dict[str, str | int] | None = None,
         json: object | None = None,
-    ) -> httpx.Response:
+    ) -> httpx2.Response:
         response = self._http.request(method, path, params=params, json=json)
         if response.status_code == 404:
             raise DaemonNotFoundError(_error_detail(response), response=response)
@@ -640,7 +640,7 @@ class _ErrorResponse(BaseModel):
     detail: str
 
 
-def _error_detail(response: httpx.Response) -> str:
+def _error_detail(response: httpx2.Response) -> str:
     try:
         return _ErrorResponse.model_validate_json(response.content).detail
     except ValidationError:

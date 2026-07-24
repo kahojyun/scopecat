@@ -7,7 +7,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-import httpx
+import httpx2
 import pytest
 from scopecat.config.resolution import validate_config_profile
 from scopecat.daemon.endpoint import (
@@ -161,7 +161,7 @@ def test_cli_start_uses_actual_dynamic_port_and_stop_cleans_record(
         assert record.base_url != "http://127.0.0.1:0"
         assert int(record.base_url.rsplit(":", maxsplit=1)[1]) > 0
         assert stat.S_IMODE(daemon_record_path(tmp_path).stat().st_mode) == 0o600
-        with httpx.Client(timeout=2, trust_env=False) as client:
+        with httpx2.Client(timeout=2, trust_env=False) as client:
             health = client.get(f"{record.base_url}/api/v1/health")
         assert health.status_code == 200
 
