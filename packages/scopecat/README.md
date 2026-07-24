@@ -40,7 +40,10 @@ Routine configuration work uses typed intent APIs:
 
 ```python
 with project.connect() as lab:
-    draft = lab.edit_config().replace_scalar("repetitions", sc.Quantity(256, "count"))
+    draft = lab.config.edit().replace_scalar(
+        "repetitions",
+        sc.Quantity(256, "count"),
+    )
     changed = lab.config.set_default(draft, note="increase averaging")
 
     analysis = run.analysis("fit").propose(...)
@@ -65,10 +68,9 @@ Scratch planning and Python closures stay in the notebook process. Admission,
 resource ownership, measurements, terminal state, saved analysis, acceptance
 decisions, and configuration changes still go through the daemon.
 
-`sc.connect()` remains the lower-level daemon transport client for operator and
-infrastructure workflows such as exact catalog submission, event replay, and
-attention resolution. Normal notebook code should start from
-`sc.open_project(...)`.
+Operator and infrastructure workflows use the same project client through
+`lab.control` for catalog submission, event replay, and attention resolution.
+There is no second public connection facade.
 
 See the [repository README](../../README.md) for the runnable introduction and
 development commands, and the

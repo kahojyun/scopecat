@@ -4,74 +4,26 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
-from pathlib import Path
 from types import TracebackType
-from typing import Self, cast, overload
+from typing import Self
 
-from pydantic import JsonValue
-
-from scopecat.analysis.service import (
-    AnalysisInput,
-    AnalysisOutput,
-    SavedAnalysis,
-)
-from scopecat.api.analysis import Analysis
-from scopecat.api.run import RunHandle, RunOperations, run_handle_id
+from scopecat.api._config import LabConfigOperations
+from scopecat.api._control import LabControlOperations
+from scopecat.api._delegated import _DelegatedRunner
+from scopecat.api._remote import RemoteRunOperations
+from scopecat.api.run import RunHandle, run_handle_id
 from scopecat.authoring._value_refs import ValueRef
 from scopecat.authoring.scans import Scan, ScanCenter, ScanValue
 from scopecat.authoring.templates import ExperimentInvocation, ExperimentTemplate
 from scopecat.authoring.values import MetadataValue
-from scopecat.config.candidates import (
-    CandidateConfig,
-    CandidateSelection,
-    resolve_candidate_config_from_snapshot,
-)
-from scopecat.config.drafts import ConfigDraft
-from scopecat.config.resolution import config_revision_entry_id
-from scopecat.daemon.connection import DaemonConnection
-from scopecat.daemon.views import (
-    ConfigDraftPreview,
-    ConfigRegistryView,
-    DaemonHealth,
-    ParameterProposalListView,
-    RunAnalysisListView,
-    RunAnalysisView,
-)
-from scopecat.daemon.wire import (
-    CandidateConfigActivationReceipt,
-    ConfigActivationReceipt,
-    ConfigDefaultReceipt,
-    ConfigDraftDefaultReceipt,
-    ConfigDraftRegistrationReceipt,
-    ConfigImportReceipt,
-)
+from scopecat.config.candidates import CandidateConfig
+from scopecat.daemon.client import DaemonClient
+from scopecat.daemon.views import DaemonHealth
 from scopecat.planning.preview_models import ExperimentPreview
-from scopecat.records.artifact import RunContentEntry
-from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
+from scopecat.planning.system import ExperimentSystemBuilder
+from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter import Quantity
-from scopecat.records.parameter_change import (
-    HumanDecisionAuthority,
-    ParameterChangeDecisionAuthority,
-    ParameterChangeDecisionRecord,
-    ParameterChangeProposal,
-    ParameterChangeReviewState,
-)
-from scopecat.records.run import (
-    AnalysisCandidateRunConfigSource,
-    ConfigRegistryRunConfigSource,
-    RunConfigSource,
-    RunManifest,
-)
-from scopecat.records.run_request import RunRequest
-from scopecat.runs.data import (
-    RunArtifactBytesResult,
-    RunArtifactJsonResult,
-    RunArtifactTextResult,
-    RunDataArrayResult,
-    RunDataTableResult,
-    RunMeasurementDatasetResult,
-    RunRecordJsonResult,
-)
+from scopecat.records.run import RunConfigSource
 from scopecat.runs.selectors import RunSelector
 
 
@@ -146,98 +98,30 @@ class PreparedLabExperiment:
         )
 
 
-@dataclass(frozen=True, slots=True)
-class LabConfigOperations:
-    """Intent-oriented configuration operations for ordinary notebook work."""
-
-    lab: LabClient
-
-    @overload
-    def set_default(
-        self,
-        config: ConfigProfileSnapshot,
-        *,
-        entry_id: str | None = None,
-        registered_by: str | None = None,
-        operator: str | None = None,
-        note: str = "",
-    ) -> ConfigDefaultReceipt: ...
-
-    @overload
-    def set_default(
-        self,
-        config: ConfigDraft,
-        *,
-        entry_id: str | None = None,
-        registered_by: str | None = None,
-        operator: str | None = None,
-        note: str = "",
-    ) -> ConfigDraftDefaultReceipt: ...
-
-    def set_default(
-        self,
-        config: ConfigProfileSnapshot | ConfigDraft,
-        *,
-        entry_id: str | None = None,
-        registered_by: str | None = None,
-        operator: str | None = None,
-        note: str = "",
-    ) -> ConfigDefaultReceipt | ConfigDraftDefaultReceipt:
-        return self.lab.set_default(
-            config,
-            entry_id=entry_id,
-            registered_by=registered_by,
-            operator=operator,
-            note=note,
-        )
-
-    def accept(
-        self,
-        candidate: CandidateConfig | Analysis,
-        *,
-        selection: CandidateSelection = None,
-        authority: ParameterChangeDecisionAuthority | None = None,
-        entry_id: str | None = None,
-        registered_by: str | None = None,
-        operator: str | None = None,
-        note: str = "",
-    ) -> CandidateConfigActivationReceipt:
-        return self.lab.accept(
-            candidate,
-            selection=selection,
-            authority=authority,
-            entry_id=entry_id,
-            registered_by=registered_by,
-            operator=operator,
-            note=note,
-        )
-
-    def undo(
-        self,
-        *,
-        operator: str | None = None,
-        note: str = "",
-    ) -> ConfigActivationReceipt:
-        """Restore the previous distinct default; a second call toggles it back."""
-
-        return self.lab.undo(operator=operator, note=note)
-
-
 class LabClient:
-    """Notebook workflow facade over a single project daemon."""
+    """Notebook workflows backed by one daemon HTTP owner."""
 
     def __init__(
         self,
-        daemon: DaemonConnection,
+        daemon: str | DaemonClient,
         *,
+        build_system: ExperimentSystemBuilder | None = None,
         config: ConfigProfileSnapshot | None = None,
         reviewer: str = "operator",
         operator: str = "operator",
     ) -> None:
-        self._daemon = daemon
-        self._config = config
-        self._reviewer = reviewer
-        self._operator = operator
+        self._owns_client = isinstance(daemon, str)
+        self._client = DaemonClient(daemon) if isinstance(daemon, str) else daemon
+        self._runs = RemoteRunOperations(self._client)
+        self._config = LabConfigOperations(
+            client=self._client,
+            runs=self._runs,
+            default_config=config,
+            reviewer=reviewer,
+            operator=operator,
+        )
+        self._control = LabControlOperations(self._client)
+        self._delegated = _DelegatedRunner(self._client, build_system)
 
     def __enter__(self) -> Self:
         return self
@@ -252,163 +136,40 @@ class LabClient:
         self.close()
 
     def close(self) -> None:
-        self._daemon.close()
+        if self._owns_client:
+            self._client.close()
 
     @property
-    def run_operations(self) -> RunOperations:
-        return self
+    def run_operations(self) -> RemoteRunOperations:
+        return self._runs
 
     @property
     def config(self) -> LabConfigOperations:
-        return LabConfigOperations(self)
+        return self._config
 
     @property
-    def reviewer(self) -> str:
-        return self._reviewer
-
-    @property
-    def operator(self) -> str:
-        return self._operator
+    def control(self) -> LabControlOperations:
+        return self._control
 
     def health(self) -> DaemonHealth:
-        return self._daemon.health()
-
-    def config_registry(self) -> ConfigRegistryView:
-        return self._daemon.config_registry()
-
-    def edit_config(
-        self,
-        config: str | ConfigProfileSnapshot | CandidateConfig | None = None,
-    ) -> ConfigDraft:
-        """Create a process-local draft without previewing or registering it."""
-
-        return ConfigDraft.from_snapshot(self.resolve_config(config))
-
-    def preview_config_draft(
-        self,
-        draft: ConfigDraft,
-        *,
-        candidate_id: str | None = None,
-    ) -> ConfigDraftPreview:
-        return self._daemon.preview_config_draft(
-            draft,
-            candidate_id=candidate_id,
-        )
-
-    def register_config_draft(
-        self,
-        draft: ConfigDraft,
-        *,
-        preview: ConfigDraftPreview,
-        entry_id: str,
-        registered_by: str | None = None,
-        note: str = "",
-    ) -> ConfigDraftRegistrationReceipt:
-        return self._daemon.register_config_draft(
-            draft,
-            preview=preview,
-            entry_id=entry_id,
-            registered_by=registered_by or self.operator,
-            note=note,
-        )
+        return self._control.health()
 
     def runs(self) -> tuple[RunHandle, ...]:
         return tuple(
             RunHandle(session=self, id=item.run_id)
-            for item in self._daemon.runs().items
+            for item in self._control.runs().items
         )
 
     def get_run(self, run: RunSelector | RunHandle) -> RunHandle:
         run_id = run_handle_id(run)
-        self._daemon.get_run(run_id)
+        self._control.run_detail(run_id)
         return RunHandle(session=self, id=run_id)
 
     def resolve_config(
         self,
         config: str | ConfigProfileSnapshot | CandidateConfig | None = None,
     ) -> ConfigProfileSnapshot:
-        return self._resolve_config(config)[0]
-
-    def _resolve_config(
-        self,
-        config: str | ConfigProfileSnapshot | CandidateConfig | None = None,
-    ) -> tuple[ConfigProfileSnapshot, RunConfigSource | None]:
-        selected = self._config if config is None else config
-        if selected is None:
-            active = self._daemon.active_config()
-            return (
-                active.config,
-                ConfigRegistryRunConfigSource(
-                    selector="active",
-                    entry_id=active.entry.id,
-                    config_ref=active.entry.config_ref,
-                    content_hash=active.entry.content_hash,
-                    registry_generation=active.active_state.generation,
-                ),
-            )
-        if isinstance(selected, str):
-            if selected == "active":
-                active = self._daemon.active_config()
-                return (
-                    active.config,
-                    ConfigRegistryRunConfigSource(
-                        selector="active",
-                        entry_id=active.entry.id,
-                        config_ref=active.entry.config_ref,
-                        content_hash=active.entry.content_hash,
-                        registry_generation=active.active_state.generation,
-                    ),
-                )
-            raise ValueError("daemon config selector must be 'active'")
-        if isinstance(selected, CandidateConfig):
-            proposals = {
-                item.proposal.id: item.proposal
-                for item in self._daemon.parameter_proposals(
-                    selected.source_run_id
-                ).items
-            }
-            if any(
-                proposals.get(proposal.id) != proposal
-                for proposal in selected.parameter_proposals
-            ):
-                raise ValueError(
-                    "save the producing analysis before using its candidate config"
-                )
-            analyses = {
-                analysis_record_id: self._daemon.analysis(
-                    selected.source_run_id,
-                    analysis_record_id,
-                )
-                for analysis_record_id in selected.analysis_record_ids
-            }
-            if any(
-                not any(
-                    output.kind == "parameter_change_proposal"
-                    and isinstance(output.content, dict)
-                    and cast("dict[str, object]", output.content).get("proposal_id")
-                    == proposal.id
-                    for output in analyses[proposal.analysis_record_id].analysis.outputs
-                )
-                for proposal in selected.parameter_proposals
-            ):
-                raise ValueError(
-                    "candidate proposals do not belong to their producing analyses"
-                )
-            resolved = resolve_candidate_config_from_snapshot(
-                selected,
-                source_config=self.load_config(selected.source_run_id),
-            )
-            return (
-                resolved,
-                AnalysisCandidateRunConfigSource(
-                    source_run_id=selected.source_run_id,
-                    analysis_record_ids=selected.analysis_record_ids,
-                    proposal_ids=selected.proposal_ids,
-                    base_config_content_hash=selected.base_config_content_hash,
-                    content_hash=config_content_hash(resolved),
-                ),
-            )
-        return selected, None
+        return self._config.resolve(config)
 
     def prepare(
         self,
@@ -421,7 +182,7 @@ class LabClient:
             if isinstance(experiment, ExperimentTemplate)
             else experiment
         )
-        resolved_config, config_source = self._resolve_config(config)
+        resolved_config, config_source = self._config.resolve_with_source(config)
         return PreparedLabExperiment(
             lab=self,
             invocation=invocation,
@@ -440,7 +201,7 @@ class LabClient:
         metadata: Mapping[str, MetadataValue] | None = None,
         operator: str | None = None,
     ) -> ExperimentPreview:
-        return self._daemon.preview_scratch(
+        return self._delegated.preview(
             invocation,
             config=config,
             name=name,
@@ -462,7 +223,7 @@ class LabClient:
         metadata: Mapping[str, MetadataValue] | None = None,
         operator: str | None = None,
     ) -> RunHandle:
-        manifest = self._daemon.run_scratch(
+        manifest = self._delegated.run(
             invocation,
             config=config,
             config_source=config_source,
@@ -473,366 +234,6 @@ class LabClient:
             operator=operator,
         )
         return RunHandle(session=self, id=manifest.run_id)
-
-    def load_manifest(self, run_id: str) -> RunManifest:
-        return self._daemon.get_run(run_id).manifest
-
-    def load_config(self, run_id: str) -> ConfigProfileSnapshot:
-        return self._daemon.run_config(run_id).config
-
-    def load_request(self, run_id: str) -> RunRequest | None:
-        return self._daemon.run_request(run_id)
-
-    def measurements(
-        self,
-        run_id: str,
-        *,
-        selector: str = "raw-measurements",
-    ) -> RunMeasurementDatasetResult:
-        return self._daemon.measurement_dataset(run_id, selector)
-
-    def save_analysis(
-        self,
-        *,
-        run_id: str,
-        title: str,
-        analysis_key: str,
-        step_id: str | None,
-        inputs: Sequence[AnalysisInput],
-        outputs: Sequence[AnalysisOutput],
-        parameter_proposals: Sequence[ParameterChangeProposal],
-    ) -> SavedAnalysis:
-        return self._daemon.save_analysis(
-            run_id=run_id,
-            title=title,
-            analysis_key=analysis_key,
-            step_id=step_id,
-            inputs=inputs,
-            outputs=outputs,
-            parameter_proposals=parameter_proposals,
-        )
-
-    def analyses(self, run_id: str) -> RunAnalysisListView:
-        return self._daemon.analyses(run_id)
-
-    def analysis(self, run_id: str, selector: str) -> RunAnalysisView:
-        return self._daemon.analysis(run_id, selector)
-
-    def attach(
-        self,
-        *,
-        run_id: str,
-        path: str | Path | None,
-        key: str,
-        kind: str,
-        text: str | None,
-        content: bytes | None,
-        filename: str | None,
-        media_type: str | None,
-        metadata: Mapping[str, JsonValue] | None,
-    ) -> RunContentEntry:
-        return self._daemon.attach(
-            run_id=run_id,
-            path=path,
-            key=key,
-            kind=kind,
-            text=text,
-            content=content,
-            filename=filename,
-            media_type=media_type,
-            metadata=metadata,
-        )
-
-    def artifact_text(
-        self,
-        run_id: str,
-        selector: str,
-        *,
-        expected_kind: str | None,
-    ) -> RunArtifactTextResult:
-        return self._daemon.artifact_text(
-            run_id,
-            selector,
-            expected_kind=expected_kind,
-        )
-
-    def artifact_json(
-        self,
-        run_id: str,
-        selector: str,
-        *,
-        expected_kind: str | None,
-    ) -> RunArtifactJsonResult:
-        return self._daemon.artifact_json(
-            run_id,
-            selector,
-            expected_kind=expected_kind,
-        )
-
-    def artifact_bytes(
-        self,
-        run_id: str,
-        selector: str,
-        *,
-        expected_kind: str | None,
-    ) -> RunArtifactBytesResult:
-        return self._daemon.artifact_bytes(
-            run_id,
-            selector,
-            expected_kind=expected_kind,
-        )
-
-    def record_json(
-        self,
-        run_id: str,
-        selector: str,
-        *,
-        expected_kind: str | None,
-    ) -> RunRecordJsonResult:
-        return self._daemon.record_json(
-            run_id,
-            selector,
-            expected_kind=expected_kind,
-        )
-
-    def data_table(self, run_id: str, selector: str) -> RunDataTableResult:
-        return self._daemon.data_table(run_id, selector)
-
-    def data_array(self, run_id: str, selector: str) -> RunDataArrayResult:
-        return self._daemon.data_array(run_id, selector)
-
-    def parameter_proposals(
-        self,
-        run: RunSelector | RunHandle,
-    ) -> ParameterProposalListView:
-        return self._daemon.parameter_proposals(run_handle_id(run))
-
-    def review_parameter_proposal(
-        self,
-        run: RunSelector | RunHandle,
-        selector: str,
-        *,
-        reviewer: str | None = None,
-        decision: ParameterChangeReviewState = "approved",
-        note: str = "",
-    ) -> ParameterChangeDecisionRecord:
-        return self._daemon.review_parameter_proposal(
-            run_handle_id(run),
-            selector,
-            reviewer=reviewer or self.reviewer,
-            decision=decision,
-            note=note,
-        ).decision
-
-    def import_config(
-        self,
-        config: ConfigProfileSnapshot,
-        *,
-        entry_id: str,
-        registered_by: str | None = None,
-        note: str = "",
-    ) -> ConfigImportReceipt:
-        return self._daemon.import_direct_config(
-            config,
-            entry_id=entry_id,
-            registered_by=registered_by or self.operator,
-            note=note,
-        )
-
-    @overload
-    def set_default(
-        self,
-        config: ConfigProfileSnapshot,
-        *,
-        entry_id: str | None = None,
-        registered_by: str | None = None,
-        operator: str | None = None,
-        note: str = "",
-    ) -> ConfigDefaultReceipt: ...
-
-    @overload
-    def set_default(
-        self,
-        config: ConfigDraft,
-        *,
-        entry_id: str | None = None,
-        registered_by: str | None = None,
-        operator: str | None = None,
-        note: str = "",
-    ) -> ConfigDraftDefaultReceipt: ...
-
-    def set_default(
-        self,
-        config: ConfigProfileSnapshot | ConfigDraft,
-        *,
-        entry_id: str | None = None,
-        registered_by: str | None = None,
-        operator: str | None = None,
-        note: str = "",
-    ) -> ConfigDefaultReceipt | ConfigDraftDefaultReceipt:
-        """Save one immutable revision and atomically make it the default."""
-
-        selected_registered_by = registered_by or self.operator
-        selected_operator = operator or self.operator
-        if isinstance(config, ConfigDraft):
-            preview = self.preview_config_draft(config)
-            if (
-                not preview.valid
-                or preview.config is None
-                or preview.result_content_hash is None
-            ):
-                raise ValueError("only a valid config draft can become the default")
-            return self._daemon.set_config_draft_default(
-                config,
-                preview=preview,
-                entry_id=entry_id or config_revision_entry_id(preview.config),
-                registered_by=selected_registered_by,
-                operator=selected_operator,
-                note=note,
-            )
-        return self._daemon.set_direct_config_default(
-            config,
-            entry_id=entry_id or config_revision_entry_id(config),
-            registered_by=selected_registered_by,
-            operator=selected_operator,
-            note=note,
-        )
-
-    def activate_config_entry(
-        self,
-        entry_id: str,
-        *,
-        operator: str | None = None,
-        expected_generation: int | None = None,
-        note: str = "",
-    ) -> ConfigActivationReceipt:
-        return self._daemon.activate_config_entry(
-            entry_id,
-            operator=operator or self.operator,
-            expected_generation=expected_generation,
-            note=note,
-        )
-
-    def activate_config(
-        self,
-        config: ConfigProfileSnapshot,
-        *,
-        entry_id: str,
-        registered_by: str | None = None,
-        operator: str | None = None,
-        note: str = "",
-        activation_note: str = "",
-        expected_generation: int | None = None,
-    ) -> ConfigActivationReceipt:
-        self.import_config(
-            config,
-            entry_id=entry_id,
-            registered_by=registered_by,
-            note=note,
-        )
-        return self.activate_config_entry(
-            entry_id,
-            operator=operator,
-            expected_generation=expected_generation,
-            note=activation_note,
-        )
-
-    def activate(
-        self,
-        candidate: CandidateConfig,
-        *,
-        entry_id: str | None = None,
-        registered_by: str | None = None,
-        operator: str | None = None,
-        note: str = "",
-        activation_note: str | None = None,
-        expected_generation: int | None = None,
-    ) -> CandidateConfigActivationReceipt:
-        return self._daemon.activate_candidate_config(
-            candidate,
-            entry_id=entry_id,
-            registered_by=registered_by or self.operator,
-            operator=operator or self.operator,
-            expected_generation=expected_generation,
-            note=note,
-            activation_note=activation_note,
-        )
-
-    def accept(
-        self,
-        candidate: CandidateConfig | Analysis,
-        *,
-        selection: CandidateSelection = None,
-        authority: ParameterChangeDecisionAuthority | None = None,
-        entry_id: str | None = None,
-        registered_by: str | None = None,
-        operator: str | None = None,
-        note: str = "",
-    ) -> CandidateConfigActivationReceipt:
-        """Persist an analysis if supplied, accept its proposals, and publish."""
-
-        if isinstance(candidate, Analysis):
-            candidate.save()
-            selected = candidate.candidate_config(selection)
-        else:
-            if selection is not None:
-                raise ValueError("proposal selection belongs on an Analysis")
-            selected = candidate
-        self._resolve_config(selected)
-        selected_authority = authority or HumanDecisionAuthority(
-            actor=operator or self.operator
-        )
-        proposal_views = {
-            item.proposal.id: item
-            for item in self._daemon.parameter_proposals(selected.source_run_id).items
-        }
-        for proposal_id in selected.proposal_ids:
-            decisions = proposal_views[proposal_id].decisions
-            if (
-                decisions
-                and decisions[-1].decision == "approved"
-                and (authority is None or decisions[-1].authority == selected_authority)
-            ):
-                continue
-            self._daemon.decide_parameter_proposal(
-                selected.source_run_id,
-                proposal_id,
-                authority=selected_authority,
-                note=note,
-            )
-        return self._daemon.activate_candidate_config(
-            selected,
-            entry_id=entry_id,
-            registered_by=registered_by or self.operator,
-            operator=operator or self.operator,
-            note=note,
-        )
-
-    def undo(
-        self,
-        *,
-        operator: str | None = None,
-        note: str = "",
-    ) -> ConfigActivationReceipt:
-        """Restore the previous distinct default; a second call toggles it back."""
-
-        return self._daemon.rollback_config(
-            operator=operator or self.operator,
-            note=note,
-        )
-
-    def rollback(
-        self,
-        *,
-        expected_generation: int,
-        operator: str | None = None,
-        note: str = "",
-    ) -> ConfigActivationReceipt:
-        return self._daemon.rollback_config(
-            operator=operator or self.operator,
-            expected_generation=expected_generation,
-            note=note,
-        )
 
 
 __all__ = ["LabClient", "PreparedLabExperiment"]

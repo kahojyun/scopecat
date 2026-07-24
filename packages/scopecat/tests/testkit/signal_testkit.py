@@ -14,11 +14,12 @@ from typing import Protocol, cast
 from pydantic import BaseModel, ConfigDict
 
 import scopecat as sc
+from scopecat.analysis.service import SavedAnalysis
+from scopecat.api.run import RunHandle
 from scopecat.authoring import ExperimentInvocation
 from scopecat.compiler.frontend.invocation import prepare_invocation
 from scopecat.composition.embedded import (
     embedded_workspace_services,
-    open_embedded_workspace,
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
@@ -30,6 +31,7 @@ from scopecat.kernel.problems import (
 )
 from scopecat.measurements.results import (
     MeasurementArray,
+    MeasurementDatasetSchema,
     MeasurementRecord,
     MeasurementValue,
 )
@@ -38,6 +40,7 @@ from scopecat.records.parameter import Quantity, ScalarParameterValue
 from scopecat.records.run import RunConfigSource, RunManifest
 from scopecat.runs.access import dataset_storage_ref
 from scopecat.runs.service import start_run
+from tests.testkit.in_process_lab import in_process_lab
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 
 SUMMARY_STATS_STEP = "summary-stats"
@@ -295,14 +298,14 @@ def execute_signal_run(
     )
 
 
-def _analysis_run(*, run_id: str, workspace: str | Path) -> sc.Run:
-    lab = open_embedded_workspace(workspace)
+def _analysis_run(*, run_id: str, workspace: str | Path) -> RunHandle:
+    lab = in_process_lab(workspace)
     return lab.get_run(run_id)
 
 
 def execute_summary_stats_analysis(
     *, run_id: str, workspace: str | Path, selector: str | None = None
-) -> sc.SavedAnalysis:
+) -> SavedAnalysis:
     run = _analysis_run(run_id=run_id, workspace=workspace)
     return run.analyze(SummaryStatsAnalysisStep(selector=selector)).save()
 
@@ -503,7 +506,7 @@ def _flatten_numeric_array_values(values: Sequence[object]) -> list[float]:
     return flattened
 
 
-def _scan_parameter_id(schema: sc.MeasurementDatasetSchema) -> str:
+def _scan_parameter_id(schema: MeasurementDatasetSchema) -> str:
     coordinate_ids = list(schema.primary_coordinates)
     if len(coordinate_ids) != 1 or not coordinate_ids[0]:
         raise CheckFailed(

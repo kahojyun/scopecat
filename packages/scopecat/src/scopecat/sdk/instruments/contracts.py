@@ -17,15 +17,6 @@ from pydantic import (
 )
 
 from scopecat.kernel.payloads import PayloadValue
-from scopecat.kernel.problems import (
-    LocationPathItem,
-    Problem,
-    ProblemCategory,
-    ProblemPhase,
-    blocking_problem,
-    has_blocking_problems,
-    model_location,
-)
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.kernel.value_type_wire import ScalarWire, scalar_type_wire_schema
 from scopecat.kernel.value_types import Bool as BoolType
@@ -66,6 +57,15 @@ from scopecat.records.instrument import (
     validate_entity_target as _validate_entity_target,
 )
 from scopecat.sdk.instruments.provider_options import ProviderOptionDescription
+from scopecat.sdk.problems import (
+    LocationPathItem,
+    Problem,
+    ProblemCategory,
+    ProblemPhase,
+    blocking_problem,
+    has_blocking_problems,
+    model_location,
+)
 
 type _NonEmptyId = Annotated[str, Field(min_length=1)]
 

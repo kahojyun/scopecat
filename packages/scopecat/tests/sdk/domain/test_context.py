@@ -19,6 +19,7 @@ from scopecat.sdk.domain import (
     DomainPointRef,
     DomainPreparationBuilder,
     DomainProductUseRef,
+    MeasurementTransformSemanticContract,
 )
 from scopecat.sdk.domain._bridge import (
     make_domain_batch_context,
@@ -48,7 +49,7 @@ def _domain_scenario(
     )
     transform = sc.measurement_transform(
         "summarize",
-        semantic=sc.MeasurementTransformSemanticContract(
+        semantic=MeasurementTransformSemanticContract(
             id="test.context.summarize",
             version="1",
             portability=portability,

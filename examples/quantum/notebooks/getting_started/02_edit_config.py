@@ -12,7 +12,7 @@ lab = sc.open_project(EXAMPLE_ROOT).connect()
 # %%
 # Draft state stays in this Python process. Scalar replacement and a keyed
 # table-cell update use the same typed values as experiment authoring.
-draft = lab.edit_config().replace_scalar(
+draft = lab.config.edit().replace_scalar(
     "repetitions",
     sc.Quantity(256, "count"),
 )

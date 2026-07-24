@@ -14,13 +14,9 @@ from scopecat.adapters.sqlite import (
     SQLiteRunRepository,
     bootstrap_execution_schema,
 )
-from scopecat.api.workspace import Workspace
 from scopecat.application.services import WorkspaceServices
 from scopecat.config.registry.ports import WorkspaceUnitOfWorkFactory
-from scopecat.config.resolution import ConfigProfileInput
 from scopecat.execution.services import ExecutionServices
-from scopecat.planning.system import ExperimentSystem
-from scopecat.records.config import ConfigProfileSnapshot
 
 
 def embedded_run_repository(workspace: str | Path) -> SQLiteRunRepository:
@@ -84,28 +80,6 @@ def embedded_workspace_services(workspace: str | Path) -> WorkspaceServices:
         runs=runs,
         execution=execution,
         config_registry=config_registry.unit_of_work,
-    )
-
-
-def open_embedded_workspace(
-    workspace: str | Path,
-    *,
-    config: str | ConfigProfileSnapshot = "active",
-    config_profile: ConfigProfileInput | None = None,
-    system: ExperimentSystem | None = None,
-    reviewer: str = "operator",
-    operator: str = "operator",
-) -> Workspace:
-    """Compose a test/demo facade that cannot write daemon-owned state."""
-
-    return Workspace(
-        _workspace=Path(workspace),
-        services=embedded_workspace_services(workspace),
-        _config=config,
-        _config_profile=config_profile,
-        _system=system,
-        _reviewer=reviewer,
-        _operator=operator,
     )
 
 

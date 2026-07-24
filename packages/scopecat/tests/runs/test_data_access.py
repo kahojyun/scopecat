@@ -8,7 +8,6 @@ import scopecat as sc
 from scopecat.composition.embedded import (
     embedded_run_repository,
     embedded_workspace_services,
-    open_embedded_workspace,
 )
 from scopecat.kernel.errors import CheckFailed, DataIntegrityError, NotFound
 from scopecat.records.config import config_content_hash
@@ -32,6 +31,7 @@ from scopecat.runs.service import (
     read_run_measurement_dataset,
     start_run,
 )
+from tests.testkit.in_process_lab import in_process_lab
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.workflow_fixtures import (
     attach_binary_artifact,
@@ -158,7 +158,7 @@ def test_run_inputs_are_loaded_independently_for_capture_runs(tmp_path: Path) ->
     assert loaded_config == config
     assert loaded_request is None
 
-    workspace = open_embedded_workspace(tmp_path, config_profile=config)
+    workspace = in_process_lab(tmp_path, config_profile=config)
     handle = workspace.get_run(manifest.run_id)
     assert handle.config == config
     assert handle.request is None

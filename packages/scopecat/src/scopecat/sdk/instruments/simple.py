@@ -13,14 +13,6 @@ from typing import cast
 
 from pydantic import JsonValue
 
-from scopecat.kernel.problems import (
-    LocationPathItem,
-    Problem,
-    ProblemCategory,
-    ProblemPhase,
-    blocking_problem,
-    model_location,
-)
 from scopecat.kernel.state import StateLiteral, StateValue
 from scopecat.kernel.value_types import Payload
 from scopecat.kernel.value_validation import coerce_literal
@@ -44,6 +36,14 @@ from scopecat.sdk.instruments.contracts import (
     ProductDescription,
     capability,
     validate_state_command,
+)
+from scopecat.sdk.problems import (
+    LocationPathItem,
+    Problem,
+    ProblemCategory,
+    ProblemPhase,
+    blocking_problem,
+    model_location,
 )
 
 type SimpleStateReader = Callable[[], StateLiteral | StateValue]

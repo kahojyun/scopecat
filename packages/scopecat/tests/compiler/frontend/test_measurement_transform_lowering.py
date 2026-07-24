@@ -5,12 +5,13 @@ from pathlib import Path
 import scopecat as sc
 from scopecat.compiler.typed.program import core_acquisitions
 from scopecat.planning.authoring import resolve_experiment
+from scopecat.sdk.domain import MeasurementTransformSemanticContract
 from tests.testkit.authoring import load_config, template_fixture
 from tests.testkit.typed_program import link_program
 
 
-def _semantic(name: str) -> sc.MeasurementTransformSemanticContract:
-    return sc.MeasurementTransformSemanticContract(
+def _semantic(name: str) -> MeasurementTransformSemanticContract:
+    return MeasurementTransformSemanticContract(
         id=name,
         version="1",
     )

@@ -14,18 +14,13 @@ from scopecat.analysis.service import (
     AnalysisOutput,
     SavedAnalysis,
 )
-from scopecat.analysis.service import (
-    save_analysis as save_analysis_record,
-)
 from scopecat.api.analysis import Analysis, AnalysisContext, AnalysisStep
 from scopecat.api.data import Data
-from scopecat.application.services import WorkspaceServices
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter_change import ParameterChangeProposal
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
-from scopecat.runs.attachments import attach_run_artifact as attach_artifact_record
 from scopecat.runs.data import (
     RunArtifactBytesResult,
     RunArtifactJsonResult,
@@ -36,18 +31,6 @@ from scopecat.runs.data import (
     RunRecordJsonResult,
 )
 from scopecat.runs.selectors import RunSelector, selected_run_id
-from scopecat.runs.service import (
-    load_run,
-    load_run_config,
-    load_run_request,
-    read_run_artifact_bytes,
-    read_run_artifact_json,
-    read_run_artifact_text,
-    read_run_data_array,
-    read_run_data_table,
-    read_run_measurement_dataset,
-    read_run_record_json,
-)
 
 
 class RunOperations(Protocol):
@@ -127,152 +110,6 @@ class RunOperations(Protocol):
     def data_table(self, run_id: str, selector: str) -> RunDataTableResult: ...
 
     def data_array(self, run_id: str, selector: str) -> RunDataArrayResult: ...
-
-
-@dataclass(frozen=True, slots=True)
-class ServiceRunOperations:
-    """Run operations backed by in-process application services."""
-
-    services: WorkspaceServices
-
-    def load_manifest(self, run_id: str) -> RunManifest:
-        return load_run(run_id=run_id, services=self.services)
-
-    def load_config(self, run_id: str) -> ConfigProfileSnapshot:
-        return load_run_config(run_id=run_id, services=self.services)
-
-    def load_request(self, run_id: str) -> RunRequest | None:
-        return load_run_request(run_id=run_id, services=self.services)
-
-    def measurements(
-        self,
-        run_id: str,
-        *,
-        selector: str,
-    ) -> RunMeasurementDatasetResult:
-        return read_run_measurement_dataset(
-            run_id=run_id,
-            services=self.services,
-            selector=selector,
-        )
-
-    def save_analysis(
-        self,
-        *,
-        run_id: str,
-        title: str,
-        analysis_key: str,
-        step_id: str | None,
-        inputs: Sequence[AnalysisInput],
-        outputs: Sequence[AnalysisOutput],
-        parameter_proposals: Sequence[ParameterChangeProposal],
-    ) -> SavedAnalysis:
-        return save_analysis_record(
-            services=self.services,
-            run_id=run_id,
-            title=title,
-            analysis_key=analysis_key,
-            step_id=step_id,
-            inputs=inputs,
-            outputs=outputs,
-            parameter_proposals=parameter_proposals,
-        )
-
-    def attach(
-        self,
-        *,
-        run_id: str,
-        path: str | Path | None,
-        key: str,
-        kind: str,
-        text: str | None,
-        content: bytes | None,
-        filename: str | None,
-        media_type: str | None,
-        metadata: Mapping[str, JsonValue] | None,
-    ) -> RunContentEntry:
-        return attach_artifact_record(
-            services=self.services,
-            run_id=run_id,
-            path=path,
-            key=key,
-            kind=kind,
-            text=text,
-            content=content,
-            filename=filename,
-            media_type=media_type,
-            metadata=metadata,
-        )
-
-    def artifact_text(
-        self,
-        run_id: str,
-        selector: str,
-        *,
-        expected_kind: str | None,
-    ) -> RunArtifactTextResult:
-        return read_run_artifact_text(
-            run_id=run_id,
-            services=self.services,
-            selector=selector,
-            expected_kind=expected_kind,
-        )
-
-    def artifact_json(
-        self,
-        run_id: str,
-        selector: str,
-        *,
-        expected_kind: str | None,
-    ) -> RunArtifactJsonResult:
-        return read_run_artifact_json(
-            run_id=run_id,
-            services=self.services,
-            selector=selector,
-            expected_kind=expected_kind,
-        )
-
-    def artifact_bytes(
-        self,
-        run_id: str,
-        selector: str,
-        *,
-        expected_kind: str | None,
-    ) -> RunArtifactBytesResult:
-        return read_run_artifact_bytes(
-            run_id=run_id,
-            services=self.services,
-            selector=selector,
-            expected_kind=expected_kind,
-        )
-
-    def record_json(
-        self,
-        run_id: str,
-        selector: str,
-        *,
-        expected_kind: str | None,
-    ) -> RunRecordJsonResult:
-        return read_run_record_json(
-            run_id=run_id,
-            services=self.services,
-            selector=selector,
-            expected_kind=expected_kind,
-        )
-
-    def data_table(self, run_id: str, selector: str) -> RunDataTableResult:
-        return read_run_data_table(
-            run_id=run_id,
-            services=self.services,
-            selector=selector,
-        )
-
-    def data_array(self, run_id: str, selector: str) -> RunDataArrayResult:
-        return read_run_data_array(
-            run_id=run_id,
-            services=self.services,
-            selector=selector,
-        )
 
 
 class RunSession(Protocol):

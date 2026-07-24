@@ -56,6 +56,18 @@ from scopecat.runs.repository import TerminalRunCommit
 _JSON_DOCUMENT = TypeAdapter(dict[str, JsonValue])
 
 
+class DelegatedExecutorLeaseLostError(RuntimeError):
+    """A delegated executor can no longer commit effects to its run."""
+
+    def __init__(self, lease: ExecutorLease, cause: Exception) -> None:
+        super().__init__(
+            f"delegated executor for run {lease.run_id!r} generation "
+            f"{lease.generation} is no longer live: {cause}"
+        )
+        self.lease = lease
+        self.cause = cause
+
+
 def delegated_execution_services(
     client: DaemonClient,
     submission: DelegatedRunSubmission,

@@ -43,22 +43,22 @@ candidate = result.analysis.candidate_config()
 # %%
 # Explicit review and generation control remain available for audited operator
 # workflows. They are not required by the ordinary lab.config.accept() path.
-review = lab.review_parameter_proposal(
+review = lab.config.review(
     completed_run,
     result.proposal_id,
     decision="approved",
     note="fit evidence and scan coverage reviewed manually",
 )
-generation = lab.config_registry().active_state
+generation = lab.config.registry().active_state
 if generation is None:
     raise RuntimeError("the project has no default configuration")
-activated = lab.activate(
+activated = lab.config.activate_candidate(
     candidate,
     entry_id=f"manual-drag-beta-{completed_run.id}",
     expected_generation=generation.generation,
     activation_note="select the manually reviewed DRAG beta",
 )
-restored = lab.rollback(
+restored = lab.config.rollback(
     expected_generation=activated.active_state.generation,
     note="restore the previous default after the advanced example",
 )

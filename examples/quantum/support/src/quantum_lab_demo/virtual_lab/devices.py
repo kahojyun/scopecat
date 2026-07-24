@@ -5,12 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from pydantic import JsonValue
-from scopecat.kernel.problems import (
-    ProblemCategory,
-    ProblemPhase,
-    blocking_problem,
-    model_location,
-)
 from scopecat.records.parameter import Quantity
 from scopecat.sdk.instruments import (
     DriverFault,
@@ -18,6 +12,12 @@ from scopecat.sdk.instruments import (
     InstrumentStateCommandField,
     PayloadRef,
     StateValue,
+)
+from scopecat.sdk.problems import (
+    ProblemCategory,
+    ProblemPhase,
+    blocking_problem,
+    model_location,
 )
 
 from quantum_lab_demo.virtual_lab.models import VirtualDeviceProfile

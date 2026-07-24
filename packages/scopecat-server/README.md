@@ -64,7 +64,7 @@ Notebook scratch execution imports the same user-owned composition root:
 ```python
 from pathlib import Path
 
-from scopecat import LabApplication
+from scopecat.application import LabApplication
 from my_lab import build_catalog, build_initial_config, build_system
 
 
@@ -107,4 +107,5 @@ executors are fenced on restart and their resources stay quarantined until an
 operator releases, requeues, or aborts the run from the GUI or Python client.
 
 Tests can construct `LocalDaemonRuntime` with a temporary project directory or
-pass another `DaemonBackend` to `create_app`.
+pass another `DaemonApplication` to `create_app`, exposing separate
+configuration, run, and executor services.

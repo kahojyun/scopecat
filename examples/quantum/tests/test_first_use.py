@@ -82,12 +82,12 @@ def test_cli_project_serves_gui_and_lightweight_config_loop(
             )
             restored = lab.config.undo(note="restore the first-use default")
 
-        with sc.connect(daemon_url) as observer:
-            detail = observer.get_run(baseline.id)
-            candidate_detail = observer.get_run(candidate_run.id)
-            default_detail = observer.get_run(default_run.id)
-            proposals = observer.parameter_proposals(baseline.id)
-            registry = observer.config_registry()
+        with sc.open_project(project).connect(daemon_url) as observer:
+            detail = observer.control.run_detail(baseline.id)
+            candidate_detail = observer.control.run_detail(candidate_run.id)
+            default_detail = observer.control.run_detail(default_run.id)
+            proposals = observer.config.proposals(baseline.id)
+            registry = observer.config.registry()
 
         assert detail.manifest.status == "completed"
         assert detail.control.admission.request is not None

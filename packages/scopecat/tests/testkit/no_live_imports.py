@@ -7,7 +7,6 @@ import scopecat as sc
 from scopecat.compiler.frontend.invocation import prepare_invocation
 from scopecat.composition.embedded import (
     embedded_workspace_services,
-    open_embedded_workspace,
 )
 from scopecat.config.profiles import load_config_profile
 from scopecat.config.registry import (
@@ -19,6 +18,7 @@ from scopecat.config.registry import (
 )
 from scopecat.config.resolution import register_and_activate_candidate_config
 from scopecat.runs.service import start_run
+from tests.testkit.in_process_lab import in_process_lab
 from tests.testkit.paths import CORE_FIXTURE_DIR as SIGNAL_FIXTURE_DIR
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.signal_testkit import (
@@ -64,7 +64,7 @@ def _execute_signal_run(workspace: Path):
 
 def _candidate_best_signal(workspace: Path, run_id: str) -> sc.CandidateConfig:
     config, _experiment = _load_signal_fixture()
-    lab = open_embedded_workspace(workspace, config=config)
+    lab = in_process_lab(workspace, config=config)
     run = lab.get_run(run_id)
     analysis = run.analyze(BestSignalAnalysisStep())
     analysis.save()
@@ -75,7 +75,7 @@ def _candidate_best_signal(workspace: Path, run_id: str) -> sc.CandidateConfig:
 
 def exercise_preview(workspace: Path) -> None:
     config = load_config_profile(SIGNAL_FIXTURE_DIR / "config-profile.json")
-    open_embedded_workspace(
+    in_process_lab(
         workspace,
         config=config,
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
@@ -89,7 +89,7 @@ def exercise_signal_provider_run(workspace: Path) -> None:
 def exercise_workflow_pipeline(workspace: Path) -> None:
     run = _start_signal_run(workspace)
     config, _experiment = _load_signal_fixture()
-    lab = open_embedded_workspace(workspace, config=config)
+    lab = in_process_lab(workspace, config=config)
     run_handle = lab.get_run(run.run_id)
     run_handle.analyze(SummaryStatsAnalysisStep()).save()
     candidate = _candidate_best_signal(workspace, run.run_id)

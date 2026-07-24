@@ -20,13 +20,6 @@ from types import MappingProxyType
 from typing import cast
 
 from scopecat.kernel.errors import CheckFailed, ProviderContractError
-from scopecat.kernel.problems import (
-    Problem,
-    ProblemCategory,
-    ProblemPhase,
-    blocking_problem,
-    model_location,
-)
 from scopecat.measurements.results import ComplexQuantity, MeasurementArray
 from scopecat.sdk.domain import (
     DomainMappedResult,
@@ -34,6 +27,13 @@ from scopecat.sdk.domain import (
     DomainProductContractView,
     DomainProductUseRef,
     DomainResultValue,
+)
+from scopecat.sdk.problems import (
+    Problem,
+    ProblemCategory,
+    ProblemPhase,
+    blocking_problem,
+    model_location,
 )
 from scopecat_quantum import (
     Acquire,

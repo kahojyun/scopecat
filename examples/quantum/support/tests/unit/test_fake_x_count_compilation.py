@@ -12,7 +12,7 @@ import scopecat as sc
 from scopecat.compiler.linking.linked import LinkedPointMaterializer
 from scopecat.composition.embedded import (
     embedded_execution_services,
-    open_embedded_workspace,
+    embedded_workspace_services,
 )
 from scopecat.kernel.content_identity import content_fingerprint
 from scopecat.kernel.errors import RunIndeterminate
@@ -37,7 +37,10 @@ from quantum_lab_demo.workflows.fake_x_count_bias import (
     fake_x_count_bias_template,
 )
 
-from .demo_lab_experiment_testkit import reject_program_input_binding
+from .demo_lab_experiment_testkit import (
+    InProcessQuantumLab,
+    reject_program_input_binding,
+)
 
 
 class _SecondBatchUnknownRuntime(FakeListDomainRuntime):
@@ -145,8 +148,12 @@ def test_different_target_partitions_preserve_the_logical_dataset(
                 max_list_entries=max_list_entries,
             )
         )
-        lab = open_embedded_workspace(
-            tmp_path / f"capacity-{max_list_entries}",
+        lab = InProcessQuantumLab(
+            workspace=tmp_path / f"capacity-{max_list_entries}",
+            services=embedded_workspace_services(
+                tmp_path / f"capacity-{max_list_entries}"
+            ),
+            config="active",
             config_profile=fake_x_count_bias_config(),
             system=sc.ExperimentSystem(
                 provider=FakeBiasVoltageProvider(),
@@ -183,8 +190,10 @@ def test_later_batch_failure_has_one_domain_problem_and_partial_dataset(
         target=replace(default_fake_list_target(), max_list_entries=4),
         runtime=_SecondBatchUnknownRuntime(),
     )
-    lab = open_embedded_workspace(
-        tmp_path,
+    lab = InProcessQuantumLab(
+        workspace=tmp_path,
+        services=embedded_workspace_services(tmp_path),
+        config="active",
         config_profile=fake_x_count_bias_config(),
         system=sc.ExperimentSystem(
             provider=source,
@@ -211,8 +220,10 @@ def _run_mixed_experiment(
 ) -> tuple[sc.RunHandle, FakeBiasVoltageProvider, QuantumLabCompiler]:
     source = FakeBiasVoltageProvider()
     compiler = quantum_lab_compiler()
-    lab = open_embedded_workspace(
-        workspace,
+    lab = InProcessQuantumLab(
+        workspace=workspace,
+        services=embedded_workspace_services(workspace),
+        config="active",
         config_profile=fake_x_count_bias_config(),
         system=sc.ExperimentSystem(
             provider=source,

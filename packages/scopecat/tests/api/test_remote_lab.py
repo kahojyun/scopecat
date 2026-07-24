@@ -12,8 +12,10 @@ import httpx
 import pytest
 from pydantic import BaseModel
 
-import scopecat.daemon.connection as connection_module
+import scopecat.api._delegated as delegated_module
 from scopecat.analysis.service import AnalysisOutput, prepare_analysis_artifact
+from scopecat.api._delegated import _DelegatedRunner
+from scopecat.api._remote import RemoteRunOperations
 from scopecat.api.lab import LabClient
 from scopecat.composition.embedded import embedded_workspace_services
 from scopecat.config.drafts import ConfigDraft
@@ -38,29 +40,15 @@ from scopecat.control.models import (
     RunAdmissionRecord,
     RunPage,
 )
-from scopecat.daemon import (
-    DaemonClient,
-    DaemonConflictError,
-    DaemonConnection,
-    DaemonHealth,
-    DelegatedExecutorLeaseLostError,
-    DelegatedRunSubmission,
-    ExecutionRecoverySnapshot,
-    ExecutorLease,
-    ExperimentCatalog,
-    ManagedRunSubmission,
-    RegisteredExperimentDescriptor,
-    ResourceClaimDescriptor,
-    RunAdmission,
-    RunDetail,
-    RuntimeEventPublishCommand,
-    RuntimeEventPublishReceipt,
-)
+from scopecat.daemon.client import DaemonClient, DaemonConflictError
+from scopecat.daemon.execution import DelegatedExecutorLeaseLostError
 from scopecat.daemon.views import (
     ActiveConfigView,
     ConfigDraftPreview,
     ConfigEntryView,
     ConfigRegistryView,
+    DaemonHealth,
+    RunDetail,
 )
 from scopecat.daemon.wire import (
     AnalysisArtifactOutputPayload,
@@ -76,11 +64,21 @@ from scopecat.daemon.wire import (
     ConfigEntryActivationCommand,
     ConfigImportReceipt,
     ConfigRollbackCommand,
+    DelegatedRunSubmission,
     DeleteConfigParameterRows,
     DirectConfigDefaultCommand,
     DirectConfigImportCommand,
+    ExecutionRecoverySnapshot,
+    ExecutorLease,
+    ExperimentCatalog,
     InsertConfigParameterRows,
+    ManagedRunSubmission,
+    RegisteredExperimentDescriptor,
     ReplaceConfigParameter,
+    ResourceClaimDescriptor,
+    RunAdmission,
+    RuntimeEventPublishCommand,
+    RuntimeEventPublishReceipt,
     UpdateConfigParameterRows,
 )
 from scopecat.execution.observation import (
@@ -114,7 +112,7 @@ from tests.testkit.workflow_fixtures import (
 _NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
 
 
-def test_connection_exposes_browsing_and_managed_submission() -> None:
+def test_control_operations_expose_browsing_and_managed_submission() -> None:
     request = RunRequest(id="managed-request")
     admission_record = RunAdmissionRecord(
         submission_id="existing-submission",
@@ -204,15 +202,15 @@ def test_connection_exposes_browsing_and_managed_submission() -> None:
         raise AssertionError(f"unexpected request: {http_request.method} {path}")
 
     client = _client(handler)
-    connection = DaemonConnection(client)
+    lab = LabClient(client)
 
-    assert connection.health().project_id == "project-1"
-    assert connection.catalog().experiments[0].id == "ramsey"
-    assert connection.runs(state="accepted").items == (run,)
-    assert connection.runs(before=10).items == (run,)
-    assert connection.get_run(run.run_id).control == run
-    assert connection.events(run_id=run.run_id).items == (event,)
-    admission = connection.submit_managed(
+    assert lab.control.health().project_id == "project-1"
+    assert lab.control.catalog().experiments[0].id == "ramsey"
+    assert lab.control.runs(state="accepted").items == (run,)
+    assert lab.control.runs(before=10).items == (run,)
+    assert lab.control.run_detail(run.run_id).control == run
+    assert lab.control.events(run_id=run.run_id).items == (event,)
+    admission = lab.control.submit_managed(
         "ramsey",
         "1",
         request,
@@ -221,7 +219,7 @@ def test_connection_exposes_browsing_and_managed_submission() -> None:
 
     assert admission.submission_id == "managed-submission"
     assert seen_submission_ids == ["managed-submission"]
-    connection.close()
+    lab.close()
     assert client.health().status == "ok"
 
 
@@ -320,7 +318,7 @@ def test_execute_delegated_submits_complete_plan_and_heartbeats(
             event_sink(transition_event)
         return _terminal_manifest(accepted)
 
-    monkeypatch.setattr(connection_module, "execute_admitted_run", execute)
+    monkeypatch.setattr(delegated_module, "execute_admitted_run", execute)
 
     def event_sink(event: RuntimeEvent) -> None:
         local_events.append(event)
@@ -328,7 +326,7 @@ def test_execute_delegated_submits_complete_plan_and_heartbeats(
     def payload_observer(_event: RuntimePayloadObservation) -> None:
         pass
 
-    result = DaemonConnection(_client(handler)).execute_delegated(
+    result = _DelegatedRunner(_client(handler), None).execute(
         planned,
         executor_id="notebook-1",
         submission_id="delegated-submission",
@@ -416,13 +414,13 @@ def test_execute_delegated_fences_effects_after_heartbeat_loses_lease(
                     raise AssertionError("heartbeat failure did not fence effects")
                 time.sleep(0.001)
 
-    monkeypatch.setattr(connection_module, "execute_admitted_run", execute)
+    monkeypatch.setattr(delegated_module, "execute_admitted_run", execute)
 
     with pytest.raises(
         DelegatedExecutorLeaseLostError,
         match="generation 7 is no longer live",
     ) as error:
-        DaemonConnection(_client(handler)).execute_delegated(
+        _DelegatedRunner(_client(handler), None).execute(
             planned,
             executor_id="notebook-1",
         )
@@ -432,10 +430,13 @@ def test_execute_delegated_fences_effects_after_heartbeat_loses_lease(
 
 def test_execute_delegated_requires_a_durable_request(tmp_path: Path) -> None:
     planned = _planned(tmp_path)
-    connection = DaemonConnection(_client(lambda _request: httpx.Response(500)))
+    runner = _DelegatedRunner(
+        _client(lambda _request: httpx.Response(500)),
+        None,
+    )
 
     with pytest.raises(ValueError, match="durable run request"):
-        connection.execute_delegated(
+        runner.execute(
             PlannedRun(
                 config=planned.config,
                 request=None,
@@ -445,7 +446,7 @@ def test_execute_delegated_requires_a_durable_request(tmp_path: Path) -> None:
         )
 
 
-def test_connection_composes_config_registry_commands() -> None:
+def test_config_operations_compose_registry_commands() -> None:
     config = load_config()
     entry, state = _config_registry_records(config)
     seen: list[object] = []
@@ -513,24 +514,24 @@ def test_connection_composes_config_registry_commands() -> None:
             )
         raise AssertionError(f"unexpected request: {http_request.method} {path}")
 
-    connection = DaemonConnection(_client(handler))
+    config_ops = LabClient(_client(handler)).config
 
-    assert connection.config_registry().active_state == state
-    assert connection.active_config().config == config
-    assert connection.config_entry("baseline").config == config
+    assert config_ops.registry().active_state == state
+    assert config_ops.active().config == config
+    assert config_ops.entry("baseline").config == config
     assert (
-        connection.import_direct_config(
+        config_ops.import_snapshot(
             config,
             entry_id="baseline",
             registered_by="notebook",
         ).entry
         == entry
     )
-    previewed = connection.preview_config_draft(
+    previewed = config_ops.preview(
         draft,
         candidate_id="manual-tuning",
     )
-    registered = connection.register_config_draft(
+    registered = config_ops.register(
         draft,
         preview=previewed,
         entry_id="manual-tuning",
@@ -538,14 +539,14 @@ def test_connection_composes_config_registry_commands() -> None:
     )
     assert registered.entry.id == "manual-tuning"
     assert (
-        connection.activate_config_entry(
+        config_ops.activate_entry(
             "baseline",
             operator="operator",
         ).active_state
         == state
     )
     assert (
-        connection.rollback_config(
+        config_ops.rollback(
             operator="operator",
             expected_generation=1,
         ).active_state
@@ -597,7 +598,7 @@ def test_connection_composes_config_registry_commands() -> None:
     ]
 
 
-def test_connection_serializes_each_config_draft_update_shape() -> None:
+def test_config_operations_serialize_each_draft_update_shape() -> None:
     config = load_config()
     entry, state = _config_registry_records(config)
     seen: list[ConfigDraftCommand] = []
@@ -637,7 +638,7 @@ def test_connection_serializes_each_config_draft_update_shape() -> None:
         delete_parameter_rows("channels", key={"id": "q2"}),
     )
 
-    DaemonConnection(_client(handler)).preview_config_draft(
+    LabClient(_client(handler)).config.preview(
         draft,
         candidate_id="all-update-shapes",
     )
@@ -650,7 +651,7 @@ def test_connection_serializes_each_config_draft_update_shape() -> None:
     ]
 
 
-def test_connection_rejects_a_draft_from_a_different_active_snapshot() -> None:
+def test_config_operations_reject_a_draft_from_a_different_active_snapshot() -> None:
     active_config = load_config()
     stale_config = active_config.model_copy(update={"id": "stale-config"})
     entry, state = _config_registry_records(active_config)
@@ -673,7 +674,7 @@ def test_connection_rejects_a_draft_from_a_different_active_snapshot() -> None:
     )
 
     with pytest.raises(ValueError, match="no longer the active"):
-        DaemonConnection(_client(handler)).preview_config_draft(draft)
+        LabClient(_client(handler)).config.preview(draft)
 
     assert len(requests) == 1
 
@@ -707,11 +708,8 @@ def test_lab_client_owns_local_config_draft_workflow() -> None:
             )
         raise AssertionError(f"unexpected request: {request.method} {path}")
 
-    lab = LabClient(
-        DaemonConnection(_client(handler)),
-        operator="notebook-operator",
-    )
-    draft = lab.edit_config().replace_scalar(
+    lab = LabClient(_client(handler), operator="notebook-operator")
+    draft = lab.config.edit().replace_scalar(
         "drive_frequency",
         Quantity(value=5.1, unit="GHz"),
     )
@@ -764,10 +762,7 @@ def test_lab_config_intents_hide_registry_coordination() -> None:
             )
         raise AssertionError(f"unexpected request: {request.method} {path}")
 
-    lab = LabClient(
-        DaemonConnection(_client(handler)),
-        operator="notebook-operator",
-    )
+    lab = LabClient(_client(handler), operator="notebook-operator")
 
     set_receipt = lab.config.set_default(config, note="use tuned values")
     undo_receipt = lab.config.undo(note="restore prior values")
@@ -837,7 +832,7 @@ def test_remote_analysis_artifacts_preserve_source_defaults() -> None:
         metadata=None,
     )
 
-    DaemonConnection(_client(handler)).save_analysis(
+    RemoteRunOperations(_client(handler)).save_analysis(
         run_id="run-1",
         title="fit",
         analysis_key="fit",
@@ -888,7 +883,7 @@ def test_run_scratch_plans_against_explicit_snapshot_without_local_storage(
     captured: dict[str, object] = {}
 
     def execute_delegated(
-        self: DaemonConnection,
+        self: _DelegatedRunner,
         planned: PlannedRun,
         *,
         executor_id: str,
@@ -909,13 +904,13 @@ def test_run_scratch_plans_against_explicit_snapshot_without_local_storage(
         )
         return _terminal_manifest(accepted)
 
-    monkeypatch.setattr(DaemonConnection, "execute_delegated", execute_delegated)
+    monkeypatch.setattr(_DelegatedRunner, "execute", execute_delegated)
 
     experiment = load_prepared_invocation() if prepared else load_invocation()
-    result = DaemonConnection(
+    result = _DelegatedRunner(
         _client(lambda _request: httpx.Response(500)),
-        build_system=lambda _config: system,
-    ).run_scratch(
+        lambda _config: system,
+    ).run(
         experiment,
         config=config,
         name="scratch fit",
@@ -962,7 +957,7 @@ def test_run_scratch_uses_active_config_and_bound_system(
         return _model(ActiveConfigView(entry=entry, active_state=state, config=config))
 
     def execute_delegated(
-        self: DaemonConnection,
+        self: _DelegatedRunner,
         planned: PlannedRun,
         *,
         executor_id: str,
@@ -980,16 +975,16 @@ def test_run_scratch_uses_active_config_and_bound_system(
             )
         )
 
-    monkeypatch.setattr(DaemonConnection, "execute_delegated", execute_delegated)
+    monkeypatch.setattr(_DelegatedRunner, "execute", execute_delegated)
 
     def build_system(selected: ConfigProfileSnapshot) -> ExperimentSystem:
         built_from.append(selected)
         return system
 
-    result = DaemonConnection(
+    result = _DelegatedRunner(
         _client(handler),
-        build_system=build_system,
-    ).run_scratch(load_invocation())
+        build_system,
+    ).run(load_invocation())
 
     planned = captured["planned"]
     assert isinstance(planned, PlannedRun)
@@ -1003,16 +998,17 @@ def test_run_scratch_uses_active_config_and_bound_system(
 
 
 def test_run_scratch_requires_an_explicit_or_bound_system() -> None:
-    connection = DaemonConnection(
+    runner = _DelegatedRunner(
         _client(
             lambda request: pytest.fail(
                 f"unexpected daemon request: {request.method} {request.url.path}"
             )
-        )
+        ),
+        None,
     )
 
     with pytest.raises(ValueError, match="requires an experiment system"):
-        connection.run_scratch(load_invocation(), config=load_config())
+        runner.run(load_invocation(), config=load_config())
 
 
 def test_preview_scratch_uses_active_config_without_admission() -> None:
@@ -1024,12 +1020,12 @@ def test_preview_scratch_uses_active_config_without_admission() -> None:
         requests.append(request)
         return _model(ActiveConfigView(entry=entry, active_state=state, config=config))
 
-    preview = DaemonConnection(
+    preview = _DelegatedRunner(
         _client(handler),
-        build_system=lambda _config: ExperimentSystem(
+        lambda _config: ExperimentSystem(
             provider=TestSignalInstrumentProvider()
         ),
-    ).preview_scratch(load_invocation())
+    ).preview(load_invocation())
 
     assert preview.point_count > 0
     assert [request.url.path for request in requests] == [

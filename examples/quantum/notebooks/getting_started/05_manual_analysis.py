@@ -42,7 +42,7 @@ analysis = (
     )
 )
 saved_analysis = analysis.save()
-durable_proposals = lab.parameter_proposals(baseline)
+durable_proposals = lab.config.proposals(baseline)
 
 # %%
 candidate = analysis.candidate_config()

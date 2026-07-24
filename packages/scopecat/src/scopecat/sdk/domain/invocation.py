@@ -19,13 +19,6 @@ from scopecat.compiler.typed.products import ProductDef
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.errors import CheckFailed, ProviderContractError
 from scopecat.kernel.point_identity import LogicalPointId
-from scopecat.kernel.problems import (
-    Problem,
-    ProblemCategory,
-    ProblemPhase,
-    blocking_problem,
-    model_location,
-)
 from scopecat.kernel.product_identity import (
     ProductId,
     ProductUse,
@@ -40,6 +33,13 @@ from scopecat.measurements.values import (
     MeasurementValueCatalog,
 )
 from scopecat.records.measurement import MeasurementValue
+from scopecat.sdk.problems import (
+    Problem,
+    ProblemCategory,
+    ProblemPhase,
+    blocking_problem,
+    model_location,
+)
 
 
 class DomainResultContract[ResultAddressT: Hashable](Protocol):

@@ -7,10 +7,10 @@ import pytest
 
 import scopecat as sc
 import scopecat.composition as composition
+import scopecat.daemon as daemon
 import scopecat.kernel.payloads as value_models
-import scopecat.kernel.problems as problems
 import scopecat.measurements.results as results
-from scopecat.api.workspace import PreparedExperiment, Workspace
+import scopecat.sdk.problems as problems
 from scopecat.authoring._value_refs import internal_lower_scalar_value_ref
 from scopecat.compiler.relations.evaluation import EvalContext
 from tests.testkit.relation_plans import evaluate_scalar
@@ -39,18 +39,59 @@ def test_product_composition_does_not_export_embedded_writers() -> None:
     } & set(dir(composition))
 
 
+def test_daemon_package_does_not_reexport_transport_contracts() -> None:
+    assert daemon.__all__ == []
+
+
 def test_user_facing_facades_expose_entry_points() -> None:
-    assert callable(sc.connect)
     assert callable(sc.open_project)
     assert sc.ConfigDraft
-    assert sc.DaemonConnection
-    assert not hasattr(sc, "DaemonWorkspace")
+    assert not {
+        "AnalysisDefinition",
+        "AnalysisInput",
+        "AnalysisInvocation",
+        "AnalysisOutput",
+        "DaemonConnection",
+        "DaemonWorkspace",
+        "Data",
+        "EarlyStopDecision",
+        "ExternalLocation",
+        "ExperimentCheckResult",
+        "LabApplication",
+        "MeasurementDatasetSchema",
+        "MeasurementTransformSemanticContract",
+        "ModelLocation",
+        "Problem",
+        "ProblemCategory",
+        "ProblemImpact",
+        "ProblemLocation",
+        "ProblemPhase",
+        "Run",
+        "RunDomainJob",
+        "RunFinishedEvent",
+        "RunHostBinding",
+        "RunProgram",
+        "RunStartedEvent",
+        "RuntimeEvent",
+        "RuntimeEventSink",
+        "RuntimeLocation",
+        "RuntimePayloadObservation",
+        "RuntimePayloadObserver",
+        "RuntimeProgress",
+        "RuntimeTransitionEvent",
+        "SavedAnalysis",
+        "StorageLocation",
+        "blocking_problem",
+        "connect",
+        "decide_online_convergence",
+        "model_location",
+    } & set(dir(sc))
     assert sc.LabClient
     assert sc.Project
-    assert sc.Problem is problems.Problem
-    assert callable(sc.blocking_problem)
-    assert callable(sc.model_location)
-    assert sc.Run is sc.RunHandle
+    assert problems.Problem
+    assert callable(problems.blocking_problem)
+    assert callable(problems.model_location)
+    assert sc.RunHandle
     assert callable(sc.module)
     assert callable(sc.template)
     assert callable(sc.scratch)
@@ -87,16 +128,6 @@ def test_user_facing_facades_expose_entry_points() -> None:
         "details",
         "occurrence_id",
     }.issubset(problems.Problem.model_fields)
-
-
-def test_connect_creates_independent_daemon_clients() -> None:
-    first = sc.connect("http://daemon.local")
-    second = sc.connect("http://daemon.local")
-
-    assert first is not second
-    assert first != second
-    first.close()
-    second.close()
 
 
 def test_typed_values_are_the_public_module_wiring_surface() -> None:
@@ -256,13 +287,7 @@ def test_scans_reject_non_finite_durable_values_at_capture() -> None:
         )
 
 
-def test_embedded_workspace_types_are_not_root_exports() -> None:
+def test_retired_embedded_workspace_types_are_not_root_exports() -> None:
     assert not hasattr(sc, "Workspace")
     assert not hasattr(sc, "PreparedExperiment")
     assert not hasattr(sc, "Experiment")
-
-    assert callable(Workspace.prepare)
-    assert not hasattr(Workspace, "experiment")
-    assert callable(PreparedExperiment.run)
-    assert callable(PreparedExperiment.preview)
-    assert callable(PreparedExperiment.check)

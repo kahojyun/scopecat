@@ -61,11 +61,18 @@ def test_registry_and_run_reads_share_one_database(tmp_path: Path) -> None:
                 "SELECT name FROM sqlite_schema WHERE type = 'table'"
             )
         }
+        active_columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(config_registry_active)")
+        }
     assert {
         "config_registry_entries",
         "config_registry_active",
+        "config_registry_activations",
         "run_repository_refs",
     } <= tables
+    assert "config_registry_index" not in tables
+    assert active_columns == {"singleton", "generation", "active_entry_id"}
 
 
 def test_registration_and_activation_roll_back_together(tmp_path: Path) -> None:

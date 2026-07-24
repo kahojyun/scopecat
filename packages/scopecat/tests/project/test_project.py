@@ -83,11 +83,11 @@ def test_project_connect_prioritizes_explicit_then_environment_then_record(
     monkeypatch.delenv(DAEMON_URL_ENV)
     discovered = project.connect()
 
-    assert str(explicit._daemon._client._http.base_url) == "http://explicit.local:1000"
-    assert str(environment._daemon._client._http.base_url) == (
+    assert str(explicit._client._http.base_url) == "http://explicit.local:1000"
+    assert str(environment._client._http.base_url) == (
         "http://environment.local:2000"
     )
-    assert str(discovered._daemon._client._http.base_url) == "http://record.local:3000"
+    assert str(discovered._client._http.base_url) == "http://record.local:3000"
     explicit.close()
     environment.close()
     discovered.close()
@@ -113,7 +113,7 @@ def test_application_is_imported_from_project_src(
     (package / "__init__.py").write_text("", encoding="utf-8")
     (package / "application.py").write_text(
         (
-            "from scopecat import LabApplication\n\n"
+            "from scopecat.application import LabApplication\n\n"
             "def unavailable_bootstrap():\n"
             "    raise RuntimeError('bootstrap input is unavailable')\n\n"
             "def create(_project):\n"

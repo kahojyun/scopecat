@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "generate:api": "uv run --project ../.. python scripts/export-openapi.py && json2ts -i .generated/ui-api.schema.json -o src/api-schema.d.ts",
+    "check:api": "npm run generate:api && git diff --exit-code -- src/api-schema.d.ts",
     "preview": "vite preview",
     "test": "vitest run",
     "test:e2e": "npm run build && playwright test",
@@ -27,6 +29,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.4",
     "jsdom": "^29.1.1",
+    "json-schema-to-typescript": "15.0.4",
     "typescript": "^7.0.2",
     "vite": "^8.1.5",
     "vitest": "^4.1.10"

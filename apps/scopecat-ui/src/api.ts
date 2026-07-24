@@ -1,4 +1,13 @@
 import type {
+  ControlRun,
+  DaemonUiApi,
+  DurableEvent,
+  RegisteredExperimentDescriptor,
+  RunContentEntry,
+  RunManifest,
+  RunResourceView,
+} from "./api-schema";
+import type {
   ContentEntry,
   ExperimentCatalog,
   ExperimentDescriptor,
@@ -20,6 +29,19 @@ const API = {
   catalog: "/api/v1/catalog",
 } as const;
 
+type CurrentRunStatus = Exclude<RunStatus, "terminal" | "unknown">;
+type AdmissionResource = NonNullable<
+  ControlRun["admission"]["resource_claims"]
+>[number];
+
+interface StoredAdmissionSummary {
+  plan?: {
+    point_count?: number;
+    coordinate_ids?: string[];
+    record_ids?: string[];
+  };
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -30,11 +52,11 @@ export class ApiError extends Error {
   }
 }
 
-export async function request(
+export async function request<T = unknown>(
   path: string,
   signal?: AbortSignal,
   init?: RequestInit,
-): Promise<unknown> {
+): Promise<T> {
   let response: Response;
   try {
     response = await fetch(path, {
@@ -51,7 +73,8 @@ export async function request(
   if (!response.ok) {
     let detail: string | undefined;
     try {
-      detail = string(record(await response.json()).detail);
+      const body = (await response.json()) as { detail?: unknown };
+      detail = typeof body.detail === "string" ? body.detail : undefined;
     } catch {
       // Some intermediaries return an empty or non-JSON error response.
     }
@@ -62,61 +85,62 @@ export async function request(
     );
   }
   try {
-    return await response.json();
+    return (await response.json()) as T;
   } catch {
     throw new ApiError("The daemon returned an invalid JSON response.");
   }
 }
 
-export type AttentionAction = "release" | "requeue" | "abort";
+export type AttentionAction = DaemonUiApi["attentionCommand"]["action"];
 
 export async function resolveAttention(
   runId: string,
   action: AttentionAction,
 ): Promise<void> {
+  const command: DaemonUiApi["attentionCommand"] = {
+    run_id: runId,
+    action,
+  };
   await request(`/api/v1/runs/${encodeURIComponent(runId)}/attention`, undefined, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ run_id: runId, action }),
+    body: JSON.stringify(command),
   });
 }
 
 export async function getHealth(signal?: AbortSignal): Promise<ProjectHealth> {
-  const raw = await request(API.health, signal);
-  const details = record(raw);
+  const response = await request<DaemonUiApi["health"]>(API.health, signal);
   return {
-    status: requiredString(details.status, "status"),
-    projectId: requiredString(details.project_id, "project_id"),
-    projectName: requiredString(details.project_name, "project_name"),
-    projectRoot: requiredString(details.project_root, "project_root"),
-    details,
+    status: response.status,
+    projectId: response.project_id,
+    projectName: response.project_name,
+    projectRoot: response.project_root,
+    details: { ...response },
   };
 }
 
 export async function getRuns(signal?: AbortSignal): Promise<ProjectRunPage> {
-  const raw = await request(API.runs, signal);
-  return normalizeRunPage(raw);
+  return normalizeRunPage(
+    await request<DaemonUiApi["runPage"]>(API.runs, signal),
+  );
 }
 
 export async function getOlderRuns(
   before: number,
   signal?: AbortSignal,
 ): Promise<ProjectRunPage> {
-  const raw = await request(
-    `/api/v1/runs?limit=100&before=${before}`,
-    signal,
+  return normalizeRunPage(
+    await request<DaemonUiApi["runPage"]>(
+      `/api/v1/runs?limit=100&before=${before}`,
+      signal,
+    ),
   );
-  return normalizeRunPage(raw);
 }
 
-function normalizeRunPage(raw: unknown): ProjectRunPage {
-  const envelope = record(raw);
-  const values = Array.isArray(raw)
-    ? raw
-    : array(envelope.items) ?? array(envelope.runs) ?? [];
+function normalizeRunPage(response: DaemonUiApi["runPage"]): ProjectRunPage {
   return {
-    items: values.map(normalizeRun).sort(compareRuns),
-    previousCursor: number(envelope.previous_cursor),
+    items: response.items.map((run) => normalizeRun(run)).sort(compareRuns),
+    previousCursor: response.previous_cursor ?? undefined,
   };
 }
 
@@ -124,19 +148,15 @@ export async function getRun(
   runId: string,
   signal?: AbortSignal,
 ): Promise<ProjectRun> {
-  const raw = await request(`/api/v1/runs/${encodeURIComponent(runId)}`, signal);
-  const envelope = record(raw);
-  const control = hasKeys(record(envelope.control))
-    ? record(envelope.control)
-    : envelope;
-  const manifest = record(envelope.manifest);
-  return normalizeRun({
-    ...control,
-    ...manifest,
-    admission: control.admission,
-    outcome: manifest.outcome ?? control.outcome,
-    resources: envelope.resources,
-  });
+  const response = await request<DaemonUiApi["runDetail"]>(
+    `/api/v1/runs/${encodeURIComponent(runId)}`,
+    signal,
+  );
+  return normalizeRun(
+    response.control,
+    response.manifest,
+    response.resources ?? [],
+  );
 }
 
 export async function getMeasurementPreview(
@@ -144,14 +164,13 @@ export async function getMeasurementPreview(
   offset = 0,
   signal?: AbortSignal,
 ): Promise<MeasurementPreview> {
-  const raw = await request(
+  const response = await request<DaemonUiApi["measurements"]>(
     `/api/v1/runs/${encodeURIComponent(runId)}/measurements?limit=100&offset=${offset}`,
     signal,
   );
-  const envelope = record(raw);
   return {
-    items: (array(envelope.items) ?? []).map(record),
-    nextOffset: number(envelope.next_offset),
+    items: (response.items ?? []) as Array<Record<string, unknown>>,
+    nextOffset: response.next_offset ?? undefined,
   };
 }
 
@@ -159,33 +178,21 @@ export async function getRunAnalyses(
   runId: string,
   signal?: AbortSignal,
 ): Promise<RunAnalysis[]> {
-  const envelope = record(
-    await request(
-      `/api/v1/runs/${encodeURIComponent(runId)}/analyses`,
-      signal,
-    ),
+  const response = await request<DaemonUiApi["runAnalyses"]>(
+    `/api/v1/runs/${encodeURIComponent(runId)}/analyses`,
+    signal,
   );
-  return (array(envelope.items) ?? []).map((value) => {
-    const item = record(value);
-    const analysis = record(item.analysis);
-    return {
-      id:
-        string(record(item.entry).id) ??
-        string(analysis.key) ??
-        "unidentified-analysis",
-      title: string(analysis.title) ?? "Untitled analysis",
-      key: string(analysis.key),
-      stepId: string(analysis.step_id),
-      outputs: (array(analysis.outputs) ?? []).map((output) => {
-        const source = record(output);
-        return {
-          kind: string(source.kind) ?? "output",
-          title: string(source.title) ?? "Untitled output",
-          content: source.content,
-        };
-      }),
-    };
-  });
+  return (response.items ?? []).map(({ entry, analysis }) => ({
+    id: entry.id,
+    title: analysis.title,
+    key: analysis.key ?? undefined,
+    stepId: analysis.step_id ?? undefined,
+    outputs: analysis.outputs.map((output) => ({
+      kind: output.kind,
+      title: output.title,
+      content: output.content,
+    })),
+  }));
 }
 
 export function canPreviewRunContent(entry: ContentEntry): boolean {
@@ -204,231 +211,177 @@ export async function getRunContent(
 ): Promise<RunContentPreview> {
   const run = encodeURIComponent(runId);
   const selector = encodeURIComponent(entry.id);
-  let path: string;
-  let format: RunContentPreview["format"] = "json";
   if (entry.role === "record") {
-    path =
+    const response = await request<DaemonUiApi["recordJson"]>(
       `/api/v1/runs/${run}/records/${selector}/json` +
-      `?expected_kind=${encodeURIComponent(entry.kind)}`;
-  } else if (entry.role === "dataset") {
-    path = `/api/v1/runs/${run}/datasets/${selector}`;
-  } else {
-    const artifactContentFormat = artifactFormat(entry);
-    if (!artifactContentFormat) {
-      throw new ApiError("This artifact does not have a browser-readable format.");
-    }
-    format = artifactContentFormat;
-    const expectedKind = encodeURIComponent(entry.kind);
-    path =
-      `/api/v1/runs/${run}/artifacts/${selector}/${format}` +
-      `?expected_kind=${expectedKind}`;
+        `?expected_kind=${encodeURIComponent(entry.kind)}`,
+      signal,
+    );
+    return {
+      entry: normalizeContentEntry(response.record, 0),
+      format: "json",
+      content: response.content,
+    };
   }
-  const envelope = record(await request(path, signal));
+  if (entry.role === "dataset") {
+    const response = await request<DaemonUiApi["datasetContent"]>(
+      `/api/v1/runs/${run}/datasets/${selector}`,
+      signal,
+    );
+    return {
+      entry: normalizeContentEntry(response.dataset, 0),
+      format: "json",
+      content: response.content,
+    };
+  }
+
+  const format = artifactFormat(entry);
+  if (!format) {
+    throw new ApiError("This artifact does not have a browser-readable format.");
+  }
+  const path =
+    `/api/v1/runs/${run}/artifacts/${selector}/${format}` +
+    `?expected_kind=${encodeURIComponent(entry.kind)}`;
+  if (format === "text") {
+    const response = await request<DaemonUiApi["artifactText"]>(path, signal);
+    return {
+      entry: normalizeContentEntry(response.artifact, 0),
+      format,
+      content: response.content,
+    };
+  }
+  const response = await request<DaemonUiApi["artifactJson"]>(path, signal);
   return {
-    entry: normalizeContentEntry(
-      envelope.artifact ?? envelope.record ?? envelope.dataset ?? entry,
-      0,
-    ),
+    entry: normalizeContentEntry(response.artifact, 0),
     format,
-    content: envelope.content,
+    content: response.content,
   };
 }
 
 export async function getEvents(signal?: AbortSignal): Promise<ProjectEvent[]> {
-  return normalizeEvents(await request(API.events, signal));
+  return normalizeEvents(
+    await request<DaemonUiApi["eventPage"]>(API.events, signal),
+  );
 }
 
 export async function getRunEvents(
   runId: string,
   signal?: AbortSignal,
 ): Promise<ProjectEvent[]> {
-  const path =
-    `/api/v1/events?limit=500&latest=true&run_id=${encodeURIComponent(runId)}`;
-  return normalizeEvents(await request(path, signal));
+  return normalizeEvents(
+    await request<DaemonUiApi["eventPage"]>(
+      `/api/v1/events?limit=500&latest=true&run_id=${encodeURIComponent(runId)}`,
+      signal,
+    ),
+  );
 }
 
-function normalizeEvents(raw: unknown): ProjectEvent[] {
-  const envelope = record(raw);
-  const values = Array.isArray(raw)
-    ? raw
-    : array(envelope.items) ?? array(envelope.events) ?? [];
-  return values.map(normalizeEvent).sort((left, right) => left.id - right.id);
+function normalizeEvents(response: DaemonUiApi["eventPage"]): ProjectEvent[] {
+  return response.items
+    .map(normalizeEvent)
+    .sort((left, right) => left.id - right.id);
 }
 
 export async function getCatalog(
   signal?: AbortSignal,
 ): Promise<ExperimentCatalog> {
-  const raw = await request(API.catalog, signal);
-  const envelope = record(raw);
-  const values = array(envelope.experiments) ?? array(envelope.items) ?? [];
+  const response = await request<DaemonUiApi["catalog"]>(API.catalog, signal);
   return {
-    revision: string(envelope.revision),
-    experiments: values.map(normalizeExperiment),
+    revision: response.revision,
+    experiments: (response.experiments ?? []).map(normalizeExperiment),
   };
 }
 
-function normalizeRun(value: unknown): ProjectRun {
-  const source = record(value);
-  const admission = record(source.admission);
-  const outcome = record(source.outcome);
-  const requestRecord = record(admission.request ?? source.request);
-  const planSummary = record(
-    admission.plan_summary ?? source.plan_summary ?? source.plan,
-  );
-  const plan = hasKeys(record(planSummary.plan))
-    ? record(planSummary.plan)
-    : planSummary;
-  const rawState =
-    string(source.state) ?? string(source.lifecycle) ?? string(source.status);
-  const result = string(outcome.result);
-  const status = normalizeStatus(rawState, result);
-  const runId =
-    string(admission.run_id) ??
-    string(source.run_id) ??
-    string(source.id) ??
-    "unidentified-run";
-  const resources = normalizeResources(
-    source.resources ??
-      admission.resource_claims ??
-      plan.run_resource_claims ??
-      source.resource_claims,
-  );
-  const contents = normalizeContents(source.contents ?? plan.contents);
-  const progressCompleted =
-    number(plan.completed_points) ??
-    number(plan.points_completed) ??
-    number(source.completed_points);
-
+function normalizeRun(
+  control: ControlRun,
+  manifest?: RunManifest,
+  detailResources?: RunResourceView[],
+): ProjectRun {
+  const admission = control.admission;
+  const outcome = control.outcome ?? undefined;
+  const summary = admission.plan_summary as StoredAdmissionSummary | undefined;
+  const plan = summary?.plan;
+  const status = normalizeStatus(control);
   return {
-    sequence: number(source.sequence),
-    runId,
-    experimentId:
-      string(admission.experiment_id) ??
-      string(plan.experiment_id) ??
-      string(requestRecord.experiment_id) ??
-      "Unspecified experiment",
-    executionMode:
-      string(admission.execution_mode) ??
-      string(source.execution_mode) ??
-      "local",
+    sequence: control.sequence,
+    runId: admission.run_id,
+    experimentId: admission.experiment_id,
+    executionMode: admission.execution_mode,
     status,
     stateLabel: statusLabel(status),
-    createdAt:
-      string(admission.admitted_at) ??
-      string(source.created_at) ??
-      string(source.accepted_at),
-    updatedAt:
-      string(source.updated_at) ??
-      string(outcome.finished_at) ??
-      string(admission.admitted_at),
-    configHash:
-      string(admission.config_content_hash) ??
-      string(source.config_content_hash),
-    attentionReason:
-      string(source.attention_reason) ?? string(outcome.termination_reason),
-    result,
-    certainty: string(outcome.certainty),
-    progressCompleted,
+    createdAt: admission.admitted_at,
+    updatedAt: control.updated_at,
+    configHash: admission.config_content_hash,
+    attentionReason: control.attention_reason ?? undefined,
+    result: outcome?.result,
+    certainty: outcome?.certainty,
     plan: {
-      pointCount: number(plan.point_count) ?? number(plan.points),
-      coordinateIds: strings(plan.coordinate_ids),
-      recordIds: strings(plan.record_ids),
+      pointCount: plan?.point_count,
+      coordinateIds: plan?.coordinate_ids ?? [],
+      recordIds: plan?.record_ids ?? [],
     },
-    resources,
-    contents,
+    resources:
+      detailResources !== undefined
+        ? detailResources.map(normalizeRunResource)
+        : (admission.resource_claims ?? []).map(normalizeResourceClaim),
+    contents: (manifest?.contents ?? []).map(normalizeContentEntry),
   };
 }
 
-function normalizeEvent(value: unknown, index: number): ProjectEvent {
-  const source = record(value);
-  const data = record(source.data);
-  const manifest = record(data.manifest);
-  const transition = record(data.transition);
-  const payload = hasKeys(record(source.payload))
-    ? record(source.payload)
-    : hasKeys(data)
-      ? data
-      : source;
-
+function normalizeEvent(event: DurableEvent): ProjectEvent {
   return {
-    id: number(source.event_id) ?? number(source.cursor) ?? index + 1,
-    runId:
-      string(source.run_id) ??
-      string(data.run_id) ??
-      string(manifest.run_id) ??
-      string(transition.run_id),
-    kind:
-      string(source.kind) ??
-      string(data.kind) ??
-      string(transition.kind) ??
-      "project_event",
-    occurredAt:
-      string(source.occurred_at) ??
-      string(data.occurred_at) ??
-      string(transition.occurred_at),
-    payload,
+    id: event.event_id,
+    runId: event.run_id ?? undefined,
+    kind: event.kind,
+    occurredAt: event.occurred_at,
+    payload: event.payload ?? {},
   };
 }
 
-function normalizeExperiment(value: unknown): ExperimentDescriptor {
-  const source = record(value);
+function normalizeExperiment(
+  experiment: RegisteredExperimentDescriptor,
+): ExperimentDescriptor {
   return {
-    id: string(source.id) ?? "unidentified-experiment",
-    version: string(source.version) ?? "unversioned",
-    title:
-      string(source.title) ??
-      string(source.id) ??
-      "Unidentified experiment",
-    description: string(source.description),
-    tags: strings(source.tags),
+    id: experiment.id,
+    version: experiment.version,
+    title: experiment.title ?? experiment.id,
+    description: experiment.description ?? undefined,
+    tags: experiment.tags ?? [],
   };
 }
 
-function normalizeResources(value: unknown): ResourceClaim[] {
-  return (array(value) ?? []).map((item) => {
-    const source = record(item);
-    const resource = hasKeys(record(source.resource))
-      ? record(source.resource)
-      : source;
-    return {
-      id: string(resource.id) ?? "unidentified-resource",
-      kind: string(resource.kind) ?? "instrument",
-      status: string(source.status),
-    };
-  });
-}
-
-function normalizeContents(value: unknown): ContentEntry[] {
-  return (array(value) ?? []).map(normalizeContentEntry);
-}
-
-function normalizeContentEntry(value: unknown, index: number): ContentEntry {
-  const source = record(value);
-  const content = record(source.content);
-  const role = string(source.role) ?? "content";
-  const kind = string(source.kind) ?? "content";
-  const mediaType =
-    string(source.media_type) ??
-    string(source.content_type) ??
-    string(content.media_type);
-  const filename = string(source.filename);
+function normalizeResourceClaim(
+  resource: AdmissionResource,
+): ResourceClaim {
   return {
-    id:
-      string(source.id) ??
-      string(source.content_id) ??
-      string(source.ref) ??
-      `${role}-${index + 1}`,
-    role,
-    kind,
+    id: resource.id,
+    kind: resource.kind ?? "instrument",
+  };
+}
+
+function normalizeRunResource(resource: RunResourceView): ResourceClaim {
+  return {
+    id: resource.resource.id,
+    kind: resource.resource.kind ?? "instrument",
+    status: resource.status,
+  };
+}
+
+function normalizeContentEntry(
+  entry: RunContentEntry,
+  index: number,
+): ContentEntry {
+  const mediaType = entry.media_type ?? undefined;
+  const filename = entry.filename ?? undefined;
+  return {
+    id: entry.id,
+    role: entry.role,
+    kind: entry.kind,
     label:
-      string(source.label) ??
-      string(source.title) ??
+      entry.title ??
       filename ??
-      string(source.name) ??
-      string(content.name) ??
-      string(source.content_id) ??
-      `${titleCase(role)} ${index + 1}`,
-    detail: mediaType ?? kind,
+      `${titleCase(entry.role)} ${index + 1}`,
+    detail: mediaType ?? entry.kind,
     mediaType,
     filename,
   };
@@ -457,24 +410,21 @@ function artifactFormat(
   return undefined;
 }
 
-function normalizeStatus(rawState?: string, result?: string): RunStatus {
-  if (rawState === "attention_required") return "attention_required";
-  if (rawState === "accepted" || rawState === "planned") return "accepted";
-  if (rawState === "running") return "running";
-  if (result === "succeeded" || rawState === "completed") return "succeeded";
-  if (result === "failed" || rawState === "failed") return "failed";
-  if (
-    result === "cancelled" ||
-    rawState === "cancelled" ||
-    rawState === "interrupted"
-  ) {
-    return "cancelled";
+function normalizeStatus(control: ControlRun): CurrentRunStatus {
+  if (control.state !== "terminal") {
+    return control.state;
   }
-  if (rawState === "terminal") return "terminal";
-  return "unknown";
+  switch (control.outcome!.result) {
+    case "succeeded":
+      return "succeeded";
+    case "failed":
+      return "failed";
+    case "cancelled":
+      return "cancelled";
+  }
 }
 
-function statusLabel(status: RunStatus): string {
+function statusLabel(status: CurrentRunStatus): string {
   switch (status) {
     case "accepted":
       return "Accepted";
@@ -488,10 +438,6 @@ function statusLabel(status: RunStatus): string {
       return "Failed";
     case "cancelled":
       return "Cancelled";
-    case "terminal":
-      return "Finished";
-    default:
-      return "Unknown";
   }
 }
 
@@ -500,42 +446,6 @@ function compareRuns(left: ProjectRun, right: ProjectRun): number {
     return right.sequence - left.sequence;
   }
   return (right.updatedAt ?? "").localeCompare(left.updatedAt ?? "");
-}
-
-function record(value: unknown): Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-function array(value: unknown): unknown[] | undefined {
-  return Array.isArray(value) ? value : undefined;
-}
-
-function string(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
-function number(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-function strings(value: unknown): string[] {
-  return (array(value) ?? []).filter(
-    (item): item is string => typeof item === "string",
-  );
-}
-
-function requiredString(value: unknown, field: string): string {
-  const result = string(value);
-  if (!result) {
-    throw new ApiError(`The daemon response is missing ${field}.`);
-  }
-  return result;
-}
-
-function hasKeys(value: Record<string, unknown>): boolean {
-  return Object.keys(value).length > 0;
 }
 
 function titleCase(value: string): string {

@@ -7,17 +7,17 @@ from dataclasses import dataclass
 
 import scopecat as sc
 from scopecat.kernel.errors import CheckFailed
-from scopecat.kernel.problems import (
+from scopecat.measurements.results import ComplexQuantity, MeasurementRecord
+from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.parameter import Quantity
+from scopecat.runs.access import dataset_storage_ref
+from scopecat.sdk.problems import (
     Problem,
     ProblemCategory,
     ProblemPhase,
     blocking_problem,
     model_location,
 )
-from scopecat.measurements.results import ComplexQuantity, MeasurementRecord
-from scopecat.records.config import ConfigProfileSnapshot
-from scopecat.records.parameter import Quantity
-from scopecat.runs.access import dataset_storage_ref
 
 from quantum_lab_demo.virtual_lab.responses.readout_frequency import (
     frequency_to_ghz,

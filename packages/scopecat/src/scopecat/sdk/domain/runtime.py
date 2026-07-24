@@ -43,16 +43,16 @@ from scopecat.kernel.errors import (
     DomainSubmissionFailed,
     DomainSubmissionIndeterminate,
 )
-from scopecat.kernel.problems import (
-    Problem,
-    ProblemCategory,
-    ProblemPhase,
-    has_blocking_problems,
-)
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.sdk.domain.invocation import (
     ClosedDomainInvocation,
     DomainInvocationIntent,
+)
+from scopecat.sdk.problems import (
+    Problem,
+    ProblemCategory,
+    ProblemPhase,
+    has_blocking_problems,
 )
 
 

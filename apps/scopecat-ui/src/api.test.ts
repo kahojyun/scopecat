@@ -48,6 +48,7 @@ describe("project daemon reads", () => {
           jsonResponse({
             control: {
               state: "terminal",
+              outcome: { result: "succeeded", certainty: "known" },
               admission: {
                 run_id: "run/1",
                 experiment_id: "ramsey",

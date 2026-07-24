@@ -13,6 +13,14 @@ npm run build
 During development, Vite proxies `/api` to `http://127.0.0.1:8765`. Set
 `SCOPECAT_DAEMON_ORIGIN` to use a different local daemon address.
 
+## API contract
+
+`src/api-schema.d.ts` is generated from the daemon's FastAPI schema. Run
+`npm run generate:api` after changing a UI-used transport model; CI runs
+`npm run check:api` so the generated contract cannot drift. Keep presentation
+mapping in `src/api.ts` and do not add compatibility parsing for old local
+daemon responses.
+
 ## Browser end-to-end test
 
 ```sh

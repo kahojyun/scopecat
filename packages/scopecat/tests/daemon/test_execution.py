@@ -7,12 +7,13 @@ from typing import Protocol
 import httpx
 from pydantic import BaseModel
 
-from scopecat.daemon import (
+from scopecat.daemon.client import DaemonClient
+from scopecat.daemon.execution import delegated_execution_services
+from scopecat.daemon.wire import (
     CollectionCommitCommand,
     CollectionCommitReceipt,
     CollectionResolveCommand,
     CollectionResolveReceipt,
-    DaemonClient,
     DelegatedPlanSummary,
     DelegatedRunSubmission,
     ExecutionRecoveryRequest,
@@ -30,7 +31,6 @@ from scopecat.daemon import (
     RunAdmission,
     TerminalRunCommitCommand,
     TerminalRunCommitReceipt,
-    delegated_execution_services,
 )
 from scopecat.kernel.resource_identity import ResourceClaim
 from scopecat.records.execution_journal import (

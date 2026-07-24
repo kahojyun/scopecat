@@ -11,7 +11,6 @@ from scopecat.records.config import ConfigContentHash
 from scopecat.records.run import utc_now
 
 CONFIG_REGISTRY_ENTRY_SCHEMA_VERSION = "scopecat.config.registry_entry.v7"
-CONFIG_REGISTRY_INDEX_SCHEMA_VERSION = "scopecat.config.registry_index.v2"
 CONFIG_REGISTRY_ACTIVE_STATE_SCHEMA_VERSION = "scopecat.config.registry_active_state.v2"
 CONFIG_REGISTRY_ACTIVATION_RECORD_SCHEMA_VERSION = (
     "scopecat.config.registry_activation_record.v2"
@@ -113,22 +112,6 @@ class ConfigRegistryEntry(_FrozenRegistryModel):
     def validate_identity(self) -> ConfigRegistryEntry:
         if not self.id or not self.config_ref or not self.registered_by.strip():
             msg = "config registry entry identity fields must be non-empty"
-            raise ValueError(msg)
-        return self
-
-
-class ConfigRegistryIndex(_FrozenRegistryModel):
-    schema_version: Literal["scopecat.config.registry_index.v2"] = (
-        CONFIG_REGISTRY_INDEX_SCHEMA_VERSION
-    )
-    entries: tuple[ConfigRegistryEntry, ...] = Field(default_factory=tuple)
-    updated_at: datetime = Field(default_factory=utc_now)
-
-    @model_validator(mode="after")
-    def validate_entries(self) -> ConfigRegistryIndex:
-        entry_ids = [entry.id for entry in self.entries]
-        if len(set(entry_ids)) != len(entry_ids):
-            msg = "config registry index entry ids must be unique"
             raise ValueError(msg)
         return self
 

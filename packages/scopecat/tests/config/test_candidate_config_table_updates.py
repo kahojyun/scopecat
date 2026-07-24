@@ -6,7 +6,6 @@ import scopecat as sc
 from scopecat.composition.embedded import (
     embedded_config_registry_unit_of_work,
     embedded_workspace_services,
-    open_embedded_workspace,
 )
 from scopecat.config.profiles import load_config_profile
 from scopecat.config.registry import (
@@ -22,6 +21,7 @@ from scopecat.records.parameter import (
     Quantity,
     TableParameterValue,
 )
+from tests.testkit.in_process_lab import in_process_lab
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.workflow_fixtures import load_invocation
@@ -31,7 +31,7 @@ def test_candidate_config_activation_materializes_table_row_updates(
     tmp_path: Path,
 ) -> None:
     config = _config_with_drive_channels()
-    lab = open_embedded_workspace(
+    lab = in_process_lab(
         tmp_path,
         config=config,
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),

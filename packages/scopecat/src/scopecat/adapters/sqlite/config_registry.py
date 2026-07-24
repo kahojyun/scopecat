@@ -16,9 +16,9 @@ from scopecat.adapters.sqlite.config_schema import (
     CONFIG_REGISTRY_SCHEMA_VERSION,
 )
 from scopecat.config.registry.records import (
+    ConfigRegistryActivationRecord,
     ConfigRegistryActiveState,
     ConfigRegistryEntry,
-    ConfigRegistryIndex,
 )
 from scopecat.kernel.errors import (
     Conflict,
@@ -36,7 +36,6 @@ from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.runs.repository import RunRepository
 
 CONFIG_REGISTRY_ROOT = "config-registry"
-CONFIG_REGISTRY_INDEX_REF = f"{CONFIG_REGISTRY_ROOT}/index.json"
 CONFIG_REGISTRY_ACTIVE_REF = f"{CONFIG_REGISTRY_ROOT}/active.json"
 
 
@@ -45,10 +44,6 @@ class SQLiteConfigRegistryRepository:
 
     def __init__(self, connection: sqlite3.Connection) -> None:
         self._connection = connection
-
-    @property
-    def index_ref(self) -> str:
-        return CONFIG_REGISTRY_INDEX_REF
 
     @property
     def active_ref(self) -> str:
@@ -76,26 +71,27 @@ class SQLiteConfigRegistryRepository:
             raise _storage_failure(self.entry_ref(entry_id)) from error
         return row is not None
 
-    def read_index(self) -> ConfigRegistryIndex:
+    def list_entries(self) -> tuple[ConfigRegistryEntry, ...]:
         try:
-            row = _one(
+            rows = _all(
                 self._connection.execute(
                     """
-                    SELECT index_json
-                    FROM config_registry_index
-                    WHERE singleton = 1
+                    SELECT entry_id, entry_json
+                    FROM config_registry_entries
+                    ORDER BY registered_at, entry_id
                     """
                 )
             )
         except sqlite3.Error as error:
-            raise _storage_failure(self.index_ref) from error
-        if row is None:
-            raise _missing_record(self.index_ref)
-        return _parse_model(
-            _text(row, "index_json"),
-            ConfigRegistryIndex,
-            ref=self.index_ref,
-            code="config_registry.index_invalid",
+            raise _storage_failure(CONFIG_REGISTRY_ROOT) from error
+        return tuple(
+            _parse_model(
+                _text(row, "entry_json"),
+                ConfigRegistryEntry,
+                ref=self.entry_ref(_text(row, "entry_id")),
+                code="config_registry.record_invalid",
+            )
+            for row in rows
         )
 
     def read_entry(self, entry_id: str) -> ConfigRegistryEntry:
@@ -147,21 +143,52 @@ class SQLiteConfigRegistryRepository:
 
     def read_active_state(self) -> ConfigRegistryActiveState | None:
         try:
-            row = _one(
+            selector = _one(
                 self._connection.execute(
                     """
-                    SELECT state_json
+                    SELECT generation, active_entry_id
                     FROM config_registry_active
                     WHERE singleton = 1
                     """
                 )
             )
+            rows = _all(
+                self._connection.execute(
+                    """
+                    SELECT generation, record_json
+                    FROM config_registry_activations
+                    ORDER BY generation
+                    """
+                )
+            )
         except sqlite3.Error as error:
             raise _storage_failure(self.active_ref) from error
-        if row is None:
+        if selector is None:
             return None
-        return _parse_model(
-            _text(row, "state_json"),
+        history = tuple(
+            _parse_model(
+                _text(row, "record_json"),
+                ConfigRegistryActivationRecord,
+                ref=f"{self.active_ref}#generation-{_integer(row, 'generation')}",
+                code="config_registry.activation_record_invalid",
+            )
+            for row in rows
+        )
+        if not history:
+            raise _integrity_failure(
+                self.active_ref,
+                code="config_registry.active_state_invalid",
+                message="config registry active selector has no activation history",
+            )
+        latest = history[-1]
+        return _validate_model(
+            {
+                "generation": _integer(selector, "generation"),
+                "active_entry_id": _text(selector, "active_entry_id"),
+                "active_entry_content_hash": latest.entry_content_hash,
+                "history": history,
+                "updated_at": latest.recorded_at,
+            },
             ConfigRegistryActiveState,
             ref=self.active_ref,
             code="config_registry.active_state_invalid",
@@ -170,11 +197,9 @@ class SQLiteConfigRegistryRepository:
     def commit_registration(
         self,
         *,
-        index: ConfigRegistryIndex,
         entry: ConfigRegistryEntry,
         config: ConfigProfileSnapshot,
     ) -> None:
-        updated_index = _index_with_entry(index, entry)
         try:
             self._connection.execute(
                 """
@@ -196,47 +221,27 @@ class SQLiteConfigRegistryRepository:
                     entry.registered_at.isoformat(),
                 ),
             )
-            self._connection.execute(
-                """
-                UPDATE config_registry_index
-                SET index_json = ?
-                WHERE singleton = 1
-                """,
-                (_encode_model(updated_index, ref=self.index_ref),),
-            )
         except sqlite3.Error as error:
             raise _storage_failure(self.entry_ref(entry.id)) from error
 
-    def commit_active_state(self, state: ConfigRegistryActiveState) -> None:
+    def commit_activation(
+        self,
+        *,
+        expected_generation: int,
+        record: ConfigRegistryActivationRecord,
+    ) -> None:
         try:
-            row = _one(
-                self._connection.execute(
-                    """
-                    SELECT generation, state_json
-                    FROM config_registry_active
-                    WHERE singleton = 1
-                    """
-                )
-            )
-            if row is not None:
-                current = _parse_model(
-                    _text(row, "state_json"),
-                    ConfigRegistryActiveState,
-                    ref=self.active_ref,
-                    code="config_registry.active_state_invalid",
-                )
-                if current == state:
-                    return
-                current_generation = _integer(row, "generation")
-            else:
-                current_generation = 0
-            if state.generation != current_generation + 1:
+            current_generation = _current_generation(self._connection)
+            if current_generation != expected_generation:
                 raise _generation_conflict(
-                    expected=state.generation - 1,
+                    expected=expected_generation,
                     actual=current_generation,
                 )
-
-            record = state.history[-1]
+            if record.generation != expected_generation + 1:
+                raise _generation_conflict(
+                    expected=expected_generation,
+                    actual=record.generation - 1,
+                )
             self._connection.execute(
                 """
                 INSERT INTO config_registry_activations(
@@ -254,21 +259,19 @@ class SQLiteConfigRegistryRepository:
                     _encode_model(record, ref=self.active_ref),
                 ),
             )
-            if current_generation == 0:
+            if expected_generation == 0:
                 self._connection.execute(
                     """
                     INSERT INTO config_registry_active(
                         singleton,
                         generation,
-                        active_entry_id,
-                        state_json
+                        active_entry_id
                     )
-                    VALUES (1, ?, ?, ?)
+                    VALUES (1, ?, ?)
                     """,
                     (
-                        state.generation,
-                        state.active_entry_id,
-                        _encode_model(state, ref=self.active_ref),
+                        record.generation,
+                        record.entry_id,
                     ),
                 )
                 return
@@ -276,20 +279,18 @@ class SQLiteConfigRegistryRepository:
                 """
                 UPDATE config_registry_active
                 SET generation = ?,
-                    active_entry_id = ?,
-                    state_json = ?
+                    active_entry_id = ?
                 WHERE singleton = 1 AND generation = ?
                 """,
                 (
-                    state.generation,
-                    state.active_entry_id,
-                    _encode_model(state, ref=self.active_ref),
-                    current_generation,
+                    record.generation,
+                    record.entry_id,
+                    expected_generation,
                 ),
             )
             if cursor.rowcount != 1:
                 raise _generation_conflict(
-                    expected=current_generation,
+                    expected=expected_generation,
                     actual=_current_generation(self._connection),
                 )
         except (Conflict, DataIntegrityError):
@@ -387,21 +388,6 @@ class SQLiteConfigRegistryStore:
             ) as connection:
                 connection.execute("PRAGMA journal_mode = WAL")
                 connection.executescript(CONFIG_REGISTRY_SCHEMA_SQL)
-                connection.execute(
-                    """
-                    INSERT OR IGNORE INTO config_registry_index(
-                        singleton,
-                        index_json
-                    )
-                    VALUES (1, ?)
-                    """,
-                    (
-                        _encode_model(
-                            ConfigRegistryIndex(),
-                            ref=CONFIG_REGISTRY_INDEX_REF,
-                        ),
-                    ),
-                )
                 row = _one(
                     connection.execute(
                         """
@@ -440,17 +426,6 @@ def _connect(
     return connection
 
 
-def _index_with_entry(
-    index: ConfigRegistryIndex,
-    entry: ConfigRegistryEntry,
-) -> ConfigRegistryIndex:
-    entries = [existing for existing in index.entries if existing.id != entry.id]
-    entries.append(entry)
-    return ConfigRegistryIndex(
-        entries=tuple(sorted(entries, key=lambda item: item.registered_at))
-    )
-
-
 def _parse_model[TModel: BaseModel](
     content: str,
     model_type: type[TModel],
@@ -460,6 +435,23 @@ def _parse_model[TModel: BaseModel](
 ) -> TModel:
     try:
         return model_type.model_validate_json(content)
+    except ValidationError as error:
+        raise _integrity_failure(
+            ref,
+            code=code,
+            message="config registry record does not match its durable schema",
+        ) from error
+
+
+def _validate_model[TModel: BaseModel](
+    value: object,
+    model_type: type[TModel],
+    *,
+    ref: str,
+    code: str,
+) -> TModel:
+    try:
+        return model_type.model_validate(value)
     except ValidationError as error:
         raise _integrity_failure(
             ref,
@@ -565,6 +557,10 @@ def _storage_failure(ref: str) -> StorageError:
 
 def _one(cursor: sqlite3.Cursor) -> sqlite3.Row | None:
     return cast("sqlite3.Row | None", cursor.fetchone())
+
+
+def _all(cursor: sqlite3.Cursor) -> tuple[sqlite3.Row, ...]:
+    return cast("tuple[sqlite3.Row, ...]", tuple(cursor.fetchall()))
 
 
 def _text(row: sqlite3.Row, column: str) -> str:

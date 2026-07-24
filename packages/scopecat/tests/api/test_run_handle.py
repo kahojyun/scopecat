@@ -9,11 +9,11 @@ from scopecat.authoring import (
     ExperimentInvocation,
     ExperimentTemplate,
 )
-from scopecat.composition.embedded import open_embedded_workspace
 from scopecat.execution.observation import RuntimeEvent, RuntimeTransitionEvent
 from scopecat.records.parameter import Quantity
 from scopecat.records.run import AnalysisCandidateRunConfigSource
 from tests.testkit.authoring import DRIVE_FREQUENCY_POINT
+from tests.testkit.in_process_lab import in_process_lab
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.workflow_fixtures import load_invocation
@@ -74,7 +74,7 @@ def simple_frequency_scan_template() -> ExperimentTemplate:
 
 def test_workspace_runs_experiment_spec(tmp_path: Path) -> None:
     assert simple_frequency_scan_template().label == "Session test frequency scan"
-    lab = open_embedded_workspace(
+    lab = in_process_lab(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
@@ -89,7 +89,7 @@ def test_workspace_runs_experiment_spec(tmp_path: Path) -> None:
 def test_workspace_closed_loop_uses_notebook_first_candidate_config(
     tmp_path: Path,
 ) -> None:
-    lab = open_embedded_workspace(
+    lab = in_process_lab(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
@@ -129,7 +129,7 @@ def test_workspace_closed_loop_uses_notebook_first_candidate_config(
 
 
 def test_workspace_run_can_observe_transient_runtime_events(tmp_path: Path) -> None:
-    lab = open_embedded_workspace(
+    lab = in_process_lab(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
@@ -160,7 +160,7 @@ def test_workspace_run_can_observe_transient_runtime_events(tmp_path: Path) -> N
 def test_workspace_provider_closed_loop_uses_candidate_config_shortcut(
     tmp_path: Path,
 ) -> None:
-    lab = open_embedded_workspace(
+    lab = in_process_lab(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),

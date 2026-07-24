@@ -6,7 +6,6 @@ from collections.abc import Sequence
 from typing import override
 
 from pydantic import JsonValue
-from scopecat.kernel.problems import Problem
 from scopecat.sdk.instruments import (
     ActionReceipt,
     ApplyReceipt,
@@ -32,6 +31,7 @@ from scopecat.sdk.instruments import (
     quantity_field,
 )
 from scopecat.sdk.instruments.provider_options import ProviderOptionDescription
+from scopecat.sdk.problems import Problem
 
 from quantum_lab_demo.virtual_lab.devices import VirtualDevice, VirtualLab
 from quantum_lab_demo.virtual_lab.profiles import (

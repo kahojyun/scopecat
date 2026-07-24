@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Annotated, assert_type
 import pytest
 
 import scopecat as sc
+from scopecat.api.analysis import AnalysisDefinition, AnalysisInvocation
 
 _COUNT_TYPE = sc.IntType(minimum=0)
 
@@ -112,11 +113,11 @@ def test_analysis_decorator_preserves_configuration_signature() -> None:
     assert evaluations == 0
     assert readout_fit.id == "readout.fit"
     assert readout_fit.__wrapped__.__name__ == "readout_fit"
-    assert isinstance(readout_fit, sc.AnalysisDefinition)
+    assert isinstance(readout_fit, AnalysisDefinition)
     signature = inspect.signature(readout_fit)
     assert tuple(signature.parameters) == ("qubit", "attempts")
-    assert signature.return_annotation is sc.AnalysisInvocation
-    step = assert_type(readout_fit(qubit="q0"), sc.AnalysisInvocation)
+    assert signature.return_annotation is AnalysisInvocation
+    step = assert_type(readout_fit(qubit="q0"), AnalysisInvocation)
     assert step.id == "readout.fit"
     assert step.arguments == (("qubit", "q0"),)
 

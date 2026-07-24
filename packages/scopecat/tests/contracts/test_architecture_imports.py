@@ -12,7 +12,7 @@ CORE_TESTS = REPO_ROOT / "packages" / "scopecat" / "tests"
 NOTEBOOK_FACADE_PATHS = (
     CORE_SOURCE / "api" / "analysis.py",
     CORE_SOURCE / "api" / "run.py",
-    CORE_SOURCE / "api" / "workspace.py",
+    CORE_SOURCE / "api" / "lab.py",
 )
 APPLICATION_ROOTS = tuple(
     CORE_SOURCE / name
@@ -157,7 +157,7 @@ def test_inward_layers_do_not_depend_on_application_or_storage() -> None:
         "scopecat.config.registry",
         "scopecat.execution",
         "scopecat.runs",
-        "scopecat.api.workspace",
+        "scopecat.api.lab",
         "scopecat.api.analysis",
         "scopecat.api.data",
         "scopecat.api.run",

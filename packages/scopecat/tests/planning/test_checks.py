@@ -7,9 +7,6 @@ import pytest
 
 import scopecat as sc
 import scopecat.config.resolution as config_resolution
-from scopecat import ExperimentCheckResult
-from scopecat.api.workspace import Workspace
-from scopecat.composition.embedded import open_embedded_workspace
 from scopecat.config.candidates import CandidateConfig
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
@@ -18,8 +15,10 @@ from scopecat.kernel.problems import (
     ProblemImpact,
     ProblemPhase,
 )
+from scopecat.planning.check_results import ExperimentCheckResult
 from scopecat.records.config import ConfigProfileSnapshot
 from tests.testkit.authoring import simple_template
+from tests.testkit.in_process_lab import InProcessLab, in_process_lab
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.workflow_fixtures import load_config, load_invocation
 
@@ -28,8 +27,8 @@ def _workspace(
     tmp_path: Path,
     *,
     config: ConfigProfileSnapshot | None = None,
-) -> Workspace:
-    return open_embedded_workspace(
+) -> InProcessLab:
+    return in_process_lab(
         tmp_path,
         config=load_config() if config is None else config,
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),

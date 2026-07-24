@@ -7,12 +7,10 @@ import pytest
 from pydantic import ValidationError
 
 import scopecat as sc
-from scopecat.api.workspace import Workspace
 from scopecat.composition.embedded import (
     embedded_config_registry_unit_of_work,
     embedded_run_repository,
     embedded_workspace_services,
-    open_embedded_workspace,
 )
 from scopecat.config.candidates import (
     CandidateConfig,
@@ -29,6 +27,7 @@ from scopecat.config.resolution import register_and_activate_candidate_config
 from scopecat.kernel.errors import CheckFailed, Conflict, DataIntegrityError
 from scopecat.records.parameter import Quantity, ScalarParameterValue
 from scopecat.records.parameter_change import ParameterChangeProposal
+from tests.testkit.in_process_lab import InProcessLab, in_process_lab
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.workflow_fixtures import load_invocation
@@ -442,8 +441,8 @@ def test_proposal_records_are_immutable_but_idempotent(tmp_path: Path) -> None:
     assert [event.event_id for event in decisions] == [decision.event_id]
 
 
-def _lab(tmp_path: Path) -> Workspace:
-    return open_embedded_workspace(
+def _lab(tmp_path: Path) -> InProcessLab:
+    return in_process_lab(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),

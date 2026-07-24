@@ -8,7 +8,6 @@ import scopecat as sc
 from scopecat.adapters.sqlite import SQLiteRunRepository
 from scopecat.composition.embedded import (
     embedded_workspace_services,
-    open_embedded_workspace,
 )
 from scopecat.config.resolution import (
     load_active_config,
@@ -17,6 +16,7 @@ from scopecat.config.resolution import (
 from scopecat.records.run import RunManifest
 from scopecat.runs.refs import record_content_ref
 from scopecat.runs.service import start_run
+from tests.testkit.in_process_lab import in_process_lab
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.signal_testkit import (
     SUMMARY_STATS_RESULT_REF,
@@ -37,7 +37,7 @@ def test_workflow_analysis_review_activate_and_rerun_active_config(
         experiment=load_prepared_invocation(),
         services=services,
     )
-    lab = open_embedded_workspace(tmp_path, config=load_config())
+    lab = in_process_lab(tmp_path, config=load_config())
     run_handle = lab.get_run(run.run_id)
 
     summary = run_handle.analyze(SummaryStatsAnalysisStep())
@@ -82,7 +82,7 @@ def test_analysis_save_recovers_orphans_after_manifest_failure(
         services=services,
     )
     analysis = (
-        open_embedded_workspace(tmp_path, config=load_config())
+        in_process_lab(tmp_path, config=load_config())
         .get_run(run.run_id)
         .analyze(SummaryStatsAnalysisStep())
     )
@@ -145,7 +145,7 @@ def test_analysis_save_recovers_after_output_write_failure(
         services=services,
     )
     analysis = (
-        open_embedded_workspace(tmp_path, config=load_config())
+        in_process_lab(tmp_path, config=load_config())
         .get_run(run.run_id)
         .analyze(SummaryStatsAnalysisStep())
     )

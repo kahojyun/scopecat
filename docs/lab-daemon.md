@@ -46,9 +46,10 @@ their closures or interactive objects cannot be reconstructed reliably in
 another process. Every durable effect still passes through the daemon, so the
 notebook never becomes a second writer.
 
-The lower-level `sc.connect()` transport client exposes exact managed
-submission, delegated execution, event replay, and attention resolution for
-operator and infrastructure code.
+The same project client exposes exact managed submission, event replay, and
+attention resolution through `lab.control`. Delegated execution remains an
+internal implementation of `lab.prepare(...).run()`, so notebook code has one
+connection entry point and one owner for the HTTP transport.
 
 After execution, analysis records, parameter proposals, acceptance decisions,
 and default changes use the same daemon boundary. A notebook may calculate
@@ -63,7 +64,7 @@ and resolved candidate hash. Verification is optional evidence: acceptance may
 happen before it, after it, or without a dedicated verification run.
 
 If an executor disappears, its resources remain quarantined. The GUI or
-`lab.resolve_attention(run_id, action)` can explicitly:
+`lab.control.resolve_attention(run_id, action)` can explicitly:
 
 - `release` resources after external state has been reconciled;
 - `requeue` the admitted run with a new executor generation; or

@@ -47,10 +47,10 @@ class LabApplication:
         """Connect notebook code while retaining local scratch capabilities."""
 
         from scopecat.api.lab import LabClient
-        from scopecat.daemon.connection import DaemonConnection
 
         return LabClient(
-            DaemonConnection(daemon, build_system=self.build_system),
+            daemon,
+            build_system=self.build_system,
         )
 
 

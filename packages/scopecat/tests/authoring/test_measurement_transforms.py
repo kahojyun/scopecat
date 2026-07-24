@@ -6,10 +6,11 @@ import scopecat as sc
 from scopecat.compiler.frontend.elaboration import elaborate_module
 from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
 from scopecat.kernel.errors import CheckFailed
+from scopecat.sdk.domain import MeasurementTransformSemanticContract
 
 
-def _semantic(name: str = "test.scale") -> sc.MeasurementTransformSemanticContract:
-    return sc.MeasurementTransformSemanticContract(
+def _semantic(name: str = "test.scale") -> MeasurementTransformSemanticContract:
+    return MeasurementTransformSemanticContract(
         id=name,
         version="1",
         parameters={"scale": 2},

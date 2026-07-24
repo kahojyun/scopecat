@@ -20,7 +20,6 @@ from scopecat.compiler.semantic.operation_contract import (
 )
 from scopecat.composition.embedded import (
     embedded_run_repository,
-    open_embedded_workspace,
 )
 from scopecat.execution.effect_interpreter import RunEffectInterpreter
 from scopecat.execution.local.program import (
@@ -72,6 +71,7 @@ from scopecat.sdk.instruments import (
     InstrumentStateCommand,
     InstrumentStateSnapshot,
 )
+from tests.testkit.in_process_lab import in_process_lab
 from tests.testkit.instrument_drivers import SignalInstrumentDriver
 from tests.testkit.local_materialization import (
     LocalEffectInspection,
@@ -211,7 +211,7 @@ def test_workspace_run_schedules_parent_compute_before_child_consumer(
         kind="characterization",
     )(lambda: sc.experiment(parent()))
     driver = SignalInstrumentDriver()
-    lab = open_embedded_workspace(
+    lab = in_process_lab(
         tmp_path,
         config=config_with_physical_resources({"source-0": ("play_program",)}),
         system=sc.ExperimentSystem(provider=_SingleDriverProvider(driver)),

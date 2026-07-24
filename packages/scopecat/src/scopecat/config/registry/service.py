@@ -39,7 +39,6 @@ from scopecat.config.registry.records import (
     ConfigRegistryActivationRecord,
     ConfigRegistryActiveState,
     ConfigRegistryEntry,
-    ConfigRegistryIndex,
     DirectConfigRegistrySource,
     EvidenceContentHash,
     ManualConfigDraftRegistrySource,
@@ -354,23 +353,11 @@ def register_and_activate_config_profile(
     selected_activation_note = note if activation_note is None else activation_note
     with unit_of_work() as work:
         current_state = _read_active_state_optional(work.registry)
-        if (
-            _matching_active_state_retry(
-                current_state,
-                action="activation",
-                entry_id=entry_id,
-                operator=operator,
-                note=selected_activation_note,
-                expected_generation=selected_generation,
-                allow_current_generation=True,
-            )
-            is None
-        ):
-            _require_expected_generation(
-                current_state,
-                selected_generation,
-                active_ref=work.registry.active_ref,
-            )
+        _require_expected_generation(
+            current_state,
+            selected_generation,
+            active_ref=work.registry.active_ref,
+        )
         entry = _register_config_profile_locked(
             config=config,
             work=work,
@@ -467,23 +454,11 @@ def register_and_activate_candidate_config(
     selected_activation_note = note if activation_note is None else activation_note
     with unit_of_work() as work:
         current_state = _read_active_state_optional(work.registry)
-        if (
-            _matching_active_state_retry(
-                current_state,
-                action="activation",
-                entry_id=entry_id,
-                operator=operator,
-                note=selected_activation_note,
-                expected_generation=expected_generation,
-                allow_current_generation=True,
-            )
-            is None
-        ):
-            _require_expected_generation(
-                current_state,
-                expected_generation,
-                active_ref=work.registry.active_ref,
-            )
+        _require_expected_generation(
+            current_state,
+            expected_generation,
+            active_ref=work.registry.active_ref,
+        )
         entry = _register_candidate_config_locked(
             config=config,
             work=work,
@@ -858,13 +833,12 @@ def list_config_registry_entries(
     *, unit_of_work: WorkspaceUnitOfWorkFactory
 ) -> list[ConfigRegistryEntry]:
     with unit_of_work() as work:
-        index = _read_index(work.registry)
         entries = [
-            _validate_indexed_entry_locked(
+            _validate_listed_entry_locked(
                 work=work,
-                indexed_entry=indexed_entry,
+                entry=entry,
             )
-            for indexed_entry in index.entries
+            for entry in work.registry.list_entries()
         ]
         return sorted(entries, key=lambda entry: entry.registered_at)
 
@@ -901,23 +875,7 @@ def _load_committed_config_registry_entry_locked(
 ) -> ConfigRegistryEntry:
     """Load committed registry identity without re-evaluating source evidence."""
 
-    index = _read_index(work.registry)
-    indexed_entry = next(
-        (entry for entry in index.entries if entry.id == entry_id),
-        None,
-    )
-    if indexed_entry is None:
-        entry_ref = work.registry.entry_ref(entry_id)
-        if work.registry.entry_exists(entry_id):
-            raise _registry_failure(
-                DataIntegrityError,
-                code="config_registry.uncommitted_entry",
-                category=ProblemCategory.DATA_INTEGRITY,
-                message="config registry entry exists without an index commit",
-                location=_registry_storage_location(entry_ref),
-                related_locations=(_registry_model_location("entry_id"),),
-                details={"entry_id": entry_id},
-            )
+    if not work.registry.entry_exists(entry_id):
         raise _registry_failure(
             NotFound,
             code="config_registry.not_found",
@@ -926,20 +884,20 @@ def _load_committed_config_registry_entry_locked(
             location=_registry_model_location("entry_id"),
             details={"entry_id": entry_id},
         )
-    return _validate_indexed_entry_identity_locked(
+    return _read_config_registry_entry_locked(
+        entry_id=entry_id,
         repository=work.registry,
-        indexed_entry=indexed_entry,
     )
 
 
-def _validate_indexed_entry_locked(
+def _validate_listed_entry_locked(
     *,
     work: WorkspaceUnitOfWork,
-    indexed_entry: ConfigRegistryEntry,
+    entry: ConfigRegistryEntry,
 ) -> ConfigRegistryEntry:
-    entry = _validate_indexed_entry_identity_locked(
+    _validate_registry_entry_coordinates(
         repository=work.registry,
-        indexed_entry=indexed_entry,
+        entry=entry,
     )
     config = _read_entry_config(work.registry, entry)
     _validate_derived_entry_source_locked(
@@ -950,34 +908,29 @@ def _validate_indexed_entry_locked(
     return entry
 
 
-def _validate_indexed_entry_identity_locked(
+def _validate_registry_entry_coordinates(
     *,
     repository: ConfigRegistryRepository,
-    indexed_entry: ConfigRegistryEntry,
-) -> ConfigRegistryEntry:
-    entry = _read_config_registry_entry_file_locked(
-        entry_id=indexed_entry.id,
-        repository=repository,
+    entry: ConfigRegistryEntry,
+) -> None:
+    _validate_durable_entry_id(entry.id, ref=repository.entry_ref(entry.id))
+    if entry.config_ref == repository.config_ref(entry.id):
+        return
+    raise _registry_failure(
+        DataIntegrityError,
+        code="config_registry.entry_ref_mismatch",
+        category=ProblemCategory.DATA_INTEGRITY,
+        message="config registry entry has inconsistent storage coordinates",
+        location=_registry_storage_location(repository.entry_ref(entry.id)),
+        related_locations=(_registry_model_location("config_ref"),),
+        details={"entry_id": entry.id},
     )
-    if entry != indexed_entry:
-        raise _registry_failure(
-            DataIntegrityError,
-            code="config_registry.index_entry_mismatch",
-            category=ProblemCategory.DATA_INTEGRITY,
-            message="config registry entry does not match its committed index record",
-            location=_registry_storage_location(repository.index_ref),
-            related_locations=(
-                _registry_storage_location(repository.entry_ref(entry.id)),
-            ),
-            details={"entry_id": entry.id},
-        )
-    return entry
 
 
-def _read_config_registry_entry_file_locked(
+def _read_config_registry_entry_locked(
     *, entry_id: str, repository: ConfigRegistryRepository
 ) -> ConfigRegistryEntry:
-    _validate_durable_entry_id(entry_id, ref=repository.index_ref)
+    _validate_durable_entry_id(entry_id, ref=repository.entry_ref(entry_id))
     entry_ref = repository.entry_ref(entry_id)
     if not repository.entry_exists(entry_id):
         raise _registry_failure(
@@ -989,7 +942,7 @@ def _read_config_registry_entry_file_locked(
             details={"entry_id": entry_id},
         )
     entry = repository.read_entry(entry_id)
-    if entry.id != entry_id or entry.config_ref != repository.config_ref(entry_id):
+    if entry.id != entry_id:
         raise _registry_failure(
             DataIntegrityError,
             code="config_registry.entry_ref_mismatch",
@@ -999,6 +952,7 @@ def _read_config_registry_entry_file_locked(
             related_locations=(_registry_model_location("config_ref"),),
             details={"entry_id": entry_id},
         )
+    _validate_registry_entry_coordinates(repository=repository, entry=entry)
     return entry
 
 
@@ -1070,25 +1024,6 @@ def _activate_config_registry_entry_locked(
     note: str,
 ) -> tuple[ConfigRegistryActiveState, ConfigRegistryActivationRecord]:
     current_state = _read_active_state_optional(work.registry)
-    repeated = _matching_active_state_retry(
-        current_state,
-        action="activation",
-        entry_id=entry_id,
-        operator=operator,
-        note=note,
-        expected_generation=expected_generation,
-        allow_current_generation=True,
-    )
-    if repeated is not None:
-        assert current_state is not None  # noqa: S101
-        entry = _load_config_registry_entry_locked(
-            entry_id=entry_id,
-            work=work,
-        )
-        _validate_active_entry_identity(work.registry, current_state, entry)
-        _validate_entry_config(work.registry, entry)
-        work.registry.commit_active_state(current_state)
-        return current_state, repeated
     _require_expected_generation(
         current_state,
         expected_generation,
@@ -1124,8 +1059,12 @@ def _activate_config_registry_entry_locked(
         active_entry_id=entry.id,
         active_entry_content_hash=entry.content_hash,
         history=(*history, record),
+        updated_at=record.recorded_at,
     )
-    work.registry.commit_active_state(state)
+    work.registry.commit_activation(
+        expected_generation=expected_generation,
+        record=record,
+    )
     return state, record
 
 
@@ -1139,22 +1078,6 @@ def rollback_config_registry(
     _validate_required_text(operator, field="operator")
     with unit_of_work() as work:
         current_state = _read_active_state_optional(work.registry)
-        repeated = _matching_active_state_retry(
-            current_state,
-            action="rollback",
-            entry_id=None,
-            operator=operator,
-            note=note,
-            expected_generation=expected_generation,
-        )
-        if repeated is not None:
-            assert current_state is not None  # noqa: S101
-            _load_current_active_entry_for_rollback_locked(
-                state=current_state,
-                work=work,
-            )
-            work.registry.commit_active_state(current_state)
-            return current_state, repeated
         _require_expected_generation(
             current_state,
             expected_generation,
@@ -1206,8 +1129,12 @@ def rollback_config_registry(
             active_entry_id=entry.id,
             active_entry_content_hash=entry.content_hash,
             history=(*history, record),
+            updated_at=record.recorded_at,
         )
-        work.registry.commit_active_state(state)
+        work.registry.commit_activation(
+            expected_generation=expected_generation,
+            record=record,
+        )
         return state, record
 
 
@@ -1399,10 +1326,8 @@ def _commit_registration_locked(
     requested_entry: ConfigRegistryEntry,
     config: ConfigProfileSnapshot,
 ) -> ConfigRegistryEntry:
-    index = _read_index(repository)
     existing = _find_existing_entry_locked(
         repository=repository,
-        index=index,
         entry_id=requested_entry.id,
     )
     if existing is not None:
@@ -1422,14 +1347,8 @@ def _commit_registration_locked(
                 ),
                 details={"entry_id": requested_entry.id},
             )
-        repository.commit_registration(
-            index=index,
-            entry=existing,
-            config=existing_config,
-        )
         return existing
     repository.commit_registration(
-        index=index,
         entry=requested_entry,
         config=config,
     )
@@ -1439,41 +1358,12 @@ def _commit_registration_locked(
 def _find_existing_entry_locked(
     *,
     repository: ConfigRegistryRepository,
-    index: ConfigRegistryIndex,
     entry_id: str,
 ) -> ConfigRegistryEntry | None:
-    entry_ref = repository.entry_ref(entry_id)
-    indexed_entry = next(
-        (entry for entry in index.entries if entry.id == entry_id),
-        None,
-    )
     if repository.entry_exists(entry_id):
-        entry = _read_config_registry_entry_file_locked(
+        return _read_config_registry_entry_locked(
             entry_id=entry_id,
             repository=repository,
-        )
-        if indexed_entry is not None and indexed_entry != entry:
-            raise _registry_failure(
-                DataIntegrityError,
-                code="config_registry.index_entry_mismatch",
-                category=ProblemCategory.DATA_INTEGRITY,
-                message=(
-                    "config registry entry does not match its committed index record"
-                ),
-                location=_registry_storage_location(repository.index_ref),
-                related_locations=(_registry_storage_location(entry_ref),),
-                details={"entry_id": entry_id},
-            )
-        return entry
-    if indexed_entry is not None:
-        raise _registry_failure(
-            DataIntegrityError,
-            code="config_registry.incomplete_entry",
-            category=ProblemCategory.DATA_INTEGRITY,
-            message="committed config registry entry file is missing",
-            location=_registry_storage_location(entry_ref),
-            related_locations=(_registry_storage_location(repository.index_ref),),
-            details={"entry_id": entry_id},
         )
     return None
 
@@ -1512,13 +1402,6 @@ def _same_registration(
     return False
 
 
-def _read_index(repository: ConfigRegistryRepository) -> ConfigRegistryIndex:
-    index = repository.read_index()
-    for entry in index.entries:
-        _validate_durable_entry_id(entry.id, ref=repository.index_ref)
-    return index
-
-
 def _read_active_state_optional(
     repository: ConfigRegistryRepository,
 ) -> ConfigRegistryActiveState | None:
@@ -1550,56 +1433,6 @@ def _require_expected_generation(
             "actual_generation": current_generation,
         },
     )
-
-
-def _matching_active_state_retry(
-    state: ConfigRegistryActiveState | None,
-    *,
-    action: str,
-    entry_id: str | None,
-    operator: str,
-    note: str,
-    expected_generation: int,
-    allow_current_generation: bool = False,
-) -> ConfigRegistryActivationRecord | None:
-    """Recognize a matching request at one recoverable visible generation."""
-
-    if state is None:
-        return None
-    post_replace_retry = state.generation == expected_generation + 1
-    reread_generation_retry = (
-        allow_current_generation and state.generation == expected_generation
-    )
-    if not (post_replace_retry or reread_generation_retry):
-        return None
-    return _matching_latest_active_request(
-        state,
-        action=action,
-        entry_id=entry_id,
-        operator=operator,
-        note=note,
-    )
-
-
-def _matching_latest_active_request(
-    state: ConfigRegistryActiveState | None,
-    *,
-    action: str,
-    entry_id: str | None,
-    operator: str,
-    note: str,
-) -> ConfigRegistryActivationRecord | None:
-    if state is None:
-        return None
-    latest = state.history[-1]
-    if (
-        latest.action != action
-        or latest.operator != operator
-        or latest.note != note
-        or (entry_id is not None and latest.entry_id != entry_id)
-    ):
-        return None
-    return latest
 
 
 def _state_generation(state: ConfigRegistryActiveState | None) -> int:

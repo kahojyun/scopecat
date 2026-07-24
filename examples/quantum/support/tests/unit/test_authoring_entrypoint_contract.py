@@ -7,13 +7,12 @@ from typing import Annotated, cast
 
 import pytest
 import scopecat as sc
-from scopecat.api.workspace import Workspace
 from scopecat.authoring._products import RecordSelection
 from scopecat.authoring._value_refs import (
     ValueRef,
     internal_lower_scalar_value_ref,
 )
-from scopecat.compiler.frontend.invocation import PreparedInvocation
+from scopecat.compiler.frontend.invocation import prepare_invocation
 from scopecat.compiler.frontend.resolution import (
     CompiledInvocation,
     compile_prepared_invocation,
@@ -27,7 +26,6 @@ from scopecat.compiler.relations.point_domain import (
     PointRows,
     PointUnit,
 )
-from scopecat.composition.embedded import open_embedded_workspace
 
 _TEMPLATE_ID = "examples.quantum.x-repetition-iq"
 _EXPERIMENT_ID = "x-repetition-iq"
@@ -92,30 +90,18 @@ def test_template_and_scratch_compile_to_equivalent_execution_semantics(
 ) -> None:
     """Keep both UX forms above one config-free compiler contract."""
 
-    workspace = open_embedded_workspace(tmp_path)
-    template = _compile_through_workspace(
-        workspace,
-        equivalent_authoring_paths.template,
+    del tmp_path
+    template = compile_prepared_invocation(
+        prepare_invocation(equivalent_authoring_paths.template)
     )
-    scratch = _compile_through_workspace(
-        workspace,
-        equivalent_authoring_paths.scratch,
+    scratch = compile_prepared_invocation(
+        prepare_invocation(equivalent_authoring_paths.scratch)
     )
 
     assert _execution_semantics(template) == _execution_semantics(scratch)
 
     assert template.request.template_id == _TEMPLATE_ID
     assert scratch.request.template_id == "examples.quantum.x-repetition-iq.scratch"
-
-
-def _compile_through_workspace(
-    workspace: Workspace,
-    experiment: sc.ExperimentInvocation,
-) -> CompiledInvocation:
-    prepared_handle = workspace.prepare(experiment)
-    prepared = prepared_handle._prepared_invocation
-    assert isinstance(prepared, PreparedInvocation)
-    return compile_prepared_invocation(prepared)
 
 
 def _execution_semantics(compiled: CompiledInvocation) -> object:

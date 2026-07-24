@@ -82,14 +82,18 @@ def test_demo_execution_round_trips_through_shared_daemon(
         assert attachment.filename == "review.md"
         assert run.data().text("notebook-note").content == "reviewed in notebook\n"
         assert run.data().json("fit-result").content == {"accepted": True}
-        assert lab.analysis(run.id, saved.record.id).analysis.title == "fit review"
-        assert [item.analysis.title for item in lab.analyses(run.id).items] == [
-            "fit review"
-        ]
+        assert (
+            lab.run_operations.analysis(run.id, saved.record.id).analysis.title
+            == "fit review"
+        )
+        assert [
+            item.analysis.title
+            for item in lab.run_operations.analyses(run.id).items
+        ] == ["fit review"]
 
-    with sc.connect(demo_daemon.url) as observer:
-        detail = observer.get_run(run.id)
-        measurements = observer.measurements(run.id)
+    with sc.open_project(EXAMPLE_ROOT).connect(demo_daemon.url) as observer:
+        detail = observer.control.run_detail(run.id)
+        measurements = observer.control.measurements(run.id)
 
     assert detail.control.state == "terminal"
     assert detail.manifest.status == "completed"

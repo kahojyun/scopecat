@@ -9,6 +9,7 @@ import pytest
 from scopecat.config.profiles import load_config_profile
 from scopecat.config.registry.ports import WorkspaceUnitOfWorkFactory
 from scopecat.config.registry.service import (
+    activate_config_registry_entry,
     current_config_registry_generation,
     list_config_registry_entries,
     load_active_config_registry_state,
@@ -112,6 +113,15 @@ class ConfigRegistryUnitOfWorkContract:
                 expected_generation=0,
             )
         assert captured.value.problems[0].code == "config_registry.conflict"
+
+        with pytest.raises(Conflict) as repeated:
+            activate_config_registry_entry(
+                entry_id=entry.id,
+                unit_of_work=unit_of_work,
+                operator="contract",
+                expected_generation=0,
+            )
+        assert repeated.value.problems[0].code == "config_registry.conflict"
 
 
 __all__ = ["ConfigRegistryUnitOfWorkContract"]

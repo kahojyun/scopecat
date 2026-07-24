@@ -18,7 +18,6 @@ if TYPE_CHECKING:
         ConfigRegistryActiveState,
         ConfigRegistryEntry,
         ConfigRegistryEntrySource,
-        ConfigRegistryIndex,
         DirectConfigRegistrySource,
         ManualConfigDraftRegistrySource,
     )
@@ -52,7 +51,6 @@ _RECORD_EXPORTS = (
     "ConfigRegistryActiveState",
     "ConfigRegistryEntry",
     "ConfigRegistryEntrySource",
-    "ConfigRegistryIndex",
     "DirectConfigRegistrySource",
     "ManualConfigDraftRegistrySource",
 )
@@ -111,7 +109,6 @@ __all__ = [
     "ConfigRegistryActiveState",
     "ConfigRegistryEntry",
     "ConfigRegistryEntrySource",
-    "ConfigRegistryIndex",
     "ConfigRegistryRepository",
     "DirectConfigRegistrySource",
     "ManualConfigDraftRegistrySource",

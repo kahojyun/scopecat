@@ -56,7 +56,7 @@ The daemon does not hot-reload project code.
 Ordinary notebook code expresses intent rather than registry mechanics:
 
 ```python
-draft = lab.edit_config().replace_scalar("repetitions", sc.Quantity(256, "count"))
+draft = lab.config.edit().replace_scalar("repetitions", sc.Quantity(256, "count"))
 changed = lab.config.set_default(draft, note="increase averaging")
 accepted = lab.config.accept(analysis, note="fit passed")
 restored = lab.config.undo(note="restore the previous default")

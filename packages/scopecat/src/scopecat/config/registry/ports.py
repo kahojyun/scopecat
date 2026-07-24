@@ -7,9 +7,9 @@ from types import TracebackType
 from typing import Protocol, Self
 
 from scopecat.config.registry.records import (
+    ConfigRegistryActivationRecord,
     ConfigRegistryActiveState,
     ConfigRegistryEntry,
-    ConfigRegistryIndex,
 )
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.runs.repository import RunRepository
@@ -17,9 +17,6 @@ from scopecat.runs.repository import RunRepository
 
 class ConfigRegistryRepository(Protocol):
     """Persistence boundary for registry records and commit markers."""
-
-    @property
-    def index_ref(self) -> str: ...
 
     @property
     def active_ref(self) -> str: ...
@@ -30,7 +27,7 @@ class ConfigRegistryRepository(Protocol):
 
     def entry_exists(self, entry_id: str) -> bool: ...
 
-    def read_index(self) -> ConfigRegistryIndex: ...
+    def list_entries(self) -> tuple[ConfigRegistryEntry, ...]: ...
 
     def read_entry(self, entry_id: str) -> ConfigRegistryEntry: ...
 
@@ -41,12 +38,16 @@ class ConfigRegistryRepository(Protocol):
     def commit_registration(
         self,
         *,
-        index: ConfigRegistryIndex,
         entry: ConfigRegistryEntry,
         config: ConfigProfileSnapshot,
     ) -> None: ...
 
-    def commit_active_state(self, state: ConfigRegistryActiveState) -> None: ...
+    def commit_activation(
+        self,
+        *,
+        expected_generation: int,
+        record: ConfigRegistryActivationRecord,
+    ) -> None: ...
 
 
 class WorkspaceUnitOfWork(Protocol):

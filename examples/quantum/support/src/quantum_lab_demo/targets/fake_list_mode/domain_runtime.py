@@ -13,13 +13,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from threading import Lock
 
-from scopecat.kernel.problems import (
-    Problem,
-    ProblemCategory,
-    ProblemPhase,
-    blocking_problem,
-    model_location,
-)
 from scopecat.sdk.domain import (
     CorrelatedDomainFetch,
     DomainFetchCandidate,
@@ -29,6 +22,13 @@ from scopecat.sdk.domain import (
     DomainSubmitReceipt,
     DomainSubmitRequest,
     DomainTargetArtifactIdentity,
+)
+from scopecat.sdk.problems import (
+    Problem,
+    ProblemCategory,
+    ProblemPhase,
+    blocking_problem,
+    model_location,
 )
 from scopecat_quantum import (
     TargetAcquisitionAddress,

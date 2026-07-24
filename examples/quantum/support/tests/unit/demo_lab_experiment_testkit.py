@@ -6,12 +6,19 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal
 
-from scopecat.api.workspace import Workspace
-from scopecat.authoring import ExperimentInvocation
+from scopecat.api.run import (
+    RunHandle,
+    RunOperations,
+    run_handle_id,
+)
+from scopecat.application.services import WorkspaceServices
+from scopecat.authoring import ExperimentInvocation, ExperimentTemplate, ValueRef
+from scopecat.authoring.scans import Scan, ScanCenter, ScanValue
 from scopecat.compiler.frontend.environment import (
     ValidatedConfigEnvironment,
     validate_config_environment,
 )
+from scopecat.compiler.frontend.invocation import prepare_invocation
 from scopecat.compiler.linking.linked import (
     LinkedPlan,
     LinkedPointMaterializer,
@@ -20,9 +27,21 @@ from scopecat.compiler.linking.linked import (
 )
 from scopecat.compiler.typed.program import CoreProgram
 from scopecat.compiler.typed.verification import seal_typed_program
-from scopecat.composition.embedded import open_embedded_workspace
+from scopecat.composition.embedded import embedded_workspace_services
+from scopecat.config.candidates import CandidateConfig
+from scopecat.config.changes import review_parameter_change_proposal
 from scopecat.config.profiles import load_config_profile
+from scopecat.config.resolution import (
+    ConfigActivation,
+    ConfigProfileInput,
+    RegisteredConfigActivation,
+    register_and_activate_candidate_config,
+    register_and_activate_config_profile,
+    resolve_experiment_config,
+    rollback_config,
+)
 from scopecat.execution.local.program import ComputeOperation, LocalOperation
+from scopecat.execution.observation import RuntimeEventSink, RuntimePayloadObserver
 from scopecat.execution.points import RunPoint
 from scopecat.execution.program import RunCoverageEffect
 from scopecat.kernel.problems import ProblemPhase
@@ -36,6 +55,7 @@ from scopecat.measurements.projection import (
     select_measurement_projection,
 )
 from scopecat.planning.authoring import resolve_experiment
+from scopecat.planning.check_results import ExperimentCheckResult
 from scopecat.planning.local_effects import (
     MaterializedLocalEffects as LocalEffects,
 )
@@ -44,7 +64,17 @@ from scopecat.planning.local_materialization import (
     materialize_local_execution,
     prepare_local_target,
 )
+from scopecat.planning.preview_models import ExperimentPreview
+from scopecat.planning.system import ExperimentSystem
 from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.parameter import Quantity
+from scopecat.records.parameter_change import (
+    ParameterChangeDecisionRecord,
+    ParameterChangeReviewState,
+)
+from scopecat.runs.selectors import RunSelector
+from scopecat.runs.service import check_experiment, list_runs, run_experiment
+from scopecat.testing import ServiceRunOperations
 
 from quantum_lab_demo.compiler import QuantumLabCompiler, QuantumRealtimeLabCompiler
 from quantum_lab_demo.lab import quantum_lab_config_profile, quantum_lab_system
@@ -57,18 +87,223 @@ from .demo_lab_test_paths import (
 PathInput = str | Path
 
 
+@dataclass(frozen=True, slots=True)
+class InProcessPreparedExperiment:
+    """Test invocation executed directly below the daemon boundary."""
+
+    lab: InProcessQuantumLab
+    invocation: ExperimentInvocation
+    config: str | ConfigProfileSnapshot | CandidateConfig
+    config_profile: ConfigProfileInput | None
+    system: ExperimentSystem | None
+
+    def scan(
+        self,
+        target: ValueRef | Scan,
+        values: Sequence[ScanValue] = (),
+        *,
+        unit: str | None = None,
+        center: ScanCenter | None = None,
+        span: Quantity | str | None = None,
+        points: int | None = None,
+    ) -> InProcessPreparedExperiment:
+        return replace(
+            self,
+            invocation=self.invocation.scan(
+                target,
+                values,
+                unit=unit,
+                center=center,
+                span=span,
+                points=points,
+            ),
+        )
+
+    def check(self) -> ExperimentCheckResult:
+        return check_experiment(
+            prepare_invocation(self.invocation),
+            services=self.lab.services,
+            config=self.config,
+            config_profile=self.config_profile,
+            system=self.system,
+        )
+
+    def preview(self) -> ExperimentPreview:
+        result = self.check()
+        assert result.preview is not None, result.problems
+        return result.preview
+
+    def run(
+        self,
+        *,
+        event_sink: RuntimeEventSink | None = None,
+        payload_observer: RuntimePayloadObserver | None = None,
+    ) -> RunHandle:
+        manifest = run_experiment(
+            prepare_invocation(self.invocation),
+            services=self.lab.services,
+            config=self.config,
+            config_profile=self.config_profile,
+            system=self.system,
+            event_sink=event_sink,
+            payload_observer=payload_observer,
+        )
+        return self.lab.get_run(manifest.run_id)
+
+
+@dataclass(frozen=True, slots=True)
+class InProcessQuantumLab:
+    """Quantum integration harness; user workflows use the project daemon."""
+
+    workspace: Path
+    services: WorkspaceServices
+    config: str | ConfigProfileSnapshot
+    config_profile: ConfigProfileInput | None
+    system: ExperimentSystem | None
+    reviewer: str = "operator"
+    operator: str = "operator"
+
+    @property
+    def run_operations(self) -> RunOperations:
+        return ServiceRunOperations(self.services)
+
+    def prepare(
+        self,
+        experiment: ExperimentInvocation | ExperimentTemplate,
+        *,
+        config: str | ConfigProfileSnapshot | CandidateConfig | None = None,
+        config_profile: ConfigProfileInput | None = None,
+        system: ExperimentSystem | None = None,
+    ) -> InProcessPreparedExperiment:
+        invocation = (
+            experiment.bind()
+            if isinstance(experiment, ExperimentTemplate)
+            else experiment
+        )
+        return InProcessPreparedExperiment(
+            lab=self,
+            invocation=invocation,
+            config=self.config if config is None else config,
+            config_profile=(
+                self.config_profile
+                if config is None and config_profile is None
+                else config_profile
+            ),
+            system=self.system if system is None else system,
+        )
+
+    def get_run(self, run: RunSelector | RunHandle) -> RunHandle:
+        return RunHandle(session=self, id=run_handle_id(run))
+
+    def runs(self) -> tuple[RunHandle, ...]:
+        return tuple(
+            RunHandle(session=self, id=manifest.run_id)
+            for manifest in list_runs(services=self.services)
+        )
+
+    def resolve_config(
+        self,
+        *,
+        config: str | ConfigProfileSnapshot | CandidateConfig | None = None,
+    ) -> ConfigProfileSnapshot:
+        selected = self.config if config is None else config
+        return resolve_experiment_config(
+            services=self.services,
+            config=selected,
+            config_profile=self.config_profile if config is None else None,
+        ).config
+
+    def review_parameter_proposal(
+        self,
+        run: RunSelector | RunHandle,
+        selector: str,
+        *,
+        reviewer: str | None = None,
+        decision: ParameterChangeReviewState = "approved",
+        note: str = "",
+    ) -> ParameterChangeDecisionRecord:
+        return review_parameter_change_proposal(
+            run_id=run_handle_id(run),
+            selector=selector,
+            services=self.services,
+            state=decision,
+            reviewer=reviewer or self.reviewer,
+            note=note,
+        )
+
+    def activate(
+        self,
+        candidate: CandidateConfig,
+        *,
+        entry_id: str | None = None,
+        registered_by: str | None = None,
+        operator: str | None = None,
+        note: str = "",
+        activation_note: str | None = None,
+        expected_generation: int | None = None,
+    ) -> RegisteredConfigActivation:
+        return register_and_activate_candidate_config(
+            candidate=candidate,
+            services=self.services,
+            entry_id=entry_id,
+            registered_by=registered_by or self.operator,
+            operator=operator or self.operator,
+            note=note,
+            activation_note=activation_note,
+            expected_generation=expected_generation,
+        )
+
+    def activate_config(
+        self,
+        config: ConfigProfileSnapshot,
+        *,
+        entry_id: str,
+        registered_by: str | None = None,
+        operator: str | None = None,
+        note: str = "",
+        activation_note: str | None = None,
+        expected_generation: int | None = None,
+    ) -> RegisteredConfigActivation:
+        return register_and_activate_config_profile(
+            config=config,
+            services=self.services,
+            entry_id=entry_id,
+            registered_by=registered_by or self.operator,
+            operator=operator or self.operator,
+            note=note,
+            activation_note=activation_note,
+            expected_generation=expected_generation,
+        )
+
+    def rollback(
+        self,
+        *,
+        expected_generation: int,
+        operator: str | None = None,
+        note: str = "",
+    ) -> ConfigActivation:
+        return rollback_config(
+            services=self.services,
+            operator=operator or self.operator,
+            expected_generation=expected_generation,
+            note=note,
+        )
+
+
 def embedded_quantum_lab(
     *,
     workspace: PathInput,
     config_profile: PathInput | ConfigProfileSnapshot | None = None,
     virtual_lab_profile: PathInput = TEST_VIRTUAL_LAB_PROFILE,
     compiler: QuantumLabCompiler | QuantumRealtimeLabCompiler | None = None,
-) -> Workspace:
+) -> InProcessQuantumLab:
     """Compose isolated storage for unit tests that do not exercise the daemon."""
 
     config = quantum_lab_config_profile(config_profile)
-    return open_embedded_workspace(
-        workspace,
+    return InProcessQuantumLab(
+        workspace=Path(workspace),
+        services=embedded_workspace_services(workspace),
+        config="active",
         config_profile=config,
         system=quantum_lab_system(
             config=config,
