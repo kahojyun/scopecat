@@ -23,8 +23,18 @@ The configuration view uses the daemon-owned registry directly:
 - `GET /api/v1/config-registry/entries/{entry_id}` returns one `entry` and
   `config`.
 - `POST /api/v1/config-registry/entries` registers an imported snapshot.
+- `POST /api/v1/config-registry/drafts/preview` validates typed parameter
+  operations against the active immutable entry without writing.
+- `POST /api/v1/config-registry/drafts/register` registers the exact previewed
+  candidate after rechecking its base generation and result hash.
 - `POST /api/v1/config-registry/active` and
   `POST /api/v1/config-registry/rollback` require `expected_generation`.
+
+The active entry exposes structured scalar and table controls. Browser edits
+remain transient until preview succeeds and the operator explicitly registers
+them; registration does not activate the new entry. Series and project-default
+authoring remain Python workflows while their editing semantics are still
+settling.
 
 The file picker is deliberately named **Import snapshot**: it accepts the
 self-contained `scopecat.config_profile_snapshot.v2` document registered by the

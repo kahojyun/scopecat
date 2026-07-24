@@ -4,9 +4,13 @@
 SQLite daemon runtime. Point it at a lab project containing `scopecat.toml`:
 
 ```console
+uv run scopecat config check ./my-lab
 uv run scopecat start ./my-lab
 uv run scopecat open ./my-lab
 ```
+
+`config check` resolves and validates the application's bootstrap snapshot
+without starting a daemon or writing the configuration registry.
 
 The daemon stores its database and immutable objects under
 `my-lab/.scopecat`, serves the bundled GUI, and selects an available loopback
@@ -20,13 +24,11 @@ proposals attached to each run. Imports create immutable entries; activation,
 review, rollback, and approved-candidate promotion are explicit
 generation-checked commands.
 
-The manifest names one importable application factory and an optional seed for
-a new configuration registry:
+The manifest names one importable application factory:
 
 ```toml
 [lab]
 application = "my_lab.application:create_application"
-bootstrap-config = "config/initial.json"
 ```
 
 Managed experiments need a process-local catalog and a system builder.
@@ -36,11 +38,12 @@ Notebook scratch execution imports the same user-owned composition root:
 from pathlib import Path
 
 from scopecat import LabApplication
-from my_lab import build_catalog, build_system
+from my_lab import build_catalog, build_initial_config, build_system
 
 
 def create_application(project: Path) -> LabApplication:
     return LabApplication(
+        bootstrap_config=lambda: build_initial_config(project),
         catalog=build_catalog(),
         build_system=lambda accepted_config: build_system(
             accepted_config,
@@ -55,15 +58,16 @@ directory to the import path, so flat modules and standard `src` layouts work
 without an editable install. Catalog identities are explicit `(id, version)`
 pairs.
 
-The builder receives the exact accepted snapshot selected for each run. It does
-not load the bootstrap file itself: `bootstrap-config` seeds daemon state once,
-and the daemon registry is authoritative afterward. Notebook code discovers
-the same application with `sc.open_project("./my-lab").connect()`.
+The builder receives the exact accepted snapshot selected for each run. The
+application's `bootstrap_config` seeds daemon state once, and the daemon
+registry is authoritative afterward. Notebook code discovers the same
+application with `sc.open_project("./my-lab").connect()`.
 
-`bootstrap-config` is a seed, not a mutable runtime setting. The daemon
-validates, registers, and activates it only when the registry is empty. Once an
-operator imports or activates another entry, restarting the daemon preserves
-that selection.
+`LabApplication.bootstrap_config` is a seed, not a mutable runtime setting. The
+daemon calls the factory, validates, registers, and activates its result only
+when the registry is empty. Loading the application from a notebook does not
+resolve the seed. Once an operator imports or activates another entry,
+restarting the daemon preserves that selection.
 
 Only one daemon can own a lab instance. A process-owner lock rejects a second
 daemon; there are no per-run filesystem locks or multi-writer repositories.

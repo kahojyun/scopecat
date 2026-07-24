@@ -94,12 +94,11 @@ and restricts accepted host names; it is not an authenticated remote service.
 Remote or multi-user access needs a separate security boundary.
 
 Each project has a `scopecat.toml` pointing at its version-controlled Python
-application and optional bootstrap config:
+application:
 
 ```toml
 [lab]
 application = "my_lab.application:create_application"
-bootstrap-config = "config/initial.json"
 ```
 
 Start it with `uv run scopecat start ./my-lab`, then use
@@ -107,11 +106,13 @@ Start it with `uv run scopecat start ./my-lab`, then use
 loopback port, publishes it in `.scopecat/daemon.json`, and stores durable state
 below `my-lab/.scopecat`.
 
-The bootstrap profile is imported only if the registry has no entries. After
-that point the registry is authoritative: importing a file creates an immutable
+The application may lazily construct an initial `ConfigProfileSnapshot` with
+Python. The daemon resolves and imports it only if the registry has no entries;
+ordinary notebook connections do not read bootstrap inputs. After that point
+the registry is authoritative: importing another snapshot creates an immutable
 entry, activation changes an explicit generation, and restart never silently
-restores the bootstrap file. User code and seed/export files belong in Git;
-runs, accepted snapshots, activation history, measurements, and artifacts
+restores the application seed. User code and editable config inputs belong in
+Git; runs, accepted snapshots, activation history, measurements, and artifacts
 belong to the daemon.
 
 | Owner | Contents |
@@ -125,3 +126,10 @@ Load the edited profile into a snapshot, import it through the Python client or
 GUI, inspect the immutable entry, and then activate it with the current
 generation. This explicit handoff keeps reproducible source files separate from
 operator state.
+
+For an operator adjustment, the GUI can instead derive typed scalar and table
+operations from the active entry, ask the daemon to preview and validate the
+complete candidate, and register the valid result as another immutable entry.
+It does not rewrite the Git-owned source or activate the result automatically.
+Once an adjustment becomes the intended project default, make the equivalent
+change in the Python/config source and review it normally.

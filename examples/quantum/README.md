@@ -25,41 +25,30 @@ notebook process while all durable effects pass through the daemon. Set
 
 ## Configuration ownership
 
-Keep the split profile under `config/` in Git. Python resolves its referenced
-system, environment, and parameter files into one immutable snapshot before
-crossing the daemon boundary:
+Keep infrastructure descriptions under `config/` and initial parameter tables
+in `quantum_lab_demo.parameters`. The project application parses the typed
+system and environment schemas, builds table values with Python, and combines
+them into one immutable bootstrap snapshot before crossing the daemon boundary:
 
 ```python
 import scopecat as sc
-from quantum_lab_demo import (
-    DEMO_CONFIG_PROFILE,
-    EXAMPLE_ROOT,
-    quantum_lab_config_profile,
-)
+from quantum_lab_demo import EXAMPLE_ROOT
 
-snapshot = quantum_lab_config_profile(DEMO_CONFIG_PROFILE)
 project = sc.open_project(EXAMPLE_ROOT)
-
-with project.connect() as lab:
-    imported = lab.import_config(
-        snapshot,
-        entry_id="reviewed-lab-config",
-        note="assembled from the reviewed Git profile",
-    )
-    activated = lab.activate_config_entry(
-        imported.entry.id,
-        note="select the reviewed snapshot for new runs",
-    )
+bootstrap_config = project.load_application().bootstrap_config
+assert bootstrap_config is not None
+snapshot = bootstrap_config()
 ```
 
-The source files remain user-owned code and configuration. The daemon owns the
-imported snapshots, active selection, activation history, and the exact
-snapshot accepted by each run. Restarting the daemon does not reapply the
-bootstrap profile over a later operator selection.
+The source files remain user-owned code and configuration. On first startup the
+daemon imports the application snapshot; it then owns the immutable entries,
+active selection, activation history, and the exact snapshot accepted by each
+run. Restarting the daemon does not reapply the bootstrap profile over a later
+operator selection.
 
-The GUI imports a complete `ConfigProfileSnapshot`; it does not resolve local
-file references. Use the Python loader above for a split Git profile, then
-import and activate the resulting snapshot through the daemon.
+System topology, connection resources, and virtual instrument behavior remain
+JSON assets because they are not the table-editing workflow demonstrated here.
+Scalar and table parameter values are ordinary reviewed Python source.
 
 ## Learning paths
 
@@ -76,6 +65,7 @@ For example:
 
 ```sh
 uv run python examples/quantum/notebooks/getting_started/01_open_project.py
+uv run python examples/quantum/notebooks/getting_started/02_edit_config.py
 uv run python examples/quantum/notebooks/authoring/01_template_and_scratch.py
 uv run python examples/quantum/notebooks/authoring/03_point_bound_sequence.py
 uv run python examples/quantum/notebooks/calibration/01_drag_beta.py
@@ -86,11 +76,12 @@ uv run python examples/quantum/notebooks/calibration/01_drag_beta.py
 | File | What it teaches |
 |---|---|
 | `getting_started/01_open_project.py` | Open the demo project and connect its daemon client. |
-| `getting_started/02_define_experiment.py` | Compose a reusable module into a template with a configurable scan. |
-| `getting_started/03_run_and_read_data.py` | Run an experiment and inspect `Run.data()`. |
-| `getting_started/04_manual_analysis.py` | Save one-off notebook analysis and candidate evidence. |
-| `getting_started/05_promote_analysis_step.py` | Promote repeated analysis with `@sc.analysis_step`. |
-| `getting_started/06_rerun_candidate_config.py` | Run a follow-up experiment with a candidate config. |
+| `getting_started/02_edit_config.py` | Preview typed scalar and keyed-table edits, then register, activate, and roll back the config. |
+| `getting_started/03_define_experiment.py` | Compose a reusable module into a template with a configurable scan. |
+| `getting_started/04_run_and_read_data.py` | Run an experiment and inspect `Run.data()`. |
+| `getting_started/05_manual_analysis.py` | Save one-off notebook analysis and candidate evidence. |
+| `getting_started/06_promote_analysis_step.py` | Promote repeated analysis with `@sc.analysis_step`. |
+| `getting_started/07_rerun_candidate_config.py` | Run a follow-up experiment with a candidate config. |
 | `authoring/01_template_and_scratch.py` | Compare reusable `@sc.template` and caller-configured `@sc.scratch`. |
 | `authoring/02_instrument_composition.py` | Compose a scalar instrument with a programmable quantum scan. |
 | `authoring/03_point_bound_sequence.py` | Generate a composable `@q.fragment` after length and seed bind per scan point. |
@@ -142,7 +133,7 @@ objects.
 
 | Scale or boundary | Required capability | Minimal coverage |
 |---|---|---|
-| Scalar instrument workflow | Module, template, scan, analysis, candidate config | `getting_started/02`–`06` |
+| Scalar instrument workflow | Module, template, scan, analysis, candidate config | `getting_started/03`–`07` |
 | Reusable versus one-off definition | `@sc.template` and `@sc.scratch` over the same semantics | `authoring/01_template_and_scratch.py` |
 | One qubit, generated sequence | Point-bound Python elaboration with length and seed scans | `authoring/03_point_bound_sequence.py` and `workflows/single_qubit_rb.py` |
 | Repeated multi-qubit acquisition | Recursive repeat and parallel result axes | `authoring/04_recursive_results.py` |

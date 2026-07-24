@@ -8,7 +8,10 @@ from typing import Annotated, Never
 
 import typer
 from rich.console import Console
+from scopecat.config.resolution import validate_config_profile
+from scopecat.kernel.errors import ScopecatError
 from scopecat.project import ProjectManifestError, open_project
+from scopecat.records.config import config_content_hash
 
 from .lifecycle import (
     DaemonLifecycleError,
@@ -25,6 +28,11 @@ app = typer.Typer(
     help="Manage one local Scopecat lab project.",
     no_args_is_help=True,
 )
+config_app = typer.Typer(
+    help="Inspect project configuration sources.",
+    no_args_is_help=True,
+)
+app.add_typer(config_app, name="config")
 console = Console()
 error_console = Console(stderr=True)
 
@@ -53,6 +61,41 @@ def init_command(
     except DaemonLifecycleError as error:
         _fail(error)
     console.print(f"[green]initialized[/green] {initialized.root}")
+
+
+@config_app.command("check")
+def config_check(
+    project: Annotated[
+        Path,
+        typer.Argument(help="Project directory or scopecat.toml."),
+    ] = _CURRENT_DIRECTORY,
+) -> None:
+    """Validate the application's lazy bootstrap configuration source."""
+
+    try:
+        selected = open_project(project)
+        bootstrap_config = selected.load_application().bootstrap_config
+        if bootstrap_config is None:
+            raise ValueError("project application does not define bootstrap_config")
+        result = validate_config_profile(bootstrap_config())
+    except (
+        ScopecatError,
+        ProjectManifestError,
+        ImportError,
+        AttributeError,
+        OSError,
+        RuntimeError,
+        TypeError,
+        ValueError,
+    ) as error:
+        _fail(error)
+
+    console.print(
+        f"[green]valid[/green] snapshot={result.config.id} "
+        f"content_hash={config_content_hash(result.config)} "
+        f"warnings={len(result.problems)}",
+        soft_wrap=True,
+    )
 
 
 @app.command()

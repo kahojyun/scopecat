@@ -22,17 +22,10 @@ from scopecat.project import (
 )
 
 
-def test_project_paths_are_resolved_from_manifest(tmp_path: Path) -> None:
-    config = tmp_path / "config" / "initial.json"
-    config.parent.mkdir()
-    config.write_text("{}", encoding="utf-8")
+def test_project_application_is_resolved_from_manifest(tmp_path: Path) -> None:
     manifest = tmp_path / "scopecat.toml"
     manifest.write_text(
-        (
-            "[lab]\n"
-            'application = "my_lab.application:create"\n'
-            'bootstrap-config = "config/initial.json"\n'
-        ),
+        '[lab]\napplication = "my_lab.application:create"\n',
         encoding="utf-8",
     )
 
@@ -40,7 +33,6 @@ def test_project_paths_are_resolved_from_manifest(tmp_path: Path) -> None:
 
     assert project.root == tmp_path
     assert project.application_spec == "my_lab.application:create"
-    assert project.bootstrap_config == config
 
 
 def test_project_is_discovered_from_a_child_directory(tmp_path: Path) -> None:
@@ -122,9 +114,15 @@ def test_application_is_imported_from_project_src(
     (package / "application.py").write_text(
         (
             "from scopecat import LabApplication\n\n"
+            "def unavailable_bootstrap():\n"
+            "    raise RuntimeError('bootstrap input is unavailable')\n\n"
             "def create(_project):\n"
-            "    return LabApplication()\n"
+            "    return LabApplication(bootstrap_config=unavailable_bootstrap)\n"
         ),
+        encoding="utf-8",
+    )
+    (tmp_path / "scopecat.toml").write_text(
+        '[lab]\napplication = "project_application_fixture.application:create"\n',
         encoding="utf-8",
     )
     monkeypatch.setattr(sys, "path", sys.path.copy())
@@ -135,13 +133,19 @@ def test_application_is_imported_from_project_src(
     )
 
     assert isinstance(factory(tmp_path), LabApplication)
+    client = open_project(tmp_path).connect("http://daemon.local")
+    assert isinstance(client, LabClient)
+    client.close()
 
 
 @pytest.mark.parametrize(
     "content, message",
     [
         ("", r"requires a \[lab\] table"),
-        ("[lab]\nunknown = true\n", r"unknown \[lab\] field"),
+        (
+            '[lab]\nbootstrap-config = "config/initial.json"\n',
+            r"unknown \[lab\] field",
+        ),
         ("[lab]\napplication = ''\n", "must be a non-empty string"),
     ],
 )

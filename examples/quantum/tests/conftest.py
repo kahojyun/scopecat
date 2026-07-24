@@ -40,7 +40,6 @@ def demo_daemon(tmp_path_factory: pytest.TempPathFactory) -> Generator[DemoDaemo
     runtime = LocalDaemonRuntime(
         project.root,
         application_factory=quantum_lab_application,
-        bootstrap_config=project.bootstrap_config,
     )
     listener = socket.socket()
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

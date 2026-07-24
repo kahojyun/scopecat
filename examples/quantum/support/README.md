@@ -18,7 +18,8 @@ Inside `src/quantum_lab_demo/`:
   compiler.
 - `application.py`: the daemon-side `LabApplication` composition root.
 - `lab.py`: shared configuration, compiler, and experiment-system wiring.
-- `configuration.py`: paths to the demo-owned assets under `examples/quantum/config`.
+- `configuration.py`: combine schema-checked infrastructure with Python values.
+- `parameters.py`: compact Python source for initial scalar and table values.
 - `compiler.py`: the unified `QuantumLabCompiler` domain boundary.
 - `response_registry.py` and `trace.py`: fake-response selection and observable
   preparation evidence kept outside compiler policy.

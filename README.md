@@ -25,22 +25,27 @@ them.
 
 ## Start Here
 
-The quantum example is a complete local lab project. Its `scopecat.toml`,
-Python application, and bootstrap configuration are version controlled; one
-daemon owns its `.scopecat` state:
+The quantum example is a complete local lab project. Its `scopecat.toml` and
+Python application—including construction of its bootstrap snapshot—are
+version controlled; one daemon owns its `.scopecat` state:
 
 ```sh
+uv run scopecat config check examples/quantum
 uv run scopecat start examples/quantum
 uv run scopecat open examples/quantum
 ```
 
-`start` selects an available loopback port and records it inside the project,
-so the GUI and notebook client discover the same daemon without a fixed URL.
+`config check` validates the version-controlled bootstrap source without
+starting a daemon or creating project state. `start` selects an available
+loopback port and records it inside the project, so the GUI and notebook client
+discover the same daemon without a fixed URL. The GUI can browse immutable
+configuration history and turn scalar or table edits into a reviewed candidate;
+registration and activation remain separate actions.
 Run the notebook-style walkthrough in another terminal:
 
 ```sh
 uv run python examples/quantum/notebooks/getting_started/01_open_project.py
-uv run python examples/quantum/notebooks/getting_started/03_run_and_read_data.py
+uv run python examples/quantum/notebooks/getting_started/04_run_and_read_data.py
 ```
 
 The run appears live in the GUI and remains available to later notebooks.

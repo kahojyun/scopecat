@@ -6,10 +6,9 @@ from typing import Protocol
 
 import scopecat as sc
 from quantum_lab_demo import (
-    DEMO_CONFIG_PROFILE,
     EXAMPLE_ROOT,
     quantum_lab_application,
-    quantum_lab_config_profile,
+    quantum_lab_bootstrap_config,
 )
 from quantum_lab_demo.virtual_lab.provider import QuantumLabVirtualProvider
 from quantum_lab_demo.workflows.readout_frequency import readout_frequency_template
@@ -19,15 +18,17 @@ class _DemoDaemon(Protocol):
     url: str
 
 
-def test_demo_manifest_discovers_application_and_bootstrap_config() -> None:
+def test_demo_manifest_discovers_application_owned_bootstrap_config() -> None:
     project = sc.open_project(EXAMPLE_ROOT / "notebooks")
+    application = project.load_application()
 
     assert project.root == EXAMPLE_ROOT
     assert (
         project.application_spec
         == "quantum_lab_demo.application:quantum_lab_application"
     )
-    assert project.bootstrap_config == DEMO_CONFIG_PROFILE
+    assert application.bootstrap_config is not None
+    assert application.bootstrap_config() == quantum_lab_bootstrap_config()
 
 
 def test_demo_application_loads_selected_project_system(tmp_path: Path) -> None:
@@ -45,9 +46,10 @@ def test_demo_application_loads_selected_project_system(tmp_path: Path) -> None:
     application = quantum_lab_application(tmp_path)
 
     assert application.build_system is not None
-    provider = application.build_system(
-        quantum_lab_config_profile(config_dir / "config-profile.json")
-    ).provider
+    assert application.bootstrap_config is not None
+    bootstrap_config = application.bootstrap_config()
+    assert bootstrap_config == quantum_lab_bootstrap_config(config_dir)
+    provider = application.build_system(bootstrap_config).provider
     assert isinstance(provider, QuantumLabVirtualProvider)
     assert provider.profile.id == "selected-project-virtual-lab"
 

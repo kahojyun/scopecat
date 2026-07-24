@@ -5,8 +5,11 @@ import {
   getConfigRegistryEntry,
   importConfigProfile,
   parseConfigProfileJson,
+  previewConfigDraft,
+  registerConfigDraft,
   rollbackConfig,
 } from "./config-api";
+import type { ConfigDraftCommand, JsonObject } from "./config-types";
 
 const HASH_A = `sha256:${"a".repeat(64)}`;
 const HASH_B = `sha256:${"b".repeat(64)}`;
@@ -16,47 +19,29 @@ afterEach(() => {
 });
 
 describe("config registry reads", () => {
-  it("combines registry metadata with the active config projection", async () => {
-    const fetchMock = vi.fn((input: string | URL | Request) => {
-      const path = String(input);
-      if (path.endsWith("/active")) {
-        return Promise.resolve(
-          jsonResponse({
-            entry: registryEntry("config-b", HASH_B),
-            active_state: activeState(),
-            config: configProfile("profile-b"),
-          }),
-        );
-      }
-      return Promise.resolve(
+  it("polls registry metadata without loading the full active snapshot", async () => {
+    const fetchMock = vi.fn((_input: string | URL | Request) =>
+      Promise.resolve(
         jsonResponse({
+          schema_version: "scopecat.config_registry_view.v1",
           entries: [
             registryEntry("config-a", HASH_A),
             registryEntry("config-b", HASH_B),
           ],
           active_state: activeState(),
         }),
-      );
-    });
+      ),
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     const overview = await getConfigRegistry();
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock.mock.calls.map(([path]) => String(path)).sort()).toEqual([
-      "/api/v1/config-registry",
-      "/api/v1/config-registry/active",
-    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/v1/config-registry");
     expect(overview.active).toMatchObject({
       entryId: "config-b",
       contentHash: HASH_B,
       generation: 2,
-      snapshot: {
-        id: "profile-b",
-        parameterCount: 2,
-        instrumentCount: 1,
-        connectionCount: 1,
-      },
     });
     expect(overview.entries.map((entry) => entry.id)).toEqual([
       "config-b",
@@ -70,7 +55,11 @@ describe("config registry reads", () => {
       Promise.resolve(
         String(input).endsWith("/active")
           ? jsonResponse({ detail: "not found" }, 404)
-          : jsonResponse({ entries: [], active_state: null }),
+          : jsonResponse({
+              schema_version: "scopecat.config_registry_view.v1",
+              entries: [],
+              active_state: null,
+            }),
       ),
     );
     vi.stubGlobal("fetch", fetchMock);
@@ -86,6 +75,7 @@ describe("config registry reads", () => {
     const fetchMock = vi.fn((_input: string | URL | Request) =>
       Promise.resolve(
         jsonResponse({
+          schema_version: "scopecat.config_entry_view.v1",
           entry: registryEntry("config-a", HASH_A),
           config: configProfile("profile-a"),
         }),
@@ -99,11 +89,106 @@ describe("config registry reads", () => {
       "/api/v1/config-registry/entries/config%20a",
     );
     expect(detail.entry.id).toBe("config-a");
-    expect(detail.snapshot).toMatchObject({
+    expect(detail.summary).toEqual({
       id: "profile-a",
       labId: "lab",
       primaryEntityId: "q0",
-      parameterCount: 2,
+      parameterCount: 3,
+      instrumentCount: 1,
+      connectionCount: 1,
+    });
+    expect(detail.config.system.parameterCatalog.definitions).toMatchObject([
+      {
+        id: "drive.frequency",
+        valueType: {
+          shape: "scalar",
+          atom: { type: "quantity", unit: "GHz" },
+        },
+      },
+      {
+        id: "qubits",
+        valueType: {
+          shape: "table",
+          primaryKey: ["qubit"],
+        },
+      },
+      {
+        id: "sweep.offsets",
+        valueType: {
+          shape: "series",
+          itemType: { type: "float" },
+          minLength: 1,
+          maxLength: 4,
+        },
+      },
+    ]);
+    expect(detail.config.parameterSnapshot.values[1]).toMatchObject({
+      id: "qubits",
+      shape: "table",
+      rows: [
+        {
+          qubit: { id: "q0", kind: "logical_qubit" },
+          readout_frequency: { value: 6.5, unit: "GHz" },
+        },
+      ],
+    });
+    expect(detail.config.raw.schema_version).toBe(
+      "scopecat.config_profile_snapshot.v2",
+    );
+  });
+
+  it("rejects stale registry entry schemas instead of keeping compatibility", async () => {
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(
+        jsonResponse({
+          schema_version: "scopecat.config_registry_view.v1",
+          entries: [
+            {
+              ...registryEntry("config-a", HASH_A),
+              schema_version: "scopecat.config.registry_entry.v6",
+            },
+          ],
+          active_state: null,
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getConfigRegistry()).rejects.toThrow(
+      "config registry entry schema",
+    );
+  });
+
+  it("preserves typed parameter-edit provenance from registry v7", async () => {
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(
+        jsonResponse({
+          schema_version: "scopecat.config_registry_view.v1",
+          entries: [
+            {
+              ...registryEntry("manual-edit", HASH_A),
+              source: {
+                kind: "manual_parameter_updates",
+                base_entry_id: "config-a",
+                base_config_content_hash: HASH_B,
+                base_registry_generation: 3,
+              },
+            },
+          ],
+          active_state: null,
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const overview = await getConfigRegistry();
+
+    expect(overview.entries[0]?.source).toEqual({
+      kind: "manual_parameter_updates",
+      proposalIds: [],
+      baseEntryId: "config-a",
+      baseContentHash: HASH_B,
+      baseGeneration: 3,
     });
   });
 });
@@ -155,6 +240,338 @@ describe("config registry commands", () => {
   });
 });
 
+describe("typed config drafts", () => {
+  const draft: ConfigDraftCommand = {
+    baseEntryId: "config-a",
+    baseContentHash: HASH_A,
+    baseGeneration: 3,
+    candidateId: "config-a-edit",
+    updates: [
+      {
+        kind: "replace_parameter",
+        value: {
+          id: "drive.frequency",
+          shape: "scalar",
+          value: { value: 5.2, unit: "GHz" },
+          sourceLocation: {
+            uri: "calibration.xlsx",
+            sheet: "drive",
+            row: 2,
+            column: "B",
+            path: [],
+          },
+          metadata: { retained: true },
+        },
+      },
+      {
+        kind: "replace_parameter",
+        value: {
+          id: "sweep.offsets",
+          shape: "series",
+          items: [-0.2, 0, 0.2],
+          itemLocations: [
+            { uri: "old.csv", row: 1, path: [] },
+            { uri: "old.csv", row: 2, path: [] },
+            { uri: "old.csv", row: 3, path: [] },
+          ],
+          metadata: {},
+        },
+      },
+      {
+        kind: "replace_parameter",
+        value: {
+          id: "unkeyed",
+          shape: "table",
+          rows: [{ name: "q0", enabled: true }],
+          rowLocations: [{ uri: "old.csv", row: 4, path: [] }],
+          metadata: {},
+        },
+      },
+      {
+        kind: "update_parameter_rows",
+        parameterId: "qubits",
+        key: {
+          qubit: {
+            id: "q0",
+            kind: "logical_qubit",
+            metadata: { display: "Q0" },
+          },
+        },
+        values: {
+          readout_frequency: { value: 6.6, unit: "GHz" },
+        },
+      },
+      {
+        kind: "insert_parameter_rows",
+        parameterId: "qubits",
+        rows: [
+          {
+            qubit: {
+              id: "q1",
+              kind: "logical_qubit",
+              metadata: {},
+            },
+            readout_frequency: { value: 6.7, unit: "GHz" },
+          },
+        ],
+      },
+      {
+        kind: "delete_parameter_rows",
+        parameterId: "qubits",
+        key: {
+          qubit: {
+            id: "q2",
+            kind: "logical_qubit",
+            metadata: {},
+          },
+        },
+      },
+    ],
+  };
+
+  it("serializes typed operations and removes obsolete source locations", async () => {
+    const candidate = configProfile("config-a-edit");
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(
+        jsonResponse({
+          schema_version: "scopecat.config_draft_preview.v1",
+          valid: true,
+          base_entry: registryEntry("config-a", HASH_A),
+          base_generation: 3,
+          base_content_hash: HASH_A,
+          config: candidate,
+          result_content_hash: HASH_B,
+          deltas: [
+            {
+              parameter_id: "drive.frequency",
+              before: scalarValue(5),
+              after: scalarValue(5.2),
+            },
+          ],
+          problems: [
+            {
+              schema_version: "scopecat.problem.v1",
+              code: "config.note",
+              impact: "advisory",
+              category: "operation",
+              phase: "configuration",
+              message: "Review the calibrated frequency.",
+              location: {
+                kind: "model",
+                root: "parameter_snapshot",
+                path: ["values", "drive.frequency"],
+              },
+              related_locations: [],
+              details: { source: "preview" },
+              occurrence_id: null,
+            },
+          ],
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const preview = await previewConfigDraft(draft);
+
+    expect(preview).toMatchObject({
+      valid: true,
+      baseGeneration: 3,
+      baseContentHash: HASH_A,
+      resultContentHash: HASH_B,
+      config: { id: "config-a-edit" },
+      deltas: [{ parameterId: "drive.frequency" }],
+      problems: [
+        {
+          code: "config.note",
+          impact: "advisory",
+          location: {
+            root: "parameter_snapshot",
+            path: ["values", "drive.frequency"],
+          },
+        },
+      ],
+    });
+    expectRequest(
+      fetchMock,
+      0,
+      "/api/v1/config-registry/drafts/preview",
+      {
+        schema_version: "scopecat.config_draft_command.v1",
+        base_entry_id: "config-a",
+        base_content_hash: HASH_A,
+        base_generation: 3,
+        candidate_id: "config-a-edit",
+        updates: [
+          {
+            kind: "replace_parameter",
+            value: {
+              id: "drive.frequency",
+              shape: "scalar",
+              value: { value: 5.2, unit: "GHz" },
+              metadata: { retained: true },
+            },
+          },
+          {
+            kind: "replace_parameter",
+            value: {
+              id: "sweep.offsets",
+              shape: "series",
+              items: [-0.2, 0, 0.2],
+              metadata: {},
+            },
+          },
+          {
+            kind: "replace_parameter",
+            value: {
+              id: "unkeyed",
+              shape: "table",
+              rows: [{ name: "q0", enabled: true }],
+              metadata: {},
+            },
+          },
+          {
+            kind: "update_parameter_rows",
+            parameter_id: "qubits",
+            key: {
+              qubit: {
+                id: "q0",
+                kind: "logical_qubit",
+                metadata: { display: "Q0" },
+              },
+            },
+            values: {
+              readout_frequency: { value: 6.6, unit: "GHz" },
+            },
+          },
+          {
+            kind: "insert_parameter_rows",
+            parameter_id: "qubits",
+            rows: [
+              {
+                qubit: {
+                  id: "q1",
+                  kind: "logical_qubit",
+                  metadata: {},
+                },
+                readout_frequency: { value: 6.7, unit: "GHz" },
+              },
+            ],
+          },
+          {
+            kind: "delete_parameter_rows",
+            parameter_id: "qubits",
+            key: {
+              qubit: {
+                id: "q2",
+                kind: "logical_qubit",
+                metadata: {},
+              },
+            },
+          },
+        ],
+      },
+    );
+  });
+
+  it("keeps invalid previews problem-only and registers only an explicit draft", async () => {
+    const invalidResponse = {
+      schema_version: "scopecat.config_draft_preview.v1",
+      valid: false,
+      base_entry: registryEntry("config-a", HASH_A),
+      base_generation: 3,
+      base_content_hash: HASH_A,
+      config: null,
+      result_content_hash: null,
+      deltas: [],
+      problems: [
+        {
+          schema_version: "scopecat.problem.v1",
+          code: "config.invalid",
+          impact: "blocking",
+          category: "invalid_input",
+          phase: "configuration",
+          message: "The value is outside its accepted range.",
+          location: null,
+          related_locations: [],
+          details: {},
+          occurrence_id: null,
+        },
+      ],
+    };
+    const receipt = {
+      schema_version: "scopecat.config_draft_registration_receipt.v1",
+      entry: {
+        ...registryEntry("config-a-edit", HASH_B),
+        source: {
+          kind: "manual_parameter_updates",
+          base_entry_id: "config-a",
+          base_config_content_hash: HASH_A,
+          base_registry_generation: 3,
+        },
+      },
+      result_content_hash: HASH_B,
+      deltas: [
+        {
+          parameter_id: "drive.frequency",
+          before: scalarValue(5),
+          after: scalarValue(5.2),
+        },
+      ],
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(invalidResponse))
+      .mockResolvedValueOnce(jsonResponse(receipt, 201));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(previewConfigDraft(draft)).resolves.toMatchObject({
+      valid: false,
+      config: undefined,
+      resultContentHash: undefined,
+      problems: [{ code: "config.invalid", impact: "blocking" }],
+    });
+    const registered = await registerConfigDraft({
+      draft,
+      expectedResultContentHash: HASH_B,
+      entryId: "config-a-edit",
+      registeredBy: "Ada",
+      note: "calibrated",
+    });
+
+    expect(registered).toMatchObject({
+      entry: {
+        id: "config-a-edit",
+        source: {
+          kind: "manual_parameter_updates",
+          baseEntryId: "config-a",
+        },
+      },
+      resultContentHash: HASH_B,
+      deltas: [{ parameterId: "drive.frequency" }],
+    });
+    expectRequest(
+      fetchMock,
+      1,
+      "/api/v1/config-registry/drafts/register",
+      {
+        schema_version:
+          "scopecat.config_draft_registration_command.v1",
+        draft: JSON.parse(
+          String(
+            (
+              fetchMock.mock.calls[0]?.[1] as RequestInit | undefined
+            )?.body,
+          ),
+        ),
+        expected_result_content_hash: HASH_B,
+        entry_id: "config-a-edit",
+        registered_by: "Ada",
+        note: "calibrated",
+      },
+    );
+  });
+});
+
 describe("config snapshot import boundary", () => {
   it("accepts only self-contained config snapshots at the upload boundary", () => {
     const config = configProfile("profile-a");
@@ -190,7 +607,7 @@ describe("config snapshot import boundary", () => {
 
 function registryEntry(id: string, contentHash: string) {
   return {
-    schema_version: "scopecat.config.registry_entry.v6",
+    schema_version: "scopecat.config.registry_entry.v7",
     id,
     config_ref: `entries/${id}.json`,
     content_hash: contentHash,
@@ -205,12 +622,14 @@ function registryEntry(id: string, contentHash: string) {
 
 function activeState() {
   return {
+    schema_version: "scopecat.config.registry_active_state.v2",
     generation: 2,
     active_entry_id: "config-b",
     active_entry_content_hash: HASH_B,
     updated_at: "2026-07-23T10:01:00Z",
     history: [
       {
+        schema_version: "scopecat.config.registry_activation_record.v2",
         id: "activation-1",
         generation: 1,
         action: "activation",
@@ -220,6 +639,7 @@ function activeState() {
         recorded_at: "2026-07-22T10:01:00Z",
       },
       {
+        schema_version: "scopecat.config.registry_activation_record.v2",
         id: "activation-2",
         generation: 2,
         action: "activation",
@@ -234,31 +654,147 @@ function activeState() {
   };
 }
 
-function configProfile(id: string): Record<string, unknown> {
+function scalarValue(value: number) {
+  return {
+    id: "drive.frequency",
+    shape: "scalar",
+    value: { value, unit: "GHz" },
+    source_location: null,
+    metadata: {},
+  };
+}
+
+function configProfile(id: string): JsonObject {
   return {
     schema_version: "scopecat.config_profile_snapshot.v2",
     id,
     system: {
+      schema_version: "scopecat.system_spec.v3",
       id: "system",
       workspace_id: "lab",
       primary_entity_id: "q0",
+      topology: {
+        entities: [
+          {
+            id: "q0",
+            kind: "logical_qubit",
+            metadata: {},
+          },
+        ],
+        devices: [],
+        links: [],
+        lines: [],
+        channels: [],
+        groups: [],
+      },
       instrument_registry: {
         instruments: [{ id: "signal", kind: "signal_generator" }],
       },
+      routing: { bindings: [] },
+      domain_target: null,
+      parameter_catalog: {
+        schema_version: "scopecat.parameter_catalog.v4",
+        id: "parameters",
+        definitions: [
+          {
+            id: "drive.frequency",
+            value_type: {
+              shape: "scalar",
+              atom: { type: "quantity", unit: "GHz" },
+            },
+            description: "Drive frequency",
+            metadata: {},
+          },
+          {
+            id: "qubits",
+            value_type: {
+              shape: "table",
+              columns: [
+                {
+                  id: "qubit",
+                  value_type: {
+                    type: "entity",
+                    entity_kind: "logical_qubit",
+                  },
+                },
+                {
+                  id: "readout_frequency",
+                  value_type: { type: "quantity", unit: "GHz" },
+                },
+              ],
+              primary_key: ["qubit"],
+            },
+            description: "Qubit calibration",
+            metadata: {},
+          },
+          {
+            id: "sweep.offsets",
+            value_type: {
+              shape: "series",
+              item_type: { type: "float" },
+              min_length: 1,
+              max_length: 4,
+            },
+            description: "Sweep offsets",
+            metadata: {},
+          },
+        ],
+        metadata: {},
+      },
     },
     environment: {
+      schema_version: "scopecat.environment_spec.v1",
       id: "bench",
       workspace_id: "lab",
       connection_profile: {
-        connections: [{ id: "signal-usb", kind: "usb" }],
+        connections: [
+          {
+            id: "signal-usb",
+            instrument_id: "signal",
+            kind: "usb",
+            resource_hint: null,
+          },
+        ],
       },
     },
     parameter_snapshot: {
+      schema_version: "scopecat.parameter_snapshot.v2",
       id: "parameters",
       values: [
-        { id: "drive.frequency", shape: "scalar", value: 5.0 },
-        { id: "drive.power", shape: "scalar", value: -12 },
+        {
+          id: "drive.frequency",
+          shape: "scalar",
+          value: { value: 5.0, unit: "GHz" },
+          source_location: null,
+          metadata: {},
+        },
+        {
+          id: "qubits",
+          shape: "table",
+          rows: [
+            {
+              qubit: {
+                id: "q0",
+                kind: "logical_qubit",
+                metadata: {},
+              },
+              readout_frequency: { value: 6.5, unit: "GHz" },
+            },
+          ],
+          row_locations: [],
+          source_location: null,
+          metadata: {},
+        },
+        {
+          id: "sweep.offsets",
+          shape: "series",
+          items: [-0.1, 0, 0.1],
+          item_locations: [],
+          source_location: null,
+          metadata: {},
+        },
       ],
+      metadata: {},
     },
   };
 }

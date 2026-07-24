@@ -14,6 +14,7 @@ from scopecat.adapters.sqlite import (
     SQLiteRunRepository,
     bootstrap_execution_schema,
 )
+from scopecat.application.lab import BootstrapConfigFactory
 from scopecat.config.registry import list_config_registry_entries
 from scopecat.config.resolution import (
     ConfigProfileInput,
@@ -58,6 +59,7 @@ class LocalDaemonRuntime:
             ) from error
         database = self.state_dir / "control.sqlite3"
         objects = self.state_dir / "objects"
+        application_bootstrap: BootstrapConfigFactory | None = None
 
         try:
             if application_factory is not None:
@@ -69,6 +71,7 @@ class LocalDaemonRuntime:
                 application = application_factory(self.project_root)
                 catalog = application.catalog
                 build_system = application.build_system
+                application_bootstrap = application.bootstrap_config
 
             self.control = SQLiteControlPlane(database)
             self.runs = SQLiteRunRepository(database, objects)
@@ -94,8 +97,13 @@ class LocalDaemonRuntime:
                 lease_ttl=lease_ttl,
             )
             try:
-                if bootstrap_config is not None:
-                    _bootstrap_config_registry(backend, bootstrap_config)
+                bootstrap_source = (
+                    bootstrap_config
+                    if bootstrap_config is not None
+                    else application_bootstrap
+                )
+                if bootstrap_source is not None:
+                    _bootstrap_config_registry(backend, bootstrap_source)
             except BaseException:
                 backend.close()
                 raise
@@ -128,11 +136,13 @@ class LocalDaemonRuntime:
 
 def _bootstrap_config_registry(
     backend: SQLiteDaemonBackend,
-    config: ConfigProfileInput,
+    config: ConfigProfileInput | BootstrapConfigFactory,
 ) -> None:
     if list_config_registry_entries(unit_of_work=backend.config_registry.unit_of_work):
         return
-    validated = validate_config_profile(config).config
+    # Resolve application-owned inputs only for a genuinely empty registry.
+    selected = config() if callable(config) else config
+    validated = validate_config_profile(selected).config
     digest = config_content_hash(validated).removeprefix("sha256:")
     register_and_activate_config_profile(
         config=validated,

@@ -141,7 +141,6 @@ def serve_project(
         runtime = LocalDaemonRuntime(
             project.root,
             application_factory=application_factory,
-            bootstrap_config=project.bootstrap_config,
         )
         record = DaemonEndpointRecord(
             project_root=project.root,

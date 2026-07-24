@@ -5,9 +5,9 @@ from quantum_lab_demo.compiler import QuantumLabCompiler, QuantumRealtimeLabComp
 from quantum_lab_demo.configuration import (
     DAEMON_URL_ENV,
     DEMO_CONFIG_DIR,
-    DEMO_CONFIG_PROFILE,
     DEMO_VIRTUAL_LAB_PROFILE,
     EXAMPLE_ROOT,
+    quantum_lab_bootstrap_config,
 )
 from quantum_lab_demo.lab import (
     quantum_lab_compiler,
@@ -24,7 +24,6 @@ from quantum_lab_demo.trace import (
 __all__ = [
     "DAEMON_URL_ENV",
     "DEMO_CONFIG_DIR",
-    "DEMO_CONFIG_PROFILE",
     "DEMO_VIRTUAL_LAB_PROFILE",
     "EXAMPLE_ROOT",
     "QuantumLabCompiler",
@@ -34,6 +33,7 @@ __all__ = [
     "QuantumRealtimeLabCompiler",
     "__version__",
     "quantum_lab_application",
+    "quantum_lab_bootstrap_config",
     "quantum_lab_compiler",
     "quantum_lab_config_profile",
     "quantum_lab_system",

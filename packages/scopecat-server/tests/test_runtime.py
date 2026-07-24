@@ -7,6 +7,7 @@ from typing import Never
 
 import pytest
 from fastapi.testclient import TestClient
+from scopecat.application import LabApplication
 from scopecat.authoring import ExperimentBody, experiment, template
 from scopecat.config.changes import parameter_change_proposal_from_updates
 from scopecat.config.parameters import replace_scalar_parameter
@@ -19,6 +20,7 @@ from scopecat.daemon.catalog import (
 )
 from scopecat.daemon.views import (
     ActiveConfigView,
+    ConfigDraftPreview,
     ConfigRegistryView,
     ParameterProposalListView,
     RunConfigView,
@@ -34,6 +36,9 @@ from scopecat.daemon.wire import (
     CandidateConfigActivationCommand,
     CandidateConfigActivationReceipt,
     ConfigActivationReceipt,
+    ConfigDraftCommand,
+    ConfigDraftRegistrationCommand,
+    ConfigDraftRegistrationReceipt,
     ConfigEntryActivationCommand,
     ConfigImportReceipt,
     ConfigRollbackCommand,
@@ -49,17 +54,18 @@ from scopecat.daemon.wire import (
     ParameterProposalReviewCommand,
     ParameterProposalReviewReceipt,
     RegisteredExperimentDescriptor,
+    ReplaceConfigParameter,
     ResourceClaimDescriptor,
     RunAdmission,
     RunAttachmentCommand,
     TerminalRunCommitCommand,
 )
 from scopecat.planning.system import ExperimentSystem
-from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.measurement_recording import MeasurementDatasetAppend
-from scopecat.records.parameter import Quantity
+from scopecat.records.parameter import Quantity, ScalarParameterValue
 from scopecat.records.run import RunOutcome
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
@@ -164,18 +170,31 @@ def test_runtime_exclusively_owns_one_project(tmp_path: Path) -> None:
 def test_bootstrap_config_is_active_and_idempotent_across_restarts(
     tmp_path: Path,
 ) -> None:
-    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+    bootstrap_calls = 0
+
+    def bootstrap_config() -> ConfigProfileSnapshot:
+        nonlocal bootstrap_calls
+        bootstrap_calls += 1
+        if bootstrap_calls > 1:
+            raise AssertionError("an initialized registry must not resolve its seed")
+        return _config()
+
+    def factory(_root: Path) -> LabApplication:
+        return LabApplication(bootstrap_config=bootstrap_config)
+
+    with LocalDaemonRuntime(tmp_path, application_factory=factory) as runtime:
         first = load_active_config_registry_state(
             unit_of_work=runtime.config_registry.unit_of_work
         )
 
-    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as reopened:
+    with LocalDaemonRuntime(tmp_path, application_factory=factory) as reopened:
         second = load_active_config_registry_state(
             unit_of_work=reopened.config_registry.unit_of_work
         )
 
     assert first.active_entry_id.startswith("daemon-")
     assert second == first
+    assert bootstrap_calls == 1
 
 
 def test_bootstrap_config_does_not_replace_later_activation(
@@ -183,7 +202,11 @@ def test_bootstrap_config_does_not_replace_later_activation(
 ) -> None:
     bootstrap = _config()
     selected = bootstrap.model_copy(update={"id": "operator-selected"})
-    with LocalDaemonRuntime(tmp_path, bootstrap_config=bootstrap) as runtime:
+
+    def factory(_root: Path) -> LabApplication:
+        return LabApplication(bootstrap_config=lambda: bootstrap)
+
+    with LocalDaemonRuntime(tmp_path, application_factory=factory) as runtime:
         activation = register_and_activate_config_profile(
             config=selected,
             services=runtime.backend.services,
@@ -192,13 +215,35 @@ def test_bootstrap_config_does_not_replace_later_activation(
             operator="operator",
         )
 
-    with LocalDaemonRuntime(tmp_path, bootstrap_config=bootstrap) as reopened:
+    with LocalDaemonRuntime(tmp_path, application_factory=factory) as reopened:
         state = load_active_config_registry_state(
             unit_of_work=reopened.config_registry.unit_of_work
         )
 
     assert state.active_entry_id == "operator-selected"
     assert state == activation.active_state
+
+
+def test_explicit_runtime_bootstrap_overrides_application_seed(
+    tmp_path: Path,
+) -> None:
+    def unavailable_bootstrap() -> ConfigProfileSnapshot:
+        raise AssertionError("explicit test config must take precedence")
+
+    def factory(_root: Path) -> LabApplication:
+        return LabApplication(bootstrap_config=unavailable_bootstrap)
+
+    explicit = _config().model_copy(update={"id": "explicit-test-bootstrap"})
+    with LocalDaemonRuntime(
+        tmp_path,
+        application_factory=factory,
+        bootstrap_config=explicit,
+    ) as runtime:
+        state = load_active_config_registry_state(
+            unit_of_work=runtime.config_registry.unit_of_work
+        )
+
+    assert state.active_entry_content_hash == config_content_hash(explicit)
 
 
 def test_config_registry_http_workflow_persists_and_publishes_events(
@@ -330,6 +375,73 @@ def test_config_registry_http_workflow_persists_and_publishes_events(
         assert active.entry.id == "baseline"
         assert active.config == baseline
         assert events[-1].kind == "config_rolled_back"
+
+
+def test_config_draft_http_workflow_previews_registers_and_activates(
+    tmp_path: Path,
+) -> None:
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+        client = TestClient(runtime.app())
+        active = ActiveConfigView.model_validate(
+            client.get("/api/v1/config-registry/active").json()
+        )
+        draft = ConfigDraftCommand(
+            base_entry_id=active.entry.id,
+            base_content_hash=active.entry.content_hash,
+            base_generation=active.active_state.generation,
+            candidate_id="manual-tuning",
+            updates=(
+                ReplaceConfigParameter(
+                    value=ScalarParameterValue(
+                        id="drive_frequency",
+                        value=Quantity(value=5.1, unit="GHz"),
+                    )
+                ),
+            ),
+        )
+
+        preview_response = client.post(
+            "/api/v1/config-registry/drafts/preview",
+            json=draft.model_dump(mode="json"),
+        )
+        preview = ConfigDraftPreview.model_validate(preview_response.json())
+        assert preview.result_content_hash is not None
+        registration_response = client.post(
+            "/api/v1/config-registry/drafts/register",
+            json=ConfigDraftRegistrationCommand(
+                draft=draft,
+                expected_result_content_hash=preview.result_content_hash,
+                entry_id="manual-tuning",
+                registered_by="operator",
+            ).model_dump(mode="json"),
+        )
+        registration = ConfigDraftRegistrationReceipt.model_validate(
+            registration_response.json()
+        )
+        activation_response = client.post(
+            "/api/v1/config-registry/active",
+            json=ConfigEntryActivationCommand(
+                entry_id=registration.entry.id,
+                operator="operator",
+                expected_generation=active.active_state.generation,
+            ).model_dump(mode="json"),
+        )
+        activation = ConfigActivationReceipt.model_validate(activation_response.json())
+
+        assert preview_response.status_code == 200
+        assert preview.valid
+        assert registration_response.status_code == 201
+        assert registration.result_content_hash == preview.result_content_hash
+        assert activation.active_state.active_entry_id == "manual-tuning"
+        assert activation.active_state.generation == active.active_state.generation + 1
+
+    with LocalDaemonRuntime(tmp_path) as reopened:
+        active = reopened.backend.get_active_config()
+        parameter = active.config.parameter_snapshot.get("drive_frequency")
+
+        assert active.entry.id == "manual-tuning"
+        assert isinstance(parameter, ScalarParameterValue)
+        assert parameter.value == Quantity(value=5.1, unit="GHz")
 
 
 def test_delegated_admission_is_durably_idempotent(tmp_path: Path) -> None:

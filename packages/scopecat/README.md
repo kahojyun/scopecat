@@ -2,8 +2,8 @@
 
 Scopecat is a local-first, domain-neutral experiment authoring, planning,
 execution, and measurement package. A user project owns its Python code,
-`scopecat.toml`, and bootstrap configuration; the resident daemon owns accepted
-configuration and run records.
+`scopecat.toml`, and Python-constructed bootstrap configuration; the resident
+daemon owns accepted configuration and run records.
 
 Open the project and connect its high-level notebook client:
 
@@ -17,13 +17,13 @@ with project.connect() as lab:
 ```
 
 Project discovery loads the same version-controlled `LabApplication` used by
-the daemon. The application supplies a catalog and a config-aware system
-builder; planning always passes it the accepted config snapshot selected for
-that run.
+the daemon. The application supplies an optional bootstrap factory, a catalog,
+and a config-aware system builder; planning always passes it the accepted
+config snapshot selected for that run.
 
-A new project may seed its registry through `scopecat.toml`. Later imports,
-activations, analysis, proposal review, and run data all go through the daemon
-and survive notebook and daemon restarts.
+The Python application may provide the initial immutable snapshot when the
+registry is empty. Later imports, activations, analysis, proposal review, and
+run data all go through the daemon and survive notebook and daemon restarts.
 
 Transient scratch code can stay in the notebook when a closure or interactive
 object cannot be reconstructed reliably in the daemon:

@@ -33,11 +33,18 @@ import {
   parseConfigProfileJson,
   rollbackConfig,
 } from "./config-api";
+import {
+  ConfigDraftEditor,
+  type ConfigDraftSeed,
+} from "./ConfigDraftEditor";
+import { ConfigParameters } from "./ConfigParameters";
 import type {
   ConfigActivationRecord,
+  ConfigProfileSnapshot,
   ConfigRegistryEntry,
   ConfigRegistryOverview,
   ConfigSnapshotSummary,
+  JsonObject,
 } from "./config-types";
 
 type ConfigMutation =
@@ -48,7 +55,7 @@ type ConfigMutation =
 interface ImportDraft {
   fileName: string;
   entryId: string;
-  config: Record<string, unknown>;
+  config: JsonObject;
 }
 
 export function ConfigWorkspace({
@@ -64,6 +71,7 @@ export function ConfigWorkspace({
   const [note, setNote] = useState("");
   const [importDraft, setImportDraft] = useState<ImportDraft>();
   const [importError, setImportError] = useState<string>();
+  const [configDraft, setConfigDraft] = useState<ConfigDraftSeed>();
 
   const registryQuery = useQuery({
     queryKey: ["config", "registry"],
@@ -134,12 +142,30 @@ export function ConfigWorkspace({
   const selectedEntry = overview?.entries.find(
     (entry) => entry.id === selectedId,
   );
+  const activeEntry = overview?.entries.find(
+    (entry) => entry.id === overview.active?.entryId,
+  );
   const entryDetailQuery = useQuery({
-    queryKey: ["config", "entry", selectedEntry?.id],
+    queryKey: [
+      "config",
+      "entry",
+      selectedEntry?.id,
+      selectedEntry?.contentHash,
+    ],
     queryFn: ({ signal }) => getConfigRegistryEntry(selectedEntry!.id, signal),
-    enabled:
-      selectedEntry !== undefined &&
-      selectedEntry.id !== overview?.active?.entryId,
+    enabled: selectedEntry !== undefined,
+    staleTime: Infinity,
+  });
+  const activeDetailQuery = useQuery({
+    queryKey: [
+      "config",
+      "entry",
+      activeEntry?.id,
+      activeEntry?.contentHash,
+    ],
+    queryFn: ({ signal }) => getConfigRegistryEntry(activeEntry!.id, signal),
+    enabled: activeEntry !== undefined,
+    staleTime: Infinity,
   });
   const commandDisabled =
     mutation.isPending || !operator.trim();
@@ -227,8 +253,8 @@ export function ConfigWorkspace({
           <p className="eyebrow">Configuration registry</p>
           <h2 id="config-heading">Lab configuration</h2>
           <p>
-            Review immutable snapshots and make one generation-checked change at
-            a time.
+            Browse typed parameter snapshots, compare entries, and make one
+            generation-checked change at a time.
           </p>
         </div>
         <div className="config-toolbar-actions">
@@ -249,14 +275,25 @@ export function ConfigWorkspace({
             accept=".json,application/json"
             onChange={(event) => void readImport(event)}
           />
-          <button
-            className="primary-button"
-            type="button"
-            onClick={() => fileInput.current?.click()}
-          >
-            <FileUp size={15} aria-hidden="true" />
-            Import snapshot
-          </button>
+          <details className="config-advanced-menu">
+            <summary>
+              <SlidersHorizontal size={15} aria-hidden="true" />
+              Advanced
+            </summary>
+            <div>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => fileInput.current?.click()}
+              >
+                <FileUp size={15} aria-hidden="true" />
+                Import raw snapshot
+              </button>
+              <small>
+                Direct JSON import bypasses the typed parameter workspace.
+              </small>
+            </div>
+          </details>
         </div>
       </header>
 
@@ -324,7 +361,7 @@ export function ConfigWorkspace({
             {overview.entries.length === 0 ? (
               <ConfigInlineEmpty
                 title="Registry is empty"
-                detail="Import a validated config snapshot to create the first entry."
+                detail="Bootstrap the project configuration, or use Advanced to import a complete snapshot."
               />
             ) : filteredEntries.length === 0 ? (
               <ConfigInlineEmpty
@@ -350,11 +387,9 @@ export function ConfigWorkspace({
             <EntryInspector
               entry={selectedEntry}
               active={overview.active?.entryId === selectedEntry.id}
-              snapshot={
-                overview.active?.entryId === selectedEntry.id
-                  ? overview.active.snapshot
-                  : entryDetailQuery.data?.snapshot
-              }
+              snapshot={entryDetailQuery.data?.summary}
+              config={entryDetailQuery.data?.config}
+              activeConfig={activeDetailQuery.data?.config}
               snapshotPending={entryDetailQuery.isPending}
               snapshotError={entryDetailQuery.error}
               note={note}
@@ -370,6 +405,18 @@ export function ConfigWorkspace({
                   `Activate ${selectedEntry.id} as generation ${generation + 1}?`,
                 )
               }
+              onEdit={
+                overview.active &&
+                entryDetailQuery.data?.config &&
+                overview.active.entryId === selectedEntry.id
+                  ? () =>
+                      setConfigDraft({
+                        entry: selectedEntry,
+                        active: overview.active!,
+                        config: entryDetailQuery.data!.config,
+                      })
+                  : undefined
+              }
             />
           ) : (
             <ConfigBoundaryMessage
@@ -381,6 +428,23 @@ export function ConfigWorkspace({
           )}
         </section>
       </div>
+
+      {configDraft && (
+        <ConfigDraftEditor
+          seed={configDraft}
+          currentActive={overview.active}
+          operator={operator}
+          onCancel={() => setConfigDraft(undefined)}
+          onRegistered={async (receipt) => {
+            setConfigDraft(undefined);
+            await Promise.all([
+              queryClient.invalidateQueries({ queryKey: ["config"] }),
+              queryClient.invalidateQueries({ queryKey: ["events"] }),
+            ]);
+            setSelectedId(receipt.entry.id);
+          }}
+        />
+      )}
 
       <ActivationHistory history={overview.history} />
 
@@ -530,6 +594,8 @@ function EntryInspector({
   entry,
   active,
   snapshot,
+  config,
+  activeConfig,
   snapshotPending,
   snapshotError,
   note,
@@ -537,10 +603,13 @@ function EntryInspector({
   actionDisabled,
   onNoteChange,
   onActivate,
+  onEdit,
 }: {
   entry: ConfigRegistryEntry;
   active: boolean;
   snapshot?: ConfigSnapshotSummary;
+  config?: ConfigProfileSnapshot;
+  activeConfig?: ConfigProfileSnapshot;
   snapshotPending: boolean;
   snapshotError: Error | null;
   note: string;
@@ -548,8 +617,9 @@ function EntryInspector({
   actionDisabled: boolean;
   onNoteChange: (note: string) => void;
   onActivate: () => void;
+  onEdit?: () => void;
 }) {
-  const selectedSnapshot = entry.snapshot ?? snapshot;
+  const selectedSnapshot = snapshot;
   return (
     <>
       <header className="config-inspector-heading">
@@ -560,6 +630,16 @@ function EntryInspector({
           <h3>{entry.id}</h3>
           <code title={entry.contentHash}>{entry.contentHash}</code>
         </div>
+        {active && onEdit && (
+          <button
+            className="primary-button"
+            type="button"
+            onClick={onEdit}
+          >
+            <SlidersHorizontal size={15} />
+            Edit parameters
+          </button>
+        )}
         {!active && (
           <button
             className="primary-button"
@@ -610,8 +690,27 @@ function EntryInspector({
           </div>
         </div>
       )}
+      {entry.source.kind === "manual_parameter_updates" && (
+        <div className="config-provenance">
+          <GitCompareArrows size={16} aria-hidden="true" />
+          <div>
+            <strong>Typed edit provenance</strong>
+            <p>
+              Derived from <code>{entry.source.baseEntryId}</code>
+              {entry.source.baseGeneration
+                ? ` at generation ${entry.source.baseGeneration}.`
+                : "."}
+            </p>
+          </div>
+        </div>
+      )}
       {selectedSnapshot ? (
-        <SnapshotSummary snapshot={selectedSnapshot} />
+        <>
+          <SnapshotSummary snapshot={selectedSnapshot} />
+          {config && (
+            <ConfigParameters config={config} activeConfig={activeConfig} />
+          )}
+        </>
       ) : snapshotPending ? (
         <ConfigInlineEmpty
           title="Reading snapshot"
@@ -758,7 +857,7 @@ function ImportDialog({
           </span>
           <div>
             <h3 id="import-config-title">Import config snapshot</h3>
-            <p>{draft.fileName}</p>
+            <p>Advanced raw import · {draft.fileName}</p>
           </div>
           <button
             className="icon-button"
@@ -808,7 +907,7 @@ function ImportDialog({
             ) : (
               <FileUp size={15} />
             )}
-            Import snapshot
+            Import raw snapshot
           </button>
         </footer>
       </section>
@@ -923,9 +1022,11 @@ function filterEntries(
 }
 
 function sourceLabel(entry: ConfigRegistryEntry): string {
-  return entry.source.kind === "candidate_config"
-    ? "Candidate config"
-    : "Direct profile";
+  if (entry.source.kind === "candidate_config") return "Candidate config";
+  if (entry.source.kind === "manual_parameter_updates") {
+    return "Typed parameter edit";
+  }
+  return "Direct profile";
 }
 
 function safeEntryId(value: string): string {

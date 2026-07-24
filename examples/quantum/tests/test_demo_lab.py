@@ -10,11 +10,12 @@ NOTEBOOKS_DIR = EXAMPLE_ROOT / "notebooks"
 
 NOTEBOOK_CASES = (
     ("getting_started/01_open_project.py", "summary"),
-    ("getting_started/02_define_experiment.py", "summary"),
-    ("getting_started/03_run_and_read_data.py", "summary"),
-    ("getting_started/04_manual_analysis.py", "summary"),
-    ("getting_started/05_promote_analysis_step.py", "summary"),
-    ("getting_started/06_rerun_candidate_config.py", "summary"),
+    ("getting_started/02_edit_config.py", "summary"),
+    ("getting_started/03_define_experiment.py", "summary"),
+    ("getting_started/04_run_and_read_data.py", "summary"),
+    ("getting_started/05_manual_analysis.py", "summary"),
+    ("getting_started/06_promote_analysis_step.py", "summary"),
+    ("getting_started/07_rerun_candidate_config.py", "summary"),
     ("authoring/01_template_and_scratch.py", "authoring_summary"),
     ("authoring/02_instrument_composition.py", "mixed_execution_results"),
     ("authoring/03_point_bound_sequence.py", "point_bound_summary"),

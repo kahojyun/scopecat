@@ -6,7 +6,6 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal, Self
 
-from scopecat.config.profiles import load_config_profile
 from scopecat.records.config import (
     Channel,
     ConfigProfileSnapshot,
@@ -21,7 +20,7 @@ from scopecat.records.config import (
 )
 from scopecat.records.entity import EntityRef
 
-from quantum_lab_demo.configuration import DEMO_CONFIG_PROFILE
+from quantum_lab_demo.configuration import quantum_lab_bootstrap_config
 from quantum_lab_demo.targets.configuration import (
     FAKE_LIST_TARGET_KIND,
     FAKE_REALTIME_TARGET_KIND,
@@ -223,7 +222,7 @@ def quantum_wiring_config_profile(
 ) -> ConfigProfileSnapshot:
     """Build one accepted wiring snapshot with an explicit target family."""
 
-    base = load_config_profile(DEMO_CONFIG_PROFILE)
+    base = quantum_lab_bootstrap_config()
     domain_target = base.system.domain_target
     if domain_target is None:
         raise ValueError("quantum demo configuration requires a domain target")

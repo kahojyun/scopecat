@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 type LabApplicationFactory = Callable[[Path], LabApplication]
 
 _MANIFEST_NAME = "scopecat.toml"
-_LAB_KEYS = frozenset({"application", "bootstrap-config"})
+_LAB_KEYS = frozenset({"application"})
 
 
 class ProjectManifestError(ValueError):
@@ -34,7 +34,6 @@ class Project:
     root: Path
     manifest: Path
     application_spec: str | None
-    bootstrap_config: Path | None
 
     def load_application(self) -> LabApplication:
         """Load the version-controlled composition declared by this project."""
@@ -100,21 +99,10 @@ def load_project(manifest: str | Path) -> Project:
         raise ProjectManifestError(f"unknown [lab] field(s): {fields}")
 
     application = _optional_text(lab, "application")
-    bootstrap_value = _optional_text(lab, "bootstrap-config")
-    bootstrap_config = (
-        None
-        if bootstrap_value is None
-        else (selected.parent / bootstrap_value).resolve()
-    )
-    if bootstrap_config is not None and not bootstrap_config.is_file():
-        raise ProjectManifestError(
-            f"bootstrap config does not exist: {bootstrap_config}"
-        )
     return Project(
         root=selected.parent,
         manifest=selected,
         application_spec=application,
-        bootstrap_config=bootstrap_config,
     )
 
 
