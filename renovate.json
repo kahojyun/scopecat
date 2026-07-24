@@ -31,7 +31,7 @@
     {
       "description": "Require approval for breaking updates except 0.x patch updates",
       "matchJsonata": [
-        "isBreaking = true and (updateType != 'patch' or major != 0)"
+        "isBreaking = true and (updateType != 'patch' or newMajor != 0)"
       ],
       "dependencyDashboardApproval": true
     }
