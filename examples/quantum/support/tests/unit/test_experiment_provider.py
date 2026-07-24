@@ -25,7 +25,7 @@ from quantum_lab_demo.workflows.single_qubit_rb import (
     single_qubit_rb_template,
 )
 
-from .demo_lab_experiment_testkit import embedded_quantum_lab
+from .demo_lab_experiment_testkit import in_process_quantum_lab
 from .demo_lab_test_paths import (
     EXPERIMENT_FIXTURE_DIR,
     EXPERIMENT_VIRTUAL_LAB_PROFILE,
@@ -112,8 +112,8 @@ def test_qnd_array_record_runs_provider_python_api(tmp_path: Path) -> None:
 
 
 def _lab(tmp_path: Path):
-    return embedded_quantum_lab(
-        workspace=tmp_path,
+    return in_process_quantum_lab(
+        project_root=tmp_path,
         config_profile=load_config(),
         virtual_lab_profile=EXPERIMENT_VIRTUAL_LAB_PROFILE,
     )

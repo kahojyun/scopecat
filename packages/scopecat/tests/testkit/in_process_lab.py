@@ -11,7 +11,7 @@ from scopecat.api.run import (
     RunOperations,
     run_handle_id,
 )
-from scopecat.application.services import WorkspaceServices
+from scopecat.application.services import ProjectServices
 from scopecat.authoring._value_refs import ValueRef
 from scopecat.authoring.scans import Scan, ScanCenter, ScanValue
 from scopecat.authoring.templates import ExperimentInvocation, ExperimentTemplate
@@ -107,7 +107,7 @@ class InProcessPreparedExperiment:
 class InProcessLab:
     """Test-only composition; product workflows must use ``LabClient``."""
 
-    services: WorkspaceServices
+    services: ProjectServices
     config: str | ConfigProfileSnapshot = "active"
     config_profile: ConfigProfileInput | None = None
     system: ExperimentSystem | None = None
@@ -185,16 +185,16 @@ class InProcessLab:
 
 
 def in_process_lab(
-    workspace: str | Path,
+    project_root: str | Path,
     *,
     config: str | ConfigProfileSnapshot = "active",
     config_profile: ConfigProfileInput | None = None,
     system: ExperimentSystem | None = None,
 ) -> InProcessLab:
-    from scopecat.composition.embedded import embedded_workspace_services
+    from scopecat.testing import sqlite_project_services
 
     return InProcessLab(
-        services=embedded_workspace_services(workspace),
+        services=sqlite_project_services(project_root),
         config=config,
         config_profile=config_profile,
         system=system,

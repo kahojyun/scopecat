@@ -29,7 +29,7 @@ class _Record(BaseModel):
 
 def _repository(root: Path) -> SQLiteRunRepository:
     repository = SQLiteRunRepository(
-        root / "workspace.sqlite3",
+        root / "control.sqlite3",
         root / "objects",
     )
     repository.bootstrap()
@@ -100,7 +100,7 @@ class TestSQLiteRunRepositoryContract(RunRepositoryContract):
 
 
 def test_control_plane_and_run_index_share_one_database(tmp_path: Path) -> None:
-    database = tmp_path / "workspace.sqlite3"
+    database = tmp_path / "control.sqlite3"
     control = SQLiteControlPlane(database)
     control.bootstrap()
     repository = SQLiteRunRepository(database, tmp_path / "objects")

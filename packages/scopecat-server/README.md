@@ -101,9 +101,8 @@ resolve the seed. Once an operator imports or activates another entry,
 restarting the daemon preserves that selection.
 
 Only one daemon can own a lab instance. A process-owner lock rejects a second
-daemon; there are no per-run filesystem locks or multi-writer repositories.
-SQLite transactions serialize durable changes inside the owner process, and
-delegated executors use renewable, generation-fenced leases.
+daemon. SQLite transactions serialize durable changes inside the owner process,
+and delegated executors use renewable, generation-fenced leases.
 
 The default server is intentionally local and same-user: it binds to loopback,
 checks trusted host names, and does not provide remote authentication. Lost

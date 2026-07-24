@@ -195,7 +195,7 @@ def test_durable_events_have_global_cursor_and_run_filter(tmp_path: Path) -> Non
                 occurred_at=NOW + timedelta(seconds=index),
             )
         )
-    workspace_event = store.append_event(
+    later_event = store.append_event(
         DurableEventInput(kind="config_activated", payload={"generation": 2})
     )
 
@@ -216,7 +216,7 @@ def test_durable_events_have_global_cursor_and_run_filter(tmp_path: Path) -> Non
         "measurement_chunk",
         "measurement_chunk",
     ]
-    assert workspace_event.event_id > events[-1].event_id
+    assert later_event.event_id > events[-1].event_id
     latest = store.list_events(run_id="run-1", limit=2, latest=True)
     assert [event.payload.get("index") for event in latest.items] == [2, 3]
     assert latest.next_cursor is None

@@ -1,4 +1,4 @@
-"""In-memory configuration registry and workspace unit of work."""
+"""In-memory configuration registry and project unit of work."""
 
 from __future__ import annotations
 
@@ -103,7 +103,7 @@ class MemoryConfigRegistryRepository:
         self._active_entry_id = record.entry_id
 
 
-class MemoryWorkspaceUnitOfWork:
+class MemoryConfigRegistryUnitOfWork:
     """Share one registry lock and one run repository across transactions."""
 
     def __init__(
@@ -115,14 +115,14 @@ class MemoryWorkspaceUnitOfWork:
     ) -> None:
         self.registry = registry
         self.runs = runs
-        self._workspace_lock = lock
+        self._lock = lock
         self._entered = False
 
     def __enter__(self) -> Self:
         if self._entered:
-            msg = "workspace unit of work cannot be entered twice"
+            msg = "config registry unit of work cannot be entered twice"
             raise RuntimeError(msg)
-        self._workspace_lock.acquire()
+        self._lock.acquire()
         self._entered = True
         return self
 
@@ -134,10 +134,10 @@ class MemoryWorkspaceUnitOfWork:
     ) -> None:
         del exc_type, exc_value, traceback
         if not self._entered:
-            msg = "workspace unit of work was not entered"
+            msg = "config registry unit of work was not entered"
             raise RuntimeError(msg)
         self._entered = False
-        self._workspace_lock.release()
+        self._lock.release()
 
 
 def _copy_model[

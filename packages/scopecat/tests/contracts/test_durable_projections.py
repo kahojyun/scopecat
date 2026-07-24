@@ -26,7 +26,7 @@ def _golden(name: str) -> dict[str, Any]:
     )
 
 
-def _canonical_request(workspace: Path) -> RunRequest:
+def _canonical_request(project_root: Path) -> RunRequest:
     """Project the canonical simple-scan request through the real pipeline."""
 
     compiled_invocation = compile_prepared_invocation(load_prepared_invocation())

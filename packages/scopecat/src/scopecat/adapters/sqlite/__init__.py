@@ -1,9 +1,9 @@
-"""SQLite adapters for daemon-owned workspace state."""
+"""SQLite adapters for daemon-owned project state."""
 
 from scopecat.adapters.sqlite.config_registry import (
     SQLiteConfigRegistryRepository,
     SQLiteConfigRegistryStore,
-    SQLiteWorkspaceUnitOfWork,
+    SQLiteConfigRegistryUnitOfWork,
 )
 from scopecat.adapters.sqlite.control_plane import (
     ControlPlaneConflict,
@@ -33,12 +33,12 @@ __all__ = [
     "SQLiteCollectionRecordRepository",
     "SQLiteConfigRegistryRepository",
     "SQLiteConfigRegistryStore",
+    "SQLiteConfigRegistryUnitOfWork",
     "SQLiteControlPlane",
     "SQLiteExecutionJournal",
     "SQLiteMeasurementDatasetRepository",
     "SQLitePayloadEvidenceCommitter",
     "SQLiteRunRepository",
-    "SQLiteWorkspaceUnitOfWork",
     "SchemaVersionError",
     "StoredObject",
     "bootstrap_execution_schema",

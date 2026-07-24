@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from uuid import uuid4
 
-from scopecat.application.services import WorkspaceStateServices
+from scopecat.application.services import ProjectStateServices
 from scopecat.config.parameter_resolution import validate_parameter_snapshot
 from scopecat.config.parameter_updates import (
     ParameterUpdate,
@@ -117,7 +117,7 @@ def parameter_change_proposal_from_updates(
 
 
 def load_parameter_change_proposal(
-    *, run_id: str, selector: str, services: WorkspaceStateServices
+    *, run_id: str, selector: str, services: ProjectStateServices
 ) -> ParameterChangeProposal:
     storage = services.runs
     proposal, _record = _resolve_proposal_ref(
@@ -131,7 +131,7 @@ def load_parameter_change_proposal(
 def list_parameter_change_proposals(
     *,
     run_id: str,
-    services: WorkspaceStateServices,
+    services: ProjectStateServices,
 ) -> tuple[ParameterChangeProposal, ...]:
     """Load every durable parameter proposal published by one run."""
 
@@ -150,7 +150,7 @@ def review_parameter_change_proposal(
     *,
     run_id: str,
     selector: str,
-    services: WorkspaceStateServices,
+    services: ProjectStateServices,
     state: ParameterChangeReviewState,
     reviewer: str,
     note: str = "",
@@ -171,7 +171,7 @@ def prepare_parameter_change_review(
     *,
     run_id: str,
     selector: str,
-    services: WorkspaceStateServices,
+    services: ProjectStateServices,
     state: ParameterChangeReviewState,
     reviewer: str,
     note: str = "",
@@ -190,7 +190,7 @@ def decide_parameter_change_proposal(
     *,
     run_id: str,
     selector: str,
-    services: WorkspaceStateServices,
+    services: ProjectStateServices,
     decision: ParameterChangeReviewState,
     authority: ParameterChangeDecisionAuthority,
     note: str = "",
@@ -213,7 +213,7 @@ def prepare_parameter_change_decision(
     *,
     run_id: str,
     selector: str,
-    services: WorkspaceStateServices,
+    services: ProjectStateServices,
     decision: ParameterChangeReviewState,
     authority: ParameterChangeDecisionAuthority,
     note: str = "",
@@ -234,7 +234,7 @@ def invalidate_parameter_change_proposal(
     *,
     run_id: str,
     selector: str,
-    services: WorkspaceStateServices,
+    services: ProjectStateServices,
     reason: str,
     invalidated_by: str,
     invalidated_by_refs: list[str] | None = None,
@@ -257,7 +257,7 @@ def _prepare_parameter_change_decision(
     *,
     run_id: str,
     selector: str,
-    services: WorkspaceStateServices,
+    services: ProjectStateServices,
     decision: ParameterChangeDecision,
     authority: ParameterChangeDecisionAuthority,
     note: str = "",

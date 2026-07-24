@@ -17,7 +17,6 @@ from scopecat.analysis.service import AnalysisOutput, prepare_analysis_artifact
 from scopecat.api._delegated import _DelegatedRunner
 from scopecat.api._remote import RemoteRunOperations
 from scopecat.api.lab import LabClient
-from scopecat.composition.embedded import embedded_workspace_services
 from scopecat.config.drafts import ConfigDraft
 from scopecat.config.parameters import (
     delete_parameter_rows,
@@ -102,6 +101,7 @@ from scopecat.records.run import (
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.service import PlannedRun, plan_experiment
 from scopecat.sdk.instruments.contracts import InstrumentProvider
+from scopecat.testing import sqlite_project_services
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.workflow_fixtures import (
     load_config,
@@ -1036,7 +1036,7 @@ def _planned(tmp_path: Path) -> PlannedRun:
     return plan_experiment(
         load_prepared_invocation(),
         config=load_config(),
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
         system=ExperimentSystem(provider=provider),
     )
 

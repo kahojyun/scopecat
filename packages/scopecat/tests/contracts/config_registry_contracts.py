@@ -1,4 +1,4 @@
-"""Reusable behavior for workspace configuration-registry units of work."""
+"""Reusable behavior for project configuration-registry units of work."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from scopecat.config.profiles import load_config_profile
-from scopecat.config.registry.ports import WorkspaceUnitOfWorkFactory
+from scopecat.config.registry.ports import ConfigRegistryUnitOfWorkFactory
 from scopecat.config.registry.service import (
     activate_config_registry_entry,
     current_config_registry_generation,
@@ -26,7 +26,7 @@ from tests.testkit.paths import CORE_FIXTURE_DIR
 class ConfigRegistryUnitOfWorkContract:
     """Registration, CAS activation, and reads shared by all UoWs."""
 
-    def make_unit_of_work(self, tmp_path: Path) -> WorkspaceUnitOfWorkFactory:
+    def make_unit_of_work(self, tmp_path: Path) -> ConfigRegistryUnitOfWorkFactory:
         raise NotImplementedError
 
     def test_registration_is_idempotent_and_round_trips(self, tmp_path: Path) -> None:

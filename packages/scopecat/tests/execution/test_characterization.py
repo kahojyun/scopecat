@@ -18,9 +18,6 @@ from scopecat.compiler.semantic.model import (
 from scopecat.compiler.semantic.operation_contract import (
     LOCAL_OPAQUE_OPERATION_CONTRACT,
 )
-from scopecat.composition.embedded import (
-    embedded_run_repository,
-)
 from scopecat.execution.effect_interpreter import RunEffectInterpreter
 from scopecat.execution.local.program import (
     ActionField,
@@ -70,6 +67,9 @@ from scopecat.sdk.instruments import (
     InstrumentReadback,
     InstrumentStateCommand,
     InstrumentStateSnapshot,
+)
+from scopecat.testing import (
+    sqlite_run_repository,
 )
 from tests.testkit.in_process_lab import in_process_lab
 from tests.testkit.instrument_drivers import SignalInstrumentDriver
@@ -147,7 +147,7 @@ class _SingleDriverProvider:
         return InstrumentProviderResult(drivers=(self.driver,))
 
 
-def test_workspace_run_schedules_parent_compute_before_child_consumer(
+def test_project_run_schedules_parent_compute_before_child_consumer(
     tmp_path: Path,
 ) -> None:
     calls: list[str] = []
@@ -230,7 +230,7 @@ def test_workspace_run_schedules_parent_compute_before_child_consumer(
     assert command_payload.evidence_ref is not None
     assert command_payload.evidence_ref.startswith("execution/payloads/")
     assert command_payload.content_hash
-    assert embedded_run_repository(tmp_path).exists(
+    assert sqlite_run_repository(tmp_path).exists(
         run.manifest.run_id,
         command_payload.evidence_ref,
     )

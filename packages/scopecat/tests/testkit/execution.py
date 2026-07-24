@@ -9,10 +9,6 @@ from pathlib import Path
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.linked import specialize_linked_program
 from scopecat.compiler.typed.program import CoreProgram
-from scopecat.composition.embedded import (
-    embedded_execution_services,
-    embedded_run_repository,
-)
 from scopecat.execution.interpreter import admit_run, execute_admitted_run
 from scopecat.execution.observation import RuntimeEventSink, RuntimePayloadObserver
 from scopecat.execution.ports.resources import ResourceLeaseManager
@@ -26,6 +22,10 @@ from scopecat.sdk.instruments.contracts import (
     InstrumentProviderContext,
     InstrumentProviderDescription,
     InstrumentProviderResult,
+)
+from scopecat.testing import (
+    sqlite_execution_services,
+    sqlite_run_repository,
 )
 from tests.testkit.typed_program import link_program
 
@@ -61,7 +61,7 @@ def execute_bound_run(
     config: ConfigProfileSnapshot,
     experiment: CoreProgram,
     instruments: Sequence[InstrumentDriver],
-    workspace: str | Path,
+    project_root: str | Path,
     event_sink: RuntimeEventSink | None = None,
     payload_observer: RuntimePayloadObserver | None = None,
     resource_leases: ResourceLeaseManager | None = None,
@@ -73,7 +73,7 @@ def execute_bound_run(
         config=config,
         experiment=experiment,
         instrument_provider=provider,
-        workspace=workspace,
+        project_root=project_root,
         event_sink=event_sink,
         payload_observer=payload_observer,
         resource_leases=resource_leases,
@@ -85,7 +85,7 @@ def execute_program_run(
     config: ConfigProfileSnapshot,
     experiment: CoreProgram,
     instrument_provider: InstrumentProvider,
-    workspace: str | Path,
+    project_root: str | Path,
     request: RunRequest | None = None,
     config_source: RunConfigSource | None = None,
     event_sink: RuntimeEventSink | None = None,
@@ -100,8 +100,8 @@ def execute_program_run(
         linked,
         config=config,
     )
-    repository = embedded_run_repository(workspace)
-    services = embedded_execution_services(workspace, runs=repository)
+    repository = sqlite_run_repository(project_root)
+    services = sqlite_execution_services(project_root, runs=repository)
     if resource_leases is not None:
         services = replace(services, resources=resource_leases)
     accepted = admit_run(

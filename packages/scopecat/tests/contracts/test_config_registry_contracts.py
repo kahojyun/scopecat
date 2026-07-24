@@ -3,9 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import override
 
-from scopecat.adapters.memory.workspace import MemoryWorkspaceStore
-from scopecat.composition.embedded import embedded_config_registry_unit_of_work
-from scopecat.config.registry.ports import WorkspaceUnitOfWorkFactory
+from scopecat.adapters.memory.project import MemoryProjectStore
+from scopecat.config.registry.ports import ConfigRegistryUnitOfWorkFactory
+from scopecat.testing import sqlite_config_registry_unit_of_work
 from tests.contracts.config_registry_contracts import (
     ConfigRegistryUnitOfWorkContract,
 )
@@ -13,12 +13,12 @@ from tests.contracts.config_registry_contracts import (
 
 class TestMemoryConfigRegistryUnitOfWorkContract(ConfigRegistryUnitOfWorkContract):
     @override
-    def make_unit_of_work(self, tmp_path: Path) -> WorkspaceUnitOfWorkFactory:
+    def make_unit_of_work(self, tmp_path: Path) -> ConfigRegistryUnitOfWorkFactory:
         del tmp_path
-        return MemoryWorkspaceStore().unit_of_work
+        return MemoryProjectStore().unit_of_work
 
 
-class TestLocalConfigRegistryUnitOfWorkContract(ConfigRegistryUnitOfWorkContract):
+class TestSQLiteConfigRegistryUnitOfWorkContract(ConfigRegistryUnitOfWorkContract):
     @override
-    def make_unit_of_work(self, tmp_path: Path) -> WorkspaceUnitOfWorkFactory:
-        return embedded_config_registry_unit_of_work(tmp_path)
+    def make_unit_of_work(self, tmp_path: Path) -> ConfigRegistryUnitOfWorkFactory:
+        return sqlite_config_registry_unit_of_work(tmp_path)

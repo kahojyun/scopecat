@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING, cast
 if TYPE_CHECKING:
     from scopecat.config.registry.ports import (
         ConfigRegistryRepository,
-        WorkspaceUnitOfWork,
-        WorkspaceUnitOfWorkFactory,
+        ConfigRegistryUnitOfWork,
+        ConfigRegistryUnitOfWorkFactory,
     )
     from scopecat.config.registry.records import (
         CandidateConfigRegistrySource,
@@ -56,8 +56,8 @@ _RECORD_EXPORTS = (
 )
 _PORT_EXPORTS = (
     "ConfigRegistryRepository",
-    "WorkspaceUnitOfWork",
-    "WorkspaceUnitOfWorkFactory",
+    "ConfigRegistryUnitOfWork",
+    "ConfigRegistryUnitOfWorkFactory",
 )
 _SERVICE_EXPORTS = (
     "ACTIVE_CONFIG_REGISTRY_ENTRY_SELECTOR",
@@ -110,11 +110,11 @@ __all__ = [
     "ConfigRegistryEntry",
     "ConfigRegistryEntrySource",
     "ConfigRegistryRepository",
+    "ConfigRegistryUnitOfWork",
+    "ConfigRegistryUnitOfWorkFactory",
     "DirectConfigRegistrySource",
     "ManualConfigDraftRegistrySource",
     "ManualConfigDraftResult",
-    "WorkspaceUnitOfWork",
-    "WorkspaceUnitOfWorkFactory",
     "activate_config_registry_entry",
     "current_config_registry_generation",
     "list_config_registry_entries",

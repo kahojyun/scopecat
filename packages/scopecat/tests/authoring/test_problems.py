@@ -12,7 +12,6 @@ from scopecat.compiler.frontend.resolution import (
     compile_prepared_invocation,
     resolve_prepared_invocation,
 )
-from scopecat.composition.embedded import embedded_workspace_services
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
     ProblemCategory,
@@ -22,6 +21,7 @@ from scopecat.kernel.problems import (
 )
 from scopecat.planning.authoring import resolve_experiment
 from scopecat.runs.service import check_experiment
+from scopecat.testing import sqlite_project_services
 from tests.testkit.authoring import load_config, simple_template, template_fixture
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
@@ -181,7 +181,7 @@ def test_check_experiment_resolves_template_invocation_with_config_profile(
     result = check_experiment(
         prepare_invocation(simple_template().bind(subject="q0")),
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
         config_profile=EXAMPLE_DIR / "config-profile.json",
     )
 
@@ -195,7 +195,7 @@ def test_check_experiment_resolves_template_invocation_with_config_snapshot(
     result = check_experiment(
         prepare_invocation(simple_template().bind(subject="q0")),
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
         config_profile=load_config(),
     )
 

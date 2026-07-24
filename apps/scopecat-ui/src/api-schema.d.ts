@@ -576,7 +576,7 @@ export interface ModelLocation {
   root: Root;
 }
 /**
- * A location in workspace storage or one durable run namespace.
+ * A location in project storage or one durable run namespace.
  */
 export interface StorageLocation {
   kind?: Kind7;

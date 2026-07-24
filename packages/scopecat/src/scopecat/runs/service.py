@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import cast
 
-from scopecat.application.services import WorkspaceServices, WorkspaceStateServices
+from scopecat.application.services import ProjectServices, ProjectStateServices
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.frontend.invocation import PreparedInvocation
 from scopecat.compiler.frontend.resolution import (
@@ -88,16 +88,16 @@ class PlannedRun:
     system: ExperimentSystem | None = field(default=None, repr=False, compare=False)
 
 
-def list_runs(*, services: WorkspaceStateServices) -> list[RunManifest]:
+def list_runs(*, services: ProjectStateServices) -> list[RunManifest]:
     return services.runs.list_runs()
 
 
-def load_run(*, run_id: str, services: WorkspaceStateServices) -> RunManifest:
+def load_run(*, run_id: str, services: ProjectStateServices) -> RunManifest:
     return services.runs.read_manifest(run_id)
 
 
 def load_run_config(
-    *, run_id: str, services: WorkspaceStateServices
+    *, run_id: str, services: ProjectStateServices
 ) -> ConfigProfileSnapshot:
     """Load only the accepted configuration snapshot for a run."""
 
@@ -113,7 +113,7 @@ def load_run_config(
 
 
 def load_run_request(
-    *, run_id: str, services: WorkspaceStateServices
+    *, run_id: str, services: ProjectStateServices
 ) -> RunRequest | None:
     """Load operator intent when the run originated from structured authoring."""
 
@@ -149,7 +149,7 @@ def _require_run_ref(
 
 
 def list_run_artifacts(
-    *, run_id: str, services: WorkspaceStateServices, kind: str | None = None
+    *, run_id: str, services: ProjectStateServices, kind: str | None = None
 ) -> tuple[RunContentEntry, ...]:
     storage = services.runs
     manifest = storage.read_manifest(run_id)
@@ -157,7 +157,7 @@ def list_run_artifacts(
 
 
 def list_run_payload_entries(
-    *, run_id: str, services: WorkspaceStateServices, kind: str | None = None
+    *, run_id: str, services: ProjectStateServices, kind: str | None = None
 ) -> tuple[RunContentEntry, ...]:
     storage = services.runs
     manifest = storage.read_manifest(run_id)
@@ -168,7 +168,7 @@ def read_run_artifact_text(
     *,
     run_id: str,
     selector: str,
-    services: WorkspaceStateServices,
+    services: ProjectStateServices,
     expected_kind: str | None = None,
 ) -> RunArtifactTextResult:
     storage = services.runs
@@ -204,7 +204,7 @@ def read_run_artifact_json(
     *,
     run_id: str,
     selector: str,
-    services: WorkspaceStateServices,
+    services: ProjectStateServices,
     expected_kind: str | None = None,
 ) -> RunArtifactJsonResult:
     storage = services.runs
@@ -227,7 +227,7 @@ def read_run_record_json(
     *,
     run_id: str,
     selector: str,
-    services: WorkspaceStateServices,
+    services: ProjectStateServices,
     expected_kind: str | None = None,
 ) -> RunRecordJsonResult:
     storage = services.runs
@@ -250,7 +250,7 @@ def read_run_artifact_bytes(
     *,
     run_id: str,
     selector: str,
-    services: WorkspaceStateServices,
+    services: ProjectStateServices,
     expected_kind: str | None = None,
 ) -> RunArtifactBytesResult:
     storage = services.runs
@@ -272,7 +272,7 @@ def read_run_artifact_bytes(
 def read_run_measurement_dataset(
     *,
     run_id: str,
-    services: WorkspaceStateServices,
+    services: ProjectStateServices,
     selector: str = "raw-measurements",
 ) -> RunMeasurementDatasetResult:
     storage = services.runs
@@ -298,7 +298,7 @@ def read_run_measurement_dataset(
 
 
 def read_run_data_table(
-    *, run_id: str, selector: str, services: WorkspaceStateServices
+    *, run_id: str, selector: str, services: ProjectStateServices
 ) -> RunDataTableResult:
     storage = services.runs
     dataset_entry = require_dataset(
@@ -317,7 +317,7 @@ def read_run_data_table(
 
 
 def read_run_data_array(
-    *, run_id: str, selector: str, services: WorkspaceStateServices
+    *, run_id: str, selector: str, services: ProjectStateServices
 ) -> RunDataArrayResult:
     storage = services.runs
     dataset_entry = require_dataset(
@@ -339,7 +339,7 @@ def start_run(
     *,
     config: ConfigProfileSnapshot,
     experiment: PreparedInvocation,
-    services: WorkspaceServices,
+    services: ProjectServices,
     system: ExperimentSystem | None = None,
     config_source: RunConfigSource | None = None,
     event_sink: RuntimeEventSink | None = None,
@@ -395,7 +395,7 @@ def _plan_compiled_run(
 def _execute_planned_run(
     planned: PlannedRun,
     *,
-    services: WorkspaceServices,
+    services: ProjectServices,
     event_sink: RuntimeEventSink | None,
     payload_observer: RuntimePayloadObserver | None,
 ) -> RunManifest:
@@ -420,7 +420,7 @@ def _execute_planned_run(
 def plan_experiment(
     experiment: PreparedInvocation,
     *,
-    services: WorkspaceStateServices,
+    services: ProjectStateServices,
     config: str | ConfigProfileSnapshot | CandidateConfig = "active",
     config_profile: ConfigProfileInput | None = None,
     system: ExperimentSystem | None = None,
@@ -448,7 +448,7 @@ def plan_scratch_experiment(
     system: ExperimentSystem,
     config_source: RunConfigSource | None = None,
 ) -> PlannedRun:
-    """Plan notebook code against an explicit snapshot without workspace I/O."""
+    """Plan notebook code against an explicit snapshot without project I/O."""
 
     return _plan_compiled_run(
         config=config,
@@ -461,7 +461,7 @@ def plan_scratch_experiment(
 def run_experiment(
     experiment: PreparedInvocation,
     *,
-    services: WorkspaceServices,
+    services: ProjectServices,
     config: str | ConfigProfileSnapshot | CandidateConfig = "active",
     config_profile: ConfigProfileInput | None = None,
     system: ExperimentSystem | None = None,
@@ -486,7 +486,7 @@ def run_experiment(
 def check_experiment(
     experiment: PreparedInvocation,
     *,
-    services: WorkspaceStateServices,
+    services: ProjectStateServices,
     config: str | ConfigProfileSnapshot | CandidateConfig = "active",
     config_profile: ConfigProfileInput | None = None,
     system: ExperimentSystem | None = None,
@@ -513,7 +513,7 @@ def check_experiment(
 def _check_compiled_experiment(
     experiment: CompiledInvocation,
     *,
-    services: WorkspaceStateServices,
+    services: ProjectStateServices,
     config: str | ConfigProfileSnapshot | CandidateConfig,
     config_profile: ConfigProfileInput | None,
     system: ExperimentSystem | None,

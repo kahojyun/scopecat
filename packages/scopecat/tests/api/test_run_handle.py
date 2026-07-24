@@ -72,7 +72,7 @@ def simple_frequency_scan_template() -> ExperimentTemplate:
     )(definition)
 
 
-def test_workspace_runs_experiment_spec(tmp_path: Path) -> None:
+def test_in_process_lab_runs_experiment_spec(tmp_path: Path) -> None:
     assert simple_frequency_scan_template().label == "Session test frequency scan"
     lab = in_process_lab(
         tmp_path,
@@ -86,7 +86,7 @@ def test_workspace_runs_experiment_spec(tmp_path: Path) -> None:
     assert preview.primary_observables == ("signal",)
 
 
-def test_workspace_closed_loop_uses_notebook_first_candidate_config(
+def test_in_process_lab_closed_loop_uses_notebook_first_candidate_config(
     tmp_path: Path,
 ) -> None:
     lab = in_process_lab(
@@ -128,7 +128,7 @@ def test_workspace_closed_loop_uses_notebook_first_candidate_config(
     assert source.proposal_ids == candidate_config.proposal_ids
 
 
-def test_workspace_run_can_observe_transient_runtime_events(tmp_path: Path) -> None:
+def test_in_process_run_can_observe_transient_runtime_events(tmp_path: Path) -> None:
     lab = in_process_lab(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
@@ -157,7 +157,7 @@ def test_workspace_run_can_observe_transient_runtime_events(tmp_path: Path) -> N
     )
 
 
-def test_workspace_provider_closed_loop_uses_candidate_config_shortcut(
+def test_in_process_provider_closed_loop_uses_candidate_config_shortcut(
     tmp_path: Path,
 ) -> None:
     lab = in_process_lab(

@@ -7,11 +7,6 @@ import pytest
 from pydantic import ValidationError
 
 import scopecat as sc
-from scopecat.composition.embedded import (
-    embedded_config_registry_unit_of_work,
-    embedded_run_repository,
-    embedded_workspace_services,
-)
 from scopecat.config.candidates import (
     CandidateConfig,
     resolve_candidate_config_from_snapshot,
@@ -27,6 +22,11 @@ from scopecat.config.resolution import register_and_activate_candidate_config
 from scopecat.kernel.errors import CheckFailed, Conflict, DataIntegrityError
 from scopecat.records.parameter import Quantity, ScalarParameterValue
 from scopecat.records.parameter_change import ParameterChangeProposal
+from scopecat.testing import (
+    sqlite_config_registry_unit_of_work,
+    sqlite_project_services,
+    sqlite_run_repository,
+)
 from tests.testkit.in_process_lab import InProcessLab, in_process_lab
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
@@ -107,7 +107,7 @@ def test_candidate_checks_and_run_leave_source_run_unchanged(
     analysis.save()
     candidate = analysis.candidate_config()
     prepared = lab.prepare(load_invocation(), config=candidate)
-    storage = embedded_run_repository(tmp_path)
+    storage = sqlite_run_repository(tmp_path)
     manifest_before = storage.read_manifest(source_run.id)
     refs_before = _run_ref_contents(tmp_path, source_run.id)
 
@@ -177,7 +177,7 @@ def test_candidate_config_rejects_overlapping_proposals(tmp_path: Path) -> None:
     with pytest.raises(CheckFailed) as error:
         resolve_candidate_config_snapshot(
             analysis.candidate_config(("fit-a", "fit-b")),
-            services=embedded_workspace_services(tmp_path),
+            services=sqlite_project_services(tmp_path),
         )
 
     assert error.value.problems[0].code == ("parameter_change_proposal_merge_invalid")
@@ -296,7 +296,7 @@ def test_candidate_config_rejects_drifted_source_snapshot_before_registration(
         .candidate_config()
     )
     stale_source = run.config.model_copy(update={"id": "changed-after-fit"})
-    embedded_run_repository(tmp_path).write_model(
+    sqlite_run_repository(tmp_path).write_model(
         run.id,
         "config-profile.snapshot.json",
         stale_source,
@@ -305,7 +305,7 @@ def test_candidate_config_rejects_drifted_source_snapshot_before_registration(
     with pytest.raises(DataIntegrityError) as error:
         register_and_activate_candidate_config(
             candidate=candidate,
-            services=embedded_workspace_services(tmp_path),
+            services=sqlite_project_services(tmp_path),
             registered_by="operator",
             operator="operator",
         )
@@ -313,7 +313,7 @@ def test_candidate_config_rejects_drifted_source_snapshot_before_registration(
     assert error.value.problems[0].code == "run.config_provenance_mismatch"
     assert (
         list_config_registry_entries(
-            unit_of_work=embedded_config_registry_unit_of_work(tmp_path)
+            unit_of_work=sqlite_config_registry_unit_of_work(tmp_path)
         )
         == []
     )
@@ -339,7 +339,7 @@ def test_parameter_change_proposal_round_trips_and_is_persisted(
     persisted = load_parameter_change_proposal(
         run_id=run.id,
         selector=proposal.id,
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
     )
 
     assert restored == proposal
@@ -422,9 +422,9 @@ def test_proposal_records_are_immutable_but_idempotent(tmp_path: Path) -> None:
     persisted = load_parameter_change_proposal(
         run_id=run.id,
         selector="drive-frequency",
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
     )
-    manifest = embedded_run_repository(tmp_path).read_manifest(run.id)
+    manifest = sqlite_run_repository(tmp_path).read_manifest(run.id)
     assert persisted == first_proposal
     assert persisted.proposed_at == first_proposal.proposed_at
     assert [
@@ -435,7 +435,7 @@ def test_proposal_records_are_immutable_but_idempotent(tmp_path: Path) -> None:
     decisions = list_parameter_change_decisions(
         run_id=run.id,
         selector=first_proposal.id,
-        storage=embedded_run_repository(tmp_path),
+        storage=sqlite_run_repository(tmp_path),
     )
     assert [event.decision for event in decisions] == [decision.decision]
     assert [event.event_id for event in decisions] == [decision.event_id]
@@ -449,8 +449,8 @@ def _lab(tmp_path: Path) -> InProcessLab:
     )
 
 
-def _run_ref_contents(workspace: Path, run_id: str) -> dict[str, str]:
-    repository = embedded_run_repository(workspace)
+def _run_ref_contents(project_root: Path, run_id: str) -> dict[str, str]:
+    repository = sqlite_run_repository(project_root)
     with sqlite3.connect(repository.database) as connection:
         return dict(
             connection.execute(

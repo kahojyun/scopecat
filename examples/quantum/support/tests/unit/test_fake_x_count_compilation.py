@@ -10,10 +10,6 @@ from typing import override
 import pytest
 import scopecat as sc
 from scopecat.compiler.linking.linked import LinkedPointMaterializer
-from scopecat.composition.embedded import (
-    embedded_execution_services,
-    embedded_workspace_services,
-)
 from scopecat.kernel.content_identity import content_fingerprint
 from scopecat.kernel.errors import RunIndeterminate
 from scopecat.kernel.problems import ProblemCategory, ProblemPhase, blocking_problem
@@ -22,6 +18,10 @@ from scopecat.sdk.domain.runtime import (
     DomainFetchCandidate,
     DomainFetchReceipt,
     DomainFetchRequest,
+)
+from scopecat.testing import (
+    sqlite_execution_services,
+    sqlite_project_services,
 )
 from scopecat_quantum import authoring as quantum
 
@@ -84,7 +84,7 @@ def test_resource_independent_domain_spans_bias_state_coverage(
     )
     run, source, _compiler = _run_mixed_experiment(tmp_path)
     records = run.data().measurements().dataset.records
-    journal = embedded_execution_services(tmp_path).journal_for(run.id).entries()
+    journal = sqlite_execution_services(tmp_path).journal_for(run.id).entries()
 
     assert run.manifest.status == "completed"
     assert len(records) == 8
@@ -149,10 +149,8 @@ def test_different_target_partitions_preserve_the_logical_dataset(
             )
         )
         lab = InProcessQuantumLab(
-            workspace=tmp_path / f"capacity-{max_list_entries}",
-            services=embedded_workspace_services(
-                tmp_path / f"capacity-{max_list_entries}"
-            ),
+            project_root=tmp_path / f"capacity-{max_list_entries}",
+            services=sqlite_project_services(tmp_path / f"capacity-{max_list_entries}"),
             config="active",
             config_profile=fake_x_count_bias_config(),
             system=sc.ExperimentSystem(
@@ -191,8 +189,8 @@ def test_later_batch_failure_has_one_domain_problem_and_partial_dataset(
         runtime=_SecondBatchUnknownRuntime(),
     )
     lab = InProcessQuantumLab(
-        workspace=tmp_path,
-        services=embedded_workspace_services(tmp_path),
+        project_root=tmp_path,
+        services=sqlite_project_services(tmp_path),
         config="active",
         config_profile=fake_x_count_bias_config(),
         system=sc.ExperimentSystem(
@@ -216,13 +214,13 @@ def test_later_batch_failure_has_one_domain_problem_and_partial_dataset(
 
 
 def _run_mixed_experiment(
-    workspace: Path,
+    project_root: Path,
 ) -> tuple[sc.RunHandle, FakeBiasVoltageProvider, QuantumLabCompiler]:
     source = FakeBiasVoltageProvider()
     compiler = quantum_lab_compiler()
     lab = InProcessQuantumLab(
-        workspace=workspace,
-        services=embedded_workspace_services(workspace),
+        project_root=project_root,
+        services=sqlite_project_services(project_root),
         config="active",
         config_profile=fake_x_count_bias_config(),
         system=sc.ExperimentSystem(

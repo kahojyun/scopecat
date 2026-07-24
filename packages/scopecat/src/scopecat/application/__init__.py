@@ -5,8 +5,6 @@ from __future__ import annotations
 from importlib import import_module
 from typing import TYPE_CHECKING, cast
 
-from scopecat.application.services import WorkspaceServices
-
 if TYPE_CHECKING:
     from scopecat.application.lab import LabApplication
 
@@ -27,4 +25,4 @@ def __dir__() -> list[str]:
     return sorted(set(globals()) | set(_EXPORTS))
 
 
-__all__ = ["LabApplication", "WorkspaceServices"]
+__all__ = ["LabApplication"]

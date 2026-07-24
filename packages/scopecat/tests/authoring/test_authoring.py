@@ -75,10 +75,6 @@ from scopecat.compiler.semantic.model import (
     ValueUse,
     operation_result_id,
 )
-from scopecat.composition.embedded import (
-    embedded_config_registry_unit_of_work,
-    embedded_workspace_services,
-)
 from scopecat.config.resolution import register_and_activate_config_profile
 from scopecat.execution.local.program import CollectOperation
 from scopecat.execution.points import RunPoint
@@ -103,6 +99,10 @@ from scopecat.records.parameter import (
 )
 from scopecat.records.run import ConfigRegistryRunConfigSource
 from scopecat.records.run_request import RunRequest
+from scopecat.testing import (
+    sqlite_config_registry_unit_of_work,
+    sqlite_project_services,
+)
 from tests.testkit.authoring import (
     DRIVE_FREQUENCY_POINT,
     SIMPLE_MODULE,
@@ -2168,7 +2168,7 @@ def test_resolve_experiment_uses_active_config_and_input_defaults(
 ) -> None:
     register_and_activate_config_profile(
         config=load_config(),
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
         entry_id="seed",
         registered_by="operator",
         operator="operator",
@@ -2177,7 +2177,7 @@ def test_resolve_experiment_uses_active_config_and_input_defaults(
 
     resolved = resolve_experiment(
         invocation,
-        config_registry=embedded_config_registry_unit_of_work(tmp_path),
+        config_registry=sqlite_config_registry_unit_of_work(tmp_path),
     )
 
     assert resolved.template_id == "test.simple_scan"

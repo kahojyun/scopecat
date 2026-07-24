@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 
-from scopecat.composition.embedded import embedded_workspace_services
 from scopecat.config.registry import DirectConfigRegistrySource
 from scopecat.config.resolution import (
     activate_config_entry,
@@ -18,6 +17,7 @@ from scopecat.config.resolution import (
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.records.run import ConfigRegistryRunConfigSource
+from scopecat.testing import sqlite_project_services
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 from tests.testkit.workflow_fixtures import load_config
 
@@ -26,7 +26,7 @@ def test_resolve_config_source_loads_file_or_active_registry(
     tmp_path: Path,
 ) -> None:
     file_source = resolve_config_source(
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
         config_profile=EXAMPLE_DIR / "config-profile.json",
     )
     assert file_source.config.id == "simple-scan-profile"
@@ -34,16 +34,16 @@ def test_resolve_config_source_loads_file_or_active_registry(
 
     registration = register_and_activate_config_profile(
         config=file_source.config,
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
         entry_id="active-seed",
         registered_by="operator",
         operator="operator",
     )
     entry = registration.entry
     active_source = resolve_config_source(
-        services=embedded_workspace_services(tmp_path), config_entry="active"
+        services=sqlite_project_services(tmp_path), config_entry="active"
     )
-    loaded_active = load_active_config(services=embedded_workspace_services(tmp_path))
+    loaded_active = load_active_config(services=sqlite_project_services(tmp_path))
 
     assert isinstance(
         active_source.config_source,
@@ -60,7 +60,7 @@ def test_resolve_config_source_loads_file_or_active_registry(
 def test_resolve_experiment_config_normalizes_snapshot_and_profile(
     tmp_path: Path,
 ) -> None:
-    services = embedded_workspace_services(tmp_path)
+    services = sqlite_project_services(tmp_path)
     snapshot = load_config()
 
     direct = resolve_experiment_config(services=services, config=snapshot)
@@ -112,14 +112,14 @@ def test_config_workflow_registers_direct_entry_idempotently(
     config = load_config()
     result = register_config_profile(
         config=config,
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
         entry_id="seed",
         registered_by="operator",
         note="seed config",
     )
     repeated = register_config_profile(
         config=load_config(),
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
         entry_id="seed",
         registered_by="operator",
         note="seed config",
@@ -127,7 +127,7 @@ def test_config_workflow_registers_direct_entry_idempotently(
 
     assert isinstance(result.source, DirectConfigRegistrySource)
     persisted_config = resolve_config_source(
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
         config_entry=result.id,
     )
     assert persisted_config.config.model_copy(update={"source": None}) == (
@@ -141,7 +141,7 @@ def test_config_workflow_register_activate_activate_and_rollback(
 ) -> None:
     first = register_and_activate_config_profile(
         config=load_config(),
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
         entry_id="seed-a",
         registered_by="operator",
         operator="operator",
@@ -149,7 +149,7 @@ def test_config_workflow_register_activate_activate_and_rollback(
     )
     second = register_and_activate_config_profile(
         config=load_config(),
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
         entry_id="seed-b",
         registered_by="operator",
         operator="operator",
@@ -158,12 +158,12 @@ def test_config_workflow_register_activate_activate_and_rollback(
     )
     reactivated = activate_config_entry(
         entry_id=first.entry.id,
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
         operator="operator",
         note="switch back to a",
     )
     rollback = rollback_config(
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
         operator="operator",
         expected_generation=reactivated.active_state.generation,
         note="restore b",
@@ -193,7 +193,7 @@ def test_resolve_config_source_rejects_invalid_source_selection(
 ) -> None:
     with pytest.raises(CheckFailed) as error:
         resolve_config_source(
-            services=embedded_workspace_services(tmp_path),
+            services=sqlite_project_services(tmp_path),
             config_profile=config_profile,
             config_entry=config_entry,
         )

@@ -9,7 +9,7 @@ from typing import NoReturn
 
 from pydantic import JsonValue
 
-from scopecat.application.services import WorkspaceStateServices
+from scopecat.application.services import ProjectStateServices
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
@@ -26,7 +26,7 @@ from scopecat.runs.repository import RunBytesWrite, RunContentPublication
 
 def attach_run_artifact(
     *,
-    services: WorkspaceStateServices,
+    services: ProjectStateServices,
     run_id: str,
     path: str | Path | None = None,
     key: str,

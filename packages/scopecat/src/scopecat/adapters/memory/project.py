@@ -1,4 +1,4 @@
-"""Workspace-scoped state for in-memory execution adapters."""
+"""Project-scoped state for in-memory execution adapters."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from threading import Lock, RLock
 
 from scopecat.adapters.memory.config_registry import (
     MemoryConfigRegistryRepository,
-    MemoryWorkspaceUnitOfWork,
+    MemoryConfigRegistryUnitOfWork,
 )
 from scopecat.adapters.memory.execution import (
     MemoryCollectionRepository,
@@ -48,8 +48,8 @@ class _MemoryCollectionRecordRepository:
         return self._repository.receipts
 
 
-class MemoryWorkspaceExecutionState:
-    """Own all execution state whose lifetime matches an in-memory workspace."""
+class MemoryProjectExecutionState:
+    """Own all execution state whose lifetime matches an in-memory project."""
 
     def __init__(self, runs: MemoryRunRepository) -> None:
         self._runs = runs
@@ -96,17 +96,17 @@ class MemoryWorkspaceExecutionState:
             return payloads
 
 
-class MemoryWorkspaceStore:
-    """Own every stateful adapter whose lifetime matches one workspace."""
+class MemoryProjectStore:
+    """Own every stateful adapter whose lifetime matches one project."""
 
     def __init__(self) -> None:
         self.runs = MemoryRunRepository()
         self.registry = MemoryConfigRegistryRepository()
-        self.execution = MemoryWorkspaceExecutionState(self.runs)
+        self.execution = MemoryProjectExecutionState(self.runs)
         self._lock = RLock()
 
-    def unit_of_work(self) -> MemoryWorkspaceUnitOfWork:
-        return MemoryWorkspaceUnitOfWork(
+    def unit_of_work(self) -> MemoryConfigRegistryUnitOfWork:
+        return MemoryConfigRegistryUnitOfWork(
             registry=self.registry,
             runs=self.runs,
             lock=self._lock,

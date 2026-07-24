@@ -30,7 +30,7 @@ from quantum_lab_demo.workflows.production_drag_gate import (
     production_x90_event_id,
 )
 
-from .demo_lab_experiment_testkit import embedded_quantum_lab
+from .demo_lab_experiment_testkit import in_process_quantum_lab
 
 
 def _entity_id(value: object) -> str:
@@ -65,8 +65,8 @@ def test_active_drag_beta_changes_program_and_compiler_segments(
     active_beta = Quantity(0.8, "ns")
     active_config = _with_q0_drag_beta(baseline_config, active_beta)
     compiler = quantum_lab_compiler()
-    lab = embedded_quantum_lab(
-        workspace=tmp_path,
+    lab = in_process_quantum_lab(
+        project_root=tmp_path,
         config_profile=baseline_config,
         compiler=compiler,
     )

@@ -4,18 +4,18 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Event
 
-from scopecat.adapters.memory import MemoryWorkspaceStore
-from scopecat.composition.memory import memory_workspace_services
+from scopecat.adapters.memory import MemoryProjectStore
 from scopecat.kernel.resource_identity import ResourceClaim
 from scopecat.planning.system import ExperimentSystem
 from scopecat.runs.service import start_run
+from scopecat.testing import memory_project_services
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.workflow_fixtures import load_config, load_prepared_invocation
 
 
 def test_recomposed_services_share_execution_state(tmp_path: Path) -> None:
-    store = MemoryWorkspaceStore()
-    initial = memory_workspace_services(store)
+    store = MemoryProjectStore()
+    initial = memory_project_services(store)
     manifest = start_run(
         config=load_config(),
         experiment=load_prepared_invocation(),
@@ -23,7 +23,7 @@ def test_recomposed_services_share_execution_state(tmp_path: Path) -> None:
         system=ExperimentSystem(provider=TestSignalInstrumentProvider()),
     )
 
-    recomposed = memory_workspace_services(store)
+    recomposed = memory_project_services(store)
     initial_execution = initial.execution
     recomposed_execution = recomposed.execution
 
@@ -47,9 +47,9 @@ def test_recomposed_services_share_execution_state(tmp_path: Path) -> None:
 
 
 def test_recomposed_services_share_resource_exclusion() -> None:
-    store = MemoryWorkspaceStore()
-    first = memory_workspace_services(store).execution.resources
-    second = memory_workspace_services(store).execution.resources
+    store = MemoryProjectStore()
+    first = memory_project_services(store).execution.resources
+    second = memory_project_services(store).execution.resources
     claim = ResourceClaim(id="shared")
     first_entered = Event()
     release_first = Event()

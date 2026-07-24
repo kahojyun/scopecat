@@ -17,7 +17,7 @@ from scopecat.adapters.sqlite import (
     bootstrap_execution_schema,
 )
 from scopecat.application.lab import BootstrapConfigFactory
-from scopecat.application.services import WorkspaceStateServices
+from scopecat.application.services import ProjectStateServices
 from scopecat.config.resolution import ConfigProfileInput, validate_config_profile
 from scopecat.daemon.catalog import RegisteredExperimentCatalog
 from scopecat.daemon.wire import DirectConfigDefaultCommand
@@ -99,7 +99,7 @@ class LocalDaemonRuntime:
                 runs=runs,
                 lease_ttl=lease_ttl,
             )
-            services = WorkspaceStateServices(
+            services = ProjectStateServices(
                 runs=runs,
                 config_registry=config_registry.unit_of_work,
             )

@@ -42,12 +42,12 @@ from quantum_lab_demo.workflows.drag_beta_experiment import (
     drag_beta_template,
 )
 
-from .demo_lab_experiment_testkit import embedded_quantum_lab
+from .demo_lab_experiment_testkit import in_process_quantum_lab
 
 
 def _golden_point(tmp_path: Path):
     compiler = quantum_lab_compiler()
-    lab = embedded_quantum_lab(workspace=tmp_path, compiler=compiler)
+    lab = in_process_quantum_lab(project_root=tmp_path, compiler=compiler)
     scan = sc.cartesian(
         sc.param_axis(
             BETA,

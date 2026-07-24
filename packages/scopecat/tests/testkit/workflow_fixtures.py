@@ -16,7 +16,6 @@ from scopecat.compiler.frontend.invocation import (
     prepare_invocation,
 )
 from scopecat.compiler.typed.program import CoreProgram
-from scopecat.composition.embedded import embedded_run_repository
 from scopecat.config.profiles import load_config_profile
 from scopecat.planning.authoring import resolve_experiment_with_config
 from scopecat.records.artifact import RunContentEntry
@@ -35,6 +34,7 @@ from scopecat.runs.access import (
     artifact_storage_ref,
     dataset_storage_ref,
 )
+from scopecat.testing import sqlite_run_repository
 from tests.testkit.authoring import (
     DRIVE_FREQUENCY_POINT,
     SIMPLE_MODULE,
@@ -120,8 +120,8 @@ def config_with_instrument_id(instrument_id: str) -> ConfigProfileSnapshot:
     return config.model_copy(update={"system": system, "environment": environment})
 
 
-def attach_typed_data_artifacts(workspace: Path, run_id: str) -> None:
-    storage = embedded_run_repository(workspace)
+def attach_typed_data_artifacts(project_root: Path, run_id: str) -> None:
+    storage = sqlite_run_repository(project_root)
     manifest = storage.read_manifest(run_id)
     metrics_schema = DataTableSchema(
         columns=[
@@ -194,8 +194,8 @@ def attach_typed_data_artifacts(workspace: Path, run_id: str) -> None:
     )
 
 
-def attach_binary_artifact(workspace: Path, run_id: str) -> None:
-    storage = embedded_run_repository(workspace)
+def attach_binary_artifact(project_root: Path, run_id: str) -> None:
+    storage = sqlite_run_repository(project_root)
     manifest = storage.read_manifest(run_id)
     binary = RunContentEntry(
         role="artifact",

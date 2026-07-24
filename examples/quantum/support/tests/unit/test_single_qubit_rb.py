@@ -11,7 +11,7 @@ from scopecat_quantum import authoring as q
 import quantum_lab_demo.workflows.single_qubit_rb as rb
 from quantum_lab_demo.lab import quantum_lab_compiler
 
-from .demo_lab_experiment_testkit import embedded_quantum_lab
+from .demo_lab_experiment_testkit import in_process_quantum_lab
 
 
 def test_seeded_clifford_fragment_appends_an_exact_inverse() -> None:
@@ -57,7 +57,7 @@ def test_single_qubit_rb_runs_as_one_domain_program_with_two_scan_axes(
     )
 
     run = (
-        embedded_quantum_lab(workspace=tmp_path, compiler=compiler)
+        in_process_quantum_lab(project_root=tmp_path, compiler=compiler)
         .prepare(invocation)
         .run()
     )

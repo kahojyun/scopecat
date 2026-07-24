@@ -3,10 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import scopecat as sc
-from scopecat.composition.embedded import (
-    embedded_config_registry_unit_of_work,
-    embedded_workspace_services,
-)
 from scopecat.config.profiles import load_config_profile
 from scopecat.config.registry import (
     CandidateConfigRegistrySource,
@@ -20,6 +16,10 @@ from scopecat.records.parameter import (
     ParameterDefinition,
     Quantity,
     TableParameterValue,
+)
+from scopecat.testing import (
+    sqlite_config_registry_unit_of_work,
+    sqlite_project_services,
 )
 from tests.testkit.in_process_lab import in_process_lab
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
@@ -71,7 +71,7 @@ def test_candidate_config_activation_materializes_table_row_updates(
 
     activation = register_and_activate_candidate_config(
         candidate=candidate,
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
         registered_by="operator",
         operator="operator",
         entry_id="candidate-table-update",
@@ -82,7 +82,7 @@ def test_candidate_config_activation_materializes_table_row_updates(
 
     candidate_config = load_config_registry_config(
         entry_id=entry.id,
-        unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+        unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
     )
     table = candidate_config.parameter_snapshot.get("drive_channels")
     assert isinstance(table, TableParameterValue)

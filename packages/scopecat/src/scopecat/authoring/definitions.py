@@ -268,7 +268,7 @@ class TemplateDefinition[**P](ExperimentTemplate):
 
 @dataclass(frozen=True, slots=True, repr=False)
 class ScratchDefinition[**P]:
-    """A workspace-neutral experiment factory evaluated for each call."""
+    """A project-neutral experiment factory evaluated for each call."""
 
     fn: Callable[P, ExperimentBody] = field(repr=False, compare=False)
     _signature: inspect.Signature = field(repr=False, compare=False)
@@ -455,7 +455,7 @@ def scratch[**P](
 ) -> (
     ScratchDefinition[P] | Callable[[Callable[P, ExperimentBody]], ScratchDefinition[P]]
 ):
-    """Define a workspace-neutral scratch experiment factory."""
+    """Define a project-neutral scratch experiment factory."""
 
     def decorate(fn: Callable[P, ExperimentBody]) -> ScratchDefinition[P]:
         return ScratchDefinition(

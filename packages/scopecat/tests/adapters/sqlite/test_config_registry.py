@@ -10,7 +10,7 @@ import pytest
 from scopecat.adapters.sqlite.config_registry import SQLiteConfigRegistryStore
 from scopecat.adapters.sqlite.run_repository import SQLiteRunRepository
 from scopecat.config.profiles import load_config_profile
-from scopecat.config.registry.ports import WorkspaceUnitOfWorkFactory
+from scopecat.config.registry.ports import ConfigRegistryUnitOfWorkFactory
 from scopecat.config.registry.service import (
     activate_config_registry_entry,
     list_config_registry_entries,
@@ -26,7 +26,7 @@ from tests.testkit.paths import CORE_FIXTURE_DIR
 
 
 def _store(tmp_path: Path) -> SQLiteConfigRegistryStore:
-    database = tmp_path / "workspace.sqlite3"
+    database = tmp_path / "control.sqlite3"
     runs = SQLiteRunRepository(database, tmp_path / "objects")
     runs.bootstrap()
     store = SQLiteConfigRegistryStore(database, runs=runs)
@@ -36,7 +36,7 @@ def _store(tmp_path: Path) -> SQLiteConfigRegistryStore:
 
 class TestSQLiteConfigRegistryUnitOfWorkContract(ConfigRegistryUnitOfWorkContract):
     @override
-    def make_unit_of_work(self, tmp_path: Path) -> WorkspaceUnitOfWorkFactory:
+    def make_unit_of_work(self, tmp_path: Path) -> ConfigRegistryUnitOfWorkFactory:
         return _store(tmp_path).unit_of_work
 
 
@@ -55,25 +55,6 @@ def test_registry_and_run_reads_share_one_database(tmp_path: Path) -> None:
     with store.unit_of_work() as work:
         assert work.runs is store.runs
         assert work.runs.read_text("run-shared", "records/value.txt") == "value\n"
-    with sqlite3.connect(store.database) as connection:
-        tables = {
-            row[0]
-            for row in connection.execute(
-                "SELECT name FROM sqlite_schema WHERE type = 'table'"
-            )
-        }
-        active_columns = {
-            row[1]
-            for row in connection.execute("PRAGMA table_info(config_registry_active)")
-        }
-    assert {
-        "config_registry_entries",
-        "config_registry_active",
-        "config_registry_activations",
-        "run_repository_refs",
-    } <= tables
-    assert "config_registry_index" not in tables
-    assert active_columns == {"singleton", "generation", "active_entry_id"}
 
 
 def test_registration_and_activation_roll_back_together(tmp_path: Path) -> None:

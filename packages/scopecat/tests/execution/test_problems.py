@@ -8,16 +8,16 @@ import pytest
 
 from scopecat.compiler.typed.program import core_acquisitions, core_state
 from scopecat.compiler.typed.state import SetStateSpec
-from scopecat.composition.embedded import (
-    embedded_execution_services,
-    embedded_run_repository,
-)
 from scopecat.kernel.errors import RunFailed, RunIndeterminate
 from scopecat.records.instrument import InstrumentReadback
 from scopecat.records.parameter import Quantity
 from scopecat.sdk.instruments.contracts import (
     CollectCommand,
     CollectReceipt,
+)
+from scopecat.testing import (
+    sqlite_execution_services,
+    sqlite_run_repository,
 )
 from tests.testkit.execution import execute_bound_run
 from tests.testkit.signal_instruments import TestSignalInstrument
@@ -87,13 +87,13 @@ def test_run_rejects_missing_instrument(tmp_path: Path) -> None:
             config=load_config(),
             experiment=load_experiment(),
             instruments=[],
-            workspace=tmp_path,
+            project_root=tmp_path,
         )
 
     assert "missing_instrument_description" in {
         problem.code for problem in error.value.problems
     }
-    assert embedded_run_repository(tmp_path).list_runs()[0].lifecycle == "terminal"
+    assert sqlite_run_repository(tmp_path).list_runs()[0].lifecycle == "terminal"
 
 
 def test_run_rejects_unsupported_field(tmp_path: Path) -> None:
@@ -108,13 +108,13 @@ def test_run_rejects_unsupported_field(tmp_path: Path) -> None:
             config=load_config(),
             experiment=experiment,
             instruments=[TestSignalInstrument()],
-            workspace=tmp_path,
+            project_root=tmp_path,
         )
 
     assert "instrument_driver_unsupported_field" in {
         problem.code for problem in error.value.problems
     }
-    assert embedded_run_repository(tmp_path).list_runs()[0].lifecycle == "terminal"
+    assert sqlite_run_repository(tmp_path).list_runs()[0].lifecycle == "terminal"
 
 
 def test_run_rejects_unsupported_instrument_product(tmp_path: Path) -> None:
@@ -137,13 +137,13 @@ def test_run_rejects_unsupported_instrument_product(tmp_path: Path) -> None:
             config=load_config(),
             experiment=experiment,
             instruments=[TestSignalInstrument()],
-            workspace=tmp_path,
+            project_root=tmp_path,
         )
 
     assert "instrument_product_unsupported" in {
         problem.code for problem in error.value.problems
     }
-    assert embedded_run_repository(tmp_path).list_runs()[0].lifecycle == "terminal"
+    assert sqlite_run_repository(tmp_path).list_runs()[0].lifecycle == "terminal"
 
 
 def test_run_rejects_instrument_product_dtype_mismatch(tmp_path: Path) -> None:
@@ -158,13 +158,13 @@ def test_run_rejects_instrument_product_dtype_mismatch(tmp_path: Path) -> None:
             config=load_config(),
             experiment=experiment,
             instruments=[TestSignalInstrument()],
-            workspace=tmp_path,
+            project_root=tmp_path,
         )
 
     assert "instrument_product_dtype_mismatch" in {
         problem.code for problem in error.value.problems
     }
-    assert embedded_run_repository(tmp_path).list_runs()[0].lifecycle == "terminal"
+    assert sqlite_run_repository(tmp_path).list_runs()[0].lifecycle == "terminal"
 
 
 def test_instrument_exception_keeps_unknown_run(tmp_path: Path) -> None:
@@ -173,13 +173,13 @@ def test_instrument_exception_keeps_unknown_run(tmp_path: Path) -> None:
             config=load_config(),
             experiment=load_experiment(),
             instruments=[FailingCollectInstrument()],
-            workspace=tmp_path,
+            project_root=tmp_path,
         )
 
     assert "instrument_collect_unknown" in {
         problem.code for problem in error.value.problems
     }
-    manifests = embedded_run_repository(tmp_path).list_runs()
+    manifests = sqlite_run_repository(tmp_path).list_runs()
     assert len(manifests) == 1
     assert manifests[0].status == "unknown"
     assert manifests[0].outcome is not None
@@ -196,11 +196,11 @@ def test_run_rejects_unexpected_instrument_products(tmp_path: Path) -> None:
             config=load_config(),
             experiment=load_experiment(),
             instruments=[UnexpectedProductInstrument()],
-            workspace=tmp_path,
+            project_root=tmp_path,
         )
 
     assert error.value.problems[-1].code == "instrument_unexpected_product"
-    manifest = embedded_run_repository(tmp_path).list_runs()[0]
+    manifest = sqlite_run_repository(tmp_path).list_runs()[0]
     assert manifest.status == "failed"
 
 
@@ -212,10 +212,10 @@ def test_keyboard_interrupt_commits_interrupted_terminal_run(tmp_path: Path) -> 
             config=load_config(),
             experiment=load_experiment(),
             instruments=[instrument],
-            workspace=tmp_path,
+            project_root=tmp_path,
         )
 
-    manifest = embedded_run_repository(tmp_path).list_runs()[0]
+    manifest = sqlite_run_repository(tmp_path).list_runs()[0]
     assert manifest.status == "interrupted"
     assert manifest.datasets == ()
     assert instrument.aborted
@@ -225,7 +225,7 @@ def test_keyboard_interrupt_commits_interrupted_terminal_run(tmp_path: Path) -> 
         problem.code for problem in manifest.outcome.problems
     }
     journal_entries = (
-        embedded_execution_services(tmp_path).journal_for(manifest.run_id).entries()
+        sqlite_execution_services(tmp_path).journal_for(manifest.run_id).entries()
     )
     collect_states = [
         entry.state for entry in journal_entries if entry.stage == "collect"
@@ -243,17 +243,15 @@ def test_failed_run_publishes_committed_prefix_as_incomplete_dataset(
             config=load_config(),
             experiment=load_experiment(),
             instruments=[instrument],
-            workspace=tmp_path,
+            project_root=tmp_path,
         )
 
-    manifest = embedded_run_repository(tmp_path).list_runs()[0]
+    manifest = sqlite_run_repository(tmp_path).list_runs()[0]
     assert manifest.status == "unknown"
     [dataset] = manifest.datasets
     assert dataset.metadata["partial"] is True
     assert dataset.metadata["expected_record_count"] == 3
     receipts = (
-        embedded_execution_services(tmp_path)
-        .collections_for(manifest.run_id)
-        .receipts()
+        sqlite_execution_services(tmp_path).collections_for(manifest.run_id).receipts()
     )
     assert len(receipts) == 1

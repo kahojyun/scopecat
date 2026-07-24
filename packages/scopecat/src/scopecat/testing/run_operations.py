@@ -14,7 +14,7 @@ from scopecat.analysis.service import (
     SavedAnalysis,
     save_analysis,
 )
-from scopecat.application.services import WorkspaceServices
+from scopecat.application.services import ProjectServices
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter_change import ParameterChangeProposal
@@ -46,7 +46,7 @@ from scopecat.runs.service import (
 
 @dataclass(frozen=True, slots=True)
 class ServiceRunOperations:
-    services: WorkspaceServices
+    services: ProjectServices
 
     def load_manifest(self, run_id: str) -> RunManifest:
         return load_run(run_id=run_id, services=self.services)

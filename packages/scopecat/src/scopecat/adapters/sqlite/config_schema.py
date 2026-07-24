@@ -1,4 +1,4 @@
-"""SQLite schema for the workspace configuration registry."""
+"""SQLite schema for the project configuration registry."""
 
 CONFIG_REGISTRY_SCHEMA_VERSION = 2
 

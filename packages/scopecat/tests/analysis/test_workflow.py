@@ -8,9 +8,6 @@ import pytest
 import scopecat as sc
 from scopecat.adapters.sqlite import SQLiteRunRepository
 from scopecat.adapters.sqlite.run_repository import PreparedContentPublication
-from scopecat.composition.embedded import (
-    embedded_workspace_services,
-)
 from scopecat.config.resolution import (
     load_active_config,
     register_and_activate_candidate_config,
@@ -18,6 +15,9 @@ from scopecat.config.resolution import (
 from scopecat.records.run import RunManifest
 from scopecat.runs.refs import record_content_ref
 from scopecat.runs.service import start_run
+from scopecat.testing import (
+    sqlite_project_services,
+)
 from tests.testkit.in_process_lab import in_process_lab
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.signal_testkit import (
@@ -32,7 +32,7 @@ from tests.testkit.workflow_fixtures import load_config, load_prepared_invocatio
 def test_workflow_analysis_review_activate_and_rerun_active_config(
     tmp_path: Path,
 ) -> None:
-    services = embedded_workspace_services(tmp_path)
+    services = sqlite_project_services(tmp_path)
     run = start_run(
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
         config=load_config(),
@@ -76,7 +76,7 @@ def test_analysis_save_rolls_back_refs_after_manifest_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    services = embedded_workspace_services(tmp_path)
+    services = sqlite_project_services(tmp_path)
     run = start_run(
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
         config=load_config(),

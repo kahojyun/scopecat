@@ -23,7 +23,7 @@ from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.workflow_fixtures import load_config, load_invocation
 
 
-def _workspace(
+def _lab(
     tmp_path: Path,
     *,
     config: ConfigProfileSnapshot | None = None,
@@ -36,7 +36,7 @@ def _workspace(
 
 
 def test_prepared_check_returns_preview_when_successful(tmp_path: Path) -> None:
-    lab = _workspace(tmp_path)
+    lab = _lab(tmp_path)
 
     report = lab.prepare(load_invocation()).check()
 
@@ -57,7 +57,7 @@ def test_prepared_check_returns_configuration_problems_without_preview(
             )
         }
     )
-    lab = _workspace(tmp_path, config=invalid_config)
+    lab = _lab(tmp_path, config=invalid_config)
 
     report = lab.prepare(load_invocation()).check()
 
@@ -77,7 +77,7 @@ def test_check_report_rejects_preview_with_blocking_problems(tmp_path: Path) -> 
         message="test error",
     )
 
-    successful = _workspace(tmp_path).prepare(load_invocation()).check()
+    successful = _lab(tmp_path).prepare(load_invocation()).check()
     assert successful.preview is not None
     with pytest.raises(ValueError, match="successful experiment check"):
         ExperimentCheckResult(
@@ -115,7 +115,7 @@ def test_session_candidate_config_is_not_read_before_authoring(
     candidate = CandidateConfig(
         parameter_proposals=(),
     )
-    lab = _workspace(tmp_path)
+    lab = _lab(tmp_path)
     prepared = lab.prepare(simple_template().bind(), config=candidate)
 
     if terminal == "check":

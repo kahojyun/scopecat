@@ -127,7 +127,7 @@ describe("config registry reads", () => {
     expect(detail.config.raw.schema_version).toBe("scopecat.config_profile_snapshot.v3");
   });
 
-  it("rejects stale registry entry schemas instead of keeping compatibility", async () => {
+  it("rejects unsupported registry entry schemas", async () => {
     const fetchMock = vi.fn(() =>
       Promise.resolve(
         jsonResponse({
@@ -317,7 +317,7 @@ describe("typed config drafts", () => {
     ],
   };
 
-  it("serializes typed operations and removes obsolete source locations", async () => {
+  it("serializes typed operations without inherited source locations", async () => {
     const candidate = configProfile("config-a-edit");
     const fetchMock = vi.fn(() =>
       Promise.resolve(

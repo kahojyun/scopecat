@@ -575,7 +575,7 @@ def test_run_accepts_instrument_driver(tmp_path: Path) -> None:
         config=load_config(),
         experiment=load_experiment(),
         instruments=[instrument],
-        workspace=tmp_path,
+        project_root=tmp_path,
     )
 
     assert manifest.status == "completed"

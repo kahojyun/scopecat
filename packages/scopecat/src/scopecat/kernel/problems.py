@@ -98,7 +98,7 @@ class ModelLocation(_LocationModel):
 
 
 class StorageLocation(_LocationModel):
-    """A location in workspace storage or one durable run namespace."""
+    """A location in project storage or one durable run namespace."""
 
     kind: Literal["storage"] = "storage"
     run_id: str | None = None

@@ -40,7 +40,7 @@ CONFIG_REGISTRY_ACTIVE_REF = f"{CONFIG_REGISTRY_ROOT}/active.json"
 
 
 class SQLiteConfigRegistryRepository:
-    """Registry view bound to one workspace transaction."""
+    """Registry view bound to one project transaction."""
 
     def __init__(self, connection: sqlite3.Connection) -> None:
         self._connection = connection
@@ -299,7 +299,7 @@ class SQLiteConfigRegistryRepository:
             raise _storage_failure(self.active_ref) from error
 
 
-class SQLiteWorkspaceUnitOfWork:
+class SQLiteConfigRegistryUnitOfWork:
     """One immediate transaction for registry state and injected run reads."""
 
     def __init__(
@@ -320,13 +320,13 @@ class SQLiteWorkspaceUnitOfWork:
     @property
     def registry(self) -> SQLiteConfigRegistryRepository:
         if self._registry is None:
-            msg = "workspace unit of work has not been entered"
+            msg = "config registry unit of work has not been entered"
             raise RuntimeError(msg)
         return self._registry
 
     def __enter__(self) -> Self:
         if self._connection is not None:
-            msg = "workspace unit of work cannot be entered twice"
+            msg = "config registry unit of work cannot be entered twice"
             raise RuntimeError(msg)
         connection = self._borrowed_connection
         if connection is None:
@@ -352,7 +352,7 @@ class SQLiteWorkspaceUnitOfWork:
         del exc_value, traceback
         connection = self._connection
         if connection is None:
-            msg = "workspace unit of work was not entered"
+            msg = "config registry unit of work was not entered"
             raise RuntimeError(msg)
         self._connection = None
         self._registry = None
@@ -370,7 +370,7 @@ class SQLiteWorkspaceUnitOfWork:
 
 
 class SQLiteConfigRegistryStore:
-    """Factory for registry transactions sharing a workspace database."""
+    """Factory for registry transactions sharing a project database."""
 
     def __init__(
         self,
@@ -409,8 +409,8 @@ class SQLiteConfigRegistryStore:
         if version != CONFIG_REGISTRY_SCHEMA_VERSION:
             raise _schema_failure(version)
 
-    def unit_of_work(self) -> SQLiteWorkspaceUnitOfWork:
-        return SQLiteWorkspaceUnitOfWork(
+    def unit_of_work(self) -> SQLiteConfigRegistryUnitOfWork:
+        return SQLiteConfigRegistryUnitOfWork(
             self.database,
             runs=self.runs,
             busy_timeout_seconds=self._busy_timeout_seconds,
@@ -419,10 +419,10 @@ class SQLiteConfigRegistryStore:
     def borrowed_unit_of_work(
         self,
         connection: sqlite3.Connection,
-    ) -> SQLiteWorkspaceUnitOfWork:
+    ) -> SQLiteConfigRegistryUnitOfWork:
         """Bind registry operations to a caller-owned SQLite transaction."""
 
-        return SQLiteWorkspaceUnitOfWork(
+        return SQLiteConfigRegistryUnitOfWork(
             self.database,
             runs=self.runs,
             busy_timeout_seconds=self._busy_timeout_seconds,
@@ -593,5 +593,5 @@ def _integer(row: sqlite3.Row, column: str) -> int:
 __all__ = [
     "SQLiteConfigRegistryRepository",
     "SQLiteConfigRegistryStore",
-    "SQLiteWorkspaceUnitOfWork",
+    "SQLiteConfigRegistryUnitOfWork",
 ]

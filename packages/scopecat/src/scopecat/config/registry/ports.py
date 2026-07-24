@@ -1,4 +1,4 @@
-"""Leaf persistence ports for the workspace configuration registry."""
+"""Leaf persistence ports for the project configuration registry."""
 
 from __future__ import annotations
 
@@ -50,7 +50,7 @@ class ConfigRegistryRepository(Protocol):
     ) -> None: ...
 
 
-class WorkspaceUnitOfWork(Protocol):
+class ConfigRegistryUnitOfWork(Protocol):
     """One configuration-registry transaction with run evidence access."""
 
     @property
@@ -69,4 +69,4 @@ class WorkspaceUnitOfWork(Protocol):
     ) -> None: ...
 
 
-type WorkspaceUnitOfWorkFactory = Callable[[], WorkspaceUnitOfWork]
+type ConfigRegistryUnitOfWorkFactory = Callable[[], ConfigRegistryUnitOfWork]

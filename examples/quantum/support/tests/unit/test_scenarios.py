@@ -19,7 +19,7 @@ from quantum_lab_demo.scenarios.opaque_collection import (
 )
 
 from .demo_lab_experiment_testkit import (
-    embedded_quantum_lab,
+    in_process_quantum_lab,
     load_experiment_config,
     measurement_projection_and_points,
 )
@@ -177,7 +177,7 @@ def _run_observed_payloads(
     invocation: ExperimentInvocation,
 ) -> list[CommandPayload]:
     observations: list[RuntimePayloadObservation] = []
-    embedded_quantum_lab(workspace=tmp_path).prepare(invocation).run(
+    in_process_quantum_lab(project_root=tmp_path).prepare(invocation).run(
         payload_observer=observations.append,
     )
     return [observation.payload for observation in observations]

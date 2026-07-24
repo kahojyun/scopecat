@@ -41,10 +41,6 @@ from scopecat.compiler.typed.program import (
     record_product,
     set_state_field,
 )
-from scopecat.composition.embedded import (
-    embedded_execution_services,
-    embedded_run_repository,
-)
 from scopecat.execution.evidence import (
     instrument_state_evidence_ref,
     run_outcome_ref,
@@ -103,6 +99,10 @@ from scopecat.sdk.instruments.contracts import (
     InstrumentStateCommand,
     InstrumentStateCommandField,
     product_axis,
+)
+from scopecat.testing import (
+    sqlite_execution_services,
+    sqlite_run_repository,
 )
 from tests.testkit.execution import execute_bound_run, execute_program_run
 from tests.testkit.instrument_drivers import SignalInstrumentDriver
@@ -212,10 +212,10 @@ def test_run_persists_measurements_and_run_files(
         config=config,
         experiment=load_experiment(),
         instruments=[TestSignalInstrument()],
-        workspace=tmp_path,
+        project_root=tmp_path,
     )
 
-    repository = embedded_run_repository(tmp_path)
+    repository = sqlite_run_repository(tmp_path)
     assert manifest.status == "completed"
     assert {record.id for record in manifest.records} == {
         "instrument-state-evidence",
@@ -251,7 +251,7 @@ def test_run_persists_measurements_and_run_files(
         "records/device_program/device-program.json",
     )
 
-    measurements = embedded_run_repository(tmp_path).read_measurement_records(
+    measurements = sqlite_run_repository(tmp_path).read_measurement_records(
         manifest.run_id,
         dataset_storage_ref(raw_dataset),
     )
@@ -301,10 +301,10 @@ def test_terminal_commit_does_not_publish_manifest_after_content_write_failure(
             config=load_config(),
             experiment=load_experiment(),
             instruments=[TestSignalInstrument()],
-            workspace=tmp_path,
+            project_root=tmp_path,
         )
 
-    storage = embedded_run_repository(tmp_path)
+    storage = sqlite_run_repository(tmp_path)
     manifest = storage.list_runs()[0]
     assert manifest.lifecycle == "running"
     assert not storage.exists(manifest.run_id, run_outcome_ref())
@@ -336,11 +336,11 @@ def test_run_round_trips_non_finite_terminal_measurements(
         config=load_config(),
         experiment=load_experiment(),
         instruments=[_NonFiniteSignalInstrument()],
-        workspace=tmp_path,
+        project_root=tmp_path,
     )
 
     assert manifest.status == "completed"
-    repository = embedded_run_repository(tmp_path)
+    repository = sqlite_run_repository(tmp_path)
     dataset_ref = dataset_storage_ref(manifest.datasets[0])
     wire = "".join(
         repository.read_text(
@@ -352,7 +352,7 @@ def test_run_round_trips_non_finite_terminal_measurements(
     assert "NaN" in wire
     assert "Infinity" in wire
     assert "-Infinity" in wire
-    measurements = embedded_run_repository(tmp_path).read_measurement_records(
+    measurements = sqlite_run_repository(tmp_path).read_measurement_records(
         manifest.run_id,
         dataset_storage_ref(manifest.datasets[0]),
     )
@@ -393,12 +393,12 @@ class _LeaseOrderProvider:
         *,
         driver: TestSignalInstrument,
         leases: _RecordingLeaseManager,
-        workspace: Path,
+        project_root: Path,
         events: list[str],
     ) -> None:
         self.driver = driver
         self.leases = leases
-        self.workspace = workspace
+        self.project_root = project_root
         self.events = events
 
     def describe(
@@ -408,7 +408,7 @@ class _LeaseOrderProvider:
         del context
         self.events.append("provider.describe")
         assert not self.leases.active
-        assert embedded_run_repository(self.workspace).list_runs() == []
+        assert sqlite_run_repository(self.project_root).list_runs() == []
         return InstrumentProviderDescription(
             provider_id=self.provider_id,
             instruments=(self.driver.describe(),),
@@ -422,7 +422,7 @@ class _LeaseOrderProvider:
         self.events.append("provider.provide")
         assert self.leases.active
         assert (
-            embedded_run_repository(self.workspace).list_runs()[0].status == "running"
+            sqlite_run_repository(self.project_root).list_runs()[0].status == "running"
         )
         return InstrumentProviderResult(
             drivers=(self.driver,),
@@ -760,7 +760,7 @@ def test_provider_lifecycle_is_inside_resource_lease(
     provider = _LeaseOrderProvider(
         driver=TestSignalInstrument(),
         leases=leases,
-        workspace=tmp_path,
+        project_root=tmp_path,
         events=events,
     )
     config = load_config()
@@ -768,7 +768,7 @@ def test_provider_lifecycle_is_inside_resource_lease(
         config=config,
         experiment=load_experiment(),
         instrument_provider=provider,
-        workspace=tmp_path,
+        project_root=tmp_path,
         resource_leases=leases,
     )
 
@@ -783,7 +783,7 @@ def test_provider_lifecycle_is_inside_resource_lease(
         ("instrument", "source-0")
     }
     journal_entries = (
-        embedded_execution_services(tmp_path).journal_for(manifest.run_id).entries()
+        sqlite_execution_services(tmp_path).journal_for(manifest.run_id).entries()
     )
     provisioned = next(
         entry
@@ -813,15 +813,15 @@ def test_returned_driver_is_finalized_when_identity_getter_interrupts(
             config=config,
             experiment=load_experiment(),
             instrument_provider=provider,
-            workspace=tmp_path,
+            project_root=tmp_path,
         )
 
     assert driver.cleanup_count == 1
     assert driver.terminal_read_count == 1
-    manifest = embedded_run_repository(tmp_path).list_runs()[0]
+    manifest = sqlite_run_repository(tmp_path).list_runs()[0]
     assert manifest.status == "interrupted"
     journal_entries = (
-        embedded_execution_services(tmp_path).journal_for(manifest.run_id).entries()
+        sqlite_execution_services(tmp_path).journal_for(manifest.run_id).entries()
     )
     cleanup = next(
         entry
@@ -842,7 +842,7 @@ def test_returned_driver_is_finalized_when_provider_metadata_is_not_json(
             config=config,
             experiment=load_experiment(),
             instrument_provider=provider,
-            workspace=tmp_path,
+            project_root=tmp_path,
         )
 
     assert "instrument_provider_result_invalid" in {
@@ -850,7 +850,7 @@ def test_returned_driver_is_finalized_when_provider_metadata_is_not_json(
     }
     assert driver.cleanup_count == 1
     assert driver.terminal_read_count == 1
-    manifest = embedded_run_repository(tmp_path).list_runs()[0]
+    manifest = sqlite_run_repository(tmp_path).list_runs()[0]
     assert manifest.status == "failed"
 
 
@@ -895,7 +895,7 @@ def test_malformed_provider_description_is_rejected_before_run_acceptance(
         problem.code for problem in captured.value.problems
     }
     assert not provider.provide_called
-    assert embedded_run_repository(tmp_path).list_runs() == []
+    assert sqlite_run_repository(tmp_path).list_runs() == []
 
 
 def test_provider_abi_problems_are_aggregated_in_stable_order_before_run(
@@ -934,7 +934,7 @@ def test_provider_abi_problems_are_aggregated_in_stable_order_before_run(
         "instrument_product_unsupported",
     ]
     assert not provider.provide_called
-    assert embedded_run_repository(tmp_path).list_runs() == []
+    assert sqlite_run_repository(tmp_path).list_runs() == []
 
 
 def test_partial_provider_description_reports_missing_bound_instrument_before_run(
@@ -954,7 +954,7 @@ def test_partial_provider_description_reports_missing_bound_instrument_before_ru
         "missing_instrument_description",
     ]
     assert not provider.provide_called
-    assert embedded_run_repository(tmp_path).list_runs() == []
+    assert sqlite_run_repository(tmp_path).list_runs() == []
 
 
 def test_provider_description_exception_fails_at_preflight_boundary(
@@ -974,7 +974,7 @@ def test_provider_description_exception_fails_at_preflight_boundary(
     ]
     assert captured.value.__cause__ is failure
     assert not provider.provide_called
-    assert embedded_run_repository(tmp_path).list_runs() == []
+    assert sqlite_run_repository(tmp_path).list_runs() == []
 
 
 def test_invalid_provider_identity_stops_before_description_and_run(
@@ -995,7 +995,7 @@ def test_invalid_provider_identity_stops_before_description_and_run(
     assert isinstance(captured.value.__cause__, TypeError)
     assert not provider.describe_called
     assert not provider.provide_called
-    assert embedded_run_repository(tmp_path).list_runs() == []
+    assert sqlite_run_repository(tmp_path).list_runs() == []
 
 
 @pytest.mark.parametrize("advertised_unit", [None, "GHz"])
@@ -1025,7 +1025,7 @@ def test_provider_product_unit_mismatch_is_rejected_before_run(
         "unit",
     )
     assert not provider.provide_called
-    assert embedded_run_repository(tmp_path).list_runs() == []
+    assert sqlite_run_repository(tmp_path).list_runs() == []
 
 
 @pytest.mark.parametrize("advertised_unit", [None, "GHz"])
@@ -1080,7 +1080,7 @@ def test_provider_product_axis_unit_mismatch_is_rejected_before_run(
         "unit",
     )
     assert not provider.provide_called
-    assert embedded_run_repository(tmp_path).list_runs() == []
+    assert sqlite_run_repository(tmp_path).list_runs() == []
 
 
 def _first_point_plan(
@@ -1110,7 +1110,7 @@ def test_provider_description_interruption_precedes_run_acceptance(
         _lower_test_host_binding(plan, config, provider)
 
     assert not provider.provide_called
-    assert embedded_run_repository(tmp_path).list_runs() == []
+    assert sqlite_run_repository(tmp_path).list_runs() == []
 
 
 def test_run_emits_transient_runtime_events(tmp_path: Path) -> None:
@@ -1120,7 +1120,7 @@ def test_run_emits_transient_runtime_events(tmp_path: Path) -> None:
         config=load_config(),
         experiment=load_experiment(),
         instruments=[TestSignalInstrument()],
-        workspace=tmp_path,
+        project_root=tmp_path,
         event_sink=events.append,
     )
 
@@ -1150,7 +1150,7 @@ def test_run_emits_transient_runtime_events(tmp_path: Path) -> None:
     assert len(committed_records) == 1
     assert all(event.sequence is None for event in point_finished)
     durable_transitions = (
-        embedded_execution_services(tmp_path).journal_for(manifest.run_id).entries()
+        sqlite_execution_services(tmp_path).journal_for(manifest.run_id).entries()
     )
     assert not {
         "point",
@@ -1180,13 +1180,13 @@ def test_runtime_event_sink_failure_does_not_change_durable_execution(
         config=load_config(),
         experiment=load_experiment(),
         instruments=[TestSignalInstrument()],
-        workspace=tmp_path,
+        project_root=tmp_path,
         event_sink=reject_event,
     )
 
     assert manifest.status == "completed"
     durable_transitions = (
-        embedded_execution_services(tmp_path).journal_for(manifest.run_id).entries()
+        sqlite_execution_services(tmp_path).journal_for(manifest.run_id).entries()
     )
     assert any(
         transition.stage == "collect" and transition.state == "completed"
@@ -1311,7 +1311,7 @@ def test_run_shares_identical_residual_point_compute(tmp_path: Path) -> None:
         config=config,
         experiment=spec,
         instruments=[SignalInstrumentDriver()],
-        workspace=tmp_path,
+        project_root=tmp_path,
         event_sink=events.append,
         payload_observer=payload_observations.append,
     )
@@ -1344,7 +1344,7 @@ def test_run_shares_identical_residual_point_compute(tmp_path: Path) -> None:
     assert all(event.sequence is None for event in compute_events)
     assert all(
         transition.stage != "compute"
-        for transition in embedded_execution_services(tmp_path)
+        for transition in sqlite_execution_services(tmp_path)
         .journal_for(manifest.run_id)
         .entries()
     )
@@ -1405,7 +1405,7 @@ def test_run_skips_unchanged_state_fields(tmp_path: Path) -> None:
         config=load_config(),
         experiment=experiment,
         instruments=[instrument],
-        workspace=tmp_path,
+        project_root=tmp_path,
         event_sink=events.append,
     )
 

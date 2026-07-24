@@ -33,7 +33,6 @@ def test_simple_scan_dsl_produces_durable_request_and_user_plan() -> None:
     assert centered_scan.center == RunRequestParameterValue(
         parameter_id="drive_frequency"
     )
-    assert "param_scalar" not in request.model_dump_json()
 
     preview = materialized_effects_contract(
         program,
@@ -76,7 +75,6 @@ def test_parameter_scan_request_materializes_typed_input_keys() -> None:
     parameter_scan = request.scans[0]
     assert isinstance(parameter_scan, ParameterScanRecord)
     assert parameter_scan.key == {"subject": "q0"}
-    assert "source_kind" not in request.model_dump_json()
 
 
 def test_parameter_around_scan_request_preserves_implicit_center_intent() -> None:

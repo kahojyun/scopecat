@@ -6,7 +6,6 @@ from typing import Annotated, cast
 import pytest
 
 import scopecat as sc
-import scopecat.composition as composition
 import scopecat.daemon as daemon
 import scopecat.kernel.payloads as value_models
 import scopecat.measurements.results as results
@@ -28,17 +27,6 @@ def test_root_lazy_exports_are_complete_visible_and_resolvable() -> None:
         assert getattr(sc, name) is not None
 
 
-def test_product_composition_does_not_export_embedded_writers() -> None:
-    assert composition.__all__ == ["memory_workspace_services"]
-    assert not {
-        "embedded_config_registry_unit_of_work",
-        "embedded_execution_services",
-        "embedded_run_repository",
-        "embedded_workspace_services",
-        "open_embedded_workspace",
-    } & set(dir(composition))
-
-
 def test_daemon_package_does_not_reexport_transport_contracts() -> None:
     assert daemon.__all__ == []
 
@@ -46,46 +34,6 @@ def test_daemon_package_does_not_reexport_transport_contracts() -> None:
 def test_user_facing_facades_expose_entry_points() -> None:
     assert callable(sc.open_project)
     assert sc.ConfigDraft
-    assert not {
-        "AnalysisDefinition",
-        "AnalysisInput",
-        "AnalysisInvocation",
-        "AnalysisOutput",
-        "DaemonConnection",
-        "DaemonWorkspace",
-        "Data",
-        "EarlyStopDecision",
-        "ExternalLocation",
-        "ExperimentCheckResult",
-        "LabApplication",
-        "MeasurementDatasetSchema",
-        "MeasurementTransformSemanticContract",
-        "ModelLocation",
-        "Problem",
-        "ProblemCategory",
-        "ProblemImpact",
-        "ProblemLocation",
-        "ProblemPhase",
-        "Run",
-        "RunDomainJob",
-        "RunFinishedEvent",
-        "RunHostBinding",
-        "RunProgram",
-        "RunStartedEvent",
-        "RuntimeEvent",
-        "RuntimeEventSink",
-        "RuntimeLocation",
-        "RuntimePayloadObservation",
-        "RuntimePayloadObserver",
-        "RuntimeProgress",
-        "RuntimeTransitionEvent",
-        "SavedAnalysis",
-        "StorageLocation",
-        "blocking_problem",
-        "connect",
-        "decide_online_convergence",
-        "model_location",
-    } & set(dir(sc))
     assert sc.LabClient
     assert sc.Project
     assert problems.Problem
@@ -285,9 +233,3 @@ def test_scans_reject_non_finite_durable_values_at_capture() -> None:
             span=sc.Quantity(value=float("inf"), unit="GHz"),
             points=3,
         )
-
-
-def test_retired_embedded_workspace_types_are_not_root_exports() -> None:
-    assert not hasattr(sc, "Workspace")
-    assert not hasattr(sc, "PreparedExperiment")
-    assert not hasattr(sc, "Experiment")

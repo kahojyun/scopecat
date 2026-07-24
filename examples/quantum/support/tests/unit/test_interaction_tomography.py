@@ -25,7 +25,7 @@ from quantum_lab_demo.workflows.interaction_tomography import (
     interaction_tomography_template,
 )
 
-from .demo_lab_experiment_testkit import embedded_quantum_lab
+from .demo_lab_experiment_testkit import in_process_quantum_lab
 
 
 def _compile_point(
@@ -36,7 +36,7 @@ def _compile_point(
 ):
     compiler = quantum_lab_compiler()
     run = (
-        embedded_quantum_lab(workspace=tmp_path, compiler=compiler)
+        in_process_quantum_lab(project_root=tmp_path, compiler=compiler)
         .prepare(interaction_tomography_template.bind(shots=2))
         .scan(PREPARATION, (preparation,))
         .scan(ANALYSIS_BASIS, (analysis_basis,))

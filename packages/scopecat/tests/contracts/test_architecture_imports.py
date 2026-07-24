@@ -153,7 +153,7 @@ def test_inward_layers_do_not_depend_on_application_or_storage() -> None:
         "scopecat._storage",
         "scopecat._workflows",
         "scopecat.adapters",
-        "scopecat.composition",
+        "scopecat.testing",
         "scopecat.config.registry",
         "scopecat.execution",
         "scopecat.runs",
@@ -222,11 +222,11 @@ def test_compiler_sublayers_remain_inward_only() -> None:
 def test_application_layers_do_not_select_concrete_adapters() -> None:
     _assert_no_forbidden_imports(
         APPLICATION_ROOTS,
-        forbidden=("scopecat.adapters", "scopecat.composition"),
+        forbidden=("scopecat.adapters", "scopecat.testing"),
     )
 
 
-def test_planning_does_not_depend_on_workspace_application_bundle() -> None:
+def test_planning_does_not_depend_on_project_application_bundle() -> None:
     _assert_no_forbidden_imports(
         (CORE_SOURCE / "planning",),
         forbidden=("scopecat.application",),
@@ -238,7 +238,7 @@ def test_notebook_facades_delegate_persistence_use_cases() -> None:
         NOTEBOOK_FACADE_PATHS,
         forbidden=(
             "scopecat.adapters",
-            "scopecat.composition",
+            "scopecat.testing",
             "scopecat.runs.access",
             "scopecat.runs.manifest",
             "scopecat.runs.repository",

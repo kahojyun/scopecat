@@ -1,8 +1,8 @@
-"""Deterministic in-memory adapters for embedded execution and tests."""
+"""Deterministic in-memory adapters for in-process tests."""
 
 from scopecat.adapters.memory.config_registry import (
     MemoryConfigRegistryRepository,
-    MemoryWorkspaceUnitOfWork,
+    MemoryConfigRegistryUnitOfWork,
 )
 from scopecat.adapters.memory.execution import (
     MemoryCollectionRepository,
@@ -10,18 +10,18 @@ from scopecat.adapters.memory.execution import (
     MemoryMeasurementDatasetRepository,
     MemoryPayloadEvidenceCommitter,
 )
+from scopecat.adapters.memory.project import MemoryProjectStore
 from scopecat.adapters.memory.resources import MemoryResourceLeaseManager
 from scopecat.adapters.memory.run_repository import MemoryRunRepository
-from scopecat.adapters.memory.workspace import MemoryWorkspaceStore
 
 __all__ = [
     "MemoryCollectionRepository",
     "MemoryConfigRegistryRepository",
+    "MemoryConfigRegistryUnitOfWork",
     "MemoryExecutionJournal",
     "MemoryMeasurementDatasetRepository",
     "MemoryPayloadEvidenceCommitter",
+    "MemoryProjectStore",
     "MemoryResourceLeaseManager",
     "MemoryRunRepository",
-    "MemoryWorkspaceStore",
-    "MemoryWorkspaceUnitOfWork",
 ]

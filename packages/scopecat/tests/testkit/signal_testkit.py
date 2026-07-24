@@ -18,9 +18,6 @@ from scopecat.analysis.service import SavedAnalysis
 from scopecat.api.run import RunHandle
 from scopecat.authoring import ExperimentInvocation
 from scopecat.compiler.frontend.invocation import prepare_invocation
-from scopecat.composition.embedded import (
-    embedded_workspace_services,
-)
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
     Problem,
@@ -40,6 +37,9 @@ from scopecat.records.parameter import Quantity, ScalarParameterValue
 from scopecat.records.run import RunConfigSource, RunManifest
 from scopecat.runs.access import dataset_storage_ref
 from scopecat.runs.service import start_run
+from scopecat.testing import (
+    sqlite_project_services,
+)
 from tests.testkit.in_process_lab import in_process_lab
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 
@@ -286,32 +286,34 @@ def execute_signal_run(
     *,
     config: ConfigProfileSnapshot,
     experiment: ExperimentInvocation,
-    workspace: str | Path,
+    project_root: str | Path,
     config_source: RunConfigSource | None = None,
 ) -> RunManifest:
     return start_run(
         config=config,
         experiment=prepare_invocation(experiment),
-        services=embedded_workspace_services(workspace),
+        services=sqlite_project_services(project_root),
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
         config_source=config_source,
     )
 
 
-def _analysis_run(*, run_id: str, workspace: str | Path) -> RunHandle:
-    lab = in_process_lab(workspace)
+def _analysis_run(*, run_id: str, project_root: str | Path) -> RunHandle:
+    lab = in_process_lab(project_root)
     return lab.get_run(run_id)
 
 
 def execute_summary_stats_analysis(
-    *, run_id: str, workspace: str | Path, selector: str | None = None
+    *, run_id: str, project_root: str | Path, selector: str | None = None
 ) -> SavedAnalysis:
-    run = _analysis_run(run_id=run_id, workspace=workspace)
+    run = _analysis_run(run_id=run_id, project_root=project_root)
     return run.analyze(SummaryStatsAnalysisStep(selector=selector)).save()
 
 
-def execute_best_signal_analysis(*, run_id: str, workspace: str | Path) -> sc.Analysis:
-    run = _analysis_run(run_id=run_id, workspace=workspace)
+def execute_best_signal_analysis(
+    *, run_id: str, project_root: str | Path
+) -> sc.Analysis:
+    run = _analysis_run(run_id=run_id, project_root=project_root)
     return run.analyze(BestSignalAnalysisStep())
 
 

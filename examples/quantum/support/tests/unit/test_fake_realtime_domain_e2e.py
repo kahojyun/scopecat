@@ -25,7 +25,7 @@ from quantum_lab_demo.workflows.interaction_tomography import (
     interaction_tomography_template,
 )
 
-from .demo_lab_experiment_testkit import embedded_quantum_lab
+from .demo_lab_experiment_testkit import in_process_quantum_lab
 
 
 @q.program(id="domain-detector-history")
@@ -70,8 +70,8 @@ def test_active_reset_runs_through_the_domain_compiler_without_unrolling(
     compiler = quantum_realtime_lab_compiler(
         config_profile=config, measurement_bits={"reset_iq": (0, 1, 0, 1, 1, 0)}
     )
-    lab = embedded_quantum_lab(
-        workspace=tmp_path,
+    lab = in_process_quantum_lab(
+        project_root=tmp_path,
         config_profile=config,
         compiler=compiler,
     )
@@ -100,8 +100,8 @@ def test_direct_interaction_layout_runs_on_the_realtime_target(
 ) -> None:
     config = quantum_wiring_config_profile(target="fake-realtime")
     compiler = quantum_realtime_lab_compiler(config_profile=config)
-    lab = embedded_quantum_lab(
-        workspace=tmp_path,
+    lab = in_process_quantum_lab(
+        project_root=tmp_path,
         config_profile=config,
         compiler=compiler,
     )
@@ -145,8 +145,8 @@ def test_emitted_detector_is_a_typed_domain_result_with_ssa_provenance(
         config_profile=config, measurement_bits={"syndrome_iq": (0, 1, 0, 1, 1, 0)}
     )
     run = (
-        embedded_quantum_lab(
-            workspace=tmp_path,
+        in_process_quantum_lab(
+            project_root=tmp_path,
             config_profile=config,
             compiler=compiler,
         )

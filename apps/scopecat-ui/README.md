@@ -46,8 +46,7 @@ package-manager output are excluded; their producing tools remain authoritative.
 `src/api-schema.d.ts` is generated from the daemon's FastAPI schema. Run
 `pnpm run generate:api` after changing a UI-used transport model; CI runs
 `pnpm run check:api` so the generated contract cannot drift. Keep presentation
-mapping in `src/api.ts` and do not add compatibility parsing for old local
-daemon responses.
+mapping in `src/api.ts` and treat the generated daemon contract as authoritative.
 
 ## Browser end-to-end test
 

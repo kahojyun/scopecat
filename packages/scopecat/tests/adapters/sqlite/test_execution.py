@@ -49,7 +49,7 @@ from tests.contracts.execution_port_contracts import (
 
 def _runs(tmp_path: Path) -> SQLiteRunRepository:
     runs = SQLiteRunRepository(
-        tmp_path / "workspace.sqlite3",
+        tmp_path / "control.sqlite3",
         tmp_path / "objects",
     )
     runs.bootstrap()
@@ -191,7 +191,7 @@ class TestSQLitePayloadEvidenceContract(PayloadEvidenceCommitterContract):
 
 
 def test_execution_and_control_indexes_share_run_database(tmp_path: Path) -> None:
-    database = tmp_path / "workspace.sqlite3"
+    database = tmp_path / "control.sqlite3"
     control = SQLiteControlPlane(database)
     control.bootstrap()
     runs = SQLiteRunRepository(database, tmp_path / "objects")

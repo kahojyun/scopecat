@@ -1,7 +1,7 @@
 # Contract Tests
 
 Contract tests protect behavior that interchangeable adapters, private
-integrations, or durable workspace readers must be able to trust while internal
+integrations, or durable state readers must be able to trust while internal
 implementations change.
 
 Use a shared contract suite when more than one repository or adapter implements

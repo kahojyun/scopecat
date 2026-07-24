@@ -1,6 +1,6 @@
 """Configuration-registry use cases and persistence ports.
 
-The registry stores named configuration snapshots under the workspace-local
+The registry stores named configuration snapshots under the project-local
 ``config-registry`` tree and maintains an ``active`` selector for later runs.
 Entries can be registered directly from a ``ConfigProfileSnapshot`` or from a
 candidate configuration. Activating an entry records the previous active
@@ -30,8 +30,8 @@ from scopecat.config.parameter_updates import (
 )
 from scopecat.config.registry.ports import (
     ConfigRegistryRepository,
-    WorkspaceUnitOfWork,
-    WorkspaceUnitOfWorkFactory,
+    ConfigRegistryUnitOfWork,
+    ConfigRegistryUnitOfWorkFactory,
 )
 from scopecat.config.registry.records import (
     CandidateConfigRegistrySource,
@@ -102,7 +102,7 @@ class ManualConfigDraftResult:
 
 def preview_manual_config_draft(
     *,
-    unit_of_work: WorkspaceUnitOfWorkFactory,
+    unit_of_work: ConfigRegistryUnitOfWorkFactory,
     base_entry_id: str,
     base_config_content_hash: ConfigContentHash,
     base_generation: int,
@@ -124,7 +124,7 @@ def preview_manual_config_draft(
 
 def register_manual_config_draft(
     *,
-    unit_of_work: WorkspaceUnitOfWorkFactory,
+    unit_of_work: ConfigRegistryUnitOfWorkFactory,
     base_entry_id: str,
     base_config_content_hash: ConfigContentHash,
     base_generation: int,
@@ -156,7 +156,7 @@ def register_manual_config_draft(
 
 def register_and_activate_manual_config_draft(
     *,
-    unit_of_work: WorkspaceUnitOfWorkFactory,
+    unit_of_work: ConfigRegistryUnitOfWorkFactory,
     base_entry_id: str,
     base_config_content_hash: ConfigContentHash,
     base_generation: int,
@@ -205,7 +205,7 @@ def register_and_activate_manual_config_draft(
 
 def _register_manual_config_draft_locked(
     *,
-    work: WorkspaceUnitOfWork,
+    work: ConfigRegistryUnitOfWork,
     base_entry_id: str,
     base_config_content_hash: ConfigContentHash,
     base_generation: int,
@@ -265,7 +265,7 @@ def _register_manual_config_draft_locked(
 
 def _check_manual_config_draft_locked(
     *,
-    work: WorkspaceUnitOfWork,
+    work: ConfigRegistryUnitOfWork,
     base_entry_id: str,
     base_config_content_hash: ConfigContentHash,
     base_generation: int,
@@ -310,7 +310,7 @@ def _check_manual_config_draft_locked(
 def register_config_profile(
     *,
     config: ConfigProfileSnapshot,
-    unit_of_work: WorkspaceUnitOfWorkFactory,
+    unit_of_work: ConfigRegistryUnitOfWorkFactory,
     entry_id: str,
     registered_by: str,
     note: str = "",
@@ -330,7 +330,7 @@ def register_config_profile(
 def register_and_activate_config_profile(
     *,
     config: ConfigProfileSnapshot,
-    unit_of_work: WorkspaceUnitOfWorkFactory,
+    unit_of_work: ConfigRegistryUnitOfWorkFactory,
     entry_id: str,
     registered_by: str,
     operator: str,
@@ -378,7 +378,7 @@ def register_and_activate_config_profile(
 def _register_config_profile_locked(
     *,
     config: ConfigProfileSnapshot,
-    work: WorkspaceUnitOfWork,
+    work: ConfigRegistryUnitOfWork,
     entry_id: str,
     registered_by: str,
     note: str,
@@ -401,7 +401,7 @@ def _register_config_profile_locked(
 def register_candidate_config(
     *,
     config: ConfigProfileSnapshot,
-    unit_of_work: WorkspaceUnitOfWorkFactory,
+    unit_of_work: ConfigRegistryUnitOfWorkFactory,
     entry_id: str,
     registered_by: str,
     run_id: str,
@@ -430,7 +430,7 @@ def register_candidate_config(
 def register_and_activate_candidate_config(
     *,
     config: ConfigProfileSnapshot,
-    unit_of_work: WorkspaceUnitOfWorkFactory,
+    unit_of_work: ConfigRegistryUnitOfWorkFactory,
     entry_id: str,
     registered_by: str,
     run_id: str,
@@ -482,7 +482,7 @@ def register_and_activate_candidate_config(
 def _register_candidate_config_locked(
     *,
     config: ConfigProfileSnapshot,
-    work: WorkspaceUnitOfWork,
+    work: ConfigRegistryUnitOfWork,
     entry_id: str,
     registered_by: str,
     run_id: str,
@@ -748,7 +748,7 @@ def _record_content_hash(model: BaseModel) -> EvidenceContentHash:
 
 def _validate_derived_entry_source_locked(
     *,
-    work: WorkspaceUnitOfWork,
+    work: ConfigRegistryUnitOfWork,
     entry: ConfigRegistryEntry,
     config: ConfigProfileSnapshot,
 ) -> None:
@@ -830,7 +830,7 @@ def _validate_derived_entry_source_locked(
 
 
 def list_config_registry_entries(
-    *, unit_of_work: WorkspaceUnitOfWorkFactory
+    *, unit_of_work: ConfigRegistryUnitOfWorkFactory
 ) -> list[ConfigRegistryEntry]:
     with unit_of_work() as work:
         entries = [
@@ -844,7 +844,7 @@ def list_config_registry_entries(
 
 
 def load_config_registry_entry(
-    *, entry_id: str, unit_of_work: WorkspaceUnitOfWorkFactory
+    *, entry_id: str, unit_of_work: ConfigRegistryUnitOfWorkFactory
 ) -> ConfigRegistryEntry:
     _validate_entry_id(entry_id)
     with unit_of_work() as work:
@@ -855,7 +855,7 @@ def load_config_registry_entry(
 
 
 def _load_config_registry_entry_locked(
-    *, entry_id: str, work: WorkspaceUnitOfWork
+    *, entry_id: str, work: ConfigRegistryUnitOfWork
 ) -> ConfigRegistryEntry:
     entry = _load_committed_config_registry_entry_locked(
         entry_id=entry_id,
@@ -871,7 +871,7 @@ def _load_config_registry_entry_locked(
 
 
 def _load_committed_config_registry_entry_locked(
-    *, entry_id: str, work: WorkspaceUnitOfWork
+    *, entry_id: str, work: ConfigRegistryUnitOfWork
 ) -> ConfigRegistryEntry:
     """Load committed registry identity without re-evaluating source evidence."""
 
@@ -892,7 +892,7 @@ def _load_committed_config_registry_entry_locked(
 
 def _validate_listed_entry_locked(
     *,
-    work: WorkspaceUnitOfWork,
+    work: ConfigRegistryUnitOfWork,
     entry: ConfigRegistryEntry,
 ) -> ConfigRegistryEntry:
     _validate_registry_entry_coordinates(
@@ -957,7 +957,7 @@ def _read_config_registry_entry_locked(
 
 
 def load_config_registry_config(
-    *, entry_id: str, unit_of_work: WorkspaceUnitOfWorkFactory
+    *, entry_id: str, unit_of_work: ConfigRegistryUnitOfWorkFactory
 ) -> ConfigProfileSnapshot:
     _validate_entry_id(entry_id)
     with unit_of_work() as work:
@@ -969,7 +969,7 @@ def load_config_registry_config(
 
 
 def load_active_config_registry_config(
-    *, unit_of_work: WorkspaceUnitOfWorkFactory
+    *, unit_of_work: ConfigRegistryUnitOfWorkFactory
 ) -> ConfigProfileSnapshot:
     with unit_of_work() as work:
         state = _load_active_config_registry_state_locked(work.registry)
@@ -982,7 +982,7 @@ def load_active_config_registry_config(
 
 
 def resolve_config_registry_config_source(
-    *, selector: str, unit_of_work: WorkspaceUnitOfWorkFactory
+    *, selector: str, unit_of_work: ConfigRegistryUnitOfWorkFactory
 ) -> tuple[ConfigProfileSnapshot, RunConfigSource]:
     if selector != ACTIVE_CONFIG_REGISTRY_ENTRY_SELECTOR:
         _validate_entry_id(selector)
@@ -998,7 +998,7 @@ def resolve_config_registry_config_source(
 def activate_config_registry_entry(
     *,
     entry_id: str,
-    unit_of_work: WorkspaceUnitOfWorkFactory,
+    unit_of_work: ConfigRegistryUnitOfWorkFactory,
     operator: str,
     expected_generation: int,
     note: str = "",
@@ -1018,7 +1018,7 @@ def activate_config_registry_entry(
 def _activate_config_registry_entry_locked(
     *,
     entry_id: str,
-    work: WorkspaceUnitOfWork,
+    work: ConfigRegistryUnitOfWork,
     operator: str,
     expected_generation: int,
     note: str,
@@ -1070,7 +1070,7 @@ def _activate_config_registry_entry_locked(
 
 def rollback_config_registry(
     *,
-    unit_of_work: WorkspaceUnitOfWorkFactory,
+    unit_of_work: ConfigRegistryUnitOfWorkFactory,
     operator: str,
     expected_generation: int,
     note: str = "",
@@ -1141,7 +1141,7 @@ def rollback_config_registry(
 def _load_current_active_entry_for_rollback_locked(
     *,
     state: ConfigRegistryActiveState,
-    work: WorkspaceUnitOfWork,
+    work: ConfigRegistryUnitOfWork,
 ) -> ConfigRegistryEntry:
     """Validate the entry being left without blocking emergency rollback.
 
@@ -1163,14 +1163,14 @@ def _load_current_active_entry_for_rollback_locked(
 
 
 def current_config_registry_generation(
-    *, unit_of_work: WorkspaceUnitOfWorkFactory
+    *, unit_of_work: ConfigRegistryUnitOfWorkFactory
 ) -> int:
     with unit_of_work() as work:
         return _state_generation(_read_active_state_optional(work.registry))
 
 
 def load_active_config_registry_state(
-    *, unit_of_work: WorkspaceUnitOfWorkFactory
+    *, unit_of_work: ConfigRegistryUnitOfWorkFactory
 ) -> ConfigRegistryActiveState:
     with unit_of_work() as work:
         return _load_active_config_registry_state_locked(work.registry)
@@ -1193,7 +1193,7 @@ def _load_active_config_registry_state_locked(
 
 
 def load_active_config_registry_entry(
-    *, unit_of_work: WorkspaceUnitOfWorkFactory
+    *, unit_of_work: ConfigRegistryUnitOfWorkFactory
 ) -> ConfigRegistryEntry:
     with unit_of_work() as work:
         state = _load_active_config_registry_state_locked(work.registry)
@@ -1207,7 +1207,7 @@ def load_active_config_registry_entry(
 
 
 def _resolve_entry_config_registry_config_source_locked(
-    *, selector: str, work: WorkspaceUnitOfWork
+    *, selector: str, work: ConfigRegistryUnitOfWork
 ) -> tuple[ConfigProfileSnapshot, RunConfigSource]:
     entry = _load_config_registry_entry_locked(
         entry_id=selector,
@@ -1224,7 +1224,7 @@ def _resolve_entry_config_registry_config_source_locked(
 
 
 def _resolve_active_config_registry_config_source_locked(
-    *, work: WorkspaceUnitOfWork
+    *, work: ConfigRegistryUnitOfWork
 ) -> tuple[ConfigProfileSnapshot, RunConfigSource]:
     state = _load_active_config_registry_state_locked(work.registry)
     entry = _load_config_registry_entry_locked(
@@ -1503,7 +1503,7 @@ def _validate_active_entry_identity(
 def _validate_derived_entry_base(
     state: ConfigRegistryActiveState | None,
     entry: ConfigRegistryEntry,
-    work: WorkspaceUnitOfWork,
+    work: ConfigRegistryUnitOfWork,
 ) -> None:
     if state is None:
         return
@@ -1615,9 +1615,9 @@ def _registry_storage_location(
 __all__ = [
     "ACTIVE_CONFIG_REGISTRY_ENTRY_SELECTOR",
     "ConfigRegistryRepository",
+    "ConfigRegistryUnitOfWork",
+    "ConfigRegistryUnitOfWorkFactory",
     "ManualConfigDraftResult",
-    "WorkspaceUnitOfWork",
-    "WorkspaceUnitOfWorkFactory",
     "activate_config_registry_entry",
     "current_config_registry_generation",
     "list_config_registry_entries",

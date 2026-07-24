@@ -1,4 +1,4 @@
-"""SQLite control plane for a daemon-owned workspace."""
+"""SQLite control plane for a daemon-owned project."""
 
 from __future__ import annotations
 

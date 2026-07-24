@@ -620,10 +620,9 @@ def _ordered_point_domain(
     if requirement_problems:
         raise CheckFailed(requirement_problems)
 
-    # The base domain is the implicit first authored factor.  If it depends on a
-    # scan it simply remains blocked until that producer is ready; giving it the
-    # first stable ordinal preserves the old base-first behavior without first
-    # sorting scans separately and then sorting the combined graph again.
+    # The base domain is the implicit first authored factor. If it depends on a
+    # scan it remains blocked until that producer is ready; its stable ordinal
+    # makes it the first factor among otherwise-ready peers.
     factors: list[_PointDomainFactor] = []
     base_factor: int | None = None
     if not isinstance(base_domain, PointUnit):

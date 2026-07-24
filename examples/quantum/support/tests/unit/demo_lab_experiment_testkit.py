@@ -11,7 +11,7 @@ from scopecat.api.run import (
     RunOperations,
     run_handle_id,
 )
-from scopecat.application.services import WorkspaceServices
+from scopecat.application.services import ProjectServices
 from scopecat.authoring import ExperimentInvocation, ExperimentTemplate, ValueRef
 from scopecat.authoring.scans import Scan, ScanCenter, ScanValue
 from scopecat.compiler.frontend.environment import (
@@ -27,7 +27,6 @@ from scopecat.compiler.linking.linked import (
 )
 from scopecat.compiler.typed.program import CoreProgram
 from scopecat.compiler.typed.verification import seal_typed_program
-from scopecat.composition.embedded import embedded_workspace_services
 from scopecat.config.candidates import CandidateConfig
 from scopecat.config.changes import review_parameter_change_proposal
 from scopecat.config.profiles import load_config_profile
@@ -74,7 +73,7 @@ from scopecat.records.parameter_change import (
 )
 from scopecat.runs.selectors import RunSelector
 from scopecat.runs.service import check_experiment, list_runs, run_experiment
-from scopecat.testing import ServiceRunOperations
+from scopecat.testing import ServiceRunOperations, sqlite_project_services
 
 from quantum_lab_demo.compiler import QuantumLabCompiler, QuantumRealtimeLabCompiler
 from quantum_lab_demo.lab import quantum_lab_config_profile, quantum_lab_system
@@ -155,8 +154,8 @@ class InProcessPreparedExperiment:
 class InProcessQuantumLab:
     """Quantum integration harness; user workflows use the project daemon."""
 
-    workspace: Path
-    services: WorkspaceServices
+    project_root: Path
+    services: ProjectServices
     config: str | ConfigProfileSnapshot
     config_profile: ConfigProfileInput | None
     system: ExperimentSystem | None
@@ -290,9 +289,9 @@ class InProcessQuantumLab:
         )
 
 
-def embedded_quantum_lab(
+def in_process_quantum_lab(
     *,
-    workspace: PathInput,
+    project_root: PathInput,
     config_profile: PathInput | ConfigProfileSnapshot | None = None,
     virtual_lab_profile: PathInput = TEST_VIRTUAL_LAB_PROFILE,
     compiler: QuantumLabCompiler | QuantumRealtimeLabCompiler | None = None,
@@ -301,8 +300,8 @@ def embedded_quantum_lab(
 
     config = quantum_lab_config_profile(config_profile)
     return InProcessQuantumLab(
-        workspace=Path(workspace),
-        services=embedded_workspace_services(workspace),
+        project_root=Path(project_root),
+        services=sqlite_project_services(project_root),
         config="active",
         config_profile=config,
         system=quantum_lab_system(

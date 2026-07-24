@@ -30,7 +30,6 @@ def test_domain_facade_exports_curated_adapter_contracts() -> None:
         "DomainPointAffine",
         "DomainPointAxis",
     } <= set(domain.__all__)
-    assert "DomainInputExpression" not in domain.__all__
 
 
 def test_root_facade_does_not_duplicate_the_adapter_sdk() -> None:

@@ -86,10 +86,9 @@ source of truth.
 
 ## Storage ownership
 
-Per-run filesystem locks and multi-writer repositories are deliberately
-absent. A single process-owner lock prevents two daemons opening the same lab
-instance; inside that boundary, SQLite transactions and fencing tokens are
-the only concurrency mechanisms.
+A single process-owner lock prevents two daemons opening the same lab instance.
+Inside that boundary, SQLite transactions and fencing tokens coordinate all
+durable state changes.
 
 The process-owner lock answers only “which daemon owns this lab instance?” It is
 not a run coordination mechanism. Resource claims coordinate experiments,

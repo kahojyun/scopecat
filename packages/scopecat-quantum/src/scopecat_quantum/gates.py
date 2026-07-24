@@ -51,7 +51,7 @@ type GateArgumentValue = int | float | Quantity
 def canonical_angle_value(value: Quantity) -> Quantity:
     """Return the stable radian representation used by exact match keys.
 
-    The core quantity conversion owns the workspace-wide rounding rule, so
+    The core quantity conversion owns the shared rounding rule, so
     ``180 deg`` and ``pi rad`` converge to the same transient value here.
     """
 

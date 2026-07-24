@@ -143,7 +143,7 @@ class RunOutcome(BaseModel):
 
     @property
     def status(self) -> RunStatus:
-        """Compatibility-free presentation status derived from durable facts."""
+        """Return the presentation status derived from durable outcome facts."""
 
         if self.result == "succeeded":
             return "completed"

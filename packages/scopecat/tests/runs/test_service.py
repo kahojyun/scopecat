@@ -12,7 +12,6 @@ from scopecat.compiler.frontend.resolution import (
     CompiledInvocation,
     compile_prepared_invocation,
 )
-from scopecat.composition.embedded import embedded_workspace_services
 from scopecat.execution.interpreter import admit_run, execute_admitted_run
 from scopecat.kernel.errors import CheckFailed
 from scopecat.planning.system import ExperimentSystem
@@ -25,13 +24,14 @@ from scopecat.runs.service import (
     run_experiment,
     start_run,
 )
+from scopecat.testing import sqlite_project_services
 from tests.testkit.authoring import simple_template
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.workflow_fixtures import load_config, load_prepared_invocation
 
 
 def test_plan_admit_and_execute_are_separate_run_stages(tmp_path: Path) -> None:
-    services = embedded_workspace_services(tmp_path)
+    services = sqlite_project_services(tmp_path)
     system = ExperimentSystem(provider=TestSignalInstrumentProvider())
     planned = plan_experiment(
         load_prepared_invocation(),
@@ -71,7 +71,7 @@ def test_plan_admit_and_execute_are_separate_run_stages(tmp_path: Path) -> None:
 def test_admitted_execution_rejects_a_program_for_another_config(
     tmp_path: Path,
 ) -> None:
-    services = embedded_workspace_services(tmp_path)
+    services = sqlite_project_services(tmp_path)
     system = ExperimentSystem(provider=TestSignalInstrumentProvider())
     planned = plan_experiment(
         load_prepared_invocation(),
@@ -109,13 +109,13 @@ def test_check_and_start_run_use_separate_paths(
         config=config,
         system=ExperimentSystem(provider=TestSignalInstrumentProvider()),
         experiment=experiment,
-        services=embedded_workspace_services(tmp_path / "preview"),
+        services=sqlite_project_services(tmp_path / "preview"),
     )
     provider_run = start_run(
         system=ExperimentSystem(provider=TestSignalInstrumentProvider()),
         config=config,
         experiment=experiment,
-        services=embedded_workspace_services(tmp_path / "provider"),
+        services=sqlite_project_services(tmp_path / "provider"),
     )
 
     assert result.preview is not None
@@ -147,16 +147,14 @@ def test_workflow_compiles_authoring_before_config_source_io(
     invalid = prepare_invocation(simple_template().bind())
 
     if workflow == "check":
-        result = check_experiment(
-            invalid, services=embedded_workspace_services(tmp_path)
-        )
+        result = check_experiment(invalid, services=sqlite_project_services(tmp_path))
         problem = result.problems[0]
     else:
         with pytest.raises(CheckFailed) as error:
             run_experiment(
                 invalid,
                 system=ExperimentSystem(provider=TestSignalInstrumentProvider()),
-                services=embedded_workspace_services(tmp_path),
+                services=sqlite_project_services(tmp_path),
             )
         problem = error.value.problems[0]
 
@@ -185,7 +183,7 @@ def test_start_run_compiles_authoring_before_config_validation(
         start_run(
             config=load_config(),
             experiment=prepare_invocation(simple_template().bind()),
-            services=embedded_workspace_services(tmp_path),
+            services=sqlite_project_services(tmp_path),
         )
 
     assert error.value.problems[0].code == "experiment_template_missing_input"
@@ -224,7 +222,7 @@ def test_workflow_compiles_authoring_once(
         result = check_experiment(
             experiment,
             config=invalid_config,
-            services=embedded_workspace_services(tmp_path),
+            services=sqlite_project_services(tmp_path),
         )
         assert result.problems[0].code == "configuration.unknown_primary_entity"
     else:
@@ -232,12 +230,12 @@ def test_workflow_compiles_authoring_once(
             "start": lambda: start_run(
                 config=invalid_config,
                 experiment=experiment,
-                services=embedded_workspace_services(tmp_path),
+                services=sqlite_project_services(tmp_path),
             ),
             "run": lambda: run_experiment(
                 experiment,
                 config=invalid_config,
-                services=embedded_workspace_services(tmp_path),
+                services=sqlite_project_services(tmp_path),
             ),
         }[workflow]
         with pytest.raises(CheckFailed) as error:

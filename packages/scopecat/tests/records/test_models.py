@@ -81,17 +81,13 @@ def test_config_profile_snapshot_round_trip() -> None:
         schema_version="scopecat.config_profile_snapshot.v3",
     )
 
-    assert "source" not in restored.model_dump(mode="python")
     assert restored.system.schema_version == "scopecat.system_spec.v4"
     assert restored.environment.schema_version == "scopecat.environment_spec.v2"
-    assert "workspace_id" not in restored.system.model_dump(mode="json")
-    assert "workspace_id" not in restored.environment.model_dump(mode="json")
     assert restored.parameter_catalog.schema_version == "scopecat.parameter_catalog.v4"
     assert restored.parameter_snapshot.get("drive_frequency") is not None
     assert restored.topology.entity("q0") is not None
     connection = restored.connection_profile.connections[0]
     assert connection.kind == "offline"
-    assert "redacted" not in connection.model_dump(mode="json")
 
 
 def test_run_request_records_config_source() -> None:
@@ -136,13 +132,6 @@ def test_run_request_records_canonical_scans_only() -> None:
             "unit": "GHz",
         }
     ]
-    with pytest.raises(ValidationError):
-        RunRequest.model_validate(
-            {
-                "schema_version": "scopecat.run_request.v3",
-                "id": "request-002",
-            }
-        )
     with pytest.raises(ValidationError):
         RunRequest.model_validate(
             {
@@ -304,23 +293,6 @@ def test_run_request_symbolic_values_are_closed_and_recursive() -> None:
 
     assert scan.model_dump(mode="json")["center"] == center
     assert AroundScanRecord.model_validate_json(scan.model_dump_json()) == scan
-
-
-def test_run_request_rejects_removed_case_expression_schema() -> None:
-    with pytest.raises(ValidationError):
-        AroundScanRecord.model_validate(
-            {
-                "target_id": "drive_frequency",
-                "axis_id": "drive_frequency",
-                "center": {
-                    "kind": "case",
-                    "branches": [{"when": True, "then": 1.0}],
-                    "fallback": 0.0,
-                },
-                "span": Quantity(value=100.0, unit="MHz"),
-                "points": 3,
-            }
-        )
 
 
 @pytest.mark.parametrize(

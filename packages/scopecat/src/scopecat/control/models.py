@@ -1,4 +1,4 @@
-"""Durable records owned by the workspace control plane."""
+"""Durable records owned by the project control plane."""
 
 from __future__ import annotations
 

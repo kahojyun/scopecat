@@ -35,7 +35,7 @@ from scopecat.analysis.service import (
     prepare_analysis,
     prepare_encoded_analysis_artifact,
 )
-from scopecat.application.services import WorkspaceStateServices
+from scopecat.application.services import ProjectStateServices
 from scopecat.config.candidates import CandidateConfig
 from scopecat.config.changes import (
     list_parameter_change_decisions,
@@ -277,7 +277,7 @@ class ConfigService:
         *,
         control: SQLiteControlPlane,
         config_registry: SQLiteConfigRegistryStore,
-        services: WorkspaceStateServices,
+        services: ProjectStateServices,
         run_content_lock: Lock,
     ) -> None:
         self._control = control
@@ -771,7 +771,7 @@ class ConfigService:
     @contextmanager
     def _config_transaction(
         self,
-    ) -> Generator[tuple[sqlite3.Connection, WorkspaceStateServices]]:
+    ) -> Generator[tuple[sqlite3.Connection, ProjectStateServices]]:
         """Commit registry state and replay events through one SQLite writer."""
 
         with self._control.transaction() as connection:
@@ -807,7 +807,7 @@ class RunService:
         *,
         control: SQLiteControlPlane,
         runs: SQLiteRunRepository,
-        services: WorkspaceStateServices,
+        services: ProjectStateServices,
         content_lock: Lock,
     ) -> None:
         self._control = control
@@ -1287,7 +1287,7 @@ class AdmissionService:
         *,
         control: SQLiteControlPlane,
         runs: SQLiteRunRepository,
-        services: WorkspaceStateServices,
+        services: ProjectStateServices,
         catalog: RegisteredExperimentCatalog,
         build_system: ExperimentSystemBuilder | None,
     ) -> None:

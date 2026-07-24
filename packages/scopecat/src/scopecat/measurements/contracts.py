@@ -53,9 +53,9 @@ def measurement_value_contract_issues(
 ) -> tuple[MeasurementValueContractIssue, ...]:
     """Check one value against a logical product's point-local contract.
 
-    Top-level dtype compatibility preserves the existing numeric widening
-    rules. Array leaves are checked against the array's own dtype tag so that
-    the tag cannot impersonate a typed payload.
+    Top-level dtype compatibility permits numeric widening. Array leaves are
+    checked against the array's own dtype tag so that the tag cannot
+    impersonate a typed payload.
     """
 
     if isinstance(value, MeasurementArray):

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
-from scopecat.application.services import WorkspaceStateServices
+from scopecat.application.services import ProjectStateServices
 from scopecat.config.candidates import (
     CandidateConfig,
     resolve_candidate_config_snapshot,
@@ -71,7 +71,7 @@ class ConfigActivation:
 
 def resolve_config_source(
     *,
-    services: WorkspaceStateServices,
+    services: ProjectStateServices,
     config_profile: ConfigProfileInput | None = None,
     config_entry: str | None = None,
 ) -> ResolvedConfig:
@@ -116,7 +116,7 @@ def resolve_config_source(
 
 def resolve_experiment_config(
     *,
-    services: WorkspaceStateServices,
+    services: ProjectStateServices,
     config: str | ConfigProfileSnapshot | CandidateConfig,
     config_profile: ConfigProfileInput | None = None,
 ) -> ResolvedConfig:
@@ -222,7 +222,7 @@ def resolve_experiment_config(
     )
 
 
-def load_active_config(*, services: WorkspaceStateServices) -> ResolvedConfig:
+def load_active_config(*, services: ProjectStateServices) -> ResolvedConfig:
     config, source = registry_service.resolve_config_registry_config_source(
         selector="active",
         unit_of_work=services.config_registry,
@@ -247,7 +247,7 @@ def validate_config_profile(
 def register_config_profile(
     *,
     config: ConfigProfileSnapshot,
-    services: WorkspaceStateServices,
+    services: ProjectStateServices,
     entry_id: str,
     registered_by: str,
     note: str = "",
@@ -264,7 +264,7 @@ def register_config_profile(
 def register_and_activate_config_profile(
     *,
     config: ConfigProfileSnapshot,
-    services: WorkspaceStateServices,
+    services: ProjectStateServices,
     entry_id: str,
     registered_by: str,
     operator: str,
@@ -294,7 +294,7 @@ def register_and_activate_config_profile(
 def register_and_activate_candidate_config(
     *,
     candidate: CandidateConfig,
-    services: WorkspaceStateServices,
+    services: ProjectStateServices,
     entry_id: str | None = None,
     registered_by: str,
     operator: str,
@@ -336,7 +336,7 @@ def register_and_activate_candidate_config(
 def activate_config_entry(
     *,
     entry_id: str,
-    services: WorkspaceStateServices,
+    services: ProjectStateServices,
     operator: str,
     note: str = "",
     expected_generation: int | None = None,
@@ -363,7 +363,7 @@ def activate_config_entry(
 
 def rollback_config(
     *,
-    services: WorkspaceStateServices,
+    services: ProjectStateServices,
     operator: str,
     expected_generation: int,
     note: str = "",

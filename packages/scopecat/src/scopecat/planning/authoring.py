@@ -11,7 +11,7 @@ from scopecat.compiler.frontend.resolution import (
     resolve_compiled_invocation,
 )
 from scopecat.config.profiles import load_config_profile
-from scopecat.config.registry.ports import WorkspaceUnitOfWorkFactory
+from scopecat.config.registry.ports import ConfigRegistryUnitOfWorkFactory
 from scopecat.config.registry.service import resolve_config_registry_config_source
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
@@ -28,7 +28,7 @@ from scopecat.records.run import RunConfigSource
 def resolve_experiment(
     experiment: ExperimentInvocation,
     *,
-    config_registry: WorkspaceUnitOfWorkFactory | None = None,
+    config_registry: ConfigRegistryUnitOfWorkFactory | None = None,
     config_entry: str | None = "active",
     config_profile: ConfigProfileInput | None = None,
 ) -> ResolvedExperiment:
@@ -65,7 +65,7 @@ def resolve_experiment_with_config(
 
 def _resolve_config_source(
     *,
-    config_registry: WorkspaceUnitOfWorkFactory | None,
+    config_registry: ConfigRegistryUnitOfWorkFactory | None,
     config_entry: str | None,
     config_profile: ConfigProfileInput | None,
 ) -> tuple[ConfigProfileSnapshot, RunConfigSource | None]:
@@ -96,7 +96,7 @@ def _resolve_config_source(
             [
                 _configuration_problem(
                     "missing_experiment_authoring_services",
-                    "registry-backed authoring requires workspace services",
+                    "registry-backed authoring requires project services",
                 )
             ]
         )

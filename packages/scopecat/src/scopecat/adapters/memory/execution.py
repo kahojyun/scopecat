@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 
 
 class MemoryExecutionJournal:
-    """Deterministic in-memory journal for tests and embedded execution."""
+    """Deterministic in-memory journal for in-process tests."""
 
     def __init__(self) -> None:
         self._entries: list[ExecutionTransition] = []

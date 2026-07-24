@@ -7,10 +7,6 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from scopecat.composition.embedded import (
-    embedded_run_repository,
-    embedded_workspace_services,
-)
 from scopecat.config.changes import (
     decide_parameter_change_proposal,
     invalidate_parameter_change_proposal,
@@ -22,6 +18,10 @@ from scopecat.config.changes import (
 from scopecat.kernel.errors import Conflict, DataIntegrityError
 from scopecat.records.parameter_change import AutomaticPolicyDecisionAuthority
 from scopecat.runs.refs import record_content_ref
+from scopecat.testing import (
+    sqlite_project_services,
+    sqlite_run_repository,
+)
 from tests.testkit.config_registry import signal_run_with_parameter_change
 
 
@@ -29,7 +29,7 @@ def test_same_proposal_intent_retry_reuses_durable_entry_hash(
     tmp_path: Path,
 ) -> None:
     run_id = signal_run_with_parameter_change(tmp_path)
-    services = embedded_workspace_services(tmp_path)
+    services = sqlite_project_services(tmp_path)
     proposal = load_parameter_change_proposal(
         run_id=run_id,
         selector="best-signal",
@@ -70,13 +70,13 @@ def test_invalidate_parameter_change_records_decision_without_mutating_proposal(
     before = load_parameter_change_proposal(
         run_id=run_id,
         selector="best-signal",
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
     )
 
     record = invalidate_parameter_change_proposal(
         run_id=run_id,
         selector="best-signal",
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
         reason="active config changed before review",
         invalidated_by="operator",
         invalidated_by_refs=["config-profile.snapshot.json"],
@@ -93,11 +93,11 @@ def test_invalidate_parameter_change_records_decision_without_mutating_proposal(
         load_parameter_change_proposal(
             run_id=run_id,
             selector="best-signal",
-            services=embedded_workspace_services(tmp_path),
+            services=sqlite_project_services(tmp_path),
         )
         == before
     )
-    manifest = embedded_run_repository(tmp_path).read_manifest(run_id)
+    manifest = sqlite_run_repository(tmp_path).read_manifest(run_id)
     decision_record = next(
         record
         for record in manifest.records
@@ -114,7 +114,7 @@ def test_parameter_change_decisions_append_invalidation_after_approval(
     approval = review_parameter_change_proposal(
         run_id=run_id,
         selector="best-signal",
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
         state="approved",
         reviewer="operator",
         note="manual approval",
@@ -122,7 +122,7 @@ def test_parameter_change_decisions_append_invalidation_after_approval(
     invalidation = invalidate_parameter_change_proposal(
         run_id=run_id,
         selector="best-signal",
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
         reason="active config changed after review",
         invalidated_by="operator",
     )
@@ -130,14 +130,14 @@ def test_parameter_change_decisions_append_invalidation_after_approval(
     decisions = list_parameter_change_decisions(
         run_id=run_id,
         selector="best-signal",
-        storage=embedded_run_repository(tmp_path),
+        storage=sqlite_run_repository(tmp_path),
     )
     assert decisions == [approval, invalidation]
     assert [decision.decision for decision in decisions] == [
         "approved",
         "invalidated",
     ]
-    manifest = embedded_run_repository(tmp_path).read_manifest(run_id)
+    manifest = sqlite_run_repository(tmp_path).read_manifest(run_id)
     decision_records = [
         record
         for record in manifest.records
@@ -167,7 +167,7 @@ def test_automatic_policy_decision_authority_round_trips_without_verification(
     decision = decide_parameter_change_proposal(
         run_id=run_id,
         selector="best-signal",
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
         decision="approved",
         authority=authority,
         note="fit confidence exceeded the automatic acceptance threshold",
@@ -177,7 +177,7 @@ def test_automatic_policy_decision_authority_round_trips_without_verification(
     assert list_parameter_change_decisions(
         run_id=run_id,
         selector="best-signal",
-        storage=embedded_run_repository(tmp_path),
+        storage=sqlite_run_repository(tmp_path),
     ) == [decision]
     assert decision.authority == authority
 
@@ -189,11 +189,11 @@ def test_parameter_change_decision_history_fails_closed_on_corruption(
     review_parameter_change_proposal(
         run_id=run_id,
         selector="best-signal",
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
         state="approved",
         reviewer="operator",
     )
-    storage = embedded_run_repository(tmp_path)
+    storage = sqlite_run_repository(tmp_path)
     entry = next(
         record
         for record in storage.read_manifest(run_id).records
@@ -222,7 +222,7 @@ def test_parameter_decisions_preserve_every_append(tmp_path: Path) -> None:
         review_parameter_change_proposal(
             run_id=run_id,
             selector="best-signal",
-            services=embedded_workspace_services(tmp_path),
+            services=sqlite_project_services(tmp_path),
             state="approved",
             reviewer=actor,
         ).event_id
@@ -232,9 +232,9 @@ def test_parameter_decisions_preserve_every_append(tmp_path: Path) -> None:
     decisions = list_parameter_change_decisions(
         run_id=run_id,
         selector="best-signal",
-        storage=embedded_run_repository(tmp_path),
+        storage=sqlite_run_repository(tmp_path),
     )
-    manifest = embedded_run_repository(tmp_path).read_manifest(run_id)
+    manifest = sqlite_run_repository(tmp_path).read_manifest(run_id)
     manifest_event_ids = {
         record.id.removeprefix("best-signal-decision-")
         for record in manifest.records
@@ -249,7 +249,7 @@ def test_parameter_decision_validation_rejects_empty_actor(tmp_path: Path) -> No
     decision = review_parameter_change_proposal(
         run_id=run_id,
         selector="best-signal",
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
         state="approved",
         reviewer="reviewer",
     )

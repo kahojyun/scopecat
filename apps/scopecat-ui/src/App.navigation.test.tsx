@@ -344,14 +344,15 @@ describe("config provenance navigation", () => {
     expect(screen.getByText("2 records")).toBeVisible();
   });
 
-  it("resets only the selected run's measurement pages on measurement events", async () => {
+  it("resets measurement pages for the event's run", async () => {
     window.history.replaceState(null, "", "/?run=run-1");
     vi.mocked(getMeasurementPreview).mockImplementation(async (_runId, offset = 0) => ({
       items: [{ point_index: offset }],
       nextOffset: offset === 0 ? 1 : undefined,
     }));
 
-    renderApp();
+    const queryClient = createQueryClient();
+    renderApp(queryClient);
     fireEvent.click(
       await screen.findByRole("button", {
         name: "Load more measurements",
@@ -359,11 +360,17 @@ describe("config provenance navigation", () => {
     );
     await waitFor(() => expect(getMeasurementPreview).toHaveBeenCalledTimes(2));
     expect(projectEventListener).toBeDefined();
+    queryClient.setQueryData(["measurements", "run-2"], {
+      pages: [{ items: [{ point_index: 9 }] }],
+      pageParams: [0],
+    });
 
     act(() => {
       emitProjectEvent("run-2", "measurements_appended");
     });
-    await new Promise((resolve) => window.setTimeout(resolve, 150));
+    await waitFor(() =>
+      expect(queryClient.getQueryData(["measurements", "run-2"])).toBeUndefined(),
+    );
     expect(getMeasurementPreview).toHaveBeenCalledTimes(2);
 
     act(() => {
@@ -396,13 +403,16 @@ describe("config provenance navigation", () => {
   });
 });
 
-function renderApp() {
-  const queryClient = new QueryClient({
+function createQueryClient(): QueryClient {
+  return new QueryClient({
     defaultOptions: {
       queries: { retry: false },
       mutations: { retry: false },
     },
   });
+}
+
+function renderApp(queryClient = createQueryClient()) {
   return render(
     <QueryClientProvider client={queryClient}>
       <App />

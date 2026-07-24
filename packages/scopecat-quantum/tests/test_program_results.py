@@ -94,7 +94,7 @@ from scopecat_quantum.targets import (
 )
 
 Q0 = QubitId("q0")
-_WORKSPACE = Path(__file__).parents[3]
+_REPO_ROOT = Path(__file__).parents[3]
 
 
 def _preparation(
@@ -146,7 +146,7 @@ def _preparation(
     )
     environment = validate_config_environment(
         load_config_profile(
-            _WORKSPACE / "fixtures" / "core" / "simple_scan" / "config-profile.json"
+            _REPO_ROOT / "fixtures" / "core" / "simple_scan" / "config-profile.json"
         )
     )
     linked_points = LinkedPointMaterializer(

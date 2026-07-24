@@ -9,12 +9,7 @@ from typing import Literal
 import pytest
 
 import scopecat.config.resolution as config_workflow
-from scopecat.application.services import WorkspaceServices
-from scopecat.composition.embedded import (
-    embedded_config_registry_unit_of_work,
-    embedded_run_repository,
-    embedded_workspace_services,
-)
+from scopecat.application.services import ProjectServices
 from scopecat.config.candidates import (
     CandidateConfig,
     resolve_candidate_config_snapshot,
@@ -68,6 +63,11 @@ from scopecat.records.parameter_change import (
 )
 from scopecat.records.run import ConfigRegistryRunConfigSource
 from scopecat.runs.refs import record_content_ref
+from scopecat.testing import (
+    sqlite_config_registry_unit_of_work,
+    sqlite_project_services,
+    sqlite_run_repository,
+)
 from tests.testkit.config_registry import (
     load_config,
     signal_run_with_parameter_change,
@@ -86,7 +86,7 @@ def test_register_config_profile_writes_and_activates_direct_entry(
     config = load_config()
     entry = register_config_profile(
         config=config,
-        unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+        unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
         entry_id="seed",
         registered_by="operator",
         note="seed config",
@@ -99,13 +99,13 @@ def test_register_config_profile_writes_and_activates_direct_entry(
     assert entry.content_hash == config_content_hash(config)
     persisted_config = load_config_registry_config(
         entry_id=entry.id,
-        unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+        unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
     )
     assert persisted_config == config
 
     entry, active_state, _activation = register_and_activate_config_profile(
         config=load_config(),
-        unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+        unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
         entry_id="active-seed",
         registered_by="operator",
         operator="operator",
@@ -114,19 +114,19 @@ def test_register_config_profile_writes_and_activates_direct_entry(
     assert active_state.active_entry_id == entry.id
     assert (
         load_active_config_registry_entry(
-            unit_of_work=embedded_config_registry_unit_of_work(tmp_path)
+            unit_of_work=sqlite_config_registry_unit_of_work(tmp_path)
         )
         == entry
     )
     assert (
         load_active_config_registry_state(
-            unit_of_work=embedded_config_registry_unit_of_work(tmp_path)
+            unit_of_work=sqlite_config_registry_unit_of_work(tmp_path)
         )
         == active_state
     )
     assert (
         load_active_config_registry_config(
-            unit_of_work=embedded_config_registry_unit_of_work(tmp_path)
+            unit_of_work=sqlite_config_registry_unit_of_work(tmp_path)
         )
         == load_config()
     )
@@ -136,7 +136,7 @@ def test_registry_rejects_invalid_registration_before_storage(tmp_path: Path) ->
     with pytest.raises(CheckFailed) as captured:
         register_config_profile(
             config=load_config(),
-            unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+            unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
             entry_id="seed",
             registered_by=" ",
         )
@@ -144,7 +144,7 @@ def test_registry_rejects_invalid_registration_before_storage(tmp_path: Path) ->
     assert captured.value.problems[0].code == ("config_registry.registered_by_missing")
     assert (
         list_config_registry_entries(
-            unit_of_work=embedded_config_registry_unit_of_work(tmp_path)
+            unit_of_work=sqlite_config_registry_unit_of_work(tmp_path)
         )
         == []
     )
@@ -153,7 +153,7 @@ def test_registry_rejects_invalid_registration_before_storage(tmp_path: Path) ->
 def test_manual_config_draft_preview_is_read_only_and_registration_records_source(
     tmp_path: Path,
 ) -> None:
-    unit_of_work = embedded_config_registry_unit_of_work(tmp_path)
+    unit_of_work = sqlite_config_registry_unit_of_work(tmp_path)
     base, active_state = _seed_active_config_registry(tmp_path)
     entries_before = list_config_registry_entries(unit_of_work=unit_of_work)
 
@@ -228,7 +228,7 @@ def test_manual_config_draft_registration_rejects_stale_base_identity(
     stale_field: Literal["generation", "content_hash"],
     expected_code: str,
 ) -> None:
-    unit_of_work = embedded_config_registry_unit_of_work(tmp_path)
+    unit_of_work = sqlite_config_registry_unit_of_work(tmp_path)
     base, active_state = _seed_active_config_registry(tmp_path)
     preview = preview_manual_config_draft(
         unit_of_work=unit_of_work,
@@ -278,7 +278,7 @@ def test_manual_config_draft_registration_rejects_stale_base_identity(
 def test_manual_config_draft_registration_rejects_changed_preview_result(
     tmp_path: Path,
 ) -> None:
-    unit_of_work = embedded_config_registry_unit_of_work(tmp_path)
+    unit_of_work = sqlite_config_registry_unit_of_work(tmp_path)
     base, active_state = _seed_active_config_registry(tmp_path)
 
     with pytest.raises(Conflict) as error:
@@ -306,7 +306,7 @@ def test_manual_config_draft_registration_rejects_changed_preview_result(
 def test_manual_config_draft_set_default_stale_conflict_leaves_no_entry(
     tmp_path: Path,
 ) -> None:
-    unit_of_work = embedded_config_registry_unit_of_work(tmp_path)
+    unit_of_work = sqlite_config_registry_unit_of_work(tmp_path)
     base, active_state = _seed_active_config_registry(tmp_path)
     preview = preview_manual_config_draft(
         unit_of_work=unit_of_work,
@@ -353,7 +353,7 @@ def test_manual_config_draft_set_default_stale_conflict_leaves_no_entry(
 def test_manual_config_draft_activation_rejects_a_stale_base(
     tmp_path: Path,
 ) -> None:
-    unit_of_work = embedded_config_registry_unit_of_work(tmp_path)
+    unit_of_work = sqlite_config_registry_unit_of_work(tmp_path)
     base, active_state = _seed_active_config_registry(tmp_path)
     preview = preview_manual_config_draft(
         unit_of_work=unit_of_work,
@@ -404,7 +404,7 @@ def test_candidate_config_registers_and_activates_parameter_proposal(
     proposal = load_parameter_change_proposal(
         run_id=run_id,
         selector="best-signal",
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
     )
     candidate = CandidateConfig(
         parameter_proposals=(proposal,),
@@ -412,7 +412,7 @@ def test_candidate_config_registers_and_activates_parameter_proposal(
     decision = review_parameter_change_proposal(
         run_id=run_id,
         selector="best-signal",
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
         state="approved",
         reviewer="operator",
         note="looks good",
@@ -420,7 +420,7 @@ def test_candidate_config_registers_and_activates_parameter_proposal(
 
     activation_result = register_and_activate_candidate_config(
         candidate=candidate,
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
         entry_id="candidate-best-signal",
         registered_by="operator",
         operator="operator",
@@ -444,14 +444,14 @@ def test_candidate_config_registers_and_activates_parameter_proposal(
     stored_proposal = load_parameter_change_proposal(
         run_id=run_id,
         selector="best-signal",
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
     )
     assert stored_proposal == proposal
     assert active_state.history[-1] == activation
 
     config, source = resolve_config_registry_config_source(
         selector="active",
-        unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+        unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
     )
     assert source.kind == "config_registry"
     assert source.entry_id == entry.id
@@ -459,7 +459,7 @@ def test_candidate_config_registers_and_activates_parameter_proposal(
     assert source.content_hash == entry.content_hash
     assert source.registry_generation == active_state.generation
     assert config == load_config_registry_config(
-        entry_id=entry.id, unit_of_work=embedded_config_registry_unit_of_work(tmp_path)
+        entry_id=entry.id, unit_of_work=sqlite_config_registry_unit_of_work(tmp_path)
     )
 
 
@@ -470,7 +470,7 @@ def test_automatic_policy_approval_can_activate_candidate_without_verification(
     proposal = load_parameter_change_proposal(
         run_id=run_id,
         selector="best-signal",
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
     )
     candidate = CandidateConfig(parameter_proposals=(proposal,))
     authority = AutomaticPolicyDecisionAuthority(
@@ -481,14 +481,14 @@ def test_automatic_policy_approval_can_activate_candidate_without_verification(
     decision = decide_parameter_change_proposal(
         run_id=run_id,
         selector=proposal.id,
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
         decision="approved",
         authority=authority,
     )
 
     result = register_and_activate_candidate_config(
         candidate=candidate,
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
         entry_id="automatic-policy-candidate",
         registered_by="calibration-scheduler",
         operator="calibration-scheduler",
@@ -502,7 +502,7 @@ def test_automatic_policy_approval_can_activate_candidate_without_verification(
     assert list_parameter_change_decisions(
         run_id=run_id,
         selector=proposal.id,
-        storage=embedded_run_repository(tmp_path),
+        storage=sqlite_run_repository(tmp_path),
     ) == [decision]
     assert decision.authority == authority
     assert decision.related_refs == ()
@@ -514,7 +514,7 @@ def test_later_approval_preserves_registered_candidate_evidence(
     run_id, proposal, resolved = _resolved_candidate(tmp_path)
     entry = register_candidate_config(
         config=resolved.config,
-        unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+        unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
         entry_id="candidate-original-approval",
         registered_by="operator",
         run_id=run_id,
@@ -526,14 +526,14 @@ def test_later_approval_preserves_registered_candidate_evidence(
     later = review_parameter_change_proposal(
         run_id=run_id,
         selector=proposal.id,
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
         state="approved",
         reviewer="second-reviewer",
     )
 
     loaded = load_config_registry_entry(
         entry_id=entry.id,
-        unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+        unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
     )
 
     assert loaded == entry
@@ -547,7 +547,7 @@ def test_candidate_activation_rejects_a_stale_base_config(tmp_path: Path) -> Non
     proposal = load_parameter_change_proposal(
         run_id=run_id,
         selector="best-signal",
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
     )
     candidate = CandidateConfig(
         parameter_proposals=(proposal,),
@@ -555,14 +555,14 @@ def test_candidate_activation_rejects_a_stale_base_config(tmp_path: Path) -> Non
     review_parameter_change_proposal(
         run_id=run_id,
         selector="best-signal",
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
         state="approved",
         reviewer="operator",
     )
     newer_config = load_config().model_copy(update={"id": "newer-base"})
     _entry, active_state, _activation = register_and_activate_config_profile(
         config=newer_config,
-        unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+        unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
         entry_id="newer-base",
         registered_by="operator",
         operator="operator",
@@ -571,7 +571,7 @@ def test_candidate_activation_rejects_a_stale_base_config(tmp_path: Path) -> Non
     with pytest.raises(Conflict) as error:
         register_and_activate_candidate_config(
             candidate=candidate,
-            services=embedded_workspace_services(tmp_path),
+            services=sqlite_project_services(tmp_path),
             entry_id="stale-candidate",
             registered_by="operator",
             operator="operator",
@@ -580,7 +580,7 @@ def test_candidate_activation_rejects_a_stale_base_config(tmp_path: Path) -> Non
     assert error.value.problems[0].code == "config_registry.stale_candidate"
     assert (
         load_active_config_registry_state(
-            unit_of_work=embedded_config_registry_unit_of_work(tmp_path)
+            unit_of_work=sqlite_config_registry_unit_of_work(tmp_path)
         )
         == active_state
     )
@@ -595,19 +595,19 @@ def test_candidate_registration_requires_latest_approval(
     proposal = load_parameter_change_proposal(
         run_id=run_id,
         selector="best-signal",
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
     )
     candidate = CandidateConfig(
         parameter_proposals=(proposal,),
     )
     config = resolve_candidate_config_snapshot(
-        candidate, services=embedded_workspace_services(tmp_path)
+        candidate, services=sqlite_project_services(tmp_path)
     )
     if decision == "rejected":
         review_parameter_change_proposal(
             run_id=run_id,
             selector=proposal.id,
-            services=embedded_workspace_services(tmp_path),
+            services=sqlite_project_services(tmp_path),
             state="rejected",
             reviewer="reviewer",
         )
@@ -615,14 +615,14 @@ def test_candidate_registration_requires_latest_approval(
         review_parameter_change_proposal(
             run_id=run_id,
             selector=proposal.id,
-            services=embedded_workspace_services(tmp_path),
+            services=sqlite_project_services(tmp_path),
             state="approved",
             reviewer="reviewer",
         )
         invalidate_parameter_change_proposal(
             run_id=run_id,
             selector=proposal.id,
-            services=embedded_workspace_services(tmp_path),
+            services=sqlite_project_services(tmp_path),
             reason="superseded",
             invalidated_by="reviewer",
         )
@@ -630,7 +630,7 @@ def test_candidate_registration_requires_latest_approval(
     with pytest.raises(Conflict) as error:
         register_candidate_config(
             config=config,
-            unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+            unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
             entry_id=f"not-approved-{decision or 'missing'}",
             registered_by="operator",
             run_id=run_id,
@@ -648,7 +648,7 @@ def test_candidate_invalidation_after_registration_blocks_load_and_activation(
 ) -> None:
     _base, active_state, _activation = register_and_activate_config_profile(
         config=load_config(),
-        unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+        unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
         entry_id="base",
         registered_by="operator",
         operator="operator",
@@ -656,7 +656,7 @@ def test_candidate_invalidation_after_registration_blocks_load_and_activation(
     run_id, proposal, resolved = _resolved_candidate(tmp_path)
     entry = register_candidate_config(
         config=resolved.config,
-        unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+        unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
         entry_id="candidate",
         registered_by="operator",
         run_id=run_id,
@@ -666,7 +666,7 @@ def test_candidate_invalidation_after_registration_blocks_load_and_activation(
     invalidate_parameter_change_proposal(
         run_id=run_id,
         selector=proposal.id,
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
         reason="new evidence",
         invalidated_by="reviewer",
     )
@@ -674,12 +674,12 @@ def test_candidate_invalidation_after_registration_blocks_load_and_activation(
     with pytest.raises(Conflict) as load_error:
         load_config_registry_entry(
             entry_id=entry.id,
-            unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+            unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
         )
     with pytest.raises(Conflict) as activation_error:
         activate_config_registry_entry(
             entry_id=entry.id,
-            unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+            unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
             operator="operator",
             expected_generation=active_state.generation,
         )
@@ -692,7 +692,7 @@ def test_candidate_invalidation_after_registration_blocks_load_and_activation(
     )
     assert (
         load_active_config_registry_state(
-            unit_of_work=embedded_config_registry_unit_of_work(tmp_path)
+            unit_of_work=sqlite_config_registry_unit_of_work(tmp_path)
         )
         == active_state
     )
@@ -705,7 +705,7 @@ def test_rollback_can_leave_an_active_candidate_after_later_review(
 ) -> None:
     base, base_state, _activation = register_and_activate_config_profile(
         config=load_config(),
-        unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+        unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
         entry_id="rollback-base",
         registered_by="operator",
         operator="operator",
@@ -713,7 +713,7 @@ def test_rollback_can_leave_an_active_candidate_after_later_review(
     run_id, proposal, resolved = _resolved_candidate(tmp_path)
     candidate = register_and_activate_candidate_config(
         candidate=resolved.candidate,
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
         entry_id="active-candidate",
         registered_by="operator",
         operator="operator",
@@ -723,7 +723,7 @@ def test_rollback_can_leave_an_active_candidate_after_later_review(
         review_parameter_change_proposal(
             run_id=run_id,
             selector=proposal.id,
-            services=embedded_workspace_services(tmp_path),
+            services=sqlite_project_services(tmp_path),
             state="rejected",
             reviewer="reviewer",
         )
@@ -731,13 +731,13 @@ def test_rollback_can_leave_an_active_candidate_after_later_review(
         invalidate_parameter_change_proposal(
             run_id=run_id,
             selector=proposal.id,
-            services=embedded_workspace_services(tmp_path),
+            services=sqlite_project_services(tmp_path),
             reason="new evidence",
             invalidated_by="reviewer",
         )
 
     restored, record = rollback_config_registry(
-        unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+        unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
         operator="operator",
         expected_generation=candidate.active_state.generation,
         note="leave disallowed candidate",
@@ -754,7 +754,7 @@ def test_rollback_still_requires_complete_evidence_for_candidate_target(
 ) -> None:
     _base, base_state, _activation = register_and_activate_config_profile(
         config=load_config(),
-        unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+        unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
         entry_id="target-base",
         registered_by="operator",
         operator="operator",
@@ -762,7 +762,7 @@ def test_rollback_still_requires_complete_evidence_for_candidate_target(
     run_id, proposal, resolved = _resolved_candidate(tmp_path)
     candidate = register_and_activate_candidate_config(
         candidate=resolved.candidate,
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
         entry_id="rollback-target-candidate",
         registered_by="operator",
         operator="operator",
@@ -770,7 +770,7 @@ def test_rollback_still_requires_complete_evidence_for_candidate_target(
     )
     _current, current_state, _current_activation = register_and_activate_config_profile(
         config=load_config().model_copy(update={"id": "target-current"}),
-        unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+        unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
         entry_id="target-current",
         registered_by="operator",
         operator="operator",
@@ -779,14 +779,14 @@ def test_rollback_still_requires_complete_evidence_for_candidate_target(
     invalidate_parameter_change_proposal(
         run_id=run_id,
         selector=proposal.id,
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
         reason="new evidence",
         invalidated_by="reviewer",
     )
 
     with pytest.raises(Conflict) as error:
         rollback_config_registry(
-            unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+            unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
             operator="operator",
             expected_generation=current_state.generation,
         )
@@ -796,7 +796,7 @@ def test_rollback_still_requires_complete_evidence_for_candidate_target(
     )
     assert (
         load_active_config_registry_state(
-            unit_of_work=embedded_config_registry_unit_of_work(tmp_path)
+            unit_of_work=sqlite_config_registry_unit_of_work(tmp_path)
         )
         == current_state
     )
@@ -807,14 +807,14 @@ def test_activation_generation_is_append_only_and_rejects_stale_writes(
 ) -> None:
     first, first_state, first_record = register_and_activate_config_profile(
         config=load_config(),
-        unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+        unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
         entry_id="seed-a",
         registered_by="operator",
         operator="operator",
     )
     second = register_config_profile(
         config=load_config(),
-        unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+        unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
         entry_id="seed-b",
         registered_by="operator",
     )
@@ -823,32 +823,32 @@ def test_activation_generation_is_append_only_and_rejects_stale_writes(
     assert first_record.generation == 1
     assert (
         current_config_registry_generation(
-            unit_of_work=embedded_config_registry_unit_of_work(tmp_path)
+            unit_of_work=sqlite_config_registry_unit_of_work(tmp_path)
         )
         == 1
     )
     resolved_first, first_source = resolve_config_registry_config_source(
         selector="active",
-        unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+        unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
     )
 
     second_state, second_record = activate_config_registry_entry(
         entry_id=second.id,
-        unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+        unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
         operator="operator",
         expected_generation=1,
     )
     with pytest.raises(Conflict) as error:
         activate_config_registry_entry(
             entry_id=first.id,
-            unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+            unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
             operator="stale-operator",
             expected_generation=1,
         )
 
     assert error.value.problems[0].code == "config_registry.conflict"
     unchanged = load_active_config_registry_state(
-        unit_of_work=embedded_config_registry_unit_of_work(tmp_path)
+        unit_of_work=sqlite_config_registry_unit_of_work(tmp_path)
     )
     assert unchanged == second_state
     assert [record.generation for record in unchanged.history] == [1, 2]
@@ -860,7 +860,7 @@ def test_activation_generation_is_append_only_and_rejects_stale_writes(
     assert config_content_hash(resolved_first) == first_source.content_hash
 
     rolled_back, rollback_record = rollback_config_registry(
-        unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+        unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
         operator="operator",
         expected_generation=2,
     )
@@ -888,7 +888,7 @@ def test_activation_runs_full_config_semantic_validation(tmp_path: Path) -> None
     )
     entry = register_config_profile(
         config=invalid_config,
-        unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+        unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
         entry_id="invalid",
         registered_by="operator",
     )
@@ -896,7 +896,7 @@ def test_activation_runs_full_config_semantic_validation(tmp_path: Path) -> None
     with pytest.raises(CheckFailed) as error:
         activate_config_registry_entry(
             entry_id=entry.id,
-            unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+            unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
             operator="operator",
             expected_generation=0,
         )
@@ -906,14 +906,14 @@ def test_activation_runs_full_config_semantic_validation(tmp_path: Path) -> None
     )
     assert (
         current_config_registry_generation(
-            unit_of_work=embedded_config_registry_unit_of_work(tmp_path)
+            unit_of_work=sqlite_config_registry_unit_of_work(tmp_path)
         )
         == 0
     )
 
 
 def test_concurrent_registrations_preserve_every_index_entry(tmp_path: Path) -> None:
-    unit_of_work = embedded_config_registry_unit_of_work(tmp_path)
+    unit_of_work = sqlite_config_registry_unit_of_work(tmp_path)
     barrier = Barrier(2)
 
     def register(entry_id: str) -> str:
@@ -937,7 +937,7 @@ def test_concurrent_registrations_preserve_every_index_entry(tmp_path: Path) -> 
 def test_concurrent_composite_activations_apply_one_generation(
     tmp_path: Path,
 ) -> None:
-    unit_of_work = embedded_config_registry_unit_of_work(tmp_path)
+    unit_of_work = sqlite_config_registry_unit_of_work(tmp_path)
     _seed, initial_state, _activation = register_and_activate_config_profile(
         config=load_config(),
         unit_of_work=unit_of_work,
@@ -989,7 +989,7 @@ def test_candidate_registration_rejects_changes_not_derived_from_proposals(
     with pytest.raises(Conflict) as error:
         register_candidate_config(
             config=forged,
-            unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+            unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
             entry_id="forged-candidate",
             registered_by="operator",
             run_id=run_id,
@@ -1002,7 +1002,7 @@ def test_candidate_registration_rejects_changes_not_derived_from_proposals(
     )
     assert (
         list_config_registry_entries(
-            unit_of_work=embedded_config_registry_unit_of_work(tmp_path)
+            unit_of_work=sqlite_config_registry_unit_of_work(tmp_path)
         )
         == []
     )
@@ -1020,7 +1020,7 @@ def test_candidate_registration_validates_durable_proposal_source(
     proposal_update: dict[str, str],
 ) -> None:
     run_id, proposal, resolved = _resolved_candidate(tmp_path)
-    storage = embedded_run_repository(tmp_path)
+    storage = sqlite_run_repository(tmp_path)
     storage.write_model(
         run_id,
         record_content_ref(
@@ -1033,7 +1033,7 @@ def test_candidate_registration_validates_durable_proposal_source(
     with pytest.raises(DataIntegrityError) as error:
         register_candidate_config(
             config=resolved.config,
-            unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+            unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
             entry_id="invalid-proposal-source",
             registered_by="operator",
             run_id=run_id,
@@ -1061,7 +1061,7 @@ def test_candidate_load_revalidates_content_addressed_evidence(
     run_id, proposal, resolved = _resolved_candidate(tmp_path)
     entry = register_candidate_config(
         config=resolved.config,
-        unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+        unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
         entry_id="candidate-evidence",
         registered_by="operator",
         run_id=run_id,
@@ -1069,7 +1069,7 @@ def test_candidate_load_revalidates_content_addressed_evidence(
         base_config_content_hash=resolved.candidate.base_config_content_hash,
     )
     assert isinstance(entry.source, CandidateConfigRegistrySource)
-    storage = embedded_run_repository(tmp_path)
+    storage = sqlite_run_repository(tmp_path)
     if target == "proposal":
         storage.write_model(
             run_id,
@@ -1106,7 +1106,7 @@ def test_candidate_load_revalidates_content_addressed_evidence(
     with pytest.raises((Conflict, DataIntegrityError)) as error:
         load_config_registry_entry(
             entry_id=entry.id,
-            unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+            unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
         )
 
     assert error.value.problems[0].code == expected_code
@@ -1118,7 +1118,7 @@ def test_candidate_registration_does_not_ignore_operator_metadata(
     run_id, _proposal, resolved = _resolved_candidate(tmp_path)
     register_candidate_config(
         config=resolved.config,
-        unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+        unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
         entry_id="candidate-metadata",
         registered_by="operator-a",
         note="first review",
@@ -1130,7 +1130,7 @@ def test_candidate_registration_does_not_ignore_operator_metadata(
     with pytest.raises(Conflict) as error:
         register_candidate_config(
             config=resolved.config,
-            unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+            unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
             entry_id="candidate-metadata",
             registered_by="operator-b",
             note="different review",
@@ -1150,14 +1150,14 @@ def test_candidate_workflow_captures_generation_before_resolution(
     proposal = load_parameter_change_proposal(
         run_id=run_id,
         selector="best-signal",
-        services=embedded_workspace_services(tmp_path),
+        services=sqlite_project_services(tmp_path),
     )
     candidate = CandidateConfig(
         parameter_proposals=(proposal,),
     )
     register_and_activate_config_profile(
         config=load_config(),
-        unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+        unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
         entry_id="seed",
         registered_by="operator",
         operator="operator",
@@ -1167,7 +1167,7 @@ def test_candidate_workflow_captures_generation_before_resolution(
     def resolve_with_intervening_activation(
         selected: CandidateConfig,
         *,
-        services: WorkspaceServices,
+        services: ProjectServices,
     ) -> ConfigProfileSnapshot:
         resolved = original_resolve(selected, services=services)
         register_and_activate_config_profile(
@@ -1188,7 +1188,7 @@ def test_candidate_workflow_captures_generation_before_resolution(
     with pytest.raises(Conflict) as error:
         register_and_activate_candidate_config(
             candidate=candidate,
-            services=embedded_workspace_services(tmp_path),
+            services=sqlite_project_services(tmp_path),
             entry_id="candidate-after-race",
             registered_by="operator",
             operator="operator",
@@ -1198,19 +1198,19 @@ def test_candidate_workflow_captures_generation_before_resolution(
     with pytest.raises(NotFound) as missing:
         load_config_registry_entry(
             entry_id="candidate-after-race",
-            unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
+            unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
         )
     assert missing.value.problems[0].code == "config_registry.not_found"
 
 
 def _resolved_candidate(
-    workspace: Path,
+    project_root: Path,
 ) -> tuple[str, ParameterChangeProposal, _ResolvedCandidate]:
-    run_id = signal_run_with_parameter_change(workspace)
+    run_id = signal_run_with_parameter_change(project_root)
     proposal = load_parameter_change_proposal(
         run_id=run_id,
         selector="best-signal",
-        services=embedded_workspace_services(workspace),
+        services=sqlite_project_services(project_root),
     )
     candidate = CandidateConfig(
         parameter_proposals=(proposal,),
@@ -1218,7 +1218,7 @@ def _resolved_candidate(
     review_parameter_change_proposal(
         run_id=run_id,
         selector=proposal.id,
-        services=embedded_workspace_services(workspace),
+        services=sqlite_project_services(project_root),
         state="approved",
         reviewer="operator",
     )
@@ -1229,18 +1229,18 @@ def _resolved_candidate(
             candidate=candidate,
             config=resolve_candidate_config_snapshot(
                 candidate,
-                services=embedded_workspace_services(workspace),
+                services=sqlite_project_services(project_root),
             ),
         ),
     )
 
 
 def _seed_active_config_registry(
-    workspace: Path,
+    project_root: Path,
 ) -> tuple[ConfigRegistryEntry, ConfigRegistryActiveState]:
     entry, state, _activation = register_and_activate_config_profile(
         config=load_config(),
-        unit_of_work=embedded_config_registry_unit_of_work(workspace),
+        unit_of_work=sqlite_config_registry_unit_of_work(project_root),
         entry_id="manual-base",
         registered_by="operator",
         operator="operator",

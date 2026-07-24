@@ -1,4 +1,4 @@
-"""Typed control-plane records for daemon-owned workspace state."""
+"""Typed control-plane records for daemon-owned project state."""
 
 from scopecat.control.models import (
     ControlRun,
