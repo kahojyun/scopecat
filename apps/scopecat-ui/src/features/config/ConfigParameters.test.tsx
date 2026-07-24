@@ -38,9 +38,7 @@ function snapshot(driveFrequency: number, readoutFrequency: number) {
       id: "system",
       primary_entity_id: "q0",
       topology: {
-        entities: [
-          { id: "q0", kind: "logical_qubit", metadata: {} },
-        ],
+        entities: [{ id: "q0", kind: "logical_qubit", metadata: {} }],
         devices: [],
         links: [],
         lines: [],

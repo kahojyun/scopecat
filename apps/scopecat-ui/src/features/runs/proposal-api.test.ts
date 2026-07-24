@@ -60,9 +60,7 @@ describe("parameter proposal reads", () => {
 
     const result = await getRunParameterProposals("run/a");
 
-    expect(fetchMock.mock.calls[0]?.[0]).toBe(
-      "/api/v1/runs/run%2Fa/parameter-proposals",
-    );
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/v1/runs/run%2Fa/parameter-proposals");
     expect(result).toEqual({
       runId: "run/a",
       items: [
@@ -106,9 +104,7 @@ describe("parameter proposal reads", () => {
 
 describe("parameter proposal commands", () => {
   it("sends the run and proposal identity with a review decision", async () => {
-    const fetchMock = vi.fn((_input: string | URL | Request) =>
-      Promise.resolve(jsonResponse({})),
-    );
+    const fetchMock = vi.fn((_input: string | URL | Request) => Promise.resolve(jsonResponse({})));
     vi.stubGlobal("fetch", fetchMock);
 
     await reviewParameterProposal("run/a", "proposal b", {
@@ -117,23 +113,17 @@ describe("parameter proposal commands", () => {
       note: "Needs another sweep",
     });
 
-    expectRequest(
-      fetchMock,
-      "/api/v1/runs/run%2Fa/parameter-proposals/proposal%20b/review",
-      {
-        run_id: "run/a",
-        proposal_id: "proposal b",
-        decision: "rejected",
-        reviewer: "Grace",
-        note: "Needs another sweep",
-      },
-    );
+    expectRequest(fetchMock, "/api/v1/runs/run%2Fa/parameter-proposals/proposal%20b/review", {
+      run_id: "run/a",
+      proposal_id: "proposal b",
+      decision: "rejected",
+      reviewer: "Grace",
+      note: "Needs another sweep",
+    });
   });
 
   it("sends generation-checked candidate activation evidence", async () => {
-    const fetchMock = vi.fn((_input: string | URL | Request) =>
-      Promise.resolve(jsonResponse({})),
-    );
+    const fetchMock = vi.fn((_input: string | URL | Request) => Promise.resolve(jsonResponse({})));
     vi.stubGlobal("fetch", fetchMock);
 
     await activateProposalCandidate({
@@ -158,11 +148,7 @@ describe("parameter proposal commands", () => {
   it("surfaces a daemon conflict detail", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(() =>
-        Promise.resolve(
-          jsonResponse({ detail: "active generation changed" }, 409),
-        ),
-      ),
+      vi.fn(() => Promise.resolve(jsonResponse({ detail: "active generation changed" }, 409))),
     );
 
     await expect(

@@ -3,11 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  expect,
-  test as base,
-  type Page,
-} from "@playwright/test";
+import { expect, test as base, type Page } from "@playwright/test";
 
 interface DaemonEndpointRecord {
   base_url: string;
@@ -75,23 +71,13 @@ const UI_DIST = resolve(UI_ROOT, "dist");
 const test = base.extend<{}, { daemon: ProjectDaemon }>({
   daemon: [
     async ({}, use) => {
-      const projectRoot = await mkdtemp(
-        join(tmpdir(), "scopecat-ui-recovery-e2e-"),
-      );
+      const projectRoot = await mkdtemp(join(tmpdir(), "scopecat-ui-recovery-e2e-"));
       let initialized = false;
       try {
         runUv(["scopecat", "init", projectRoot], REPOSITORY_ROOT);
         initialized = true;
         runUv(
-          [
-            "scopecat",
-            "start",
-            projectRoot,
-            "--port",
-            "0",
-            "--static-dir",
-            UI_DIST,
-          ],
+          ["scopecat", "start", projectRoot, "--port", "0", "--static-dir", UI_DIST],
           projectRoot,
         );
         const endpoint = await readEndpoint(projectRoot);
@@ -108,17 +94,12 @@ const test = base.extend<{}, { daemon: ProjectDaemon }>({
   ],
 });
 
-test("recovers naturally expired delegated executors from the GUI", async ({
-  daemon,
-  page,
-}) => {
+test("recovers naturally expired delegated executors from the GUI", async ({ daemon, page }) => {
   test.setTimeout(90_000);
   await page.goto(daemon.baseUrl);
 
   const active = await checkedJson<ActiveConfigView>(
-    await page.request.get(
-      `${daemon.baseUrl}/api/v1/config-registry/active`,
-    ),
+    await page.request.get(`${daemon.baseUrl}/api/v1/config-registry/active`),
     "GET",
   );
   const releaseRun = await startAbandonedRun(
@@ -127,19 +108,10 @@ test("recovers naturally expired delegated executors from the GUI", async ({
     active.config,
     "release-requeue",
   );
-  const abortRun = await startAbandonedRun(
-    page,
-    daemon.baseUrl,
-    active.config,
-    "abort",
-  );
+  const abortRun = await startAbandonedRun(page, daemon.baseUrl, active.config, "abort");
 
-  await expect(page.getByTitle(`Inspect run ${releaseRun.runId}`)).toContainText(
-    "Running",
-  );
-  await expect(page.getByTitle(`Inspect run ${abortRun.runId}`)).toContainText(
-    "Running",
-  );
+  await expect(page.getByTitle(`Inspect run ${releaseRun.runId}`)).toContainText("Running");
+  await expect(page.getByTitle(`Inspect run ${abortRun.runId}`)).toContainText("Running");
   await assertResourceStatus(page, releaseRun, "Active");
   await assertResourceStatus(page, abortRun, "Active");
 
@@ -150,10 +122,7 @@ test("recovers naturally expired delegated executors from the GUI", async ({
           getRunDetail(page, daemon.baseUrl, releaseRun.runId),
           getRunDetail(page, daemon.baseUrl, abortRun.runId),
         ]);
-        return [
-          releaseDetail.control.state,
-          abortDetail.control.state,
-        ];
+        return [releaseDetail.control.state, abortDetail.control.state];
       },
       {
         message: "both abandoned executor leases should expire",
@@ -165,40 +134,24 @@ test("recovers naturally expired delegated executors from the GUI", async ({
 
   await selectAttentionRun(page, releaseRun);
   await assertResourceStatus(page, releaseRun, "Quarantined");
-  const releaseReceipt = await resolveAttention(
-    page,
-    releaseRun.runId,
-    "Release resources",
-  );
+  const releaseReceipt = await resolveAttention(page, releaseRun.runId, "Release resources");
   expect(releaseReceipt).toMatchObject({
     state: "attention_required",
     released_resource_count: 1,
   });
-  await expect(page.getByRole("alert")).toContainText(
-    "executor_lease_expired",
-  );
+  await expect(page.getByRole("alert")).toContainText("executor_lease_expired");
   await assertSelectedResourceStatus(page, releaseRun.resourceId, "Required");
 
-  const requeueReceipt = await resolveAttention(
-    page,
-    releaseRun.runId,
-    "Requeue",
-  );
+  const requeueReceipt = await resolveAttention(page, releaseRun.runId, "Requeue");
   expect(requeueReceipt).toMatchObject({
     state: "accepted",
     released_resource_count: 0,
   });
-  await expect(page.locator(".detail-header .status-pill")).toHaveText(
-    "Accepted",
-  );
+  await expect(page.locator(".detail-header .status-pill")).toHaveText("Accepted");
   await expect(page.getByRole("alert")).toHaveCount(0);
   await assertSelectedResourceStatus(page, releaseRun.resourceId, "Required");
 
-  const requeued = await getRunDetail(
-    page,
-    daemon.baseUrl,
-    releaseRun.runId,
-  );
+  const requeued = await getRunDetail(page, daemon.baseUrl, releaseRun.runId);
   expect(requeued.control.state).toBe("accepted");
   expect(requeued.manifest.lifecycle).toBe("accepted");
   expect(requeued.resources[0]?.status).toBe("required");
@@ -206,27 +159,19 @@ test("recovers naturally expired delegated executors from the GUI", async ({
 
   await selectAttentionRun(page, abortRun);
   await assertResourceStatus(page, abortRun, "Quarantined");
-  const abortReceipt = await resolveAttention(
-    page,
-    abortRun.runId,
-    "Abort run",
-  );
+  const abortReceipt = await resolveAttention(page, abortRun.runId, "Abort run");
   expect(abortReceipt).toMatchObject({
     state: "terminal",
     released_resource_count: 1,
   });
-  await expect(page.locator(".detail-header .status-pill")).toHaveText(
-    "Failed",
-  );
+  await expect(page.locator(".detail-header .status-pill")).toHaveText("Failed");
   await expect(page.getByRole("alert")).toHaveCount(0);
   await assertSelectedResourceStatus(page, abortRun.resourceId, "Released");
 
   const aborted = await getRunDetail(page, daemon.baseUrl, abortRun.runId);
   expect(aborted.control.state).toBe("terminal");
   expect(aborted.manifest.lifecycle).toBe("terminal");
-  expect(aborted.control.outcome?.problems?.[0]?.code).toBe(
-    "daemon.operator_aborted",
-  );
+  expect(aborted.control.outcome?.problems?.[0]?.code).toBe("daemon.operator_aborted");
   expect(aborted.resources[0]?.status).toBe("released");
   await expectExpiredLeaseEvents(page, daemon.baseUrl, abortRun.runId);
 });
@@ -268,8 +213,7 @@ async function startAbandonedRun(
   const accepted = await getRunDetail(page, baseUrl, admission.run_id);
   await expectResponseOk(
     await page.request.post(
-      `${baseUrl}/api/v1/runs/${encodeURIComponent(admission.run_id)}` +
-        "/executor/start",
+      `${baseUrl}/api/v1/runs/${encodeURIComponent(admission.run_id)}/executor/start`,
       {
         data: {
           run_id: admission.run_id,
@@ -286,10 +230,7 @@ async function startAbandonedRun(
   return { experimentId, resourceId, runId: admission.run_id };
 }
 
-async function selectAttentionRun(
-  page: Page,
-  run: AbandonedRun,
-): Promise<void> {
+async function selectAttentionRun(page: Page, run: AbandonedRun): Promise<void> {
   await page.getByTitle(`Inspect run ${run.runId}`).click();
   await expect(
     page.locator(".detail-header").getByRole("heading", {
@@ -297,22 +238,12 @@ async function selectAttentionRun(
       exact: true,
     }),
   ).toBeVisible();
-  await expect(page.locator(".detail-header .status-pill")).toHaveText(
-    "Needs attention",
-  );
-  await expect(page.getByRole("alert")).toContainText(
-    "Operator attention required",
-  );
-  await expect(page.getByRole("alert")).toContainText(
-    "executor_lease_expired",
-  );
+  await expect(page.locator(".detail-header .status-pill")).toHaveText("Needs attention");
+  await expect(page.getByRole("alert")).toContainText("Operator attention required");
+  await expect(page.getByRole("alert")).toContainText("executor_lease_expired");
 }
 
-async function assertResourceStatus(
-  page: Page,
-  run: AbandonedRun,
-  status: string,
-): Promise<void> {
+async function assertResourceStatus(page: Page, run: AbandonedRun, status: string): Promise<void> {
   await page.getByTitle(`Inspect run ${run.runId}`).click();
   await assertSelectedResourceStatus(page, run.resourceId, status);
 }
@@ -322,9 +253,7 @@ async function assertSelectedResourceStatus(
   resourceId: string,
   status: string,
 ): Promise<void> {
-  const resource = page
-    .locator(".resource-card li")
-    .filter({ hasText: resourceId });
+  const resource = page.locator(".resource-card li").filter({ hasText: resourceId });
   await expect(resource).toContainText(status);
 }
 
@@ -333,35 +262,31 @@ async function resolveAttention(
   runId: string,
   buttonName: string,
 ): Promise<AttentionResolutionReceipt> {
-  page.once("dialog", (dialog) => dialog.accept());
   const response = page.waitForResponse(
     (candidate) =>
       candidate.request().method() === "POST" &&
-      new URL(candidate.url()).pathname ===
-        `/api/v1/runs/${encodeURIComponent(runId)}/attention`,
+      new URL(candidate.url()).pathname === `/api/v1/runs/${encodeURIComponent(runId)}/attention`,
   );
   await page.getByRole("button", { name: buttonName, exact: true }).click();
+  const confirmation = page.getByRole("alertdialog");
+  await expect(confirmation).toBeVisible();
+  await confirmation
+    .getByRole("button", {
+      name: buttonName === "Requeue" ? "Requeue run" : buttonName,
+      exact: true,
+    })
+    .click();
   return checkedJson<AttentionResolutionReceipt>(await response, "POST");
 }
 
-async function getRunDetail(
-  page: Page,
-  baseUrl: string,
-  runId: string,
-): Promise<RunDetail> {
+async function getRunDetail(page: Page, baseUrl: string, runId: string): Promise<RunDetail> {
   return checkedJson<RunDetail>(
-    await page.request.get(
-      `${baseUrl}/api/v1/runs/${encodeURIComponent(runId)}`,
-    ),
+    await page.request.get(`${baseUrl}/api/v1/runs/${encodeURIComponent(runId)}`),
     "GET",
   );
 }
 
-async function expectExpiredLeaseEvents(
-  page: Page,
-  baseUrl: string,
-  runId: string,
-): Promise<void> {
+async function expectExpiredLeaseEvents(page: Page, baseUrl: string, runId: string): Promise<void> {
   const events = await checkedJson<EventPage>(
     await page.request.get(`${baseUrl}/api/v1/events`, {
       params: {
@@ -375,66 +300,41 @@ async function expectExpiredLeaseEvents(
   const kinds = events.items.map((event) => event.kind);
   expect(kinds).toContain("resources_quarantined");
   expect(kinds).toContain("resources_released");
-  const lost = events.items.find(
-    (event) => event.kind === "executor_lease_lost",
-  );
+  const lost = events.items.find((event) => event.kind === "executor_lease_lost");
   expect(lost?.payload.reason).toBe("executor_lease_expired");
 }
 
-async function checkedJson<T>(
-  response: HttpResponse,
-  method: string,
-): Promise<T> {
+async function checkedJson<T>(response: HttpResponse, method: string): Promise<T> {
   await expectResponseOk(response, method);
   return (await response.json()) as T;
 }
 
-async function expectResponseOk(
-  response: HttpResponse,
-  method: string,
-): Promise<void> {
+async function expectResponseOk(response: HttpResponse, method: string): Promise<void> {
   if (!response.ok()) {
     throw new Error(
-      `${method} ${response.url()} returned ` +
-        `${response.status()}: ${await response.text()}`,
+      `${method} ${response.url()} returned ${response.status()}: ${await response.text()}`,
     );
   }
 }
 
-async function readEndpoint(
-  projectRoot: string,
-): Promise<DaemonEndpointRecord> {
-  const source = await readFile(
-    join(projectRoot, ".scopecat/daemon.json"),
-    "utf8",
-  );
+async function readEndpoint(projectRoot: string): Promise<DaemonEndpointRecord> {
+  const source = await readFile(join(projectRoot, ".scopecat/daemon.json"), "utf8");
   const record = JSON.parse(source) as Partial<DaemonEndpointRecord>;
-  if (
-    typeof record.base_url !== "string" ||
-    new URL(record.base_url).port === "0"
-  ) {
+  if (typeof record.base_url !== "string" || new URL(record.base_url).port === "0") {
     throw new Error(`Invalid daemon endpoint record: ${source}`);
   }
   return record as DaemonEndpointRecord;
 }
 
-function runUv(
-  arguments_: string[],
-  cwd: string,
-  allowFailure = false,
-): SpawnSyncReturns<string> {
+function runUv(arguments_: string[], cwd: string, allowFailure = false): SpawnSyncReturns<string> {
   const environment = { ...process.env };
   delete environment.SCOPECAT_DAEMON_URL;
-  const result = spawnSync(
-    "uv",
-    ["run", "--locked", "--project", REPOSITORY_ROOT, ...arguments_],
-    {
-      cwd,
-      encoding: "utf8",
-      env: environment,
-      timeout: 30_000,
-    },
-  );
+  const result = spawnSync("uv", ["run", "--locked", "--project", REPOSITORY_ROOT, ...arguments_], {
+    cwd,
+    encoding: "utf8",
+    env: environment,
+    timeout: 30_000,
+  });
   if (!allowFailure && (result.error || result.status !== 0)) {
     throw new Error(
       [
@@ -451,16 +351,11 @@ function runUv(
 }
 
 async function stopAndRemoveProject(projectRoot: string): Promise<void> {
-  const stopped = runUv(
-    ["scopecat", "stop", projectRoot],
-    projectRoot,
-    true,
-  );
+  const stopped = runUv(["scopecat", "stop", projectRoot], projectRoot, true);
   if (stopped.error || stopped.status !== 0) {
-    const daemonLog = await readFile(
-      join(projectRoot, ".scopecat/daemon.log"),
-      "utf8",
-    ).catch(() => "");
+    const daemonLog = await readFile(join(projectRoot, ".scopecat/daemon.log"), "utf8").catch(
+      () => "",
+    );
     throw new Error(
       [
         `Could not stop test daemon; project retained at ${projectRoot}`,

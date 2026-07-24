@@ -18,9 +18,8 @@ afterEach(() => {
 
 describe("project daemon reads", () => {
   it("merges every HeadersInit form without replacing caller headers", async () => {
-    const fetchMock = vi.fn(
-      (_input: RequestInfo | URL, _init?: RequestInit) =>
-        Promise.resolve(jsonResponse({ ok: true })),
+    const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
+      Promise.resolve(jsonResponse({ ok: true })),
     );
     vi.stubGlobal("fetch", fetchMock);
 
@@ -212,9 +211,7 @@ describe("project daemon reads", () => {
       id: "analysis-fit",
       title: "Fit review",
       key: "fit",
-      outputs: [
-        { kind: "note", title: "Conclusion", content: "Converged" },
-      ],
+      outputs: [{ kind: "note", title: "Conclusion", content: "Converged" }],
     });
     expect(text).toMatchObject({ format: "text", content: "Converged\n" });
     expect(json).toMatchObject({

@@ -2,27 +2,18 @@
 
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-} from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getConfigRegistry } from "./config-api";
+import { getConfigRegistry } from "../config/config-api";
 import {
   activateProposalCandidate,
   getRunParameterProposals,
   reviewParameterProposal,
 } from "./proposal-api";
-import type {
-  ParameterProposal,
-  RunParameterProposals,
-} from "./proposal-types";
+import type { ParameterProposal, RunParameterProposals } from "./proposal-types";
 import { RunProposals } from "./RunProposals";
 
-vi.mock("./config-api", () => ({
+vi.mock("../config/config-api", () => ({
   getConfigRegistry: vi.fn(),
 }));
 
@@ -44,11 +35,8 @@ afterEach(() => {
 
 describe("RunProposals", () => {
   it("keeps approve-only as an advanced action", async () => {
-    vi.mocked(getRunParameterProposals).mockResolvedValue(
-      proposalList(pendingProposal()),
-    );
+    vi.mocked(getRunParameterProposals).mockResolvedValue(proposalList(pendingProposal()));
     vi.mocked(reviewParameterProposal).mockResolvedValue();
-    vi.stubGlobal("confirm", vi.fn(() => true));
     renderProposals();
 
     expect(await screen.findByText("q0.drive.frequency")).toBeInTheDocument();
@@ -58,19 +46,17 @@ describe("RunProposals", () => {
     fireEvent.change(screen.getByPlaceholderText("Evidence or rationale"), {
       target: { value: "Peak is clean" },
     });
-    fireEvent.click(screen.getByText("Advanced"));
-    fireEvent.click(screen.getByRole("button", { name: "Approve only" }));
+    fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Approve only/ }));
+    const approvalDialog = await screen.findByRole("alertdialog");
+    fireEvent.click(within(approvalDialog).getByRole("button", { name: "Approve proposal" }));
 
     await waitFor(() =>
-      expect(reviewParameterProposal).toHaveBeenCalledWith(
-        "run-1",
-        "drive-frequency",
-        {
-          reviewer: "local-operator",
-          note: "Peak is clean",
-          decision: "approved",
-        },
-      ),
+      expect(reviewParameterProposal).toHaveBeenCalledWith("run-1", "drive-frequency", {
+        reviewer: "local-operator",
+        note: "Peak is clean",
+        decision: "approved",
+      }),
     );
   });
 
@@ -83,9 +69,7 @@ describe("RunProposals", () => {
       id: "latest-proposal",
       proposedAt: "2026-07-23T10:00:00Z",
     });
-    vi.mocked(getRunParameterProposals).mockResolvedValue(
-      proposalList(older, latest),
-    );
+    vi.mocked(getRunParameterProposals).mockResolvedValue(proposalList(older, latest));
     vi.mocked(getConfigRegistry).mockResolvedValue({
       active: {
         generation: 3,
@@ -96,18 +80,20 @@ describe("RunProposals", () => {
       history: [],
     });
     vi.mocked(activateProposalCandidate).mockResolvedValue();
-    vi.stubGlobal("confirm", vi.fn(() => true));
     renderProposals();
 
     const setDefault = await screen.findAllByRole("button", {
       name: "Accept as default",
     });
-    expect(
-      screen.getAllByText("Approved", { selector: ".proposal-state" }),
-    ).toHaveLength(2);
+    expect(screen.getAllByText("Approved", { selector: ".proposal-state" })).toHaveLength(2);
     expect(setDefault).toHaveLength(2);
     await waitFor(() => expect(setDefault[1]).toBeEnabled());
     fireEvent.click(setDefault[1]!);
+    const defaultDialog = await screen.findByRole("alertdialog");
+    expect(defaultDialog).toHaveTextContent(
+      "Accept proposal latest-proposal and set its configuration as the default.",
+    );
+    fireEvent.click(within(defaultDialog).getByRole("button", { name: "Accept as default" }));
 
     await waitFor(() =>
       expect(activateProposalCandidate).toHaveBeenCalledWith({
@@ -119,15 +105,10 @@ describe("RunProposals", () => {
         note: "",
       }),
     );
-    expect(window.confirm).toHaveBeenCalledWith(
-      "Accept proposal latest-proposal and set its configuration as the default?",
-    );
   });
 
   it("accepts a pending proposal in one action and reports publish failure", async () => {
-    vi.mocked(getRunParameterProposals).mockResolvedValue(
-      proposalList(pendingProposal()),
-    );
+    vi.mocked(getRunParameterProposals).mockResolvedValue(proposalList(pendingProposal()));
     vi.mocked(reviewParameterProposal).mockResolvedValue();
     vi.mocked(getConfigRegistry).mockResolvedValue({
       active: {
@@ -138,10 +119,7 @@ describe("RunProposals", () => {
       entries: [],
       history: [],
     });
-    vi.mocked(activateProposalCandidate).mockRejectedValue(
-      new Error("generation conflict"),
-    );
-    vi.stubGlobal("confirm", vi.fn(() => true));
+    vi.mocked(activateProposalCandidate).mockRejectedValue(new Error("generation conflict"));
     renderProposals();
 
     const accept = await screen.findByRole("button", {
@@ -149,21 +127,19 @@ describe("RunProposals", () => {
     });
     await waitFor(() => expect(accept).toBeEnabled());
     fireEvent.click(accept);
+    const defaultDialog = await screen.findByRole("alertdialog");
+    fireEvent.click(within(defaultDialog).getByRole("button", { name: "Accept as default" }));
 
     expect(
       await screen.findByText(
         "The proposal is accepted, but the default was not changed: generation conflict",
       ),
     ).toBeInTheDocument();
-    expect(reviewParameterProposal).toHaveBeenCalledWith(
-      "run-1",
-      "drive-frequency",
-      {
-        reviewer: "local-operator",
-        note: "",
-        decision: "approved",
-      },
-    );
+    expect(reviewParameterProposal).toHaveBeenCalledWith("run-1", "drive-frequency", {
+      reviewer: "local-operator",
+      note: "",
+      decision: "approved",
+    });
   });
 });
 
@@ -185,9 +161,7 @@ function proposalList(...items: ParameterProposal[]): RunParameterProposals {
   return { runId: "run-1", items };
 }
 
-function pendingProposal(
-  overrides: Partial<ParameterProposal> = {},
-): ParameterProposal {
+function pendingProposal(overrides: Partial<ParameterProposal> = {}): ParameterProposal {
   return {
     id: "drive-frequency",
     sourceRunId: "run-1",
@@ -209,9 +183,7 @@ function pendingProposal(
   };
 }
 
-function approvedProposal(
-  overrides: Partial<ParameterProposal> = {},
-): ParameterProposal {
+function approvedProposal(overrides: Partial<ParameterProposal> = {}): ParameterProposal {
   const proposal = pendingProposal(overrides);
   return {
     ...proposal,

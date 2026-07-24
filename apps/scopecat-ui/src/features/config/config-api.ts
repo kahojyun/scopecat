@@ -1,4 +1,4 @@
-import { request } from "./api";
+import { request } from "../../api";
 import type {
   ActiveConfigState,
   ConfigActivationRecord,
@@ -39,9 +39,7 @@ import type {
 
 const CONFIG_API = "/api/v1/config-registry";
 
-export async function getConfigRegistry(
-  signal?: AbortSignal,
-): Promise<ConfigRegistryOverview> {
+export async function getConfigRegistry(signal?: AbortSignal): Promise<ConfigRegistryOverview> {
   return normalizeConfigRegistryOverview(await request(CONFIG_API, signal));
 }
 
@@ -50,17 +48,10 @@ export async function getConfigRegistryEntry(
   signal?: AbortSignal,
 ): Promise<ConfigRegistryEntryDetail> {
   const envelope = object(
-    await request(
-      `${CONFIG_API}/entries/${encodeURIComponent(entryId)}`,
-      signal,
-    ),
+    await request(`${CONFIG_API}/entries/${encodeURIComponent(entryId)}`, signal),
     "config entry view",
   );
-  literal(
-    envelope.schema_version,
-    "scopecat.config_entry_view.v1",
-    "config entry view schema",
-  );
+  literal(envelope.schema_version, "scopecat.config_entry_view.v1", "config entry view schema");
   const config = normalizeConfigProfileSnapshot(envelope.config);
   return {
     entry: normalizeEntry(envelope.entry),
@@ -69,10 +60,7 @@ export async function getConfigRegistryEntry(
   };
 }
 
-export async function activateConfigEntry(
-  entryId: string,
-  command: ConfigCommand,
-): Promise<void> {
+export async function activateConfigEntry(entryId: string, command: ConfigCommand): Promise<void> {
   await request(
     `${CONFIG_API}/active`,
     undefined,
@@ -84,16 +72,10 @@ export async function activateConfigEntry(
 }
 
 export async function rollbackConfig(command: ConfigCommand): Promise<void> {
-  await request(
-    `${CONFIG_API}/rollback`,
-    undefined,
-    jsonRequest(commandPayload(command)),
-  );
+  await request(`${CONFIG_API}/rollback`, undefined, jsonRequest(commandPayload(command)));
 }
 
-export async function importConfigProfile(
-  command: ImportConfigCommand,
-): Promise<void> {
+export async function importConfigProfile(command: ImportConfigCommand): Promise<void> {
   await request(
     `${CONFIG_API}/entries`,
     undefined,
@@ -106,9 +88,7 @@ export async function importConfigProfile(
   );
 }
 
-export async function previewConfigDraft(
-  command: ConfigDraftCommand,
-): Promise<ConfigDraftPreview> {
+export async function previewConfigDraft(command: ConfigDraftCommand): Promise<ConfigDraftPreview> {
   return normalizeConfigDraftPreview(
     await request(
       `${CONFIG_API}/drafts/preview`,
@@ -136,13 +116,8 @@ export async function registerConfigDraft(
   );
   return {
     entry: normalizeEntry(source.entry),
-    resultContentHash: text(
-      source.result_content_hash,
-      "config draft registration result hash",
-    ),
-    deltas: list(source.deltas, "config draft registration deltas").map(
-      normalizeParameterDelta,
-    ),
+    resultContentHash: text(source.result_content_hash, "config draft registration result hash"),
+    deltas: list(source.deltas, "config draft registration deltas").map(normalizeParameterDelta),
   };
 }
 
@@ -158,11 +133,7 @@ export async function setConfigDraftDefault(
     payload.activation_note = command.activationNote;
   }
   const source = object(
-    await request(
-      `${CONFIG_API}/drafts/set-default`,
-      undefined,
-      jsonRequest(payload),
-    ),
+    await request(`${CONFIG_API}/drafts/set-default`, undefined, jsonRequest(payload)),
     "config draft default receipt",
   );
   literal(
@@ -172,27 +143,16 @@ export async function setConfigDraftDefault(
   );
   return {
     entry: normalizeEntry(source.entry),
-    resultContentHash: text(
-      source.result_content_hash,
-      "config draft default result hash",
-    ),
-    deltas: list(source.deltas, "config draft default deltas").map(
-      normalizeParameterDelta,
-    ),
+    resultContentHash: text(source.result_content_hash, "config draft default result hash"),
+    deltas: list(source.deltas, "config draft default deltas").map(normalizeParameterDelta),
     activeState: normalizeActiveState(source.active_state),
     activation: normalizeActivation(source.activation),
   };
 }
 
-export function normalizeConfigDraftPreview(
-  value: unknown,
-): ConfigDraftPreview {
+export function normalizeConfigDraftPreview(value: unknown): ConfigDraftPreview {
   const source = object(value, "config draft preview");
-  literal(
-    source.schema_version,
-    "scopecat.config_draft_preview.v1",
-    "config draft preview schema",
-  );
+  literal(source.schema_version, "scopecat.config_draft_preview.v1", "config draft preview schema");
   const valid = requiredBoolean(source.valid, "config draft preview valid");
   const config =
     source.config === null || source.config === undefined
@@ -208,28 +168,16 @@ export function normalizeConfigDraftPreview(
   return {
     valid,
     baseEntry: normalizeEntry(source.base_entry),
-    baseGeneration: integer(
-      source.base_generation,
-      "config draft base generation",
-    ),
-    baseContentHash: text(
-      source.base_content_hash,
-      "config draft base content hash",
-    ),
+    baseGeneration: integer(source.base_generation, "config draft base generation"),
+    baseContentHash: text(source.base_content_hash, "config draft base content hash"),
     config,
     resultContentHash,
-    deltas: list(source.deltas ?? [], "config draft deltas").map(
-      normalizeParameterDelta,
-    ),
-    problems: list(source.problems ?? [], "config draft problems").map(
-      normalizeProblem,
-    ),
+    deltas: list(source.deltas ?? [], "config draft deltas").map(normalizeParameterDelta),
+    problems: list(source.problems ?? [], "config draft problems").map(normalizeProblem),
   };
 }
 
-export function normalizeConfigRegistryOverview(
-  value: unknown,
-): ConfigRegistryOverview {
+export function normalizeConfigRegistryOverview(value: unknown): ConfigRegistryOverview {
   const envelope = object(value, "config registry view");
   literal(
     envelope.schema_version,
@@ -244,10 +192,7 @@ export function normalizeConfigRegistryOverview(
   }
   const activeState = object(envelope.active_state, "active config state");
   const active = normalizeActiveState(activeState);
-  const history = list(
-    activeState.history,
-    "config activation history",
-  )
+  const history = list(activeState.history, "config activation history")
     .map(normalizeActivation)
     .sort(compareActivations);
   return {
@@ -257,15 +202,9 @@ export function normalizeConfigRegistryOverview(
   };
 }
 
-export function normalizeConfigProfileSnapshot(
-  value: unknown,
-): ConfigProfileSnapshot {
+export function normalizeConfigProfileSnapshot(value: unknown): ConfigProfileSnapshot {
   const source = object(value, "config snapshot");
-  literal(
-    source.schema_version,
-    "scopecat.config_profile_snapshot.v3",
-    "config snapshot schema",
-  );
+  literal(source.schema_version, "scopecat.config_profile_snapshot.v3", "config snapshot schema");
   return {
     id: text(source.id, "config snapshot id"),
     system: normalizeSystem(source.system),
@@ -275,9 +214,7 @@ export function normalizeConfigProfileSnapshot(
   };
 }
 
-export function summarizeConfigSnapshot(
-  config: ConfigProfileSnapshot,
-): ConfigSnapshotSummary {
+export function summarizeConfigSnapshot(config: ConfigProfileSnapshot): ConfigSnapshotSummary {
   return {
     id: config.id,
     primaryEntityId: config.system.primaryEntityId,
@@ -349,19 +286,10 @@ function normalizeRegistrySource(value: unknown): ConfigRegistrySource {
     return {
       kind,
       runId: text(source.run_id, "candidate source run id"),
-      proposalIds: list(
-        source.proposal_evidence,
-        "candidate proposal evidence",
-      ).map((item) =>
-        text(
-          object(item, "candidate proposal evidence").proposal_id,
-          "candidate proposal id",
-        ),
+      proposalIds: list(source.proposal_evidence, "candidate proposal evidence").map((item) =>
+        text(object(item, "candidate proposal evidence").proposal_id, "candidate proposal id"),
       ),
-      baseContentHash: text(
-        source.base_config_content_hash,
-        "candidate base content hash",
-      ),
+      baseContentHash: text(source.base_config_content_hash, "candidate base content hash"),
     };
   }
   if (kind === "manual_parameter_updates") {
@@ -369,14 +297,8 @@ function normalizeRegistrySource(value: unknown): ConfigRegistrySource {
       kind,
       proposalIds: [],
       baseEntryId: text(source.base_entry_id, "manual edit base entry id"),
-      baseContentHash: text(
-        source.base_config_content_hash,
-        "manual edit base content hash",
-      ),
-      baseGeneration: integer(
-        source.base_registry_generation,
-        "manual edit base generation",
-      ),
+      baseContentHash: text(source.base_config_content_hash, "manual edit base content hash"),
+      baseGeneration: integer(source.base_registry_generation, "manual edit base generation"),
     };
   }
   throw new Error(`Unsupported config registry source: ${kind}.`);
@@ -398,10 +320,7 @@ function normalizeActivation(value: unknown): ConfigActivationRecord {
     generation: integer(source.generation, "config activation generation"),
     action,
     entryId: text(source.entry_id, "config activation entry id"),
-    entryContentHash: text(
-      source.entry_content_hash,
-      "config activation content hash",
-    ),
+    entryContentHash: text(source.entry_content_hash, "config activation content hash"),
     previousEntryId: optionalText(source.previous_entry_id),
     operator: text(source.operator, "config activation operator"),
     note: optionalText(source.note),
@@ -419,25 +338,15 @@ function normalizeActiveState(value: unknown): ActiveConfigState {
   return {
     generation: integer(source.generation, "active generation"),
     entryId: text(source.active_entry_id, "active entry id"),
-    contentHash: text(
-      source.active_entry_content_hash,
-      "active content hash",
-    ),
+    contentHash: text(source.active_entry_content_hash, "active content hash"),
     updatedAt: optionalText(source.updated_at),
   };
 }
 
 function normalizeSystem(value: unknown): SystemSpec {
   const source = object(value, "system spec");
-  literal(
-    source.schema_version,
-    "scopecat.system_spec.v4",
-    "system spec schema",
-  );
-  const instruments = object(
-    source.instrument_registry,
-    "instrument registry",
-  );
+  literal(source.schema_version, "scopecat.system_spec.v4", "system spec schema");
+  const instruments = object(source.instrument_registry, "instrument registry");
   const routing = object(source.routing, "routing graph");
   const domainTarget =
     source.domain_target === null || source.domain_target === undefined
@@ -445,10 +354,7 @@ function normalizeSystem(value: unknown): SystemSpec {
       : object(source.domain_target, "domain target");
   return {
     id: text(source.id, "system id"),
-    primaryEntityId: text(
-      source.primary_entity_id,
-      "system primary entity id",
-    ),
+    primaryEntityId: text(source.primary_entity_id, "system primary entity id"),
     topology: normalizeTopology(source.topology),
     instruments: list(instruments.instruments, "instruments").map((item) => {
       const instrument = object(item, "instrument");
@@ -471,10 +377,7 @@ function normalizeSystem(value: unknown): SystemSpec {
       ? {
           id: text(domainTarget.id, "domain target id"),
           kind: text(domainTarget.kind, "domain target kind"),
-          instrumentIds: stringList(
-            domainTarget.instrument_ids,
-            "domain target instruments",
-          ),
+          instrumentIds: stringList(domainTarget.instrument_ids, "domain target instruments"),
         }
       : undefined,
     parameterCatalog: normalizeParameterCatalog(source.parameter_catalog),
@@ -484,9 +387,7 @@ function normalizeSystem(value: unknown): SystemSpec {
 function normalizeTopology(value: unknown): Topology {
   const source = object(value, "topology");
   return {
-    entities: list(source.entities ?? [], "topology entities").map(
-      normalizeEntity,
-    ),
+    entities: list(source.entities ?? [], "topology entities").map(normalizeEntity),
     devices: list(source.devices, "topology devices").map((item) => {
       const device = object(item, "topology device");
       return {
@@ -541,11 +442,7 @@ function normalizeTopology(value: unknown): Topology {
 
 function normalizeEnvironment(value: unknown): EnvironmentSpec {
   const source = object(value, "environment spec");
-  literal(
-    source.schema_version,
-    "scopecat.environment_spec.v2",
-    "environment spec schema",
-  );
+  literal(source.schema_version, "scopecat.environment_spec.v2", "environment spec schema");
   const profile = object(source.connection_profile, "connection profile");
   return {
     id: text(source.id, "environment id"),
@@ -553,10 +450,7 @@ function normalizeEnvironment(value: unknown): EnvironmentSpec {
       const connection = object(item, "connection");
       return {
         id: text(connection.id, "connection id"),
-        instrumentId: text(
-          connection.instrument_id,
-          "connection instrument id",
-        ),
+        instrumentId: text(connection.instrument_id, "connection instrument id"),
         kind: text(connection.kind, "connection kind"),
         resourceHint: optionalText(connection.resource_hint),
       };
@@ -566,17 +460,12 @@ function normalizeEnvironment(value: unknown): EnvironmentSpec {
 
 function normalizeParameterCatalog(value: unknown): ParameterCatalog {
   const source = object(value, "parameter catalog");
-  literal(
-    source.schema_version,
-    "scopecat.parameter_catalog.v4",
-    "parameter catalog schema",
-  );
+  literal(source.schema_version, "scopecat.parameter_catalog.v4", "parameter catalog schema");
   return {
     id: text(source.id, "parameter catalog id"),
-    definitions: list(
-      source.definitions ?? [],
-      "parameter definitions",
-    ).map(normalizeParameterDefinition),
+    definitions: list(source.definitions ?? [], "parameter definitions").map(
+      normalizeParameterDefinition,
+    ),
     metadata: metadata(source.metadata),
   };
 }
@@ -608,13 +497,8 @@ function normalizeValueType(value: unknown): ParameterValueType {
   if (shape === "table") {
     return {
       shape,
-      columns: list(source.columns, "parameter table columns").map(
-        normalizeTableColumn,
-      ),
-      primaryKey: stringList(
-        source.primary_key ?? [],
-        "parameter table primary key",
-      ),
+      columns: list(source.columns, "parameter table columns").map(normalizeTableColumn),
+      primaryKey: stringList(source.primary_key ?? [], "parameter table primary key"),
       minRows: optionalInteger(source.min_rows) ?? 0,
       maxRows: optionalInteger(source.max_rows),
     };
@@ -689,16 +573,10 @@ function normalizeScalarType(value: unknown): ParameterScalarType {
 
 function normalizeParameterSnapshot(value: unknown): ParameterSnapshot {
   const source = object(value, "parameter snapshot");
-  literal(
-    source.schema_version,
-    "scopecat.parameter_snapshot.v2",
-    "parameter snapshot schema",
-  );
+  literal(source.schema_version, "scopecat.parameter_snapshot.v2", "parameter snapshot schema");
   return {
     id: text(source.id, "parameter snapshot id"),
-    values: list(source.values ?? [], "parameter values").map(
-      normalizeStoredParameterValue,
-    ),
+    values: list(source.values ?? [], "parameter values").map(normalizeStoredParameterValue),
     metadata: metadata(source.metadata),
   };
 }
@@ -722,13 +600,10 @@ function normalizeStoredParameterValue(value: unknown): StoredParameterValue {
     return {
       ...common,
       shape,
-      items: list(source.items ?? [], "parameter series items").map(
-        normalizeParameterAtom,
+      items: list(source.items ?? [], "parameter series items").map(normalizeParameterAtom),
+      itemLocations: list(source.item_locations ?? [], "parameter series locations").map(
+        normalizeLocation,
       ),
-      itemLocations: list(
-        source.item_locations ?? [],
-        "parameter series locations",
-      ).map(normalizeLocation),
     };
   }
   if (shape === "table") {
@@ -738,27 +613,19 @@ function normalizeStoredParameterValue(value: unknown): StoredParameterValue {
       rows: list(source.rows ?? [], "parameter table rows").map((rowValue) => {
         const row = object(rowValue, "parameter table row");
         return Object.fromEntries(
-          Object.entries(row).map(([column, cell]) => [
-            column,
-            normalizeParameterAtom(cell),
-          ]),
+          Object.entries(row).map(([column, cell]) => [column, normalizeParameterAtom(cell)]),
         );
       }),
-      rowLocations: list(
-        source.row_locations ?? [],
-        "parameter table locations",
-      ).map(normalizeLocation),
+      rowLocations: list(source.row_locations ?? [], "parameter table locations").map(
+        normalizeLocation,
+      ),
     };
   }
   throw new Error(`Unsupported stored parameter shape: ${shape}.`);
 }
 
 function normalizeParameterAtom(value: unknown): ParameterAtom {
-  if (
-    value === null ||
-    typeof value === "boolean" ||
-    typeof value === "string"
-  ) {
+  if (value === null || typeof value === "boolean" || typeof value === "string") {
     return value;
   }
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -782,12 +649,8 @@ function normalizeEntity(value: unknown): ParameterEntity {
   };
 }
 
-function normalizeOptionalLocation(
-  value: unknown,
-): ExternalLocation | undefined {
-  return value === null || value === undefined
-    ? undefined
-    : normalizeLocation(value);
+function normalizeOptionalLocation(value: unknown): ExternalLocation | undefined {
+  return value === null || value === undefined ? undefined : normalizeLocation(value);
 }
 
 function normalizeLocation(value: unknown): ExternalLocation {
@@ -814,17 +677,11 @@ function normalizeLocation(value: unknown): ExternalLocation {
   };
 }
 
-function compareRegisteredEntries(
-  left: ConfigRegistryEntry,
-  right: ConfigRegistryEntry,
-): number {
+function compareRegisteredEntries(left: ConfigRegistryEntry, right: ConfigRegistryEntry): number {
   return right.registeredAt.localeCompare(left.registeredAt);
 }
 
-function compareActivations(
-  left: ConfigActivationRecord,
-  right: ConfigActivationRecord,
-): number {
+function compareActivations(left: ConfigActivationRecord, right: ConfigActivationRecord): number {
   return right.generation - left.generation;
 }
 
@@ -839,9 +696,7 @@ function configDraftPayload(command: ConfigDraftCommand): JsonObject {
   };
 }
 
-function configDraftRegistrationPayload(
-  command: ConfigDraftRegistrationCommand,
-): JsonObject {
+function configDraftRegistrationPayload(command: ConfigDraftRegistrationCommand): JsonObject {
   return {
     schema_version: "scopecat.config_draft_registration_command.v1",
     draft: configDraftPayload(command.draft),
@@ -852,9 +707,7 @@ function configDraftRegistrationPayload(
   };
 }
 
-function configParameterUpdatePayload(
-  update: ConfigParameterUpdate,
-): JsonObject {
+function configParameterUpdatePayload(update: ConfigParameterUpdate): JsonObject {
   switch (update.kind) {
     case "replace_parameter":
       return {
@@ -904,9 +757,7 @@ function storedParameterValuePayload(value: StoredParameterValue): JsonObject {
   };
 }
 
-function atomRecordPayload(
-  values: Record<string, ParameterAtom>,
-): JsonObject {
+function atomRecordPayload(values: Record<string, ParameterAtom>): JsonObject {
   return Object.fromEntries(
     Object.entries(values).map(([key, value]) => [key, atomPayload(value)]),
   );
@@ -940,11 +791,7 @@ function normalizeParameterDelta(value: unknown): ParameterValueDelta {
 
 function normalizeProblem(value: unknown): ConfigProblem {
   const source = object(value, "config draft problem");
-  literal(
-    source.schema_version,
-    "scopecat.problem.v1",
-    "config draft problem schema",
-  );
+  literal(source.schema_version, "scopecat.problem.v1", "config draft problem schema");
   const impact = text(source.impact, "config draft problem impact");
   if (impact !== "advisory" && impact !== "blocking") {
     throw new Error(`Unsupported config draft problem impact: ${impact}.`);
@@ -968,11 +815,10 @@ function normalizeProblemLocation(value: unknown): ConfigProblemLocation {
   return {
     kind: text(source.kind, "config draft problem location kind"),
     root: optionalText(source.root),
-    path: list(source.path ?? [], "config draft problem location path").map(
-      (item) =>
-        typeof item === "string"
-          ? text(item, "config draft problem path segment")
-          : integer(item, "config draft problem path index"),
+    path: list(source.path ?? [], "config draft problem location path").map((item) =>
+      typeof item === "string"
+        ? text(item, "config draft problem path segment")
+        : integer(item, "config draft problem path index"),
     ),
   };
 }
@@ -1030,9 +876,7 @@ function finiteNumber(value: unknown, label: string): number {
 }
 
 function optionalNumber(value: unknown): number | undefined {
-  return value === null || value === undefined
-    ? undefined
-    : finiteNumber(value, "numeric field");
+  return value === null || value === undefined ? undefined : finiteNumber(value, "numeric field");
 }
 
 function integer(value: unknown, label: string): number {
@@ -1042,9 +886,7 @@ function integer(value: unknown, label: string): number {
 }
 
 function optionalInteger(value: unknown): number | undefined {
-  return value === null || value === undefined
-    ? undefined
-    : integer(value, "integer field");
+  return value === null || value === undefined ? undefined : integer(value, "integer field");
 }
 
 function optionalBoolean(value: unknown): boolean | undefined {
@@ -1065,7 +907,5 @@ function literal(value: unknown, expected: string, label: string): void {
 }
 
 function metadata(value: unknown): JsonObject {
-  return (value === null || value === undefined
-    ? {}
-    : object(value, "metadata")) as JsonObject;
+  return (value === null || value === undefined ? {} : object(value, "metadata")) as JsonObject;
 }

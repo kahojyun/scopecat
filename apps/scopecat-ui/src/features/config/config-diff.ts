@@ -9,12 +9,7 @@ import type {
   TableParameterValue,
 } from "./config-types";
 
-export type ParameterDiffStatus =
-  | "unchanged"
-  | "changed"
-  | "added"
-  | "removed"
-  | "schema-changed";
+export type ParameterDiffStatus = "unchanged" | "changed" | "added" | "removed" | "schema-changed";
 
 export type TableDiffStatus = "unchanged" | "changed" | "added" | "removed";
 
@@ -108,11 +103,7 @@ function diffParameter(
   return {
     ...common,
     status,
-    table: diffTable(
-      afterDefinition.valueType,
-      before,
-      after,
-    ),
+    table: diffTable(afterDefinition.valueType, before, after),
   };
 }
 
@@ -126,10 +117,7 @@ function diffTable(
   }
   const beforeRows = keyedRows(valueType, before.rows);
   const afterRows = keyedRows(valueType, after.rows);
-  const identities = unique([
-    ...afterRows.keys(),
-    ...beforeRows.keys(),
-  ]);
+  const identities = unique([...afterRows.keys(), ...beforeRows.keys()]);
   return {
     mode: "keyed",
     rows: identities.map((identity) => {
@@ -138,10 +126,7 @@ function diffTable(
       const keySource = afterRow ?? beforeRow;
       if (!keySource) throw new Error("parameter table row identity disappeared");
       const key = Object.fromEntries(
-        valueType.primaryKey.map((columnId) => [
-          columnId,
-          keySource[columnId]!,
-        ]),
+        valueType.primaryKey.map((columnId) => [columnId, keySource[columnId]!]),
       );
       const cells = valueType.columns.map(({ id }) =>
         diffCell(id, beforeRow?.[id], afterRow?.[id]),
@@ -189,11 +174,7 @@ function keyedRows(
 ): Map<string, Record<string, ParameterAtom>> {
   return new Map(
     rows.map((row) => [
-      JSON.stringify(
-        valueType.primaryKey.map((columnId) =>
-          parameterAtomIdentity(row[columnId]!),
-        ),
-      ),
+      JSON.stringify(valueType.primaryKey.map((columnId) => parameterAtomIdentity(row[columnId]!))),
       row,
     ]),
   );
@@ -216,28 +197,19 @@ export function parameterAtomLabel(value: ParameterAtom | undefined): string {
   return typeof value === "number" ? formatNumber(value) : value;
 }
 
-export function parameterTypeLabel(
-  definition: ParameterDefinition | undefined,
-): string {
+export function parameterTypeLabel(definition: ParameterDefinition | undefined): string {
   if (!definition) return "Not defined";
   const valueType = definition.valueType;
   if (valueType.shape === "table") {
     return `Table · ${valueType.columns.length} columns`;
   }
-  const scalar =
-    valueType.shape === "series" ? valueType.itemType : valueType.atom;
-  const suffix =
-    scalar.type === "quantity" && scalar.unit ? ` · ${scalar.unit}` : "";
+  const scalar = valueType.shape === "series" ? valueType.itemType : valueType.atom;
+  const suffix = scalar.type === "quantity" && scalar.unit ? ` · ${scalar.unit}` : "";
   return `${title(valueType.shape)} · ${title(scalar.type)}${suffix}`;
 }
 
 function isQuantity(value: ParameterAtom): value is ParameterQuantity {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "value" in value &&
-    "unit" in value
-  );
+  return typeof value === "object" && value !== null && "value" in value && "unit" in value;
 }
 
 function isEntity(value: ParameterAtom): value is ParameterEntity {

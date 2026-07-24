@@ -1,11 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  Braces,
-  CircleDot,
-  GitCompareArrows,
-  Search,
-  Table2,
-} from "lucide-react";
+import { Braces, CircleDot, GitCompareArrows, Search, Table2 } from "lucide-react";
 import {
   diffConfigParameters,
   parameterAtomLabel,
@@ -50,11 +44,8 @@ export function ConfigParameters({
         .includes(query);
     });
   }, [diffs, search]);
-  const selected =
-    filtered.find((diff) => diff.parameterId === selectedId) ?? filtered[0];
-  const changedCount = diffs.filter(
-    (diff) => diff.status !== "unchanged",
-  ).length;
+  const selected = filtered.find((diff) => diff.parameterId === selectedId) ?? filtered[0];
+  const changedCount = diffs.filter((diff) => diff.status !== "unchanged").length;
 
   useEffect(() => {
     if (selected && selected.parameterId !== selectedId) {
@@ -77,15 +68,11 @@ export function ConfigParameters({
         {activeConfig && (
           <span
             className={
-              changedCount === 0
-                ? "parameter-compare-badge"
-                : "parameter-compare-badge changed"
+              changedCount === 0 ? "parameter-compare-badge" : "parameter-compare-badge changed"
             }
           >
             <GitCompareArrows size={13} aria-hidden="true" />
-            {changedCount === 0
-              ? "Matches default"
-              : `${changedCount} changed`}
+            {changedCount === 0 ? "Matches default" : `${changedCount} changed`}
           </span>
         )}
       </header>
@@ -110,8 +97,7 @@ export function ConfigParameters({
               />
             ) : (
               filtered.map((diff) => {
-                const definition =
-                  diff.afterDefinition ?? diff.beforeDefinition;
+                const definition = diff.afterDefinition ?? diff.beforeDefinition;
                 return (
                   <button
                     key={diff.parameterId}
@@ -122,19 +108,13 @@ export function ConfigParameters({
                         : "parameter-index-item"
                     }
                     onClick={() => setSelectedId(diff.parameterId)}
-                    aria-current={
-                      diff.parameterId === selected?.parameterId
-                        ? "true"
-                        : undefined
-                    }
+                    aria-current={diff.parameterId === selected?.parameterId ? "true" : undefined}
                   >
                     <span>
                       <strong>{diff.parameterId}</strong>
                       <small>{parameterTypeLabel(definition)}</small>
                     </span>
-                    {diff.status !== "unchanged" && (
-                      <DiffBadge status={diff.status} />
-                    )}
+                    {diff.status !== "unchanged" && <DiffBadge status={diff.status} />}
                   </button>
                 );
               })
@@ -165,13 +145,7 @@ export function ConfigParameters({
   );
 }
 
-function ParameterDetail({
-  diff,
-  comparing,
-}: {
-  diff: ParameterDiff;
-  comparing: boolean;
-}) {
+function ParameterDetail({ diff, comparing }: { diff: ParameterDiff; comparing: boolean }) {
   const definition = diff.afterDefinition ?? diff.beforeDefinition;
   const value = diff.after ?? diff.before;
   if (!definition || !value) {
@@ -215,8 +189,7 @@ function ParameterDetail({
       </div>
       {diff.status === "schema-changed" && (
         <div className="parameter-diff-note warning">
-          The parameter schema changed. Values are shown without a cell-level
-          comparison.
+          The parameter schema changed. Values are shown without a cell-level comparison.
         </div>
       )}
       <ParameterValueView diff={diff} definition={definition} value={value} />
@@ -247,12 +220,10 @@ function ParameterValueView({
     );
   }
   if (value.shape === "series") {
-    const before =
-      diff.before?.shape === "series" ? diff.before : undefined;
+    const before = diff.before?.shape === "series" ? diff.before : undefined;
     return <SeriesValueView value={value} before={before} />;
   }
-  const valueType =
-    definition.valueType.shape === "table" ? definition.valueType : undefined;
+  const valueType = definition.valueType.shape === "table" ? definition.valueType : undefined;
   if (!valueType) {
     return (
       <ParameterEmpty
@@ -264,13 +235,7 @@ function ParameterValueView({
   return <TableValueView diff={diff} value={value} valueType={valueType} />;
 }
 
-function ValueComparison({
-  before,
-  after,
-}: {
-  before: ParameterAtom;
-  after: ParameterAtom;
-}) {
+function ValueComparison({ before, after }: { before: ParameterAtom; after: ParameterAtom }) {
   return (
     <div className="value-comparison" aria-label="Default to selected value">
       <span>
@@ -308,8 +273,7 @@ function SeriesValueView({
             {value.items.map((item, index) => {
               const active = before?.items[index];
               const changed =
-                active !== undefined &&
-                parameterAtomLabel(active) !== parameterAtomLabel(item);
+                active !== undefined && parameterAtomLabel(active) !== parameterAtomLabel(item);
               return (
                 <tr key={index} className={changed ? "changed" : undefined}>
                   <th scope="row">{index}</th>
@@ -362,13 +326,11 @@ function TableValueView({
     );
   return (
     <div className="table-parameter-view">
-      {diff.status === "changed" &&
-        diff.table?.mode === "complete-replacement" && (
-          <div className="parameter-diff-note">
-            This table has no primary key, so it is compared as one complete
-            replacement.
-          </div>
-        )}
+      {diff.status === "changed" && diff.table?.mode === "complete-replacement" && (
+        <div className="parameter-diff-note">
+          This table has no primary key, so it is compared as one complete replacement.
+        </div>
+      )}
       <div className="parameter-table-scroll">
         <table>
           <thead>
@@ -389,17 +351,13 @@ function TableValueView({
             {rows.map((row) => (
               <tr key={row.identity} className={row.status}>
                 {valueType.columns.map((column) => {
-                  const cell = row.cells.find(
-                    (candidate) => candidate.columnId === column.id,
-                  );
+                  const cell = row.cells.find((candidate) => candidate.columnId === column.id);
                   const displayed = row.after?.[column.id] ?? row.before?.[column.id];
                   return (
                     <td
                       key={column.id}
                       className={
-                        cell && cell.status !== "unchanged"
-                          ? `cell-${cell.status}`
-                          : undefined
+                        cell && cell.status !== "unchanged" ? `cell-${cell.status}` : undefined
                       }
                     >
                       <ParameterAtomView value={displayed ?? null} />
@@ -438,22 +396,12 @@ function ParameterFact({ label, value }: { label: string; value: string }) {
   );
 }
 
-function DiffBadge({
-  status,
-}: {
-  status: ParameterDiff["status"] | TableRowDiff["status"];
-}) {
+function DiffBadge({ status }: { status: ParameterDiff["status"] | TableRowDiff["status"] }) {
   const label = status.replace("-", " ");
   return <span className={`parameter-diff-badge ${status}`}>{label}</span>;
 }
 
-function ParameterEmpty({
-  title,
-  detail,
-}: {
-  title: string;
-  detail: string;
-}) {
+function ParameterEmpty({ title, detail }: { title: string; detail: string }) {
   return (
     <div className="parameter-empty">
       <CircleDot size={16} aria-hidden="true" />

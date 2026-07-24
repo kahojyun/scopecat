@@ -1,24 +1,11 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from "@testing-library/react";
-import {
-  QueryClient,
-  QueryClientProvider,
-} from "@tanstack/react-query";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { normalizeConfigProfileSnapshot } from "./config-api";
-import {
-  ConfigDraftEditor,
-  type ConfigDraftSeed,
-} from "./ConfigDraftEditor";
+import { ConfigDraftEditor, type ConfigDraftSeed } from "./ConfigDraftEditor";
 import type {
   ConfigDraftDefaultReceipt,
   ConfigDraftPreview,
@@ -61,9 +48,7 @@ describe("ConfigDraftEditor", () => {
 
     renderEditor(seed, registered);
 
-    expect(
-      screen.getByRole("button", { name: "Set as default" }),
-    ).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Set as default" })).toBeDisabled();
     fireEvent.change(screen.getByLabelText("drive.frequency value"), {
       target: { value: "5.2" },
     });
@@ -90,9 +75,7 @@ describe("ConfigDraftEditor", () => {
         },
       ],
     });
-    await waitFor(() =>
-      expect(apiMocks.setConfigDraftDefault).toHaveBeenCalled(),
-    );
+    await waitFor(() => expect(apiMocks.setConfigDraftDefault).toHaveBeenCalled());
     expect(apiMocks.setConfigDraftDefault.mock.calls[0]?.[0]).toEqual({
       registration: {
         draft: expect.objectContaining({
@@ -117,9 +100,7 @@ describe("ConfigDraftEditor", () => {
   it("keeps register-only with a custom id in Advanced", async () => {
     const seed = draftSeed();
     const receipt = registrationReceipt();
-    apiMocks.previewConfigDraft.mockResolvedValue(
-      validPreview(seed, snapshot(5.2, 6.5)),
-    );
+    apiMocks.previewConfigDraft.mockResolvedValue(validPreview(seed, snapshot(5.2, 6.5)));
     apiMocks.registerConfigDraft.mockResolvedValue(receipt);
 
     renderEditor(seed);
@@ -147,42 +128,35 @@ describe("ConfigDraftEditor", () => {
 
   it("turns keyed table cell changes into row updates", async () => {
     const seed = draftSeed();
-    apiMocks.previewConfigDraft.mockResolvedValue(
-      validPreview(seed, snapshot(5, 6.6)),
-    );
+    apiMocks.previewConfigDraft.mockResolvedValue(validPreview(seed, snapshot(5, 6.6)));
 
     renderEditor(seed);
-    fireEvent.click(
-      screen.getByRole("button", { name: /^calibrationtable$/i }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /^calibrationtable$/i }));
 
     expect(screen.getByLabelText("calibration row 1 entity")).toBeDisabled();
-    fireEvent.change(
-      screen.getByLabelText("calibration row 1 frequency"),
-      { target: { value: "6.6" } },
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Preview changes" }),
-    );
+    fireEvent.change(screen.getByLabelText("calibration row 1 frequency"), {
+      target: { value: "6.6" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Preview changes" }));
 
     await waitFor(() => expect(apiMocks.previewConfigDraft).toHaveBeenCalled());
     expect(apiMocks.previewConfigDraft.mock.calls[0]?.[0]).toEqual(
       expect.objectContaining({
-          updates: [
-            {
-              kind: "update_parameter_rows",
-              parameterId: "calibration",
-              key: {
-                entity: {
-                  id: "q0",
-                  kind: "logical_qubit",
-                  metadata: {},
-                },
+        updates: [
+          {
+            kind: "update_parameter_rows",
+            parameterId: "calibration",
+            key: {
+              entity: {
+                id: "q0",
+                kind: "logical_qubit",
+                metadata: {},
               },
-              values: { frequency: 6.6 },
             },
-          ],
-        }),
+            values: { frequency: 6.6 },
+          },
+        ],
+      }),
     );
   });
 
@@ -190,9 +164,7 @@ describe("ConfigDraftEditor", () => {
     const seed = draftSeed();
 
     renderEditor(seed);
-    fireEvent.click(
-      screen.getByRole("button", { name: /^calibrationtable$/i }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /^calibrationtable$/i }));
     fireEvent.click(screen.getByRole("button", { name: "Add row" }));
 
     expect(screen.getByLabelText("calibration row 1 entity")).toBeDisabled();
@@ -201,16 +173,12 @@ describe("ConfigDraftEditor", () => {
 
   it("invalidates a preview immediately when a numeric field is blank", async () => {
     const seed = draftSeed();
-    apiMocks.previewConfigDraft.mockResolvedValue(
-      validPreview(seed, snapshot(5.2, 6.5)),
-    );
+    apiMocks.previewConfigDraft.mockResolvedValue(validPreview(seed, snapshot(5.2, 6.5)));
 
     renderEditor(seed);
     const valueInput = screen.getByLabelText("drive.frequency value");
     fireEvent.change(valueInput, { target: { value: "5.2" } });
-    fireEvent.click(
-      screen.getByRole("button", { name: "Preview changes" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Preview changes" }));
     await screen.findByText("Candidate is valid");
     expect(screen.getByRole("button", { name: "Set as default" })).toBeEnabled();
 
@@ -218,21 +186,11 @@ describe("ConfigDraftEditor", () => {
 
     expect(valueInput).toHaveAttribute("aria-invalid", "true");
     expect(screen.queryByText("Candidate is valid")).not.toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Preview changes" }),
-    ).toBeDisabled();
-    expect(
-      screen.getByRole("button", { name: "Set as default" }),
-    ).toBeDisabled();
-    fireEvent.click(
-      screen.getByRole("button", { name: /^drive\.frequencyscalar/i }),
-    );
-    expect(
-      screen.getByRole("button", { name: "Preview changes" }),
-    ).toBeDisabled();
-    expect(
-      screen.getByRole("button", { name: "Set as default" }),
-    ).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Preview changes" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Set as default" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: /^drive\.frequencyscalar/i }));
+    expect(screen.getByRole("button", { name: "Preview changes" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Set as default" })).toBeDisabled();
     expect(apiMocks.previewConfigDraft).toHaveBeenCalledTimes(1);
   });
 
@@ -245,23 +203,13 @@ describe("ConfigDraftEditor", () => {
       contentHash: HASH_B,
     });
 
-    expect(
-      screen.getByText(/default configuration changed/i),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Preview changes" }),
-    ).toBeDisabled();
-    expect(
-      screen.getByRole("button", { name: "Set as default" }),
-    ).toBeDisabled();
+    expect(screen.getByText(/default configuration changed/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Preview changes" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Set as default" })).toBeDisabled();
   });
 });
 
-function renderEditor(
-  seed: ConfigDraftSeed,
-  onRegistered = vi.fn(),
-  currentActive = seed.active,
-) {
+function renderEditor(seed: ConfigDraftSeed, onRegistered = vi.fn(), currentActive = seed.active) {
   const queryClient = new QueryClient({
     defaultOptions: { mutations: { retry: false } },
   });

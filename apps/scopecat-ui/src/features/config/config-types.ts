@@ -19,13 +19,7 @@ export interface ParameterEntity {
   metadata: JsonObject;
 }
 
-export type ParameterAtom =
-  | null
-  | boolean
-  | number
-  | string
-  | ParameterQuantity
-  | ParameterEntity;
+export type ParameterAtom = null | boolean | number | string | ParameterQuantity | ParameterEntity;
 
 interface ScalarTypeBase {
   nullable: boolean;
@@ -104,10 +98,7 @@ export interface TableParameterType {
   maxRows?: number;
 }
 
-export type ParameterValueType =
-  | ScalarParameterType
-  | SeriesParameterType
-  | TableParameterType;
+export type ParameterValueType = ScalarParameterType | SeriesParameterType | TableParameterType;
 
 export interface ParameterDefinition {
   id: string;
@@ -271,10 +262,7 @@ export interface ConfigSnapshotSummary {
 }
 
 export interface ConfigRegistrySource {
-  kind:
-    | "direct_config_profile"
-    | "candidate_config"
-    | "manual_parameter_updates";
+  kind: "direct_config_profile" | "candidate_config" | "manual_parameter_updates";
   runId?: string;
   proposalIds: string[];
   baseEntryId?: string;
@@ -419,8 +407,7 @@ export interface ConfigDraftDefaultCommand {
   activationNote?: string;
 }
 
-export interface ConfigDraftDefaultReceipt
-  extends ConfigDraftRegistrationReceipt {
+export interface ConfigDraftDefaultReceipt extends ConfigDraftRegistrationReceipt {
   activeState: ActiveConfigState;
   activation: ConfigActivationRecord;
 }

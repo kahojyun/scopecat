@@ -1,0 +1,141 @@
+.dialog-backdrop {
+  position: fixed;
+  z-index: 50;
+  inset: 0;
+  background: rgb(3 6 9 / 70%);
+}
+
+.dialog-viewport {
+  position: fixed;
+  z-index: 51;
+  inset: 0;
+  display: grid;
+  overflow: auto;
+  padding: 20px;
+  place-items: center;
+}
+
+.dialog-popup {
+  overflow: hidden;
+  width: min(520px, 100%);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg);
+  outline: 0;
+  background: var(--panel);
+  box-shadow: 0 24px 70px rgb(0 0 0 / 50%);
+}
+
+.confirmation-dialog {
+  width: min(440px, 100%);
+}
+
+.dialog-heading {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 11px;
+  align-items: start;
+  padding: 18px;
+}
+
+.dialog-heading > span {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: var(--radius-md);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.dialog-heading > span.danger {
+  color: var(--red);
+  background: var(--red-soft);
+}
+
+.dialog-title {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.dialog-description {
+  margin: 5px 0 0;
+  color: var(--text-dim);
+  font-size: 0.66rem;
+  line-height: 1.5;
+}
+
+.dialog-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 12px 18px;
+  border-top: 1px solid var(--line);
+  background: var(--panel-soft);
+}
+
+.danger-button {
+  color: #170d0c;
+  border-color: var(--red);
+  background: var(--red);
+}
+
+.config-modal > header {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.config-modal > header > span {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: 9px;
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.config-modal header .dialog-description {
+  overflow: hidden;
+  margin: 3px 0 0;
+  color: var(--text-dim);
+  font-size: 0.59rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.config-modal-body {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+
+.config-modal-body > label {
+  display: grid;
+  gap: 6px;
+}
+
+.config-modal-body label > input {
+  min-height: 38px;
+  padding: 0 10px;
+}
+
+.config-modal-body label > small {
+  color: var(--red);
+  font-size: 0.57rem;
+  line-height: 1.4;
+}
+
+.config-modal > footer {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 13px 18px;
+  border-top: 1px solid var(--line);
+  background: var(--panel-soft);
+}

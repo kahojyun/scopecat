@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { deriveConfigDraftUpdates } from "./config-draft";
-import type {
-  ConfigProfileSnapshot,
-  ParameterEntity,
-  StoredParameterValue,
-} from "./config-types";
+import type { ConfigProfileSnapshot, ParameterEntity, StoredParameterValue } from "./config-types";
 
 describe("deriveConfigDraftUpdates", () => {
   it("uses semantic keyed row operations and ignores entity metadata in keys", () => {
@@ -26,9 +22,7 @@ describe("deriveConfigDraftUpdates", () => {
       metadata: {},
     };
 
-    expect(
-      deriveConfigDraftUpdates(config, { calibration: edited }),
-    ).toEqual([
+    expect(deriveConfigDraftUpdates(config, { calibration: edited })).toEqual([
       {
         kind: "delete_parameter_rows",
         parameterId: "calibration",
@@ -70,9 +64,7 @@ describe("deriveConfigDraftUpdates", () => {
 
   it("keeps duplicate edited keys in a replacement for daemon validation", () => {
     const config = testConfig();
-    const base = config.parameterSnapshot.values.find(
-      (value) => value.id === "calibration",
-    );
+    const base = config.parameterSnapshot.values.find((value) => value.id === "calibration");
     if (base?.shape !== "table") throw new Error("missing table fixture");
     const duplicate = {
       entity: entity("q0", { attempted: true }),
@@ -84,9 +76,7 @@ describe("deriveConfigDraftUpdates", () => {
       rowLocations: [],
     };
 
-    expect(
-      deriveConfigDraftUpdates(config, { calibration: edited }),
-    ).toEqual([
+    expect(deriveConfigDraftUpdates(config, { calibration: edited })).toEqual([
       {
         kind: "replace_parameter",
         value: edited,
@@ -237,10 +227,7 @@ function testConfig(): ConfigProfileSnapshot {
   };
 }
 
-function entity(
-  id: string,
-  metadata: Record<string, string | boolean> = {},
-): ParameterEntity {
+function entity(id: string, metadata: Record<string, string | boolean> = {}): ParameterEntity {
   return {
     id,
     kind: "logical_qubit",

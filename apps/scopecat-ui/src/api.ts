@@ -30,9 +30,7 @@ const API = {
 } as const;
 
 type CurrentRunStatus = Exclude<RunStatus, "terminal" | "unknown">;
-type AdmissionResource = NonNullable<
-  ControlRun["admission"]["resource_claims"]
->[number];
+type AdmissionResource = NonNullable<ControlRun["admission"]["resource_claims"]>[number];
 
 interface StoredAdmissionSummary {
   plan?: {
@@ -83,8 +81,7 @@ export async function request<T = unknown>(
       // Some intermediaries return an empty or non-JSON error response.
     }
     throw new ApiError(
-      detail ??
-        `The daemon returned ${response.status} ${response.statusText}.`,
+      detail ?? `The daemon returned ${response.status} ${response.statusText}.`,
       response.status,
     );
   }
@@ -97,10 +94,7 @@ export async function request<T = unknown>(
 
 export type AttentionAction = DaemonUiApi["attentionCommand"]["action"];
 
-export async function resolveAttention(
-  runId: string,
-  action: AttentionAction,
-): Promise<void> {
+export async function resolveAttention(runId: string, action: AttentionAction): Promise<void> {
   const command: DaemonUiApi["attentionCommand"] = {
     run_id: runId,
     action,
@@ -124,20 +118,12 @@ export async function getHealth(signal?: AbortSignal): Promise<ProjectHealth> {
 }
 
 export async function getRuns(signal?: AbortSignal): Promise<ProjectRunPage> {
-  return normalizeRunPage(
-    await request<DaemonUiApi["runPage"]>(API.runs, signal),
-  );
+  return normalizeRunPage(await request<DaemonUiApi["runPage"]>(API.runs, signal));
 }
 
-export async function getOlderRuns(
-  before: number,
-  signal?: AbortSignal,
-): Promise<ProjectRunPage> {
+export async function getOlderRuns(before: number, signal?: AbortSignal): Promise<ProjectRunPage> {
   return normalizeRunPage(
-    await request<DaemonUiApi["runPage"]>(
-      `/api/v1/runs?limit=100&before=${before}`,
-      signal,
-    ),
+    await request<DaemonUiApi["runPage"]>(`/api/v1/runs?limit=100&before=${before}`, signal),
   );
 }
 
@@ -148,19 +134,12 @@ function normalizeRunPage(response: DaemonUiApi["runPage"]): ProjectRunPage {
   };
 }
 
-export async function getRun(
-  runId: string,
-  signal?: AbortSignal,
-): Promise<ProjectRun> {
+export async function getRun(runId: string, signal?: AbortSignal): Promise<ProjectRun> {
   const response = await request<DaemonUiApi["runDetail"]>(
     `/api/v1/runs/${encodeURIComponent(runId)}`,
     signal,
   );
-  return normalizeRun(
-    response.control,
-    response.manifest,
-    response.resources ?? [],
-  );
+  return normalizeRun(response.control, response.manifest, response.resources ?? []);
 }
 
 export async function getMeasurementPreview(
@@ -178,10 +157,7 @@ export async function getMeasurementPreview(
   };
 }
 
-export async function getRunAnalyses(
-  runId: string,
-  signal?: AbortSignal,
-): Promise<RunAnalysis[]> {
+export async function getRunAnalyses(runId: string, signal?: AbortSignal): Promise<RunAnalysis[]> {
   const response = await request<DaemonUiApi["runAnalyses"]>(
     `/api/v1/runs/${encodeURIComponent(runId)}/analyses`,
     signal,
@@ -202,8 +178,7 @@ export async function getRunAnalyses(
 export function canPreviewRunContent(entry: ContentEntry): boolean {
   return (
     entry.role === "record" ||
-    (entry.role === "dataset" &&
-      ["data_table", "data_array"].includes(entry.kind)) ||
+    (entry.role === "dataset" && ["data_table", "data_array"].includes(entry.kind)) ||
     (entry.role === "artifact" && artifactFormat(entry) !== undefined)
   );
 }
@@ -263,15 +238,10 @@ export async function getRunContent(
 }
 
 export async function getEvents(signal?: AbortSignal): Promise<ProjectEvent[]> {
-  return normalizeEvents(
-    await request<DaemonUiApi["eventPage"]>(API.events, signal),
-  );
+  return normalizeEvents(await request<DaemonUiApi["eventPage"]>(API.events, signal));
 }
 
-export async function getRunEvents(
-  runId: string,
-  signal?: AbortSignal,
-): Promise<ProjectEvent[]> {
+export async function getRunEvents(runId: string, signal?: AbortSignal): Promise<ProjectEvent[]> {
   return normalizeEvents(
     await request<DaemonUiApi["eventPage"]>(
       `/api/v1/events?limit=500&latest=true&run_id=${encodeURIComponent(runId)}`,
@@ -281,14 +251,10 @@ export async function getRunEvents(
 }
 
 function normalizeEvents(response: DaemonUiApi["eventPage"]): ProjectEvent[] {
-  return response.items
-    .map(normalizeEvent)
-    .sort((left, right) => left.id - right.id);
+  return response.items.map(normalizeEvent).sort((left, right) => left.id - right.id);
 }
 
-export async function getCatalog(
-  signal?: AbortSignal,
-): Promise<ExperimentCatalog> {
+export async function getCatalog(signal?: AbortSignal): Promise<ExperimentCatalog> {
   const response = await request<DaemonUiApi["catalog"]>(API.catalog, signal);
   return {
     revision: response.revision,
@@ -342,9 +308,7 @@ function normalizeEvent(event: DurableEvent): ProjectEvent {
   };
 }
 
-function normalizeExperiment(
-  experiment: RegisteredExperimentDescriptor,
-): ExperimentDescriptor {
+function normalizeExperiment(experiment: RegisteredExperimentDescriptor): ExperimentDescriptor {
   return {
     id: experiment.id,
     version: experiment.version,
@@ -354,9 +318,7 @@ function normalizeExperiment(
   };
 }
 
-function normalizeResourceClaim(
-  resource: AdmissionResource,
-): ResourceClaim {
+function normalizeResourceClaim(resource: AdmissionResource): ResourceClaim {
   return {
     id: resource.id,
     kind: resource.kind ?? "instrument",
@@ -371,29 +333,21 @@ function normalizeRunResource(resource: RunResourceView): ResourceClaim {
   };
 }
 
-function normalizeContentEntry(
-  entry: RunContentEntry,
-  index: number,
-): ContentEntry {
+function normalizeContentEntry(entry: RunContentEntry, index: number): ContentEntry {
   const mediaType = entry.media_type ?? undefined;
   const filename = entry.filename ?? undefined;
   return {
     id: entry.id,
     role: entry.role,
     kind: entry.kind,
-    label:
-      entry.title ??
-      filename ??
-      `${titleCase(entry.role)} ${index + 1}`,
+    label: entry.title ?? filename ?? `${titleCase(entry.role)} ${index + 1}`,
     detail: mediaType ?? entry.kind,
     mediaType,
     filename,
   };
 }
 
-function artifactFormat(
-  entry: ContentEntry,
-): RunContentPreview["format"] | undefined {
+function artifactFormat(entry: ContentEntry): RunContentPreview["format"] | undefined {
   const mediaType = entry.mediaType?.toLocaleLowerCase();
   const filename = entry.filename?.toLocaleLowerCase();
   if (
@@ -453,7 +407,5 @@ function compareRuns(left: ProjectRun, right: ProjectRun): number {
 }
 
 function titleCase(value: string): string {
-  return value
-    .replaceAll("_", " ")
-    .replace(/\b\w/g, (character) => character.toUpperCase());
+  return value.replaceAll("_", " ").replace(/\b\w/g, (character) => character.toUpperCase());
 }

@@ -4,15 +4,7 @@
     "correctness": "error",
     "suspicious": "error"
   },
-  "plugins": [
-    "eslint",
-    "typescript",
-    "unicorn",
-    "oxc",
-    "react",
-    "vitest",
-    "jsx-a11y"
-  ],
+  "plugins": ["eslint", "typescript", "unicorn", "oxc", "react", "vitest", "jsx-a11y"],
   "env": {
     "browser": true,
     "es2022": true

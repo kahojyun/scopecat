@@ -60,7 +60,9 @@ The test first builds the current UI into `dist/` and passes that directory
 explicitly to the daemon. It then
 creates a temporary starter project, starts its daemon on a dynamic port,
 executes the generated first notebook, and drives the daemon-served GUI through
-a parameter default and undo. The fixture removes the daemon and project after
+a parameter default and undo. It also saves a notebook analysis candidate,
+accepts it in the GUI, follows its provenance back to the producing run, and
+restores the previous default. The fixture removes the daemon and project after
 success or an assertion failure. If identity-safe daemon shutdown itself fails,
 it retains the project and reports the daemon log for manual cleanup.
 

@@ -14,14 +14,9 @@ export function deriveConfigDraftUpdates(
   config: ConfigProfileSnapshot,
   editedValues: Record<string, StoredParameterValue>,
 ): ConfigParameterUpdate[] {
-  const baseValues = new Map(
-    config.parameterSnapshot.values.map((value) => [value.id, value]),
-  );
+  const baseValues = new Map(config.parameterSnapshot.values.map((value) => [value.id, value]));
   const definitions = new Map(
-    config.system.parameterCatalog.definitions.map((definition) => [
-      definition.id,
-      definition,
-    ]),
+    config.system.parameterCatalog.definitions.map((definition) => [definition.id, definition]),
   );
   const updates: ConfigParameterUpdate[] = [];
 
@@ -35,23 +30,14 @@ export function deriveConfigDraftUpdates(
       edited.shape === "table" &&
       definition.valueType.primaryKey.length > 0
     ) {
-      updates.push(
-        ...deriveKeyedTableUpdates(
-          definition.valueType,
-          base,
-          edited,
-        ),
-      );
+      updates.push(...deriveKeyedTableUpdates(definition.valueType, base, edited));
       continue;
     }
     updates.push({ kind: "replace_parameter", value: edited });
   }
 
   for (const [parameterId, edited] of Object.entries(editedValues)) {
-    if (
-      definitions.has(parameterId) ||
-      storedValuesEqual(baseValues.get(parameterId), edited)
-    ) {
+    if (definitions.has(parameterId) || storedValuesEqual(baseValues.get(parameterId), edited)) {
       continue;
     }
     updates.push({ kind: "replace_parameter", value: edited });
@@ -59,9 +45,7 @@ export function deriveConfigDraftUpdates(
   return updates;
 }
 
-export function cloneStoredParameterValue(
-  value: StoredParameterValue,
-): StoredParameterValue {
+export function cloneStoredParameterValue(value: StoredParameterValue): StoredParameterValue {
   return structuredClone(value);
 }
 
@@ -88,11 +72,13 @@ export function defaultParameterAtom(
       const selected = entities.find(
         (entity) => !type.entityKind || entity.kind === type.entityKind,
       );
-      return selected ?? {
-        id: "",
-        ...(type.entityKind ? { kind: type.entityKind } : {}),
-        metadata: {},
-      };
+      return (
+        selected ?? {
+          id: "",
+          ...(type.entityKind ? { kind: type.entityKind } : {}),
+          metadata: {},
+        }
+      );
     }
   }
 }
@@ -116,13 +102,8 @@ function deriveKeyedTableUpdates(
   base: TableParameterValue,
   edited: TableParameterValue,
 ): ConfigParameterUpdate[] {
-  const baseRows = new Map(
-    base.rows.map((row) => [tableRowIdentity(row, type.primaryKey), row]),
-  );
-  const editedRows = new Map<
-    string,
-    Array<Record<string, ParameterAtom>>
-  >();
+  const baseRows = new Map(base.rows.map((row) => [tableRowIdentity(row, type.primaryKey), row]));
+  const editedRows = new Map<string, Array<Record<string, ParameterAtom>>>();
   for (const row of edited.rows) {
     const identity = tableRowIdentity(row, type.primaryKey);
     editedRows.set(identity, [...(editedRows.get(identity) ?? []), row]);
@@ -179,18 +160,11 @@ function pickColumns(
   row: Record<string, ParameterAtom>,
   columns: string[],
 ): Record<string, ParameterAtom> {
-  return Object.fromEntries(
-    columns.map((column) => [column, row[column] ?? null]),
-  );
+  return Object.fromEntries(columns.map((column) => [column, row[column] ?? null]));
 }
 
-function tableRowIdentity(
-  row: Record<string, ParameterAtom>,
-  primaryKey: string[],
-): string {
-  return JSON.stringify(
-    primaryKey.map((column) => parameterAtomIdentity(row[column] ?? null)),
-  );
+function tableRowIdentity(row: Record<string, ParameterAtom>, primaryKey: string[]): string {
+  return JSON.stringify(primaryKey.map((column) => parameterAtomIdentity(row[column] ?? null)));
 }
 
 function atomsEqual(left: unknown, right: unknown): boolean {

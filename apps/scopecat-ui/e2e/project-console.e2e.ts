@@ -1,18 +1,9 @@
-import {
-  spawn,
-  spawnSync,
-  type ChildProcess,
-  type SpawnSyncReturns,
-} from "node:child_process";
+import { spawn, spawnSync, type ChildProcess, type SpawnSyncReturns } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  expect,
-  test as base,
-  type Page,
-} from "@playwright/test";
+import { expect, test as base, type Page } from "@playwright/test";
 
 interface DaemonEndpointRecord {
   base_url: string;
@@ -49,11 +40,16 @@ interface ControlledExperiment {
   completion: Promise<ProcessCompletion>;
 }
 
+interface CandidateAnalysis {
+  runId: string;
+  proposalId: string;
+  analysisId: string;
+}
+
 const UI_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const REPOSITORY_ROOT = resolve(UI_ROOT, "../..");
 const UI_DIST = resolve(UI_ROOT, "dist");
-const LIVE_EXPERIMENT_ID =
-  "quantum_lab_demo.workflows.readout_frequency";
+const LIVE_EXPERIMENT_ID = "quantum_lab_demo.workflows.readout_frequency";
 const CONTROLLED_EXPERIMENT_SOURCE = `\
 """Exercise durable run states while a browser observes the daemon."""
 
@@ -144,26 +140,51 @@ with project.connect(build_system=build_system) as lab:
 print(summary)
 `;
 
+const CANDIDATE_ANALYSIS_SOURCE = `\
+"""Create one durable notebook analysis for GUI acceptance."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import sys
+
+import scopecat as sc
+
+project_root = Path(sys.argv[1])
+with sc.open_project(project_root).connect() as lab:
+    baseline = lab.runs()[0]
+    analysis = baseline.analysis("notebook repetition fit").propose(
+        "repetitions-fit",
+        sc.replace_scalar_parameter("repetitions", 384),
+        reason="stable high-confidence notebook fit",
+        confidence=0.98,
+    )
+    saved = analysis.save()
+    analysis.candidate_config()
+
+print(
+    "E2E_CANDIDATE="
+    + json.dumps(
+        {
+            "run_id": baseline.id,
+            "proposal_id": analysis.parameter_proposals[0].id,
+            "analysis_id": saved.record.id,
+        }
+    )
+)
+`;
+
 const test = base.extend<{}, { daemon: ProjectDaemon }>({
   daemon: [
     async ({}, use) => {
-      const projectRoot = await mkdtemp(
-        join(tmpdir(), "scopecat-ui-e2e-"),
-      );
+      const projectRoot = await mkdtemp(join(tmpdir(), "scopecat-ui-e2e-"));
       let initialized = false;
       try {
         runUv(["scopecat", "init", projectRoot], REPOSITORY_ROOT);
         initialized = true;
         runUv(
-          [
-            "scopecat",
-            "start",
-            projectRoot,
-            "--port",
-            "0",
-            "--static-dir",
-            UI_DIST,
-          ],
+          ["scopecat", "start", projectRoot, "--port", "0", "--static-dir", UI_DIST],
           projectRoot,
         );
         const endpoint = await readEndpoint(projectRoot);
@@ -189,10 +210,7 @@ const test = base.extend<{}, { daemon: ProjectDaemon }>({
   ],
 });
 
-test("starter project closes the notebook, run, and config loop", async ({
-  daemon,
-  page,
-}) => {
+test("starter project closes the notebook, run, and config loop", async ({ daemon, page }) => {
   await page.goto(daemon.baseUrl);
 
   await expect(
@@ -204,15 +222,11 @@ test("starter project closes the notebook, run, and config loop", async ({
   await expect(page.getByText("Succeeded", { exact: true }).first()).toBeVisible();
 
   await page.getByRole("button", { name: "Configuration" }).click();
-  await expect(
-    page.getByRole("heading", { name: "Default configuration" }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Default configuration" })).toBeVisible();
 
   const initialRegistry = await readRegistry(page, daemon.baseUrl);
   const initialEntryId = initialRegistry.active_state.active_entry_id;
-  await expect(
-    page.locator(".active-config-card strong"),
-  ).toHaveText(initialEntryId);
+  await expect(page.getByTestId("active-config-entry")).toHaveText(initialEntryId);
   await expect(page.getByRole("button", { name: "Undo" })).toBeDisabled();
 
   await page.getByRole("button", { name: "Edit parameters" }).click();
@@ -232,25 +246,24 @@ test("starter project closes the notebook, run, and config loop", async ({
   await expect(page.locator(".parameter-atom")).toHaveText("256");
   const editedRegistry = await readRegistry(page, daemon.baseUrl);
   expect(editedRegistry.active_state.active_entry_id).not.toBe(initialEntryId);
-  expect(editedRegistry.active_state.generation).toBe(
-    initialRegistry.active_state.generation + 1,
-  );
+  expect(editedRegistry.active_state.generation).toBe(initialRegistry.active_state.generation + 1);
   expect(editedRegistry.active_state.history).toHaveLength(
     initialRegistry.active_state.history.length + 1,
   );
 
-  page.once("dialog", (dialog) => dialog.accept());
   const rollbackResponse = page.waitForResponse(
     (response) =>
       response.request().method() === "POST" &&
       response.url().endsWith("/api/v1/config-registry/rollback"),
   );
   await page.getByRole("button", { name: "Undo" }).click();
+  await page
+    .getByRole("alertdialog")
+    .getByRole("button", { name: "Restore default", exact: true })
+    .click();
   await expectResponseOk(await rollbackResponse, "POST");
 
-  await expect(page.locator(".active-config-card strong")).toHaveText(
-    initialEntryId,
-  );
+  await expect(page.getByTestId("active-config-entry")).toHaveText(initialEntryId);
   await expect(page.getByText("Runtime-derived default")).toHaveCount(0);
   const rolledBackRegistry = await readRegistry(page, daemon.baseUrl);
   expect(rolledBackRegistry.active_state.active_entry_id).toBe(initialEntryId);
@@ -262,10 +275,66 @@ test("starter project closes the notebook, run, and config loop", async ({
   );
 });
 
-test("open console reconnects SSE and follows a live notebook run", async ({
+test("accepts a notebook candidate in the GUI and preserves its provenance", async ({
   daemon,
   page,
 }) => {
+  const candidate = await createCandidateAnalysis(daemon.projectRoot);
+  const initialRegistry = await readRegistry(page, daemon.baseUrl);
+
+  await page.goto(`${daemon.baseUrl}/?run=${encodeURIComponent(candidate.runId)}`);
+  const proposals = page.locator(".run-proposals-card");
+  await expect(proposals.getByText(candidate.proposalId, { exact: true })).toBeVisible();
+  await expect(proposals.getByText("98% confidence", { exact: true })).toBeVisible();
+  await proposals.getByPlaceholder("Evidence or rationale").fill("fit accepted from the GUI");
+
+  const acceptResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      response.url().endsWith("/api/v1/config-registry/candidates/activate"),
+  );
+  await proposals.getByRole("button", { name: "Accept as default" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Accept as default" }).click();
+  await expectResponseOk(await acceptResponse, "POST");
+  await expect(proposals.getByRole("button", { name: "Default set" })).toBeVisible();
+
+  const acceptedRegistry = await readRegistry(page, daemon.baseUrl);
+  expect(acceptedRegistry.active_state.active_entry_id).not.toBe(
+    initialRegistry.active_state.active_entry_id,
+  );
+  expect(acceptedRegistry.active_state.generation).toBe(
+    initialRegistry.active_state.generation + 1,
+  );
+
+  await page.getByRole("button", { name: "Configuration" }).click();
+  await expect(page.getByText("Runtime-derived default")).toBeVisible();
+  await expect(page.getByText("Analysis candidate", { exact: true })).toBeVisible();
+  await expect(page.getByText(candidate.analysisId, { exact: true })).toBeVisible();
+  await expect(page.getByText("Approved · Human · local-operator", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Open producing run" }).click();
+
+  await expect(page.getByRole("button", { name: "Runs" })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByText(candidate.runId, { exact: true })).toBeVisible();
+  expect(new URL(page.url()).searchParams.get("run")).toBe(candidate.runId);
+
+  await page.getByRole("button", { name: "Configuration" }).click();
+  const rollbackResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      response.url().endsWith("/api/v1/config-registry/rollback"),
+  );
+  await page.getByRole("button", { name: "Undo" }).click();
+  await page
+    .getByRole("alertdialog")
+    .getByRole("button", { name: "Restore default", exact: true })
+    .click();
+  await expectResponseOk(await rollbackResponse, "POST");
+  await expect(page.getByTestId("active-config-entry")).toHaveText(
+    initialRegistry.active_state.active_entry_id,
+  );
+});
+
+test("open console reconnects SSE and follows a live notebook run", async ({ daemon, page }) => {
   let streamCount = 0;
   const streamRequests: string[] = [];
   page.on("request", (request) => {
@@ -292,13 +361,8 @@ test("open console reconnects SSE and follows a live notebook run", async ({
 
   const experiment = await startControlledExperiment(daemon.projectRoot);
   try {
-    const runId = await waitForMarker(
-      experiment.acceptedReady,
-      experiment,
-    );
-    const runItem = page
-      .locator("button.run-item")
-      .filter({ hasText: LIVE_EXPERIMENT_ID });
+    const runId = await waitForMarker(experiment.acceptedReady, experiment);
+    const runItem = page.locator("button.run-item").filter({ hasText: LIVE_EXPERIMENT_ID });
     await expect(runItem).toContainText("Accepted");
     await runItem.click();
 
@@ -307,28 +371,20 @@ test("open console reconnects SSE and follows a live notebook run", async ({
     const timeline = detail.locator(".timeline-card");
     await expect(detail.getByText(runId, { exact: true })).toBeVisible();
     await expect(state).toHaveText("Accepted");
-    await expect(
-      timeline.getByText("Run admitted", { exact: true }),
-    ).toBeVisible();
+    await expect(timeline.getByText("Run admitted", { exact: true })).toBeVisible();
 
     await writeFile(experiment.releaseAccepted, "", "utf8");
     await waitForMarker(experiment.runningReady, experiment);
     await expect(state).toHaveText("Running");
-    await expect(
-      timeline.getByText(/From: accepted.*To: running/),
-    ).toBeVisible();
+    await expect(timeline.getByText(/From: accepted.*To: running/)).toBeVisible();
 
     await writeFile(experiment.releaseRunning, "", "utf8");
     await waitForMarker(experiment.measurementReady, experiment);
     await expect(state).toHaveText("Running");
     const dataCard = detail.locator(".data-card");
-    await expect(
-      dataCard.getByText("Measurement preview", { exact: true }),
-    ).toBeVisible();
+    await expect(dataCard.getByText("Measurement preview", { exact: true })).toBeVisible();
     await expect(dataCard.getByText("1 records", { exact: true })).toBeVisible();
-    await expect(dataCard.locator(".measurement-preview pre")).toContainText(
-      '"point_index": 0',
-    );
+    await expect(dataCard.locator(".measurement-preview pre")).toContainText('"point_index": 0');
     await expect(
       detail.getByRole("progressbar", {
         name: "1 of 5 points complete",
@@ -340,23 +396,36 @@ test("open console reconnects SSE and follows a live notebook run", async ({
     expectProcessOk(completion);
     await expect(state).toHaveText("Succeeded");
     await expect(dataCard.getByText("5 records", { exact: true })).toBeVisible();
-    await expect(
-      timeline.getByText(/From: running.*To: terminal/),
-    ).toBeVisible();
+    await expect(timeline.getByText(/From: running.*To: terminal/)).toBeVisible();
   } finally {
     await finishControlledExperiment(experiment);
   }
 });
 
-async function readRegistry(
-  page: Page,
-  baseUrl: string,
-): Promise<ConfigRegistryView> {
-  const response = await page.request.get(
-    `${baseUrl}/api/v1/config-registry`,
-  );
+async function readRegistry(page: Page, baseUrl: string): Promise<ConfigRegistryView> {
+  const response = await page.request.get(`${baseUrl}/api/v1/config-registry`);
   await expectResponseOk(response, "GET");
   return (await response.json()) as ConfigRegistryView;
+}
+
+async function createCandidateAnalysis(projectRoot: string): Promise<CandidateAnalysis> {
+  const script = join(projectRoot, "e2e_candidate_analysis.py");
+  await writeFile(script, CANDIDATE_ANALYSIS_SOURCE, "utf8");
+  const result = runUv(["python", script, projectRoot], projectRoot);
+  const marker = result.stdout.split(/\r?\n/).find((line) => line.startsWith("E2E_CANDIDATE="));
+  if (marker === undefined) {
+    throw new Error(`Candidate analysis did not report its identity:\n${result.stdout}`);
+  }
+  const parsed = JSON.parse(marker.slice("E2E_CANDIDATE=".length)) as {
+    run_id: string;
+    proposal_id: string;
+    analysis_id: string;
+  };
+  return {
+    runId: parsed.run_id,
+    proposalId: parsed.proposal_id,
+    analysisId: parsed.analysis_id,
+  };
 }
 
 async function expectResponseOk(
@@ -370,46 +439,29 @@ async function expectResponseOk(
 ): Promise<void> {
   if (!response.ok()) {
     throw new Error(
-      `${method} ${response.url()} returned ` +
-        `${response.status()}: ${await response.text()}`,
+      `${method} ${response.url()} returned ${response.status()}: ${await response.text()}`,
     );
   }
 }
 
-async function readEndpoint(
-  projectRoot: string,
-): Promise<DaemonEndpointRecord> {
-  const source = await readFile(
-    join(projectRoot, ".scopecat/daemon.json"),
-    "utf8",
-  );
+async function readEndpoint(projectRoot: string): Promise<DaemonEndpointRecord> {
+  const source = await readFile(join(projectRoot, ".scopecat/daemon.json"), "utf8");
   const record = JSON.parse(source) as Partial<DaemonEndpointRecord>;
-  if (
-    typeof record.base_url !== "string" ||
-    new URL(record.base_url).port === "0"
-  ) {
+  if (typeof record.base_url !== "string" || new URL(record.base_url).port === "0") {
     throw new Error(`Invalid daemon endpoint record: ${source}`);
   }
   return record as DaemonEndpointRecord;
 }
 
-function runUv(
-  arguments_: string[],
-  cwd: string,
-  allowFailure = false,
-): SpawnSyncReturns<string> {
+function runUv(arguments_: string[], cwd: string, allowFailure = false): SpawnSyncReturns<string> {
   const environment = { ...process.env };
   delete environment.SCOPECAT_DAEMON_URL;
-  const result = spawnSync(
-    "uv",
-    ["run", "--locked", "--project", REPOSITORY_ROOT, ...arguments_],
-    {
-      cwd,
-      encoding: "utf8",
-      env: environment,
-      timeout: 30_000,
-    },
-  );
+  const result = spawnSync("uv", ["run", "--locked", "--project", REPOSITORY_ROOT, ...arguments_], {
+    cwd,
+    encoding: "utf8",
+    env: environment,
+    timeout: 30_000,
+  });
   if (!allowFailure && (result.error || result.status !== 0)) {
     throw new Error(
       [
@@ -425,42 +477,23 @@ function runUv(
   return result;
 }
 
-async function startControlledExperiment(
-  projectRoot: string,
-): Promise<ControlledExperiment> {
+async function startControlledExperiment(projectRoot: string): Promise<ControlledExperiment> {
   const script = join(projectRoot, "e2e_live_run.py");
   const acceptedReady = join(projectRoot, ".scopecat/e2e-accepted-ready");
   const releaseAccepted = join(projectRoot, ".scopecat/e2e-release-accepted");
   const runningReady = join(projectRoot, ".scopecat/e2e-running-ready");
   const releaseRunning = join(projectRoot, ".scopecat/e2e-release-running");
-  const measurementReady = join(
-    projectRoot,
-    ".scopecat/e2e-measurement-ready",
-  );
-  const releaseMeasurement = join(
-    projectRoot,
-    ".scopecat/e2e-release-measurement",
-  );
+  const measurementReady = join(projectRoot, ".scopecat/e2e-measurement-ready");
+  const releaseMeasurement = join(projectRoot, ".scopecat/e2e-release-measurement");
   await writeFile(script, CONTROLLED_EXPERIMENT_SOURCE, "utf8");
 
   const environment = { ...process.env };
   delete environment.SCOPECAT_DAEMON_URL;
-  const child = spawn(
-    "uv",
-    [
-      "run",
-      "--locked",
-      "--project",
-      REPOSITORY_ROOT,
-      "python",
-      script,
-    ],
-    {
-      cwd: projectRoot,
-      env: environment,
-      stdio: ["ignore", "pipe", "pipe"],
-    },
-  );
+  const child = spawn("uv", ["run", "--locked", "--project", REPOSITORY_ROOT, "python", script], {
+    cwd: projectRoot,
+    env: environment,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
   let stdout = "";
   let stderr = "";
   child.stdout?.setEncoding("utf8");
@@ -491,10 +524,7 @@ async function startControlledExperiment(
   };
 }
 
-async function waitForMarker(
-  path: string,
-  experiment: ControlledExperiment,
-): Promise<string> {
+async function waitForMarker(path: string, experiment: ControlledExperiment): Promise<string> {
   await expect
     .poll(
       async () => {
@@ -527,9 +557,7 @@ function expectProcessOk(completion: ProcessCompletion): void {
   expect(completion.stdout).toContain("'status': 'completed'");
 }
 
-async function finishControlledExperiment(
-  experiment: ControlledExperiment,
-): Promise<void> {
+async function finishControlledExperiment(experiment: ControlledExperiment): Promise<void> {
   await Promise.all([
     writeFile(experiment.releaseAccepted, "", "utf8"),
     writeFile(experiment.releaseRunning, "", "utf8"),
@@ -559,16 +587,11 @@ async function processResultWithin(
 }
 
 async function stopAndRemoveProject(projectRoot: string): Promise<void> {
-  const stopped = runUv(
-    ["scopecat", "stop", projectRoot],
-    projectRoot,
-    true,
-  );
+  const stopped = runUv(["scopecat", "stop", projectRoot], projectRoot, true);
   if (stopped.error || stopped.status !== 0) {
-    const daemonLog = await readFile(
-      join(projectRoot, ".scopecat/daemon.log"),
-      "utf8",
-    ).catch(() => "");
+    const daemonLog = await readFile(join(projectRoot, ".scopecat/daemon.log"), "utf8").catch(
+      () => "",
+    );
     throw new Error(
       [
         `Could not stop test daemon; project retained at ${projectRoot}`,

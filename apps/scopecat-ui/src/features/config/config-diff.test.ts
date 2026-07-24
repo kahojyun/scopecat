@@ -1,19 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { normalizeConfigProfileSnapshot } from "./config-api";
-import {
-  diffConfigParameters,
-  parameterAtomLabel,
-  parameterTypeLabel,
-} from "./config-diff";
+import { diffConfigParameters, parameterAtomLabel, parameterTypeLabel } from "./config-diff";
 
 describe("typed config parameter diff", () => {
   it("compares keyed tables by row identity and reports changed cells", () => {
     const active = configSnapshot({
       scalar: { value: 5, unit: "GHz" },
-      table: [
-        row("q0", 6.5, { source: "active" }),
-        row("q1", 6.7),
-      ],
+      table: [row("q0", 6.5, { source: "active" }), row("q1", 6.7)],
     });
     const selected = configSnapshot({
       scalar: { value: 5.1, unit: "GHz" },
@@ -29,15 +22,9 @@ describe("typed config parameter diff", () => {
     });
     const table = diffs.find((item) => item.parameterId === "qubits");
     expect(table?.table?.mode).toBe("keyed");
-    expect(table?.table?.rows.map(({ status }) => status)).toEqual([
-      "changed",
-      "added",
-      "removed",
-    ]);
+    expect(table?.table?.rows.map(({ status }) => status)).toEqual(["changed", "added", "removed"]);
     expect(
-      table?.table?.rows[0]?.cells.find(
-        (cell) => cell.columnId === "readout_frequency",
-      ),
+      table?.table?.rows[0]?.cells.find((cell) => cell.columnId === "readout_frequency"),
     ).toMatchObject({
       status: "changed",
       before: { value: 6.5, unit: "GHz" },

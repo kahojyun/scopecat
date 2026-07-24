@@ -1,11 +1,6 @@
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ChangeEvent,
-  type ReactNode,
-} from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
+import { Dialog } from "@base-ui/react/dialog";
+import { Menu } from "@base-ui/react/menu";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -24,7 +19,7 @@ import {
   X,
   XCircle,
 } from "lucide-react";
-import { ApiError, getRunAnalyses } from "./api";
+import { ApiError, getRunAnalyses } from "../../api";
 import {
   activateConfigEntry,
   getConfigRegistry,
@@ -33,15 +28,10 @@ import {
   parseConfigProfileJson,
   rollbackConfig,
 } from "./config-api";
-import {
-  ConfigDraftEditor,
-  type ConfigDraftSeed,
-} from "./ConfigDraftEditor";
+import { ConfigDraftEditor, type ConfigDraftSeed } from "./ConfigDraftEditor";
 import { ConfigParameters } from "./ConfigParameters";
-import {
-  getRunParameterProposals,
-  latestProposalDecision,
-} from "./proposal-api";
+import { errorMessage, formatDateTime, formatRelative, shorten } from "../../lib/presentation";
+import { getRunParameterProposals, latestProposalDecision } from "../runs/proposal-api";
 import type {
   ConfigActivationRecord,
   ConfigProfileSnapshot,
@@ -50,8 +40,9 @@ import type {
   ConfigSnapshotSummary,
   JsonObject,
 } from "./config-types";
-import type { ParameterProposal } from "./proposal-types";
-import type { RunAnalysis } from "./types";
+import type { ParameterProposal } from "../runs/proposal-types";
+import type { RunAnalysis } from "../../types";
+import { useConfirmationDialog } from "../../ui/ConfirmationDialog";
 
 type ConfigMutation =
   | { kind: "activate-entry"; entryId: string }
@@ -80,6 +71,7 @@ export function ConfigWorkspace({
   const [importDraft, setImportDraft] = useState<ImportDraft>();
   const [importError, setImportError] = useState<string>();
   const [configDraft, setConfigDraft] = useState<ConfigDraftSeed>();
+  const { requestConfirmation, confirmationDialog } = useConfirmationDialog();
 
   const registryQuery = useQuery({
     queryKey: ["config", "registry"],
@@ -130,14 +122,11 @@ export function ConfigWorkspace({
 
   useEffect(() => {
     if (!overview) return;
-    const selectionExists = overview.entries.some(
-      (entry) => entry.id === selectedId,
-    );
+    const selectionExists = overview.entries.some((entry) => entry.id === selectedId);
     if (selectionExists) return;
     const preferred =
-      overview.entries.find(
-        (entry) => entry.id === overview.active?.entryId,
-      ) ?? overview.entries[0];
+      overview.entries.find((entry) => entry.id === overview.active?.entryId) ??
+      overview.entries[0];
     if (preferred) {
       setSelectedId(preferred.id);
     }
@@ -147,42 +136,25 @@ export function ConfigWorkspace({
     () => filterEntries(overview?.entries ?? [], registrySearch),
     [overview?.entries, registrySearch],
   );
-  const selectedEntry = overview?.entries.find(
-    (entry) => entry.id === selectedId,
-  );
-  const activeEntry = overview?.entries.find(
-    (entry) => entry.id === overview.active?.entryId,
-  );
+  const selectedEntry = overview?.entries.find((entry) => entry.id === selectedId);
+  const activeEntry = overview?.entries.find((entry) => entry.id === overview.active?.entryId);
   const entryDetailQuery = useQuery({
-    queryKey: [
-      "config",
-      "entry",
-      selectedEntry?.id,
-      selectedEntry?.contentHash,
-    ],
+    queryKey: ["config", "entry", selectedEntry?.id, selectedEntry?.contentHash],
     queryFn: ({ signal }) => getConfigRegistryEntry(selectedEntry!.id, signal),
     enabled: selectedEntry !== undefined,
     staleTime: Infinity,
   });
   const activeDetailQuery = useQuery({
-    queryKey: [
-      "config",
-      "entry",
-      activeEntry?.id,
-      activeEntry?.contentHash,
-    ],
+    queryKey: ["config", "entry", activeEntry?.id, activeEntry?.contentHash],
     queryFn: ({ signal }) => getConfigRegistryEntry(activeEntry!.id, signal),
     enabled: activeEntry !== undefined,
     staleTime: Infinity,
   });
   const candidateRunId =
-    selectedEntry?.source.kind === "candidate_config"
-      ? selectedEntry.source.runId
-      : undefined;
+    selectedEntry?.source.kind === "candidate_config" ? selectedEntry.source.runId : undefined;
   const candidateProposalsQuery = useQuery({
     queryKey: ["parameter-proposals", candidateRunId],
-    queryFn: ({ signal }) =>
-      getRunParameterProposals(candidateRunId!, signal),
+    queryFn: ({ signal }) => getRunParameterProposals(candidateRunId!, signal),
     enabled: candidateRunId !== undefined,
   });
   const candidateAnalysesQuery = useQuery({
@@ -190,16 +162,19 @@ export function ConfigWorkspace({
     queryFn: ({ signal }) => getRunAnalyses(candidateRunId!, signal),
     enabled: candidateRunId !== undefined,
   });
-  const commandDisabled =
-    mutation.isPending || !operator.trim();
+  const commandDisabled = mutation.isPending || !operator.trim();
 
   const selectEntry = (entryId: string) => {
     setSelectedId(entryId);
     mutation.reset();
   };
   const runAction = (action: ConfigMutation, confirmation: string) => {
-    if (!window.confirm(confirmation)) return;
-    mutation.mutate(action);
+    requestConfirmation({
+      title: action.kind === "rollback" ? "Restore the previous default?" : "Change the default?",
+      description: confirmation,
+      confirmLabel: action.kind === "rollback" ? "Restore default" : "Set as default",
+      onConfirm: () => mutation.mutate(action),
+    });
   };
   const readImport = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.currentTarget.files?.[0];
@@ -209,9 +184,7 @@ export function ConfigWorkspace({
     try {
       const config = parseConfigProfileJson(await file.text());
       const suggestedEntryId =
-        typeof config.id === "string"
-          ? config.id
-          : file.name.replace(/\.[^.]+$/, "");
+        typeof config.id === "string" ? config.id : file.name.replace(/\.[^.]+$/, "");
       setImportDraft({
         fileName: file.name,
         entryId: safeEntryId(suggestedEntryId),
@@ -275,12 +248,7 @@ export function ConfigWorkspace({
     <section className="config-workspace" aria-labelledby="config-heading">
       <header className="config-toolbar">
         <div>
-          <p className="eyebrow">Configuration history</p>
           <h2 id="config-heading">Default configuration</h2>
-          <p>
-            Browse typed parameters, compare saved versions, and choose the
-            default used by new runs.
-          </p>
         </div>
         <div className="config-toolbar-actions">
           <label className="operator-field">
@@ -300,25 +268,28 @@ export function ConfigWorkspace({
             accept=".json,application/json"
             onChange={(event) => void readImport(event)}
           />
-          <details className="config-advanced-menu">
-            <summary>
+          <Menu.Root>
+            <Menu.Trigger className="secondary-button action-menu-trigger">
               <SlidersHorizontal size={15} aria-hidden="true" />
               Advanced
-            </summary>
-            <div>
-              <button
-                className="secondary-button"
-                type="button"
-                onClick={() => fileInput.current?.click()}
-              >
-                <FileUp size={15} aria-hidden="true" />
-                Import raw snapshot
-              </button>
-              <small>
-                Direct JSON import bypasses the typed parameter editor.
-              </small>
-            </div>
-          </details>
+            </Menu.Trigger>
+            <Menu.Portal>
+              <Menu.Positioner className="action-menu-positioner" sideOffset={6} align="end">
+                <Menu.Popup className="action-menu-popup">
+                  <Menu.Item
+                    className="action-menu-item"
+                    onClick={() => fileInput.current?.click()}
+                  >
+                    <FileUp size={15} aria-hidden="true" />
+                    <span>
+                      <strong>Import raw snapshot</strong>
+                      <small>Bypass the typed parameter editor.</small>
+                    </span>
+                  </Menu.Item>
+                </Menu.Popup>
+              </Menu.Positioner>
+            </Menu.Portal>
+          </Menu.Root>
         </div>
       </header>
 
@@ -342,13 +313,9 @@ export function ConfigWorkspace({
       <ConfigSummary
         overview={overview}
         rollbackDisabled={
-          commandDisabled ||
-          overview.history.length < 2 ||
-          overview.active === undefined
+          commandDisabled || overview.history.length < 2 || overview.active === undefined
         }
-        rollbackPending={
-          mutation.isPending && mutation.variables?.kind === "rollback"
-        }
+        rollbackPending={mutation.isPending && mutation.variables?.kind === "rollback"}
         onRollback={() =>
           runAction(
             { kind: "rollback" },
@@ -367,11 +334,7 @@ export function ConfigWorkspace({
               <strong>{overview.entries.length} versions</strong>
             </div>
             {registryQuery.isFetching && (
-              <LoaderCircle
-                className="spin"
-                size={16}
-                aria-label="Refreshing configuration"
-              />
+              <LoaderCircle className="spin" size={16} aria-label="Refreshing configuration" />
             )}
           </div>
           <label className="config-search">
@@ -420,10 +383,7 @@ export function ConfigWorkspace({
               snapshotPending={entryDetailQuery.isPending}
               snapshotError={entryDetailQuery.error}
               note={note}
-              pending={
-                mutation.isPending &&
-                mutation.variables?.kind === "activate-entry"
-              }
+              pending={mutation.isPending && mutation.variables?.kind === "activate-entry"}
               actionDisabled={commandDisabled}
               onNoteChange={setNote}
               onSelectEntry={selectEntry}
@@ -487,18 +447,15 @@ export function ConfigWorkspace({
         <ImportDialog
           draft={importDraft}
           note={note}
-          pending={
-            mutation.isPending && mutation.variables?.kind === "import"
-          }
+          pending={mutation.isPending && mutation.variables?.kind === "import"}
           disabled={mutation.isPending || !operator.trim()}
           onChange={setImportDraft}
           onNoteChange={setNote}
           onCancel={() => setImportDraft(undefined)}
-          onSubmit={() =>
-            mutation.mutate({ kind: "import", draft: importDraft })
-          }
+          onSubmit={() => mutation.mutate({ kind: "import", draft: importDraft })}
         />
       )}
+      {confirmationDialog}
     </section>
   );
 }
@@ -514,98 +471,59 @@ function ConfigSummary({
   rollbackPending: boolean;
   onRollback: () => void;
 }) {
-  const defaultEntry = overview.entries.find(
-    (entry) => entry.id === overview.active?.entryId,
-  );
+  const defaultEntry = overview.entries.find((entry) => entry.id === overview.active?.entryId);
   const runtimeDerived =
     defaultEntry?.source.kind === "manual_parameter_updates" ||
     defaultEntry?.source.kind === "candidate_config";
   return (
-    <div className="config-summary-grid" aria-label="Configuration summary">
-      <article className="active-config-card">
-        <span className="config-summary-icon">
-          <CheckCircle2 size={18} />
-        </span>
+    <div className="config-summary" aria-label="Configuration summary">
+      <div className="config-summary-default">
+        <span>Default</span>
+        <strong data-testid="active-config-entry" title={overview.active?.entryId}>
+          {overview.active?.entryId ?? "Not configured"}
+        </strong>
+        <code title={overview.active?.contentHash}>
+          {overview.active ? shorten(overview.active.contentHash, 16) : "No content hash"}
+        </code>
+      </div>
+      <dl className="config-summary-facts">
         <div>
-          <span>Default configuration</span>
-          <strong>{overview.active?.entryId ?? "Not configured"}</strong>
-          <code title={overview.active?.contentHash}>
-            {overview.active
-              ? shorten(overview.active.contentHash, 23)
-              : "No default content hash"}
-          </code>
+          <dt>Saved versions</dt>
+          <dd>{overview.entries.length}</dd>
         </div>
-      </article>
-      <ConfigMetric
-        icon={<Database size={17} />}
-        label="Saved versions"
-        value={String(overview.entries.length)}
-        detail="Immutable history"
-      />
-      <ConfigMetric
-        icon={<History size={17} />}
-        label="Default changes"
-        value={String(overview.history.length)}
-        detail="Durable history"
-      />
-      <article className="rollback-card">
         <div>
-          <span>Previous default</span>
-          <strong>
-            {overview.history[1]?.entryId ?? "Nothing to undo"}
-          </strong>
+          <dt>Default changes</dt>
+          <dd>{overview.history.length}</dd>
         </div>
+      </dl>
+      <div className="config-summary-rollback">
+        <span>Previous</span>
+        <strong title={overview.history[1]?.entryId}>
+          {overview.history[1]?.entryId ?? "Nothing to undo"}
+        </strong>
         <button
           className="secondary-button"
           type="button"
           disabled={rollbackDisabled}
           onClick={onRollback}
         >
-          {rollbackPending ? (
-            <LoaderCircle className="spin" size={15} />
-          ) : (
-            <RotateCcw size={15} />
-          )}
+          {rollbackPending ? <LoaderCircle className="spin" size={15} /> : <RotateCcw size={15} />}
           Undo
         </button>
-      </article>
+      </div>
       {runtimeDerived && (
         <aside className="runtime-derived-default" role="note">
           <GitCompareArrows size={17} aria-hidden="true" />
           <div>
             <strong>Runtime-derived default</strong>
             <p>
-              This console cannot tell whether the project&apos;s Git/Python
-              configuration source is synchronized. Run{" "}
-              <code>scopecat config diff .</code> to check.
+              This console cannot tell whether the project&apos;s Git/Python configuration source is
+              synchronized. Run <code>scopecat config diff .</code> to check.
             </p>
           </div>
         </aside>
       )}
     </div>
-  );
-}
-
-function ConfigMetric({
-  icon,
-  label,
-  value,
-  detail,
-}: {
-  icon: ReactNode;
-  label: string;
-  value: string;
-  detail: string;
-}) {
-  return (
-    <article className="config-metric">
-      <span aria-hidden="true">{icon}</span>
-      <div>
-        <small>{label}</small>
-        <strong>{value}</strong>
-        <p>{detail}</p>
-      </div>
-    </article>
   );
 }
 
@@ -694,15 +612,11 @@ function EntryInspector({
           <span className={active ? "config-state active" : "config-state"}>
             {active ? "Default" : "Saved"}
           </span>
-          <h3>{entry.id}</h3>
+          <h3 title={entry.id}>{shorten(entry.id, 44)}</h3>
           <code title={entry.contentHash}>{entry.contentHash}</code>
         </div>
         {active && onEdit && (
-          <button
-            className="primary-button"
-            type="button"
-            onClick={onEdit}
-          >
+          <button className="primary-button" type="button" onClick={onEdit}>
             <SlidersHorizontal size={15} />
             Edit parameters
           </button>
@@ -714,34 +628,19 @@ function EntryInspector({
             disabled={actionDisabled}
             onClick={onActivate}
           >
-            {pending ? (
-              <LoaderCircle className="spin" size={15} />
-            ) : (
-              <CheckCircle2 size={15} />
-            )}
+            {pending ? <LoaderCircle className="spin" size={15} /> : <CheckCircle2 size={15} />}
             Set as default
           </button>
         )}
       </header>
       <div className="config-detail-facts">
         <ConfigFact label="Source" value={sourceLabel(entry)} />
-        <ConfigFact
-          label="Saved by"
-          value={entry.registeredBy ?? "Not reported"}
-        />
+        <ConfigFact label="Saved by" value={entry.registeredBy ?? "Not reported"} />
         <ConfigFact
           label="Saved"
-          value={
-            entry.registeredAt
-              ? formatDateTime(entry.registeredAt)
-              : "Not reported"
-          }
+          value={entry.registeredAt ? formatDateTime(entry.registeredAt) : "Not reported"}
         />
-        <ConfigFact
-          label="Config ref"
-          value={entry.configRef ?? "Not reported"}
-          code
-        />
+        <ConfigFact label="Config ref" value={entry.configRef ?? "Not reported"} code />
       </div>
       <EntryProvenance
         entry={entry}
@@ -757,9 +656,7 @@ function EntryInspector({
       {selectedSnapshot ? (
         <>
           <SnapshotSummary snapshot={selectedSnapshot} />
-          {config && (
-            <ConfigParameters config={config} activeConfig={activeConfig} />
-          )}
+          {config && <ConfigParameters config={config} activeConfig={activeConfig} />}
         </>
       ) : snapshotPending ? (
         <ConfigInlineEmpty
@@ -767,10 +664,7 @@ function EntryInspector({
           detail="Loading this registry entry's immutable config snapshot."
         />
       ) : snapshotError ? (
-        <ConfigInlineEmpty
-          title="Snapshot unavailable"
-          detail={errorMessage(snapshotError)}
-        />
+        <ConfigInlineEmpty title="Snapshot unavailable" detail={errorMessage(snapshotError)} />
       ) : (
         <ConfigInlineEmpty
           title="Snapshot summary not included"
@@ -783,9 +677,7 @@ function EntryInspector({
           <p>{entry.note}</p>
         </div>
       )}
-      {!active && (
-        <ActionNote value={note} onChange={onNoteChange} />
-      )}
+      {!active && <ActionNote value={note} onChange={onNoteChange} />}
     </>
   );
 }
@@ -843,9 +735,7 @@ function EntryProvenance({
             ) : (
               "an unreported base version"
             )}
-            {source.baseGeneration
-              ? ` at registry generation ${source.baseGeneration}.`
-              : "."}
+            {source.baseGeneration ? ` at registry generation ${source.baseGeneration}.` : "."}
           </p>
         </div>
       </div>
@@ -867,16 +757,11 @@ function EntryProvenance({
           <div>
             <strong>Analysis candidate</strong>
             <p>
-              Produced by run{" "}
-              <code>{runId ?? "unreported producing run"}</code>.
+              Produced by run <code>{runId ?? "unreported producing run"}</code>.
             </p>
           </div>
           {runId && onOpenRun && (
-            <button
-              className="secondary-button"
-              type="button"
-              onClick={() => onOpenRun(runId)}
-            >
+            <button className="secondary-button" type="button" onClick={() => onOpenRun(runId)}>
               Open producing run
             </button>
           )}
@@ -884,8 +769,7 @@ function EntryProvenance({
 
         {candidateProposalsError && (
           <p className="candidate-evidence-status">
-            Proposal evidence unavailable:{" "}
-            {errorMessage(candidateProposalsError)}
+            Proposal evidence unavailable: {errorMessage(candidateProposalsError)}
           </p>
         )}
         {candidateAnalysesError && (
@@ -902,17 +786,10 @@ function EntryProvenance({
           )}
           {source.proposalIds.map((proposalId) => {
             const proposal = proposalsById.get(proposalId);
-            const analysis = proposal
-              ? analysesById.get(proposal.analysisRecordId)
-              : undefined;
-            const decision = proposal
-              ? latestProposalDecision(proposal)
-              : undefined;
+            const analysis = proposal ? analysesById.get(proposal.analysisRecordId) : undefined;
+            const decision = proposal ? latestProposalDecision(proposal) : undefined;
             return (
-              <article
-                key={proposalId}
-                aria-label={`Proposal ${proposalId}`}
-              >
+              <article key={proposalId} aria-label={`Proposal ${proposalId}`}>
                 <dl>
                   <div>
                     <dt>Proposal</dt>
@@ -927,9 +804,7 @@ function EntryProvenance({
                         <>
                           <code>{proposal.analysisRecordId}</code>
                           {analysis && <span>{analysis.title}</span>}
-                          {!analysis &&
-                            candidateAnalysesPending &&
-                            " · Loading details"}
+                          {!analysis && candidateAnalysesPending && " · Loading details"}
                         </>
                       ) : candidateProposalsPending ? (
                         "Loading proposal"
@@ -940,9 +815,7 @@ function EntryProvenance({
                   </div>
                   <div>
                     <dt>
-                      {decision?.decision === "approved"
-                        ? "Latest acceptance"
-                        : "Latest decision"}
+                      {decision?.decision === "approved" ? "Latest acceptance" : "Latest decision"}
                     </dt>
                     <dd>
                       {decision
@@ -985,9 +858,7 @@ function EntryProvenance({
 }
 
 function decisionAuthorityLabel(
-  decision: NonNullable<
-    ReturnType<typeof latestProposalDecision>
-  >,
+  decision: NonNullable<ReturnType<typeof latestProposalDecision>>,
 ): string {
   if (decision.authorityKind === "automatic_policy") {
     const policy =
@@ -1014,32 +885,16 @@ function SnapshotSummary({ snapshot }: { snapshot: ConfigSnapshotSummary }) {
         </span>
       </div>
       <div className="snapshot-metrics">
-        <ConfigFact
-          label="Parameters"
-          value={String(snapshot.parameterCount)}
-        />
-        <ConfigFact
-          label="Instruments"
-          value={String(snapshot.instrumentCount)}
-        />
-        <ConfigFact
-          label="Connections"
-          value={String(snapshot.connectionCount)}
-        />
-        <ConfigFact
-          label="Primary entity"
-          value={snapshot.primaryEntityId ?? "Not reported"}
-        />
+        <ConfigFact label="Parameters" value={String(snapshot.parameterCount)} />
+        <ConfigFact label="Instruments" value={String(snapshot.instrumentCount)} />
+        <ConfigFact label="Connections" value={String(snapshot.connectionCount)} />
+        <ConfigFact label="Primary entity" value={snapshot.primaryEntityId ?? "Not reported"} />
       </div>
     </section>
   );
 }
 
-function ActivationHistory({
-  history,
-}: {
-  history: ConfigActivationRecord[];
-}) {
+function ActivationHistory({ history }: { history: ConfigActivationRecord[] }) {
   return (
     <section className="activation-history" aria-labelledby="history-heading">
       <header>
@@ -1070,9 +925,7 @@ function ActivationHistory({
                 <strong>{record.entryId}</strong>
                 <small>
                   {record.operator ?? "Unknown operator"}
-                  {record.recordedAt
-                    ? ` · ${formatDateTime(record.recordedAt)}`
-                    : ""}
+                  {record.recordedAt ? ` · ${formatDateTime(record.recordedAt)}` : ""}
                 </small>
                 {record.note && <p>{record.note}</p>}
               </div>
@@ -1104,87 +957,71 @@ function ImportDialog({
   onCancel: () => void;
   onSubmit: () => void;
 }) {
-  const validEntryId =
-    draft.entryId.length > 0 && safeEntryId(draft.entryId) === draft.entryId;
+  const validEntryId = draft.entryId.length > 0 && safeEntryId(draft.entryId) === draft.entryId;
+  const entryIdInput = useRef<HTMLInputElement>(null);
   return (
-    <div className="config-modal-backdrop">
-      <section
-        className="config-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="import-config-title"
-      >
-        <header>
-          <span aria-hidden="true">
-            <FileUp size={19} />
-          </span>
-          <div>
-            <h3 id="import-config-title">Import config snapshot</h3>
-            <p>Advanced raw import · {draft.fileName}</p>
-          </div>
-          <button
-            className="icon-button"
-            type="button"
-            onClick={onCancel}
-            aria-label="Close import dialog"
-          >
-            <X size={16} />
-          </button>
-        </header>
-        <div className="config-modal-body">
-          <label>
-            <span>Registry entry id</span>
-            <input
-              value={draft.entryId}
-              onChange={(event) =>
-                onChange({ ...draft, entryId: event.target.value })
-              }
-              aria-invalid={!validEntryId}
-              autoFocus
-            />
-            {!validEntryId && (
-              <small>
-                Use letters, numbers, underscores, and hyphens; start with a
-                letter or number.
-              </small>
-            )}
-          </label>
-          <ActionNote value={note} onChange={onNoteChange} />
-        </div>
-        <footer>
-          <button
-            className="secondary-button"
-            type="button"
-            onClick={onCancel}
-          >
-            Cancel
-          </button>
-          <button
-            className="primary-button"
-            type="button"
-            disabled={disabled || !validEntryId}
-            onClick={onSubmit}
-          >
-            {pending ? (
-              <LoaderCircle className="spin" size={15} />
-            ) : (
-              <FileUp size={15} />
-            )}
-            Import raw snapshot
-          </button>
-        </footer>
-      </section>
-    </div>
+    <Dialog.Root open onOpenChange={(open) => !open && !pending && onCancel()}>
+      <Dialog.Portal>
+        <Dialog.Backdrop className="dialog-backdrop" />
+        <Dialog.Viewport className="dialog-viewport">
+          <Dialog.Popup className="dialog-popup config-modal" initialFocus={entryIdInput}>
+            <header>
+              <span aria-hidden="true">
+                <FileUp size={19} />
+              </span>
+              <div>
+                <Dialog.Title className="dialog-title">Import config snapshot</Dialog.Title>
+                <Dialog.Description className="dialog-description">
+                  Advanced raw import · {draft.fileName}
+                </Dialog.Description>
+              </div>
+              <Dialog.Close
+                className="icon-button"
+                aria-label="Close import dialog"
+                disabled={pending}
+              >
+                <X size={16} />
+              </Dialog.Close>
+            </header>
+            <div className="config-modal-body">
+              <label>
+                <span>Registry entry id</span>
+                <input
+                  ref={entryIdInput}
+                  value={draft.entryId}
+                  onChange={(event) => onChange({ ...draft, entryId: event.target.value })}
+                  aria-invalid={!validEntryId}
+                />
+                {!validEntryId && (
+                  <small>
+                    Use letters, numbers, underscores, and hyphens; start with a letter or number.
+                  </small>
+                )}
+              </label>
+              <ActionNote value={note} onChange={onNoteChange} />
+            </div>
+            <footer>
+              <Dialog.Close className="secondary-button" disabled={pending}>
+                Cancel
+              </Dialog.Close>
+              <button
+                className="primary-button"
+                type="button"
+                disabled={disabled || !validEntryId}
+                onClick={onSubmit}
+              >
+                {pending ? <LoaderCircle className="spin" size={15} /> : <FileUp size={15} />}
+                Import raw snapshot
+              </button>
+            </footer>
+          </Dialog.Popup>
+        </Dialog.Viewport>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 
-function ActionNote({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-}) {
+function ActionNote({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   return (
     <label className="action-note">
       <span>Audit note</span>
@@ -1215,13 +1052,7 @@ function ConfigFact({
   );
 }
 
-function ConfigInlineEmpty({
-  title,
-  detail,
-}: {
-  title: string;
-  detail: string;
-}) {
+function ConfigInlineEmpty({ title, detail }: { title: string; detail: string }) {
   return (
     <div className="config-inline-empty">
       <CircleDot size={16} aria-hidden="true" />
@@ -1249,11 +1080,7 @@ function ConfigBoundaryMessage({
   action?: ReactNode;
 }) {
   return (
-    <section
-      className={`config-boundary${warning ? " warning" : ""}${
-        compact ? " compact" : ""
-      }`}
-    >
+    <section className={`config-boundary${warning ? " warning" : ""}${compact ? " compact" : ""}`}>
       <span aria-hidden="true">{icon}</span>
       <h2>{title}</h2>
       <p>{detail}</p>
@@ -1262,10 +1089,7 @@ function ConfigBoundaryMessage({
   );
 }
 
-function filterEntries(
-  entries: ConfigRegistryEntry[],
-  search: string,
-): ConfigRegistryEntry[] {
+function filterEntries(entries: ConfigRegistryEntry[], search: string): ConfigRegistryEntry[] {
   const query = search.trim().toLocaleLowerCase();
   if (!query) return entries;
   return entries.filter((entry) =>
@@ -1298,36 +1122,4 @@ function safeEntryId(value: string): string {
     .replace(/[^A-Za-z0-9_-]+/g, "-")
     .replace(/^-+|-+$/g, "");
   return /^[A-Za-z0-9]/.test(normalized) ? normalized : `config-${normalized}`;
-}
-
-function shorten(value: string, maxLength: number): string {
-  if (value.length <= maxLength) return value;
-  const edge = Math.max(3, Math.floor((maxLength - 1) / 2));
-  return `${value.slice(0, edge)}…${value.slice(-edge)}`;
-}
-
-function formatDateTime(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.valueOf())) return value;
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
-}
-
-function formatRelative(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.valueOf())) return value;
-  const seconds = Math.round((date.valueOf() - Date.now()) / 1_000);
-  const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
-  if (Math.abs(seconds) < 60) return formatter.format(seconds, "second");
-  const minutes = Math.round(seconds / 60);
-  if (Math.abs(minutes) < 60) return formatter.format(minutes, "minute");
-  const hours = Math.round(minutes / 60);
-  if (Math.abs(hours) < 24) return formatter.format(hours, "hour");
-  return formatter.format(Math.round(hours / 24), "day");
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "The request failed.";
 }

@@ -1,0 +1,491 @@
+import { useMemo, useRef, useState } from "react";
+import { Popover } from "@base-ui/react/popover";
+import { useMutation } from "@tanstack/react-query";
+import { AlertTriangle, CheckCircle2, Eye, LoaderCircle, Pencil, Save, X } from "lucide-react";
+import { ApiError } from "../../api";
+import { previewConfigDraft, registerConfigDraft, setConfigDraftDefault } from "./config-api";
+import { deriveConfigDraftUpdates } from "./config-draft";
+import { ConfigParameters } from "./ConfigParameters";
+import { ParameterEditor } from "./ConfigValueEditors";
+import type {
+  ActiveConfigState,
+  ConfigDraftCommand,
+  ConfigDraftDefaultReceipt,
+  ConfigDraftPreview,
+  ConfigDraftRegistrationReceipt,
+  ConfigProfileSnapshot,
+  ConfigRegistryEntry,
+  StoredParameterValue,
+} from "./config-types";
+
+export interface ConfigDraftSeed {
+  entry: ConfigRegistryEntry;
+  active: ActiveConfigState;
+  config: ConfigProfileSnapshot;
+}
+
+export function ConfigDraftEditor({
+  seed,
+  currentActive,
+  operator,
+  onCancel,
+  onRegistered,
+}: {
+  seed: ConfigDraftSeed;
+  currentActive?: ActiveConfigState;
+  operator: string;
+  onCancel: () => void;
+  onRegistered: (
+    receipt: ConfigDraftRegistrationReceipt | ConfigDraftDefaultReceipt,
+  ) => void | Promise<void>;
+}) {
+  const definitions = seed.config.system.parameterCatalog.definitions;
+  const baseValues = useMemo(
+    () => new Map(seed.config.parameterSnapshot.values.map((value) => [value.id, value])),
+    [seed.config],
+  );
+  const [selectedId, setSelectedId] = useState(definitions[0]?.id);
+  const [editedValues, setEditedValues] = useState<Record<string, StoredParameterValue>>({});
+  const [entryId, setEntryId] = useState("");
+  const [note, setNote] = useState("");
+  const [preview, setPreview] = useState<ConfigDraftPreview>();
+  const [invalidFields, setInvalidFields] = useState<Set<string>>(() => new Set());
+  const [tableRowOrigins, setTableRowOrigins] = useState<Record<string, Array<"base" | "new">>>({});
+  const draftRevision = useRef(0);
+  const updates = useMemo(
+    () => deriveConfigDraftUpdates(seed.config, editedValues),
+    [editedValues, seed.config],
+  );
+  const draft = useMemo<ConfigDraftCommand>(
+    () => ({
+      baseEntryId: seed.entry.id,
+      baseContentHash: seed.active.contentHash,
+      baseGeneration: seed.active.generation,
+      candidateId: `${seed.config.id}-edit`,
+      updates,
+    }),
+    [seed.active, seed.config.id, seed.entry.id, updates],
+  );
+  const selectedDefinition = definitions.find((definition) => definition.id === selectedId);
+  const selectedValue = selectedDefinition
+    ? (editedValues[selectedDefinition.id] ?? baseValues.get(selectedDefinition.id))
+    : undefined;
+  const stale =
+    !currentActive ||
+    currentActive.entryId !== seed.active.entryId ||
+    currentActive.contentHash !== seed.active.contentHash ||
+    currentActive.generation !== seed.active.generation;
+
+  const previewMutation = useMutation({
+    mutationFn: ({ command }: { command: ConfigDraftCommand; revision: number }) =>
+      previewConfigDraft(command),
+    onSuccess: (result, variables) => {
+      if (variables.revision === draftRevision.current) setPreview(result);
+    },
+  });
+  const registrationMutation = useMutation({
+    mutationFn: registerConfigDraft,
+    onSuccess: async (receipt) => {
+      await onRegistered(receipt);
+    },
+  });
+  const defaultMutation = useMutation({
+    mutationFn: async ({
+      command,
+      reviewed,
+      revision,
+      customEntryId,
+      operatorName,
+      auditNote,
+    }: {
+      command: ConfigDraftCommand;
+      reviewed?: ConfigDraftPreview;
+      revision: number;
+      customEntryId: string;
+      operatorName: string;
+      auditNote: string;
+    }) => {
+      const checked =
+        reviewed?.valid && reviewed.resultContentHash
+          ? reviewed
+          : await previewConfigDraft(command);
+      if (!checked.valid || !checked.resultContentHash) {
+        return { preview: checked, revision };
+      }
+      const receipt = await setConfigDraftDefault({
+        registration: {
+          draft: command,
+          expectedResultContentHash: checked.resultContentHash,
+          entryId:
+            customEntryId || defaultDraftEntryId(command.candidateId, checked.resultContentHash),
+          registeredBy: operatorName,
+          note: auditNote,
+        },
+        operator: operatorName,
+        activationNote: auditNote || undefined,
+      });
+      return { preview: checked, receipt, revision };
+    },
+    onSuccess: async (result) => {
+      if (result.revision === draftRevision.current) {
+        setPreview(result.preview);
+      }
+      if (result.receipt) await onRegistered(result.receipt);
+    },
+  });
+  const saving = registrationMutation.isPending || defaultMutation.isPending;
+
+  const changeValue = (value: StoredParameterValue) => {
+    draftRevision.current += 1;
+    setEditedValues((current) => ({ ...current, [value.id]: value }));
+    setPreview(undefined);
+    previewMutation.reset();
+    registrationMutation.reset();
+    defaultMutation.reset();
+  };
+  const setFieldValidity = (field: string, valid: boolean) => {
+    draftRevision.current += 1;
+    setInvalidFields((current) => {
+      const next = new Set(current);
+      if (valid) next.delete(field);
+      else next.add(field);
+      return next;
+    });
+    setPreview(undefined);
+    previewMutation.reset();
+    registrationMutation.reset();
+    defaultMutation.reset();
+  };
+  const resetParameter = (parameterId: string) => {
+    draftRevision.current += 1;
+    setEditedValues((current) => {
+      const next = { ...current };
+      delete next[parameterId];
+      return next;
+    });
+    setPreview(undefined);
+    setInvalidFields(new Set());
+    setTableRowOrigins((current) => {
+      const next = { ...current };
+      delete next[parameterId];
+      return next;
+    });
+    previewMutation.reset();
+    registrationMutation.reset();
+    defaultMutation.reset();
+  };
+  const changeEntryId = (value: string) => {
+    setEntryId(value);
+    registrationMutation.reset();
+    defaultMutation.reset();
+  };
+  const runPreview = () => {
+    setPreview(undefined);
+    registrationMutation.reset();
+    defaultMutation.reset();
+    previewMutation.mutate({
+      command: draft,
+      revision: draftRevision.current,
+    });
+  };
+  const runRegistration = () => {
+    if (!preview?.valid || !preview.resultContentHash) return;
+    registrationMutation.mutate({
+      draft,
+      expectedResultContentHash: preview.resultContentHash,
+      entryId: entryId.trim() || defaultDraftEntryId(draft.candidateId, preview.resultContentHash),
+      registeredBy: operator.trim(),
+      note: note.trim(),
+    });
+  };
+  const runSetDefault = () => {
+    defaultMutation.mutate({
+      command: draft,
+      reviewed: preview,
+      revision: draftRevision.current,
+      customEntryId: entryId.trim(),
+      operatorName: operator.trim(),
+      auditNote: note.trim(),
+    });
+  };
+
+  return (
+    <section className="config-draft-editor" aria-labelledby="draft-editor-title">
+      <header className="config-draft-heading">
+        <span aria-hidden="true">
+          <Pencil size={18} />
+        </span>
+        <div>
+          <p className="eyebrow">Transient browser draft</p>
+          <h3 id="draft-editor-title">Edit default parameters</h3>
+          <p>
+            Based on the current default, {seed.entry.id}. Preview changes when you want to inspect
+            the complete candidate before saving it.
+          </p>
+        </div>
+        <button
+          className="icon-button"
+          type="button"
+          onClick={onCancel}
+          aria-label="Discard parameter draft"
+        >
+          <X size={17} />
+        </button>
+      </header>
+
+      {stale && (
+        <div className="config-error" role="alert">
+          <AlertTriangle size={17} aria-hidden="true" />
+          <span>
+            The default configuration changed. Discard this stale draft and start again from the new
+            default.
+          </span>
+        </div>
+      )}
+
+      <div className="config-draft-layout">
+        <aside className="config-draft-index" aria-label="Editable parameters">
+          {definitions.map((definition) => (
+            <button
+              key={definition.id}
+              type="button"
+              className={selectedDefinition?.id === definition.id ? "selected" : undefined}
+              onClick={() => {
+                if (definition.id === selectedDefinition?.id) return;
+                setSelectedId(definition.id);
+                setInvalidFields(new Set());
+              }}
+            >
+              <span>
+                <strong>{definition.id}</strong>
+                <small>{definition.valueType.shape}</small>
+              </span>
+              {editedValues[definition.id] && (
+                <span className="draft-edited-dot" aria-label="Edited" />
+              )}
+            </button>
+          ))}
+        </aside>
+        <div className="config-draft-detail">
+          {selectedDefinition && selectedValue ? (
+            <>
+              <header>
+                <div>
+                  <span className="parameter-shape">{selectedDefinition.valueType.shape}</span>
+                  <h4>{selectedDefinition.id}</h4>
+                  <p>{selectedDefinition.description ?? "No parameter description."}</p>
+                </div>
+                {editedValues[selectedDefinition.id] && (
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => resetParameter(selectedDefinition.id)}
+                  >
+                    Reset
+                  </button>
+                )}
+              </header>
+              <ParameterEditor
+                key={selectedDefinition.id}
+                definition={selectedDefinition}
+                value={selectedValue}
+                baseValue={baseValues.get(selectedDefinition.id)}
+                entities={seed.config.system.topology.entities}
+                onChange={changeValue}
+                onFieldValidityChange={setFieldValidity}
+                tableRowOrigins={tableRowOrigins[selectedDefinition.id]}
+                onTableRowOriginsChange={(origins) =>
+                  setTableRowOrigins((current) => ({
+                    ...current,
+                    [selectedDefinition.id]: origins,
+                  }))
+                }
+              />
+            </>
+          ) : (
+            <p className="config-draft-empty">No parameter is available.</p>
+          )}
+        </div>
+      </div>
+
+      <div className="config-draft-review-form">
+        <label className="action-note">
+          <span>Audit note</span>
+          <textarea
+            rows={2}
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            placeholder="Why are these parameters changing?"
+          />
+        </label>
+        <div className="config-draft-actions">
+          <span>
+            {updates.length === 0
+              ? "No changes"
+              : `${updates.length} typed operation${updates.length === 1 ? "" : "s"}`}
+          </span>
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={
+              stale ||
+              invalidFields.size > 0 ||
+              updates.length === 0 ||
+              previewMutation.isPending ||
+              saving
+            }
+            onClick={runPreview}
+          >
+            {previewMutation.isPending ? (
+              <LoaderCircle className="spin" size={15} />
+            ) : (
+              <Eye size={15} />
+            )}
+            Preview changes
+          </button>
+          <Popover.Root>
+            <Popover.Trigger className="action-menu-trigger">Advanced</Popover.Trigger>
+            <Popover.Portal>
+              <Popover.Positioner className="action-menu-positioner" sideOffset={6} align="end">
+                <Popover.Popup className="action-popover">
+                  <label>
+                    <span>Saved version id</span>
+                    <input
+                      value={entryId}
+                      onChange={(event) => changeEntryId(event.target.value)}
+                      placeholder={
+                        preview?.resultContentHash
+                          ? defaultDraftEntryId(draft.candidateId, preview.resultContentHash)
+                          : "Generated after validation"
+                      }
+                    />
+                  </label>
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    disabled={stale || !preview?.valid || !operator.trim() || saving}
+                    onClick={runRegistration}
+                  >
+                    {registrationMutation.isPending ? (
+                      <LoaderCircle className="spin" size={15} />
+                    ) : (
+                      <Save size={15} />
+                    )}
+                    Register only
+                  </button>
+                  <small>Save this immutable version without changing the default.</small>
+                </Popover.Popup>
+              </Popover.Positioner>
+            </Popover.Portal>
+          </Popover.Root>
+          <button
+            className="primary-button"
+            type="button"
+            disabled={
+              stale ||
+              invalidFields.size > 0 ||
+              updates.length === 0 ||
+              !operator.trim() ||
+              previewMutation.isPending ||
+              saving
+            }
+            onClick={runSetDefault}
+          >
+            {defaultMutation.isPending ? (
+              <LoaderCircle className="spin" size={15} />
+            ) : (
+              <CheckCircle2 size={15} />
+            )}
+            Set as default
+          </button>
+        </div>
+      </div>
+
+      {(previewMutation.error || registrationMutation.error || defaultMutation.error) && (
+        <div className="config-error" role="alert">
+          <AlertTriangle size={17} aria-hidden="true" />
+          <span>
+            {draftErrorMessage(
+              defaultMutation.error ?? registrationMutation.error ?? previewMutation.error,
+            )}
+          </span>
+        </div>
+      )}
+
+      {preview && <DraftPreview preview={preview} base={seed.config} />}
+    </section>
+  );
+}
+
+function defaultDraftEntryId(candidateId: string, contentHash: string): string {
+  const normalized =
+    candidateId
+      .trim()
+      .replace(/[^A-Za-z0-9_-]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "config";
+  const digest = contentHash.includes(":")
+    ? contentHash.slice(contentHash.indexOf(":") + 1)
+    : contentHash;
+  return `${normalized}-${digest.slice(0, 12)}`;
+}
+
+function DraftPreview({
+  preview,
+  base,
+}: {
+  preview: ConfigDraftPreview;
+  base: ConfigProfileSnapshot;
+}) {
+  return (
+    <section className="config-draft-preview" aria-labelledby="draft-preview-title">
+      <header>
+        <span className={preview.valid ? "preview-valid" : "preview-invalid"} aria-hidden="true">
+          {preview.valid ? <CheckCircle2 size={17} /> : <AlertTriangle size={17} />}
+        </span>
+        <div>
+          <h4 id="draft-preview-title">
+            {preview.valid ? "Candidate is valid" : "Candidate needs changes"}
+          </h4>
+          <p>
+            {preview.valid
+              ? `${preview.deltas.length} parameter delta${
+                  preview.deltas.length === 1 ? "" : "s"
+                } passed daemon validation.`
+              : "The daemon did not produce a registerable candidate."}
+          </p>
+        </div>
+      </header>
+      {preview.problems.length > 0 && (
+        <ul className="config-draft-problems">
+          {preview.problems.map((problem, index) => (
+            <li key={`${problem.code}-${index}`}>
+              <strong>{problem.message}</strong>
+              <small>
+                {problem.code}
+                {problem.location
+                  ? ` · ${problem.location.root ?? problem.location.kind}${
+                      problem.location.path.length ? `.${problem.location.path.join(".")}` : ""
+                    }`
+                  : ""}
+              </small>
+            </li>
+          ))}
+        </ul>
+      )}
+      {preview.valid && preview.config && (
+        <ConfigParameters
+          config={preview.config}
+          activeConfig={base}
+          headingId="draft-preview-parameters"
+        />
+      )}
+    </section>
+  );
+}
+
+function draftErrorMessage(error: unknown): string {
+  if (error instanceof ApiError && error.status === 409) {
+    return "The default configuration changed before the daemon could apply this draft. Discard it and start again.";
+  }
+  return error instanceof Error ? error.message : "The request failed.";
+}

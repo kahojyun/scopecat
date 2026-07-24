@@ -2,14 +2,7 @@
 
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  act,
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-} from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import {
@@ -38,12 +31,8 @@ vi.mock("./api", async (importOriginal) => ({
   getRuns: vi.fn(),
 }));
 
-vi.mock("./ConfigWorkspace", () => ({
-  ConfigWorkspace: ({
-    onOpenRun,
-  }: {
-    onOpenRun?: (runId: string) => void;
-  }) => (
+vi.mock("./features/config/ConfigWorkspace", () => ({
+  ConfigWorkspace: ({ onOpenRun }: { onOpenRun?: (runId: string) => void }) => (
     <>
       <button type="button" onClick={() => onOpenRun?.("run-2")}>
         Open listed producing run
@@ -55,7 +44,7 @@ vi.mock("./ConfigWorkspace", () => ({
   ),
 }));
 
-vi.mock("./RunProposals", () => ({
+vi.mock("./features/runs/RunProposals", () => ({
   RunProposals: () => <div>Proposal details</div>,
 }));
 
@@ -69,10 +58,7 @@ beforeEach(() => {
   vi.stubGlobal(
     "EventSource",
     class {
-      addEventListener(
-        type: string,
-        listener: EventListenerOrEventListenerObject,
-      ) {
+      addEventListener(type: string, listener: EventListenerOrEventListenerObject) {
         if (type !== "project") return;
         projectEventListener = (event) => {
           if (typeof listener === "function") {
@@ -116,39 +102,32 @@ afterEach(() => {
 });
 
 describe("config provenance navigation", () => {
-  it("keeps the configuration URL while selecting the initial run", async () => {
+  it("does not mount the run browser while configuration is active", async () => {
     renderApp();
 
-    await waitFor(() => expect(window.location.search).toBe("?run=run-1"));
+    await screen.findByRole("button", { name: "Open listed producing run" });
+    expect(getRuns).not.toHaveBeenCalled();
+    expect(window.location.search).toBe("");
     expect(window.location.hash).toBe("#configuration");
-    expect(
-      screen.getByRole("button", { name: "Configuration" }),
-    ).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "Configuration" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
   });
 
   it("opens the producing run and selects it in the existing Runs view", async () => {
     renderApp();
 
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Open listed producing run" }),
-    );
+    fireEvent.click(await screen.findByRole("button", { name: "Open listed producing run" }));
 
-    expect(
-      screen.getByRole("button", { name: "Runs" }),
-    ).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "Runs" })).toHaveAttribute("aria-current", "page");
     await waitFor(() =>
-      expect(screen.getByTitle("Inspect run run-2")).toHaveAttribute(
-        "aria-current",
-        "true",
-      ),
+      expect(screen.getByTitle("Inspect run run-2")).toHaveAttribute("aria-current", "true"),
     );
     expect(window.location.hash).toBe("");
     expect(window.location.search).toBe("?run=run-2");
     await waitFor(() =>
-      expect(getRunEvents).toHaveBeenCalledWith(
-        "run-2",
-        expect.any(AbortSignal),
-      ),
+      expect(getRunEvents).toHaveBeenCalledWith("run-2", expect.any(AbortSignal)),
     );
   });
 
@@ -161,18 +140,10 @@ describe("config provenance navigation", () => {
       }),
     );
 
-    expect(
-      screen.getByRole("button", { name: "Runs" }),
-    ).toHaveAttribute("aria-current", "page");
-    expect(await screen.findByTitle("run-archive")).toHaveTextContent(
-      "run-archive",
-    );
-    expect(screen.getByTitle("Inspect run run-1")).not.toHaveAttribute(
-      "aria-current",
-    );
-    expect(screen.getByTitle("Inspect run run-2")).not.toHaveAttribute(
-      "aria-current",
-    );
+    expect(screen.getByRole("button", { name: "Runs" })).toHaveAttribute("aria-current", "page");
+    expect(await screen.findByTitle("run-archive")).toHaveTextContent("run-archive");
+    expect(screen.getByTitle("Inspect run run-1")).not.toHaveAttribute("aria-current");
+    expect(screen.getByTitle("Inspect run run-2")).not.toHaveAttribute("aria-current");
   });
 
   it("selects the first indexed run when no explicit run was requested", async () => {
@@ -181,10 +152,7 @@ describe("config provenance navigation", () => {
     renderApp();
 
     await waitFor(() =>
-      expect(screen.getByTitle("Inspect run run-1")).toHaveAttribute(
-        "aria-current",
-        "true",
-      ),
+      expect(screen.getByTitle("Inspect run run-1")).toHaveAttribute("aria-current", "true"),
     );
     expect(screen.getByTitle("run-1")).toHaveTextContent("run-1");
     expect(window.location.search).toBe("?run=run-1");
@@ -195,15 +163,13 @@ describe("config provenance navigation", () => {
 
     renderApp();
 
-    expect(
-      screen.getByRole("button", { name: "Configuration" }),
-    ).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "Configuration" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
     fireEvent.click(screen.getByRole("button", { name: "Runs" }));
     await waitFor(() =>
-      expect(screen.getByTitle("Inspect run run-2")).toHaveAttribute(
-        "aria-current",
-        "true",
-      ),
+      expect(screen.getByTitle("Inspect run run-2")).toHaveAttribute("aria-current", "true"),
     );
     expect(screen.getByTitle("run-2")).toHaveTextContent("run-2");
   });
@@ -222,29 +188,17 @@ describe("config provenance navigation", () => {
     });
 
     renderApp();
-    expect(
-      await screen.findByText("0 active in loaded runs"),
-    ).toBeVisible();
+    expect(await screen.findByText("0 active in loaded runs")).toBeVisible();
     expect(screen.getByText("No flags in loaded runs")).toBeVisible();
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Load older runs" }),
-    );
+    fireEvent.click(await screen.findByRole("button", { name: "Load older runs" }));
 
     expect(await screen.findByTitle("Inspect run run-old")).toBeVisible();
     expect(getOlderRuns).toHaveBeenCalledWith(20);
     expect(screen.getAllByTitle("Inspect run run-1")).toHaveLength(1);
     expect(
-      screen
-        .getAllByTitle(/^Inspect run /)
-        .map((button) => button.getAttribute("title")),
-    ).toEqual([
-      "Inspect run run-2",
-      "Inspect run run-1",
-      "Inspect run run-old",
-    ]);
-    expect(
-      screen.queryByRole("button", { name: "Load older runs" }),
-    ).not.toBeInTheDocument();
+      screen.getAllByTitle(/^Inspect run /).map((button) => button.getAttribute("title")),
+    ).toEqual(["Inspect run run-2", "Inspect run run-1", "Inspect run run-old"]);
+    expect(screen.queryByRole("button", { name: "Load older runs" })).not.toBeInTheDocument();
   });
 
   it("discards loaded history when the latest page head moves", async () => {
@@ -263,27 +217,15 @@ describe("config provenance navigation", () => {
     });
 
     renderApp();
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Load older runs" }),
-    );
+    fireEvent.click(await screen.findByRole("button", { name: "Load older runs" }));
     expect(await screen.findByTitle("Inspect run run-old")).toBeVisible();
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Refresh project data" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Refresh project data" }));
 
+    await waitFor(() => expect(screen.queryByTitle("Inspect run run-old")).not.toBeInTheDocument());
+    fireEvent.click(await screen.findByRole("button", { name: "Load older runs" }));
     await waitFor(() =>
-      expect(
-        screen.queryByTitle("Inspect run run-old"),
-      ).not.toBeInTheDocument(),
-    );
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Load older runs" }),
-    );
-    await waitFor(() =>
-      expect(vi.mocked(getOlderRuns).mock.calls.map(([cursor]) => cursor)).toEqual(
-        [20, 30],
-      ),
+      expect(vi.mocked(getOlderRuns).mock.calls.map(([cursor]) => cursor)).toEqual([20, 30]),
     );
   });
 
@@ -304,16 +246,10 @@ describe("config provenance navigation", () => {
 
     renderApp();
 
-    expect(
-      (await screen.findAllByText("Online", { exact: true }))[0],
-    ).toBeVisible();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Refresh project data" }),
-    );
+    expect((await screen.findAllByText("Online", { exact: true }))[0]).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh project data" }));
 
-    expect(
-      await screen.findByText("Disconnected", { exact: true }),
-    ).toBeVisible();
+    expect(await screen.findByText("Disconnected", { exact: true })).toBeVisible();
     expect(screen.getByText("Daemon unavailable.")).toBeVisible();
   });
 
@@ -368,28 +304,27 @@ describe("config provenance navigation", () => {
 
   it("keeps distinct measurement records that share a point index", async () => {
     window.history.replaceState(null, "", "/");
-    vi.mocked(getMeasurementPreview).mockImplementation(
-      async (_runId, offset = 0) =>
-        offset === 0
-          ? {
-              items: [
-                {
-                  dataset_id: "dataset-a",
-                  point_index: 0,
-                  observables: { signal: 1 },
-                },
-              ],
-              nextOffset: 1,
-            }
-          : {
-              items: [
-                {
-                  dataset_id: "dataset-b",
-                  point_index: 0,
-                  observables: { signal: 2 },
-                },
-              ],
-            },
+    vi.mocked(getMeasurementPreview).mockImplementation(async (_runId, offset = 0) =>
+      offset === 0
+        ? {
+            items: [
+              {
+                dataset_id: "dataset-a",
+                point_index: 0,
+                observables: { signal: 1 },
+              },
+            ],
+            nextOffset: 1,
+          }
+        : {
+            items: [
+              {
+                dataset_id: "dataset-b",
+                point_index: 0,
+                observables: { signal: 2 },
+              },
+            ],
+          },
     );
 
     renderApp();
@@ -404,23 +339,17 @@ describe("config provenance navigation", () => {
         screen.queryByRole("button", { name: "Load more measurements" }),
       ).not.toBeInTheDocument(),
     );
-    expect(getMeasurementPreview).toHaveBeenCalledWith(
-      "run-1",
-      1,
-      expect.any(AbortSignal),
-    );
+    expect(getMeasurementPreview).toHaveBeenCalledWith("run-1", 1, expect.any(AbortSignal));
     expect(screen.getByText(/"dataset_id": "dataset-b"/)).toBeVisible();
     expect(screen.getByText("2 records")).toBeVisible();
   });
 
   it("resets only the selected run's measurement pages on measurement events", async () => {
     window.history.replaceState(null, "", "/?run=run-1");
-    vi.mocked(getMeasurementPreview).mockImplementation(
-      async (_runId, offset = 0) => ({
-        items: [{ point_index: offset }],
-        nextOffset: offset === 0 ? 1 : undefined,
-      }),
-    );
+    vi.mocked(getMeasurementPreview).mockImplementation(async (_runId, offset = 0) => ({
+      items: [{ point_index: offset }],
+      nextOffset: offset === 0 ? 1 : undefined,
+    }));
 
     renderApp();
     fireEvent.click(
@@ -441,14 +370,10 @@ describe("config provenance navigation", () => {
       emitProjectEvent("run-1", "measurements_sealed");
     });
     await waitFor(() => expect(getMeasurementPreview).toHaveBeenCalledTimes(3));
-    expect(
-      vi
-        .mocked(getMeasurementPreview)
-        .mock.calls.map(([, offset]) => offset),
-    ).toEqual([0, 1, 0]);
-    expect(
-      screen.getByRole("button", { name: "Load more measurements" }),
-    ).toBeVisible();
+    expect(vi.mocked(getMeasurementPreview).mock.calls.map(([, offset]) => offset)).toEqual([
+      0, 1, 0,
+    ]);
+    expect(screen.getByRole("button", { name: "Load more measurements" })).toBeVisible();
   });
 
   it("labels the bounded run event timeline honestly", async () => {
@@ -464,13 +389,9 @@ describe("config provenance navigation", () => {
 
     renderApp();
 
+    expect(await screen.findByRole("heading", { name: "Recent events" })).toBeVisible();
     expect(
-      await screen.findByRole("heading", { name: "Recent events" }),
-    ).toBeVisible();
-    expect(
-      screen.getByText(
-        "Showing the latest 500 events; older events are not loaded.",
-      ),
+      screen.getByText("Showing the latest 500 events; older events are not loaded."),
     ).toBeVisible();
   });
 });

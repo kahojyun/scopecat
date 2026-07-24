@@ -11,9 +11,7 @@ export default defineConfig({
   expect: {
     timeout: 10_000,
   },
-  reporter: process.env.CI
-    ? [["line"], ["html", { open: "never" }]]
-    : "line",
+  reporter: process.env.CI ? [["line"], ["html", { open: "never" }]] : "line",
   outputDir: "test-results",
   use: {
     ...devices["Desktop Chrome"],

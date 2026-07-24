@@ -1,10 +1,6 @@
 import { useState, type ReactNode } from "react";
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-  type QueryClient,
-} from "@tanstack/react-query";
+import { Menu } from "@base-ui/react/menu";
+import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import {
   ArrowRight,
   CheckCircle2,
@@ -15,17 +11,16 @@ import {
   Settings2,
   XCircle,
 } from "lucide-react";
-import { getConfigRegistry } from "./config-api";
+import { getConfigRegistry } from "../config/config-api";
 import {
   activateProposalCandidate,
   getRunParameterProposals,
   latestProposalDecision,
   reviewParameterProposal,
 } from "./proposal-api";
-import type {
-  ParameterProposal,
-  ProposalReviewDecision,
-} from "./proposal-types";
+import type { ParameterProposal, ProposalReviewDecision } from "./proposal-types";
+import { errorMessage, formatDateTime, shorten, titleCase } from "../../lib/presentation";
+import { useConfirmationDialog } from "../../ui/ConfirmationDialog";
 
 interface ReviewInput {
   proposalId: string;
@@ -38,6 +33,7 @@ export function RunProposals({ runId }: { runId: string }) {
   const [reviewer, setReviewer] = useState("local-operator");
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [defaultedProposalId, setDefaultedProposalId] = useState<string>();
+  const { requestConfirmation, confirmationDialog } = useConfirmationDialog();
 
   const proposalsQuery = useQuery({
     queryKey: ["parameter-proposals", runId],
@@ -63,13 +59,7 @@ export function RunProposals({ runId }: { runId: string }) {
     },
   });
   const acceptMutation = useMutation({
-    mutationFn: async ({
-      proposal,
-      note,
-    }: {
-      proposal: ParameterProposal;
-      note: string;
-    }) => {
+    mutationFn: async ({ proposal, note }: { proposal: ParameterProposal; note: string }) => {
       if (latestProposalDecision(proposal)?.decision !== "approved") {
         await reviewParameterProposal(runId, proposal.id, {
           reviewer: reviewer.trim(),
@@ -105,35 +95,31 @@ export function RunProposals({ runId }: { runId: string }) {
     },
   });
 
-  const review = (
-    proposalId: string,
-    decision: ProposalReviewDecision,
-  ) => {
+  const review = (proposalId: string, decision: ProposalReviewDecision) => {
     const label = decision === "approved" ? "Approve" : "Reject";
-    if (
-      !window.confirm(
-        `${label} parameter proposal ${proposalId}? This appends a durable review decision.`,
-      )
-    ) {
-      return;
-    }
-    reviewMutation.mutate({
-      proposalId,
-      decision,
-      note: notes[proposalId]?.trim() ?? "",
+    requestConfirmation({
+      title: `${label} this proposal?`,
+      description: `${label} parameter proposal ${proposalId}. This appends a durable review decision.`,
+      confirmLabel: `${label} proposal`,
+      intent: decision === "rejected" ? "danger" : "default",
+      onConfirm: () =>
+        reviewMutation.mutate({
+          proposalId,
+          decision,
+          note: notes[proposalId]?.trim() ?? "",
+        }),
     });
   };
   const setDefault = (proposal: ParameterProposal) => {
-    if (
-      !window.confirm(
-        `Accept proposal ${proposal.id} and set its configuration as the default?`,
-      )
-    ) {
-      return;
-    }
-    acceptMutation.mutate({
-      proposal,
-      note: notes[proposal.id]?.trim() ?? "",
+    requestConfirmation({
+      title: "Accept this proposal as the default?",
+      description: `Accept proposal ${proposal.id} and set its configuration as the default.`,
+      confirmLabel: "Accept as default",
+      onConfirm: () =>
+        acceptMutation.mutate({
+          proposal,
+          note: notes[proposal.id]?.trim() ?? "",
+        }),
     });
   };
 
@@ -145,10 +131,7 @@ export function RunProposals({ runId }: { runId: string }) {
         </span>
         <div>
           <h3>Parameter proposals</h3>
-          <p>
-            Review run-scoped changes and keep an approved result as the
-            default when ready.
-          </p>
+          <p>Review run-scoped changes and keep an approved result as the default when ready.</p>
         </div>
         <label className="proposal-reviewer">
           <span>Reviewer</span>
@@ -158,9 +141,7 @@ export function RunProposals({ runId }: { runId: string }) {
             autoComplete="name"
           />
         </label>
-        <span className="count-badge">
-          {proposalsQuery.data?.items.length ?? 0}
-        </span>
+        <span className="count-badge">{proposalsQuery.data?.items.length ?? 0}</span>
       </header>
 
       {proposalsQuery.isPending ? (
@@ -188,31 +169,25 @@ export function RunProposals({ runId }: { runId: string }) {
             const latest = latestProposalDecision(proposal);
             const note = notes[proposal.id] ?? "";
             const reviewing =
-              reviewMutation.isPending &&
-              reviewMutation.variables?.proposalId === proposal.id;
+              reviewMutation.isPending && reviewMutation.variables?.proposalId === proposal.id;
             const activating =
-              acceptMutation.isPending &&
-              acceptMutation.variables?.proposal.id === proposal.id;
+              acceptMutation.isPending && acceptMutation.variables?.proposal.id === proposal.id;
             const canSetDefault =
               latest?.decision !== "rejected" &&
               latest?.decision !== "invalidated" &&
               !configQuery.isPending &&
               !configQuery.isError;
             const proposalError =
-              acceptMutation.error &&
-              acceptMutation.variables?.proposal.id === proposal.id
+              acceptMutation.error && acceptMutation.variables?.proposal.id === proposal.id
                 ? acceptMutation.error
-                : reviewMutation.error &&
-                    reviewMutation.variables?.proposalId === proposal.id
+                : reviewMutation.error && reviewMutation.variables?.proposalId === proposal.id
                   ? reviewMutation.error
                   : undefined;
             return (
               <section className="proposal" key={proposal.id}>
                 <header>
                   <div>
-                    <span
-                      className={`proposal-state ${latest?.decision ?? "pending"}`}
-                    >
+                    <span className={`proposal-state ${latest?.decision ?? "pending"}`}>
                       {latest ? titleCase(latest.decision) : "Awaiting review"}
                     </span>
                     <h4>{proposal.id}</h4>
@@ -220,9 +195,7 @@ export function RunProposals({ runId }: { runId: string }) {
                   </div>
                   <div className="proposal-meta">
                     {proposal.confidence !== undefined && (
-                      <span>
-                        {Math.round(proposal.confidence * 100)}% confidence
-                      </span>
+                      <span>{Math.round(proposal.confidence * 100)}% confidence</span>
                     )}
                     <code title={proposal.baseContentHash}>
                       Base {shorten(proposal.baseConfigId, 18)}
@@ -258,16 +231,14 @@ export function RunProposals({ runId }: { runId: string }) {
                     }
                     onClick={() => review(proposal.id, "rejected")}
                   >
-                    {reviewing &&
-                    reviewMutation.variables?.decision === "rejected" ? (
+                    {reviewing && reviewMutation.variables?.decision === "rejected" ? (
                       <LoaderCircle className="spin" size={14} />
                     ) : (
                       <XCircle size={14} />
                     )}
                     Reject
                   </button>
-                  {latest?.decision !== "rejected" &&
-                    latest?.decision !== "invalidated" && (
+                  {latest?.decision !== "rejected" && latest?.decision !== "invalidated" && (
                     <button
                       className="proposal-activate"
                       type="button"
@@ -291,37 +262,39 @@ export function RunProposals({ runId }: { runId: string }) {
                       ) : (
                         <Settings2 size={14} />
                       )}
-                      {defaultedProposalId === proposal.id
-                        ? "Default set"
-                        : "Accept as default"}
+                      {defaultedProposalId === proposal.id ? "Default set" : "Accept as default"}
                     </button>
                   )}
-                  {latest?.decision !== "approved" &&
-                    latest?.decision !== "invalidated" && (
-                      <details className="config-advanced-menu">
-                        <summary>Advanced</summary>
-                        <div>
-                          <button
-                            className="proposal-approve"
-                            type="button"
-                            disabled={reviewing || !reviewer.trim()}
-                            onClick={() => review(proposal.id, "approved")}
-                          >
-                            {reviewing &&
-                            reviewMutation.variables?.decision ===
-                              "approved" ? (
-                              <LoaderCircle className="spin" size={14} />
-                            ) : (
-                              <CheckCircle2 size={14} />
-                            )}
-                            Approve only
-                          </button>
-                          <small>
-                            Record approval without changing the default.
-                          </small>
-                        </div>
-                      </details>
-                    )}
+                  {latest?.decision !== "approved" && latest?.decision !== "invalidated" && (
+                    <Menu.Root>
+                      <Menu.Trigger className="action-menu-trigger compact">Advanced</Menu.Trigger>
+                      <Menu.Portal>
+                        <Menu.Positioner
+                          className="action-menu-positioner"
+                          sideOffset={6}
+                          align="end"
+                        >
+                          <Menu.Popup className="action-menu-popup">
+                            <Menu.Item
+                              className="action-menu-item"
+                              disabled={reviewing || !reviewer.trim()}
+                              onClick={() => review(proposal.id, "approved")}
+                            >
+                              {reviewing && reviewMutation.variables?.decision === "approved" ? (
+                                <LoaderCircle className="spin" size={14} />
+                              ) : (
+                                <CheckCircle2 size={14} />
+                              )}
+                              <span>
+                                <strong>Approve only</strong>
+                                <small>Record approval without changing the default.</small>
+                              </span>
+                            </Menu.Item>
+                          </Menu.Popup>
+                        </Menu.Positioner>
+                      </Menu.Portal>
+                    </Menu.Root>
+                  )}
                 </div>
                 {proposalError ? (
                   <p className="proposal-error" role="status">
@@ -333,6 +306,7 @@ export function RunProposals({ runId }: { runId: string }) {
           })}
         </div>
       )}
+      {confirmationDialog}
     </article>
   );
 }
@@ -379,16 +353,12 @@ function ProposalDecisions({ proposal }: { proposal: ParameterProposal }) {
             {decision.authorityKind === "automatic_policy" && (
               <span>
                 via policy {decision.policyId ?? "unknown"}
-                {decision.policyVersion
-                  ? `@${decision.policyVersion}`
-                  : ""}
+                {decision.policyVersion ? `@${decision.policyVersion}` : ""}
               </span>
             )}
             {decision.note && <p>{decision.note}</p>}
             {decision.decidedAt && (
-              <time dateTime={decision.decidedAt}>
-                {formatDateTime(decision.decidedAt)}
-              </time>
+              <time dateTime={decision.decidedAt}>{formatDateTime(decision.decidedAt)}</time>
             )}
           </li>
         ))}
@@ -419,10 +389,7 @@ function ProposalMessage({
   );
 }
 
-async function invalidateProposalConsumers(
-  queryClient: QueryClient,
-  runId: string,
-) {
+async function invalidateProposalConsumers(queryClient: QueryClient, runId: string) {
   await Promise.all([
     queryClient.invalidateQueries({
       queryKey: ["parameter-proposals", runId],
@@ -436,18 +403,13 @@ async function invalidateProposalConsumers(
 function formatParameterValue(value: unknown): string {
   if (value === null) return "null";
   if (value === undefined) return "—";
-  if (
-    typeof value === "string" ||
-    typeof value === "number" ||
-    typeof value === "boolean"
-  ) {
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
     return String(value);
   }
   if (typeof value === "object" && !Array.isArray(value)) {
     const object = value as Record<string, unknown>;
     if (
-      (typeof object.value === "number" ||
-        typeof object.value === "string") &&
+      (typeof object.value === "number" || typeof object.value === "string") &&
       typeof object.unit === "string"
     ) {
       return `${object.value} ${object.unit}`;
@@ -456,29 +418,4 @@ function formatParameterValue(value: unknown): string {
   const serialized = JSON.stringify(value);
   if (serialized === undefined) return "—";
   return serialized.length > 80 ? `${serialized.slice(0, 77)}…` : serialized;
-}
-
-function formatDateTime(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.valueOf())) return value;
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
-}
-
-function shorten(value: string, maxLength: number): string {
-  if (value.length <= maxLength) return value;
-  const edge = Math.max(3, Math.floor((maxLength - 1) / 2));
-  return `${value.slice(0, edge)}…${value.slice(-edge)}`;
-}
-
-function titleCase(value: string): string {
-  return value
-    .replaceAll("_", " ")
-    .replace(/\b\w/g, (character) => character.toUpperCase());
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "The request failed.";
 }

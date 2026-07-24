@@ -1,4 +1,4 @@
-import { request } from "./api";
+import { request } from "../../api";
 import type {
   ActivateProposalCandidateCommand,
   ParameterProposal,
@@ -69,14 +69,10 @@ function normalizeProposalView(value: unknown): ParameterProposal {
   const proposal = record(view.proposal);
   return {
     id: string(proposal.id) ?? "unidentified-proposal",
-    sourceRunId:
-      string(proposal.source_run_id) ?? "unidentified-source-run",
-    analysisRecordId:
-      string(proposal.analysis_record_id) ?? "unidentified-analysis-record",
-    baseConfigId:
-      string(proposal.base_config_id) ?? "unidentified-base-config",
-    baseContentHash:
-      string(proposal.base_config_content_hash) ?? "unreported",
+    sourceRunId: string(proposal.source_run_id) ?? "unidentified-source-run",
+    analysisRecordId: string(proposal.analysis_record_id) ?? "unidentified-analysis-record",
+    baseConfigId: string(proposal.base_config_id) ?? "unidentified-base-config",
+    baseContentHash: string(proposal.base_config_content_hash) ?? "unreported",
     reason: string(proposal.reason) ?? "No proposal reason was reported.",
     confidence: number(proposal.confidence),
     proposedAt: string(proposal.proposed_at),
@@ -88,8 +84,7 @@ function normalizeProposalView(value: unknown): ParameterProposal {
 function normalizeDelta(value: unknown): ParameterProposalDelta {
   const source = record(value);
   return {
-    parameterId:
-      string(source.parameter_id) ?? "unidentified-parameter",
+    parameterId: string(source.parameter_id) ?? "unidentified-parameter",
     before: parameterValue(source.before),
     after: parameterValue(source.after),
   };
@@ -100,19 +95,11 @@ function normalizeDecision(value: unknown): ParameterProposalDecision {
   const authority = record(source.authority);
   const decision = string(source.decision);
   const authorityKind =
-    string(authority.kind) === "automatic_policy"
-      ? "automatic_policy"
-      : "human";
+    string(authority.kind) === "automatic_policy" ? "automatic_policy" : "human";
   return {
     eventId: string(source.event_id) ?? "unidentified-decision",
-    decision:
-      decision === "approved" || decision === "rejected"
-        ? decision
-        : "invalidated",
-    actor:
-      string(authority.actor) ??
-      string(source.actor) ??
-      "unknown-operator",
+    decision: decision === "approved" || decision === "rejected" ? decision : "invalidated",
+    actor: string(authority.actor) ?? string(source.actor) ?? "unknown-operator",
     authorityKind,
     policyId: string(authority.policy_id),
     policyVersion: string(authority.policy_version),

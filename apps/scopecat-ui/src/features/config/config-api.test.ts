@@ -25,10 +25,7 @@ describe("config registry reads", () => {
       Promise.resolve(
         jsonResponse({
           schema_version: "scopecat.config_registry_view.v1",
-          entries: [
-            registryEntry("config-a", HASH_A),
-            registryEntry("config-b", HASH_B),
-          ],
+          entries: [registryEntry("config-a", HASH_A), registryEntry("config-b", HASH_B)],
           active_state: activeState(),
         }),
       ),
@@ -44,10 +41,7 @@ describe("config registry reads", () => {
       contentHash: HASH_B,
       generation: 2,
     });
-    expect(overview.entries.map((entry) => entry.id)).toEqual([
-      "config-b",
-      "config-a",
-    ]);
+    expect(overview.entries.map((entry) => entry.id)).toEqual(["config-b", "config-a"]);
     expect(overview.history.map((item) => item.generation)).toEqual([2, 1]);
   });
 
@@ -86,9 +80,7 @@ describe("config registry reads", () => {
 
     const detail = await getConfigRegistryEntry("config a");
 
-    expect(fetchMock.mock.calls[0]?.[0]).toBe(
-      "/api/v1/config-registry/entries/config%20a",
-    );
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/v1/config-registry/entries/config%20a");
     expect(detail.entry.id).toBe("config-a");
     expect(detail.summary).toEqual({
       id: "profile-a",
@@ -132,9 +124,7 @@ describe("config registry reads", () => {
         },
       ],
     });
-    expect(detail.config.raw.schema_version).toBe(
-      "scopecat.config_profile_snapshot.v3",
-    );
+    expect(detail.config.raw.schema_version).toBe("scopecat.config_profile_snapshot.v3");
   });
 
   it("rejects stale registry entry schemas instead of keeping compatibility", async () => {
@@ -154,9 +144,7 @@ describe("config registry reads", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(getConfigRegistry()).rejects.toThrow(
-      "config registry entry schema",
-    );
+    await expect(getConfigRegistry()).rejects.toThrow("config registry entry schema");
   });
 
   it("preserves typed parameter-edit provenance from registry v7", async () => {
@@ -391,86 +379,81 @@ describe("typed config drafts", () => {
         },
       ],
     });
-    expectRequest(
-      fetchMock,
-      0,
-      "/api/v1/config-registry/drafts/preview",
-      {
-        schema_version: "scopecat.config_draft_command.v1",
-        base_entry_id: "config-a",
-        base_content_hash: HASH_A,
-        base_generation: 3,
-        candidate_id: "config-a-edit",
-        updates: [
-          {
-            kind: "replace_parameter",
-            value: {
-              id: "drive.frequency",
-              shape: "scalar",
-              value: { value: 5.2, unit: "GHz" },
-              metadata: { retained: true },
+    expectRequest(fetchMock, 0, "/api/v1/config-registry/drafts/preview", {
+      schema_version: "scopecat.config_draft_command.v1",
+      base_entry_id: "config-a",
+      base_content_hash: HASH_A,
+      base_generation: 3,
+      candidate_id: "config-a-edit",
+      updates: [
+        {
+          kind: "replace_parameter",
+          value: {
+            id: "drive.frequency",
+            shape: "scalar",
+            value: { value: 5.2, unit: "GHz" },
+            metadata: { retained: true },
+          },
+        },
+        {
+          kind: "replace_parameter",
+          value: {
+            id: "sweep.offsets",
+            shape: "series",
+            items: [-0.2, 0, 0.2],
+            metadata: {},
+          },
+        },
+        {
+          kind: "replace_parameter",
+          value: {
+            id: "unkeyed",
+            shape: "table",
+            rows: [{ name: "q0", enabled: true }],
+            metadata: {},
+          },
+        },
+        {
+          kind: "update_parameter_rows",
+          parameter_id: "qubits",
+          key: {
+            qubit: {
+              id: "q0",
+              kind: "logical_qubit",
+              metadata: { display: "Q0" },
             },
           },
-          {
-            kind: "replace_parameter",
-            value: {
-              id: "sweep.offsets",
-              shape: "series",
-              items: [-0.2, 0, 0.2],
-              metadata: {},
-            },
+          values: {
+            readout_frequency: { value: 6.6, unit: "GHz" },
           },
-          {
-            kind: "replace_parameter",
-            value: {
-              id: "unkeyed",
-              shape: "table",
-              rows: [{ name: "q0", enabled: true }],
-              metadata: {},
-            },
-          },
-          {
-            kind: "update_parameter_rows",
-            parameter_id: "qubits",
-            key: {
+        },
+        {
+          kind: "insert_parameter_rows",
+          parameter_id: "qubits",
+          rows: [
+            {
               qubit: {
-                id: "q0",
-                kind: "logical_qubit",
-                metadata: { display: "Q0" },
-              },
-            },
-            values: {
-              readout_frequency: { value: 6.6, unit: "GHz" },
-            },
-          },
-          {
-            kind: "insert_parameter_rows",
-            parameter_id: "qubits",
-            rows: [
-              {
-                qubit: {
-                  id: "q1",
-                  kind: "logical_qubit",
-                  metadata: {},
-                },
-                readout_frequency: { value: 6.7, unit: "GHz" },
-              },
-            ],
-          },
-          {
-            kind: "delete_parameter_rows",
-            parameter_id: "qubits",
-            key: {
-              qubit: {
-                id: "q2",
+                id: "q1",
                 kind: "logical_qubit",
                 metadata: {},
               },
+              readout_frequency: { value: 6.7, unit: "GHz" },
+            },
+          ],
+        },
+        {
+          kind: "delete_parameter_rows",
+          parameter_id: "qubits",
+          key: {
+            qubit: {
+              id: "q2",
+              kind: "logical_qubit",
+              metadata: {},
             },
           },
-        ],
-      },
-    );
+        },
+      ],
+    });
   });
 
   it("keeps invalid previews problem-only and registers only an explicit draft", async () => {
@@ -549,26 +532,14 @@ describe("typed config drafts", () => {
       resultContentHash: HASH_B,
       deltas: [{ parameterId: "drive.frequency" }],
     });
-    expectRequest(
-      fetchMock,
-      1,
-      "/api/v1/config-registry/drafts/register",
-      {
-        schema_version:
-          "scopecat.config_draft_registration_command.v1",
-        draft: JSON.parse(
-          String(
-            (
-              fetchMock.mock.calls[0]?.[1] as RequestInit | undefined
-            )?.body,
-          ),
-        ),
-        expected_result_content_hash: HASH_B,
-        entry_id: "config-a-edit",
-        registered_by: "Ada",
-        note: "calibrated",
-      },
-    );
+    expectRequest(fetchMock, 1, "/api/v1/config-registry/drafts/register", {
+      schema_version: "scopecat.config_draft_registration_command.v1",
+      draft: JSON.parse(String((fetchMock.mock.calls[0]?.[1] as RequestInit | undefined)?.body)),
+      expected_result_content_hash: HASH_B,
+      entry_id: "config-a-edit",
+      registered_by: "Ada",
+      note: "calibrated",
+    });
   });
 
   it("atomically saves a reviewed draft and sets it as the default", async () => {
@@ -647,32 +618,26 @@ describe("typed config drafts", () => {
         operator: "Ada",
       },
     });
-    expectRequest(
-      fetchMock,
-      0,
-      "/api/v1/config-registry/drafts/set-default",
-      {
-        schema_version: "scopecat.config_draft_default_command.v1",
-        registration: {
-          schema_version:
-            "scopecat.config_draft_registration_command.v1",
-          draft: expect.objectContaining({
-            schema_version: "scopecat.config_draft_command.v1",
-            base_entry_id: "config-a",
-            base_content_hash: HASH_A,
-            base_generation: 3,
-            candidate_id: "config-a-edit",
-            updates: expect.any(Array),
-          }),
-          expected_result_content_hash: HASH_B,
-          entry_id: entryId,
-          registered_by: "Ada",
-          note: "calibrated",
-        },
-        operator: "Ada",
-        activation_note: "accepted edit",
+    expectRequest(fetchMock, 0, "/api/v1/config-registry/drafts/set-default", {
+      schema_version: "scopecat.config_draft_default_command.v1",
+      registration: {
+        schema_version: "scopecat.config_draft_registration_command.v1",
+        draft: expect.objectContaining({
+          schema_version: "scopecat.config_draft_command.v1",
+          base_entry_id: "config-a",
+          base_content_hash: HASH_A,
+          base_generation: 3,
+          candidate_id: "config-a-edit",
+          updates: expect.any(Array),
+        }),
+        expected_result_content_hash: HASH_B,
+        entry_id: entryId,
+        registered_by: "Ada",
+        note: "calibrated",
       },
-    );
+      operator: "Ada",
+      activation_note: "accepted edit",
+    });
   });
 });
 
@@ -719,8 +684,7 @@ function registryEntry(id: string, contentHash: string) {
     source: { kind: "direct_config_profile" },
     registered_by: "scopecat",
     note: "",
-    registered_at:
-      id === "config-b" ? "2026-07-23T10:00:00Z" : "2026-07-22T10:00:00Z",
+    registered_at: id === "config-b" ? "2026-07-23T10:00:00Z" : "2026-07-22T10:00:00Z",
   };
 }
 
