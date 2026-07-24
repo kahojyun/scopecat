@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import scopecat as sc
+from scopecat.composition.embedded import open_embedded_workspace
 from scopecat.config.profiles import load_config_profile
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat_quantum import PulseRecipeProfile
@@ -137,7 +138,7 @@ def quantum_lab(
         target_id=selected_compiler.target_id,
         target_kind=selected_compiler.target_kind,
     )
-    return sc.open(
+    return open_embedded_workspace(
         workspace,
         config_profile=config,
         system=sc.ExperimentSystem(

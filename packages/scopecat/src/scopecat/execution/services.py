@@ -14,12 +14,26 @@ from scopecat.execution.ports.journal import (
 from scopecat.execution.ports.measurement import MeasurementDatasetWriter
 from scopecat.execution.ports.resources import ResourceLeaseManager
 from scopecat.measurements.results import MeasurementRecord
+from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.execution_journal import (
     CollectionChunkReceipt,
     ExecutionTransition,
 )
 from scopecat.records.measurement_recording import MeasurementDatasetAppendIndex
-from scopecat.runs.repository import RunRepository
+from scopecat.records.run import RunManifest
+from scopecat.runs.repository import TerminalRunCommit
+
+
+class ExecutionRunStore(Protocol):
+    """Run state used while interpreting an already-admitted program."""
+
+    def read_manifest(self, run_id: str) -> RunManifest: ...
+
+    def write_manifest(self, manifest: RunManifest) -> None: ...
+
+    def read_config_profile_snapshot(self, run_id: str) -> ConfigProfileSnapshot: ...
+
+    def commit_terminal(self, commit: TerminalRunCommit) -> RunManifest: ...
 
 
 class ExecutionJournalStore(ExecutionJournal, Protocol):
@@ -46,7 +60,7 @@ class CollectionRecordRepository(CollectionRepository, Protocol):
 class ExecutionServices:
     """All effect boundaries needed to execute and publish a durable run."""
 
-    runs: RunRepository
+    runs: ExecutionRunStore
     resources: ResourceLeaseManager
     journal_for: Callable[[str], ExecutionJournalStore]
     measurements_for: Callable[[str], MeasurementDatasetRepository]

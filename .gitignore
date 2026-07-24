@@ -3,4 +3,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .scopecat-examples/
+.scopecat-embedded/
 .venv/
+node_modules/
+apps/scopecat-ui/dist/

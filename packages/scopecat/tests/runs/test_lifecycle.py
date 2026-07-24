@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from scopecat.adapters.filesystem.run_repository import FilesystemRunRepository
+from scopecat.composition.embedded import embedded_run_repository
 from scopecat.execution.evidence import (
     build_execution_manifest,
     instrument_state_evidence_ref,
@@ -55,7 +55,7 @@ def test_terminal_evidence_can_omit_instrument_state(tmp_path: Path) -> None:
         config_source=None,
         instrument_state=None,
     )
-    storage = FilesystemRunRepository(tmp_path)
+    storage = embedded_run_repository(tmp_path)
     storage.write_manifest(
         RunManifest(
             run_id=run_id,
@@ -93,7 +93,7 @@ def test_terminal_manifest_preserves_existing_attachments(tmp_path: Path) -> Non
         config_source=None,
         instrument_state=None,
     )
-    storage = FilesystemRunRepository(tmp_path)
+    storage = embedded_run_repository(tmp_path)
     storage.write_manifest(
         RunManifest(
             run_id=run_id,

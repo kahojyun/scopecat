@@ -2,18 +2,25 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Protocol
 
 from pydantic import JsonValue
 
+from scopecat.analysis.service import (
+    AnalysisInput,
+    AnalysisOutput,
+    SavedAnalysis,
+    save_analysis,
+)
 from scopecat.api.analysis import Analysis, AnalysisContext, AnalysisStep
 from scopecat.api.data import Data
 from scopecat.application.services import WorkspaceServices
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.parameter_change import ParameterChangeProposal
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.attachments import attach_run_artifact
@@ -121,6 +128,29 @@ class RunHandle:
         step_id: str | None = None,
     ) -> Analysis:
         return Analysis(run=self, title=title, key=key, step_id=step_id)
+
+    def save_analysis(
+        self,
+        *,
+        title: str,
+        analysis_key: str,
+        step_id: str | None,
+        inputs: Sequence[AnalysisInput],
+        outputs: Sequence[AnalysisOutput],
+        parameter_proposals: Sequence[ParameterChangeProposal],
+    ) -> SavedAnalysis:
+        """Persist analysis through this run's owning execution boundary."""
+
+        return save_analysis(
+            services=self.session.services,
+            run_id=self.id,
+            title=title,
+            analysis_key=analysis_key,
+            step_id=step_id,
+            inputs=inputs,
+            outputs=outputs,
+            parameter_proposals=parameter_proposals,
+        )
 
     def analyze(self, step: AnalysisStep, *, key: str | None = None) -> Analysis:
         analysis = step.run(

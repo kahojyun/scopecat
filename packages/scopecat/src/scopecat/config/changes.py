@@ -4,12 +4,8 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
-from datetime import datetime
 from pathlib import PurePosixPath
-from typing import Literal
 from uuid import uuid4
-
-from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from scopecat.application.services import WorkspaceServices
 from scopecat.config.parameter_resolution import validate_parameter_snapshot
@@ -31,55 +27,19 @@ from scopecat.kernel.problems import (
 )
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
-from scopecat.records.parameter_change import ParameterChangeProposal
-from scopecat.records.run import RunManifest, utc_now
+from scopecat.records.parameter_change import (
+    ParameterChangeDecision,
+    ParameterChangeDecisionRecord,
+    ParameterChangeProposal,
+    ParameterChangeReviewState,
+)
+from scopecat.records.run import RunManifest
 from scopecat.runs.access import list_records
 from scopecat.runs.manifest import write_manifest_records
 from scopecat.runs.refs import record_content_ref
 from scopecat.runs.repository import RunRepository
 
-ParameterChangeReviewState = Literal["approved", "rejected"]
-ParameterChangeDecision = Literal["approved", "rejected", "invalidated"]
 SAFE_PARAMETER_CHANGE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
-
-
-class ParameterChangeDecisionRecord(BaseModel):
-    """One immutable event in a parameter proposal's review history."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    schema_version: Literal["scopecat.parameter_change_decision_record.v3"] = (
-        "scopecat.parameter_change_decision_record.v3"
-    )
-    event_id: str
-    run_id: str
-    proposal_id: str
-    decision: ParameterChangeDecision
-    actor: str
-    note: str = ""
-    related_refs: tuple[str, ...] = Field(default_factory=tuple)
-    decided_at: datetime = Field(default_factory=utc_now)
-
-    @field_validator("event_id", "run_id", "proposal_id", "actor")
-    @classmethod
-    def validate_non_empty_identity(cls, value: str) -> str:
-        if not value.strip():
-            msg = "parameter change decision identity fields must be non-empty"
-            raise ValueError(msg)
-        return value
-
-    @field_validator("related_refs")
-    @classmethod
-    def validate_related_refs(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        for ref in value:
-            if not ref:
-                msg = "parameter change decision refs must be non-empty"
-                raise ValueError(msg)
-            path = PurePosixPath(ref)
-            if path.is_absolute() or ".." in path.parts:
-                msg = f"parameter change decision ref escapes run directory: {ref}"
-                raise ValueError(msg)
-        return value
 
 
 def is_safe_parameter_change_id(value: str) -> bool:
@@ -146,6 +106,24 @@ def load_parameter_change_proposal(
         selector=selector,
     )
     return proposal
+
+
+def list_parameter_change_proposals(
+    *,
+    run_id: str,
+    services: WorkspaceServices,
+) -> tuple[ParameterChangeProposal, ...]:
+    """Load every durable parameter proposal published by one run."""
+
+    manifest = services.runs.read_manifest(run_id)
+    return tuple(
+        load_parameter_change_proposal(
+            run_id=run_id,
+            selector=entry.id,
+            services=services,
+        )
+        for entry in _proposal_records(manifest)
+    )
 
 
 def review_parameter_change_proposal(

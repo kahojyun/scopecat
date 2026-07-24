@@ -50,11 +50,7 @@ from scopecat.config.candidates import (
     CandidateConfig,
     resolve_candidate_config_snapshot,
 )
-from scopecat.config.changes import (
-    ParameterChangeDecisionRecord,
-    ParameterChangeReviewState,
-    review_parameter_change_proposal,
-)
+from scopecat.config.changes import review_parameter_change_proposal
 from scopecat.config.resolution import (
     ConfigActivation,
     ConfigProfileInput,
@@ -72,6 +68,10 @@ from scopecat.planning.preview_models import ExperimentPreview
 from scopecat.planning.system import ExperimentSystem
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter import Quantity
+from scopecat.records.parameter_change import (
+    ParameterChangeDecisionRecord,
+    ParameterChangeReviewState,
+)
 from scopecat.runs.selectors import RunSelector
 from scopecat.runs.service import (
     check_experiment,

@@ -12,7 +12,7 @@ from scopecat.compiler.frontend.resolution import (
     compile_prepared_invocation,
     resolve_prepared_invocation,
 )
-from scopecat.composition.local import local_workspace_services
+from scopecat.composition.embedded import embedded_workspace_services
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
     ProblemCategory,
@@ -181,7 +181,7 @@ def test_check_experiment_resolves_template_invocation_with_config_profile(
     result = check_experiment(
         prepare_invocation(simple_template().bind(subject="q0")),
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
-        services=local_workspace_services(tmp_path),
+        services=embedded_workspace_services(tmp_path),
         config_profile=EXAMPLE_DIR / "config-profile.json",
     )
 
@@ -195,7 +195,7 @@ def test_check_experiment_resolves_template_invocation_with_config_snapshot(
     result = check_experiment(
         prepare_invocation(simple_template().bind(subject="q0")),
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
-        services=local_workspace_services(tmp_path),
+        services=embedded_workspace_services(tmp_path),
         config_profile=load_config(),
     )
 

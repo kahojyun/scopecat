@@ -13,11 +13,6 @@ from scopecat.runs.repository import RunRepository
 class WorkspaceServices:
     """All durable and execution ports selected for one workspace."""
 
+    runs: RunRepository
     execution: ExecutionServices
     config_registry: WorkspaceUnitOfWorkFactory
-
-    @property
-    def runs(self) -> RunRepository:
-        """The single run repository shared by every workspace use case."""
-
-        return self.execution.runs

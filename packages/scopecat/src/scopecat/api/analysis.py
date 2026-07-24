@@ -24,7 +24,6 @@ from scopecat.analysis.service import (
     AnalysisOutputKind,
     SavedAnalysis,
     prepare_analysis_artifact,
-    save_analysis,
 )
 from scopecat.api.data import Data
 from scopecat.config.candidates import (
@@ -271,9 +270,7 @@ class Analysis:
         )
 
     def save(self) -> SavedAnalysis:
-        return save_analysis(
-            services=self.run.session.services,
-            run_id=self.run.id,
+        return self.run.save_analysis(
             title=self.title,
             analysis_key=self.analysis_key,
             step_id=self.step_id,

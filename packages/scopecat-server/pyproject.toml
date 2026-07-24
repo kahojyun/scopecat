@@ -1,0 +1,38 @@
+[project]
+name = "scopecat-server"
+version = "0.1.0"
+description = "Local HTTP and SSE transport for a Scopecat workspace daemon."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.116,<1",
+  "filelock>=3.18,<4",
+  "scopecat",
+  "uvicorn>=0.35,<1",
+]
+
+[project.scripts]
+scopecatd = "scopecat_server.cli:main"
+
+[dependency-groups]
+test = [
+  "httpx>=0.28,<1",
+  "pytest>=9",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.20,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.pytest]
+minversion = "9.0"
+strict_config = true
+strict_markers = true
+testpaths = ["tests"]
+
+[tool.ruff]
+extend = "../../pyproject.toml"
+src = ["src", "tests"]
+
+[tool.uv.sources]
+scopecat = { workspace = true }

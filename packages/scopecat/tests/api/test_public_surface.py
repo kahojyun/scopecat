@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import copy
-from pathlib import Path
 from typing import Annotated, cast
 
 import pytest
 
 import scopecat as sc
+import scopecat.composition as composition
 import scopecat.kernel.payloads as value_models
 import scopecat.kernel.problems as problems
 import scopecat.measurements.results as results
@@ -27,8 +27,20 @@ def test_root_lazy_exports_are_complete_visible_and_resolvable() -> None:
         assert getattr(sc, name) is not None
 
 
+def test_product_composition_does_not_export_embedded_writers() -> None:
+    assert composition.__all__ == ["memory_workspace_services"]
+    assert not {
+        "embedded_config_registry_unit_of_work",
+        "embedded_execution_services",
+        "embedded_run_repository",
+        "embedded_workspace_services",
+        "open_embedded_workspace",
+    } & set(dir(composition))
+
+
 def test_user_facing_facades_expose_entry_points() -> None:
-    assert callable(sc.open)
+    assert callable(sc.connect)
+    assert sc.DaemonWorkspace
     assert sc.Problem is problems.Problem
     assert callable(sc.blocking_problem)
     assert callable(sc.model_location)
@@ -71,14 +83,14 @@ def test_user_facing_facades_expose_entry_points() -> None:
     }.issubset(problems.Problem.model_fields)
 
 
-def test_workspace_is_compared_by_session_identity(tmp_path: Path) -> None:
-    first = sc.open(tmp_path)
-    second = sc.open(tmp_path)
+def test_connect_creates_independent_daemon_clients() -> None:
+    first = sc.connect("http://daemon.local")
+    second = sc.connect("http://daemon.local")
 
     assert first is not second
     assert first != second
-    assert copy.copy(first) is first
-    assert copy.deepcopy(first) is first
+    first.close()
+    second.close()
 
 
 def test_typed_values_are_the_public_module_wiring_surface() -> None:

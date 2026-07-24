@@ -22,7 +22,6 @@ from dataclasses import dataclass
 from pydantic import BaseModel
 from pydantic_core import PydanticSerializationError
 
-from scopecat.config.changes import ParameterChangeDecisionRecord
 from scopecat.config.parameter_updates import merge_parameter_change_deltas
 from scopecat.config.registry.ports import (
     ConfigRegistryRepository,
@@ -64,7 +63,10 @@ from scopecat.records.config import (
     config_content_equal,
     config_content_hash,
 )
-from scopecat.records.parameter_change import ParameterChangeProposal
+from scopecat.records.parameter_change import (
+    ParameterChangeDecisionRecord,
+    ParameterChangeProposal,
+)
 from scopecat.records.run import RunConfigSource, RunManifest
 from scopecat.runs.refs import CONFIG_PROFILE_SNAPSHOT_REF, record_content_ref
 from scopecat.runs.repository import RunRepository

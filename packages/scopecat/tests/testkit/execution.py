@@ -9,7 +9,10 @@ from pathlib import Path
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.linking.linked import specialize_linked_program
 from scopecat.compiler.typed.program import CoreProgram
-from scopecat.composition.local import local_execution_services
+from scopecat.composition.embedded import (
+    embedded_execution_services,
+    embedded_run_repository,
+)
 from scopecat.execution.interpreter import admit_run, execute_admitted_run
 from scopecat.execution.observation import RuntimeEventSink, RuntimePayloadObserver
 from scopecat.execution.ports.resources import ResourceLeaseManager
@@ -97,13 +100,14 @@ def execute_program_run(
         linked,
         config=config,
     )
-    services = local_execution_services(workspace)
+    repository = embedded_run_repository(workspace)
+    services = embedded_execution_services(workspace, runs=repository)
     if resource_leases is not None:
         services = replace(services, resources=resource_leases)
     accepted = admit_run(
         config=config,
         request=request,
-        repository=services.runs,
+        repository=repository,
         config_source=config_source,
     )
     manifest = execute_admitted_run(

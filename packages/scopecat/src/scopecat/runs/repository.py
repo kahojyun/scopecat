@@ -1,8 +1,4 @@
-"""Repository boundary for durable run state.
-
-The run model owns this protocol.  Filesystem details belong to an adapter and
-are selected by a composition root, never by a use case or executor.
-"""
+"""Repository boundary for durable run state."""
 
 from __future__ import annotations
 

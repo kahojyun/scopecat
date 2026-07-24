@@ -102,6 +102,11 @@ def test_run_admission_state_and_pagination(tmp_path: Path) -> None:
     second = store.list_runs(limit=2, after=first.next_cursor)
     assert [run.run_id for run in second.items] == ["run-2"]
     assert second.next_cursor is None
+    latest = store.list_runs(limit=2, latest=True)
+    assert [run.run_id for run in latest.items] == ["run-1", "run-2"]
+    assert latest.next_cursor is None
+    with pytest.raises(ValueError, match="after cursor"):
+        store.list_runs(limit=2, after=1, latest=True)
 
     retry = _admission("retry-run").model_copy(
         update={
@@ -206,6 +211,11 @@ def test_durable_events_have_global_cursor_and_run_filter(tmp_path: Path) -> Non
         "measurement_chunk",
     ]
     assert workspace_event.event_id > events[-1].event_id
+    latest = store.list_events(run_id="run-1", limit=2, latest=True)
+    assert [event.payload.get("index") for event in latest.items] == [2, 3]
+    assert latest.next_cursor is None
+    with pytest.raises(ValueError, match="after cursor"):
+        store.list_events(limit=2, after=1, latest=True)
 
 
 def test_resource_claims_are_all_or_none(tmp_path: Path) -> None:

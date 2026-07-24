@@ -5,8 +5,11 @@ from pathlib import Path
 import pytest
 
 import scopecat as sc
-from scopecat.adapters.filesystem.run_repository import FilesystemRunRepository
-from scopecat.composition.local import local_workspace_services
+from scopecat.adapters.sqlite import SQLiteRunRepository
+from scopecat.composition.embedded import (
+    embedded_workspace_services,
+    open_embedded_workspace,
+)
 from scopecat.config.resolution import (
     load_active_config,
     register_and_activate_candidate_config,
@@ -27,14 +30,14 @@ from tests.testkit.workflow_fixtures import load_config, load_prepared_invocatio
 def test_workflow_analysis_review_activate_and_rerun_active_config(
     tmp_path: Path,
 ) -> None:
-    services = local_workspace_services(tmp_path)
+    services = embedded_workspace_services(tmp_path)
     run = start_run(
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
         config=load_config(),
         experiment=load_prepared_invocation(),
         services=services,
     )
-    lab = sc.open(tmp_path, config=load_config())
+    lab = open_embedded_workspace(tmp_path, config=load_config())
     run_handle = lab.get_run(run.run_id)
 
     summary = run_handle.analyze(SummaryStatsAnalysisStep())
@@ -71,7 +74,7 @@ def test_analysis_save_recovers_orphans_after_manifest_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    services = local_workspace_services(tmp_path)
+    services = embedded_workspace_services(tmp_path)
     run = start_run(
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
         config=load_config(),
@@ -79,16 +82,16 @@ def test_analysis_save_recovers_orphans_after_manifest_failure(
         services=services,
     )
     analysis = (
-        sc.open(tmp_path, config=load_config())
+        open_embedded_workspace(tmp_path, config=load_config())
         .get_run(run.run_id)
         .analyze(SummaryStatsAnalysisStep())
     )
     analysis_record_id = "analysis-summary-stats"
-    original_write_manifest = FilesystemRunRepository.write_manifest
+    original_write_manifest = SQLiteRunRepository.write_manifest
     failed = False
 
     def fail_first_analysis_manifest(
-        storage: FilesystemRunRepository,
+        storage: SQLiteRunRepository,
         manifest: RunManifest,
     ) -> None:
         nonlocal failed
@@ -100,7 +103,7 @@ def test_analysis_save_recovers_orphans_after_manifest_failure(
         original_write_manifest(storage, manifest)
 
     monkeypatch.setattr(
-        FilesystemRunRepository,
+        SQLiteRunRepository,
         "write_manifest",
         fail_first_analysis_manifest,
     )
@@ -134,7 +137,7 @@ def test_analysis_save_recovers_after_output_write_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    services = local_workspace_services(tmp_path)
+    services = embedded_workspace_services(tmp_path)
     run = start_run(
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
         config=load_config(),
@@ -142,15 +145,15 @@ def test_analysis_save_recovers_after_output_write_failure(
         services=services,
     )
     analysis = (
-        sc.open(tmp_path, config=load_config())
+        open_embedded_workspace(tmp_path, config=load_config())
         .get_run(run.run_id)
         .analyze(SummaryStatsAnalysisStep())
     )
-    original_write_text = FilesystemRunRepository.write_text
+    original_write_text = SQLiteRunRepository.write_text
     failed = False
 
     def fail_first_summary_write(
-        storage: FilesystemRunRepository,
+        storage: SQLiteRunRepository,
         run_id: str,
         ref: str,
         content: str,
@@ -162,7 +165,7 @@ def test_analysis_save_recovers_after_output_write_failure(
         original_write_text(storage, run_id, ref, content)
 
     monkeypatch.setattr(
-        FilesystemRunRepository,
+        SQLiteRunRepository,
         "write_text",
         fail_first_summary_write,
     )

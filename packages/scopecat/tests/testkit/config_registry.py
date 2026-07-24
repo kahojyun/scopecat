@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from scopecat.composition.local import local_workspace_services
+from scopecat.composition.embedded import embedded_workspace_services
 from scopecat.config.candidates import CandidateConfig
 from scopecat.config.changes import (
     load_parameter_change_proposal,
@@ -36,7 +36,7 @@ def signal_run_with_parameter_change(tmp_path: Path) -> str:
 
 
 def seed_best_signal_parameter_change(*, tmp_path: Path, run_id: str) -> None:
-    storage = local_workspace_services(tmp_path).runs
+    storage = embedded_workspace_services(tmp_path).runs
     config = storage.read_config_profile_snapshot(run_id)
     proposal = parameter_change_proposal_from_updates(
         source_run_id=run_id,
@@ -70,7 +70,7 @@ def activate_best_signal(
     *,
     entry_id: str = "best-signal-entry",
 ) -> str:
-    services = local_workspace_services(tmp_path)
+    services = embedded_workspace_services(tmp_path)
     proposal = load_parameter_change_proposal(
         run_id=run_id,
         selector="best-signal",

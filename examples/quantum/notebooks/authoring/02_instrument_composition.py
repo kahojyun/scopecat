@@ -13,11 +13,12 @@ from quantum_lab_demo.workflows.fake_x_count_bias import (
     fake_x_count_bias_config,
     fake_x_count_bias_template,
 )
+from scopecat.composition.embedded import open_embedded_workspace
 
 # %%
 workspace = notebook_workspace("authoring-instrument-composition")
 voltage_source = FakeBiasVoltageProvider()
-lab = sc.open(
+lab = open_embedded_workspace(
     workspace,
     config_profile=fake_x_count_bias_config(),
     system=sc.ExperimentSystem(

@@ -7,6 +7,7 @@ import json
 import sqlite3
 from collections.abc import Generator
 from contextlib import closing, contextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import cast
 
@@ -44,6 +45,27 @@ from scopecat.runs.refs import (
 )
 
 
+class ExecutionJournalConflict(ExecutionJournalError):
+    """A write disagrees with already committed execution state."""
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionTransitionBatchCommit:
+    """Committed transitions and whether this call created the batch."""
+
+    transitions: tuple[ExecutionTransition, ...]
+    created: bool
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedExecutionRecord[TModel: BaseModel]:
+    """Immutable object-store write prepared before a SQLite transaction."""
+
+    durable: TModel
+    ref: str
+    stored: StoredObject
+
+
 def bootstrap_execution_schema(runs: SQLiteRunRepository) -> None:
     """Create execution indexes in an already bootstrapped run database."""
 
@@ -78,43 +100,9 @@ class SQLiteExecutionJournal:
         self._run_id = run_id
 
     def append(self, entry: ExecutionTransition) -> ExecutionTransition:
-        if entry.run_id != self._run_id:
-            raise ExecutionJournalError(
-                "execution journal entry run_id does not match its journal"
-            )
         try:
             with _transaction(self._runs) as connection:
-                row = _one(
-                    connection.execute(
-                        """
-                        SELECT COALESCE(MAX(sequence), -1) + 1 AS sequence
-                        FROM execution_journal_entries
-                        WHERE run_id = ?
-                        """,
-                        (self._run_id,),
-                    )
-                )
-                assert row is not None  # noqa: S101
-                sequence = _integer(row, "sequence")
-                committed = ExecutionTransition.model_validate(
-                    {
-                        **entry.model_dump(mode="python"),
-                        "sequence": sequence,
-                        "timestamp": datetime.now(tz=UTC),
-                    }
-                )
-                ref = f"{EXECUTION_JOURNAL_DIR}/{sequence:08d}.json"
-                stored = _store_model(self._runs, committed)
-                _publish_ref(connection, self._run_id, ref, stored)
-                connection.execute(
-                    """
-                    INSERT INTO execution_journal_entries(
-                        run_id, sequence, ref, digest
-                    )
-                    VALUES (?, ?, ?, ?)
-                    """,
-                    (self._run_id, sequence, ref, stored.digest),
-                )
+                committed, _created = self.append_in_transaction(connection, entry)
                 return committed
         except ExecutionJournalError:
             raise
@@ -122,6 +110,187 @@ class SQLiteExecutionJournal:
             raise ExecutionJournalError(
                 f"failed to commit execution journal entry: {error}"
             ) from error
+
+    def append_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        entry: ExecutionTransition,
+    ) -> tuple[ExecutionTransition, bool]:
+        """Append through an existing transaction without owning its boundary."""
+
+        if entry.run_id != self._run_id:
+            raise ExecutionJournalConflict(
+                "execution journal entry run_id does not match its journal"
+            )
+        try:
+            row = _one(
+                connection.execute(
+                    """
+                    SELECT COALESCE(MAX(sequence), -1) + 1 AS sequence
+                    FROM execution_journal_entries
+                    WHERE run_id = ?
+                    """,
+                    (self._run_id,),
+                )
+            )
+            assert row is not None  # noqa: S101
+            committed = self._commit_transition(
+                connection,
+                entry,
+                sequence=_integer(row, "sequence"),
+            )
+            return committed, True
+        except ExecutionJournalError:
+            raise
+        except Exception as error:
+            raise ExecutionJournalError(
+                f"failed to commit execution journal entry: {error}"
+            ) from error
+
+    def append_batch(
+        self,
+        batch_id: str,
+        entries: tuple[ExecutionTransition, ...],
+    ) -> ExecutionTransitionBatchCommit:
+        """Atomically append or replay one transport batch."""
+
+        try:
+            with _transaction(self._runs) as connection:
+                return self.append_batch_in_transaction(
+                    connection,
+                    batch_id,
+                    entries,
+                )
+        except ExecutionJournalError:
+            raise
+        except Exception as error:
+            raise ExecutionJournalError(
+                f"failed to commit execution journal batch: {error}"
+            ) from error
+
+    def append_batch_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        batch_id: str,
+        entries: tuple[ExecutionTransition, ...],
+    ) -> ExecutionTransitionBatchCommit:
+        """Append or replay a transport batch in an existing transaction."""
+
+        if not batch_id or not entries:
+            raise ValueError("execution transition batch must be non-empty")
+        if any(entry.run_id != self._run_id for entry in entries):
+            raise ExecutionJournalConflict(
+                "execution journal batch run_id does not match its journal"
+            )
+        content_hash = _batch_content_hash(entries)
+        try:
+            existing = _one(
+                connection.execute(
+                    """
+                    SELECT * FROM execution_journal_batches
+                    WHERE run_id = ? AND batch_id = ?
+                    """,
+                    (self._run_id, batch_id),
+                )
+            )
+            if existing is not None:
+                if _text(existing, "content_hash") != content_hash:
+                    raise ExecutionJournalConflict(
+                        "execution transition batch id has different content"
+                    )
+                first_sequence = _integer(existing, "first_sequence")
+                transition_count = _integer(existing, "transition_count")
+                committed = tuple(
+                    _read_stored_model(
+                        self._runs,
+                        _text(row, "digest"),
+                        ExecutionTransition,
+                    )
+                    for row in _batch_rows(
+                        connection,
+                        self._run_id,
+                        first_sequence,
+                        transition_count,
+                    )
+                )
+                return ExecutionTransitionBatchCommit(
+                    transitions=committed,
+                    created=False,
+                )
+            row = _one(
+                connection.execute(
+                    """
+                    SELECT COALESCE(MAX(sequence), -1) + 1 AS sequence
+                    FROM execution_journal_entries
+                    WHERE run_id = ?
+                    """,
+                    (self._run_id,),
+                )
+            )
+            assert row is not None  # noqa: S101
+            first_sequence = _integer(row, "sequence")
+            committed = tuple(
+                self._commit_transition(
+                    connection,
+                    entry,
+                    sequence=first_sequence + index,
+                )
+                for index, entry in enumerate(entries)
+            )
+            connection.execute(
+                """
+                INSERT INTO execution_journal_batches(
+                    run_id, batch_id, content_hash,
+                    first_sequence, transition_count
+                )
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    self._run_id,
+                    batch_id,
+                    content_hash,
+                    first_sequence,
+                    len(committed),
+                ),
+            )
+            return ExecutionTransitionBatchCommit(
+                transitions=committed,
+                created=True,
+            )
+        except ExecutionJournalError:
+            raise
+        except Exception as error:
+            raise ExecutionJournalError(
+                f"failed to commit execution journal batch: {error}"
+            ) from error
+
+    def _commit_transition(
+        self,
+        connection: sqlite3.Connection,
+        entry: ExecutionTransition,
+        *,
+        sequence: int,
+    ) -> ExecutionTransition:
+        committed = ExecutionTransition.model_validate(
+            {
+                **entry.model_dump(mode="python"),
+                "sequence": sequence,
+                "timestamp": datetime.now(tz=UTC),
+            }
+        )
+        ref = f"{EXECUTION_JOURNAL_DIR}/{sequence:08d}.json"
+        stored = _store_model(self._runs, committed)
+        _publish_ref(connection, self._run_id, ref, stored)
+        connection.execute(
+            """
+            INSERT INTO execution_journal_entries(
+                run_id, sequence, ref, digest
+            )
+            VALUES (?, ?, ?, ?)
+            """,
+            (self._run_id, sequence, ref, stored.digest),
+        )
+        return committed
 
     def entries(self) -> tuple[ExecutionTransition, ...]:
         try:
@@ -158,79 +327,135 @@ class SQLiteMeasurementDatasetRepository:
         self._run_id = run_id
 
     def append(self, append: MeasurementDatasetAppend) -> MeasurementDatasetReceipt:
+        prepared = self.prepare_append(append)
+        try:
+            with _transaction(self._runs) as connection:
+                receipt, _created = self.append_prepared_in_transaction(
+                    connection,
+                    prepared,
+                )
+                return receipt
+        except ExecutionJournalError:
+            raise
+        except Exception as error:
+            raise ExecutionJournalError(
+                f"failed to append measurement dataset: {error}"
+            ) from error
+
+    def append_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        append: MeasurementDatasetAppend,
+    ) -> tuple[MeasurementDatasetReceipt, bool]:
+        """Append a measurement range in an existing transaction."""
+
+        return self.append_prepared_in_transaction(
+            connection,
+            self.prepare_append(append),
+        )
+
+    def prepare_append(
+        self,
+        append: MeasurementDatasetAppend,
+    ) -> PreparedExecutionRecord[MeasurementDatasetAppend]:
+        """Publish immutable append content before entering the write transaction."""
+
         durable = MeasurementDatasetAppend.model_validate(
             append.model_dump(mode="python")
         )
         if durable.run_id != self._run_id:
-            raise ExecutionJournalError(
+            raise ExecutionJournalConflict(
                 "measurement run_id does not match its execution repository"
             )
         ref = (
             f"{_dataset_ref(durable.dataset_id)}/chunks/{durable.start_index:020d}.json"
         )
-        stored = _store_model(self._runs, durable)
+        return PreparedExecutionRecord(
+            durable=durable,
+            ref=ref,
+            stored=_store_model(self._runs, durable),
+        )
+
+    def append_prepared_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        prepared: PreparedExecutionRecord[MeasurementDatasetAppend],
+    ) -> tuple[MeasurementDatasetReceipt, bool]:
+        """Publish prepared append metadata in an existing transaction."""
+
+        durable = prepared.durable
+        ref = prepared.ref
         try:
-            with _transaction(self._runs) as connection:
-                if _dataset_sealed(connection, self._run_id, durable.dataset_id):
-                    raise ExecutionJournalError("measurement dataset is already sealed")
-                existing = _one(
-                    connection.execute(
-                        """
-                        SELECT content_hash, ref
-                        FROM execution_measurement_appends
-                        WHERE run_id = ? AND dataset_id = ? AND start_index = ?
-                        """,
-                        (self._run_id, durable.dataset_id, durable.start_index),
-                    )
-                )
-                if existing is not None:
-                    if _text(existing, "content_hash") != durable.content_hash:
-                        raise ExecutionJournalError(
-                            "measurement dataset append already has different content"
-                        )
-                    return _append_receipt(durable, _text(existing, "ref"))
-                previous = _measurement_rows(
-                    connection,
-                    self._run_id,
-                    durable.dataset_id,
-                )
-                if durable.start_index != sum(
-                    _integer(row, "record_count") for row in previous
-                ):
-                    raise ExecutionJournalError(
-                        "measurement dataset append is not the next contiguous range"
-                    )
-                if any(
-                    _text(row, "contract_fingerprint")
-                    != durable.recording_contract_fingerprint
-                    for row in previous
-                ):
-                    raise ExecutionJournalError(
-                        "measurement dataset append changed its contract"
-                    )
-                _publish_ref(connection, self._run_id, ref, stored)
+            existing = _one(
                 connection.execute(
                     """
-                    INSERT INTO execution_measurement_appends(
-                        run_id, dataset_id, start_index, operation_id,
-                        content_hash, contract_fingerprint, record_count,
-                        ref, digest
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    SELECT operation_id, content_hash, ref
+                    FROM execution_measurement_appends
+                    WHERE run_id = ? AND dataset_id = ? AND start_index = ?
                     """,
-                    (
-                        self._run_id,
-                        durable.dataset_id,
-                        durable.start_index,
-                        durable.operation_id,
-                        durable.content_hash,
-                        durable.recording_contract_fingerprint,
-                        len(durable.records),
-                        ref,
-                        stored.digest,
-                    ),
+                    (self._run_id, durable.dataset_id, durable.start_index),
                 )
-                return _append_receipt(durable, ref)
+            )
+            if existing is not None:
+                if (
+                    _text(existing, "operation_id") != durable.operation_id
+                    or _text(existing, "content_hash") != durable.content_hash
+                ):
+                    raise ExecutionJournalConflict(
+                        "measurement dataset append already has different content"
+                    )
+                return (
+                    MeasurementDatasetReceipt(
+                        operation_id=_text(existing, "operation_id"),
+                        dataset_content_hash=_text(existing, "content_hash"),
+                        dataset_ref=_text(existing, "ref"),
+                    ),
+                    False,
+                )
+            if _dataset_sealed(connection, self._run_id, durable.dataset_id):
+                raise ExecutionJournalConflict("measurement dataset is already sealed")
+            previous = _measurement_rows(
+                connection,
+                self._run_id,
+                durable.dataset_id,
+            )
+            if durable.start_index != sum(
+                _integer(row, "record_count") for row in previous
+            ):
+                raise ExecutionJournalConflict(
+                    "measurement dataset append is not the next contiguous range"
+                )
+            if any(
+                _text(row, "contract_fingerprint")
+                != durable.recording_contract_fingerprint
+                for row in previous
+            ):
+                raise ExecutionJournalConflict(
+                    "measurement dataset append changed its contract"
+                )
+            _publish_ref(connection, self._run_id, ref, prepared.stored)
+            connection.execute(
+                """
+                INSERT INTO execution_measurement_appends(
+                    run_id, dataset_id, start_index, operation_id,
+                    content_hash, contract_fingerprint, record_count,
+                    ref, digest
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    self._run_id,
+                    durable.dataset_id,
+                    durable.start_index,
+                    durable.operation_id,
+                    durable.content_hash,
+                    durable.recording_contract_fingerprint,
+                    len(durable.records),
+                    ref,
+                    prepared.stored.digest,
+                ),
+            )
+            return _append_receipt(durable, ref), True
         except ExecutionJournalError:
             raise
         except Exception as error:
@@ -239,19 +464,71 @@ class SQLiteMeasurementDatasetRepository:
             ) from error
 
     def seal(self, seal: MeasurementDatasetSeal) -> MeasurementDatasetReceipt:
+        prepared = self.prepare_seal(seal)
+        try:
+            with _transaction(self._runs) as connection:
+                receipt, _created = self.seal_prepared_in_transaction(
+                    connection,
+                    prepared,
+                )
+                return receipt
+        except ExecutionJournalError:
+            raise
+        except Exception as error:
+            raise ExecutionJournalError(
+                f"failed to seal measurement dataset: {error}"
+            ) from error
+
+    def seal_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        seal: MeasurementDatasetSeal,
+    ) -> tuple[MeasurementDatasetReceipt, bool]:
+        """Seal a measurement dataset in an existing transaction."""
+
+        return self.seal_prepared_in_transaction(
+            connection,
+            self.prepare_seal(seal),
+        )
+
+    def prepare_seal(
+        self,
+        seal: MeasurementDatasetSeal,
+    ) -> PreparedExecutionRecord[MeasurementDatasetSeal]:
+        """Publish immutable seal content before entering the write transaction."""
+
         durable = MeasurementDatasetSeal.model_validate(seal.model_dump(mode="python"))
         if durable.run_id != self._run_id:
-            raise ExecutionJournalError(
+            raise ExecutionJournalConflict(
                 "measurement run_id does not match its execution repository"
             )
         ref = f"{_dataset_ref(durable.dataset_id)}/seal.json"
-        stored = _store_model(self._runs, durable)
+        return PreparedExecutionRecord(
+            durable=durable,
+            ref=ref,
+            stored=_store_model(self._runs, durable),
+        )
+
+    def seal_prepared_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        prepared: PreparedExecutionRecord[MeasurementDatasetSeal],
+    ) -> tuple[MeasurementDatasetReceipt, bool]:
+        """Publish prepared seal metadata in an existing transaction."""
+
+        durable = prepared.durable
+        ref = prepared.ref
         try:
-            with _transaction(self._runs) as connection:
+
+            def commit_prepared() -> tuple[MeasurementDatasetReceipt, bool]:
                 existing = _one(
                     connection.execute(
                         """
-                        SELECT content_hash, ref
+                        SELECT
+                            operation_id,
+                            content_hash,
+                            dataset_content_hash,
+                            ref
                         FROM execution_measurement_seals
                         WHERE run_id = ? AND dataset_id = ?
                         """,
@@ -259,11 +536,24 @@ class SQLiteMeasurementDatasetRepository:
                     )
                 )
                 if existing is not None:
-                    if _text(existing, "content_hash") != durable.content_hash:
-                        raise ExecutionJournalError(
+                    if (
+                        _text(existing, "operation_id") != durable.operation_id
+                        or _text(existing, "content_hash") != durable.content_hash
+                    ):
+                        raise ExecutionJournalConflict(
                             "measurement dataset seal already has different content"
                         )
-                    return _seal_receipt(durable, _text(existing, "ref"))
+                    return (
+                        MeasurementDatasetReceipt(
+                            operation_id=_text(existing, "operation_id"),
+                            dataset_content_hash=_text(
+                                existing,
+                                "dataset_content_hash",
+                            ),
+                            dataset_ref=_text(existing, "ref"),
+                        ),
+                        False,
+                    )
                 appends = _measurement_rows(
                     connection,
                     self._run_id,
@@ -272,7 +562,7 @@ class SQLiteMeasurementDatasetRepository:
                 if sum(_integer(row, "record_count") for row in appends) != (
                     durable.point_count
                 ):
-                    raise ExecutionJournalError(
+                    raise ExecutionJournalConflict(
                         "measurement dataset seal point count is incomplete"
                     )
                 if any(
@@ -280,7 +570,7 @@ class SQLiteMeasurementDatasetRepository:
                     != durable.recording_contract_fingerprint
                     for row in appends
                 ):
-                    raise ExecutionJournalError(
+                    raise ExecutionJournalConflict(
                         "measurement dataset seal changed its contract"
                     )
                 actual_hash = measurement_dataset_content_hash(
@@ -292,10 +582,10 @@ class SQLiteMeasurementDatasetRepository:
                     ),
                 )
                 if actual_hash != durable.dataset_content_hash:
-                    raise ExecutionJournalError(
+                    raise ExecutionJournalConflict(
                         "measurement dataset seal content hash does not match appends"
                     )
-                _publish_ref(connection, self._run_id, ref, stored)
+                _publish_ref(connection, self._run_id, ref, prepared.stored)
                 connection.execute(
                     """
                     INSERT INTO execution_measurement_seals(
@@ -314,10 +604,12 @@ class SQLiteMeasurementDatasetRepository:
                         durable.recording_contract_fingerprint,
                         durable.point_count,
                         ref,
-                        stored.digest,
+                        prepared.stored.digest,
                     ),
                 )
-                return _seal_receipt(durable, ref)
+                return _seal_receipt(durable, ref), True
+
+            return commit_prepared()
         except ExecutionJournalError:
             raise
         except Exception as error:
@@ -398,15 +690,63 @@ class SQLiteCollectionRecordRepository:
         self._run_id = run_id
 
     def commit(self, chunk: CollectionChunk) -> CollectionChunkReceipt:
-        if chunk.run_id != self._run_id:
+        prepared = self.prepare_commit(chunk)
+        try:
+            with _transaction(self._runs) as connection:
+                receipt, _created = self.commit_prepared_in_transaction(
+                    connection,
+                    prepared,
+                )
+                return receipt
+        except ExecutionJournalError:
+            raise
+        except Exception as error:
             raise ExecutionJournalError(
+                f"failed to commit collection readback: {error}"
+            ) from error
+
+    def commit_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        chunk: CollectionChunk,
+    ) -> tuple[CollectionChunkReceipt, bool]:
+        """Commit a collection readback in an existing transaction."""
+
+        return self.commit_prepared_in_transaction(
+            connection,
+            self.prepare_commit(chunk),
+        )
+
+    def prepare_commit(
+        self,
+        chunk: CollectionChunk,
+    ) -> PreparedExecutionRecord[CollectionChunk]:
+        """Publish immutable readback content before entering the write transaction."""
+
+        if chunk.run_id != self._run_id:
+            raise ExecutionJournalConflict(
                 "collection chunk run_id does not match its repository"
             )
         durable = CollectionChunk.model_validate(chunk.model_dump(mode="json"))
         ref = _operation_ref(EXECUTION_READBACKS_DIR, durable.operation_id)
-        stored = _store_model(self._runs, durable)
+        return PreparedExecutionRecord(
+            durable=durable,
+            ref=ref,
+            stored=_store_model(self._runs, durable),
+        )
+
+    def commit_prepared_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        prepared: PreparedExecutionRecord[CollectionChunk],
+    ) -> tuple[CollectionChunkReceipt, bool]:
+        """Publish prepared readback metadata in an existing transaction."""
+
+        durable = prepared.durable
+        ref = prepared.ref
         try:
-            with _transaction(self._runs) as connection:
+
+            def commit_prepared() -> tuple[CollectionChunkReceipt, bool]:
                 existing = _one(
                     connection.execute(
                         """
@@ -420,13 +760,13 @@ class SQLiteCollectionRecordRepository:
                 if existing is not None:
                     if (
                         _text(existing, "content_hash") != durable.content_hash
-                        or _text(existing, "digest") != stored.digest
+                        or _text(existing, "digest") != prepared.stored.digest
                     ):
-                        raise ExecutionJournalError(
+                        raise ExecutionJournalConflict(
                             "collection operation already has a different readback"
                         )
-                    return _collection_receipt(durable, _text(existing, "ref"))
-                _publish_ref(connection, self._run_id, ref, stored)
+                    return _collection_receipt(durable, _text(existing, "ref")), False
+                _publish_ref(connection, self._run_id, ref, prepared.stored)
                 connection.execute(
                     """
                     INSERT INTO execution_collections(
@@ -439,10 +779,12 @@ class SQLiteCollectionRecordRepository:
                         durable.operation_id,
                         durable.content_hash,
                         ref,
-                        stored.digest,
+                        prepared.stored.digest,
                     ),
                 )
-                return _collection_receipt(durable, ref)
+                return _collection_receipt(durable, ref), True
+
+            return commit_prepared()
         except ExecutionJournalError:
             raise
         except Exception as error:
@@ -451,37 +793,53 @@ class SQLiteCollectionRecordRepository:
             ) from error
 
     def resolve(self, receipt: CollectionChunkReceipt) -> CollectionChunk:
+        try:
+            with closing(_connect(self._runs)) as connection:
+                return self.resolve_in_transaction(connection, receipt)
+        except ExecutionJournalError:
+            raise
+        except Exception as error:
+            raise ExecutionJournalError(
+                f"failed to resolve collection readback: {error}"
+            ) from error
+
+    def resolve_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        receipt: CollectionChunkReceipt,
+    ) -> CollectionChunk:
+        """Resolve a collection receipt through an existing connection."""
+
         durable = CollectionChunkReceipt.model_validate(receipt.model_dump(mode="json"))
         expected_ref = _operation_ref(
             EXECUTION_READBACKS_DIR,
             durable.operation_id,
         )
         if durable.ref != expected_ref:
-            raise ExecutionJournalError(
+            raise ExecutionJournalConflict(
                 "collection receipt ref does not match its operation"
             )
         try:
-            with closing(_connect(self._runs)) as connection:
-                row = _one(
-                    connection.execute(
-                        """
-                        SELECT content_hash, ref FROM execution_collections
-                        WHERE run_id = ? AND operation_id = ?
-                        """,
-                        (self._run_id, durable.operation_id),
-                    )
+            row = _one(
+                connection.execute(
+                    """
+                    SELECT content_hash, ref, digest FROM execution_collections
+                    WHERE run_id = ? AND operation_id = ?
+                    """,
+                    (self._run_id, durable.operation_id),
                 )
+            )
             if (
                 row is None
                 or _text(row, "ref") != durable.ref
                 or _text(row, "content_hash") != durable.content_hash
             ):
-                raise ExecutionJournalError(
+                raise ExecutionJournalConflict(
                     "collection receipt is not backed by this repository"
                 )
-            chunk = self._runs.read_model(
-                self._run_id,
-                durable.ref,
+            chunk = _read_stored_model(
+                self._runs,
+                _text(row, "digest"),
                 CollectionChunk,
             )
             if (
@@ -535,15 +893,63 @@ class SQLitePayloadEvidenceCommitter:
         self._run_id = run_id
 
     def commit(self, evidence: PayloadEvidence) -> CommittedPayloadEvidence:
-        if evidence.run_id != self._run_id:
+        prepared = self.prepare_commit(evidence)
+        try:
+            with _transaction(self._runs) as connection:
+                committed, _created = self.commit_prepared_in_transaction(
+                    connection,
+                    prepared,
+                )
+                return committed
+        except ExecutionJournalError:
+            raise
+        except Exception as error:
             raise ExecutionJournalError(
+                f"failed to commit payload evidence: {error}"
+            ) from error
+
+    def commit_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        evidence: PayloadEvidence,
+    ) -> tuple[CommittedPayloadEvidence, bool]:
+        """Commit payload evidence in an existing transaction."""
+
+        return self.commit_prepared_in_transaction(
+            connection,
+            self.prepare_commit(evidence),
+        )
+
+    def prepare_commit(
+        self,
+        evidence: PayloadEvidence,
+    ) -> PreparedExecutionRecord[PayloadEvidence]:
+        """Publish immutable evidence content before entering the write transaction."""
+
+        if evidence.run_id != self._run_id:
+            raise ExecutionJournalConflict(
                 "payload evidence run_id does not match its committer"
             )
         durable = PayloadEvidence.model_validate(evidence.model_dump(mode="json"))
         ref = _operation_ref(EXECUTION_PAYLOADS_DIR, durable.operation_id)
-        stored = _store_model(self._runs, durable)
+        return PreparedExecutionRecord(
+            durable=durable,
+            ref=ref,
+            stored=_store_model(self._runs, durable),
+        )
+
+    def commit_prepared_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        prepared: PreparedExecutionRecord[PayloadEvidence],
+    ) -> tuple[CommittedPayloadEvidence, bool]:
+        """Publish prepared evidence metadata in an existing transaction."""
+
+        durable = prepared.durable
+        ref = prepared.ref
         try:
-            with _transaction(self._runs) as connection:
+
+            def commit_prepared() -> tuple[CommittedPayloadEvidence, bool]:
                 existing = _one(
                     connection.execute(
                         """
@@ -555,15 +961,18 @@ class SQLitePayloadEvidenceCommitter:
                     )
                 )
                 if existing is not None:
-                    if _text(existing, "digest") != stored.digest:
-                        raise ExecutionJournalError(
+                    if _text(existing, "digest") != prepared.stored.digest:
+                        raise ExecutionJournalConflict(
                             "compute operation has different payload evidence"
                         )
-                    return CommittedPayloadEvidence(
-                        ref=_text(existing, "ref"),
-                        content_hash=_text(existing, "content_hash"),
+                    return (
+                        CommittedPayloadEvidence(
+                            ref=_text(existing, "ref"),
+                            content_hash=_text(existing, "content_hash"),
+                        ),
+                        False,
                     )
-                _publish_ref(connection, self._run_id, ref, stored)
+                _publish_ref(connection, self._run_id, ref, prepared.stored)
                 connection.execute(
                     """
                     INSERT INTO execution_payload_evidence(
@@ -576,13 +985,18 @@ class SQLitePayloadEvidenceCommitter:
                         durable.operation_id,
                         durable.content_hash,
                         ref,
-                        stored.digest,
+                        prepared.stored.digest,
                     ),
                 )
-                return CommittedPayloadEvidence(
-                    ref=ref,
-                    content_hash=durable.content_hash,
+                return (
+                    CommittedPayloadEvidence(
+                        ref=ref,
+                        content_hash=durable.content_hash,
+                    ),
+                    True,
                 )
+
+            return commit_prepared()
         except ExecutionJournalError:
             raise
         except Exception as error:
@@ -601,6 +1015,43 @@ def _dataset_ref(dataset_id: str) -> str:
 def _operation_ref(namespace: str, operation_id: str) -> str:
     digest = hashlib.sha256(operation_id.encode()).hexdigest()
     return f"{namespace}/{digest}.json"
+
+
+def _batch_content_hash(entries: tuple[ExecutionTransition, ...]) -> str:
+    content = json.dumps(
+        [entry.model_dump(mode="json") for entry in entries],
+        allow_nan=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    return f"sha256:{hashlib.sha256(content).hexdigest()}"
+
+
+def _batch_rows(
+    connection: sqlite3.Connection,
+    run_id: str,
+    first_sequence: int,
+    transition_count: int,
+) -> list[sqlite3.Row]:
+    rows = _all(
+        connection.execute(
+            """
+            SELECT ref, digest FROM execution_journal_entries
+            WHERE run_id = ? AND sequence >= ? AND sequence < ?
+            ORDER BY sequence
+            """,
+            (
+                run_id,
+                first_sequence,
+                first_sequence + transition_count,
+            ),
+        )
+    )
+    if len(rows) != transition_count:
+        raise ExecutionJournalError(
+            "execution transition batch references incomplete journal entries"
+        )
+    return rows
 
 
 def _append_receipt(
@@ -692,6 +1143,14 @@ def _store_model(runs: SQLiteRunRepository, model: BaseModel) -> StoredObject:
         raise ExecutionJournalError(
             f"execution record is not durably serializable: {error}"
         ) from error
+
+
+def _read_stored_model[TModel: BaseModel](
+    runs: SQLiteRunRepository,
+    digest: str,
+    model_type: type[TModel],
+) -> TModel:
+    return model_type.model_validate_json(runs.objects.read(digest))
 
 
 def _publish_ref(

@@ -23,6 +23,7 @@ def memory_workspace_services(
         payloads_for=state.payloads_for,
     )
     return WorkspaceServices(
+        runs=workspace.runs,
         execution=execution,
         config_registry=workspace.unit_of_work,
     )

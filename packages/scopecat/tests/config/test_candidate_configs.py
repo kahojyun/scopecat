@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
 import scopecat as sc
-from scopecat.composition.local import (
-    local_config_registry_unit_of_work,
-    local_run_repository,
-    local_workspace_services,
+from scopecat.composition.embedded import (
+    embedded_config_registry_unit_of_work,
+    embedded_run_repository,
+    embedded_workspace_services,
+    open_embedded_workspace,
 )
 from scopecat.config.candidates import resolve_candidate_config_snapshot
 from scopecat.config.changes import (
@@ -77,7 +79,7 @@ def test_candidate_checks_and_run_leave_source_run_unchanged(
         .candidate_config()
     )
     prepared = lab.prepare(load_invocation(), config=candidate)
-    storage = local_run_repository(tmp_path)
+    storage = embedded_run_repository(tmp_path)
     manifest_before = storage.read_manifest(source_run.id)
     refs_before = _run_ref_contents(tmp_path, source_run.id)
 
@@ -147,7 +149,7 @@ def test_candidate_config_rejects_overlapping_proposals(tmp_path: Path) -> None:
     with pytest.raises(CheckFailed) as error:
         resolve_candidate_config_snapshot(
             analysis.candidate_config(("fit-a", "fit-b")),
-            services=local_workspace_services(tmp_path),
+            services=embedded_workspace_services(tmp_path),
         )
 
     assert error.value.problems[0].code == ("parameter_change_proposal_merge_invalid")
@@ -171,7 +173,7 @@ def test_candidate_config_rejects_drifted_source_snapshot_before_registration(
         .candidate_config()
     )
     stale_source = run.config.model_copy(update={"id": "changed-after-fit"})
-    local_run_repository(tmp_path).write_model(
+    embedded_run_repository(tmp_path).write_model(
         run.id,
         "config-profile.snapshot.json",
         stale_source,
@@ -180,7 +182,7 @@ def test_candidate_config_rejects_drifted_source_snapshot_before_registration(
     with pytest.raises(DataIntegrityError) as error:
         register_and_activate_candidate_config(
             candidate=candidate,
-            services=local_workspace_services(tmp_path),
+            services=embedded_workspace_services(tmp_path),
             registered_by="operator",
             operator="operator",
         )
@@ -188,7 +190,7 @@ def test_candidate_config_rejects_drifted_source_snapshot_before_registration(
     assert error.value.problems[0].code == "run.config_provenance_mismatch"
     assert (
         list_config_registry_entries(
-            unit_of_work=local_config_registry_unit_of_work(tmp_path)
+            unit_of_work=embedded_config_registry_unit_of_work(tmp_path)
         )
         == []
     )
@@ -214,7 +216,7 @@ def test_parameter_change_proposal_round_trips_and_is_persisted(
     persisted = load_parameter_change_proposal(
         run_id=run.id,
         selector=proposal.id,
-        services=local_workspace_services(tmp_path),
+        services=embedded_workspace_services(tmp_path),
     )
 
     assert restored == proposal
@@ -297,9 +299,9 @@ def test_proposal_records_are_immutable_but_idempotent(tmp_path: Path) -> None:
     persisted = load_parameter_change_proposal(
         run_id=run.id,
         selector="drive-frequency",
-        services=local_workspace_services(tmp_path),
+        services=embedded_workspace_services(tmp_path),
     )
-    manifest = local_run_repository(tmp_path).read_manifest(run.id)
+    manifest = embedded_run_repository(tmp_path).read_manifest(run.id)
     assert persisted == first_proposal
     assert persisted.proposed_at == first_proposal.proposed_at
     assert [
@@ -310,24 +312,31 @@ def test_proposal_records_are_immutable_but_idempotent(tmp_path: Path) -> None:
     decisions = list_parameter_change_decisions(
         run_id=run.id,
         selector=first_proposal.id,
-        storage=local_run_repository(tmp_path),
+        storage=embedded_run_repository(tmp_path),
     )
     assert [event.decision for event in decisions] == [decision.decision]
     assert [event.event_id for event in decisions] == [decision.event_id]
 
 
 def _lab(tmp_path: Path) -> sc.Workspace:
-    return sc.open(
+    return open_embedded_workspace(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
     )
 
 
-def _run_ref_contents(workspace: Path, run_id: str) -> dict[str, bytes]:
-    run_dir = workspace / "runs" / run_id
-    return {
-        path.relative_to(run_dir).as_posix(): path.read_bytes()
-        for path in sorted(run_dir.rglob("*"))
-        if path.is_file()
-    }
+def _run_ref_contents(workspace: Path, run_id: str) -> dict[str, str]:
+    repository = embedded_run_repository(workspace)
+    with sqlite3.connect(repository.database) as connection:
+        return dict(
+            connection.execute(
+                """
+                SELECT ref, digest
+                FROM run_repository_refs
+                WHERE run_id = ?
+                ORDER BY ref
+                """,
+                (run_id,),
+            )
+        )

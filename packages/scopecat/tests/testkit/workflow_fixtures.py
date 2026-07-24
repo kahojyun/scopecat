@@ -16,7 +16,7 @@ from scopecat.compiler.frontend.invocation import (
     prepare_invocation,
 )
 from scopecat.compiler.typed.program import CoreProgram
-from scopecat.composition.local import local_run_repository
+from scopecat.composition.embedded import embedded_run_repository
 from scopecat.config.profiles import load_config_profile
 from scopecat.planning.authoring import resolve_experiment_with_config
 from scopecat.records.artifact import RunContentEntry
@@ -121,7 +121,7 @@ def config_with_instrument_id(instrument_id: str) -> ConfigProfileSnapshot:
 
 
 def attach_typed_data_artifacts(workspace: Path, run_id: str) -> None:
-    storage = local_run_repository(workspace)
+    storage = embedded_run_repository(workspace)
     manifest = storage.read_manifest(run_id)
     metrics_schema = DataTableSchema(
         columns=[
@@ -169,19 +169,21 @@ def attach_typed_data_artifacts(workspace: Path, run_id: str) -> None:
     )
     metrics_ref = dataset_storage_ref(metrics_entry)
     matrix_ref = dataset_storage_ref(matrix_entry)
-    storage.ref_path(run_id, metrics_ref).parent.mkdir(parents=True, exist_ok=True)
-    storage.ref_path(run_id, metrics_ref).write_text(
+    storage.write_text(
+        run_id,
+        metrics_ref,
         DataTableArtifact(
             schema=metrics_schema,
             rows=[{"metric": "visibility", "value": 0.98}],
-        ).model_dump_json(by_alias=True)
+        ).model_dump_json(by_alias=True),
     )
-    storage.ref_path(run_id, matrix_ref).parent.mkdir(parents=True, exist_ok=True)
-    storage.ref_path(run_id, matrix_ref).write_text(
+    storage.write_text(
+        run_id,
+        matrix_ref,
         DataArrayArtifact(
             schema=matrix_schema,
             variables={"readout_probability": [[0.99, 0.03], [0.01, 0.97]]},
-        ).model_dump_json(by_alias=True)
+        ).model_dump_json(by_alias=True),
     )
     storage.write_manifest(
         manifest.model_copy(
@@ -193,7 +195,7 @@ def attach_typed_data_artifacts(workspace: Path, run_id: str) -> None:
 
 
 def attach_binary_artifact(workspace: Path, run_id: str) -> None:
-    storage = local_run_repository(workspace)
+    storage = embedded_run_repository(workspace)
     manifest = storage.read_manifest(run_id)
     binary = RunContentEntry(
         role="artifact",
@@ -203,9 +205,7 @@ def attach_binary_artifact(workspace: Path, run_id: str) -> None:
         media_type="application/octet-stream",
     )
     binary_ref = artifact_storage_ref(binary)
-    binary_path = storage.ref_path(run_id, binary_ref)
-    binary_path.parent.mkdir(parents=True, exist_ok=True)
-    binary_path.write_bytes(b"\x00\x01")
+    storage.write_bytes(run_id, binary_ref, b"\x00\x01")
     storage.write_manifest(
         manifest.model_copy(update={"contents": (*manifest.contents, binary)})
     )

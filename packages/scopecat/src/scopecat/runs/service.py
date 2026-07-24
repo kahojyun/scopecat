@@ -433,6 +433,22 @@ def plan_experiment(
     )
 
 
+def plan_scratch_experiment(
+    experiment: PreparedInvocation,
+    *,
+    config: ConfigProfileSnapshot,
+    system: ExperimentSystem,
+) -> PlannedRun:
+    """Plan notebook code against an explicit snapshot without workspace I/O."""
+
+    return _plan_compiled_run(
+        config=config,
+        experiment=compile_prepared_invocation(experiment),
+        system=system,
+        config_source=None,
+    )
+
+
 def run_experiment(
     experiment: PreparedInvocation,
     *,

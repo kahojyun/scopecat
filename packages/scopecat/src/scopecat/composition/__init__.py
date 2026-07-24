@@ -1,10 +1,4 @@
-"""Application composition roots.
-
-Concrete adapters are selected only here. Application use cases depend on
-ports bundled in ``WorkspaceServices`` and never infer filesystem or memory
-implementations from a workspace path. Keeping this wiring at the outer edge
-lets both adapter families satisfy the same contracts.
-"""
+"""Public composition helpers that cannot write daemon-owned storage."""
 
 from __future__ import annotations
 
@@ -12,40 +6,13 @@ from importlib import import_module
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
-    from scopecat.composition.local import (
-        local_config_registry_unit_of_work,
-        local_execution_services,
-        local_run_repository,
-        local_workspace_services,
-        open_local_workspace,
-    )
     from scopecat.composition.memory import memory_workspace_services
 
 
 _EXPORTS: dict[str, tuple[str, str]] = {
-    "local_config_registry_unit_of_work": (
-        "scopecat.composition.local",
-        "local_config_registry_unit_of_work",
-    ),
-    "local_execution_services": (
-        "scopecat.composition.local",
-        "local_execution_services",
-    ),
-    "local_run_repository": (
-        "scopecat.composition.local",
-        "local_run_repository",
-    ),
-    "local_workspace_services": (
-        "scopecat.composition.local",
-        "local_workspace_services",
-    ),
     "memory_workspace_services": (
         "scopecat.composition.memory",
         "memory_workspace_services",
-    ),
-    "open_local_workspace": (
-        "scopecat.composition.local",
-        "open_local_workspace",
     ),
 }
 
@@ -65,10 +32,5 @@ def __dir__() -> list[str]:
 
 
 __all__ = [
-    "local_config_registry_unit_of_work",
-    "local_execution_services",
-    "local_run_repository",
-    "local_workspace_services",
     "memory_workspace_services",
-    "open_local_workspace",
 ]

@@ -4,14 +4,13 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Event
 
-from tests.testkit.signal_instruments import TestSignalInstrumentProvider
-from tests.testkit.workflow_fixtures import load_config, load_prepared_invocation
-
 from scopecat.adapters.memory import MemoryWorkspaceStore
 from scopecat.composition.memory import memory_workspace_services
 from scopecat.kernel.resource_identity import ResourceClaim
 from scopecat.planning.system import ExperimentSystem
 from scopecat.runs.service import start_run
+from tests.testkit.signal_instruments import TestSignalInstrumentProvider
+from tests.testkit.workflow_fixtures import load_config, load_prepared_invocation
 
 
 def test_recomposed_services_share_execution_state(tmp_path: Path) -> None:

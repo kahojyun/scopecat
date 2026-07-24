@@ -9,7 +9,10 @@ from scopecat.compiler.linking.linked import (
     link_verified_program,
     specialize_linked_program,
 )
-from scopecat.composition.local import local_execution_services
+from scopecat.composition.embedded import (
+    embedded_execution_services,
+    embedded_run_repository,
+)
 from scopecat.config.profiles import load_config_profile
 from scopecat.execution.interpreter import admit_run, execute_admitted_run
 from scopecat.kernel.resource_identity import logical_resource_port_id
@@ -248,11 +251,12 @@ def test_default_quantum_wiring_runtime_commands_include_channel_bindings(
     )
     program = sc.ExperimentSystem(provider=provider).compile(linked, config=config)
 
-    services = local_execution_services(tmp_path)
+    repository = embedded_run_repository(tmp_path)
+    services = embedded_execution_services(tmp_path, runs=repository)
     accepted = admit_run(
         config=config,
         request=resolved.request,
-        repository=services.runs,
+        repository=repository,
         config_source=resolved.config_source,
     )
     manifest = execute_admitted_run(

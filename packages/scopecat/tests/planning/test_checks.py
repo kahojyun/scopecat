@@ -8,6 +8,7 @@ import pytest
 import scopecat as sc
 import scopecat.config.resolution as config_resolution
 from scopecat import ExperimentCheckResult
+from scopecat.composition.embedded import open_embedded_workspace
 from scopecat.config.candidates import CandidateConfig
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
@@ -27,7 +28,7 @@ def _workspace(
     *,
     config: ConfigProfileSnapshot | None = None,
 ) -> sc.Workspace:
-    return sc.open(
+    return open_embedded_workspace(
         tmp_path,
         config=load_config() if config is None else config,
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),

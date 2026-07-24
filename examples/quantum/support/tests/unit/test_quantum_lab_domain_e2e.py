@@ -8,12 +8,11 @@ from typing import cast, override
 import pytest
 import scopecat as sc
 from scopecat import Quantity
-from scopecat.adapters.filesystem.execution import (
-    FilesystemExecutionJournal,
-    FilesystemMeasurementDatasetRepository,
-)
+from scopecat.adapters.sqlite import SQLiteMeasurementDatasetRepository
 from scopecat.compiler.linking.linked import LinkedPointMaterializer
+from scopecat.composition.embedded import embedded_execution_services
 from scopecat.execution.observation import RuntimeEvent, RuntimeTransitionEvent
+from scopecat.execution.services import ExecutionJournalStore
 from scopecat.kernel.errors import RunFailed, RunIndeterminate
 from scopecat.kernel.problems import (
     ProblemCategory,
@@ -217,7 +216,7 @@ def test_fake_x_count_authoring_paths_share_one_standard_domain_semantics(
         preview = experiment.preview()
         run = experiment.run()
         dataset = run.data().measurements().dataset
-        journal = FilesystemExecutionJournal(lab.workspace, run_id=run.id)
+        journal = embedded_execution_services(lab.workspace).journal_for(run.id)
 
         assert run.manifest.status == "completed"
         assert compiler.trace.physical_execution_count == 1
@@ -390,7 +389,7 @@ def test_two_ordered_domain_calls_share_target_and_produce_canonical_results(
         system=_domain_only(compiler),
     ).run()
     records = run.data().measurements().dataset.records
-    journal = FilesystemExecutionJournal(lab.workspace, run_id=run.id)
+    journal = embedded_execution_services(lab.workspace).journal_for(run.id)
 
     assert run.manifest.status == "completed"
     assert compiler.trace.physical_execution_count == 2
@@ -456,7 +455,9 @@ def test_indeterminate_submit_retains_durable_target_correlation_context(
     assert recovery.details["retry_contract"] == "not_retryable"
     assert recovery.details["automatic_resume"] is False
     assert recovery.details["submission_key"]
-    journal = FilesystemExecutionJournal(lab.workspace, run_id=caught.value.run_id)
+    journal = embedded_execution_services(lab.workspace).journal_for(
+        caught.value.run_id
+    )
     started = next(
         entry
         for entry in journal.entries()
@@ -550,7 +551,9 @@ def test_unknown_fetch_terminalizes_as_indeterminate_with_known_job_context(
     assert recovery.details["job_id"]
     assert recovery.details["automatic_resume"] is False
     assert compiler.trace.physical_execution_count == 1
-    journal = FilesystemExecutionJournal(lab.workspace, run_id=caught.value.run_id)
+    journal = embedded_execution_services(lab.workspace).journal_for(
+        caught.value.run_id
+    )
     assert any(
         entry.stage == "domain_fetch" and entry.state == "unknown"
         for entry in journal.entries()
@@ -565,7 +568,7 @@ def test_uncertain_measurement_write_retains_durable_correlation(
         raise RuntimeError("record store returned no receipt")
 
     monkeypatch.setattr(
-        FilesystemMeasurementDatasetRepository,
+        SQLiteMeasurementDatasetRepository,
         "append",
         fail_record_write,
     )
@@ -601,7 +604,7 @@ def test_successful_recording_does_not_reload_committed_measurements(
         raise OSError("measurement chunk could not be read")
 
     monkeypatch.setattr(
-        FilesystemMeasurementDatasetRepository,
+        SQLiteMeasurementDatasetRepository,
         "measurements",
         fail_measurement_reload,
     )
@@ -622,7 +625,7 @@ def test_successful_recording_does_not_reload_committed_measurements(
 
 def _standard_domain_semantics(
     preview: sc.ExperimentPreview,
-    journal: FilesystemExecutionJournal,
+    journal: ExecutionJournalStore,
 ) -> object:
     submit_intent = next(
         entry

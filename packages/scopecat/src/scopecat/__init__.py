@@ -31,6 +31,7 @@ if TYPE_CHECKING:
         Workspace,
         decide_online_convergence,
     )
+    from scopecat.application import LabApplication
     from scopecat.authoring import (
         BoolType,
         Compute,
@@ -108,7 +109,6 @@ if TYPE_CHECKING:
         param_row,
     )
     from scopecat.authoring.scans import zip as zip  # noqa: A004
-    from scopecat.composition.local import open_local_workspace as open  # noqa: A004
     from scopecat.config.parameters import (
         delete_parameter_rows,
         insert_parameter_rows,
@@ -117,6 +117,7 @@ if TYPE_CHECKING:
         replace_table_parameter,
         update_parameter_rows,
     )
+    from scopecat.daemon.workspace import DaemonWorkspace, connect
     from scopecat.execution.observation import (
         RunFinishedEvent,
         RunStartedEvent,
@@ -173,6 +174,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "Input": ("scopecat.authoring", "Input"),
     "InputDescription": ("scopecat.authoring", "InputDescription"),
     "IntType": ("scopecat.authoring", "IntType"),
+    "LabApplication": ("scopecat.application", "LabApplication"),
     "MeasurementTransform": ("scopecat.authoring", "MeasurementTransform"),
     "MetadataValue": ("scopecat.authoring", "MetadataValue"),
     "ModuleBuilder": ("scopecat.authoring", "ModuleBuilder"),
@@ -298,6 +300,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "AnalysisStep": ("scopecat.api.analysis", "AnalysisStep"),
     "CandidateConfig": ("scopecat.config.candidates", "CandidateConfig"),
     "Data": ("scopecat.api.data", "Data"),
+    "DaemonWorkspace": ("scopecat.daemon.workspace", "DaemonWorkspace"),
     "EarlyStopDecision": ("scopecat.analysis.online", "EarlyStopDecision"),
     "PreparedExperiment": ("scopecat.api.workspace", "PreparedExperiment"),
     "Quantity": ("scopecat.records.parameter", "Quantity"),
@@ -308,7 +311,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "scopecat.analysis.online",
         "decide_online_convergence",
     ),
-    "open": ("scopecat.composition.local", "open_local_workspace"),
+    "connect": ("scopecat.daemon.workspace", "connect"),
     "analysis_step": ("scopecat.api.analysis", "analysis_step"),
     "Run": ("scopecat.api.run", "RunHandle"),
 }
@@ -340,6 +343,7 @@ __all__ = [
     "CandidateConfig",
     "Compute",
     "ComputeInput",
+    "DaemonWorkspace",
     "Data",
     "DomainExecution",
     "DomainInputPort",
@@ -361,6 +365,7 @@ __all__ = [
     "Input",
     "InputDescription",
     "IntType",
+    "LabApplication",
     "MeasurementDatasetSchema",
     "MeasurementTransform",
     "MeasurementTransformSemanticContract",
@@ -423,6 +428,7 @@ __all__ = [
     "blocking_problem",
     "cartesian",
     "compute",
+    "connect",
     "coordinate",
     "decide_online_convergence",
     "delete_parameter_rows",
@@ -438,7 +444,6 @@ __all__ = [
     "model_location",
     "module",
     "module_body",
-    "open",
     "param_axis",
     "param_row",
     "parameter",

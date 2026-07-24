@@ -5,7 +5,10 @@ from pathlib import Path
 
 import scopecat as sc
 from scopecat.compiler.frontend.invocation import prepare_invocation
-from scopecat.composition.local import local_workspace_services
+from scopecat.composition.embedded import (
+    embedded_workspace_services,
+    open_embedded_workspace,
+)
 from scopecat.config.profiles import load_config_profile
 from scopecat.config.registry import (
     activate_config_registry_entry,
@@ -41,7 +44,7 @@ def _load_signal_fixture():
 
 def _start_signal_run(workspace: Path):
     config, experiment = _load_signal_fixture()
-    services = local_workspace_services(workspace)
+    services = embedded_workspace_services(workspace)
     return start_run(
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
         config=config,
@@ -61,7 +64,7 @@ def _execute_signal_run(workspace: Path):
 
 def _candidate_best_signal(workspace: Path, run_id: str) -> sc.CandidateConfig:
     config, _experiment = _load_signal_fixture()
-    lab = sc.open(workspace, config=config)
+    lab = open_embedded_workspace(workspace, config=config)
     run = lab.get_run(run_id)
     analysis = run.analyze(BestSignalAnalysisStep())
     analysis.save()
@@ -72,7 +75,7 @@ def _candidate_best_signal(workspace: Path, run_id: str) -> sc.CandidateConfig:
 
 def exercise_preview(workspace: Path) -> None:
     config = load_config_profile(SIGNAL_FIXTURE_DIR / "config-profile.json")
-    sc.open(
+    open_embedded_workspace(
         workspace,
         config=config,
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
@@ -86,13 +89,13 @@ def exercise_signal_provider_run(workspace: Path) -> None:
 def exercise_workflow_pipeline(workspace: Path) -> None:
     run = _start_signal_run(workspace)
     config, _experiment = _load_signal_fixture()
-    lab = sc.open(workspace, config=config)
+    lab = open_embedded_workspace(workspace, config=config)
     run_handle = lab.get_run(run.run_id)
     run_handle.analyze(SummaryStatsAnalysisStep()).save()
     candidate = _candidate_best_signal(workspace, run.run_id)
     register_and_activate_candidate_config(
         candidate=candidate,
-        services=local_workspace_services(workspace),
+        services=embedded_workspace_services(workspace),
         entry_id="best-signal-analysis",
         registered_by="operator",
         operator="operator",
@@ -100,7 +103,7 @@ def exercise_workflow_pipeline(workspace: Path) -> None:
 
 
 def exercise_config_registry(workspace: Path) -> None:
-    services = local_workspace_services(workspace)
+    services = embedded_workspace_services(workspace)
     unit_of_work = services.config_registry
     config, experiment = _load_signal_fixture()
     manifest = execute_signal_run(
@@ -174,7 +177,7 @@ def exercise_instrument_provider_workflow(workspace: Path) -> None:
     start_run(
         config=config,
         experiment=prepare_invocation(experiment),
-        services=local_workspace_services(workspace),
+        services=embedded_workspace_services(workspace),
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
     )
 

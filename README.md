@@ -8,7 +8,9 @@ candidate configuration changes together.
 
 The long-term direction is captured in the
 [project charter](docs/project-charter.md) and the
-[experiment execution semantics](docs/experiment-execution-model.md).
+[experiment execution semantics](docs/experiment-execution-model.md). The
+[workspace daemon model](docs/workspace-daemon.md) defines durable ownership
+across the GUI, notebooks, and executors.
 Implementation contracts and design rationale live beside the code that owns
 them.
 
@@ -23,14 +25,38 @@ them.
 
 ## Start Here
 
-The quantum learning path is the most complete runnable introduction:
+Start one daemon for a workspace. It owns the SQLite database and immutable
+object store and serves the local GUI at <http://127.0.0.1:8765>:
 
 ```sh
-uv run python examples/quantum/notebooks/getting_started/01_open_workspace.py
+uv run scopecatd --workspace ./my-workspace
 ```
 
-Continue with [the quantum examples](examples/quantum/README.md). The package
-READMEs describe the smaller public entry points for
+Connect from Python or a notebook:
+
+```python
+import scopecat as sc
+
+with sc.connect() as workspace:
+    print(workspace.health())
+    print(workspace.runs())
+```
+
+The daemon can execute registered experiments itself, or a notebook can execute
+transient scratch code while sending every durable effect back to the daemon.
+For managed execution, start it with a lab definition and configuration:
+
+```sh
+uv run scopecatd \
+  --workspace ./my-workspace \
+  --definition my_lab.daemon:daemon \
+  --config-profile ./config-profile.json
+```
+
+See the [workspace daemon model](docs/workspace-daemon.md) and
+[`scopecat-server` setup](packages/scopecat-server/README.md), then continue
+with [the quantum examples](examples/quantum/README.md). The package READMEs
+describe the smaller public entry points for
 [`scopecat`](packages/scopecat/README.md) and
 [`scopecat-quantum`](packages/scopecat-quantum/README.md).
 

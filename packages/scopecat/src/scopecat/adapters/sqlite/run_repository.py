@@ -59,6 +59,23 @@ class _PreparedRef:
     object: StoredObject
 
 
+@dataclass(frozen=True, slots=True)
+class PreparedTerminalCommit:
+    """Immutable terminal objects prepared before the database write lock."""
+
+    commit: TerminalRunCommit
+    refs: tuple[_PreparedRef, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedRunSkeleton:
+    """Immutable admission objects prepared before the database write lock."""
+
+    manifest: RunManifest
+    refs: tuple[_PreparedRef, ...]
+    manifest_digest: str
+
+
 class SQLiteRunRepository:
     """Run refs in SQLite, with values in a SHA-256 object directory."""
 
@@ -125,34 +142,47 @@ class SQLiteRunRepository:
 
     def read_manifest(self, run_id: str) -> RunManifest:
         _validate_run_id(run_id)
-        digest = self._manifest_digest(run_id)
-        content = self._read_object(digest, run_id=run_id, ref=MANIFEST_REF)
         try:
-            return RunManifest.model_validate_json(content)
-        except ValidationError as error:
-            raise _integrity_failure(
-                run_id=run_id,
-                ref=MANIFEST_REF,
-                code="run.manifest_invalid",
-                message="run manifest does not match its durable schema",
-            ) from error
+            with closing(self._connect()) as connection:
+                return self.read_manifest_in_transaction(connection, run_id)
+        except sqlite3.Error as error:
+            raise _storage_failure(run_id=run_id, ref=MANIFEST_REF) from error
+
+    def read_manifest_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        run_id: str,
+    ) -> RunManifest:
+        """Read a manifest through an existing daemon transaction."""
+
+        _validate_run_id(run_id)
+        return self._read_manifest_with_connection(connection, run_id)
 
     def write_manifest(self, manifest: RunManifest) -> None:
         _validate_run_id(manifest.run_id)
-        prepared = self._prepare_model(
-            manifest.run_id,
-            MANIFEST_REF,
-            manifest,
-        )
         try:
             with self._transaction() as connection:
-                self._publish_refs(connection, manifest.run_id, (prepared,))
-                self._publish_manifest(connection, manifest, prepared.object.digest)
+                self.write_manifest_in_transaction(connection, manifest)
         except sqlite3.Error as error:
             raise _storage_failure(
                 run_id=manifest.run_id,
                 ref=MANIFEST_REF,
             ) from error
+
+    def write_manifest_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        manifest: RunManifest,
+    ) -> None:
+        """Publish a manifest through an existing daemon write transaction."""
+
+        prepared = self._prepare_model(
+            manifest.run_id,
+            MANIFEST_REF,
+            manifest,
+        )
+        self._publish_refs(connection, manifest.run_id, (prepared,))
+        self._publish_manifest(connection, manifest, prepared.object.digest)
 
     def list_runs(self) -> list[RunManifest]:
         try:
@@ -176,6 +206,29 @@ class SQLiteRunRepository:
         request: RunRequest | None,
         config: ConfigProfileSnapshot,
     ) -> None:
+        prepared = self.prepare_run_skeleton(
+            manifest=manifest,
+            request=request,
+            config=config,
+        )
+        try:
+            with self._transaction() as connection:
+                self.commit_run_skeleton_in_transaction(connection, prepared)
+        except sqlite3.Error as error:
+            raise _storage_failure(
+                run_id=manifest.run_id,
+                ref=MANIFEST_REF,
+            ) from error
+
+    def prepare_run_skeleton(
+        self,
+        *,
+        manifest: RunManifest,
+        request: RunRequest | None,
+        config: ConfigProfileSnapshot,
+    ) -> PreparedRunSkeleton:
+        """Write immutable admission objects before acquiring the SQLite writer."""
+
         if manifest.lifecycle != "accepted":
             msg = "run skeleton manifest must be accepted"
             raise ValueError(msg)
@@ -192,20 +245,81 @@ class SQLiteRunRepository:
             prepared.append(self._prepare_model(run_id, RUN_REQUEST_REF, request))
         manifest_ref = self._prepare_model(run_id, MANIFEST_REF, manifest)
         prepared.append(manifest_ref)
+        return PreparedRunSkeleton(
+            manifest=manifest,
+            refs=tuple(prepared),
+            manifest_digest=manifest_ref.object.digest,
+        )
+
+    def commit_run_skeleton_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        prepared: PreparedRunSkeleton,
+    ) -> None:
+        """Publish a prebuilt run skeleton in the caller's transaction."""
+
+        self._publish_refs(connection, prepared.manifest.run_id, prepared.refs)
+        self._publish_manifest(
+            connection,
+            prepared.manifest,
+            prepared.manifest_digest,
+        )
+
+    def commit_terminal(self, commit: TerminalRunCommit) -> RunManifest:
+        run_id = commit.manifest.run_id
+        prepared = self.prepare_terminal_commit(commit)
         try:
             with self._transaction() as connection:
-                self._publish_refs(connection, run_id, prepared)
-                self._publish_manifest(
+                return self.commit_prepared_terminal_in_transaction(
                     connection,
-                    manifest,
-                    manifest_ref.object.digest,
+                    prepared,
                 )
         except sqlite3.Error as error:
             raise _storage_failure(run_id=run_id, ref=MANIFEST_REF) from error
 
-    def commit_terminal(self, commit: TerminalRunCommit) -> RunManifest:
+    def prepare_terminal_commit(
+        self,
+        commit: TerminalRunCommit,
+    ) -> PreparedTerminalCommit:
+        """Write immutable terminal payloads before acquiring the SQLite writer."""
+
         run_id = commit.manifest.run_id
-        current = self.read_manifest(run_id)
+        refs = [
+            self._prepare_model(run_id, write.ref, write.value)
+            for write in commit.models
+        ]
+        refs.extend(
+            self._prepare_jsonl(run_id, write.ref, write.records)
+            for write in commit.record_sets
+        )
+        return PreparedTerminalCommit(commit=commit, refs=tuple(refs))
+
+    def commit_terminal_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        commit: TerminalRunCommit,
+    ) -> RunManifest:
+        """Prepare and publish a terminal commit in the caller's transaction."""
+
+        return self.commit_prepared_terminal_in_transaction(
+            connection,
+            self.prepare_terminal_commit(commit),
+        )
+
+    def commit_prepared_terminal_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        prepared: PreparedTerminalCommit,
+    ) -> RunManifest:
+        """Publish prepared terminal refs without managing the transaction.
+
+        Reading current through the write transaction preserves content published
+        by an earlier serialized writer.
+        """
+
+        commit = prepared.commit
+        run_id = commit.manifest.run_id
+        current = self._read_manifest_with_connection(connection, run_id)
         manifest = commit.manifest.model_copy(
             update={
                 "contents": upsert_contents(
@@ -214,26 +328,13 @@ class SQLiteRunRepository:
                 )
             }
         )
-        prepared = [
-            self._prepare_model(run_id, write.ref, write.value)
-            for write in commit.models
-        ]
-        prepared.extend(
-            self._prepare_jsonl(run_id, write.ref, write.records)
-            for write in commit.record_sets
-        )
         manifest_ref = self._prepare_model(run_id, MANIFEST_REF, manifest)
-        prepared.append(manifest_ref)
-        try:
-            with self._transaction() as connection:
-                self._publish_refs(connection, run_id, prepared)
-                self._publish_manifest(
-                    connection,
-                    manifest,
-                    manifest_ref.object.digest,
-                )
-        except sqlite3.Error as error:
-            raise _storage_failure(run_id=run_id, ref=MANIFEST_REF) from error
+        self._publish_refs(connection, run_id, (*prepared.refs, manifest_ref))
+        self._publish_manifest(
+            connection,
+            manifest,
+            manifest_ref.object.digest,
+        )
         return manifest
 
     def read_config_profile_snapshot(self, run_id: str) -> ConfigProfileSnapshot:
@@ -458,20 +559,20 @@ class SQLiteRunRepository:
             )
         return self._read_object(digest, run_id=run_id, ref=ref)
 
-    def _manifest_digest(self, run_id: str) -> str:
-        try:
-            with closing(self._connect()) as connection:
-                row = _one(
-                    connection.execute(
-                        """
-                        SELECT digest FROM run_repository_manifests
-                        WHERE run_id = ?
-                        """,
-                        (run_id,),
-                    )
-                )
-        except sqlite3.Error as error:
-            raise _storage_failure(run_id=run_id, ref=MANIFEST_REF) from error
+    def _read_manifest_with_connection(
+        self,
+        connection: sqlite3.Connection,
+        run_id: str,
+    ) -> RunManifest:
+        row = _one(
+            connection.execute(
+                """
+                SELECT digest FROM run_repository_manifests
+                WHERE run_id = ?
+                """,
+                (run_id,),
+            )
+        )
         if row is None:
             raise NotFound(
                 [
@@ -487,7 +588,20 @@ class SQLiteRunRepository:
                     )
                 ]
             )
-        return _text(row, "digest")
+        content = self._read_object(
+            _text(row, "digest"),
+            run_id=run_id,
+            ref=MANIFEST_REF,
+        )
+        try:
+            return RunManifest.model_validate_json(content)
+        except ValidationError as error:
+            raise _integrity_failure(
+                run_id=run_id,
+                ref=MANIFEST_REF,
+                code="run.manifest_invalid",
+                message="run manifest does not match its durable schema",
+            ) from error
 
     def _digest(self, run_id: str, ref: str) -> str | None:
         try:

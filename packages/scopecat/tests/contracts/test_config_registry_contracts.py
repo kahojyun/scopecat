@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import override
 
 from scopecat.adapters.memory.workspace import MemoryWorkspaceStore
-from scopecat.composition.local import local_config_registry_unit_of_work
+from scopecat.composition.embedded import embedded_config_registry_unit_of_work
 from scopecat.config.registry.ports import WorkspaceUnitOfWorkFactory
 from tests.contracts.config_registry_contracts import (
     ConfigRegistryUnitOfWorkContract,
@@ -18,7 +18,7 @@ class TestMemoryConfigRegistryUnitOfWorkContract(ConfigRegistryUnitOfWorkContrac
         return MemoryWorkspaceStore().unit_of_work
 
 
-class TestFilesystemConfigRegistryUnitOfWorkContract(ConfigRegistryUnitOfWorkContract):
+class TestLocalConfigRegistryUnitOfWorkContract(ConfigRegistryUnitOfWorkContract):
     @override
     def make_unit_of_work(self, tmp_path: Path) -> WorkspaceUnitOfWorkFactory:
-        return local_config_registry_unit_of_work(tmp_path)
+        return embedded_config_registry_unit_of_work(tmp_path)

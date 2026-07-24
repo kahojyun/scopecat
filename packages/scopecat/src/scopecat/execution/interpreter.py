@@ -132,6 +132,38 @@ def execute_admitted_run(
     )
 
 
+def execute_running_run(
+    *,
+    run_id: str,
+    program: RunProgram,
+    services: ExecutionServices,
+    instrument_provider: InstrumentProvider | None = None,
+    event_sink: RuntimeEventSink | None = None,
+    payload_observer: RuntimePayloadObserver | None = None,
+) -> RunManifest:
+    """Execute after the scheduler atomically published running state."""
+
+    storage = services.runs
+    running = storage.read_manifest(run_id)
+    if running.lifecycle != "running":
+        msg = "run must be running before scheduled execution"
+        raise ValueError(msg)
+    if running.config_content_hash != program.config_content_hash:
+        msg = "run program config does not match the admitted snapshot"
+        raise ValueError(msg)
+    config = storage.read_config_profile_snapshot(run_id)
+    admitted = running.model_copy(update={"lifecycle": "accepted"})
+    return _execute_run(
+        accepted=admitted,
+        config=config,
+        program=program,
+        services=services,
+        instrument_provider=instrument_provider,
+        event_sink=event_sink,
+        payload_observer=payload_observer,
+    )
+
+
 def _execute_run(
     *,
     accepted: RunManifest,

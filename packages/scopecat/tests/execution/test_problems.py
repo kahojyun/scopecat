@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from dataclasses import replace
 from pathlib import Path
 from typing import override
@@ -9,7 +8,10 @@ import pytest
 
 from scopecat.compiler.typed.program import core_acquisitions, core_state
 from scopecat.compiler.typed.state import SetStateSpec
-from scopecat.composition.local import local_run_repository
+from scopecat.composition.embedded import (
+    embedded_execution_services,
+    embedded_run_repository,
+)
 from scopecat.kernel.errors import RunFailed, RunIndeterminate
 from scopecat.records.instrument import InstrumentReadback
 from scopecat.records.parameter import Quantity
@@ -91,7 +93,7 @@ def test_run_rejects_missing_instrument(tmp_path: Path) -> None:
     assert "missing_instrument_description" in {
         problem.code for problem in error.value.problems
     }
-    assert local_run_repository(tmp_path).list_runs()[0].lifecycle == "terminal"
+    assert embedded_run_repository(tmp_path).list_runs()[0].lifecycle == "terminal"
 
 
 def test_run_rejects_unsupported_field(tmp_path: Path) -> None:
@@ -112,7 +114,7 @@ def test_run_rejects_unsupported_field(tmp_path: Path) -> None:
     assert "instrument_driver_unsupported_field" in {
         problem.code for problem in error.value.problems
     }
-    assert local_run_repository(tmp_path).list_runs()[0].lifecycle == "terminal"
+    assert embedded_run_repository(tmp_path).list_runs()[0].lifecycle == "terminal"
 
 
 def test_run_rejects_unsupported_instrument_product(tmp_path: Path) -> None:
@@ -141,7 +143,7 @@ def test_run_rejects_unsupported_instrument_product(tmp_path: Path) -> None:
     assert "instrument_product_unsupported" in {
         problem.code for problem in error.value.problems
     }
-    assert local_run_repository(tmp_path).list_runs()[0].lifecycle == "terminal"
+    assert embedded_run_repository(tmp_path).list_runs()[0].lifecycle == "terminal"
 
 
 def test_run_rejects_instrument_product_dtype_mismatch(tmp_path: Path) -> None:
@@ -162,7 +164,7 @@ def test_run_rejects_instrument_product_dtype_mismatch(tmp_path: Path) -> None:
     assert "instrument_product_dtype_mismatch" in {
         problem.code for problem in error.value.problems
     }
-    assert local_run_repository(tmp_path).list_runs()[0].lifecycle == "terminal"
+    assert embedded_run_repository(tmp_path).list_runs()[0].lifecycle == "terminal"
 
 
 def test_instrument_exception_keeps_unknown_run(tmp_path: Path) -> None:
@@ -177,7 +179,7 @@ def test_instrument_exception_keeps_unknown_run(tmp_path: Path) -> None:
     assert "instrument_collect_unknown" in {
         problem.code for problem in error.value.problems
     }
-    manifests = local_run_repository(tmp_path).list_runs()
+    manifests = embedded_run_repository(tmp_path).list_runs()
     assert len(manifests) == 1
     assert manifests[0].status == "unknown"
     assert manifests[0].outcome is not None
@@ -198,7 +200,7 @@ def test_run_rejects_unexpected_instrument_products(tmp_path: Path) -> None:
         )
 
     assert error.value.problems[-1].code == "instrument_unexpected_product"
-    manifest = local_run_repository(tmp_path).list_runs()[0]
+    manifest = embedded_run_repository(tmp_path).list_runs()[0]
     assert manifest.status == "failed"
 
 
@@ -213,7 +215,7 @@ def test_keyboard_interrupt_commits_interrupted_terminal_run(tmp_path: Path) -> 
             workspace=tmp_path,
         )
 
-    manifest = local_run_repository(tmp_path).list_runs()[0]
+    manifest = embedded_run_repository(tmp_path).list_runs()[0]
     assert manifest.status == "interrupted"
     assert manifest.datasets == ()
     assert instrument.aborted
@@ -222,16 +224,11 @@ def test_keyboard_interrupt_commits_interrupted_terminal_run(tmp_path: Path) -> 
     assert "execution_interrupted" in {
         problem.code for problem in manifest.outcome.problems
     }
-    journal_entries = [
-        json.loads(path.read_text())
-        for path in sorted(
-            (tmp_path / "runs" / manifest.run_id / "execution" / "journal").glob(
-                "*.json"
-            )
-        )
-    ]
+    journal_entries = (
+        embedded_execution_services(tmp_path).journal_for(manifest.run_id).entries()
+    )
     collect_states = [
-        entry["state"] for entry in journal_entries if entry["stage"] == "collect"
+        entry.state for entry in journal_entries if entry.stage == "collect"
     ]
     assert collect_states == ["started", "unknown"]
 
@@ -249,12 +246,14 @@ def test_failed_run_publishes_committed_prefix_as_incomplete_dataset(
             workspace=tmp_path,
         )
 
-    manifest = local_run_repository(tmp_path).list_runs()[0]
+    manifest = embedded_run_repository(tmp_path).list_runs()[0]
     assert manifest.status == "unknown"
     [dataset] = manifest.datasets
     assert dataset.metadata["partial"] is True
     assert dataset.metadata["expected_record_count"] == 3
-    readback_files = list(
-        (tmp_path / "runs" / manifest.run_id / "execution" / "readbacks").glob("*.json")
+    receipts = (
+        embedded_execution_services(tmp_path)
+        .collections_for(manifest.run_id)
+        .receipts()
     )
-    assert len(readback_files) == 1
+    assert len(receipts) == 1

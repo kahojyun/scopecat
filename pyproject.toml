@@ -8,6 +8,7 @@ dependencies = [
   "quantum-lab-demo",
   "scopecat",
   "scopecat-quantum",
+  "scopecat-server",
 ]
 
 [dependency-groups]
@@ -25,6 +26,8 @@ notebook = [
 include = [
   "packages/scopecat/src",
   "packages/scopecat/tests",
+  "packages/scopecat-server/src",
+  "packages/scopecat-server/tests",
   "packages/scopecat-quantum/src",
   "packages/scopecat-quantum/tests",
   "examples/quantum/support/src",
@@ -43,6 +46,7 @@ typeCheckingMode = "recommended"
 extraPaths = [
   "packages/scopecat",
   "packages/scopecat/src",
+  "packages/scopecat-server/src",
   "packages/scopecat-quantum",
   "packages/scopecat-quantum/src",
   "examples/quantum/support",
@@ -74,6 +78,18 @@ root = "packages/scopecat-quantum/tests"
 reportPrivateUsage = "none"
 
 [[tool.basedpyright.executionEnvironments]]
+root = "packages/scopecat-server/tests"
+reportAny = "none"
+reportExplicitAny = "none"
+reportPrivateUsage = "none"
+reportUnknownMemberType = "none"
+reportUnknownVariableType = "none"
+
+[[tool.basedpyright.executionEnvironments]]
+root = "packages/scopecat-server/src"
+reportUnusedFunction = "none"
+
+[[tool.basedpyright.executionEnvironments]]
 root = "packages/scopecat/tests"
 reportAny = "none"
 reportExplicitAny = "none"
@@ -91,6 +107,7 @@ testpaths = [
   "examples/quantum/support/tests",
   "examples/quantum/tests",
   "packages/scopecat-quantum/tests",
+  "packages/scopecat-server/tests",
   "packages/scopecat/tests",
 ]
 
@@ -99,6 +116,8 @@ target-version = "py312"
 line-length = 88
 src = [
   "packages/scopecat/src",
+  "packages/scopecat-server/src",
+  "packages/scopecat-server/tests",
   "packages/scopecat/tests",
   "packages/scopecat-quantum/src",
   "packages/scopecat-quantum/tests",
@@ -161,6 +180,7 @@ package = false
 [tool.uv.sources]
 scopecat = { workspace = true }
 scopecat-quantum = { workspace = true }
+scopecat-server = { workspace = true }
 quantum-lab-demo = { workspace = true }
 
 [tool.uv.workspace]

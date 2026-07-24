@@ -7,6 +7,8 @@ that should remain useful as the implementation changes.
   boundaries.
 - [Experiment execution semantics](experiment-execution-model.md): the lasting
   compiler, domain-lowering, effect-safety, and logical-result contract.
+- [Workspace daemon](workspace-daemon.md): durable ownership, managed and
+  delegated execution, and the client boundary.
 
 Keep implementation architecture, package inventories, completed migration
 plans, and current capability lists close to the code and tests that own them.

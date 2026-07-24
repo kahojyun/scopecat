@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import math
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -9,10 +8,9 @@ from pathlib import Path
 from typing import cast, override
 
 import pytest
-from pydantic import BaseModel, JsonValue
+from pydantic import JsonValue
 
-from scopecat.adapters.filesystem.execution import FilesystemExecutionJournal
-from scopecat.adapters.filesystem.run_repository import FilesystemRunRepository
+from scopecat.adapters.sqlite import SQLiteRunRepository
 from scopecat.compiler.frontend.environment import validate_config_environment
 from scopecat.compiler.relations.model import (
     lit,
@@ -43,8 +41,9 @@ from scopecat.compiler.typed.program import (
     record_product,
     set_state_field,
 )
-from scopecat.composition.local import (
-    local_run_repository,
+from scopecat.composition.embedded import (
+    embedded_execution_services,
+    embedded_run_repository,
 )
 from scopecat.execution.evidence import (
     instrument_state_evidence_ref,
@@ -88,6 +87,7 @@ from scopecat.records.instrument import (
 from scopecat.records.parameter import Quantity
 from scopecat.records.run import RunManifest
 from scopecat.runs.access import dataset_storage_ref
+from scopecat.runs.repository import TerminalRunCommit
 from scopecat.sdk.instruments.contracts import (
     CapabilityDescription,
     CapabilityField,
@@ -114,7 +114,6 @@ from tests.testkit.local_materialization import (
 from tests.testkit.materialized_effects import config_with_physical_resources
 from tests.testkit.records import (
     assert_model_round_trip,
-    read_model,
 )
 from tests.testkit.relation_plans import (
     scalar_value_expr,
@@ -216,7 +215,7 @@ def test_run_persists_measurements_and_run_files(
         workspace=tmp_path,
     )
 
-    run_dir = tmp_path / "runs" / manifest.run_id
+    repository = embedded_run_repository(tmp_path)
     assert manifest.status == "completed"
     assert {record.id for record in manifest.records} == {
         "instrument-state-evidence",
@@ -225,13 +224,13 @@ def test_run_persists_measurements_and_run_files(
     assert {dataset.id for dataset in manifest.datasets} == {"raw-measurements"}
     raw_dataset = manifest.datasets[0]
     assert raw_dataset.kind == "measurement_dataset"
-    persisted_manifest = read_model(run_dir / "manifest.json", RunManifest)
-    persisted_config = read_model(
-        run_dir / "config-profile.snapshot.json",
-        ConfigProfileSnapshot,
+    persisted_manifest = repository.read_manifest(manifest.run_id)
+    persisted_config = repository.read_config_profile_snapshot(manifest.run_id)
+    state_evidence = repository.read_model(
+        manifest.run_id,
+        instrument_state_evidence_ref(),
+        InstrumentStateEvidence,
     )
-    state_evidence_path = run_dir / instrument_state_evidence_ref()
-    state_evidence = read_model(state_evidence_path, InstrumentStateEvidence)
     assert persisted_manifest == manifest
     assert persisted_config == config
     assert state_evidence.schema_version == "scopecat.instrument_state_evidence.v3"
@@ -241,15 +240,18 @@ def test_run_persists_measurements_and_run_files(
     } == {"scopecat.instrument_state_snapshot.v2"}
     final_state_value = state_evidence.final_state[0].fields[0].value.root
     assert final_state_value == Quantity(value=5.1, unit="GHz")
-    persisted_state_evidence = json.loads(state_evidence_path.read_text())
+    persisted_state_evidence = state_evidence.model_dump(mode="json")
     assert persisted_state_evidence["final_state"][0]["fields"][0]["value"] == {
         "value": 5.1,
         "unit": "GHz",
     }
-    assert not (run_dir / "experiment-plan.json").exists()
-    assert not (run_dir / "records" / "device_program" / "device-program.json").exists()
+    assert not repository.exists(manifest.run_id, "experiment-plan.json")
+    assert not repository.exists(
+        manifest.run_id,
+        "records/device_program/device-program.json",
+    )
 
-    measurements = local_run_repository(tmp_path).read_measurement_records(
+    measurements = embedded_run_repository(tmp_path).read_measurement_records(
         manifest.run_id,
         dataset_storage_ref(raw_dataset),
     )
@@ -281,25 +283,20 @@ def test_terminal_commit_does_not_publish_manifest_after_content_write_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     pending_ref = instrument_state_evidence_ref()
-    original_write = FilesystemRunRepository.write_model
 
-    def fail_instrument_state_write(
-        storage: FilesystemRunRepository,
-        run_id: str,
-        ref: str,
-        model: BaseModel,
-    ) -> None:
-        if ref == pending_ref:
-            raise OSError("injected instrument-state persistence failure")
-        original_write(storage, run_id, ref, model)
+    def fail_terminal_commit(
+        _storage: SQLiteRunRepository,
+        _commit: TerminalRunCommit,
+    ) -> RunManifest:
+        raise OSError("injected terminal persistence failure")
 
     monkeypatch.setattr(
-        FilesystemRunRepository,
-        "write_model",
-        fail_instrument_state_write,
+        SQLiteRunRepository,
+        "commit_terminal",
+        fail_terminal_commit,
     )
 
-    with pytest.raises(OSError, match="injected instrument-state"):
+    with pytest.raises(OSError, match="injected terminal persistence"):
         execute_bound_run(
             config=load_config(),
             experiment=load_experiment(),
@@ -307,10 +304,10 @@ def test_terminal_commit_does_not_publish_manifest_after_content_write_failure(
             workspace=tmp_path,
         )
 
-    storage = local_run_repository(tmp_path)
+    storage = embedded_run_repository(tmp_path)
     manifest = storage.list_runs()[0]
     assert manifest.lifecycle == "running"
-    assert storage.exists(manifest.run_id, run_outcome_ref())
+    assert not storage.exists(manifest.run_id, run_outcome_ref())
     assert not storage.exists(manifest.run_id, pending_ref)
 
 
@@ -343,14 +340,19 @@ def test_run_round_trips_non_finite_terminal_measurements(
     )
 
     assert manifest.status == "completed"
-    raw_path = (
-        tmp_path / "runs" / manifest.run_id / dataset_storage_ref(manifest.datasets[0])
+    repository = embedded_run_repository(tmp_path)
+    dataset_ref = dataset_storage_ref(manifest.datasets[0])
+    wire = "".join(
+        repository.read_text(
+            manifest.run_id,
+            f"{dataset_ref}/chunks/{index:020d}.json",
+        )
+        for index in range(3)
     )
-    wire = "".join(path.read_text() for path in sorted((raw_path / "chunks").iterdir()))
     assert "NaN" in wire
     assert "Infinity" in wire
     assert "-Infinity" in wire
-    measurements = local_run_repository(tmp_path).read_measurement_records(
+    measurements = embedded_run_repository(tmp_path).read_measurement_records(
         manifest.run_id,
         dataset_storage_ref(manifest.datasets[0]),
     )
@@ -406,7 +408,7 @@ class _LeaseOrderProvider:
         del context
         self.events.append("provider.describe")
         assert not self.leases.active
-        assert local_run_repository(self.workspace).list_runs() == []
+        assert embedded_run_repository(self.workspace).list_runs() == []
         return InstrumentProviderDescription(
             provider_id=self.provider_id,
             instruments=(self.driver.describe(),),
@@ -419,7 +421,9 @@ class _LeaseOrderProvider:
         del context
         self.events.append("provider.provide")
         assert self.leases.active
-        assert local_run_repository(self.workspace).list_runs()[0].status == "running"
+        assert (
+            embedded_run_repository(self.workspace).list_runs()[0].status == "running"
+        )
         return InstrumentProviderResult(
             drivers=(self.driver,),
             metadata={
@@ -778,26 +782,22 @@ def test_provider_lifecycle_is_inside_resource_lease(
     assert {(claim.kind, claim.id) for claim in leases.claims} >= {
         ("instrument", "source-0")
     }
-    journal_entries = [
-        json.loads(path.read_text())
-        for path in sorted(
-            (tmp_path / "runs" / manifest.run_id / "execution" / "journal").glob(
-                "*.json"
-            )
-        )
-    ]
+    journal_entries = (
+        embedded_execution_services(tmp_path).journal_for(manifest.run_id).entries()
+    )
     provisioned = next(
         entry
         for entry in journal_entries
-        if entry["stage"] == "provide_instruments" and entry["state"] == "completed"
+        if entry.stage == "provide_instruments" and entry.state == "completed"
     )
-    receipt = provisioned["evidence"]["provisioning_receipt"]
+    receipt = provisioned.evidence["provisioning_receipt"]
+    assert isinstance(receipt, dict)
     assert receipt["provider_id"] == provider.provider_id
     assert receipt["instrument_ids"] == ["source-0"]
     assert receipt["metadata"] == {
         "allocation": {"rack": "virtual-0", "exclusive": True}
     }
-    assert provisioned["evidence"]["provisioning_receipt_content_hash"] == (
+    assert provisioned.evidence["provisioning_receipt_content_hash"] == (
         stable_content_hash(receipt)
     )
 
@@ -818,22 +818,17 @@ def test_returned_driver_is_finalized_when_identity_getter_interrupts(
 
     assert driver.cleanup_count == 1
     assert driver.terminal_read_count == 1
-    manifest = local_run_repository(tmp_path).list_runs()[0]
+    manifest = embedded_run_repository(tmp_path).list_runs()[0]
     assert manifest.status == "interrupted"
-    journal_entries = [
-        json.loads(path.read_text())
-        for path in sorted(
-            (tmp_path / "runs" / manifest.run_id / "execution" / "journal").glob(
-                "*.json"
-            )
-        )
-    ]
+    journal_entries = (
+        embedded_execution_services(tmp_path).journal_for(manifest.run_id).entries()
+    )
     cleanup = next(
         entry
         for entry in journal_entries
-        if entry["stage"] == "setup_cleanup" and entry["state"] == "completed"
+        if entry.stage == "setup_cleanup" and entry.state == "completed"
     )
-    assert cleanup["instrument_id"] == "provider-driver-0"
+    assert cleanup.instrument_id == "provider-driver-0"
 
 
 def test_returned_driver_is_finalized_when_provider_metadata_is_not_json(
@@ -855,7 +850,7 @@ def test_returned_driver_is_finalized_when_provider_metadata_is_not_json(
     }
     assert driver.cleanup_count == 1
     assert driver.terminal_read_count == 1
-    manifest = local_run_repository(tmp_path).list_runs()[0]
+    manifest = embedded_run_repository(tmp_path).list_runs()[0]
     assert manifest.status == "failed"
 
 
@@ -900,7 +895,7 @@ def test_malformed_provider_description_is_rejected_before_run_acceptance(
         problem.code for problem in captured.value.problems
     }
     assert not provider.provide_called
-    assert local_run_repository(tmp_path).list_runs() == []
+    assert embedded_run_repository(tmp_path).list_runs() == []
 
 
 def test_provider_abi_problems_are_aggregated_in_stable_order_before_run(
@@ -939,7 +934,7 @@ def test_provider_abi_problems_are_aggregated_in_stable_order_before_run(
         "instrument_product_unsupported",
     ]
     assert not provider.provide_called
-    assert local_run_repository(tmp_path).list_runs() == []
+    assert embedded_run_repository(tmp_path).list_runs() == []
 
 
 def test_partial_provider_description_reports_missing_bound_instrument_before_run(
@@ -959,7 +954,7 @@ def test_partial_provider_description_reports_missing_bound_instrument_before_ru
         "missing_instrument_description",
     ]
     assert not provider.provide_called
-    assert local_run_repository(tmp_path).list_runs() == []
+    assert embedded_run_repository(tmp_path).list_runs() == []
 
 
 def test_provider_description_exception_fails_at_preflight_boundary(
@@ -979,7 +974,7 @@ def test_provider_description_exception_fails_at_preflight_boundary(
     ]
     assert captured.value.__cause__ is failure
     assert not provider.provide_called
-    assert local_run_repository(tmp_path).list_runs() == []
+    assert embedded_run_repository(tmp_path).list_runs() == []
 
 
 def test_invalid_provider_identity_stops_before_description_and_run(
@@ -1000,7 +995,7 @@ def test_invalid_provider_identity_stops_before_description_and_run(
     assert isinstance(captured.value.__cause__, TypeError)
     assert not provider.describe_called
     assert not provider.provide_called
-    assert local_run_repository(tmp_path).list_runs() == []
+    assert embedded_run_repository(tmp_path).list_runs() == []
 
 
 @pytest.mark.parametrize("advertised_unit", [None, "GHz"])
@@ -1030,7 +1025,7 @@ def test_provider_product_unit_mismatch_is_rejected_before_run(
         "unit",
     )
     assert not provider.provide_called
-    assert local_run_repository(tmp_path).list_runs() == []
+    assert embedded_run_repository(tmp_path).list_runs() == []
 
 
 @pytest.mark.parametrize("advertised_unit", [None, "GHz"])
@@ -1085,7 +1080,7 @@ def test_provider_product_axis_unit_mismatch_is_rejected_before_run(
         "unit",
     )
     assert not provider.provide_called
-    assert local_run_repository(tmp_path).list_runs() == []
+    assert embedded_run_repository(tmp_path).list_runs() == []
 
 
 def _first_point_plan(
@@ -1115,7 +1110,7 @@ def test_provider_description_interruption_precedes_run_acceptance(
         _lower_test_host_binding(plan, config, provider)
 
     assert not provider.provide_called
-    assert local_run_repository(tmp_path).list_runs() == []
+    assert embedded_run_repository(tmp_path).list_runs() == []
 
 
 def test_run_emits_transient_runtime_events(tmp_path: Path) -> None:
@@ -1154,10 +1149,9 @@ def test_run_emits_transient_runtime_events(tmp_path: Path) -> None:
     assert [event.progress.completed_points for event in point_finished] == [1, 2, 3]
     assert len(committed_records) == 1
     assert all(event.sequence is None for event in point_finished)
-    durable_transitions = FilesystemExecutionJournal(
-        tmp_path,
-        run_id=manifest.run_id,
-    ).entries()
+    durable_transitions = (
+        embedded_execution_services(tmp_path).journal_for(manifest.run_id).entries()
+    )
     assert not {
         "point",
         "compute",
@@ -1191,10 +1185,9 @@ def test_runtime_event_sink_failure_does_not_change_durable_execution(
     )
 
     assert manifest.status == "completed"
-    durable_transitions = FilesystemExecutionJournal(
-        tmp_path,
-        run_id=manifest.run_id,
-    ).entries()
+    durable_transitions = (
+        embedded_execution_services(tmp_path).journal_for(manifest.run_id).entries()
+    )
     assert any(
         transition.stage == "collect" and transition.state == "completed"
         for transition in durable_transitions
@@ -1351,10 +1344,9 @@ def test_run_shares_identical_residual_point_compute(tmp_path: Path) -> None:
     assert all(event.sequence is None for event in compute_events)
     assert all(
         transition.stage != "compute"
-        for transition in FilesystemExecutionJournal(
-            tmp_path,
-            run_id=manifest.run_id,
-        ).entries()
+        for transition in embedded_execution_services(tmp_path)
+        .journal_for(manifest.run_id)
+        .entries()
     )
     payload_ids = cast(
         "list[str]",

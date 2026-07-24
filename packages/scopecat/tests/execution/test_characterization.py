@@ -18,6 +18,10 @@ from scopecat.compiler.semantic.model import (
 from scopecat.compiler.semantic.operation_contract import (
     LOCAL_OPAQUE_OPERATION_CONTRACT,
 )
+from scopecat.composition.embedded import (
+    embedded_run_repository,
+    open_embedded_workspace,
+)
 from scopecat.execution.effect_interpreter import RunEffectInterpreter
 from scopecat.execution.local.program import (
     ActionField,
@@ -207,7 +211,7 @@ def test_workspace_run_schedules_parent_compute_before_child_consumer(
         kind="characterization",
     )(lambda: sc.experiment(parent()))
     driver = SignalInstrumentDriver()
-    lab = sc.open(
+    lab = open_embedded_workspace(
         tmp_path,
         config=config_with_physical_resources({"source-0": ("play_program",)}),
         system=sc.ExperimentSystem(provider=_SingleDriverProvider(driver)),
@@ -226,9 +230,10 @@ def test_workspace_run_schedules_parent_compute_before_child_consumer(
     assert command_payload.evidence_ref is not None
     assert command_payload.evidence_ref.startswith("execution/payloads/")
     assert command_payload.content_hash
-    assert (
-        tmp_path / "runs" / run.manifest.run_id / command_payload.evidence_ref
-    ).is_file()
+    assert embedded_run_repository(tmp_path).exists(
+        run.manifest.run_id,
+        command_payload.evidence_ref,
+    )
 
 
 def test_compute_output_is_normalized_before_downstream_use() -> None:

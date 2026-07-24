@@ -3,9 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import scopecat as sc
-from scopecat.composition.local import (
-    local_config_registry_unit_of_work,
-    local_workspace_services,
+from scopecat.composition.embedded import (
+    embedded_config_registry_unit_of_work,
+    embedded_workspace_services,
+    open_embedded_workspace,
 )
 from scopecat.config.profiles import load_config_profile
 from scopecat.config.registry import (
@@ -30,7 +31,7 @@ def test_candidate_config_activation_materializes_table_row_updates(
     tmp_path: Path,
 ) -> None:
     config = _config_with_drive_channels()
-    lab = sc.open(
+    lab = open_embedded_workspace(
         tmp_path,
         config=config,
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
@@ -70,7 +71,7 @@ def test_candidate_config_activation_materializes_table_row_updates(
 
     activation = register_and_activate_candidate_config(
         candidate=candidate,
-        services=local_workspace_services(tmp_path),
+        services=embedded_workspace_services(tmp_path),
         registered_by="operator",
         operator="operator",
         entry_id="candidate-table-update",
@@ -81,7 +82,7 @@ def test_candidate_config_activation_materializes_table_row_updates(
 
     candidate_config = load_config_registry_config(
         entry_id=entry.id,
-        unit_of_work=local_config_registry_unit_of_work(tmp_path),
+        unit_of_work=embedded_config_registry_unit_of_work(tmp_path),
     )
     table = candidate_config.parameter_snapshot.get("drive_channels")
     assert isinstance(table, TableParameterValue)

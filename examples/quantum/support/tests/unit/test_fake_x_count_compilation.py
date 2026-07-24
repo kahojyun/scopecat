@@ -9,8 +9,11 @@ from typing import override
 
 import pytest
 import scopecat as sc
-from scopecat.adapters.filesystem.execution import FilesystemExecutionJournal
 from scopecat.compiler.linking.linked import LinkedPointMaterializer
+from scopecat.composition.embedded import (
+    embedded_execution_services,
+    open_embedded_workspace,
+)
 from scopecat.kernel.content_identity import content_fingerprint
 from scopecat.kernel.errors import RunIndeterminate
 from scopecat.kernel.problems import ProblemCategory, ProblemPhase, blocking_problem
@@ -78,7 +81,7 @@ def test_resource_independent_domain_spans_bias_state_coverage(
     )
     run, source, _compiler = _run_mixed_experiment(tmp_path)
     records = run.data().measurements().dataset.records
-    journal = FilesystemExecutionJournal(tmp_path, run_id=run.id).entries()
+    journal = embedded_execution_services(tmp_path).journal_for(run.id).entries()
 
     assert run.manifest.status == "completed"
     assert len(records) == 8
@@ -142,7 +145,7 @@ def test_different_target_partitions_preserve_the_logical_dataset(
                 max_list_entries=max_list_entries,
             )
         )
-        lab = sc.open(
+        lab = open_embedded_workspace(
             tmp_path / f"capacity-{max_list_entries}",
             config_profile=fake_x_count_bias_config(),
             system=sc.ExperimentSystem(
@@ -180,7 +183,7 @@ def test_later_batch_failure_has_one_domain_problem_and_partial_dataset(
         target=replace(default_fake_list_target(), max_list_entries=4),
         runtime=_SecondBatchUnknownRuntime(),
     )
-    lab = sc.open(
+    lab = open_embedded_workspace(
         tmp_path,
         config_profile=fake_x_count_bias_config(),
         system=sc.ExperimentSystem(
@@ -208,7 +211,7 @@ def _run_mixed_experiment(
 ) -> tuple[sc.RunHandle, FakeBiasVoltageProvider, QuantumLabCompiler]:
     source = FakeBiasVoltageProvider()
     compiler = quantum_lab_compiler()
-    lab = sc.open(
+    lab = open_embedded_workspace(
         workspace,
         config_profile=fake_x_count_bias_config(),
         system=sc.ExperimentSystem(

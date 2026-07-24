@@ -3,11 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import override
 
-from scopecat.adapters.filesystem.execution import (
-    FilesystemExecutionJournal,
-    FilesystemMeasurementDatasetRepository,
-    FilesystemPayloadEvidenceCommitter,
-)
 from scopecat.adapters.memory import (
     MemoryExecutionJournal,
     MemoryMeasurementDatasetRepository,
@@ -41,20 +36,6 @@ class TestMemoryExecutionJournalContract(ExecutionJournalContract):
         return journal.entries
 
 
-class TestFilesystemExecutionJournalContract(ExecutionJournalContract):
-    @override
-    def make_journal(self, tmp_path: Path, *, run_id: str) -> ExecutionJournal:
-        return FilesystemExecutionJournal(tmp_path, run_id=run_id)
-
-    @override
-    def read_entries(
-        self,
-        journal: ExecutionJournal,
-    ) -> tuple[ExecutionTransition, ...]:
-        assert isinstance(journal, FilesystemExecutionJournal)
-        return journal.entries()
-
-
 class TestMemoryMeasurementDatasetRepositoryContract(MeasurementDatasetWriterContract):
     @override
     def make_committer(
@@ -67,19 +48,6 @@ class TestMemoryMeasurementDatasetRepositoryContract(MeasurementDatasetWriterCon
         return MemoryMeasurementDatasetRepository()
 
 
-class TestFilesystemMeasurementDatasetRepositoryContract(
-    MeasurementDatasetWriterContract
-):
-    @override
-    def make_committer(
-        self,
-        tmp_path: Path,
-        *,
-        run_id: str,
-    ) -> MeasurementDatasetWriter:
-        return FilesystemMeasurementDatasetRepository(tmp_path, run_id=run_id)
-
-
 class TestMemoryPayloadEvidenceCommitterContract(PayloadEvidenceCommitterContract):
     @override
     def make_committer(
@@ -90,14 +58,3 @@ class TestMemoryPayloadEvidenceCommitterContract(PayloadEvidenceCommitterContrac
     ) -> PayloadEvidenceCommitter:
         del tmp_path, run_id
         return MemoryPayloadEvidenceCommitter()
-
-
-class TestFilesystemPayloadEvidenceCommitterContract(PayloadEvidenceCommitterContract):
-    @override
-    def make_committer(
-        self,
-        tmp_path: Path,
-        *,
-        run_id: str,
-    ) -> PayloadEvidenceCommitter:
-        return FilesystemPayloadEvidenceCommitter(tmp_path, run_id=run_id)

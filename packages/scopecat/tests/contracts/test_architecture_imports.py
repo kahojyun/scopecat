@@ -9,8 +9,6 @@ from tests.testkit.paths import REPO_ROOT
 
 CORE_SOURCE = REPO_ROOT / "packages" / "scopecat" / "src" / "scopecat"
 CORE_TESTS = REPO_ROOT / "packages" / "scopecat" / "tests"
-FILESYSTEM_ADAPTER_ROOTS = (CORE_SOURCE / "adapters" / "filesystem",)
-CONCRETE_FILESYSTEM_MODULES = ("scopecat.adapters.filesystem",)
 NOTEBOOK_FACADE_PATHS = (
     CORE_SOURCE / "api" / "analysis.py",
     CORE_SOURCE / "api" / "run.py",
@@ -221,23 +219,6 @@ def test_compiler_sublayers_remain_inward_only() -> None:
     )
 
 
-def test_filesystem_adapter_does_not_depend_on_workflows_or_facades() -> None:
-    _assert_no_forbidden_imports(
-        FILESYSTEM_ADAPTER_ROOTS,
-        forbidden=(
-            "scopecat._workflows",
-            "scopecat.authoring",
-            "scopecat.composition",
-            "scopecat.config.resolution",
-            "scopecat.planning.system",
-            "scopecat.api.workspace",
-            "scopecat.api.analysis",
-            "scopecat.api.data",
-            "scopecat.api.run",
-        ),
-    )
-
-
 def test_application_layers_do_not_select_concrete_adapters() -> None:
     _assert_no_forbidden_imports(
         APPLICATION_ROOTS,
@@ -249,25 +230,6 @@ def test_planning_does_not_depend_on_workspace_application_bundle() -> None:
     _assert_no_forbidden_imports(
         (CORE_SOURCE / "planning",),
         forbidden=("scopecat.application",),
-    )
-
-
-def test_filesystem_adapter_is_only_imported_by_its_composition_root() -> None:
-    composition_roots = {"composition/local.py"}
-    actual_importers = {
-        edge.path.relative_to(CORE_SOURCE).as_posix()
-        for edge in _imports(CORE_SOURCE)
-        if any(_matches(edge.module, module) for module in CONCRETE_FILESYSTEM_MODULES)
-        and not any(
-            edge.path.is_relative_to(adapter_root)
-            for adapter_root in FILESYSTEM_ADAPTER_ROOTS
-        )
-    }
-
-    unexpected = actual_importers - composition_roots
-    assert not unexpected, (
-        "filesystem adapter imports outside composition are forbidden: "
-        + ", ".join(sorted(unexpected))
     )
 
 

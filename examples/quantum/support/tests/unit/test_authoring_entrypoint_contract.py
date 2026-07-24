@@ -26,6 +26,7 @@ from scopecat.compiler.relations.point_domain import (
     PointRows,
     PointUnit,
 )
+from scopecat.composition.embedded import open_embedded_workspace
 
 _TEMPLATE_ID = "examples.quantum.x-repetition-iq"
 _EXPERIMENT_ID = "x-repetition-iq"
@@ -90,7 +91,7 @@ def test_template_and_scratch_compile_to_equivalent_execution_semantics(
 ) -> None:
     """Keep both UX forms above one config-free compiler contract."""
 
-    workspace = sc.open(tmp_path)
+    workspace = open_embedded_workspace(tmp_path)
     template = _compile_through_workspace(
         workspace,
         equivalent_authoring_paths.template,

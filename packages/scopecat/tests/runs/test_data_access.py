@@ -5,8 +5,11 @@ from pathlib import Path
 import pytest
 
 import scopecat as sc
-from scopecat.adapters.filesystem.run_repository import FilesystemRunRepository
-from scopecat.composition.local import local_run_repository, local_workspace_services
+from scopecat.composition.embedded import (
+    embedded_run_repository,
+    embedded_workspace_services,
+    open_embedded_workspace,
+)
 from scopecat.kernel.errors import CheckFailed, DataIntegrityError, NotFound
 from scopecat.records.config import config_content_hash
 from scopecat.records.measurement_recording import MeasurementDatasetAppend
@@ -47,52 +50,52 @@ def test_workflow_run_data_access_reads_runs_artifacts_and_datasets(
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
         config=config,
         experiment=experiment,
-        services=local_workspace_services(tmp_path),
+        services=embedded_workspace_services(tmp_path),
     )
     candidate = start_run(
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
         config=config,
         experiment=experiment,
-        services=local_workspace_services(tmp_path),
+        services=embedded_workspace_services(tmp_path),
     )
     attach_typed_data_artifacts(tmp_path, candidate.run_id)
 
-    runs = list_runs(services=local_workspace_services(tmp_path))
+    runs = list_runs(services=embedded_workspace_services(tmp_path))
     details = load_run(
-        run_id=candidate.run_id, services=local_workspace_services(tmp_path)
+        run_id=candidate.run_id, services=embedded_workspace_services(tmp_path)
     )
     run_config = load_run_config(
-        run_id=candidate.run_id, services=local_workspace_services(tmp_path)
+        run_id=candidate.run_id, services=embedded_workspace_services(tmp_path)
     )
     run_request = load_run_request(
-        run_id=candidate.run_id, services=local_workspace_services(tmp_path)
+        run_id=candidate.run_id, services=embedded_workspace_services(tmp_path)
     )
     artifacts = list_run_artifacts(
         run_id=candidate.run_id,
-        services=local_workspace_services(tmp_path),
+        services=embedded_workspace_services(tmp_path),
     )
     payload_entries = list_run_payload_entries(
         run_id=candidate.run_id,
-        services=local_workspace_services(tmp_path),
+        services=embedded_workspace_services(tmp_path),
     )
     measurement_datasets = list_run_payload_entries(
         run_id=candidate.run_id,
-        services=local_workspace_services(tmp_path),
+        services=embedded_workspace_services(tmp_path),
         kind="measurement_dataset",
     )
     raw_dataset = read_run_measurement_dataset(
         run_id=candidate.run_id,
-        services=local_workspace_services(tmp_path),
+        services=embedded_workspace_services(tmp_path),
     )
     metrics = read_run_data_table(
         run_id=candidate.run_id,
         selector="metrics",
-        services=local_workspace_services(tmp_path),
+        services=embedded_workspace_services(tmp_path),
     )
     matrix = read_run_data_array(
         run_id=candidate.run_id,
         selector="readout-matrix",
-        services=local_workspace_services(tmp_path),
+        services=embedded_workspace_services(tmp_path),
     )
 
     assert [run.run_id for run in runs] == [
@@ -134,7 +137,7 @@ def test_run_inputs_are_loaded_independently_for_capture_runs(tmp_path: Path) ->
         config_content_hash=config_content_hash(load_config()),
     )
     config = load_config()
-    storage = FilesystemRunRepository(tmp_path)
+    storage = embedded_run_repository(tmp_path)
     storage.write_manifest(manifest)
     storage.write_model(
         manifest.run_id,
@@ -143,19 +146,19 @@ def test_run_inputs_are_loaded_independently_for_capture_runs(tmp_path: Path) ->
     )
 
     details = load_run(
-        run_id=manifest.run_id, services=local_workspace_services(tmp_path)
+        run_id=manifest.run_id, services=embedded_workspace_services(tmp_path)
     )
     loaded_config = load_run_config(
-        run_id=manifest.run_id, services=local_workspace_services(tmp_path)
+        run_id=manifest.run_id, services=embedded_workspace_services(tmp_path)
     )
     loaded_request = load_run_request(
-        run_id=manifest.run_id, services=local_workspace_services(tmp_path)
+        run_id=manifest.run_id, services=embedded_workspace_services(tmp_path)
     )
     assert details == manifest
     assert loaded_config == config
     assert loaded_request is None
 
-    workspace = sc.open(tmp_path, config_profile=config)
+    workspace = open_embedded_workspace(tmp_path, config_profile=config)
     handle = workspace.get_run(manifest.run_id)
     assert handle.config == config
     assert handle.request is None
@@ -166,28 +169,28 @@ def test_workflow_run_data_access_rejects_invalid_reads(tmp_path: Path) -> None:
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
         config=load_config(),
         experiment=load_prepared_invocation(),
-        services=local_workspace_services(tmp_path),
+        services=embedded_workspace_services(tmp_path),
     )
     attach_binary_artifact(tmp_path, run.run_id)
 
     with pytest.raises(NotFound) as missing_run:
-        load_run(run_id="run_missing", services=local_workspace_services(tmp_path))
+        load_run(run_id="run_missing", services=embedded_workspace_services(tmp_path))
     with pytest.raises(NotFound) as missing_artifact:
         read_run_artifact_text(
             run_id=run.run_id,
             selector="missing-artifact",
-            services=local_workspace_services(tmp_path),
+            services=embedded_workspace_services(tmp_path),
         )
     with pytest.raises(CheckFailed) as path_escape:
         read_run_artifact_text(
             run_id=run.run_id,
             selector="../manifest.json",
-            services=local_workspace_services(tmp_path),
+            services=embedded_workspace_services(tmp_path),
         )
     binary = read_run_artifact_bytes(
         run_id=run.run_id,
         selector="binary-artifact",
-        services=local_workspace_services(tmp_path),
+        services=embedded_workspace_services(tmp_path),
     )
 
     assert missing_run.value.problems[0].code == "run.not_found"
@@ -204,15 +207,15 @@ def test_workflow_run_data_access_rejects_invalid_typed_storage_rows(
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
         config=load_config(),
         experiment=load_prepared_invocation(),
-        services=local_workspace_services(tmp_path),
+        services=embedded_workspace_services(tmp_path),
     )
     attach_typed_data_artifacts(tmp_path, run.run_id)
 
     raw_dataset = read_run_measurement_dataset(
         run_id=run.run_id,
-        services=local_workspace_services(tmp_path),
+        services=embedded_workspace_services(tmp_path),
     )
-    storage = local_run_repository(tmp_path)
+    storage = embedded_run_repository(tmp_path)
 
     invalid_measurement = raw_dataset.dataset.records[0].model_copy(
         update={"observables": {}}
@@ -236,7 +239,7 @@ def test_workflow_run_data_access_rejects_invalid_typed_storage_rows(
     with pytest.raises(DataIntegrityError) as invalid_scalar_row:
         read_run_measurement_dataset(
             run_id=run.run_id,
-            services=local_workspace_services(tmp_path),
+            services=embedded_workspace_services(tmp_path),
         )
 
     assert invalid_scalar_row.value.problems[0].code == (

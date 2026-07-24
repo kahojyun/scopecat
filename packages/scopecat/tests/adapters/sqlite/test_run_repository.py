@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from scopecat.adapters.sqlite import SQLiteControlPlane, SQLiteRunRepository
 from scopecat.kernel.errors import DataIntegrityError, StorageError
+from scopecat.records.artifact import RunContentEntry
 from scopecat.records.run import RunManifest, RunOutcome
 from scopecat.runs.repository import RunModelWrite, TerminalRunCommit
 from tests.contracts.run_repository_contracts import RunRepositoryContract
@@ -53,6 +54,29 @@ def _outcome(run_id: str) -> RunOutcome:
         result="succeeded",
         certainty="known",
         termination_reason="completed",
+    )
+
+
+def _content(content_id: str) -> RunContentEntry:
+    return RunContentEntry(
+        role="artifact",
+        id=content_id,
+        kind="test",
+        content_hash=f"{content_id}-content",
+    )
+
+
+def _terminal_commit(run_id: str, content_id: str) -> TerminalRunCommit:
+    return TerminalRunCommit(
+        manifest=_manifest(run_id, lifecycle="terminal").model_copy(
+            update={"contents": (_content(content_id),)}
+        ),
+        models=(
+            RunModelWrite(
+                ref=f"records/{content_id}.json",
+                value=_Record(value=content_id),
+            ),
+        ),
     )
 
 
@@ -175,6 +199,99 @@ def test_terminal_commit_rolls_back_all_refs_if_manifest_publish_fails(
 
     assert repository.read_manifest(run_id).lifecycle == "running"
     assert not repository.exists(run_id, "records/outcome.json")
+    assert len(_object_files(repository)) > len(objects_before)
+
+
+def test_terminal_commit_merges_contents_after_acquiring_the_write_transaction(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = _repository(tmp_path)
+    run_id = "run-concurrent-terminal"
+    repository.write_manifest(
+        _manifest(run_id).model_copy(update={"contents": (_content("existing"),)})
+    )
+    concurrent_read = Barrier(2)
+    start = Barrier(2)
+    original_read_manifest = repository.read_manifest
+
+    def synchronize_reads(selected_run_id: str) -> RunManifest:
+        current = original_read_manifest(selected_run_id)
+        concurrent_read.wait(timeout=5)
+        return current
+
+    monkeypatch.setattr(repository, "read_manifest", synchronize_reads)
+
+    def publish(content_id: str) -> RunManifest:
+        start.wait(timeout=5)
+        return repository.commit_terminal(_terminal_commit(run_id, content_id))
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = (
+            pool.submit(publish, "first"),
+            pool.submit(publish, "second"),
+        )
+        for future in futures:
+            future.result()
+
+    peer = SQLiteRunRepository(repository.database, repository.objects.root)
+    assert {entry.id for entry in peer.read_manifest(run_id).contents} == {
+        "existing",
+        "first",
+        "second",
+    }
+
+
+def test_terminal_commit_primitive_uses_and_leaves_the_callers_transaction(
+    tmp_path: Path,
+) -> None:
+    repository = _repository(tmp_path)
+    run_id = "run-terminal-transaction"
+    repository.write_manifest(
+        _manifest(run_id).model_copy(update={"contents": (_content("existing"),)})
+    )
+    objects_before = _object_files(repository)
+
+    with sqlite3.connect(
+        repository.database,
+        isolation_level=None,
+    ) as connection:
+        connection.row_factory = sqlite3.Row
+        connection.execute("BEGIN IMMEDIATE")
+        repository.commit_terminal_in_transaction(
+            connection,
+            _terminal_commit(run_id, "first"),
+        )
+        committed = repository.commit_terminal_in_transaction(
+            connection,
+            _terminal_commit(run_id, "second"),
+        )
+
+        assert connection.in_transaction
+        assert {entry.id for entry in committed.contents} == {
+            "existing",
+            "first",
+            "second",
+        }
+        assert (
+            connection.execute(
+                """
+            SELECT COUNT(*) FROM run_repository_refs
+            WHERE run_id = ? AND ref IN (?, ?)
+            """,
+                (
+                    run_id,
+                    "records/first.json",
+                    "records/second.json",
+                ),
+            ).fetchone()[0]
+            == 2
+        )
+        connection.rollback()
+
+    assert repository.read_manifest(run_id).lifecycle == "running"
+    assert not repository.exists(run_id, "records/first.json")
+    assert not repository.exists(run_id, "records/second.json")
     assert len(_object_files(repository)) > len(objects_before)
 
 

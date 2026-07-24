@@ -16,7 +16,10 @@ from pydantic import BaseModel, ConfigDict
 import scopecat as sc
 from scopecat.authoring import ExperimentInvocation
 from scopecat.compiler.frontend.invocation import prepare_invocation
-from scopecat.composition.local import local_workspace_services
+from scopecat.composition.embedded import (
+    embedded_workspace_services,
+    open_embedded_workspace,
+)
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
     Problem,
@@ -286,14 +289,14 @@ def execute_signal_run(
     return start_run(
         config=config,
         experiment=prepare_invocation(experiment),
-        services=local_workspace_services(workspace),
+        services=embedded_workspace_services(workspace),
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
         config_source=config_source,
     )
 
 
 def _analysis_run(*, run_id: str, workspace: str | Path) -> sc.Run:
-    lab = sc.open(workspace)
+    lab = open_embedded_workspace(workspace)
     return lab.get_run(run_id)
 
 

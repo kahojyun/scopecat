@@ -8,6 +8,10 @@ import pytest
 from pydantic import BaseModel, ConfigDict
 
 import scopecat as sc
+from scopecat.composition.embedded import (
+    embedded_run_repository,
+    open_embedded_workspace,
+)
 from scopecat.kernel.errors import CheckFailed, Conflict, NotFound
 from scopecat.kernel.problems import ProblemPhase
 from scopecat.records.parameter import Quantity
@@ -20,13 +24,13 @@ from scopecat.records.run_request import (
     parameter_scan_records,
     scan_axis_index,
 )
+from scopecat.runs.refs import RUN_REQUEST_REF
 from tests.testkit.authoring import (
     DRIVE_FREQUENCY_POINT,
     SIMPLE_MODULE,
     simple_template,
 )
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
-from tests.testkit.records import read_model
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.workflow_fixtures import load_config, load_invocation
 
@@ -125,7 +129,7 @@ def _workspace_manual_signal_module() -> sc.ModuleBuilder:
 
 
 def test_workspace_runs_and_reads_exploratory_data(tmp_path: Path) -> None:
-    lab = sc.open(
+    lab = open_embedded_workspace(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
@@ -168,7 +172,7 @@ def test_workspace_runs_and_reads_exploratory_data(tmp_path: Path) -> None:
 
 
 def test_workspace_resolves_authoritative_active_config(tmp_path: Path) -> None:
-    lab = sc.open(
+    lab = open_embedded_workspace(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
     )
@@ -200,7 +204,9 @@ def test_workspace_resolves_authoritative_active_config(tmp_path: Path) -> None:
 def test_workspace_activates_direct_configs_and_rolls_back_with_cas(
     tmp_path: Path,
 ) -> None:
-    lab = sc.open(tmp_path, config_profile=EXAMPLE_DIR / "config-profile.json")
+    lab = open_embedded_workspace(
+        tmp_path, config_profile=EXAMPLE_DIR / "config-profile.json"
+    )
     baseline = lab.activate_config(
         load_config(),
         entry_id="workspace-baseline",
@@ -243,7 +249,7 @@ def test_workspace_activates_direct_configs_and_rolls_back_with_cas(
 
 
 def test_data_selectors_report_structured_problems(tmp_path: Path) -> None:
-    lab = sc.open(
+    lab = open_embedded_workspace(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
@@ -263,7 +269,7 @@ def test_data_selectors_report_structured_problems(tmp_path: Path) -> None:
 
 
 def test_run_attachment_can_feed_analysis_inputs(tmp_path: Path) -> None:
-    lab = sc.open(
+    lab = open_embedded_workspace(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
@@ -300,7 +306,7 @@ def test_run_attachment_can_feed_analysis_inputs(tmp_path: Path) -> None:
 
 
 def test_workspace_prepares_scratch_with_existing_module(tmp_path: Path) -> None:
-    lab = sc.open(
+    lab = open_embedded_workspace(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
@@ -330,7 +336,7 @@ def test_workspace_prepares_scratch_with_existing_module(tmp_path: Path) -> None
 
 
 def test_scratch_composes_modules(tmp_path: Path) -> None:
-    lab = sc.open(
+    lab = open_embedded_workspace(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(
@@ -370,7 +376,7 @@ def test_scratch_composes_modules(tmp_path: Path) -> None:
 def test_prepared_experiment_check_returns_authoring_problems(
     tmp_path: Path,
 ) -> None:
-    lab = sc.open(
+    lab = open_embedded_workspace(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
     )
@@ -388,7 +394,7 @@ def test_prepared_experiment_check_returns_authoring_problems(
 def test_prepared_experiment_check_returns_config_selection_problems(
     tmp_path: Path,
 ) -> None:
-    lab = sc.open(tmp_path)
+    lab = open_embedded_workspace(tmp_path)
 
     validation = (
         lab.prepare(
@@ -420,7 +426,7 @@ def test_prepared_experiment_check_returns_record_schema_problems(
         return sc.experiment(module_call).record_product(module_call.products.signal)
 
     template = template_definition
-    lab = sc.open(
+    lab = open_embedded_workspace(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
     )
@@ -441,7 +447,7 @@ def test_prepared_experiment_check_returns_candidate_config_problems(
         parameter_proposals=(),
     )
     prepared = (
-        sc.open(tmp_path)
+        open_embedded_workspace(tmp_path)
         .prepare(simple_template(), config=candidate)
         .input("subject", "q0")
     )
@@ -463,7 +469,7 @@ def test_prepared_experiment_check_returns_candidate_config_problems(
 def test_scratch_lowers_to_runnable_spec(
     tmp_path: Path,
 ) -> None:
-    lab = sc.open(
+    lab = open_embedded_workspace(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
@@ -491,8 +497,11 @@ def test_scratch_lowers_to_runnable_spec(
     run = lab.prepare(experiment()).run()
 
     assert run.manifest.status == "completed"
-    run_dir = tmp_path / "runs" / run.id
-    persisted_request = read_model(run_dir / "run-request.json", RunRequest)
+    persisted_request = embedded_run_repository(tmp_path).read_model(
+        run.id,
+        RUN_REQUEST_REF,
+        RunRequest,
+    )
     assert persisted_request.template_id == "workspace.manual-signal-scan"
     assert persisted_request.template_inputs == {}
     scan_axes = scan_axis_index(persisted_request.scans)
@@ -513,7 +522,7 @@ def test_scratch_lowers_to_runnable_spec(
 def test_workspace_run_options_materialize_internal_run_request(
     tmp_path: Path,
 ) -> None:
-    lab = sc.open(
+    lab = open_embedded_workspace(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
@@ -536,8 +545,11 @@ def test_workspace_run_options_materialize_internal_run_request(
         )
     )
 
-    run_dir = tmp_path / "runs" / run.id
-    persisted_request = read_model(run_dir / "run-request.json", RunRequest)
+    persisted_request = embedded_run_repository(tmp_path).read_model(
+        run.id,
+        RUN_REQUEST_REF,
+        RunRequest,
+    )
 
     assert run.manifest.status == "completed"
     assert persisted_request.template_id == "test.simple_scan"
@@ -562,7 +574,7 @@ def test_workspace_run_options_materialize_internal_run_request(
 def test_workspace_terminals_reject_non_finite_metadata(
     tmp_path: Path,
 ) -> None:
-    lab = sc.open(
+    lab = open_embedded_workspace(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
     )
@@ -575,7 +587,7 @@ def test_workspace_terminals_reject_non_finite_metadata(
 def test_prepared_template_builder_preview_and_run_terminals(
     tmp_path: Path,
 ) -> None:
-    lab = sc.open(
+    lab = open_embedded_workspace(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
@@ -621,8 +633,9 @@ def test_prepared_template_builder_preview_and_run_terminals(
     assert preview.point_count == 3
     assert run.manifest.status == "completed"
     assert len(run.measurements().dataset.records) == 3
-    persisted_request = read_model(
-        tmp_path / "runs" / run.id / "run-request.json",
+    persisted_request = embedded_run_repository(tmp_path).read_model(
+        run.id,
+        RUN_REQUEST_REF,
         RunRequest,
     )
     assert persisted_request.template_id == "test.prepared_builder"
@@ -633,7 +646,7 @@ def test_prepared_template_builder_preview_and_run_terminals(
 
 
 def test_scratch_uses_prepared_preview_and_run_terminals(tmp_path: Path) -> None:
-    lab = sc.open(
+    lab = open_embedded_workspace(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
@@ -657,7 +670,7 @@ def test_scratch_uses_prepared_preview_and_run_terminals(tmp_path: Path) -> None
 
 
 def test_workspace_extra_scans_can_zip_axes(tmp_path: Path) -> None:
-    lab = sc.open(
+    lab = open_embedded_workspace(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
@@ -675,8 +688,11 @@ def test_workspace_extra_scans_can_zip_axes(tmp_path: Path) -> None:
         .run()
     )
 
-    run_dir = tmp_path / "runs" / run.id
-    persisted_request = read_model(run_dir / "run-request.json", RunRequest)
+    persisted_request = embedded_run_repository(tmp_path).read_model(
+        run.id,
+        RUN_REQUEST_REF,
+        RunRequest,
+    )
 
     assert len(run.measurements().dataset.records) == 10
     scan_group = persisted_request.scans[-1]
@@ -705,7 +721,7 @@ def test_workspace_extra_scans_can_zip_axes(tmp_path: Path) -> None:
 def test_invocation_scan_overrides_axis_inside_default_zip_group(
     tmp_path: Path,
 ) -> None:
-    lab = sc.open(
+    lab = open_embedded_workspace(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
@@ -752,7 +768,7 @@ def test_invocation_scan_overrides_axis_inside_default_zip_group(
 def test_implicit_around_override_of_values_default_uses_active_center(
     tmp_path: Path,
 ) -> None:
-    lab = sc.open(
+    lab = open_embedded_workspace(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
@@ -793,7 +809,7 @@ def test_implicit_around_override_of_values_default_uses_active_center(
 def test_invocation_scan_group_rejects_mixed_default_override(
     tmp_path: Path,
 ) -> None:
-    lab = sc.open(
+    lab = open_embedded_workspace(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
@@ -833,7 +849,7 @@ def test_invocation_scan_group_rejects_mixed_default_override(
 def test_scratch_supports_active_center_scan(
     tmp_path: Path,
 ) -> None:
-    lab = sc.open(
+    lab = open_embedded_workspace(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
@@ -863,7 +879,7 @@ def test_scratch_supports_active_center_scan(
 def test_scratch_defines_complete_experiment(
     tmp_path: Path,
 ) -> None:
-    lab = sc.open(
+    lab = open_embedded_workspace(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
@@ -891,7 +907,7 @@ def test_scratch_defines_complete_experiment(
 def test_scratch_can_compose_module(
     tmp_path: Path,
 ) -> None:
-    lab = sc.open(
+    lab = open_embedded_workspace(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
@@ -971,7 +987,7 @@ def test_scratch_preserves_nominal_product_refs() -> None:
 def test_run_analysis_collects_notebook_outputs_and_candidate_config(
     tmp_path: Path,
 ) -> None:
-    lab = sc.open(
+    lab = open_embedded_workspace(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
@@ -1022,7 +1038,7 @@ def test_run_analysis_collects_notebook_outputs_and_candidate_config(
 def test_workspace_candidate_activation_honors_expected_generation(
     tmp_path: Path,
 ) -> None:
-    lab = sc.open(
+    lab = open_embedded_workspace(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
@@ -1065,7 +1081,7 @@ def test_workspace_candidate_activation_honors_expected_generation(
 def test_run_analysis_persists_output_artifacts(
     tmp_path: Path,
 ) -> None:
-    lab = sc.open(
+    lab = open_embedded_workspace(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
@@ -1135,7 +1151,7 @@ def test_run_analysis_persists_output_artifacts(
 def test_run_analysis_persists_owned_artifacts(
     tmp_path: Path,
 ) -> None:
-    lab = sc.open(
+    lab = open_embedded_workspace(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
@@ -1199,7 +1215,7 @@ def test_run_analysis_persists_owned_artifacts(
 def test_run_analysis_artifact_save_rejects_duplicate_ids_and_filenames(
     tmp_path: Path,
 ) -> None:
-    lab = sc.open(
+    lab = open_embedded_workspace(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
@@ -1251,7 +1267,7 @@ def test_run_analysis_artifact_save_rejects_duplicate_ids_and_filenames(
 def test_analysis_artifacts_preserve_distinct_sources(
     tmp_path: Path,
 ) -> None:
-    lab = sc.open(
+    lab = open_embedded_workspace(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
@@ -1284,7 +1300,7 @@ def test_analysis_artifacts_preserve_distinct_sources(
 
 
 def test_workspace_reopens_runs_for_gui_entry_contract(tmp_path: Path) -> None:
-    lab = sc.open(
+    lab = open_embedded_workspace(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
@@ -1313,7 +1329,7 @@ def test_workspace_reopens_runs_for_gui_entry_contract(tmp_path: Path) -> None:
     saved = analysis.save()
     candidate = analysis.candidate_config()
     follow_up = lab.prepare(experiment, config=candidate).run()
-    reopened = sc.open(
+    reopened = open_embedded_workspace(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
@@ -1358,7 +1374,7 @@ def test_analysis_rejects_invalid_notebook_payloads(
     action: _AnalysisAction,
     expected_code: str,
 ) -> None:
-    lab = sc.open(
+    lab = open_embedded_workspace(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
@@ -1392,7 +1408,7 @@ def test_analysis_step_reuses_manual_analysis_shape(tmp_path: Path) -> None:
             )
         )
 
-    lab = sc.open(
+    lab = open_embedded_workspace(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),

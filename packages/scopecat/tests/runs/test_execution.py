@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from scopecat.composition.local import local_workspace_services
+from scopecat.composition.embedded import embedded_workspace_services
 from scopecat.kernel.errors import CheckFailed
 from scopecat.planning.system import ExperimentSystem
 from scopecat.records.execution import InstrumentStateEvidence
@@ -53,13 +53,13 @@ def test_start_run_uses_provider_selected_config_instrument(
     manifest = start_run(
         config=config_with_instrument_id("source-a"),
         experiment=load_prepared_invocation(),
-        services=local_workspace_services(tmp_path),
+        services=embedded_workspace_services(tmp_path),
         system=ExperimentSystem(provider=TestSignalInstrumentProvider()),
     )
     snapshot = read_run_record_json(
         run_id=manifest.run_id,
         selector="instrument-state-evidence",
-        services=local_workspace_services(tmp_path),
+        services=embedded_workspace_services(tmp_path),
         expected_kind="instrument_state_evidence",
     )
     evidence = InstrumentStateEvidence.model_validate(snapshot.content)
@@ -74,7 +74,7 @@ def test_start_run_reuses_point_provider_preflight(tmp_path: Path) -> None:
     manifest = start_run(
         config=load_config(),
         experiment=load_prepared_invocation(),
-        services=local_workspace_services(tmp_path),
+        services=embedded_workspace_services(tmp_path),
         system=ExperimentSystem(provider=provider),
     )
 
@@ -90,7 +90,7 @@ def test_start_run_requires_explicit_system(
         start_run(
             config=load_config(),
             experiment=load_prepared_invocation(),
-            services=local_workspace_services(tmp_path),
+            services=embedded_workspace_services(tmp_path),
         )
 
     assert error.value.problems[0].code == "execution.experiment_system_missing"
