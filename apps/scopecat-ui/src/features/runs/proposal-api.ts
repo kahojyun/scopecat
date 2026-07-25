@@ -1,4 +1,5 @@
 import { request } from "../../api";
+import type { DaemonUiApi } from "../../api-contract";
 import type {
   ActivateProposalCandidateCommand,
   ParameterProposal,
@@ -8,18 +9,21 @@ import type {
   RunParameterProposals,
 } from "./proposal-types";
 
+type WireProposalView = NonNullable<DaemonUiApi["parameterProposals"]["items"]>[number];
+type WireProposalDelta = WireProposalView["proposal"]["deltas"][number];
+type WireProposalDecision = NonNullable<WireProposalView["decisions"]>[number];
+
 export async function getRunParameterProposals(
   runId: string,
   signal?: AbortSignal,
 ): Promise<RunParameterProposals> {
-  const raw = await request(
+  const response = await request<DaemonUiApi["parameterProposals"]>(
     `/api/v1/runs/${encodeURIComponent(runId)}/parameter-proposals`,
     signal,
   );
-  const envelope = record(raw);
   return {
-    runId: string(envelope.run_id) ?? runId,
-    items: (array(envelope.items) ?? []).map(normalizeProposalView),
+    runId: response.run_id,
+    items: (response.items ?? []).map(normalizeProposalView),
   };
 }
 
@@ -28,33 +32,38 @@ export async function reviewParameterProposal(
   proposalId: string,
   command: ReviewProposalCommand,
 ): Promise<void> {
-  await request(
+  const payload: DaemonUiApi["parameterProposalReviewCommand"] = {
+    schema_version: "scopecat.parameter_proposal_review_command.v1",
+    run_id: runId,
+    proposal_id: proposalId,
+    decision: command.decision,
+    reviewer: command.reviewer,
+    note: command.note ?? "",
+  };
+  await request<DaemonUiApi["parameterProposalReviewReceipt"]>(
     `/api/v1/runs/${encodeURIComponent(runId)}/parameter-proposals/${encodeURIComponent(proposalId)}/review`,
     undefined,
-    jsonRequest({
-      run_id: runId,
-      proposal_id: proposalId,
-      decision: command.decision,
-      reviewer: command.reviewer,
-      note: command.note ?? "",
-    }),
+    jsonRequest(payload),
   );
 }
 
 export async function activateProposalCandidate(
   command: ActivateProposalCandidateCommand,
 ): Promise<void> {
-  await request(
+  const payload: DaemonUiApi["candidateConfigActivationCommand"] = {
+    schema_version: "scopecat.candidate_config_activation_command.v1",
+    run_id: command.runId,
+    proposal_ids:
+      command.proposalIds as DaemonUiApi["candidateConfigActivationCommand"]["proposal_ids"],
+    registered_by: command.registeredBy,
+    operator: command.operator,
+    expected_generation: command.expectedGeneration,
+    note: command.note ?? "",
+  };
+  await request<DaemonUiApi["candidateConfigActivationReceipt"]>(
     "/api/v1/config-registry/candidates/activate",
     undefined,
-    jsonRequest({
-      run_id: command.runId,
-      proposal_ids: command.proposalIds,
-      registered_by: command.registeredBy,
-      operator: command.operator,
-      expected_generation: command.expectedGeneration,
-      note: command.note ?? "",
-    }),
+    jsonRequest(payload),
   );
 }
 
@@ -64,81 +73,60 @@ export function latestProposalDecision(
   return proposal.decisions.at(-1);
 }
 
-function normalizeProposalView(value: unknown): ParameterProposal {
-  const view = record(value);
-  const proposal = record(view.proposal);
+function normalizeProposalView(source: WireProposalView): ParameterProposal {
   return {
-    id: string(proposal.id) ?? "unidentified-proposal",
-    sourceRunId: string(proposal.source_run_id) ?? "unidentified-source-run",
-    analysisRecordId: string(proposal.analysis_record_id) ?? "unidentified-analysis-record",
-    baseConfigId: string(proposal.base_config_id) ?? "unidentified-base-config",
-    baseContentHash: string(proposal.base_config_content_hash) ?? "unreported",
-    reason: string(proposal.reason) ?? "No proposal reason was reported.",
-    confidence: number(proposal.confidence),
-    proposedAt: string(proposal.proposed_at),
-    deltas: (array(proposal.deltas) ?? []).map(normalizeDelta),
-    decisions: (array(view.decisions) ?? []).map(normalizeDecision),
+    id: source.proposal.id,
+    sourceRunId: source.proposal.source_run_id,
+    analysisRecordId: source.proposal.analysis_record_id,
+    baseConfigId: source.proposal.base_config_id,
+    baseContentHash: source.proposal.base_config_content_hash,
+    reason: source.proposal.reason,
+    confidence: source.proposal.confidence ?? undefined,
+    proposedAt: source.proposal.proposed_at,
+    deltas: source.proposal.deltas.map(normalizeDelta),
+    decisions: (source.decisions ?? []).map(normalizeDecision),
   };
 }
 
-function normalizeDelta(value: unknown): ParameterProposalDelta {
-  const source = record(value);
+function normalizeDelta(source: WireProposalDelta): ParameterProposalDelta {
   return {
-    parameterId: string(source.parameter_id) ?? "unidentified-parameter",
+    parameterId: source.parameter_id,
     before: parameterValue(source.before),
     after: parameterValue(source.after),
   };
 }
 
-function normalizeDecision(value: unknown): ParameterProposalDecision {
-  const source = record(value);
-  const authority = record(source.authority);
-  const decision = string(source.decision);
-  const authorityKind =
-    string(authority.kind) === "automatic_policy" ? "automatic_policy" : "human";
+function normalizeDecision(source: WireProposalDecision): ParameterProposalDecision {
   return {
-    eventId: string(source.event_id) ?? "unidentified-decision",
-    decision: decision === "approved" || decision === "rejected" ? decision : "invalidated",
-    actor: string(authority.actor) ?? string(source.actor) ?? "unknown-operator",
-    authorityKind,
-    policyId: string(authority.policy_id),
-    policyVersion: string(authority.policy_version),
-    note: string(source.note),
-    decidedAt: string(source.decided_at),
+    eventId: source.event_id,
+    decision: source.decision,
+    actor: source.authority.actor,
+    authorityKind: source.authority.kind ?? "human",
+    policyId: source.authority.kind === "automatic_policy" ? source.authority.policy_id : undefined,
+    policyVersion:
+      source.authority.kind === "automatic_policy" ? source.authority.policy_version : undefined,
+    note: source.note || undefined,
+    decidedAt: source.decided_at,
   };
 }
 
-function parameterValue(value: unknown): unknown {
-  const source = record(value);
-  if (Object.keys(source).length === 0) return value;
-  if ("value" in source) return source.value;
-  if ("items" in source) return source.items;
-  if ("rows" in source) return source.rows;
-  return value;
+function parameterValue(value: WireProposalDelta["before"]): unknown {
+  switch (value.shape) {
+    case "scalar":
+      return value.value;
+    case "series":
+      return value.items;
+    case "table":
+      return value.rows;
+    case undefined:
+      throw new Error("The daemon returned a proposal value without its shape.");
+  }
 }
 
-function jsonRequest(body: Record<string, unknown>): RequestInit {
+function jsonRequest(body: object): RequestInit {
   return {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   };
-}
-
-function record(value: unknown): Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-function array(value: unknown): unknown[] | undefined {
-  return Array.isArray(value) ? value : undefined;
-}
-
-function string(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
-function number(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }

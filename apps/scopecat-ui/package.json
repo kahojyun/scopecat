@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "generate:api": "uv run --project ../.. python scripts/export-openapi.py && json2ts -i .generated/ui-api.schema.json -o src/api-schema.d.ts",
+    "generate:api": "uv run --project ../.. python scripts/export-openapi.py && openapi-typescript .generated/ui-api.openapi.json --output src/api-schema.d.ts --alphabetize --array-length --empty-objects-unknown",
     "check:api": "pnpm run generate:api && git diff --exit-code -- src/api-schema.d.ts",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
@@ -28,6 +28,7 @@
   },
   "devDependencies": {
     "@playwright/test": "1.61.1",
+    "@typescript/native": "npm:typescript@7.0.2",
     "@testing-library/jest-dom": "6.9.1",
     "@testing-library/react": "16.3.2",
     "@types/node": "24.13.3",
@@ -35,10 +36,10 @@
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.0.3",
     "jsdom": "29.1.1",
-    "json-schema-to-typescript": "15.0.4",
+    "openapi-typescript": "7.13.0",
     "oxfmt": "0.58.0",
     "oxlint": "1.73.0",
-    "typescript": "7.0.2",
+    "typescript": "npm:@typescript/typescript6@6.0.2",
     "vite": "8.1.4",
     "vitest": "4.1.10"
   }

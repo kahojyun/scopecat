@@ -1,4 +1,4 @@
-"""Export the UI-used subset of the daemon's FastAPI contract."""
+"""Export the UI-used subset of the daemon's OpenAPI contract."""
 
 from __future__ import annotations
 
@@ -8,42 +8,35 @@ from typing import cast
 
 from scopecat_server.transport import DaemonApplicationContract, create_app
 
-OUTPUT = Path(__file__).parent.parent / ".generated" / "ui-api.schema.json"
+OUTPUT = Path(__file__).parent.parent / ".generated" / "ui-api.openapi.json"
 
-_RESPONSES = {
-    "health": ("/api/v1/health", "get", "200"),
-    "catalog": ("/api/v1/catalog", "get", "200"),
-    "runPage": ("/api/v1/runs", "get", "200"),
-    "runDetail": ("/api/v1/runs/{run_id}", "get", "200"),
-    "runAnalyses": ("/api/v1/runs/{run_id}/analyses", "get", "200"),
-    "artifactText": (
-        "/api/v1/runs/{run_id}/artifacts/{selector}/text",
-        "get",
-        "200",
-    ),
-    "artifactJson": (
-        "/api/v1/runs/{run_id}/artifacts/{selector}/json",
-        "get",
-        "200",
-    ),
-    "recordJson": (
-        "/api/v1/runs/{run_id}/records/{selector}/json",
-        "get",
-        "200",
-    ),
-    "datasetContent": (
-        "/api/v1/runs/{run_id}/datasets/{selector}",
-        "get",
-        "200",
-    ),
-    "measurements": ("/api/v1/runs/{run_id}/measurements", "get", "200"),
-    "eventPage": ("/api/v1/events", "get", "200"),
-}
-_REQUESTS = {
-    "attentionCommand": (
-        "/api/v1/runs/{run_id}/attention",
+_OPERATIONS = {
+    ("/api/v1/catalog", "get"),
+    ("/api/v1/config-registry", "get"),
+    ("/api/v1/config-registry/active", "post"),
+    ("/api/v1/config-registry/candidates/activate", "post"),
+    ("/api/v1/config-registry/drafts/preview", "post"),
+    ("/api/v1/config-registry/drafts/register", "post"),
+    ("/api/v1/config-registry/drafts/set-default", "post"),
+    ("/api/v1/config-registry/entries", "post"),
+    ("/api/v1/config-registry/entries/{entry_id}", "get"),
+    ("/api/v1/config-registry/rollback", "post"),
+    ("/api/v1/events", "get"),
+    ("/api/v1/health", "get"),
+    ("/api/v1/runs", "get"),
+    ("/api/v1/runs/{run_id}", "get"),
+    ("/api/v1/runs/{run_id}/analyses", "get"),
+    ("/api/v1/runs/{run_id}/artifacts/{selector}/json", "get"),
+    ("/api/v1/runs/{run_id}/artifacts/{selector}/text", "get"),
+    ("/api/v1/runs/{run_id}/attention", "post"),
+    ("/api/v1/runs/{run_id}/datasets/{selector}", "get"),
+    ("/api/v1/runs/{run_id}/measurements", "get"),
+    ("/api/v1/runs/{run_id}/parameter-proposals", "get"),
+    (
+        "/api/v1/runs/{run_id}/parameter-proposals/{proposal_id}/review",
         "post",
     ),
+    ("/api/v1/runs/{run_id}/records/{selector}/json", "get"),
 }
 
 
@@ -51,20 +44,10 @@ def main() -> None:
     # Route registration only closes over the backend; schema generation never calls it.
     app = create_app(cast("DaemonApplicationContract", object()))
     openapi = app.openapi()
-    properties = {
-        name: openapi["paths"][path][method]["responses"][status]["content"][
-            "application/json"
-        ]["schema"]
-        for name, (path, method, status) in _RESPONSES.items()
-    }
-    properties.update(
-        {
-            name: openapi["paths"][path][method]["requestBody"]["content"][
-                "application/json"
-            ]["schema"]
-            for name, (path, method) in _REQUESTS.items()
-        }
-    )
+    paths: dict[str, dict[str, object]] = {}
+    for path, method in sorted(_OPERATIONS):
+        paths.setdefault(path, {})[method] = openapi["paths"][path][method]
+
     components = openapi["components"]["schemas"]
     # These payloads are intentionally opaque in the console and recursive in JSON
     # Schema, so narrowing them here also keeps the generated contract bounded.
@@ -75,14 +58,11 @@ def main() -> None:
         "scopecat__kernel__json_types__JsonValue",
     ):
         components[name] = {}
-    reachable = _reachable_components(properties, components)
+    reachable = _reachable_components(paths, components)
     schema = {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "title": "DaemonUiApi",
-        "type": "object",
-        "additionalProperties": False,
-        "properties": properties,
-        "required": list(properties),
+        "openapi": openapi["openapi"],
+        "info": openapi["info"],
+        "paths": paths,
         "components": {
             "schemas": {name: components[name] for name in sorted(reachable)}
         },

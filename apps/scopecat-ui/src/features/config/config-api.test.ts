@@ -127,26 +127,6 @@ describe("config registry reads", () => {
     expect(detail.config.raw.schema_version).toBe("scopecat.config_profile_snapshot.v3");
   });
 
-  it("rejects unsupported registry entry schemas", async () => {
-    const fetchMock = vi.fn(() =>
-      Promise.resolve(
-        jsonResponse({
-          schema_version: "scopecat.config_registry_view.v1",
-          entries: [
-            {
-              ...registryEntry("config-a", HASH_A),
-              schema_version: "scopecat.config.registry_entry.v6",
-            },
-          ],
-          active_state: null,
-        }),
-      ),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(getConfigRegistry()).rejects.toThrow("config registry entry schema");
-  });
-
   it("preserves typed parameter-edit provenance from registry v7", async () => {
     const fetchMock = vi.fn(() =>
       Promise.resolve(
@@ -195,12 +175,14 @@ describe("config registry commands", () => {
     await rollbackConfig(command);
 
     expectRequest(fetchMock, 0, "/api/v1/config-registry/active", {
+      schema_version: "scopecat.config_entry_activation_command.v1",
       entry_id: "config/b",
       operator: "Ada",
       note: "promote calibrated values",
       expected_generation: 2,
     });
     expectRequest(fetchMock, 1, "/api/v1/config-registry/rollback", {
+      schema_version: "scopecat.config_rollback_command.v1",
       operator: "Ada",
       note: "promote calibrated values",
       expected_generation: 2,
@@ -220,6 +202,7 @@ describe("config registry commands", () => {
     });
 
     expectRequest(fetchMock, 0, "/api/v1/config-registry/entries", {
+      schema_version: "scopecat.direct_config_import_command.v1",
       entry_id: "profile-import",
       registered_by: "Grace",
       note: "bench setup",

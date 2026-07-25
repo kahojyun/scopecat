@@ -30,8 +30,8 @@ describe("parameter proposal reads", () => {
                 deltas: [
                   {
                     parameter_id: "q0.drive.frequency",
-                    before: { value: 5.0 },
-                    after: { value: 5.1 },
+                    before: scalarValue(5.0),
+                    after: scalarValue(5.1),
                   },
                 ],
               },
@@ -114,6 +114,7 @@ describe("parameter proposal commands", () => {
     });
 
     expectRequest(fetchMock, "/api/v1/runs/run%2Fa/parameter-proposals/proposal%20b/review", {
+      schema_version: "scopecat.parameter_proposal_review_command.v1",
       run_id: "run/a",
       proposal_id: "proposal b",
       decision: "rejected",
@@ -136,6 +137,7 @@ describe("parameter proposal commands", () => {
     });
 
     expectRequest(fetchMock, "/api/v1/config-registry/candidates/activate", {
+      schema_version: "scopecat.candidate_config_activation_command.v1",
       run_id: "run-a",
       proposal_ids: ["drive-frequency"],
       registered_by: "Ada",
@@ -169,6 +171,16 @@ function jsonResponse(body: unknown, status = 200): Response {
     status,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+function scalarValue(value: number) {
+  return {
+    id: "q0.drive.frequency",
+    shape: "scalar",
+    value,
+    source_location: null,
+    metadata: {},
+  };
 }
 
 function expectRequest(

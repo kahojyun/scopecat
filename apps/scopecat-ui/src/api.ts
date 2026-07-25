@@ -6,7 +6,7 @@ import type {
   RunContentEntry,
   RunManifest,
   RunResourceView,
-} from "./api-schema";
+} from "./api-contract";
 import type {
   ContentEntry,
   ExperimentCatalog,
@@ -98,6 +98,7 @@ export async function resolveAttention(runId: string, action: AttentionAction): 
   const command: DaemonUiApi["attentionCommand"] = {
     run_id: runId,
     action,
+    schema_version: "scopecat.attention_resolution_command.v1",
   };
   await request(`/api/v1/runs/${encodeURIComponent(runId)}/attention`, undefined, {
     method: "POST",
