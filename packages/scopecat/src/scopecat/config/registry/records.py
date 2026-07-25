@@ -10,12 +10,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from scopecat.records.config import ConfigContentHash
 from scopecat.records.run import utc_now
 
-CONFIG_REGISTRY_ENTRY_SCHEMA_VERSION = "scopecat.config.registry_entry.v7"
-CONFIG_REGISTRY_ACTIVE_STATE_SCHEMA_VERSION = "scopecat.config.registry_active_state.v2"
-CONFIG_REGISTRY_ACTIVATION_RECORD_SCHEMA_VERSION = (
-    "scopecat.config.registry_activation_record.v2"
-)
-
 type EvidenceContentHash = Annotated[
     str,
     Field(pattern=r"^sha256:[0-9a-f]{64}$"),
@@ -96,9 +90,6 @@ ConfigRegistryEntrySource = Annotated[
 
 
 class ConfigRegistryEntry(_FrozenRegistryModel):
-    schema_version: Literal["scopecat.config.registry_entry.v7"] = (
-        CONFIG_REGISTRY_ENTRY_SCHEMA_VERSION
-    )
     id: str
     config_ref: str
     content_hash: ConfigContentHash
@@ -117,9 +108,6 @@ class ConfigRegistryEntry(_FrozenRegistryModel):
 
 
 class ConfigRegistryActivationRecord(_FrozenRegistryModel):
-    schema_version: Literal["scopecat.config.registry_activation_record.v2"] = (
-        CONFIG_REGISTRY_ACTIVATION_RECORD_SCHEMA_VERSION
-    )
     id: str
     generation: int = Field(ge=1)
     action: Literal["activation", "rollback"]
@@ -145,9 +133,6 @@ class ConfigRegistryActivationRecord(_FrozenRegistryModel):
 
 
 class ConfigRegistryActiveState(_FrozenRegistryModel):
-    schema_version: Literal["scopecat.config.registry_active_state.v2"] = (
-        CONFIG_REGISTRY_ACTIVE_STATE_SCHEMA_VERSION
-    )
     generation: int = Field(ge=1)
     active_entry_id: str
     active_entry_content_hash: ConfigContentHash

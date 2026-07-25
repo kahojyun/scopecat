@@ -11,6 +11,10 @@ from typing import Self, cast
 import pytest
 from scopecat.api.lab import LabClient
 from scopecat.application import LabApplication
+from scopecat.config.documents import (
+    CONFIG_SNAPSHOT_FORMAT_VERSION,
+    parse_config_snapshot_document,
+)
 from scopecat.config.profiles import load_config_profile
 from scopecat.daemon.endpoint import DAEMON_URL_ENV, DaemonEndpointRecord
 from scopecat.daemon.wire import ConfigDefaultReceipt
@@ -228,9 +232,7 @@ def test_export_writes_complete_active_snapshot_via_atomic_replace(
     assert result.config == active
     assert result.content_hash == config_content_hash(active)
     assert (
-        ConfigProfileSnapshot.model_validate_json(
-            destination.read_text(encoding="utf-8")
-        )
+        parse_config_snapshot_document(destination.read_text(encoding="utf-8"))
         == active
     )
     assert destination.read_text(encoding="utf-8").endswith("\n")
@@ -263,9 +265,10 @@ def test_export_refuses_overwrite_by_default_and_can_replace_explicitly(
     result = export_project_config(project, destination, overwrite=True)
 
     assert result.config == active
-    assert json.loads(destination.read_text(encoding="utf-8")) == active.model_dump(
-        mode="json"
-    )
+    assert json.loads(destination.read_text(encoding="utf-8")) == {
+        **active.model_dump(mode="json"),
+        "format_version": CONFIG_SNAPSHOT_FORMAT_VERSION,
+    }
     assert lab.closed
 
 

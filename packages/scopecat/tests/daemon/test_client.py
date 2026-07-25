@@ -574,7 +574,6 @@ def _client(requests: list[httpx2.Request]) -> DaemonClient:
         if path == "/api/v1/health":
             return _json(
                 {
-                    "schema_version": "scopecat.daemon_health.v2",
                     "status": "ok",
                     "project_id": "project-1",
                     "project_name": "test-lab",

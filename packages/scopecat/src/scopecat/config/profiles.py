@@ -24,12 +24,14 @@ from scopecat.records.config import (
 from scopecat.records.parameter import ParameterSnapshot
 
 
-class ConfigProfileFile(BaseModel):
+class ConfigProfileManifest(BaseModel):
     """User-authored file that references split config inputs."""
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.config_profile.v2"] = "scopecat.config_profile.v2"
+    format_version: Literal["scopecat.config_profile_manifest.v1"] = (
+        "scopecat.config_profile_manifest.v1"
+    )
     id: str
     system_ref: str
     environment_ref: str
@@ -42,7 +44,7 @@ def load_config_profile(path: str | Path) -> ConfigProfileSnapshot:
     profile_path = Path(path)
     profile = _load_config_input(
         profile_path,
-        ConfigProfileFile,
+        ConfigProfileManifest,
         code_prefix="config.profile",
         label="config profile",
     )

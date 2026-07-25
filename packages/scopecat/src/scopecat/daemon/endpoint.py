@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import datetime
 from os import environ
 from pathlib import Path
-from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -22,9 +21,6 @@ class DaemonEndpointRecord(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: Literal["scopecat.daemon_endpoint.v1"] = (
-        "scopecat.daemon_endpoint.v1"
-    )
     project_root: Path
     pid: int = Field(gt=0)
     process_create_time: float = Field(gt=0)

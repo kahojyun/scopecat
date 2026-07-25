@@ -26,7 +26,7 @@ from scopecat.kernel.problems import (
 )
 
 
-def test_problem_v1_is_deeply_frozen_and_json_round_trips() -> None:
+def test_problem_is_deeply_frozen_and_json_round_trips() -> None:
     problem = blocking_problem(
         "authoring.missing_input",
         "required input is missing",
@@ -38,7 +38,6 @@ def test_problem_v1_is_deeply_frozen_and_json_round_trips() -> None:
         occurrence_id="problem-1",
     )
 
-    assert problem.schema_version == "scopecat.problem.v1"
     assert problem.location == ModelLocation(
         root="template",
         path=("inputs", "drive.frequency"),

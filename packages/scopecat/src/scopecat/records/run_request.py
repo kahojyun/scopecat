@@ -18,9 +18,6 @@ from scopecat.records._run_request_values import (
 )
 from scopecat.records.parameter import Quantity
 
-RUN_REQUEST_SCHEMA_VERSION = "scopecat.run_request.v4"
-
-
 type RunRequestJsonValue = Annotated[
     str
     | bool
@@ -206,7 +203,6 @@ ScanGroupRecord.model_rebuild()
 class RunRequest(_RunRequestModel):
     """Operator request for one structured run segment."""
 
-    schema_version: Literal["scopecat.run_request.v4"] = RUN_REQUEST_SCHEMA_VERSION
     id: str
     template_id: str | None = None
     template_inputs: dict[str, RunRequestValue] = Field(default_factory=dict)

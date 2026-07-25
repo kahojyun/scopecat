@@ -33,7 +33,6 @@ export async function reviewParameterProposal(
   command: ReviewProposalCommand,
 ): Promise<void> {
   const payload: DaemonUiApi["parameterProposalReviewCommand"] = {
-    schema_version: "scopecat.parameter_proposal_review_command.v1",
     run_id: runId,
     proposal_id: proposalId,
     decision: command.decision,
@@ -51,7 +50,6 @@ export async function activateProposalCandidate(
   command: ActivateProposalCandidateCommand,
 ): Promise<void> {
   const payload: DaemonUiApi["candidateConfigActivationCommand"] = {
-    schema_version: "scopecat.candidate_config_activation_command.v1",
     run_id: command.runId,
     proposal_ids:
       command.proposalIds as DaemonUiApi["candidateConfigActivationCommand"]["proposal_ids"],

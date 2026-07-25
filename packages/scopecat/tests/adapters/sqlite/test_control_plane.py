@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -11,8 +10,8 @@ import pytest
 from scopecat.adapters.sqlite import (
     ControlPlaneConflict,
     ExecutorLeaseNotHeld,
-    SchemaVersionError,
     SQLiteControlPlane,
+    SQLiteProjectStore,
 )
 from scopecat.control import (
     DurableEventInput,
@@ -26,9 +25,8 @@ CONFIG_HASH = f"sha256:{'1' * 64}"
 
 
 def _store(path: Path) -> SQLiteControlPlane:
-    store = SQLiteControlPlane(path)
-    store.bootstrap()
-    return store
+    SQLiteProjectStore(path, path.parent / "objects").bootstrap()
+    return SQLiteControlPlane(path)
 
 
 def _admission(
@@ -56,34 +54,6 @@ def _succeeded(run_id: str, *, at: datetime) -> RunOutcome:
         termination_reason="completed",
         finished_at=at,
     )
-
-
-def test_bootstrap_is_idempotent_and_refuses_unknown_schema(tmp_path: Path) -> None:
-    path = tmp_path / "control.sqlite3"
-    store = _store(path)
-
-    store.bootstrap()
-
-    assert store.schema_version() == 1
-    with sqlite3.connect(path) as connection:
-        journal_mode = connection.execute("PRAGMA journal_mode").fetchone()
-        tables = {
-            row[0]
-            for row in connection.execute(
-                "SELECT name FROM sqlite_schema WHERE type = 'table'"
-            )
-        }
-        connection.execute("UPDATE control_schema SET version = 99")
-    assert journal_mode == ("wal",)
-    assert {
-        "runs",
-        "durable_events",
-        "executor_leases",
-        "resource_leases",
-    } <= tables
-
-    with pytest.raises(SchemaVersionError):
-        store.bootstrap()
 
 
 def test_run_admission_state_and_pagination(tmp_path: Path) -> None:

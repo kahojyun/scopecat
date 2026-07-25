@@ -1,16 +1,18 @@
-"""Current SQLite control-plane schema."""
+"""Current SQLite project-store schema."""
 
-SCHEMA_VERSION = 1
+from scopecat.adapters.sqlite.config_schema import CONFIG_REGISTRY_TABLES_SQL
+from scopecat.adapters.sqlite.execution_schema import EXECUTION_TABLES_SQL
+from scopecat.adapters.sqlite.run_schema import RUN_TABLES_SQL
 
-SCHEMA_SQL = """
-BEGIN IMMEDIATE;
+PROJECT_SCHEMA_VERSION = 1
 
-CREATE TABLE IF NOT EXISTS control_schema (
+_CONTROL_TABLES_SQL = """
+CREATE TABLE IF NOT EXISTS project_schema (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
     version INTEGER NOT NULL
 );
 
-INSERT OR IGNORE INTO control_schema(singleton, version) VALUES (1, 1);
+INSERT OR IGNORE INTO project_schema(singleton, version) VALUES (1, 1);
 
 CREATE TABLE IF NOT EXISTS runs (
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -94,6 +96,15 @@ CREATE TABLE IF NOT EXISTS resource_leases (
 );
 
 CREATE INDEX IF NOT EXISTS resource_leases_run_id ON resource_leases(run_id);
-
-COMMIT;
 """
+
+PROJECT_SCHEMA_SQL = "\n".join(
+    (
+        "BEGIN IMMEDIATE;",
+        _CONTROL_TABLES_SQL,
+        RUN_TABLES_SQL,
+        CONFIG_REGISTRY_TABLES_SQL,
+        EXECUTION_TABLES_SQL,
+        "COMMIT;",
+    )
+)

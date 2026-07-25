@@ -143,9 +143,6 @@ class CapabilityDescription(BaseModel):
 class InstrumentDescription(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.instrument_description.v1"] = (
-        "scopecat.instrument_description.v1"
-    )
     instrument_id: str
     implementation_id: str
     implementation_version: str
@@ -172,9 +169,6 @@ class InstrumentStateCommandField(BaseModel):
 class InstrumentStateCommand(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.instrument_state_command.v4"] = (
-        "scopecat.instrument_state_command.v4"
-    )
     operation_id: str | None = None
     attempt: int = Field(default=1, ge=1)
     instrument_id: str
@@ -208,7 +202,6 @@ class ApplyReceipt(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.apply_receipt.v3"] = "scopecat.apply_receipt.v3"
     status: Literal["applied", "not_applied", "unknown"] = "applied"
     problems: tuple[Problem, ...] = ()
     state: _InstrumentStateSnapshot | None = None
@@ -247,9 +240,6 @@ class InstrumentActionCommand(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.instrument_action_command.v2"] = (
-        "scopecat.instrument_action_command.v2"
-    )
     operation_id: _NonEmptyId
     attempt: int = Field(default=1, ge=1)
     instrument_id: _NonEmptyId
@@ -284,7 +274,6 @@ class ActionReceipt(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.action_receipt.v1"] = "scopecat.action_receipt.v1"
     status: Literal["performed", "not_performed", "unknown"] = "performed"
     problems: tuple[Problem, ...] = ()
     metadata: JsonMetadata = Field(default_factory=dict)
@@ -339,9 +328,6 @@ class CollectProductRequest(BaseModel):
 class CollectCommand(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.collect_command.v1"] = (
-        "scopecat.collect_command.v1"
-    )
     operation_id: str | None = None
     attempt: int = Field(default=1, ge=1)
     instrument_id: str
@@ -369,9 +355,6 @@ class CollectReceipt(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.collect_receipt.v1"] = (
-        "scopecat.collect_receipt.v1"
-    )
     status: Literal["collected", "not_collected", "unknown"] = "collected"
     problems: tuple[Problem, ...] = ()
     readback: _InstrumentReadback | None = None

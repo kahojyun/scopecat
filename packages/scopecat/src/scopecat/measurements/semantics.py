@@ -28,7 +28,7 @@ def _empty_semantic_parameters() -> FrozenMapping[str, JsonValue]:
 class MeasurementTransformSemanticContract:
     """Data-only pure meaning that a host or domain realization may satisfy."""
 
-    schema_version: ClassVar[Literal["scopecat.measurement_transform_semantic.v1"]] = (
+    schema_id: ClassVar[Literal["scopecat.measurement_transform_semantic.v1"]] = (
         _SEMANTIC_CONTRACT_SCHEMA
     )
     purity: ClassVar[Literal["pure"]] = "pure"
@@ -63,7 +63,7 @@ class MeasurementTransformSemanticContract:
     def contract_fingerprint(self) -> str:
         return stable_content_hash(
             {
-                "schema": self.schema_version,
+                "schema": self.schema_id,
                 "id": self.id,
                 "version": self.version,
                 "purity": self.purity,

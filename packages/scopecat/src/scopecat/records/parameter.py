@@ -515,9 +515,6 @@ class ParameterCatalog(BaseModel):
         revalidate_instances="always",
     )
 
-    schema_version: Literal["scopecat.parameter_catalog.v4"] = (
-        "scopecat.parameter_catalog.v4"
-    )
     id: str
     definitions: Sequence[ParameterDefinition] = Field(default_factory=tuple)
     metadata: Mapping[str, object] = Field(
@@ -698,9 +695,6 @@ class ParameterSnapshot(BaseModel):
         revalidate_instances="always",
     )
 
-    schema_version: Literal["scopecat.parameter_snapshot.v2"] = (
-        "scopecat.parameter_snapshot.v2"
-    )
     id: str
     values: Sequence[StoredParameterValue] = Field(default_factory=tuple)
     metadata: Mapping[str, object] = Field(

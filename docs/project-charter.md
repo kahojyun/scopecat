@@ -29,6 +29,10 @@ Scopecat should make it practical to:
   workflows need them.
 - Prefer simpler models and direct breaking changes while the project remains
   internal and compatibility is not a product requirement.
+- Version independently evolving storage and document boundaries, not each
+  internal model or message.
+- Upgrade core, daemon, GUI, and SDK together; convert valuable experimental
+  data explicitly instead of maintaining speculative compatibility layers.
 
 ## Non-Goals
 

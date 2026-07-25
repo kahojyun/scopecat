@@ -11,8 +11,8 @@ from scopecat.adapters.sqlite import (
     SQLiteExecutionJournal,
     SQLiteMeasurementDatasetRepository,
     SQLitePayloadEvidenceCommitter,
+    SQLiteProjectStore,
     SQLiteRunRepository,
-    bootstrap_execution_schema,
 )
 from scopecat.application.services import ProjectServices
 from scopecat.config.registry.ports import ConfigRegistryUnitOfWorkFactory
@@ -23,8 +23,8 @@ def sqlite_run_repository(project: str | Path) -> SQLiteRunRepository:
     """Open an isolated SQLite run repository."""
 
     database, objects = _sqlite_paths(project)
+    SQLiteProjectStore(database, objects).bootstrap()
     repository = SQLiteRunRepository(database, objects)
-    repository.bootstrap()
     return repository
 
 
@@ -45,8 +45,6 @@ def sqlite_execution_services(
     """Bind execution ports to isolated SQLite persistence."""
 
     selected_runs = sqlite_run_repository(project) if runs is None else runs
-    selected_runs.bootstrap()
-    bootstrap_execution_schema(selected_runs)
     return ExecutionServices(
         runs=selected_runs,
         resources=MemoryResourceLeaseManager(),
@@ -115,9 +113,7 @@ def _config_registry_store(
     runs: SQLiteRunRepository,
 ) -> SQLiteConfigRegistryStore:
     database, _ = _sqlite_paths(project)
-    store = SQLiteConfigRegistryStore(database, runs=runs)
-    store.bootstrap()
-    return store
+    return SQLiteConfigRegistryStore(database, runs=runs)
 
 
 __all__ = [

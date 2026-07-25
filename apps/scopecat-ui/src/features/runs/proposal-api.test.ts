@@ -114,7 +114,6 @@ describe("parameter proposal commands", () => {
     });
 
     expectRequest(fetchMock, "/api/v1/runs/run%2Fa/parameter-proposals/proposal%20b/review", {
-      schema_version: "scopecat.parameter_proposal_review_command.v1",
       run_id: "run/a",
       proposal_id: "proposal b",
       decision: "rejected",
@@ -137,7 +136,6 @@ describe("parameter proposal commands", () => {
     });
 
     expectRequest(fetchMock, "/api/v1/config-registry/candidates/activate", {
-      schema_version: "scopecat.candidate_config_activation_command.v1",
       run_id: "run-a",
       proposal_ids: ["drive-frequency"],
       registered_by: "Ada",

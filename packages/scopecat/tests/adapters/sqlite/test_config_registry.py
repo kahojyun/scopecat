@@ -7,6 +7,7 @@ from typing import override
 
 import pytest
 
+from scopecat.adapters.sqlite import SQLiteProjectStore
 from scopecat.adapters.sqlite.config_registry import SQLiteConfigRegistryStore
 from scopecat.adapters.sqlite.run_repository import SQLiteRunRepository
 from scopecat.config.profiles import load_config_profile
@@ -27,11 +28,9 @@ from tests.testkit.paths import CORE_FIXTURE_DIR
 
 def _store(tmp_path: Path) -> SQLiteConfigRegistryStore:
     database = tmp_path / "control.sqlite3"
+    SQLiteProjectStore(database, tmp_path / "objects").bootstrap()
     runs = SQLiteRunRepository(database, tmp_path / "objects")
-    runs.bootstrap()
-    store = SQLiteConfigRegistryStore(database, runs=runs)
-    store.bootstrap()
-    return store
+    return SQLiteConfigRegistryStore(database, runs=runs)
 
 
 class TestSQLiteConfigRegistryUnitOfWorkContract(ConfigRegistryUnitOfWorkContract):

@@ -1,5 +1,5 @@
 {
-  "schema_version": "quantum_lab_demo.virtual_lab_profile.v1",
+  "format_version": "quantum_lab_demo.virtual_lab_profile.v1",
   "id": "quantum_lab_demo.virtual_lab",
   "devices": [
     {

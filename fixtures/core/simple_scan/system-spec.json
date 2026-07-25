@@ -1,5 +1,4 @@
 {
-  "schema_version": "scopecat.system_spec.v4",
   "id": "simple-scan-system",
   "primary_entity_id": "q0",
   "topology": {
@@ -57,7 +56,6 @@
     "instrument_ids": []
   },
   "parameter_catalog": {
-    "schema_version": "scopecat.parameter_catalog.v4",
     "id": "example-parameter-definitions-catalog",
     "definitions": [
       {

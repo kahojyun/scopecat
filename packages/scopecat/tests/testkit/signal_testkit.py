@@ -82,7 +82,6 @@ class SummaryStatsObservable(BaseModel):
 class SummaryStatsResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: str = "scopecat.test_summary_stats_result.v1"
     run_id: str
     step: str = SUMMARY_STATS_STEP
     input_ref: str
@@ -94,7 +93,6 @@ class SummaryStatsResult(BaseModel):
 class BestSignalAnalysisResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: str = "scopecat.test_best_signal_analysis_result.v1"
     run_id: str
     step: str = BEST_SIGNAL_ANALYSIS_STEP
     input_ref: str = BEST_SIGNAL_INPUT_REF

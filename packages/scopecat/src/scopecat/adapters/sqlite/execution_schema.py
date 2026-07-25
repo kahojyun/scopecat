@@ -1,18 +1,6 @@
-"""Current SQLite execution-index schema."""
+"""SQLite execution-index tables."""
 
-EXECUTION_SCHEMA_VERSION = 2
-
-EXECUTION_SCHEMA_SQL = """
-BEGIN IMMEDIATE;
-
-CREATE TABLE IF NOT EXISTS execution_repository_schema (
-    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-    version INTEGER NOT NULL
-);
-
-INSERT OR IGNORE INTO execution_repository_schema(singleton, version)
-VALUES (1, 2);
-
+EXECUTION_TABLES_SQL = """
 CREATE TABLE IF NOT EXISTS execution_journal_entries (
     run_id TEXT NOT NULL,
     sequence INTEGER NOT NULL CHECK (sequence >= 0),
@@ -79,6 +67,4 @@ CREATE TABLE IF NOT EXISTS execution_payload_evidence (
     digest TEXT NOT NULL,
     PRIMARY KEY (run_id, operation_id)
 );
-
-COMMIT;
 """

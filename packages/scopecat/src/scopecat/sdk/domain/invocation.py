@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Hashable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Literal, Protocol, cast
+from typing import Protocol, cast
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
@@ -106,9 +106,6 @@ class DomainInvocationIntent(BaseModel):
         revalidate_instances="always",
     )
 
-    schema_version: Literal["scopecat.sdk.domain.invocation_intent.v1"] = (
-        "scopecat.sdk.domain.invocation_intent.v1"
-    )
     invocation_id: str
     target_id: str
     compiler_id: str

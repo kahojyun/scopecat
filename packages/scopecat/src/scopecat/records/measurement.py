@@ -35,7 +35,7 @@ from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import Quantity
 
 MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v1"
-MEASUREMENT_DATASET_SCHEMA_VERSION = "scopecat.measurement_dataset_schema.v1"
+MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v1"
 MeasurementDatasetRole = Literal["raw", "derived"]
 
 MeasurementVariableRole = Literal[
@@ -116,7 +116,9 @@ class MeasurementVariable(BaseModel):
 class MeasurementDatasetSchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: str = MEASUREMENT_DATASET_SCHEMA_VERSION
+    format_version: Literal["scopecat.measurement_dataset_schema.v1"] = (
+        MEASUREMENT_DATASET_FORMAT_VERSION
+    )
     dataset_id: str
     dataset_role: MeasurementDatasetRole
     record_schema: str = MEASUREMENT_RECORD_SCHEMA_VERSION
@@ -257,7 +259,6 @@ type CoordinateValue = Quantity | EntityRef | str | int | float | bool | None
 class MeasurementRecord(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: str = MEASUREMENT_RECORD_SCHEMA_VERSION
     run_id: str
     logical_point_id: str | None = None
     point_index: int
@@ -404,7 +405,7 @@ def validate_measurement_records_against_schema(
             problems.append(
                 _problem(
                     "measurement_dataset_unsupported_variable_role",
-                    "MeasurementRecord v0 supports coordinate and observable "
+                    "measurement records support coordinate and observable "
                     f"variables only, got {variable.role} for {variable.id}",
                     ("dataset_schema", "variables", variable.id, "role"),
                 )
@@ -413,8 +414,8 @@ def validate_measurement_records_against_schema(
             problems.append(
                 _problem(
                     "measurement_dataset_unsupported_dtype",
-                    "MeasurementRecord v0 stores numeric scalar or array values "
-                    f"and does not support {variable.dtype} for {variable.id}",
+                    "measurement records store numeric scalar or array values "
+                    f"and do not support {variable.dtype} for {variable.id}",
                     ("dataset_schema", "variables", variable.id, "dtype"),
                 )
             )

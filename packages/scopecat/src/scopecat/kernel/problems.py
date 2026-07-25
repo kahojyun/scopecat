@@ -227,7 +227,6 @@ class Problem(BaseModel):
         revalidate_instances="always",
     )
 
-    schema_version: Literal["scopecat.problem.v1"] = "scopecat.problem.v1"
     code: str
     impact: ProblemImpact
     category: ProblemCategory

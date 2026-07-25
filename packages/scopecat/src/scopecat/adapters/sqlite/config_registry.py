@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import sqlite3
-from contextlib import closing
 from pathlib import Path
 from types import TracebackType
 from typing import Self, cast
@@ -11,10 +10,6 @@ from typing import Self, cast
 from pydantic import BaseModel, ValidationError
 from pydantic_core import PydanticSerializationError
 
-from scopecat.adapters.sqlite.config_schema import (
-    CONFIG_REGISTRY_SCHEMA_SQL,
-    CONFIG_REGISTRY_SCHEMA_VERSION,
-)
 from scopecat.config.registry.records import (
     ConfigRegistryActivationRecord,
     ConfigRegistryActiveState,
@@ -383,32 +378,6 @@ class SQLiteConfigRegistryStore:
         self.runs = runs
         self._busy_timeout_seconds = busy_timeout_seconds
 
-    def bootstrap(self) -> None:
-        try:
-            self.database.parent.mkdir(parents=True, exist_ok=True)
-            with closing(
-                _connect(
-                    self.database,
-                    busy_timeout_seconds=self._busy_timeout_seconds,
-                )
-            ) as connection:
-                connection.execute("PRAGMA journal_mode = WAL")
-                connection.executescript(CONFIG_REGISTRY_SCHEMA_SQL)
-                row = _one(
-                    connection.execute(
-                        """
-                        SELECT version
-                        FROM config_registry_schema
-                        WHERE singleton = 1
-                        """
-                    )
-                )
-        except (OSError, sqlite3.Error) as error:
-            raise _storage_failure(CONFIG_REGISTRY_ROOT) from error
-        version = None if row is None else _integer(row, "version")
-        if version != CONFIG_REGISTRY_SCHEMA_VERSION:
-            raise _schema_failure(version)
-
     def unit_of_work(self) -> SQLiteConfigRegistryUnitOfWork:
         return SQLiteConfigRegistryUnitOfWork(
             self.database,
@@ -530,14 +499,6 @@ def _missing_record(ref: str) -> DataIntegrityError:
         ref,
         code="config_registry.record_missing",
         message="config registry is missing a referenced durable record",
-    )
-
-
-def _schema_failure(version: int | None) -> DataIntegrityError:
-    return _integrity_failure(
-        CONFIG_REGISTRY_ROOT,
-        code="storage.schema_unsupported",
-        message=f"unsupported config registry schema version: {version}",
     )
 
 

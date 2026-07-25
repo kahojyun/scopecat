@@ -67,9 +67,6 @@ class BinaryIqDiscriminator(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: Literal["scopecat_quantum.binary_iq_discriminator.v1"] = (
-        "scopecat_quantum.binary_iq_discriminator.v1"
-    )
     state_0_centroid: IqCentroid
     state_1_centroid: IqCentroid
     tie_policy: Literal["state_0", "state_1"] = "state_0"

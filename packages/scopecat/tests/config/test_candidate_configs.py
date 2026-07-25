@@ -344,7 +344,6 @@ def test_parameter_change_proposal_round_trips_and_is_persisted(
 
     assert restored == proposal
     assert persisted == proposal
-    assert persisted.schema_version == "scopecat.parameter_change_proposal.v3"
     assert persisted.deltas == proposal.deltas
 
 

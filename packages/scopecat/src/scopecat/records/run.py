@@ -46,9 +46,6 @@ def utc_now() -> datetime:
 class ConfigRegistryRunConfigSource(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.config_registry_run_source.v1"] = (
-        "scopecat.config_registry_run_source.v1"
-    )
     kind: Literal["config_registry"] = "config_registry"
     selector: str
     entry_id: str
@@ -62,9 +59,6 @@ class AnalysisCandidateRunConfigSource(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.analysis_candidate_run_source.v1"] = (
-        "scopecat.analysis_candidate_run_source.v1"
-    )
     kind: Literal["analysis_candidate"] = "analysis_candidate"
     source_run_id: str
     analysis_record_ids: tuple[str, ...] = Field(min_length=1)
@@ -102,7 +96,6 @@ class RunOutcome(BaseModel):
         revalidate_instances="always",
     )
 
-    schema_version: Literal["scopecat.run_outcome.v1"] = "scopecat.run_outcome.v1"
     run_id: str
     result: RunResult
     certainty: RunCertainty
@@ -161,7 +154,6 @@ class RunManifest(BaseModel):
         revalidate_instances="always",
     )
 
-    schema_version: Literal["scopecat.run_manifest.v11"] = "scopecat.run_manifest.v11"
     run_id: str
     created_at: datetime = Field(default_factory=utc_now)
     lifecycle: RunLifecycle

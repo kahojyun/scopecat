@@ -80,7 +80,7 @@ def _transition(
     )
 
 
-def test_catalog_is_closed_versioned_json() -> None:
+def test_catalog_is_closed_typed_json() -> None:
     catalog = ExperimentCatalog(
         revision="catalog-sha",
         experiments=(
@@ -115,7 +115,7 @@ def test_catalog_is_closed_versioned_json() -> None:
         )
 
 
-def test_config_registry_commands_are_closed_versioned_json() -> None:
+def test_config_registry_commands_are_closed_typed_json() -> None:
     config = load_config()
     entry = ConfigRegistryEntry(
         id="baseline",

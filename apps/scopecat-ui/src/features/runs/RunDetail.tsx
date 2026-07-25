@@ -796,7 +796,7 @@ function eventDescription(event: ProjectEvent): string {
   const primitiveEntries = Object.entries(event.payload)
     .filter(
       ([key, value]) =>
-        !["kind", "schema_version", "run_id"].includes(key) &&
+        !["kind", "run_id"].includes(key) &&
         (typeof value === "string" || typeof value === "number" || typeof value === "boolean"),
     )
     .slice(0, 3);

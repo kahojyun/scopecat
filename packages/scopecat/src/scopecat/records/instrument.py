@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Annotated, Literal
+from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -100,9 +100,6 @@ class InstrumentStateField(BaseModel):
 class InstrumentStateSnapshot(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.instrument_state_snapshot.v2"] = (
-        "scopecat.instrument_state_snapshot.v2"
-    )
     instrument_id: str
     fields: list[InstrumentStateField] = Field(default_factory=list)
     metadata: JsonMetadata = Field(default_factory=dict)

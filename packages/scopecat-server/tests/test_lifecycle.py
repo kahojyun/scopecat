@@ -9,6 +9,7 @@ from pathlib import Path
 
 import httpx2
 import pytest
+from scopecat.config.documents import parse_config_snapshot_document
 from scopecat.config.resolution import validate_config_profile
 from scopecat.daemon.endpoint import (
     DAEMON_URL_ENV,
@@ -17,7 +18,6 @@ from scopecat.daemon.endpoint import (
     read_daemon_endpoint_record,
 )
 from scopecat.project import open_project
-from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter import ScalarParameterValue
 from typer.testing import CliRunner
 
@@ -229,7 +229,7 @@ def test_cli_daemon_first_use_loop_uses_dynamic_port_and_cleans_record(
         )
         assert exported.returncode == 0, exported.stderr
         assert "exported" in exported.stdout
-        exported_config = ConfigProfileSnapshot.model_validate_json(
+        exported_config = parse_config_snapshot_document(
             exported_path.read_text(encoding="utf-8")
         )
         assert exported_config.parameter_snapshot.get(

@@ -26,6 +26,7 @@ from scopecat.adapters.sqlite import (
     SQLiteExecutionJournal,
     SQLiteMeasurementDatasetRepository,
     SQLitePayloadEvidenceCommitter,
+    SQLiteProjectStore,
     SQLiteRunRepository,
 )
 from scopecat.adapters.sqlite.execution import ExecutionJournalConflict
@@ -2490,7 +2491,7 @@ class DaemonApplication:
         *,
         project_root: str | Path,
         project_id: str,
-        control: SQLiteControlPlane,
+        project_store: SQLiteProjectStore,
         catalog: RegisteredExperimentCatalog,
         config: ConfigService,
         runs: RunService,
@@ -2500,7 +2501,7 @@ class DaemonApplication:
     ) -> None:
         self.project_root = Path(project_root).resolve()
         self.project_id = project_id
-        self._control = control
+        self._project_store = project_store
         self.config = config
         self.runs = runs
         self._admission = admission
@@ -2516,7 +2517,7 @@ class DaemonApplication:
 
     def health(self) -> DaemonHealth:
         try:
-            self._control.schema_version()
+            self._project_store.schema_version()
         except Exception:
             status: Literal["ok", "degraded"] = "degraded"
         else:

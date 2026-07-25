@@ -76,14 +76,8 @@ def test_durable_metadata_boundaries_reject_non_json_values(
 
 def test_config_profile_snapshot_round_trip() -> None:
     snapshot = load_config_profile(EXAMPLE_DIR / "config-profile.json")
-    restored = assert_model_round_trip(
-        snapshot,
-        schema_version="scopecat.config_profile_snapshot.v3",
-    )
+    restored = assert_model_round_trip(snapshot)
 
-    assert restored.system.schema_version == "scopecat.system_spec.v4"
-    assert restored.environment.schema_version == "scopecat.environment_spec.v2"
-    assert restored.parameter_catalog.schema_version == "scopecat.parameter_catalog.v4"
     assert restored.parameter_snapshot.get("drive_frequency") is not None
     assert restored.topology.entity("q0") is not None
     connection = restored.connection_profile.connections[0]
@@ -98,7 +92,6 @@ def test_run_request_records_config_source() -> None:
     )
     restored = assert_model_round_trip(
         request,
-        schema_version="scopecat.run_request.v4",
     )
 
     assert restored.config_source == "active"
@@ -118,7 +111,6 @@ def test_run_request_records_canonical_scans_only() -> None:
     )
     restored = assert_model_round_trip(
         request,
-        schema_version="scopecat.run_request.v4",
     )
 
     assert restored.scans == request.scans

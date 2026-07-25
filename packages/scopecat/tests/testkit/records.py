@@ -22,15 +22,12 @@ def read_jsonl_models[ModelT: BaseModel](
 def assert_model_round_trip[ModelT: BaseModel](
     record: ModelT,
     *,
-    schema_version: str | None = None,
     by_alias: bool = False,
 ) -> ModelT:
     restored = type(record).model_validate_json(
         record.model_dump_json(by_alias=by_alias)
     )
     assert restored == record
-    if schema_version is not None:
-        assert restored.model_dump(mode="json")["schema_version"] == schema_version
     return restored
 
 

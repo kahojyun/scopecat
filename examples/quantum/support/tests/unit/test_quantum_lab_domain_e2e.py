@@ -180,7 +180,6 @@ def test_fake_x_count_authors_direct_iq_and_derived_probabilities_separately() -
     )
     assert transform.semantic.portability == "host_only"
     assert transform.semantic.parameters["discriminator"] == {
-        "schema_version": "scopecat_quantum.binary_iq_discriminator.v1",
         "state_0_centroid": {"real": -1.0, "imag": 0.0, "unit": "ratio"},
         "state_1_centroid": {"real": 1.0, "imag": 0.0, "unit": "ratio"},
         "tie_policy": "state_0",

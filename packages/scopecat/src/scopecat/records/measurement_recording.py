@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -28,9 +27,6 @@ class MeasurementDatasetAppend(BaseModel):
         extra="forbid", frozen=True, revalidate_instances="always"
     )
 
-    schema_version: Literal["scopecat.measurement_dataset_append.v1"] = (
-        "scopecat.measurement_dataset_append.v1"
-    )
     run_id: str
     dataset_id: str
     recording_contract_fingerprint: str
@@ -87,9 +83,6 @@ class MeasurementDatasetReceipt(BaseModel):
         extra="forbid", frozen=True, revalidate_instances="always"
     )
 
-    schema_version: Literal["scopecat.measurement_dataset_receipt.v1"] = (
-        "scopecat.measurement_dataset_receipt.v1"
-    )
     operation_id: str
     dataset_content_hash: str
     dataset_ref: str
@@ -129,9 +122,6 @@ class MeasurementDatasetAppendIndex(BaseModel):
         extra="forbid", frozen=True, revalidate_instances="always"
     )
 
-    schema_version: Literal["scopecat.measurement_dataset_append_index.v1"] = (
-        "scopecat.measurement_dataset_append_index.v1"
-    )
     operation_id: str
     start_index: int = Field(ge=0)
     record_count: int = Field(gt=0)
@@ -159,9 +149,6 @@ class MeasurementDatasetSeal(BaseModel):
         extra="forbid", frozen=True, revalidate_instances="always"
     )
 
-    schema_version: Literal["scopecat.measurement_dataset_seal.v1"] = (
-        "scopecat.measurement_dataset_seal.v1"
-    )
     run_id: str
     dataset_id: str
     recording_contract_fingerprint: str

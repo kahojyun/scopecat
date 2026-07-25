@@ -1,4 +1,4 @@
-"""Versioned wire contracts shared by daemon servers and Python clients.
+"""Typed wire contracts shared by daemon servers and Python clients.
 
 The models contain durable data only. In particular, delegated execution keeps
 ``RunProgram`` and its Python closures in the executor process.
@@ -80,9 +80,6 @@ class _WireModel(BaseModel):
 class RegisteredExperimentDescriptor(_WireModel):
     """Public catalog metadata for one explicitly versioned registration."""
 
-    schema_version: Literal["scopecat.registered_experiment.v1"] = (
-        "scopecat.registered_experiment.v1"
-    )
     id: NonEmptyText
     version: NonEmptyText
     experiment_kind: NonEmptyText
@@ -102,9 +99,6 @@ class RegisteredExperimentDescriptor(_WireModel):
 class ExperimentCatalog(_WireModel):
     """A complete catalog snapshot addressable by an opaque revision."""
 
-    schema_version: Literal["scopecat.experiment_catalog.v1"] = (
-        "scopecat.experiment_catalog.v1"
-    )
     revision: NonEmptyText
     experiments: tuple[RegisteredExperimentDescriptor, ...] = ()
 
@@ -123,9 +117,6 @@ class ExperimentCatalog(_WireModel):
 class DirectConfigImportCommand(_WireModel):
     """Import one direct configuration snapshot into the daemon registry."""
 
-    schema_version: Literal["scopecat.direct_config_import_command.v1"] = (
-        "scopecat.direct_config_import_command.v1"
-    )
     entry_id: NonEmptyText
     config: ConfigProfileSnapshot
     registered_by: NonEmptyText
@@ -133,18 +124,12 @@ class DirectConfigImportCommand(_WireModel):
 
 
 class ConfigImportReceipt(_WireModel):
-    schema_version: Literal["scopecat.config_import_receipt.v1"] = (
-        "scopecat.config_import_receipt.v1"
-    )
     entry: ConfigRegistryEntry
 
 
 class DirectConfigDefaultCommand(_WireModel):
     """Atomically save one direct snapshot and select it as the default."""
 
-    schema_version: Literal["scopecat.direct_config_default_command.v1"] = (
-        "scopecat.direct_config_default_command.v1"
-    )
     entry_id: NonEmptyText
     config: ConfigProfileSnapshot
     registered_by: NonEmptyText
@@ -154,9 +139,6 @@ class DirectConfigDefaultCommand(_WireModel):
 
 
 class ConfigDefaultReceipt(_WireModel):
-    schema_version: Literal["scopecat.config_default_receipt.v1"] = (
-        "scopecat.config_default_receipt.v1"
-    )
     entry: ConfigRegistryEntry
     active_state: ConfigRegistryActiveState
     activation: ConfigRegistryActivationRecord
@@ -224,9 +206,6 @@ type ConfigParameterUpdate = Annotated[
 class ConfigDraftCommand(_WireModel):
     """Typed parameter edits against one observed active registry generation."""
 
-    schema_version: Literal["scopecat.config_draft_command.v1"] = (
-        "scopecat.config_draft_command.v1"
-    )
     base_entry_id: NonEmptyText
     base_content_hash: ConfigContentHash
     base_generation: int = Field(ge=1)
@@ -237,9 +216,6 @@ class ConfigDraftCommand(_WireModel):
 class ConfigDraftRegistrationCommand(_WireModel):
     """Register a revalidated draft without changing the active entry."""
 
-    schema_version: Literal["scopecat.config_draft_registration_command.v1"] = (
-        "scopecat.config_draft_registration_command.v1"
-    )
     draft: ConfigDraftCommand
     expected_result_content_hash: ConfigContentHash
     entry_id: NonEmptyText
@@ -248,9 +224,6 @@ class ConfigDraftRegistrationCommand(_WireModel):
 
 
 class ConfigDraftRegistrationReceipt(_WireModel):
-    schema_version: Literal["scopecat.config_draft_registration_receipt.v1"] = (
-        "scopecat.config_draft_registration_receipt.v1"
-    )
     entry: ConfigRegistryEntry
     result_content_hash: ConfigContentHash
     deltas: tuple[ParameterValueDelta, ...] = Field(min_length=1)
@@ -259,18 +232,12 @@ class ConfigDraftRegistrationReceipt(_WireModel):
 class ConfigDraftDefaultCommand(_WireModel):
     """Register a reviewed draft and select it as the default in one transaction."""
 
-    schema_version: Literal["scopecat.config_draft_default_command.v1"] = (
-        "scopecat.config_draft_default_command.v1"
-    )
     registration: ConfigDraftRegistrationCommand
     operator: NonEmptyText
     activation_note: str | None = None
 
 
 class ConfigDraftDefaultReceipt(_WireModel):
-    schema_version: Literal["scopecat.config_draft_default_receipt.v1"] = (
-        "scopecat.config_draft_default_receipt.v1"
-    )
     entry: ConfigRegistryEntry
     result_content_hash: ConfigContentHash
     deltas: tuple[ParameterValueDelta, ...] = Field(min_length=1)
@@ -292,9 +259,6 @@ class ConfigDraftDefaultReceipt(_WireModel):
 class ConfigEntryActivationCommand(_WireModel):
     """Select a registered entry with generation compare-and-swap."""
 
-    schema_version: Literal["scopecat.config_entry_activation_command.v1"] = (
-        "scopecat.config_entry_activation_command.v1"
-    )
     entry_id: NonEmptyText
     operator: NonEmptyText
     expected_generation: int = Field(ge=0)
@@ -304,18 +268,12 @@ class ConfigEntryActivationCommand(_WireModel):
 class ConfigRollbackCommand(_WireModel):
     """Restore the previous distinct entry with generation compare-and-swap."""
 
-    schema_version: Literal["scopecat.config_rollback_command.v1"] = (
-        "scopecat.config_rollback_command.v1"
-    )
     operator: NonEmptyText
     expected_generation: int = Field(ge=1)
     note: str = ""
 
 
 class ConfigActivationReceipt(_WireModel):
-    schema_version: Literal["scopecat.config_activation_receipt.v1"] = (
-        "scopecat.config_activation_receipt.v1"
-    )
     active_state: ConfigRegistryActiveState
     activation: ConfigRegistryActivationRecord
 
@@ -401,9 +359,6 @@ type AnalysisOutputPayload = Annotated[
 class AnalysisSaveCommand(_WireModel):
     """Persist JSON analysis results against a daemon-owned run."""
 
-    schema_version: Literal["scopecat.analysis_save_command.v1"] = (
-        "scopecat.analysis_save_command.v1"
-    )
     run_id: NonEmptyText
     title: NonEmptyText
     analysis_key: NonEmptyText
@@ -433,9 +388,6 @@ class AnalysisSaveCommand(_WireModel):
 
 
 class AnalysisSaveReceipt(_WireModel):
-    schema_version: Literal["scopecat.analysis_save_receipt.v1"] = (
-        "scopecat.analysis_save_receipt.v1"
-    )
     record: RunContentEntry
     analysis_key: NonEmptyText
     inputs: tuple[AnalysisInputPayload, ...] = ()
@@ -445,9 +397,6 @@ class AnalysisSaveReceipt(_WireModel):
 class RunAttachmentCommand(_WireModel):
     """Ingest client-owned content without exposing a client filesystem path."""
 
-    schema_version: Literal["scopecat.run_attachment_command.v1"] = (
-        "scopecat.run_attachment_command.v1"
-    )
     run_id: NonEmptyText
     key: NonEmptyText
     kind: NonEmptyText = "attachment"
@@ -472,9 +421,6 @@ class RunAttachmentCommand(_WireModel):
 
 
 class RunAttachmentReceipt(_WireModel):
-    schema_version: Literal["scopecat.run_attachment_receipt.v1"] = (
-        "scopecat.run_attachment_receipt.v1"
-    )
     run_id: NonEmptyText
     artifact: RunContentEntry
 
@@ -486,9 +432,6 @@ class RunAttachmentReceipt(_WireModel):
 
 
 class ParameterProposalReviewCommand(_WireModel):
-    schema_version: Literal["scopecat.parameter_proposal_review_command.v1"] = (
-        "scopecat.parameter_proposal_review_command.v1"
-    )
     run_id: NonEmptyText
     proposal_id: NonEmptyText
     decision: ParameterChangeReviewState
@@ -497,16 +440,10 @@ class ParameterProposalReviewCommand(_WireModel):
 
 
 class ParameterProposalReviewReceipt(_WireModel):
-    schema_version: Literal["scopecat.parameter_proposal_review_receipt.v1"] = (
-        "scopecat.parameter_proposal_review_receipt.v1"
-    )
     decision: ParameterChangeDecisionRecord
 
 
 class ParameterProposalDecisionCommand(_WireModel):
-    schema_version: Literal["scopecat.parameter_proposal_decision_command.v1"] = (
-        "scopecat.parameter_proposal_decision_command.v1"
-    )
     run_id: NonEmptyText
     proposal_id: NonEmptyText
     decision: ParameterChangeReviewState
@@ -517,9 +454,6 @@ class ParameterProposalDecisionCommand(_WireModel):
 class CandidateConfigActivationCommand(_WireModel):
     """Build, register, and activate config from durable approved proposals."""
 
-    schema_version: Literal["scopecat.candidate_config_activation_command.v1"] = (
-        "scopecat.candidate_config_activation_command.v1"
-    )
     run_id: NonEmptyText
     proposal_ids: tuple[NonEmptyText, ...] = Field(min_length=1)
     entry_id: NonEmptyText | None = None
@@ -538,9 +472,6 @@ class CandidateConfigActivationCommand(_WireModel):
 
 
 class CandidateConfigActivationReceipt(_WireModel):
-    schema_version: Literal["scopecat.candidate_config_activation_receipt.v1"] = (
-        "scopecat.candidate_config_activation_receipt.v1"
-    )
     entry: ConfigRegistryEntry
     active_state: ConfigRegistryActiveState
     activation: ConfigRegistryActivationRecord
@@ -566,9 +497,6 @@ class ResourceClaimDescriptor(_WireModel):
 class DelegatedPlanSummary(_WireModel):
     """Bounded scheduling and presentation facts for an in-process plan."""
 
-    schema_version: Literal["scopecat.delegated_plan_summary.v1"] = (
-        "scopecat.delegated_plan_summary.v1"
-    )
     experiment_id: NonEmptyText
     experiment_kind: NonEmptyText
     point_count: int = Field(ge=0)
@@ -598,9 +526,6 @@ class DelegatedPlanSummary(_WireModel):
 class ManagedRunSubmission(_WireModel):
     """Request that the daemon build and execute a registered experiment."""
 
-    schema_version: Literal["scopecat.managed_run_submission.v1"] = (
-        "scopecat.managed_run_submission.v1"
-    )
     execution_mode: Literal["managed"] = "managed"
     submission_id: NonEmptyText
     registration_id: NonEmptyText
@@ -611,9 +536,6 @@ class ManagedRunSubmission(_WireModel):
 class DelegatedRunSubmission(_WireModel):
     """Admit a scratch plan while retaining its executable Python locally."""
 
-    schema_version: Literal["scopecat.delegated_run_submission.v2"] = (
-        "scopecat.delegated_run_submission.v2"
-    )
     execution_mode: Literal["delegated"] = "delegated"
     submission_id: NonEmptyText
     executor_id: NonEmptyText
@@ -636,7 +558,6 @@ type RunSubmission = Annotated[
 class RunAdmission(_WireModel):
     """Identity returned after admission and its event commit are durable."""
 
-    schema_version: Literal["scopecat.run_admission.v1"] = "scopecat.run_admission.v1"
     run_id: NonEmptyText
     submission_id: NonEmptyText
     execution_mode: ExecutionMode
@@ -653,9 +574,6 @@ class RunAdmission(_WireModel):
 class ExecutorStartRequest(_WireModel):
     """Publish the running manifest and fence one delegated executor."""
 
-    schema_version: Literal["scopecat.executor_start_request.v1"] = (
-        "scopecat.executor_start_request.v1"
-    )
     run_id: NonEmptyText
     executor_id: NonEmptyText
     manifest: RunManifest
@@ -672,7 +590,6 @@ class ExecutorStartRequest(_WireModel):
 class ExecutorLease(_WireModel):
     """Renewable authority to report effects for one delegated run."""
 
-    schema_version: Literal["scopecat.executor_lease.v1"] = "scopecat.executor_lease.v1"
     lease_id: NonEmptyText
     generation: int = Field(ge=1)
     run_id: NonEmptyText
@@ -693,9 +610,6 @@ class ExecutorLease(_WireModel):
 class ExecutorHeartbeat(_WireModel):
     """Renew a lease using its generation as the fencing token."""
 
-    schema_version: Literal["scopecat.executor_heartbeat.v1"] = (
-        "scopecat.executor_heartbeat.v1"
-    )
     run_id: NonEmptyText
     lease_id: NonEmptyText
     generation: int = Field(ge=1)
@@ -714,9 +628,6 @@ class ExecutionTransitionBatch(_FencedRunCommand):
     daemon-owned and therefore must be absent from submitted transitions.
     """
 
-    schema_version: Literal["scopecat.execution_transition_batch.v1"] = (
-        "scopecat.execution_transition_batch.v1"
-    )
     batch_id: NonEmptyText
     lease_id: NonEmptyText
     generation: int = Field(ge=1)
@@ -735,9 +646,6 @@ class ExecutionTransitionBatch(_FencedRunCommand):
 class ExecutionTransitionBatchReceipt(_WireModel):
     """Committed journal identities returned for one transition batch."""
 
-    schema_version: Literal["scopecat.execution_transition_batch_receipt.v1"] = (
-        "scopecat.execution_transition_batch_receipt.v1"
-    )
     batch_id: NonEmptyText
     committed: tuple[ExecutionTransition, ...] = Field(min_length=1)
 
@@ -788,9 +696,6 @@ class RuntimeTransitionEventPayload(_WireModel):
 class RuntimeEventPublishCommand(_FencedRunCommand):
     """Publish one live observation under the delegated executor lease."""
 
-    schema_version: Literal["scopecat.runtime_event_publish_command.v1"] = (
-        "scopecat.runtime_event_publish_command.v1"
-    )
     event: RuntimeTransitionEventPayload
 
     @model_validator(mode="after")
@@ -801,9 +706,6 @@ class RuntimeEventPublishCommand(_FencedRunCommand):
 
 
 class RuntimeEventPublishReceipt(_WireModel):
-    schema_version: Literal["scopecat.runtime_event_publish_receipt.v1"] = (
-        "scopecat.runtime_event_publish_receipt.v1"
-    )
     event_id: int = Field(ge=1)
     run_id: NonEmptyText
     kind: Literal["transition"]
@@ -812,15 +714,8 @@ class RuntimeEventPublishReceipt(_WireModel):
 class ExecutionRecoveryRequest(_FencedRunCommand):
     """Read the canonical recovery views behind all delegated ports."""
 
-    schema_version: Literal["scopecat.execution_recovery_request.v1"] = (
-        "scopecat.execution_recovery_request.v1"
-    )
-
 
 class ExecutionRecoverySnapshot(_WireModel):
-    schema_version: Literal["scopecat.execution_recovery_snapshot.v1"] = (
-        "scopecat.execution_recovery_snapshot.v1"
-    )
     transitions: tuple[ExecutionTransition, ...] = ()
     measurements: tuple[MeasurementRecord, ...] = ()
     measurement_append_indices: tuple[MeasurementDatasetAppendIndex, ...] = ()
@@ -838,9 +733,6 @@ class ExecutionRecoverySnapshot(_WireModel):
 
 
 class MeasurementAppendCommand(_FencedRunCommand):
-    schema_version: Literal["scopecat.measurement_append_command.v1"] = (
-        "scopecat.measurement_append_command.v1"
-    )
     command_id: NonEmptyText
     append: MeasurementDatasetAppend
 
@@ -854,17 +746,11 @@ class MeasurementAppendCommand(_FencedRunCommand):
 
 
 class MeasurementAppendReceipt(_WireModel):
-    schema_version: Literal["scopecat.measurement_append_receipt.v1"] = (
-        "scopecat.measurement_append_receipt.v1"
-    )
     command_id: NonEmptyText
     receipt: MeasurementDatasetReceipt
 
 
 class MeasurementSealCommand(_FencedRunCommand):
-    schema_version: Literal["scopecat.measurement_seal_command.v1"] = (
-        "scopecat.measurement_seal_command.v1"
-    )
     command_id: NonEmptyText
     seal: MeasurementDatasetSeal
 
@@ -878,17 +764,11 @@ class MeasurementSealCommand(_FencedRunCommand):
 
 
 class MeasurementSealReceipt(_WireModel):
-    schema_version: Literal["scopecat.measurement_seal_receipt.v1"] = (
-        "scopecat.measurement_seal_receipt.v1"
-    )
     command_id: NonEmptyText
     receipt: MeasurementDatasetReceipt
 
 
 class CollectionCommitCommand(_FencedRunCommand):
-    schema_version: Literal["scopecat.collection_commit_command.v1"] = (
-        "scopecat.collection_commit_command.v1"
-    )
     command_id: NonEmptyText
     chunk: CollectionChunk
 
@@ -902,31 +782,19 @@ class CollectionCommitCommand(_FencedRunCommand):
 
 
 class CollectionCommitReceipt(_WireModel):
-    schema_version: Literal["scopecat.collection_commit_receipt.v1"] = (
-        "scopecat.collection_commit_receipt.v1"
-    )
     command_id: NonEmptyText
     receipt: CollectionChunkReceipt
 
 
 class CollectionResolveCommand(_FencedRunCommand):
-    schema_version: Literal["scopecat.collection_resolve_command.v1"] = (
-        "scopecat.collection_resolve_command.v1"
-    )
     receipt: CollectionChunkReceipt
 
 
 class CollectionResolveReceipt(_WireModel):
-    schema_version: Literal["scopecat.collection_resolve_receipt.v1"] = (
-        "scopecat.collection_resolve_receipt.v1"
-    )
     chunk: CollectionChunk
 
 
 class PayloadCommitCommand(_FencedRunCommand):
-    schema_version: Literal["scopecat.payload_commit_command.v1"] = (
-        "scopecat.payload_commit_command.v1"
-    )
     command_id: NonEmptyText
     evidence: PayloadEvidence
 
@@ -940,9 +808,6 @@ class PayloadCommitCommand(_FencedRunCommand):
 
 
 class PayloadCommitReceipt(_WireModel):
-    schema_version: Literal["scopecat.payload_commit_receipt.v1"] = (
-        "scopecat.payload_commit_receipt.v1"
-    )
     command_id: NonEmptyText
     evidence: CommittedPayloadEvidence
 
@@ -960,9 +825,6 @@ class TerminalRecordSetWrite(_WireModel):
 class TerminalRunCommitCommand(_FencedRunCommand):
     """Lossless JSON projection of one interpreter terminal commit."""
 
-    schema_version: Literal["scopecat.terminal_run_commit_command.v1"] = (
-        "scopecat.terminal_run_commit_command.v1"
-    )
     command_id: NonEmptyText
     manifest: RunManifest
     models: tuple[TerminalModelWrite, ...] = ()
@@ -980,9 +842,6 @@ class TerminalRunCommitCommand(_FencedRunCommand):
 
 
 class TerminalRunCommitReceipt(_WireModel):
-    schema_version: Literal["scopecat.terminal_run_commit_receipt.v1"] = (
-        "scopecat.terminal_run_commit_receipt.v1"
-    )
     command_id: NonEmptyText
     manifest: RunManifest
 
@@ -990,17 +849,11 @@ class TerminalRunCommitReceipt(_WireModel):
 class AttentionResolutionCommand(_WireModel):
     """Explicit operator decision for a quarantined run."""
 
-    schema_version: Literal["scopecat.attention_resolution_command.v1"] = (
-        "scopecat.attention_resolution_command.v1"
-    )
     run_id: NonEmptyText
     action: AttentionResolutionAction
 
 
 class AttentionResolutionReceipt(_WireModel):
-    schema_version: Literal["scopecat.attention_resolution_receipt.v1"] = (
-        "scopecat.attention_resolution_receipt.v1"
-    )
     run_id: NonEmptyText
     action: AttentionResolutionAction
     state: Literal["attention_required", "accepted", "terminal"]

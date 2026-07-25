@@ -51,7 +51,6 @@ class ResourceKey(_ControlModel):
 class RunAdmissionRecord(_ControlModel):
     """Inputs that must become durable before an executor can touch hardware."""
 
-    schema_version: Literal["scopecat.run_admission.v1"] = "scopecat.run_admission.v1"
     submission_id: str = Field(min_length=1)
     run_id: str = Field(min_length=1)
     execution_mode: ExecutionMode

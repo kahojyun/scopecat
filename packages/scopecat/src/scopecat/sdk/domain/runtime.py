@@ -63,9 +63,6 @@ class DomainSubmissionId(BaseModel):
         extra="forbid", frozen=True, revalidate_instances="always"
     )
 
-    schema_version: Literal["scopecat.domain_submission_id.v2"] = (
-        "scopecat.domain_submission_id.v2"
-    )
     run_id: str
     semantic_operation_id: str
     invocation_id: str
@@ -115,9 +112,6 @@ class DomainReceiptIdentity(BaseModel):
         extra="forbid", frozen=True, revalidate_instances="always"
     )
 
-    schema_version: Literal["scopecat.domain_receipt_identity.v1"] = (
-        "scopecat.domain_receipt_identity.v1"
-    )
     submission_key: str
     invocation_id: str
     intent_fingerprint: str
@@ -165,9 +159,6 @@ class DomainSubmitReceipt(BaseModel):
         extra="forbid", frozen=True, revalidate_instances="always"
     )
 
-    schema_version: Literal["scopecat.domain_submit_receipt.v2"] = (
-        "scopecat.domain_submit_receipt.v2"
-    )
     identity: DomainReceiptIdentity
     status: Literal["submitted", "not_submitted", "unknown"]
     job_id: str | None = None
@@ -199,9 +190,6 @@ class DomainFetchReceipt(BaseModel):
         extra="forbid", frozen=True, revalidate_instances="always"
     )
 
-    schema_version: Literal["scopecat.domain_fetch_receipt.v2"] = (
-        "scopecat.domain_fetch_receipt.v2"
-    )
     identity: DomainReceiptIdentity
     job_id: str
     status: Literal["fetched", "not_found", "unknown"]

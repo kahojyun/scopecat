@@ -1199,7 +1199,6 @@ def test_managed_submission_executes_registered_experiment(tmp_path: Path) -> No
             == "terminal"
         )
         assert client.get(f"/api/v1/runs/{run_id}/measurements").json() == {
-            "schema_version": "scopecat.measurement_page.v1",
             "items": [],
             "next_offset": None,
         }

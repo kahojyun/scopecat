@@ -1,17 +1,6 @@
-"""SQLite schema for the project configuration registry."""
+"""SQLite configuration-registry tables."""
 
-CONFIG_REGISTRY_SCHEMA_VERSION = 2
-
-CONFIG_REGISTRY_SCHEMA_SQL = """
-BEGIN IMMEDIATE;
-
-CREATE TABLE IF NOT EXISTS config_registry_schema (
-    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-    version INTEGER NOT NULL
-);
-
-INSERT OR IGNORE INTO config_registry_schema(singleton, version) VALUES (1, 2);
-
+CONFIG_REGISTRY_TABLES_SQL = """
 CREATE TABLE IF NOT EXISTS config_registry_entries (
     entry_id TEXT PRIMARY KEY,
     config_ref TEXT NOT NULL UNIQUE,
@@ -36,6 +25,4 @@ CREATE TABLE IF NOT EXISTS config_registry_activations (
     FOREIGN KEY (entry_id)
         REFERENCES config_registry_entries(entry_id)
 );
-
-COMMIT;
 """

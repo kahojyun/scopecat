@@ -14,10 +14,6 @@ from typing import cast
 from pydantic import BaseModel
 from pydantic_core import PydanticSerializationError
 
-from scopecat.adapters.sqlite.execution_schema import (
-    EXECUTION_SCHEMA_SQL,
-    EXECUTION_SCHEMA_VERSION,
-)
 from scopecat.adapters.sqlite.object_store import ObjectStoreError, StoredObject
 from scopecat.adapters.sqlite.run_repository import SQLiteRunRepository
 from scopecat.execution.ports.journal import ExecutionJournalError
@@ -64,32 +60,6 @@ class PreparedExecutionRecord[TModel: BaseModel]:
     durable: TModel
     ref: str
     stored: StoredObject
-
-
-def bootstrap_execution_schema(runs: SQLiteRunRepository) -> None:
-    """Create execution indexes in an already bootstrapped run database."""
-
-    try:
-        with closing(_connect(runs)) as connection:
-            connection.execute("PRAGMA journal_mode = WAL")
-            connection.executescript(EXECUTION_SCHEMA_SQL)
-            row = _one(
-                connection.execute(
-                    """
-                    SELECT version FROM execution_repository_schema
-                    WHERE singleton = 1
-                    """
-                )
-            )
-    except sqlite3.Error as error:
-        raise ExecutionJournalError(
-            f"failed to bootstrap execution repository: {error}"
-        ) from error
-    version = None if row is None else _integer(row, "version")
-    if version != EXECUTION_SCHEMA_VERSION:
-        raise ExecutionJournalError(
-            f"unsupported execution repository schema version: {version}"
-        )
 
 
 class SQLiteExecutionJournal:

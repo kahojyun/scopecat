@@ -82,7 +82,6 @@ def test_invalidate_parameter_change_records_decision_without_mutating_proposal(
         invalidated_by_refs=["config-profile.snapshot.json"],
     )
 
-    assert record.schema_version == "scopecat.parameter_change_decision_record.v4"
     assert record.proposal_id == "best-signal"
     assert record.decision == "invalidated"
     assert record.note == "active config changed before review"

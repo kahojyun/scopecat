@@ -40,15 +40,14 @@ def _canonical_request(project_root: Path) -> RunRequest:
     return resolved.request
 
 
-def test_run_request_v4_projector_matches_golden_and_round_trips(
+def test_run_request_projector_matches_golden_and_round_trips(
     tmp_path: Path,
 ) -> None:
-    golden = _golden("run-request-v4.json")
+    golden = _golden("run-request.json")
     request = _canonical_request(tmp_path)
 
     restored = RunRequest.model_validate_json(json.dumps(golden))
 
-    assert request.schema_version == "scopecat.run_request.v4"
     assert request.model_dump(mode="json") == golden
     assert restored == request
 
@@ -63,7 +62,7 @@ def test_run_request_v4_projector_matches_golden_and_round_trips(
 def test_corrupt_run_request_is_rejected(
     corruption: str,
 ) -> None:
-    request = deepcopy(_golden("run-request-v4.json"))
+    request = deepcopy(_golden("run-request.json"))
     if corruption == "unknown_scan_kind":
         request["scans"][0]["kind"] = "compute"
     elif corruption == "missing_scan_values":

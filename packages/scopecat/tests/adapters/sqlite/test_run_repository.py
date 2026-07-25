@@ -10,7 +10,7 @@ from typing import override
 import pytest
 from pydantic import BaseModel
 
-from scopecat.adapters.sqlite import SQLiteControlPlane, SQLiteRunRepository
+from scopecat.adapters.sqlite import SQLiteProjectStore, SQLiteRunRepository
 from scopecat.kernel.errors import DataIntegrityError, StorageError
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.run import RunManifest, RunOutcome
@@ -28,11 +28,14 @@ class _Record(BaseModel):
 
 
 def _repository(root: Path) -> SQLiteRunRepository:
+    SQLiteProjectStore(
+        root / "control.sqlite3",
+        root / "objects",
+    ).bootstrap()
     repository = SQLiteRunRepository(
         root / "control.sqlite3",
         root / "objects",
     )
-    repository.bootstrap()
     return repository
 
 
@@ -101,14 +104,11 @@ class TestSQLiteRunRepositoryContract(RunRepositoryContract):
 
 def test_control_plane_and_run_index_share_one_database(tmp_path: Path) -> None:
     database = tmp_path / "control.sqlite3"
-    control = SQLiteControlPlane(database)
-    control.bootstrap()
+    SQLiteProjectStore(database, tmp_path / "objects").bootstrap()
     repository = SQLiteRunRepository(database, tmp_path / "objects")
-    repository.bootstrap()
 
     repository.write_manifest(_manifest("run-shared"))
 
-    assert control.schema_version() == 1
     assert repository.read_manifest("run-shared").run_id == "run-shared"
     with sqlite3.connect(database) as connection:
         tables = {
@@ -418,14 +418,3 @@ def test_corrupt_indexed_object_is_data_integrity_failure(tmp_path: Path) -> Non
         repository.read_bytes("run-corrupt", "artifacts/value.bin")
 
     assert captured.value.problems[0].code == "run.ref_invalid"
-
-
-def test_bootstrap_refuses_unknown_run_schema(tmp_path: Path) -> None:
-    repository = _repository(tmp_path)
-    with sqlite3.connect(repository.database) as connection:
-        connection.execute("UPDATE run_repository_schema SET version = 99")
-
-    with pytest.raises(DataIntegrityError) as captured:
-        repository.bootstrap()
-
-    assert captured.value.problems[0].code == "storage.schema_unsupported"

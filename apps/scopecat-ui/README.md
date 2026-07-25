@@ -105,8 +105,8 @@ workflow: manual edits link to their base entry, while analysis candidates join
 the existing run, proposal, analysis, and latest-decision records.
 
 The file picker is deliberately named **Import snapshot**: it accepts the
-self-contained `scopecat.config_profile_snapshot.v3` document registered by the
-daemon. A split `scopecat.config_profile.v2` document must first be loaded by
+self-contained `scopecat.config_snapshot.v1` document registered by the daemon.
+A split `scopecat.config_profile_manifest.v1` document must first be loaded by
 Python, which resolves its references and produces the snapshot to import.
 
 Parameter proposal lifecycle belongs to the run detail:

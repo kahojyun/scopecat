@@ -8,8 +8,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from scopecat.records._metadata import JsonMetadata
 
-ANALYSIS_RECORD_SCHEMA_VERSION = "scopecat.analysis.v3"
-
 AnalysisRecordOutputKind = Literal[
     "note",
     "table",
@@ -42,7 +40,6 @@ class AnalysisRecordOutput(BaseModel):
 class AnalysisRecord(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.analysis.v3"] = ANALYSIS_RECORD_SCHEMA_VERSION
     run_id: str
     title: str
     key: str | None = None

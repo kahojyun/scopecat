@@ -24,10 +24,8 @@ from scopecat.records._schema_utils import (
     validate_supported_unit,
 )
 
-DATA_TABLE_SCHEMA_VERSION = "scopecat.data_table_schema.v0"
-DATA_TABLE_ARTIFACT_SCHEMA_VERSION = "scopecat.data_table.v0"
-DATA_ARRAY_SCHEMA_VERSION = "scopecat.data_array_schema.v0"
-DATA_ARRAY_ARTIFACT_SCHEMA_VERSION = "scopecat.data_array.v0"
+DATA_TABLE_FORMAT_VERSION = "scopecat.data_table.v0"
+DATA_ARRAY_FORMAT_VERSION = "scopecat.data_array.v0"
 
 DataDType = Literal["float64", "int64", "bool", "string"]
 DataVariableRole = Literal[
@@ -61,7 +59,6 @@ class DataColumn(BaseModel):
 class DataTableSchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: str = DATA_TABLE_SCHEMA_VERSION
     columns: list[DataColumn]
     primary_key: list[str] = Field(default_factory=list)
     metadata: JsonMetadata = Field(default_factory=dict)
@@ -83,7 +80,7 @@ class DataTableSchema(BaseModel):
 class DataTableArtifact(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    schema_version: str = DATA_TABLE_ARTIFACT_SCHEMA_VERSION
+    format_version: Literal["scopecat.data_table.v0"] = DATA_TABLE_FORMAT_VERSION
     data_schema: DataTableSchema = Field(alias="schema")
     rows: list[dict[str, object]]
 
@@ -160,7 +157,6 @@ class DataArrayVariable(BaseModel):
 class DataArraySchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: str = DATA_ARRAY_SCHEMA_VERSION
     dimensions: list[DataArrayDimension]
     variables: list[DataArrayVariable]
     primary_variables: list[str] = Field(default_factory=list)
@@ -213,7 +209,7 @@ class DataArraySchema(BaseModel):
 class DataArrayArtifact(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    schema_version: str = DATA_ARRAY_ARTIFACT_SCHEMA_VERSION
+    format_version: Literal["scopecat.data_array.v0"] = DATA_ARRAY_FORMAT_VERSION
     data_schema: DataArraySchema = Field(alias="schema")
     variables: dict[str, object]
 

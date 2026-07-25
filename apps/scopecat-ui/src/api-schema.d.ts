@@ -421,12 +421,6 @@ export interface components {
                 string,
                 ...string[]
             ];
-            /**
-             * Schema Version
-             * @default scopecat.analysis_candidate_run_source.v1
-             * @constant
-             */
-            schema_version: "scopecat.analysis_candidate_run_source.v1";
             /** Source Run Id */
             source_run_id: string;
         };
@@ -440,12 +434,6 @@ export interface components {
             outputs: components["schemas"]["AnalysisRecordOutput"][];
             /** Run Id */
             run_id: string;
-            /**
-             * Schema Version
-             * @default scopecat.analysis.v3
-             * @constant
-             */
-            schema_version: "scopecat.analysis.v3";
             /** Step Id */
             step_id?: string | null;
             /** Title */
@@ -488,12 +476,6 @@ export interface components {
         AttentionResolutionCommand: {
             action: components["schemas"]["AttentionResolutionAction"];
             run_id: components["schemas"]["NonEmptyText"];
-            /**
-             * Schema Version
-             * @default scopecat.attention_resolution_command.v1
-             * @constant
-             */
-            schema_version: "scopecat.attention_resolution_command.v1";
         };
         /** AttentionResolutionReceipt */
         AttentionResolutionReceipt: {
@@ -501,12 +483,6 @@ export interface components {
             /** Released Resource Count */
             released_resource_count: number;
             run_id: components["schemas"]["NonEmptyText"];
-            /**
-             * Schema Version
-             * @default scopecat.attention_resolution_receipt.v1
-             * @constant
-             */
-            schema_version: "scopecat.attention_resolution_receipt.v1";
             /**
              * State
              * @enum {string}
@@ -550,24 +526,12 @@ export interface components {
             ];
             registered_by: components["schemas"]["NonEmptyText"];
             run_id: components["schemas"]["NonEmptyText"];
-            /**
-             * Schema Version
-             * @default scopecat.candidate_config_activation_command.v1
-             * @constant
-             */
-            schema_version: "scopecat.candidate_config_activation_command.v1";
         };
         /** CandidateConfigActivationReceipt */
         CandidateConfigActivationReceipt: {
             activation: components["schemas"]["ConfigRegistryActivationRecord"];
             active_state: components["schemas"]["ConfigRegistryActiveState"];
             entry: components["schemas"]["ConfigRegistryEntry"];
-            /**
-             * Schema Version
-             * @default scopecat.candidate_config_activation_receipt.v1
-             * @constant
-             */
-            schema_version: "scopecat.candidate_config_activation_receipt.v1";
         };
         /** CandidateConfigRegistrySource */
         CandidateConfigRegistrySource: {
@@ -638,12 +602,6 @@ export interface components {
         ConfigActivationReceipt: {
             activation: components["schemas"]["ConfigRegistryActivationRecord"];
             active_state: components["schemas"]["ConfigRegistryActiveState"];
-            /**
-             * Schema Version
-             * @default scopecat.config_activation_receipt.v1
-             * @constant
-             */
-            schema_version: "scopecat.config_activation_receipt.v1";
         };
         ConfigContentHash: string;
         /**
@@ -656,12 +614,6 @@ export interface components {
             /** Base Generation */
             base_generation: number;
             candidate_id: components["schemas"]["NonEmptyText"];
-            /**
-             * Schema Version
-             * @default scopecat.config_draft_command.v1
-             * @constant
-             */
-            schema_version: "scopecat.config_draft_command.v1";
             /** Updates */
             updates: [
                 components["schemas"]["ConfigParameterUpdate"],
@@ -677,12 +629,6 @@ export interface components {
             activation_note?: string | null;
             operator: components["schemas"]["NonEmptyText"];
             registration: components["schemas"]["ConfigDraftRegistrationCommand"];
-            /**
-             * Schema Version
-             * @default scopecat.config_draft_default_command.v1
-             * @constant
-             */
-            schema_version: "scopecat.config_draft_default_command.v1";
         };
         /** ConfigDraftDefaultReceipt */
         ConfigDraftDefaultReceipt: {
@@ -695,12 +641,6 @@ export interface components {
             ];
             entry: components["schemas"]["ConfigRegistryEntry"];
             result_content_hash: components["schemas"]["ConfigContentHash"];
-            /**
-             * Schema Version
-             * @default scopecat.config_draft_default_receipt.v1
-             * @constant
-             */
-            schema_version: "scopecat.config_draft_default_receipt.v1";
         };
         /**
          * ConfigDraftPreview
@@ -723,12 +663,6 @@ export interface components {
              */
             problems: components["schemas"]["Problem-Output"][];
             result_content_hash?: components["schemas"]["ConfigContentHash"] | null;
-            /**
-             * Schema Version
-             * @default scopecat.config_draft_preview.v1
-             * @constant
-             */
-            schema_version: "scopecat.config_draft_preview.v1";
             /** Valid */
             valid: boolean;
         };
@@ -746,12 +680,6 @@ export interface components {
              */
             note: string;
             registered_by: components["schemas"]["NonEmptyText"];
-            /**
-             * Schema Version
-             * @default scopecat.config_draft_registration_command.v1
-             * @constant
-             */
-            schema_version: "scopecat.config_draft_registration_command.v1";
         };
         /** ConfigDraftRegistrationReceipt */
         ConfigDraftRegistrationReceipt: {
@@ -762,12 +690,6 @@ export interface components {
             ];
             entry: components["schemas"]["ConfigRegistryEntry"];
             result_content_hash: components["schemas"]["ConfigContentHash"];
-            /**
-             * Schema Version
-             * @default scopecat.config_draft_registration_receipt.v1
-             * @constant
-             */
-            schema_version: "scopecat.config_draft_registration_receipt.v1";
         };
         /**
          * ConfigEntryActivationCommand
@@ -783,12 +705,6 @@ export interface components {
              */
             note: string;
             operator: components["schemas"]["NonEmptyText"];
-            /**
-             * Schema Version
-             * @default scopecat.config_entry_activation_command.v1
-             * @constant
-             */
-            schema_version: "scopecat.config_entry_activation_command.v1";
         };
         /**
          * ConfigEntryView
@@ -797,22 +713,10 @@ export interface components {
         ConfigEntryView: {
             config: components["schemas"]["ConfigProfileSnapshot-Output"];
             entry: components["schemas"]["ConfigRegistryEntry"];
-            /**
-             * Schema Version
-             * @default scopecat.config_entry_view.v1
-             * @constant
-             */
-            schema_version: "scopecat.config_entry_view.v1";
         };
         /** ConfigImportReceipt */
         ConfigImportReceipt: {
             entry: components["schemas"]["ConfigRegistryEntry"];
-            /**
-             * Schema Version
-             * @default scopecat.config_import_receipt.v1
-             * @constant
-             */
-            schema_version: "scopecat.config_import_receipt.v1";
         };
         ConfigParameterUpdate: components["schemas"]["ReplaceConfigParameter"] | components["schemas"]["UpdateConfigParameterRows"] | components["schemas"]["InsertConfigParameterRows"] | components["schemas"]["DeleteConfigParameterRows"];
         /**
@@ -824,12 +728,6 @@ export interface components {
             /** Id */
             id: string;
             parameter_snapshot: components["schemas"]["ParameterSnapshot-Input"];
-            /**
-             * Schema Version
-             * @default scopecat.config_profile_snapshot.v3
-             * @constant
-             */
-            schema_version: "scopecat.config_profile_snapshot.v3";
             system: components["schemas"]["SystemSpec-Input"];
         };
         /**
@@ -841,12 +739,6 @@ export interface components {
             /** Id */
             id: string;
             parameter_snapshot: components["schemas"]["ParameterSnapshot-Output"];
-            /**
-             * Schema Version
-             * @default scopecat.config_profile_snapshot.v3
-             * @constant
-             */
-            schema_version: "scopecat.config_profile_snapshot.v3";
             system: components["schemas"]["SystemSpec-Output"];
         };
         /** ConfigRegistryActivationRecord */
@@ -878,12 +770,6 @@ export interface components {
              * Format: date-time
              */
             recorded_at?: string;
-            /**
-             * Schema Version
-             * @default scopecat.config.registry_activation_record.v2
-             * @constant
-             */
-            schema_version: "scopecat.config.registry_activation_record.v2";
         };
         /** ConfigRegistryActiveState */
         ConfigRegistryActiveState: {
@@ -894,12 +780,6 @@ export interface components {
             generation: number;
             /** History */
             history?: components["schemas"]["ConfigRegistryActivationRecord"][];
-            /**
-             * Schema Version
-             * @default scopecat.config.registry_active_state.v2
-             * @constant
-             */
-            schema_version: "scopecat.config.registry_active_state.v2";
             /**
              * Updated At
              * Format: date-time
@@ -925,12 +805,6 @@ export interface components {
             registered_at?: string;
             /** Registered By */
             registered_by: string;
-            /**
-             * Schema Version
-             * @default scopecat.config.registry_entry.v7
-             * @constant
-             */
-            schema_version: "scopecat.config.registry_entry.v7";
             /** Source */
             source: components["schemas"]["DirectConfigRegistrySource"] | components["schemas"]["ManualConfigDraftRegistrySource"] | components["schemas"]["CandidateConfigRegistrySource"];
             /**
@@ -954,12 +828,6 @@ export interface components {
             kind: "config_registry";
             /** Registry Generation */
             registry_generation?: number | null;
-            /**
-             * Schema Version
-             * @default scopecat.config_registry_run_source.v1
-             * @constant
-             */
-            schema_version: "scopecat.config_registry_run_source.v1";
             /** Selector */
             selector: string;
         };
@@ -974,12 +842,6 @@ export interface components {
              * @default []
              */
             entries: components["schemas"]["ConfigRegistryEntry"][];
-            /**
-             * Schema Version
-             * @default scopecat.config_registry_view.v1
-             * @constant
-             */
-            schema_version: "scopecat.config_registry_view.v1";
         };
         /**
          * ConfigRollbackCommand
@@ -994,12 +856,6 @@ export interface components {
              */
             note: string;
             operator: components["schemas"]["NonEmptyText"];
-            /**
-             * Schema Version
-             * @default scopecat.config_rollback_command.v1
-             * @constant
-             */
-            schema_version: "scopecat.config_rollback_command.v1";
         };
         /** ConnectionProfile */
         ConnectionProfile: {
@@ -1054,12 +910,6 @@ export interface components {
             /** Project Root */
             project_root: string;
             /**
-             * Schema Version
-             * @default scopecat.daemon_health.v2
-             * @constant
-             */
-            schema_version: "scopecat.daemon_health.v2";
-            /**
              * Status
              * @enum {string}
              */
@@ -1067,12 +917,13 @@ export interface components {
         };
         /** DataArrayArtifact */
         DataArrayArtifact: {
-            schema: components["schemas"]["DataArraySchema"];
             /**
-             * Schema Version
+             * Format Version
              * @default scopecat.data_array.v0
+             * @constant
              */
-            schema_version: string;
+            format_version: "scopecat.data_array.v0";
+            schema: components["schemas"]["DataArraySchema"];
             /** Variables */
             variables: {
                 [key: string]: unknown;
@@ -1099,11 +950,6 @@ export interface components {
             metadata?: components["schemas"]["JsonMetadata-Output"];
             /** Primary Variables */
             primary_variables?: string[];
-            /**
-             * Schema Version
-             * @default scopecat.data_array_schema.v0
-             */
-            schema_version: string;
             /** Variables */
             variables: components["schemas"]["DataArrayVariable"][];
         };
@@ -1159,16 +1005,17 @@ export interface components {
         };
         /** DataTableArtifact */
         DataTableArtifact: {
+            /**
+             * Format Version
+             * @default scopecat.data_table.v0
+             * @constant
+             */
+            format_version: "scopecat.data_table.v0";
             /** Rows */
             rows: {
                 [key: string]: unknown;
             }[];
             schema: components["schemas"]["DataTableSchema"];
-            /**
-             * Schema Version
-             * @default scopecat.data_table.v0
-             */
-            schema_version: string;
         };
         /** DataTableSchema */
         DataTableSchema: {
@@ -1177,11 +1024,6 @@ export interface components {
             metadata?: components["schemas"]["JsonMetadata-Output"];
             /** Primary Key */
             primary_key?: string[];
-            /**
-             * Schema Version
-             * @default scopecat.data_table_schema.v0
-             */
-            schema_version: string;
         };
         /** DeleteConfigParameterRows */
         DeleteConfigParameterRows: {
@@ -1221,12 +1063,6 @@ export interface components {
              */
             note: string;
             registered_by: components["schemas"]["NonEmptyText"];
-            /**
-             * Schema Version
-             * @default scopecat.direct_config_import_command.v1
-             * @constant
-             */
-            schema_version: "scopecat.direct_config_import_command.v1";
         };
         /** DirectConfigRegistrySource */
         DirectConfigRegistrySource: {
@@ -1300,12 +1136,6 @@ export interface components {
             connection_profile?: components["schemas"]["ConnectionProfile"];
             /** Id */
             id: string;
-            /**
-             * Schema Version
-             * @default scopecat.environment_spec.v2
-             * @constant
-             */
-            schema_version: "scopecat.environment_spec.v2";
         };
         /** EventPage */
         EventPage: {
@@ -1328,12 +1158,6 @@ export interface components {
              */
             experiments: components["schemas"]["RegisteredExperimentDescriptor"][];
             revision: components["schemas"]["NonEmptyText"];
-            /**
-             * Schema Version
-             * @default scopecat.experiment_catalog.v1
-             * @constant
-             */
-            schema_version: "scopecat.experiment_catalog.v1";
         };
         /**
          * ExternalLocation
@@ -1464,6 +1288,12 @@ export interface components {
             dataset_role: "raw" | "derived";
             /** Dimensions */
             dimensions?: components["schemas"]["MeasurementDimension"][];
+            /**
+             * Format Version
+             * @default scopecat.measurement_dataset_schema.v1
+             * @constant
+             */
+            format_version: "scopecat.measurement_dataset_schema.v1";
             metadata?: components["schemas"]["JsonMetadata-Output"];
             /** Primary Coordinates */
             primary_coordinates?: string[];
@@ -1474,11 +1304,6 @@ export interface components {
              * @default scopecat.measurement_record.v1
              */
             record_schema: string;
-            /**
-             * Schema Version
-             * @default scopecat.measurement_dataset_schema.v1
-             */
-            schema_version: string;
             /** Variables */
             variables?: components["schemas"]["MeasurementVariable"][];
         };
@@ -1508,12 +1333,6 @@ export interface components {
             items: components["schemas"]["MeasurementRecord-Output"][];
             /** Next Offset */
             next_offset?: number | null;
-            /**
-             * Schema Version
-             * @default scopecat.measurement_page.v1
-             * @constant
-             */
-            schema_version: "scopecat.measurement_page.v1";
         };
         "MeasurementRecord-Output": unknown;
         /** MeasurementVariable */
@@ -1588,12 +1407,6 @@ export interface components {
             metadata?: {
                 [key: string]: unknown;
             };
-            /**
-             * Schema Version
-             * @default scopecat.parameter_catalog.v4
-             * @constant
-             */
-            schema_version: "scopecat.parameter_catalog.v4";
         };
         /**
          * ParameterCatalog
@@ -1606,12 +1419,6 @@ export interface components {
             id: string;
             /** Metadata */
             metadata?: unknown;
-            /**
-             * Schema Version
-             * @default scopecat.parameter_catalog.v4
-             * @constant
-             */
-            schema_version: "scopecat.parameter_catalog.v4";
         };
         ParameterChangeDecisionAuthority: components["schemas"]["HumanDecisionAuthority"] | components["schemas"]["AutomaticPolicyDecisionAuthority"];
         /**
@@ -1643,12 +1450,6 @@ export interface components {
             related_refs?: string[];
             /** Run Id */
             run_id: string;
-            /**
-             * Schema Version
-             * @default scopecat.parameter_change_decision_record.v4
-             * @constant
-             */
-            schema_version: "scopecat.parameter_change_decision_record.v4";
         };
         /**
          * ParameterChangeProposal
@@ -1676,12 +1477,6 @@ export interface components {
             proposed_at?: string;
             /** Reason */
             reason: string;
-            /**
-             * Schema Version
-             * @default scopecat.parameter_change_proposal.v3
-             * @constant
-             */
-            schema_version: "scopecat.parameter_change_proposal.v3";
             /** Source Run Id */
             source_run_id: string;
         };
@@ -1722,12 +1517,6 @@ export interface components {
             items: components["schemas"]["ParameterProposalView"][];
             /** Run Id */
             run_id: string;
-            /**
-             * Schema Version
-             * @default scopecat.parameter_proposal_list_view.v1
-             * @constant
-             */
-            schema_version: "scopecat.parameter_proposal_list_view.v1";
         };
         /** ParameterProposalReviewCommand */
         ParameterProposalReviewCommand: {
@@ -1744,22 +1533,10 @@ export interface components {
             proposal_id: components["schemas"]["NonEmptyText"];
             reviewer: components["schemas"]["NonEmptyText"];
             run_id: components["schemas"]["NonEmptyText"];
-            /**
-             * Schema Version
-             * @default scopecat.parameter_proposal_review_command.v1
-             * @constant
-             */
-            schema_version: "scopecat.parameter_proposal_review_command.v1";
         };
         /** ParameterProposalReviewReceipt */
         ParameterProposalReviewReceipt: {
             decision: components["schemas"]["ParameterChangeDecisionRecord"];
-            /**
-             * Schema Version
-             * @default scopecat.parameter_proposal_review_receipt.v1
-             * @constant
-             */
-            schema_version: "scopecat.parameter_proposal_review_receipt.v1";
         };
         /**
          * ParameterProposalView
@@ -1784,12 +1561,6 @@ export interface components {
             metadata?: {
                 [key: string]: unknown;
             };
-            /**
-             * Schema Version
-             * @default scopecat.parameter_snapshot.v2
-             * @constant
-             */
-            schema_version: "scopecat.parameter_snapshot.v2";
             /** Values */
             values?: components["schemas"]["StoredParameterValue-Input"][];
         };
@@ -1802,12 +1573,6 @@ export interface components {
             id: string;
             /** Metadata */
             metadata?: unknown;
-            /**
-             * Schema Version
-             * @default scopecat.parameter_snapshot.v2
-             * @constant
-             */
-            schema_version: "scopecat.parameter_snapshot.v2";
             /** Values */
             values?: components["schemas"]["StoredParameterValue-Output"][];
         };
@@ -2000,12 +1765,6 @@ export interface components {
              * @default []
              */
             related_locations: components["schemas"]["ProblemLocation"][];
-            /**
-             * Schema Version
-             * @default scopecat.problem.v1
-             * @constant
-             */
-            schema_version: "scopecat.problem.v1";
         };
         /**
          * ProblemCategory
@@ -2040,12 +1799,6 @@ export interface components {
             input_schema?: {
                 [key: string]: components["schemas"]["pydantic__types__JsonValue"];
             };
-            /**
-             * Schema Version
-             * @default scopecat.registered_experiment.v1
-             * @constant
-             */
-            schema_version: "scopecat.registered_experiment.v1";
             /**
              * Tags
              * @default []
@@ -2163,12 +1916,6 @@ export interface components {
             resource_claims: components["schemas"]["ResourceKey"][];
             /** Run Id */
             run_id: string;
-            /**
-             * Schema Version
-             * @default scopecat.run_admission.v1
-             * @constant
-             */
-            schema_version: "scopecat.run_admission.v1";
             /** Submission Id */
             submission_id: string;
         };
@@ -2181,12 +1928,6 @@ export interface components {
             items: components["schemas"]["RunAnalysisView"][];
             /** Run Id */
             run_id: string;
-            /**
-             * Schema Version
-             * @default scopecat.run_analysis_list_view.v1
-             * @constant
-             */
-            schema_version: "scopecat.run_analysis_list_view.v1";
         };
         /**
          * RunAnalysisView
@@ -2197,12 +1938,6 @@ export interface components {
             entry: components["schemas"]["RunContentEntry-Output"];
             /** Run Id */
             run_id: string;
-            /**
-             * Schema Version
-             * @default scopecat.run_analysis_view.v1
-             * @constant
-             */
-            schema_version: "scopecat.run_analysis_view.v1";
         };
         /** RunArtifactJsonView */
         RunArtifactJsonView: {
@@ -2213,12 +1948,6 @@ export interface components {
             };
             /** Run Id */
             run_id: string;
-            /**
-             * Schema Version
-             * @default scopecat.run_artifact_json_view.v1
-             * @constant
-             */
-            schema_version: "scopecat.run_artifact_json_view.v1";
         };
         /** RunArtifactTextView */
         RunArtifactTextView: {
@@ -2227,12 +1956,6 @@ export interface components {
             content: string;
             /** Run Id */
             run_id: string;
-            /**
-             * Schema Version
-             * @default scopecat.run_artifact_text_view.v1
-             * @constant
-             */
-            schema_version: "scopecat.run_artifact_text_view.v1";
         };
         RunConfigSource: components["schemas"]["ConfigRegistryRunConfigSource"] | components["schemas"]["AnalysisCandidateRunConfigSource"];
         /**
@@ -2274,12 +1997,6 @@ export interface components {
             dataset: components["schemas"]["RunContentEntry-Output"];
             /** Run Id */
             run_id: string;
-            /**
-             * Schema Version
-             * @default scopecat.run_dataset_content_view.v1
-             * @constant
-             */
-            schema_version: "scopecat.run_dataset_content_view.v1";
         };
         /**
          * RunDetail
@@ -2293,12 +2010,6 @@ export interface components {
              * @default []
              */
             resources: components["schemas"]["RunResourceView"][];
-            /**
-             * Schema Version
-             * @default scopecat.run_detail.v1
-             * @constant
-             */
-            schema_version: "scopecat.run_detail.v1";
         };
         /** RunManifest */
         "RunManifest-Output": {
@@ -2322,12 +2033,6 @@ export interface components {
             outcome?: components["schemas"]["RunOutcome-Output"] | null;
             /** Run Id */
             run_id: string;
-            /**
-             * Schema Version
-             * @default scopecat.run_manifest.v11
-             * @constant
-             */
-            schema_version: "scopecat.run_manifest.v11";
         };
         /**
          * RunOutcome
@@ -2357,12 +2062,6 @@ export interface components {
             /** Run Id */
             run_id: string;
             /**
-             * Schema Version
-             * @default scopecat.run_outcome.v1
-             * @constant
-             */
-            schema_version: "scopecat.run_outcome.v1";
-            /**
              * Termination Reason
              * @enum {string}
              */
@@ -2386,12 +2085,6 @@ export interface components {
             record: components["schemas"]["RunContentEntry-Output"];
             /** Run Id */
             run_id: string;
-            /**
-             * Schema Version
-             * @default scopecat.run_record_json_view.v1
-             * @constant
-             */
-            schema_version: "scopecat.run_record_json_view.v1";
         };
         "RunRequest-Output": unknown;
         /**
@@ -2571,12 +2264,6 @@ export interface components {
             /** Primary Entity Id */
             primary_entity_id: string;
             routing?: components["schemas"]["RoutingGraph-Input"];
-            /**
-             * Schema Version
-             * @default scopecat.system_spec.v4
-             * @constant
-             */
-            schema_version: "scopecat.system_spec.v4";
             topology: components["schemas"]["Topology-Input"];
         };
         /**
@@ -2592,12 +2279,6 @@ export interface components {
             /** Primary Entity Id */
             primary_entity_id: string;
             routing?: components["schemas"]["RoutingGraph-Output"];
-            /**
-             * Schema Version
-             * @default scopecat.system_spec.v4
-             * @constant
-             */
-            schema_version: "scopecat.system_spec.v4";
             topology: components["schemas"]["Topology-Output"];
         };
         /**

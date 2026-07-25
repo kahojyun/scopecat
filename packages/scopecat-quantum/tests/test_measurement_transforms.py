@@ -230,7 +230,6 @@ def test_binary_iq_builder_retains_complete_authored_semantics_and_edges() -> No
     assert transform.semantic.portability == "host_only"
     assert transform.semantic.parameters == {
         "discriminator": {
-            "schema_version": "scopecat_quantum.binary_iq_discriminator.v1",
             "state_0_centroid": {"real": -1.0, "imag": 0.0, "unit": "ratio"},
             "state_1_centroid": {"real": 1.0, "imag": 0.0, "unit": "ratio"},
             "tie_policy": "state_1",

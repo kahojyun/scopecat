@@ -88,7 +88,6 @@ export async function getConfigRegistryEntry(
 export async function activateConfigEntry(entryId: string, command: ConfigCommand): Promise<void> {
   const payload: DaemonUiApi["configActivationCommand"] = {
     entry_id: entryId,
-    schema_version: "scopecat.config_entry_activation_command.v1",
     ...commandPayload(command),
   };
   await request<DaemonUiApi["configActivationReceipt"]>(
@@ -100,7 +99,6 @@ export async function activateConfigEntry(entryId: string, command: ConfigComman
 
 export async function rollbackConfig(command: ConfigCommand): Promise<void> {
   const payload: DaemonUiApi["configRollbackCommand"] = {
-    schema_version: "scopecat.config_rollback_command.v1",
     ...commandPayload(command),
   };
   await request<DaemonUiApi["configRollbackReceipt"]>(
@@ -112,7 +110,6 @@ export async function rollbackConfig(command: ConfigCommand): Promise<void> {
 
 export async function importConfigProfile(command: ImportConfigCommand): Promise<void> {
   const payload: DaemonUiApi["configImportCommand"] = {
-    schema_version: "scopecat.direct_config_import_command.v1",
     entry_id: command.entryId,
     registered_by: command.registeredBy,
     note: command.note ?? "",
@@ -154,7 +151,6 @@ export async function setConfigDraftDefault(
   command: ConfigDraftDefaultCommand,
 ): Promise<ConfigDraftDefaultReceipt> {
   const payload: DaemonUiApi["configDraftDefaultCommand"] = {
-    schema_version: "scopecat.config_draft_default_command.v1",
     registration: configDraftRegistrationPayload(command.registration),
     operator: command.operator,
     activation_note: command.activationNote,
@@ -228,15 +224,15 @@ export function parseConfigProfileJson(textValue: string): JsonObject {
     throw new Error("The selected file is not valid JSON.");
   }
   const profile = object(parsed, "selected config snapshot");
-  const schemaVersion = optionalText(profile.schema_version);
-  if (schemaVersion === "scopecat.config_profile.v2") {
+  const formatVersion = optionalText(profile.format_version);
+  if (formatVersion === "scopecat.config_profile_manifest.v1") {
     throw new Error(
-      "This split config_profile.v2 file must be loaded by Python before importing its config_profile_snapshot.v3 result.",
+      "This split config profile manifest must be loaded by Python before importing its config snapshot.",
     );
   }
-  if (schemaVersion !== "scopecat.config_profile_snapshot.v3") {
+  if (formatVersion !== "scopecat.config_snapshot.v1") {
     throw new Error(
-      `Unsupported config snapshot schema: ${schemaVersion ?? "missing schema_version"}.`,
+      `Unsupported config snapshot format: ${formatVersion ?? "missing format_version"}.`,
     );
   }
   if (!optionalText(profile.id)) {
@@ -251,7 +247,9 @@ export function parseConfigProfileJson(textValue: string): JsonObject {
   if (!isObject(profile.parameter_snapshot)) {
     throw new Error("The config snapshot is missing its parameter values.");
   }
-  return profile as JsonObject;
+  const snapshot = { ...profile };
+  delete snapshot.format_version;
+  return snapshot as JsonObject;
 }
 
 function normalizeEntry(source: WireRegistryEntry): ConfigRegistryEntry {
@@ -579,7 +577,6 @@ function compareActivations(left: ConfigActivationRecord, right: ConfigActivatio
 
 function configDraftPayload(command: ConfigDraftCommand): DaemonUiApi["configDraftCommand"] {
   return {
-    schema_version: "scopecat.config_draft_command.v1",
     base_entry_id: command.baseEntryId,
     base_content_hash: command.baseContentHash,
     base_generation: command.baseGeneration,
@@ -594,7 +591,6 @@ function configDraftRegistrationPayload(
   command: ConfigDraftRegistrationCommand,
 ): DaemonUiApi["configDraftRegistrationCommand"] {
   return {
-    schema_version: "scopecat.config_draft_registration_command.v1",
     draft: configDraftPayload(command.draft),
     expected_result_content_hash: command.expectedResultContentHash,
     entry_id: command.entryId,

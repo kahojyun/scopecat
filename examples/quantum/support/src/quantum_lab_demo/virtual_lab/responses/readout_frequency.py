@@ -28,7 +28,6 @@ class ReadoutSettings:
 class ReadoutResponseModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: str = "quantum_lab_demo.virtual_lab.response_model.v0"
     resonance_frequency_ghz: float
     linewidth_mhz: float
     baseline_amplitude: float = 0.92

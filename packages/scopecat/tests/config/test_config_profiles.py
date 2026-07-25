@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from scopecat.config.profiles import ConfigProfileFile, load_config_profile
+from scopecat.config.profiles import ConfigProfileManifest, load_config_profile
 from scopecat.kernel.errors import DataIntegrityError, NotFound, StorageError
 from scopecat.kernel.problems import ExternalLocation, ProblemCategory
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
@@ -10,12 +10,10 @@ from tests.testkit.records import assert_model_round_trip, read_model
 
 
 def test_config_profile_file_round_trip() -> None:
-    profile = read_model(EXAMPLE_DIR / "config-profile.json", ConfigProfileFile)
-    restored = assert_model_round_trip(
-        profile,
-        schema_version="scopecat.config_profile.v2",
-    )
+    profile = read_model(EXAMPLE_DIR / "config-profile.json", ConfigProfileManifest)
+    restored = assert_model_round_trip(profile)
 
+    assert restored.format_version == "scopecat.config_profile_manifest.v1"
     assert restored.system_ref == "system-spec.json"
     assert restored.environment_ref == "environment-spec.json"
     assert restored.parameter_snapshot_ref == "parameter-snapshot.json"

@@ -9,7 +9,6 @@ from scopecat.adapters.sqlite.control_plane import (
     ControlPlaneConflict,
     ControlPlaneNotFound,
     ExecutorLeaseNotHeld,
-    SchemaVersionError,
     SQLiteControlPlane,
 )
 from scopecat.adapters.sqlite.execution import (
@@ -17,11 +16,15 @@ from scopecat.adapters.sqlite.execution import (
     SQLiteExecutionJournal,
     SQLiteMeasurementDatasetRepository,
     SQLitePayloadEvidenceCommitter,
-    bootstrap_execution_schema,
 )
 from scopecat.adapters.sqlite.object_store import (
     ImmutableObjectStore,
     StoredObject,
+)
+from scopecat.adapters.sqlite.project_store import (
+    ProjectStoreError,
+    SchemaVersionError,
+    SQLiteProjectStore,
 )
 from scopecat.adapters.sqlite.run_repository import SQLiteRunRepository
 
@@ -30,6 +33,7 @@ __all__ = [
     "ControlPlaneNotFound",
     "ExecutorLeaseNotHeld",
     "ImmutableObjectStore",
+    "ProjectStoreError",
     "SQLiteCollectionRecordRepository",
     "SQLiteConfigRegistryRepository",
     "SQLiteConfigRegistryStore",
@@ -38,8 +42,8 @@ __all__ = [
     "SQLiteExecutionJournal",
     "SQLiteMeasurementDatasetRepository",
     "SQLitePayloadEvidenceCommitter",
+    "SQLiteProjectStore",
     "SQLiteRunRepository",
     "SchemaVersionError",
     "StoredObject",
-    "bootstrap_execution_schema",
 ]

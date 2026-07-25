@@ -24,7 +24,6 @@ describe("config registry reads", () => {
     const fetchMock = vi.fn((_input: string | URL | Request) =>
       Promise.resolve(
         jsonResponse({
-          schema_version: "scopecat.config_registry_view.v1",
           entries: [registryEntry("config-a", HASH_A), registryEntry("config-b", HASH_B)],
           active_state: activeState(),
         }),
@@ -51,7 +50,6 @@ describe("config registry reads", () => {
         String(input).endsWith("/active")
           ? jsonResponse({ detail: "not found" }, 404)
           : jsonResponse({
-              schema_version: "scopecat.config_registry_view.v1",
               entries: [],
               active_state: null,
             }),
@@ -70,7 +68,6 @@ describe("config registry reads", () => {
     const fetchMock = vi.fn((_input: string | URL | Request) =>
       Promise.resolve(
         jsonResponse({
-          schema_version: "scopecat.config_entry_view.v1",
           entry: registryEntry("config-a", HASH_A),
           config: configProfile("profile-a"),
         }),
@@ -124,14 +121,12 @@ describe("config registry reads", () => {
         },
       ],
     });
-    expect(detail.config.raw.schema_version).toBe("scopecat.config_profile_snapshot.v3");
   });
 
-  it("preserves typed parameter-edit provenance from registry v7", async () => {
+  it("preserves typed parameter-edit provenance from registry entries", async () => {
     const fetchMock = vi.fn(() =>
       Promise.resolve(
         jsonResponse({
-          schema_version: "scopecat.config_registry_view.v1",
           entries: [
             {
               ...registryEntry("manual-edit", HASH_A),
@@ -175,14 +170,12 @@ describe("config registry commands", () => {
     await rollbackConfig(command);
 
     expectRequest(fetchMock, 0, "/api/v1/config-registry/active", {
-      schema_version: "scopecat.config_entry_activation_command.v1",
       entry_id: "config/b",
       operator: "Ada",
       note: "promote calibrated values",
       expected_generation: 2,
     });
     expectRequest(fetchMock, 1, "/api/v1/config-registry/rollback", {
-      schema_version: "scopecat.config_rollback_command.v1",
       operator: "Ada",
       note: "promote calibrated values",
       expected_generation: 2,
@@ -202,7 +195,6 @@ describe("config registry commands", () => {
     });
 
     expectRequest(fetchMock, 0, "/api/v1/config-registry/entries", {
-      schema_version: "scopecat.direct_config_import_command.v1",
       entry_id: "profile-import",
       registered_by: "Grace",
       note: "bench setup",
@@ -305,7 +297,6 @@ describe("typed config drafts", () => {
     const fetchMock = vi.fn(() =>
       Promise.resolve(
         jsonResponse({
-          schema_version: "scopecat.config_draft_preview.v1",
           valid: true,
           base_entry: registryEntry("config-a", HASH_A),
           base_generation: 3,
@@ -321,7 +312,6 @@ describe("typed config drafts", () => {
           ],
           problems: [
             {
-              schema_version: "scopecat.problem.v1",
               code: "config.note",
               impact: "advisory",
               category: "operation",
@@ -363,7 +353,6 @@ describe("typed config drafts", () => {
       ],
     });
     expectRequest(fetchMock, 0, "/api/v1/config-registry/drafts/preview", {
-      schema_version: "scopecat.config_draft_command.v1",
       base_entry_id: "config-a",
       base_content_hash: HASH_A,
       base_generation: 3,
@@ -441,7 +430,6 @@ describe("typed config drafts", () => {
 
   it("keeps invalid previews problem-only and registers only an explicit draft", async () => {
     const invalidResponse = {
-      schema_version: "scopecat.config_draft_preview.v1",
       valid: false,
       base_entry: registryEntry("config-a", HASH_A),
       base_generation: 3,
@@ -451,7 +439,6 @@ describe("typed config drafts", () => {
       deltas: [],
       problems: [
         {
-          schema_version: "scopecat.problem.v1",
           code: "config.invalid",
           impact: "blocking",
           category: "invalid_input",
@@ -465,7 +452,6 @@ describe("typed config drafts", () => {
       ],
     };
     const receipt = {
-      schema_version: "scopecat.config_draft_registration_receipt.v1",
       entry: {
         ...registryEntry("config-a-edit", HASH_B),
         source: {
@@ -516,7 +502,6 @@ describe("typed config drafts", () => {
       deltas: [{ parameterId: "drive.frequency" }],
     });
     expectRequest(fetchMock, 1, "/api/v1/config-registry/drafts/register", {
-      schema_version: "scopecat.config_draft_registration_command.v1",
       draft: JSON.parse(String((fetchMock.mock.calls[0]?.[1] as RequestInit | undefined)?.body)),
       expected_result_content_hash: HASH_B,
       entry_id: "config-a-edit",
@@ -528,7 +513,6 @@ describe("typed config drafts", () => {
   it("atomically saves a reviewed draft and sets it as the default", async () => {
     const entryId = "config-a-edit-bbbbbbbbbbbb";
     const activation = {
-      schema_version: "scopecat.config.registry_activation_record.v2",
       id: "activation-4",
       generation: 4,
       action: "activation",
@@ -551,7 +535,6 @@ describe("typed config drafts", () => {
     const fetchMock = vi.fn(() =>
       Promise.resolve(
         jsonResponse({
-          schema_version: "scopecat.config_draft_default_receipt.v1",
           entry,
           result_content_hash: HASH_B,
           deltas: [
@@ -562,7 +545,6 @@ describe("typed config drafts", () => {
             },
           ],
           active_state: {
-            schema_version: "scopecat.config.registry_active_state.v2",
             generation: 4,
             active_entry_id: entryId,
             active_entry_content_hash: HASH_B,
@@ -602,11 +584,8 @@ describe("typed config drafts", () => {
       },
     });
     expectRequest(fetchMock, 0, "/api/v1/config-registry/drafts/set-default", {
-      schema_version: "scopecat.config_draft_default_command.v1",
       registration: {
-        schema_version: "scopecat.config_draft_registration_command.v1",
         draft: expect.objectContaining({
-          schema_version: "scopecat.config_draft_command.v1",
           base_entry_id: "config-a",
           base_content_hash: HASH_A,
           base_generation: 3,
@@ -628,28 +607,35 @@ describe("config snapshot import boundary", () => {
   it("accepts only self-contained config snapshots at the upload boundary", () => {
     const config = configProfile("profile-a");
 
-    expect(parseConfigProfileJson(JSON.stringify(config))).toEqual(config);
+    expect(
+      parseConfigProfileJson(
+        JSON.stringify({
+          format_version: "scopecat.config_snapshot.v1",
+          ...config,
+        }),
+      ),
+    ).toEqual(config);
     expect(() => parseConfigProfileJson("{")).toThrow("not valid JSON");
     expect(() =>
       parseConfigProfileJson(
         JSON.stringify({
           ...config,
-          schema_version: "scopecat.config_profile_snapshot.v1",
+          format_version: "scopecat.config_snapshot.v0",
         }),
       ),
-    ).toThrow("Unsupported config snapshot schema");
+    ).toThrow("Unsupported config snapshot format");
     expect(() =>
       parseConfigProfileJson(
         JSON.stringify({
           ...config,
-          schema_version: undefined,
+          format_version: undefined,
         }),
       ),
-    ).toThrow("missing schema_version");
+    ).toThrow("missing format_version");
     expect(() =>
       parseConfigProfileJson(
         JSON.stringify({
-          schema_version: "scopecat.config_profile.v2",
+          format_version: "scopecat.config_profile_manifest.v1",
           id: "split-profile",
         }),
       ),
@@ -659,7 +645,6 @@ describe("config snapshot import boundary", () => {
 
 function registryEntry(id: string, contentHash: string) {
   return {
-    schema_version: "scopecat.config.registry_entry.v7",
     id,
     config_ref: `entries/${id}.json`,
     content_hash: contentHash,
@@ -673,14 +658,12 @@ function registryEntry(id: string, contentHash: string) {
 
 function activeState() {
   return {
-    schema_version: "scopecat.config.registry_active_state.v2",
     generation: 2,
     active_entry_id: "config-b",
     active_entry_content_hash: HASH_B,
     updated_at: "2026-07-23T10:01:00Z",
     history: [
       {
-        schema_version: "scopecat.config.registry_activation_record.v2",
         id: "activation-1",
         generation: 1,
         action: "activation",
@@ -690,7 +673,6 @@ function activeState() {
         recorded_at: "2026-07-22T10:01:00Z",
       },
       {
-        schema_version: "scopecat.config.registry_activation_record.v2",
         id: "activation-2",
         generation: 2,
         action: "activation",
@@ -717,10 +699,8 @@ function scalarValue(value: number) {
 
 function configProfile(id: string): JsonObject {
   return {
-    schema_version: "scopecat.config_profile_snapshot.v3",
     id,
     system: {
-      schema_version: "scopecat.system_spec.v4",
       id: "system",
       primary_entity_id: "q0",
       topology: {
@@ -743,7 +723,6 @@ function configProfile(id: string): JsonObject {
       routing: { bindings: [] },
       domain_target: null,
       parameter_catalog: {
-        schema_version: "scopecat.parameter_catalog.v4",
         id: "parameters",
         definitions: [
           {
@@ -793,7 +772,6 @@ function configProfile(id: string): JsonObject {
       },
     },
     environment: {
-      schema_version: "scopecat.environment_spec.v2",
       id: "bench",
       connection_profile: {
         connections: [
@@ -807,7 +785,6 @@ function configProfile(id: string): JsonObject {
       },
     },
     parameter_snapshot: {
-      schema_version: "scopecat.parameter_snapshot.v2",
       id: "parameters",
       values: [
         {

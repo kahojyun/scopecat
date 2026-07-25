@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Annotated, Literal, Protocol
+from typing import Annotated, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -256,7 +256,6 @@ class SystemSpec(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.system_spec.v4"] = "scopecat.system_spec.v4"
     id: str
     primary_entity_id: str
     topology: Topology
@@ -284,9 +283,6 @@ class EnvironmentSpec(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.environment_spec.v2"] = (
-        "scopecat.environment_spec.v2"
-    )
     id: str
     connection_profile: ConnectionProfile = Field(default_factory=ConnectionProfile)
 
@@ -296,9 +292,6 @@ class ConfigProfileSnapshot(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.config_profile_snapshot.v3"] = (
-        "scopecat.config_profile_snapshot.v3"
-    )
     id: str
     system: SystemSpec
     environment: EnvironmentSpec
@@ -354,9 +347,9 @@ def config_content_equal(
     left: ConfigProfileSnapshot,
     right: ConfigProfileSnapshot,
 ) -> bool:
-    """Compare config content while ignoring lifecycle schema fields."""
+    """Compare complete runtime configuration values."""
 
-    return _config_content(left) == _config_content(right)
+    return left == right
 
 
 def config_content_hash(config: ConfigProfileSnapshot) -> ConfigContentHash:
@@ -368,10 +361,3 @@ def config_content_hash(config: ConfigProfileSnapshot) -> ConfigContentHash:
         separators=(",", ":"),
     )
     return "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest()
-
-
-def _config_content(config: ConfigProfileSnapshot) -> dict[str, object]:
-    return config.model_dump(
-        mode="python",
-        exclude={"schema_version"},
-    )

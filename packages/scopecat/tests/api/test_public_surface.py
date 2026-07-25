@@ -66,7 +66,6 @@ def test_user_facing_facades_expose_entry_points() -> None:
     assert sc.ParameterRow
     assert hasattr(results, "MeasurementRecord")
     assert {
-        "schema_version",
         "impact",
         "category",
         "phase",

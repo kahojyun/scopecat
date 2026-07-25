@@ -22,7 +22,6 @@ from scopecat.adapters.sqlite.object_store import (
     ObjectStoreError,
     StoredObject,
 )
-from scopecat.adapters.sqlite.run_schema import RUN_SCHEMA_SQL, RUN_SCHEMA_VERSION
 from scopecat.kernel.errors import (
     CheckFailed,
     Conflict,
@@ -99,33 +98,6 @@ class SQLiteRunRepository:
         self.database = Path(database)
         self.objects = ImmutableObjectStore(objects)
         self._busy_timeout_seconds = busy_timeout_seconds
-
-    def bootstrap(self) -> None:
-        """Create the current run-index schema without migration behavior."""
-
-        try:
-            self.database.parent.mkdir(parents=True, exist_ok=True)
-            self.objects.bootstrap()
-            with closing(self._connect()) as connection:
-                connection.execute("PRAGMA journal_mode = WAL")
-                connection.executescript(RUN_SCHEMA_SQL)
-                row = _one(
-                    connection.execute(
-                        """
-                        SELECT version FROM run_repository_schema
-                        WHERE singleton = 1
-                        """
-                    )
-                )
-        except (OSError, sqlite3.Error) as error:
-            raise _storage_failure(ref="run-repository") from error
-        version = None if row is None else _integer(row, "version")
-        if version != RUN_SCHEMA_VERSION:
-            raise _integrity_failure(
-                ref="run-repository",
-                code="storage.schema_unsupported",
-                message=f"unsupported run repository schema version: {version}",
-            )
 
     def exists(self, run_id: str, ref: str) -> bool:
         _validate_identity(run_id, ref)
@@ -883,7 +855,3 @@ def _all(cursor: sqlite3.Cursor) -> list[sqlite3.Row]:
 
 def _text(row: sqlite3.Row, column: str) -> str:
     return cast("str", row[column])
-
-
-def _integer(row: sqlite3.Row, column: str) -> int:
-    return cast("int", row[column])

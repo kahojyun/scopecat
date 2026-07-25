@@ -1,17 +1,6 @@
-"""Current SQLite run-index schema."""
+"""SQLite run-index tables."""
 
-RUN_SCHEMA_VERSION = 1
-
-RUN_SCHEMA_SQL = """
-BEGIN IMMEDIATE;
-
-CREATE TABLE IF NOT EXISTS run_repository_schema (
-    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-    version INTEGER NOT NULL
-);
-
-INSERT OR IGNORE INTO run_repository_schema(singleton, version) VALUES (1, 1);
-
+RUN_TABLES_SQL = """
 CREATE TABLE IF NOT EXISTS run_repository_refs (
     run_id TEXT NOT NULL,
     ref TEXT NOT NULL,
@@ -31,6 +20,4 @@ CREATE TABLE IF NOT EXISTS run_repository_manifests (
 
 CREATE INDEX IF NOT EXISTS run_repository_manifests_created
 ON run_repository_manifests(created_at, run_id);
-
-COMMIT;
 """

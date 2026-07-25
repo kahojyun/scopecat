@@ -12,12 +12,11 @@ import pytest
 
 from scopecat.adapters.sqlite import (
     SQLiteCollectionRecordRepository,
-    SQLiteControlPlane,
     SQLiteExecutionJournal,
     SQLiteMeasurementDatasetRepository,
     SQLitePayloadEvidenceCommitter,
+    SQLiteProjectStore,
     SQLiteRunRepository,
-    bootstrap_execution_schema,
 )
 from scopecat.adapters.sqlite.execution import ExecutionJournalConflict
 from scopecat.execution.ports.journal import (
@@ -48,12 +47,14 @@ from tests.contracts.execution_port_contracts import (
 
 
 def _runs(tmp_path: Path) -> SQLiteRunRepository:
+    SQLiteProjectStore(
+        tmp_path / "control.sqlite3",
+        tmp_path / "objects",
+    ).bootstrap()
     runs = SQLiteRunRepository(
         tmp_path / "control.sqlite3",
         tmp_path / "objects",
     )
-    runs.bootstrap()
-    bootstrap_execution_schema(runs)
     return runs
 
 
@@ -192,11 +193,8 @@ class TestSQLitePayloadEvidenceContract(PayloadEvidenceCommitterContract):
 
 def test_execution_and_control_indexes_share_run_database(tmp_path: Path) -> None:
     database = tmp_path / "control.sqlite3"
-    control = SQLiteControlPlane(database)
-    control.bootstrap()
+    SQLiteProjectStore(database, tmp_path / "objects").bootstrap()
     runs = SQLiteRunRepository(database, tmp_path / "objects")
-    runs.bootstrap()
-    bootstrap_execution_schema(runs)
     journal = SQLiteExecutionJournal(runs, run_id="run-shared")
 
     committed = journal.append(
@@ -210,7 +208,6 @@ def test_execution_and_control_indexes_share_run_database(tmp_path: Path) -> Non
     )
 
     assert committed.sequence == 0
-    assert control.schema_version() == 1
     assert (
         runs.read_model(
             "run-shared",

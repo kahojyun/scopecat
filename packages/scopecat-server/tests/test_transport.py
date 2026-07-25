@@ -735,7 +735,6 @@ def test_health_catalog_and_run_queries() -> None:
 
     assert health.status_code == 200
     assert health.json() == {
-        "schema_version": "scopecat.daemon_health.v2",
         "status": "ok",
         "project_id": "test-project",
         "project_name": "test-lab",

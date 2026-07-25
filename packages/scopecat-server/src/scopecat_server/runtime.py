@@ -13,8 +13,8 @@ from filelock import FileLock, Timeout
 from scopecat.adapters.sqlite import (
     SQLiteConfigRegistryStore,
     SQLiteControlPlane,
+    SQLiteProjectStore,
     SQLiteRunRepository,
-    bootstrap_execution_schema,
 )
 from scopecat.application.lab import BootstrapConfigFactory
 from scopecat.application.services import ProjectStateServices
@@ -86,12 +86,8 @@ class LocalDaemonRuntime:
                 runs=runs,
             )
 
-            # Every adapter refuses unknown schemas; bootstrap is deliberately
-            # explicit so opening a runtime never implies a migration.
-            control.bootstrap()
-            runs.bootstrap()
-            bootstrap_execution_schema(runs)
-            config_registry.bootstrap()
+            project_store = SQLiteProjectStore(database, objects)
+            project_store.bootstrap()
 
             selected_catalog = catalog or RegisteredExperimentCatalog()
             executor = ExecutorService(
@@ -134,7 +130,7 @@ class LocalDaemonRuntime:
             application = DaemonApplication(
                 project_root=self.project_root,
                 project_id=project_id,
-                control=control,
+                project_store=project_store,
                 catalog=selected_catalog,
                 config=config_service,
                 runs=run_service,

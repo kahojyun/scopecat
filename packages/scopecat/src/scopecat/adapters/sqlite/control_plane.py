@@ -13,7 +13,6 @@ from uuid import uuid4
 
 from pydantic import JsonValue, TypeAdapter
 
-from scopecat.adapters.sqlite.schema import SCHEMA_SQL, SCHEMA_VERSION
 from scopecat.control.models import (
     ControlRun,
     ControlRunState,
@@ -43,10 +42,6 @@ class ControlPlaneError(RuntimeError):
     """Base failure from the SQLite control plane."""
 
 
-class SchemaVersionError(ControlPlaneError):
-    """The database belongs to an unsupported control-plane schema."""
-
-
 class ControlPlaneNotFound(ControlPlaneError):
     """A requested control-plane record does not exist."""
 
@@ -67,35 +62,6 @@ class SQLiteControlPlane:
         self._busy_timeout_ms = int(
             (busy_timeout or timedelta(seconds=5)).total_seconds() * 1000
         )
-
-    def bootstrap(self) -> None:
-        """Create the current schema, refusing implicit schema migration."""
-
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with closing(self._connect()) as connection:
-            connection.execute("PRAGMA journal_mode = WAL")
-            connection.executescript(SCHEMA_SQL)
-            row = _one(
-                connection.execute(
-                    "SELECT version FROM control_schema WHERE singleton = 1"
-                )
-            )
-        if row is None or _integer(row, "version") != SCHEMA_VERSION:
-            version = None if row is None else _integer(row, "version")
-            raise SchemaVersionError(
-                f"unsupported control-plane schema version: {version}"
-            )
-
-    def schema_version(self) -> int:
-        with closing(self._connect()) as connection:
-            row = _one(
-                connection.execute(
-                    "SELECT version FROM control_schema WHERE singleton = 1"
-                )
-            )
-        if row is None:
-            raise SchemaVersionError("control-plane schema is not bootstrapped")
-        return _integer(row, "version")
 
     def admit_run(self, admission: RunAdmissionRecord) -> ControlRun:
         """Publish the admission, requirements, and first event atomically."""

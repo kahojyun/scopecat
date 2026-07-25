@@ -57,9 +57,6 @@ class ParameterChangeDecisionRecord(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: Literal["scopecat.parameter_change_decision_record.v4"] = (
-        "scopecat.parameter_change_decision_record.v4"
-    )
     event_id: str
     run_id: str
     proposal_id: str
@@ -135,9 +132,6 @@ class ParameterChangeProposal(BaseModel):
         revalidate_instances="always",
     )
 
-    schema_version: Literal["scopecat.parameter_change_proposal.v3"] = (
-        "scopecat.parameter_change_proposal.v3"
-    )
     id: str
     source_run_id: str
     analysis_record_id: str

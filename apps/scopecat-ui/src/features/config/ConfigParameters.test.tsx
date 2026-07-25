@@ -25,16 +25,14 @@ describe("ConfigParameters", () => {
     const advanced = screen.getByText("Advanced · raw snapshot").closest("details");
     expect(advanced).not.toHaveAttribute("open");
     expect(advanced).not.toBeNull();
-    expect(within(advanced!).getByText(/config_profile_snapshot\.v3/)).toBeInTheDocument();
+    expect(within(advanced!).getByText(/profile-5\.1/)).toBeInTheDocument();
   });
 });
 
 function snapshot(driveFrequency: number, readoutFrequency: number) {
   return normalizeConfigProfileSnapshot({
-    schema_version: "scopecat.config_profile_snapshot.v3",
     id: `profile-${driveFrequency}`,
     system: {
-      schema_version: "scopecat.system_spec.v4",
       id: "system",
       primary_entity_id: "q0",
       topology: {
@@ -49,7 +47,6 @@ function snapshot(driveFrequency: number, readoutFrequency: number) {
       routing: { bindings: [] },
       domain_target: null,
       parameter_catalog: {
-        schema_version: "scopecat.parameter_catalog.v4",
         id: "calibration",
         definitions: [
           {
@@ -85,12 +82,10 @@ function snapshot(driveFrequency: number, readoutFrequency: number) {
       },
     },
     environment: {
-      schema_version: "scopecat.environment_spec.v2",
       id: "bench",
       connection_profile: { connections: [] },
     },
     parameter_snapshot: {
-      schema_version: "scopecat.parameter_snapshot.v2",
       id: "parameters",
       values: [
         {

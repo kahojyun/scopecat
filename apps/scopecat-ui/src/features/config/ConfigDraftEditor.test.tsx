@@ -318,10 +318,8 @@ function defaultReceipt(): ConfigDraftDefaultReceipt {
 
 function snapshot(driveFrequency: number, readoutFrequency: number) {
   return normalizeConfigProfileSnapshot({
-    schema_version: "scopecat.config_profile_snapshot.v3",
     id: "profile",
     system: {
-      schema_version: "scopecat.system_spec.v4",
       id: "system",
       primary_entity_id: "q0",
       topology: {
@@ -339,7 +337,6 @@ function snapshot(driveFrequency: number, readoutFrequency: number) {
       routing: { bindings: [] },
       domain_target: null,
       parameter_catalog: {
-        schema_version: "scopecat.parameter_catalog.v4",
         id: "calibration",
         definitions: [
           {
@@ -375,12 +372,10 @@ function snapshot(driveFrequency: number, readoutFrequency: number) {
       },
     },
     environment: {
-      schema_version: "scopecat.environment_spec.v2",
       id: "bench",
       connection_profile: { connections: [] },
     },
     parameter_snapshot: {
-      schema_version: "scopecat.parameter_snapshot.v2",
       id: "parameters",
       values: [
         {

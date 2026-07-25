@@ -184,15 +184,12 @@ def test_instrument_models_round_trip() -> None:
 
     assert_model_round_trip(
         description,
-        schema_version="scopecat.instrument_description.v1",
     )
     assert_model_round_trip(
         state,
-        schema_version="scopecat.instrument_state_snapshot.v2",
     )
     assert_model_round_trip(
         command,
-        schema_version="scopecat.instrument_state_command.v4",
     )
 
 
@@ -233,11 +230,10 @@ def test_run_persists_measurements_and_run_files(
     )
     assert persisted_manifest == manifest
     assert persisted_config == config
-    assert state_evidence.schema_version == "scopecat.instrument_state_evidence.v3"
     assert {
-        snapshot.schema_version
+        snapshot.instrument_id
         for snapshot in [*state_evidence.initial_state, *state_evidence.final_state]
-    } == {"scopecat.instrument_state_snapshot.v2"}
+    } == {"source-0"}
     final_state_value = state_evidence.final_state[0].fields[0].value.root
     assert final_state_value == Quantity(value=5.1, unit="GHz")
     persisted_state_evidence = state_evidence.model_dump(mode="json")

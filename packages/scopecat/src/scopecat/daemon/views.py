@@ -46,7 +46,6 @@ class _ViewModel(BaseModel):
 class DaemonHealth(_ViewModel):
     """Daemon readiness and the one project owned by this process."""
 
-    schema_version: Literal["scopecat.daemon_health.v2"] = "scopecat.daemon_health.v2"
     status: Literal["ok", "degraded"]
     project_id: str
     project_name: str
@@ -56,9 +55,6 @@ class DaemonHealth(_ViewModel):
 class ConfigRegistryView(_ViewModel):
     """Registered entries and the authoritative activation history."""
 
-    schema_version: Literal["scopecat.config_registry_view.v1"] = (
-        "scopecat.config_registry_view.v1"
-    )
     entries: tuple[ConfigRegistryEntry, ...] = ()
     active_state: ConfigRegistryActiveState | None = None
 
@@ -66,9 +62,6 @@ class ConfigRegistryView(_ViewModel):
 class ActiveConfigView(_ViewModel):
     """The active registry identity and its resolved immutable snapshot."""
 
-    schema_version: Literal["scopecat.active_config_view.v1"] = (
-        "scopecat.active_config_view.v1"
-    )
     entry: ConfigRegistryEntry
     active_state: ConfigRegistryActiveState
     config: ConfigProfileSnapshot
@@ -87,9 +80,6 @@ class ActiveConfigView(_ViewModel):
 class ConfigEntryView(_ViewModel):
     """One registry identity paired with its immutable configuration."""
 
-    schema_version: Literal["scopecat.config_entry_view.v1"] = (
-        "scopecat.config_entry_view.v1"
-    )
     entry: ConfigRegistryEntry
     config: ConfigProfileSnapshot
 
@@ -103,9 +93,6 @@ class ConfigEntryView(_ViewModel):
 class ConfigDraftPreview(_ViewModel):
     """Normalized result of transient typed edits against an active config."""
 
-    schema_version: Literal["scopecat.config_draft_preview.v1"] = (
-        "scopecat.config_draft_preview.v1"
-    )
     valid: bool
     base_entry: ConfigRegistryEntry
     base_generation: int
@@ -144,7 +131,6 @@ class RunResourceView(_ViewModel):
 class RunDetail(_ViewModel):
     """Control and content state read from the same daemon."""
 
-    schema_version: Literal["scopecat.run_detail.v1"] = "scopecat.run_detail.v1"
     control: ControlRun
     manifest: RunManifest
     resources: tuple[RunResourceView, ...] = ()
@@ -153,9 +139,6 @@ class RunDetail(_ViewModel):
 class RunConfigView(_ViewModel):
     """The immutable configuration snapshot accepted with one run."""
 
-    schema_version: Literal["scopecat.run_config_view.v1"] = (
-        "scopecat.run_config_view.v1"
-    )
     run_id: str
     config_content_hash: ConfigContentHash
     config: ConfigProfileSnapshot
@@ -170,9 +153,6 @@ class RunConfigView(_ViewModel):
 class RunRequestView(_ViewModel):
     """The independently persisted operator request, when one was accepted."""
 
-    schema_version: Literal["scopecat.run_request_view.v1"] = (
-        "scopecat.run_request_view.v1"
-    )
     run_id: str
     request: RunRequest | None = None
 
@@ -180,9 +160,6 @@ class RunRequestView(_ViewModel):
 class RunAnalysisView(_ViewModel):
     """One persisted analysis record and its manifest identity."""
 
-    schema_version: Literal["scopecat.run_analysis_view.v1"] = (
-        "scopecat.run_analysis_view.v1"
-    )
     run_id: str
     entry: RunContentEntry
     analysis: AnalysisRecord
@@ -199,9 +176,6 @@ class RunAnalysisView(_ViewModel):
 
 
 class RunAnalysisListView(_ViewModel):
-    schema_version: Literal["scopecat.run_analysis_list_view.v1"] = (
-        "scopecat.run_analysis_list_view.v1"
-    )
     run_id: str
     items: tuple[RunAnalysisView, ...] = ()
 
@@ -213,9 +187,6 @@ class RunAnalysisListView(_ViewModel):
 
 
 class RunArtifactBytesView(_ViewModel):
-    schema_version: Literal["scopecat.run_artifact_bytes_view.v1"] = (
-        "scopecat.run_artifact_bytes_view.v1"
-    )
     run_id: str
     artifact: RunContentEntry
     content_base64: str
@@ -231,9 +202,6 @@ class RunArtifactBytesView(_ViewModel):
 
 
 class RunArtifactTextView(_ViewModel):
-    schema_version: Literal["scopecat.run_artifact_text_view.v1"] = (
-        "scopecat.run_artifact_text_view.v1"
-    )
     run_id: str
     artifact: RunContentEntry
     content: str
@@ -245,9 +213,6 @@ class RunArtifactTextView(_ViewModel):
 
 
 class RunArtifactJsonView(_ViewModel):
-    schema_version: Literal["scopecat.run_artifact_json_view.v1"] = (
-        "scopecat.run_artifact_json_view.v1"
-    )
     run_id: str
     artifact: RunContentEntry
     content: dict[str, JsonValue]
@@ -259,9 +224,6 @@ class RunArtifactJsonView(_ViewModel):
 
 
 class RunRecordJsonView(_ViewModel):
-    schema_version: Literal["scopecat.run_record_json_view.v1"] = (
-        "scopecat.run_record_json_view.v1"
-    )
     run_id: str
     record: RunContentEntry
     content: dict[str, JsonValue]
@@ -276,9 +238,6 @@ type RunDatasetContent = MeasurementDataset | DataTableArtifact | DataArrayArtif
 
 
 class RunDatasetContentView(_ViewModel):
-    schema_version: Literal["scopecat.run_dataset_content_view.v1"] = (
-        "scopecat.run_dataset_content_view.v1"
-    )
     run_id: str
     dataset: RunContentEntry
     content: RunDatasetContent
@@ -331,9 +290,6 @@ class ParameterProposalView(_ViewModel):
 
 
 class ParameterProposalListView(_ViewModel):
-    schema_version: Literal["scopecat.parameter_proposal_list_view.v1"] = (
-        "scopecat.parameter_proposal_list_view.v1"
-    )
     run_id: str
     items: tuple[ParameterProposalView, ...] = ()
 
@@ -347,9 +303,6 @@ class ParameterProposalListView(_ViewModel):
 class MeasurementPage(_ViewModel):
     """Bounded raw-record preview for interactive browsing."""
 
-    schema_version: Literal["scopecat.measurement_page.v1"] = (
-        "scopecat.measurement_page.v1"
-    )
     items: tuple[MeasurementRecord, ...] = ()
     next_offset: int | None = Field(default=None, ge=0)
 

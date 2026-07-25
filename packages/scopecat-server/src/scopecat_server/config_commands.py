@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from difflib import unified_diff
 from pathlib import Path
 
+from scopecat.config.documents import config_snapshot_document_json
 from scopecat.config.resolution import validate_config_profile
 from scopecat.daemon.endpoint import (
     DaemonEndpointError,
@@ -147,7 +148,7 @@ def export_project_config(
 
 
 def _snapshot_json(config: ConfigProfileSnapshot) -> str:
-    return f"{config.model_dump_json(indent=2)}\n"
+    return f"{config_snapshot_document_json(config, indent=2)}\n"
 
 
 def _recorded_daemon_url(project: Project) -> str:

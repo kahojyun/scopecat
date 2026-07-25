@@ -1,5 +1,4 @@
 {
-  "schema_version": "scopecat.run_request.v4",
   "id": "test.workflow_scan.request",
   "template_id": "test.workflow_scan",
   "template_inputs": {

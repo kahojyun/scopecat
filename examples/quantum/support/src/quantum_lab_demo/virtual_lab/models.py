@@ -29,7 +29,7 @@ class VirtualDeviceProfile(BaseModel):
 class VirtualLabProfile(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["quantum_lab_demo.virtual_lab_profile.v1"] = (
+    format_version: Literal["quantum_lab_demo.virtual_lab_profile.v1"] = (
         "quantum_lab_demo.virtual_lab_profile.v1"
     )
     id: str

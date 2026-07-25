@@ -1,5 +1,4 @@
 {
-  "schema_version": "scopecat.environment_spec.v2",
   "id": "templates-environment",
   "connection_profile": {
     "connections": [

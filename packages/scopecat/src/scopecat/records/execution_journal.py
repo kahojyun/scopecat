@@ -63,9 +63,6 @@ class ExecutionTransition(BaseModel):
         revalidate_instances="always",
     )
 
-    schema_version: Literal["scopecat.execution_transition.v3"] = (
-        "scopecat.execution_transition.v3"
-    )
     sequence: int | None = Field(default=None, ge=0)
     run_id: str
     operation_id: str
@@ -88,9 +85,6 @@ class CollectionChunk(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.collection_chunk.v2"] = (
-        "scopecat.collection_chunk.v2"
-    )
     run_id: str = Field(min_length=1)
     operation_id: str = Field(min_length=1)
     command_content_hash: str = Field(min_length=1)
@@ -123,9 +117,6 @@ class PayloadEvidence(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["scopecat.payload_evidence.v1"] = (
-        "scopecat.payload_evidence.v1"
-    )
     run_id: str
     operation_id: str
     point_index: int | None = Field(default=None, ge=0)

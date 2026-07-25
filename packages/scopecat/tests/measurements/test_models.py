@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import cast
 
 from scopecat.records.measurement import (
-    MEASUREMENT_DATASET_SCHEMA_VERSION,
+    MEASUREMENT_DATASET_FORMAT_VERSION,
     MEASUREMENT_RECORD_SCHEMA_VERSION,
     ComplexQuantity,
     MeasurementArray,
@@ -20,10 +20,7 @@ from tests.testkit.records import assert_model_round_trip
 def test_measurement_record_round_trip() -> None:
     measurement = signal_record().model_copy(update={"metadata": {"source": "test"}})
 
-    restored = assert_model_round_trip(
-        measurement,
-        schema_version="scopecat.measurement_record.v1",
-    )
+    restored = assert_model_round_trip(measurement)
 
     assert restored.point_index == 0
     signal = restored.observables["signal"]
@@ -46,10 +43,7 @@ def test_measurement_array_record_round_trip() -> None:
         },
     )
 
-    restored = assert_model_round_trip(
-        measurement,
-        schema_version="scopecat.measurement_record.v1",
-    )
+    restored = assert_model_round_trip(measurement)
     i0 = restored.observables["i0"]
 
     assert isinstance(i0, MeasurementArray)
@@ -86,10 +80,7 @@ def test_typed_measurement_array_leaves_survive_record_round_trip() -> None:
         },
     )
 
-    restored = assert_model_round_trip(
-        measurement,
-        schema_version="scopecat.measurement_record.v1",
-    )
+    restored = assert_model_round_trip(measurement)
     iq = restored.observables["iq"]
     probability = restored.observables["probability"]
     original_iq = measurement.observables["iq"]
@@ -115,10 +106,7 @@ def test_complex_measurement_record_round_trip_and_infers_dtype() -> None:
         },
     )
 
-    restored = assert_model_round_trip(
-        measurement,
-        schema_version="scopecat.measurement_record.v1",
-    )
+    restored = assert_model_round_trip(measurement)
     raw_iq = restored.observables["raw_iq"]
     schema = infer_measurement_dataset_schema(
         dataset_id="raw-measurements",
@@ -136,11 +124,9 @@ def test_complex_measurement_record_round_trip_and_infers_dtype() -> None:
 def test_measurement_dataset_schema_round_trip() -> None:
     schema = signal_point_schema(size=3)
 
-    restored = assert_model_round_trip(
-        schema,
-        schema_version=MEASUREMENT_DATASET_SCHEMA_VERSION,
-    )
+    restored = assert_model_round_trip(schema)
 
+    assert restored.format_version == MEASUREMENT_DATASET_FORMAT_VERSION
     assert restored.record_schema == MEASUREMENT_RECORD_SCHEMA_VERSION
     assert restored.primary_coordinates == ["drive_frequency"]
     assert restored.primary_observables == ["signal"]

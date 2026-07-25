@@ -41,7 +41,6 @@ describe("project daemon reads", () => {
       vi.fn(() =>
         Promise.resolve(
           jsonResponse({
-            schema_version: "scopecat.daemon_health.v2",
             status: "ok",
             project_id: "local:abc",
             project_name: "ramsey-lab",
@@ -175,7 +174,7 @@ describe("project daemon reads", () => {
           jsonResponse({
             dataset: dataTable(),
             content: {
-              schema_version: "scopecat.data_table.v0",
+              format_version: "scopecat.data_table.v0",
               rows: [{ frequency: 5.1 }],
             },
           }),
