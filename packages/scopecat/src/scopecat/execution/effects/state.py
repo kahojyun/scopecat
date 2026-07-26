@@ -258,9 +258,7 @@ def _execution_state_target_identity(
             (
                 binding.entity_id,
                 binding.channel_id,
-                binding.line_id,
                 binding.capability,
-                tuple(sorted(binding.group_ids)),
             )
             for binding in channel_bindings
         ),

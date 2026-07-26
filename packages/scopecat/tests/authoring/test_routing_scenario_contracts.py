@@ -84,7 +84,7 @@ def test_entity_resource_selection_is_deterministic_across_instruments() -> None
         authoring.ScalarType(authoring.EntityType(entity_kind="logical_device")),
     )
     module = (
-        authoring.module_body(id="test.resource-binding-scenarios.entity-shards")
+        authoring.module_body(id="test.resource-binding-scenarios.entity-routing")
         .inputs(qubit)
         .resource(
             "drive",
@@ -101,7 +101,7 @@ def test_entity_resource_selection_is_deterministic_across_instruments() -> None
     )
     invocation = template_fixture(
         module,
-        id="test.resource-binding-scenarios.entity-shards",
+        id="test.resource-binding-scenarios.entity-routing",
         kind="resource_binding_contract",
         scans=(
             axis(

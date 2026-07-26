@@ -43,6 +43,7 @@ from quantum_lab_demo.scenarios.opaque_collection import (
 from quantum_lab_demo.targets.fake_list_mode import configured_fake_list_target
 from quantum_lab_demo.virtual_lab.provider import QuantumLabVirtualProvider
 from quantum_lab_demo.virtual_lab.wiring import (
+    ChannelWiring,
     compile_quantum_wiring_system,
     quantum_wiring,
     quantum_wiring_config_profile,
@@ -55,21 +56,17 @@ def test_quantum_wiring_builder_compiles_lab_vocabulary_to_core_config() -> None
     base = quantum_lab_bootstrap_config()
     wiring = (
         quantum_wiring()
-        .drive_line(
-            "q0.xy",
-            instrument="drive-stack",
-            channel="drive.awg0.ch1",
-            port="awg0.ch1",
-            shared_lo="lo.xy0",
+        .qubit(
+            "q0",
+            drive=ChannelWiring(
+                instrument_id="drive-stack",
+                channel_id="drive.awg0.ch1",
+            ),
+            readout=ChannelWiring(
+                instrument_id="readout-stack",
+                channel_id="readout.mux0",
+            ),
         )
-        .readout_line(
-            "ro.mux0",
-            instrument="readout-stack",
-            channel="readout.mux0",
-            port="ro0",
-            shared_lo="lo.ro0",
-        )
-        .qubit("q0", drive="q0.xy", readout="ro.mux0")
         .build()
     )
     config = base.model_copy(
@@ -95,53 +92,45 @@ def test_quantum_wiring_builder_compiles_lab_vocabulary_to_core_config() -> None
 
     assert drive.instrument_id == "drive-stack"
     assert [
-        (binding.entity_id, binding.line_id, binding.channel_id, binding.group_ids)
+        (binding.entity_id, binding.channel_id, binding.capability)
         for binding in drive.channel_bindings
-    ] == [("q0", "q0.xy", "drive.awg0.ch1", ["lo.xy0"])]
+    ] == [("q0", "drive.awg0.ch1", "play_pulse_program")]
     assert readout.instrument_id == "readout-stack"
     assert [
-        (binding.entity_id, binding.line_id, binding.channel_id, binding.group_ids)
+        (binding.entity_id, binding.channel_id, binding.capability)
         for binding in readout.channel_bindings
-    ] == [("q0", "ro.mux0", "readout.mux0", ["lo.ro0"])]
-
-
-def test_quantum_wiring_builder_rejects_unknown_line_references() -> None:
-    builder = quantum_wiring().qubit("q0", drive="missing.xy", readout="ro.mux0")
-
-    with pytest.raises(ValueError, match=r"unknown drive line 'missing\.xy'"):
-        builder.build()
+    ] == [("q0", "readout.mux0", "acquire_iq")]
 
 
 def test_quantum_wiring_builder_rejects_unknown_coupler_qubits() -> None:
-    builder = (
-        quantum_wiring()
-        .coupler_flux_line("c01.z", instrument="coupler-stack", channel="bias0")
-        .coupler("coupler-q0-q1", qubits=("q0", "q1"), flux="c01.z")
+    builder = quantum_wiring().coupler(
+        "coupler-q0-q1",
+        qubits=("q0", "q1"),
+        flux=ChannelWiring(
+            instrument_id="coupler-stack",
+            channel_id="bias0",
+        ),
     )
 
     with pytest.raises(ValueError, match="references unknown qubit 'q0'"):
         builder.build()
 
 
-def test_default_quantum_wiring_config_describes_lines_groups_and_channel_routes() -> (
-    None
-):
+def test_default_quantum_wiring_config_describes_channel_routes() -> None:
     config = quantum_wiring_config_profile()
 
     assert not validate_config_profile(config)
     assert config.domain_target is not None
     assert config.domain_target.kind == "quantum_lab_demo.fake-list-mode"
-    assert {binding.line_id for binding in config.routing.bindings} >= {
-        "q0.xy",
-        "q1.xy",
-        "ro.mux0",
-        "c01.z",
-    }
     assert {
-        group_id
+        (binding.instrument_id, binding.entity_id, binding.channel_id)
         for binding in config.routing.bindings
-        for group_id in binding.group_ids
-    } >= {"lo.xy0", "lo.ro0"}
+    } >= {
+        ("drive-stack", "q0", "drive.awg0.ch1"),
+        ("drive-stack", "q1", "drive.awg0.ch2"),
+        ("readout-stack", "q0", "readout.mux0"),
+        ("coupler-stack", "coupler-q0-q1", "coupler.bias0"),
+    }
 
     routing = RoutingView.from_config(config)
     drive_manifest = routing.bind_port(
@@ -157,19 +146,19 @@ def test_default_quantum_wiring_config_describes_lines_groups_and_channel_routes
 
     assert drive_binding.instrument_id == "drive-stack"
     assert [
-        (binding.entity_id, binding.line_id, binding.channel_id, binding.group_ids)
+        (binding.entity_id, binding.channel_id)
         for binding in drive_binding.channel_bindings
     ] == [
-        ("q0", "q0.xy", "drive.awg0.ch1", ["lo.xy0"]),
-        ("q1", "q1.xy", "drive.awg0.ch2", ["lo.xy0"]),
+        ("q0", "drive.awg0.ch1"),
+        ("q1", "drive.awg0.ch2"),
     ]
     assert readout_binding.instrument_id == "readout-stack"
     assert [
-        (binding.entity_id, binding.line_id, binding.channel_id, binding.group_ids)
+        (binding.entity_id, binding.channel_id)
         for binding in readout_binding.channel_bindings
     ] == [
-        ("q0", "ro.mux0", "readout.mux0", ["lo.ro0"]),
-        ("q1", "ro.mux0", "readout.mux0", ["lo.ro0"]),
+        ("q0", "readout.mux0"),
+        ("q1", "readout.mux0"),
     ]
 
 
@@ -187,6 +176,7 @@ def test_target_signal_bindings_are_derived_from_accepted_routing() -> None:
     assert list_target.id.value == list_domain_target.id
     assert drive_channel.value == "drive-stack:drive.awg0.ch1:q0"
     assert acquisition_channel.value == "readout-stack:readout.mux0:q0"
+
 
 def test_virtual_provider_description_declares_full_instrument_schemas() -> None:
     config = quantum_wiring_config_profile()
@@ -271,18 +261,18 @@ def test_default_quantum_wiring_runtime_commands_include_channel_bindings(
 
     assert manifest.status == "completed"
     assert [
-        (binding.entity_id, binding.line_id, binding.channel_id, binding.group_ids)
+        (binding.entity_id, binding.channel_id)
         for binding in drive_program.channel_bindings
     ] == [
-        ("q0", "q0.xy", "drive.awg0.ch1", ["lo.xy0"]),
-        ("q1", "q1.xy", "drive.awg0.ch2", ["lo.xy0"]),
+        ("q0", "drive.awg0.ch1"),
+        ("q1", "drive.awg0.ch2"),
     ]
     assert [
-        (binding.entity_id, binding.line_id, binding.channel_id, binding.group_ids)
+        (binding.entity_id, binding.channel_id)
         for binding in readout_request.channel_bindings
     ] == [
-        ("q0", "ro.mux0", "readout.mux0", ["lo.ro0"]),
-        ("q1", "ro.mux0", "readout.mux0", ["lo.ro0"]),
+        ("q0", "readout.mux0"),
+        ("q1", "readout.mux0"),
     ]
 
 

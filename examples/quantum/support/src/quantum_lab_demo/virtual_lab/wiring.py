@@ -19,39 +19,34 @@ from quantum_lab_demo.configuration import quantum_lab_bootstrap_config
 
 
 @dataclass(frozen=True)
+class ChannelWiring:
+    instrument_id: str
+    channel_id: str
+
+
+@dataclass(frozen=True)
 class QubitWiring:
     id: str
-    drive: str
-    readout: str
-    flux: str | None = None
+    drive: ChannelWiring
+    readout: ChannelWiring
+    flux: ChannelWiring | None = None
 
 
 @dataclass(frozen=True)
 class CouplerWiring:
     id: str
     qubits: tuple[str, str]
-    flux: str
-
-
-@dataclass(frozen=True)
-class LineWiring:
-    id: str
-    kind: str
-    instrument_id: str
-    channel_id: str
-    port: str | None = None
-    lo_group: str | None = None
+    flux: ChannelWiring
 
 
 @dataclass(frozen=True)
 class QuantumWiring:
     qubits: tuple[QubitWiring, ...]
     couplers: tuple[CouplerWiring, ...]
-    lines: tuple[LineWiring, ...]
 
 
 class QuantumWiringBuilder:
-    """Lab-facing builder for qubit/coupler/line wiring.
+    """Lab-facing builder for qubit and coupler channel routing.
 
     The builder is intentionally domain-local example code. It lets users edit
     a familiar lab view, then compiles that view into Scopecat's domain-neutral
@@ -61,15 +56,14 @@ class QuantumWiringBuilder:
     def __init__(self) -> None:
         self._qubits: list[QubitWiring] = []
         self._couplers: list[CouplerWiring] = []
-        self._lines: list[LineWiring] = []
 
     def qubit(
         self,
         qubit_id: str,
         *,
-        drive: str,
-        readout: str,
-        flux: str | None = None,
+        drive: ChannelWiring,
+        readout: ChannelWiring,
+        flux: ChannelWiring | None = None,
     ) -> Self:
         self._qubits.append(
             QubitWiring(id=qubit_id, drive=drive, readout=readout, flux=flux)
@@ -81,92 +75,15 @@ class QuantumWiringBuilder:
         coupler_id: str,
         *,
         qubits: tuple[str, str],
-        flux: str,
+        flux: ChannelWiring,
     ) -> Self:
         self._couplers.append(CouplerWiring(id=coupler_id, qubits=qubits, flux=flux))
-        return self
-
-    def drive_line(
-        self,
-        line_id: str,
-        *,
-        instrument: str,
-        channel: str,
-        port: str | None = None,
-        shared_lo: str | None = None,
-    ) -> Self:
-        return self.line(
-            line_id,
-            kind="drive",
-            instrument=instrument,
-            channel=channel,
-            port=port,
-            shared_lo=shared_lo,
-        )
-
-    def readout_line(
-        self,
-        line_id: str,
-        *,
-        instrument: str,
-        channel: str,
-        port: str | None = None,
-        shared_lo: str | None = None,
-    ) -> Self:
-        return self.line(
-            line_id,
-            kind="readout",
-            instrument=instrument,
-            channel=channel,
-            port=port,
-            shared_lo=shared_lo,
-        )
-
-    def coupler_flux_line(
-        self,
-        line_id: str,
-        *,
-        instrument: str,
-        channel: str,
-        port: str | None = None,
-        shared_lo: str | None = None,
-    ) -> Self:
-        return self.line(
-            line_id,
-            kind="coupler",
-            instrument=instrument,
-            channel=channel,
-            port=port,
-            shared_lo=shared_lo,
-        )
-
-    def line(
-        self,
-        line_id: str,
-        *,
-        kind: str,
-        instrument: str,
-        channel: str,
-        port: str | None = None,
-        shared_lo: str | None = None,
-    ) -> Self:
-        self._lines.append(
-            LineWiring(
-                id=line_id,
-                kind=kind,
-                instrument_id=instrument,
-                channel_id=channel,
-                port=port,
-                lo_group=shared_lo,
-            )
-        )
         return self
 
     def build(self) -> QuantumWiring:
         wiring = QuantumWiring(
             qubits=tuple(self._qubits),
             couplers=tuple(self._couplers),
-            lines=tuple(self._lines),
         )
         _validate_wiring(wiring)
         return wiring
@@ -191,61 +108,60 @@ def quantum_wiring_config_profile() -> ConfigProfileSnapshot:
 
 
 def default_quantum_wiring() -> QuantumWiring:
+    readout = ChannelWiring(
+        instrument_id="readout-stack",
+        channel_id="readout.mux0",
+    )
     return (
         quantum_wiring()
-        .drive_line(
-            "q0.xy",
-            instrument="drive-stack",
-            channel="drive.awg0.ch1",
-            port="awg0.ch1",
-            shared_lo="lo.xy0",
+        .qubit(
+            "q0",
+            drive=ChannelWiring(
+                instrument_id="drive-stack",
+                channel_id="drive.awg0.ch1",
+            ),
+            readout=readout,
         )
-        .drive_line(
-            "q1.xy",
-            instrument="drive-stack",
-            channel="drive.awg0.ch2",
-            port="awg0.ch2",
-            shared_lo="lo.xy0",
+        .qubit(
+            "q1",
+            drive=ChannelWiring(
+                instrument_id="drive-stack",
+                channel_id="drive.awg0.ch2",
+            ),
+            readout=readout,
         )
-        .drive_line(
-            "q2.xy",
-            instrument="drive-stack",
-            channel="drive.awg1.ch1",
-            port="awg1.ch1",
-            shared_lo="lo.xy1",
+        .qubit(
+            "q2",
+            drive=ChannelWiring(
+                instrument_id="drive-stack",
+                channel_id="drive.awg1.ch1",
+            ),
+            readout=readout,
         )
-        .drive_line(
-            "q3.xy",
-            instrument="drive-stack",
-            channel="drive.awg1.ch2",
-            port="awg1.ch2",
-            shared_lo="lo.xy1",
+        .qubit(
+            "q3",
+            drive=ChannelWiring(
+                instrument_id="drive-stack",
+                channel_id="drive.awg1.ch2",
+            ),
+            readout=readout,
         )
-        .readout_line(
-            "ro.mux0",
-            instrument="readout-stack",
-            channel="readout.mux0",
-            port="ro0",
-            shared_lo="lo.ro0",
+        .coupler(
+            "coupler-q0-q1",
+            qubits=("q0", "q1"),
+            flux=ChannelWiring(
+                instrument_id="coupler-stack",
+                channel_id="coupler.bias0",
+            ),
         )
-        .coupler_flux_line(
-            "c01.z",
-            instrument="coupler-stack",
-            channel="coupler.bias0",
-            port="bias0",
+        .coupler(
+            "coupler-q2-q3",
+            qubits=("q2", "q3"),
+            flux=ChannelWiring(
+                instrument_id="coupler-stack",
+                channel_id="coupler.bias1",
+            ),
         )
-        .coupler_flux_line(
-            "c23.z",
-            instrument="coupler-stack",
-            channel="coupler.bias1",
-            port="bias1",
-        )
-        .qubit("q0", drive="q0.xy", readout="ro.mux0")
-        .qubit("q1", drive="q1.xy", readout="ro.mux0")
-        .qubit("q2", drive="q2.xy", readout="ro.mux0")
-        .qubit("q3", drive="q3.xy", readout="ro.mux0")
-        .coupler("coupler-q0-q1", qubits=("q0", "q1"), flux="c01.z")
-        .coupler("coupler-q2-q3", qubits=("q2", "q3"), flux="c23.z")
         .build()
     )
 
@@ -271,90 +187,67 @@ def _topology_from_wiring(*, wiring: QuantumWiring) -> Topology:
 
 def _routing_from_wiring(*, wiring: QuantumWiring) -> RoutingGraph:
     bindings: list[RoutingEndpointBinding] = []
-    for instrument_id in _instrument_ids(wiring.lines):
-        instrument_lines = [
-            line for line in wiring.lines if line.instrument_id == instrument_id
-        ]
-        bindings.extend(_routing_bindings(instrument_lines, wiring=wiring))
+    for qubit in wiring.qubits:
+        bindings.extend(
+            _endpoint_bindings(
+                entity_id=qubit.id,
+                endpoint=qubit.drive,
+                capabilities=("play_pulse_program", "play_gate_sequence"),
+            )
+        )
+        bindings.extend(
+            _endpoint_bindings(
+                entity_id=qubit.id,
+                endpoint=qubit.readout,
+                capabilities=("readout_pulse", "acquire_iq"),
+            )
+        )
+        if qubit.flux is not None:
+            bindings.extend(
+                _endpoint_bindings(
+                    entity_id=qubit.id,
+                    endpoint=qubit.flux,
+                    capabilities=("set_flux_bias",),
+                )
+            )
+    for coupler in wiring.couplers:
+        bindings.extend(
+            _endpoint_bindings(
+                entity_id=coupler.id,
+                endpoint=coupler.flux,
+                capabilities=("play_coupler_pulse", "set_flux_bias"),
+            )
+        )
     return RoutingGraph(bindings=bindings)
 
 
-def _routing_bindings(
-    lines: Sequence[LineWiring],
+def _endpoint_bindings(
     *,
-    wiring: QuantumWiring,
+    entity_id: str,
+    endpoint: ChannelWiring,
+    capabilities: Sequence[str],
 ) -> list[RoutingEndpointBinding]:
-    result: list[RoutingEndpointBinding] = []
-    for line in lines:
-        result.extend(
-            RoutingEndpointBinding(
-                instrument_id=line.instrument_id,
-                capability=capability,
-                entity_id=entity_id,
-                channel_id=line.channel_id,
-                line_id=line.id,
-                group_ids=[line.lo_group] if line.lo_group is not None else [],
-            )
-            for entity_id in _line_entities(line=line, wiring=wiring)
-            for capability in _line_capabilities(line.kind)
+    return [
+        RoutingEndpointBinding(
+            instrument_id=endpoint.instrument_id,
+            capability=capability,
+            entity_id=entity_id,
+            channel_id=endpoint.channel_id,
         )
-    return result
-
-
-def _line_entities(*, line: LineWiring, wiring: QuantumWiring) -> tuple[str, ...]:
-    if line.kind == "drive":
-        return tuple(qubit.id for qubit in wiring.qubits if qubit.drive == line.id)
-    if line.kind == "readout":
-        return tuple(qubit.id for qubit in wiring.qubits if qubit.readout == line.id)
-    if line.kind == "flux":
-        return tuple(
-            qubit.id
-            for qubit in wiring.qubits
-            if qubit.flux is not None and qubit.flux == line.id
-        )
-    if line.kind == "coupler":
-        return tuple(
-            coupler.id for coupler in wiring.couplers if coupler.flux == line.id
-        )
-    return ()
-
-
-def _line_capabilities(kind: str) -> list[str]:
-    if kind == "drive":
-        return ["play_pulse_program", "play_gate_sequence"]
-    if kind == "readout":
-        return ["readout_pulse", "acquire_iq"]
-    if kind == "coupler":
-        return ["play_coupler_pulse", "set_flux_bias"]
-    if kind == "flux":
-        return ["set_flux_bias"]
-    return []
-
-
-def _instrument_ids(lines: Sequence[LineWiring]) -> list[str]:
-    return list(dict.fromkeys(line.instrument_id for line in lines))
+        for capability in capabilities
+    ]
 
 
 def _validate_wiring(wiring: QuantumWiring) -> None:
     _reject_duplicate_ids([qubit.id for qubit in wiring.qubits], "qubit")
     _reject_duplicate_ids([coupler.id for coupler in wiring.couplers], "coupler")
-    _reject_duplicate_ids([line.id for line in wiring.lines], "line")
-    _reject_duplicate_ids([line.channel_id for line in wiring.lines], "channel")
 
-    line_ids = {line.id for line in wiring.lines}
     qubit_ids = {qubit.id for qubit in wiring.qubits}
-    for qubit in wiring.qubits:
-        _require_line(qubit.id, qubit.drive, line_ids=line_ids, role="drive")
-        _require_line(qubit.id, qubit.readout, line_ids=line_ids, role="readout")
-        if qubit.flux is not None:
-            _require_line(qubit.id, qubit.flux, line_ids=line_ids, role="flux")
-
     for coupler in wiring.couplers:
         for qubit_id in coupler.qubits:
             if qubit_id not in qubit_ids:
                 msg = f"coupler {coupler.id!r} references unknown qubit {qubit_id!r}"
                 raise ValueError(msg)
-        _require_line(coupler.id, coupler.flux, line_ids=line_ids, role="flux")
 
 
 def _reject_duplicate_ids(values: Sequence[str], label: str) -> None:
@@ -366,21 +259,9 @@ def _reject_duplicate_ids(values: Sequence[str], label: str) -> None:
         seen.add(value)
 
 
-def _require_line(
-    owner_id: str,
-    line_id: str,
-    *,
-    line_ids: set[str],
-    role: str,
-) -> None:
-    if line_id not in line_ids:
-        msg = f"{owner_id!r} references unknown {role} line {line_id!r}"
-        raise ValueError(msg)
-
-
 __all__ = [
+    "ChannelWiring",
     "CouplerWiring",
-    "LineWiring",
     "QuantumWiring",
     "QuantumWiringBuilder",
     "QubitWiring",

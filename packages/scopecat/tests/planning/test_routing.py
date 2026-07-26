@@ -41,44 +41,7 @@ def test_routing_view_builds_fixture_endpoint_manifest() -> None:
     ] == [("q0", "drive-q0", "set_frequency")]
 
 
-def test_explicit_entities_are_statically_partitioned_into_instrument_shards() -> None:
-    routing = RoutingView(
-        bindings=(
-            RoutingEndpointBinding(
-                instrument_id="source-0",
-                capability="set_frequency",
-                entity_id="q0",
-                channel_id="ch0",
-            ),
-            RoutingEndpointBinding(
-                instrument_id="source-1",
-                capability="set_frequency",
-                entity_id="q1",
-                channel_id="ch1",
-            ),
-        ),
-    )
-
-    manifest = routing.bind_port(
-        port_id=_port("drive"),
-        capabilities=("set_frequency",),
-    )
-    shards = manifest.select_shards(("q1", "q0"))
-
-    assert [
-        (
-            shard.instrument_id,
-            shard.entity_ids,
-            tuple(binding.channel_id for binding in shard.channel_bindings),
-        )
-        for shard in shards
-    ] == [
-        ("source-1", ("q1",), ("ch1",)),
-        ("source-0", ("q0",), ("ch0",)),
-    ]
-
-
-def test_non_sharded_consumers_reject_a_multi_instrument_entity_scope() -> None:
+def test_entities_spanning_instruments_are_ambiguous() -> None:
     routing = RoutingView(
         bindings=(
             RoutingEndpointBinding(
@@ -286,33 +249,6 @@ def test_one_capability_can_bind_multiple_explicit_channels() -> None:
     assert [item.channel_id for item in binding.channel_bindings] == ["i0", "q0"]
 
 
-def test_endpoint_owns_resolved_line_and_group_identity() -> None:
-    config = load_config()
-    endpoint = config.routing.bindings[0].model_copy(
-        update={"line_id": "drive-line", "group_ids": ["drive-group"]}
-    )
-    selected = config.model_copy(
-        update={
-            "system": config.system.model_copy(
-                update={
-                    "routing": config.routing.model_copy(
-                        update={"bindings": [endpoint]}
-                    )
-                }
-            )
-        }
-    )
-
-    manifest = RoutingView.from_config(selected).bind_port(
-        port_id=_port("drive"),
-        capabilities=("set_frequency",),
-    )
-    binding = manifest.select_one(("q0",))
-
-    assert binding.channel_bindings[0].line_id == "drive-line"
-    assert binding.channel_bindings[0].group_ids == ["drive-group"]
-
-
 def test_duplicate_endpoint_binding_fails_model_validation() -> None:
     duplicate = {
         "instrument_id": "source-0",
@@ -326,26 +262,4 @@ def test_duplicate_endpoint_binding_fails_model_validation() -> None:
             {
                 "bindings": [duplicate, duplicate],
             }
-        )
-
-
-def test_one_channel_has_one_resource_identity_across_capabilities() -> None:
-    with pytest.raises(ValidationError, match="must share line and group ids"):
-        RoutingGraph(
-            bindings=[
-                RoutingEndpointBinding(
-                    instrument_id="source-0",
-                    capability="set_frequency",
-                    entity_id="q0",
-                    channel_id="drive-q0",
-                    line_id="line-0",
-                ),
-                RoutingEndpointBinding(
-                    instrument_id="source-0",
-                    capability="set_power",
-                    entity_id="q0",
-                    channel_id="drive-q0",
-                    line_id="line-1",
-                ),
-            ]
         )

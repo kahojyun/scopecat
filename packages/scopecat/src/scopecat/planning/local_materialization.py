@@ -90,8 +90,6 @@ type _ChannelBindingIdentity = tuple[
     str,
     str,
     str | None,
-    str | None,
-    tuple[str, ...],
 ]
 type _ChannelSignature = tuple[_ChannelBindingIdentity, ...]
 
@@ -663,7 +661,7 @@ def _bind_desired_state(
             )
             continue
         try:
-            bound_targets = _bind_state_resources(
+            binding = _bind_state_resource(
                 record.resource_target,
                 capability_id=capability_id,
                 target_entities=record.target_entities,
@@ -681,31 +679,28 @@ def _bind_desired_state(
                 )
             )
             continue
-        for binding in bound_targets:
-            channel_key = channel_signature(binding.channel_bindings)
-            group = grouped.setdefault(binding.instrument_id, {})
-            key = (capability_id, field_path, binding.entity_ids, channel_key)
-            signature_key = (
-                binding.instrument_id,
-                capability_id,
-                field_path,
-                binding.entity_ids,
-                channel_key,
-            )
-            signatures.setdefault(signature_key, set()).add(
-                state_value.model_dump_json()
-            )
-            owners.setdefault(signature_key, set()).add(record.resource_target)
-            group.setdefault(
-                key,
-                StateTarget(
-                    capability_id=capability_id,
-                    field_path=field_path,
-                    value=state_value,
-                    entity_ids=binding.entity_ids,
-                    channel_bindings=binding.channel_bindings,
-                ),
-            )
+        channel_key = channel_signature(binding.channel_bindings)
+        group = grouped.setdefault(binding.instrument_id, {})
+        key = (capability_id, field_path, binding.entity_ids, channel_key)
+        signature_key = (
+            binding.instrument_id,
+            capability_id,
+            field_path,
+            binding.entity_ids,
+            channel_key,
+        )
+        signatures.setdefault(signature_key, set()).add(state_value.model_dump_json())
+        owners.setdefault(signature_key, set()).add(record.resource_target)
+        group.setdefault(
+            key,
+            StateTarget(
+                capability_id=capability_id,
+                field_path=field_path,
+                value=state_value,
+                entity_ids=binding.entity_ids,
+                channel_bindings=binding.channel_bindings,
+            ),
+        )
     for (
         resource,
         capability,
@@ -780,13 +775,13 @@ def _bind_single_resource(
     return resource.select_one()
 
 
-def _bind_state_resources(
+def _bind_state_resource(
     target: LogicalResourcePortId,
     *,
     capability_id: str,
     target_entities: Sequence[object],
     resources: Mapping[LogicalResourcePortId, _ResourceEntitySelection],
-) -> tuple[ResourceBinding, ...]:
+) -> ResourceBinding:
     resource = resources.get(target)
     if resource is None:
         raise ResourceBindingError(
@@ -811,12 +806,10 @@ def _bind_state_resources(
                 "state_target_entity_unbound",
                 "state target entities are not bound: " + ", ".join(unbound),
             )
-        return (
-            replace(
-                binding,
-                entity_ids=entity_ids,
-                channel_bindings=channel_bindings,
-            ),
+        return replace(
+            binding,
+            entity_ids=entity_ids,
+            channel_bindings=channel_bindings,
         )
 
     selected_entity_ids = requested_entity_ids or resource.entity_ids
@@ -831,22 +824,17 @@ def _bind_state_resources(
             "state target entities are outside the declared resource scope: "
             + ", ".join(unbound),
         )
-    shards = resource.manifest.select_shards(selected_entity_ids)
-    selected: list[ResourceBinding] = []
-    for shard in shards:
-        entity_ids, channel_bindings, _unbound = _logical_state_target(
-            binding=shard,
-            capability_id=capability_id,
-            target_entities=(),
-        )
-        selected.append(
-            replace(
-                shard,
-                entity_ids=entity_ids,
-                channel_bindings=channel_bindings,
-            )
-        )
-    return tuple(selected)
+    binding = resource.manifest.select_one(selected_entity_ids)
+    entity_ids, channel_bindings, _unbound = _logical_state_target(
+        binding=binding,
+        capability_id=capability_id,
+        target_entities=(),
+    )
+    return replace(
+        binding,
+        entity_ids=entity_ids,
+        channel_bindings=channel_bindings,
+    )
 
 
 def _logical_state_target(
@@ -901,9 +889,7 @@ def _channel_binding_identity(
     return (
         binding.entity_id,
         binding.channel_id,
-        binding.line_id,
         binding.capability,
-        tuple(sorted(binding.group_ids)),
     )
 
 

@@ -275,7 +275,7 @@ def test_each_effect_uses_only_its_explicit_capability_endpoints() -> None:
 
 
 def test_logical_state_bindings_reach_owning_instrument_claim() -> None:
-    config = _shared_group_config()
+    config = _split_instrument_config()
     source = _port("source")
     first_state = set_state_field(
         resource_port_id=source,
@@ -308,6 +308,40 @@ def test_logical_state_bindings_reach_owning_instrument_claim() -> None:
     )
     assert [(claim.kind, claim.id) for claim in single_plan.resource_claims] == [
         ("instrument", "source-0"),
+    ]
+
+
+def test_logical_state_does_not_broadcast_across_instruments() -> None:
+    config = _split_instrument_config()
+    source = _port("source")
+    program = _unit_program(
+        experiment_id="ambiguous-logical-state-claim",
+        resource_requirements=(
+            LogicalResourceRequirement(
+                port_id=source,
+                capabilities=("set.level",),
+                entity_uses=(
+                    relation_use(_entity("q0")),
+                    relation_use(_entity("q1")),
+                ),
+            ),
+        ),
+        state=(
+            set_state_field(
+                resource_port_id=source,
+                capability_id="set.level",
+                field_path="level",
+                value=_number(1.0),
+                target_entities=(_entity("q0"), _entity("q1")),
+            ),
+        ),
+    )
+
+    with pytest.raises(CheckFailed) as failure:
+        _bind(program, config=config)
+
+    assert [problem.code for problem in failure.value.problems] == [
+        "module_resource_port_ambiguous"
     ]
 
 
@@ -525,7 +559,7 @@ def _same_instrument_record_config() -> ConfigProfileSnapshot:
     )
 
 
-def _shared_group_config() -> ConfigProfileSnapshot:
+def _split_instrument_config() -> ConfigProfileSnapshot:
     config = load_config()
     source = config.instrument_registry.instruments[0]
     topology = config.topology.model_copy(
@@ -543,14 +577,12 @@ def _shared_group_config() -> ConfigProfileSnapshot:
                 capability="set.level",
                 entity_id="q0",
                 channel_id="drive-q0",
-                group_ids=["shared.lo"],
             ),
             RoutingEndpointBinding(
                 instrument_id="source-1",
                 capability="set.level",
                 entity_id="q1",
                 channel_id="readout-q0",
-                group_ids=["shared.lo"],
             ),
         ],
     )

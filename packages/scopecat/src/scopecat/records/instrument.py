@@ -16,7 +16,7 @@ type StateTargetIdentity = tuple[
     str,
     str,
     tuple[str, ...],
-    tuple[tuple[str, str, str | None, str | None, tuple[str, ...]], ...],
+    tuple[tuple[str, str, str | None], ...],
 ]
 
 
@@ -25,10 +25,7 @@ class CommandChannelBinding(BaseModel):
 
     entity_id: _NonEmptyId
     channel_id: _NonEmptyId
-    line_id: _NonEmptyId | None = None
     capability: _NonEmptyId | None = None
-    group_ids: list[_NonEmptyId] = Field(default_factory=list)
-    metadata: JsonMetadata = Field(default_factory=dict)
 
 
 def validate_entity_target(
@@ -69,9 +66,7 @@ def state_target_identity(
             (
                 binding.entity_id,
                 binding.channel_id,
-                binding.line_id,
                 binding.capability,
-                tuple(sorted(binding.group_ids)),
             )
             for binding in channel_bindings
         ),

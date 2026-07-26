@@ -9,7 +9,6 @@ from typing import Annotated, Protocol
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from scopecat.kernel.entity import EntityRef
-from scopecat.records._metadata import JsonMetadata
 from scopecat.records.parameter import (
     ParameterCatalog,
     ParameterSnapshot,
@@ -87,22 +86,6 @@ class RoutingEndpointBinding(BaseModel):
     capability: str = Field(min_length=1)
     entity_id: str | None = None
     channel_id: str | None = None
-    line_id: str | None = None
-    group_ids: list[str] = Field(default_factory=list)
-    metadata: JsonMetadata = Field(default_factory=dict)
-
-    @field_validator("group_ids")
-    @classmethod
-    def validate_group_ids(cls, value: list[str]) -> list[str]:
-        if len(value) != len(set(value)):
-            raise ValueError("routing endpoint group ids must be unique")
-        return value
-
-    @model_validator(mode="after")
-    def validate_channel_resources(self) -> RoutingEndpointBinding:
-        if self.channel_id is None and (self.line_id is not None or self.group_ids):
-            raise ValueError("routing line and group ids require a channel id")
-        return self
 
 
 class RoutingGraph(BaseModel):
@@ -123,10 +106,6 @@ class RoutingGraph(BaseModel):
         cls, value: list[RoutingEndpointBinding]
     ) -> list[RoutingEndpointBinding]:
         seen: set[tuple[str, str, str | None, str | None]] = set()
-        resources_by_channel: dict[
-            tuple[str, str | None, str],
-            tuple[str | None, tuple[str, ...]],
-        ] = {}
         for binding in value:
             identity = (
                 binding.instrument_id,
@@ -143,19 +122,6 @@ class RoutingGraph(BaseModel):
                 )
                 raise ValueError(msg)
             seen.add(identity)
-            if binding.channel_id is None:
-                continue
-            channel_identity = (
-                binding.instrument_id,
-                binding.entity_id,
-                binding.channel_id,
-            )
-            resources = (binding.line_id, tuple(sorted(binding.group_ids)))
-            previous = resources_by_channel.setdefault(channel_identity, resources)
-            if previous != resources:
-                raise ValueError(
-                    "routing bindings for one channel must share line and group ids"
-                )
         return value
 
 
