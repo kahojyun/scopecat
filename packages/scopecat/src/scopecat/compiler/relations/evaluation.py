@@ -8,8 +8,8 @@ from typing import cast
 from scopecat.compiler.relations.context import EvalContext, ParameterRelationData
 from scopecat.compiler.relations.scalar_eval import read_path
 from scopecat.compiler.relations.verification import (
-    ExternalRowRequirement,
     PlanImportNamespace,
+    PointRequirement,
     RowType,
     TypedPlanImport,
     VerifiedRelationPlan,
@@ -264,24 +264,14 @@ def _normalize_evaluation_context[NodeT: PlanNode](
         else:
             parameter_series[imported.id] = cast("list[CellValue]", normalized)
 
-    row_interface = verified_plan.external_row_interface
-    row_scopes = {scope_id: dict(value) for scope_id, value in ctx.row_scopes.items()}
-    for argument in row_interface.arguments:
-        normalized_row = _normalize_external_row(
-            argument.requirement,
-            row_scopes.get(argument.row_scope_id),
-            path=("rows", argument.row_scope_id.qualified_name),
-        )
-        if normalized_row is not None:
-            row_scopes[argument.row_scope_id] = normalized_row
-
+    point_requirement = verified_plan.external_point_requirement
     point_row = (
-        _normalize_external_row(
-            row_interface.point,
+        _normalize_point_row(
+            point_requirement,
             ctx.point_row,
             path=("rows", "point"),
         )
-        if row_interface.point is not None
+        if point_requirement is not None
         else {}
     )
     if point_row is None:
@@ -297,7 +287,6 @@ def _normalize_evaluation_context[NodeT: PlanNode](
             tables=tables_by_parameter,
         ),
         point_row=point_row,
-        row_scopes=row_scopes,
         inputs=inputs,
     )
 
@@ -325,8 +314,8 @@ def _replace_path_value(
     return selected
 
 
-def _normalize_external_row(
-    requirement: ExternalRowRequirement | None,
+def _normalize_point_row(
+    requirement: PointRequirement | None,
     row: Row | None,
     *,
     path: tuple[str, str],

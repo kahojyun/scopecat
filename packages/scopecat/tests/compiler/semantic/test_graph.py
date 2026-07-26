@@ -6,7 +6,6 @@ from typing import cast
 import pytest
 
 from scopecat.compiler.relations.verification import (
-    RelationPlanVerificationError,
     RelationTypeBindings,
     RowType,
     verify_relation_plan,
@@ -32,11 +31,9 @@ from scopecat.compiler.semantic.verification import (
 from scopecat.graph.relations.model import (
     LiteralScalarExpr,
     RelationExpr,
-    RowScopeId,
     ScalarExpr,
     SeriesExpr,
     as_scalar_expr,
-    col,
     input_ref,
     literal_rows,
     point_col,
@@ -584,23 +581,6 @@ def test_plan_expression_accepts_run_and_point_dependencies() -> None:
     assert verified.value_defs[run.id] == run
 
 
-def test_row_binder_collision_is_rejected_before_graph_construction() -> None:
-    row_scope = RowScopeId(SymbolId(local_id="row"))
-    row_type = Table(columns=())
-    with pytest.raises(RelationPlanVerificationError) as caught:
-        verify_relation_plan(
-            literal_rows([]).with_columns(
-                row_scope_id=row_scope,
-                copied=col("keep", row_scope_id=row_scope),
-            ),
-            bindings=RelationTypeBindings(
-                row_arguments={row_scope: RowType.from_table(row_type)}
-            ),
-        )
-
-    assert caught.value.code == "row_binder_collision"
-
-
 def test_scalar_binary_infers_result_type() -> None:
     graph = _binary_graph()
 
@@ -641,30 +621,3 @@ def test_scalar_binary_reports_result_type_mismatch() -> None:
     assert _problem_codes(caught.value) == [
         "semantic_scalar_binary_result_type_mismatch"
     ]
-
-
-def test_scalar_binary_preserves_null_literal_type_inference() -> None:
-    left = _plan_value("left")
-    null = ValueDef(
-        id=_value_id("null"),
-        value_type=Scalar(Float(), nullable=True),
-        source=LiteralValueSource(None),
-    )
-    operation_id = _operation_id("equals-null")
-    result_id = operation_result_id(operation_id)
-    operation = SemanticOperation(
-        id=operation_id,
-        contract=scalar_binary_operation_contract("=="),
-        inputs=(("left", ValueUse(left.id)), ("right", ValueUse(null.id))),
-        result_id=result_id,
-        result_type=BOOL,
-    )
-
-    verified = verify_semantic_graph(
-        SemanticGraphIR(
-            value_defs=(left, null),
-            operations=(operation,),
-        )
-    )
-
-    assert verified.value_types[result_id] == BOOL

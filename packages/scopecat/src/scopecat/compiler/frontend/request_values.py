@@ -6,7 +6,6 @@ from collections.abc import Mapping
 from typing import cast
 
 from scopecat.graph.relations.model import (
-    BinaryScalarExpr,
     InputScalarExpr,
     LiteralScalarExpr,
     ParameterLookupScalarExpr,
@@ -92,11 +91,9 @@ def project_run_request_scalar(expression: ScalarExpr) -> object:
             },
             "column": scalar.use.column_id,
         }
-    if isinstance(scalar, BinaryScalarExpr):
-        return {
-            "kind": "binary",
-            "operator": scalar.op,
-            "left": project_run_request_scalar(scalar.left),
-            "right": project_run_request_scalar(scalar.right),
-        }
-    raise AssertionError(f"unsupported request scalar expression: {scalar!r}")
+    return {
+        "kind": "binary",
+        "operator": scalar.op,
+        "left": project_run_request_scalar(scalar.left),
+        "right": project_run_request_scalar(scalar.right),
+    }

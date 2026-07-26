@@ -9,49 +9,27 @@ local evaluator implements a different set of operand combinations.
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping, Sequence
-from typing import Literal, TypeGuard, cast
+from typing import Literal, TypeGuard
 
 from scopecat.kernel.entity import (
     EntityRef,
     same_entity_identity,
 )
-from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.kernel.units import UNIT_KINDS, compatible_units, to_base_value, unit_kind
 from scopecat.kernel.value_identity import quantity_comparison_values
 from scopecat.kernel.value_types import (
     AtomType,
-    Bool,
-    Entity,
     Float,
     Int,
-    Payload,
     Quantity,
-    Record,
     Scalar,
-    String,
 )
 
 type ArithmeticOperator = Literal["+", "-", "*", "/"]
-type EqualityOperator = Literal["==", "!="]
-type OrderingOperator = Literal["<", "<=", ">", ">="]
-type LogicalOperator = Literal["and", "or"]
-type ScalarOperator = (
-    ArithmeticOperator | EqualityOperator | OrderingOperator | LogicalOperator
-)
-SCALAR_OPERATORS: frozenset[ScalarOperator] = frozenset(
-    {"+", "-", "*", "/", "==", "!=", "<", "<=", ">", ">=", "and", "or"}
-)
-type ScalarCategory = Literal[
-    "bool",
-    "number",
-    "string",
-    "quantity",
-    "entity",
-    "record",
-    "payload",
-]
+type ScalarOperator = ArithmeticOperator
+SCALAR_OPERATORS: frozenset[ScalarOperator] = frozenset({"+", "-", "*", "/"})
+type ArithmeticCategory = Literal["number", "quantity"]
 
 
 def is_scalar_operator(value: object) -> TypeGuard[ScalarOperator]:
@@ -62,7 +40,7 @@ def is_scalar_operator(value: object) -> TypeGuard[ScalarOperator]:
 
 _ARITHMETIC_OPERANDS: dict[
     ArithmeticOperator,
-    frozenset[tuple[ScalarCategory, ScalarCategory]],
+    frozenset[tuple[ArithmeticCategory, ArithmeticCategory]],
 ] = {
     "+": frozenset({("number", "number"), ("quantity", "quantity")}),
     "-": frozenset({("number", "number"), ("quantity", "quantity")}),
@@ -75,81 +53,28 @@ _ARITHMETIC_OPERANDS: dict[
     ),
     "/": frozenset({("number", "number"), ("quantity", "number")}),
 }
-_EQUALITY_CATEGORIES: frozenset[ScalarCategory] = frozenset(
-    {"bool", "number", "string", "quantity", "entity", "record"}
-)
-_ORDERING_CATEGORIES: frozenset[ScalarCategory] = frozenset(
-    {"number", "string", "quantity"}
-)
 
 
 def scalar_operator_result_type(
     left: Scalar,
     right: Scalar,
     operator: ScalarOperator,
-    *,
-    left_is_null_literal: bool = False,
-    right_is_null_literal: bool = False,
 ) -> Scalar:
     """Validate one typed operator and return its semantic result type."""
 
-    if left_is_null_literal or right_is_null_literal:
-        if operator not in {"==", "!="}:
-            raise _unsupported_type_operator(left, right, operator)
-        selected = right.atom if left_is_null_literal else left.atom
-        if isinstance(selected, Payload):
-            raise _unsupported_type_operator(left, right, operator)
-        return Scalar(Bool())
-
-    if operator in {
-        "+",
-        "-",
-        "*",
-        "/",
-        "<",
-        "<=",
-        ">",
-        ">=",
-        "and",
-        "or",
-    } and (left.nullable or right.nullable):
+    if left.nullable or right.nullable:
         msg = f"operator {operator!r} does not accept nullable operands"
         raise TypeError(msg)
 
-    left_category = scalar_category(left)
-    right_category = scalar_category(right)
-    if operator in _ARITHMETIC_OPERANDS:
-        if (left_category, right_category) not in _ARITHMETIC_OPERANDS[operator]:
-            raise _unsupported_type_operator(left, right, operator)
-        _require_type_specific_compatibility(
-            left.atom,
-            right.atom,
-        )
-        return _arithmetic_result_type(left.atom, right.atom, operator)
-    if operator in {"==", "!="}:
-        if left_category != right_category or left_category not in _EQUALITY_CATEGORIES:
-            raise _unsupported_type_operator(left, right, operator)
-        _require_type_specific_compatibility(
-            left.atom,
-            right.atom,
-        )
-        return Scalar(Bool())
-    if operator in {"<", "<=", ">", ">="}:
-        if left_category != right_category or left_category not in _ORDERING_CATEGORIES:
-            raise _unsupported_type_operator(left, right, operator)
-        _require_type_specific_compatibility(
-            left.atom,
-            right.atom,
-        )
-        _require_finite_ordering_type(left.atom)
-        _require_finite_ordering_type(right.atom)
-        return Scalar(Bool())
-    if operator in {"and", "or"}:
-        if left_category != "bool" or right_category != "bool":
-            raise _unsupported_type_operator(left, right, operator)
-        return Scalar(Bool())
-    msg = f"unsupported scalar operator: {operator!r}"
-    raise ValueError(msg)
+    left_category = _atom_arithmetic_category(left.atom)
+    right_category = _atom_arithmetic_category(right.atom)
+    if (left_category, right_category) not in _ARITHMETIC_OPERANDS[operator]:
+        raise _unsupported_type_operator(left, right, operator)
+    _require_type_specific_compatibility(
+        left.atom,
+        right.atom,
+    )
+    return _arithmetic_result_type(left.atom, right.atom, operator)
 
 
 def require_runtime_operator(
@@ -160,47 +85,42 @@ def require_runtime_operator(
     """Validate runtime values against the shared operator matrix."""
 
     if left is None or right is None:
-        if operator in {"==", "!="}:
-            return
         raise _unsupported_runtime_operator(left, right, operator)
 
-    left_category = runtime_scalar_category(left)
-    right_category = runtime_scalar_category(right)
-    if operator in _ARITHMETIC_OPERANDS:
-        if (left_category, right_category) not in _ARITHMETIC_OPERANDS[operator]:
-            raise _unsupported_runtime_operator(left, right, operator)
-    elif operator in {"==", "!="}:
-        if left_category != right_category or left_category not in _EQUALITY_CATEGORIES:
-            raise _unsupported_runtime_operator(left, right, operator)
-    elif operator in {"<", "<=", ">", ">="}:
-        if left_category != right_category or left_category not in _ORDERING_CATEGORIES:
-            raise _unsupported_runtime_operator(left, right, operator)
-    elif operator in {"and", "or"}:
-        if left_category != "bool" or right_category != "bool":
-            raise _unsupported_runtime_operator(left, right, operator)
-    else:
-        msg = f"unsupported scalar operator: {operator!r}"
-        raise ValueError(msg)
-    _require_runtime_specific_compatibility(left, right, operator=operator)
+    left_category = _runtime_arithmetic_category(left)
+    right_category = _runtime_arithmetic_category(right)
+    if (left_category, right_category) not in _ARITHMETIC_OPERANDS[operator]:
+        raise _unsupported_runtime_operator(left, right, operator)
+    _require_runtime_specific_compatibility(left, right)
 
 
 def runtime_values_equal(left: object, right: object) -> bool:
-    """Compare two already validated runtime scalar values."""
+    """Compare normalized scalars without a public equality expression."""
 
-    require_runtime_operator("==", left, right)
     if left is None or right is None:
         return left is right
-    if isinstance(left, QuantityValue) and isinstance(right, QuantityValue):
+    if isinstance(left, QuantityValue) or isinstance(right, QuantityValue):
+        if not isinstance(left, QuantityValue) or not isinstance(right, QuantityValue):
+            raise _unsupported_runtime_equality(left, right)
         left_value, right_value = _quantity_comparison_values(left, right)
         return left_value == right_value
-    if isinstance(left, EntityRef) and isinstance(right, EntityRef):
+    if isinstance(left, EntityRef) or isinstance(right, EntityRef):
+        if not isinstance(left, EntityRef) or not isinstance(right, EntityRef):
+            raise _unsupported_runtime_equality(left, right)
         return same_entity_identity(left, right)
-    if isinstance(left, dict) and isinstance(right, dict):
-        return _nested_values_equal(
-            cast("Mapping[object, object]", left),
-            cast("Mapping[object, object]", right),
-        )
-    return left == right
+    if isinstance(left, bool) or isinstance(right, bool):
+        if not isinstance(left, bool) or not isinstance(right, bool):
+            raise _unsupported_runtime_equality(left, right)
+        return left == right
+    if _is_number(left) or _is_number(right):
+        if not _is_number(left) or not _is_number(right):
+            raise _unsupported_runtime_equality(left, right)
+        return left == right
+    if isinstance(left, str) or isinstance(right, str):
+        if not isinstance(left, str) or not isinstance(right, str):
+            raise _unsupported_runtime_equality(left, right)
+        return left == right
+    raise _unsupported_runtime_equality(left, right)
 
 
 def require_finite_arithmetic_result(
@@ -215,163 +135,41 @@ def require_finite_arithmetic_result(
         raise ValueError(msg)
 
 
-def compare_ordered_values(left: object, right: object) -> int:
-    """Return a three-way comparison for orderable runtime scalar values."""
-
-    require_runtime_operator("<", left, right)
-    if isinstance(left, QuantityValue) and isinstance(right, QuantityValue):
-        left_value, right_value = _quantity_comparison_values(left, right)
-        return _three_way_number(left_value, right_value)
-    if _is_number(left) and _is_number(right):
-        return _three_way_number(left, right)
-    if isinstance(left, str) and isinstance(right, str):
-        return _three_way_string(left, right)
-    raise _unsupported_runtime_operator(left, right, "<")
-
-
-def scalar_category(value_type: Scalar) -> ScalarCategory:
-    return _atom_category(value_type.atom)
-
-
-def runtime_scalar_category(value: object) -> ScalarCategory:
-    if isinstance(value, bool):
-        return "bool"
-    if _is_number(value):
-        return "number"
-    if isinstance(value, str):
-        return "string"
-    if isinstance(value, QuantityValue):
-        return "quantity"
-    if isinstance(value, EntityRef):
-        return "entity"
-    if isinstance(value, dict):
-        return "record"
-    if isinstance(value, PayloadValue):
-        return "payload"
-    msg = f"unsupported scalar runtime value: {value!r}"
-    raise TypeError(msg)
-
-
-def _atom_category(atom: AtomType) -> ScalarCategory:
-    if isinstance(atom, Bool):
-        return "bool"
+def _atom_arithmetic_category(atom: AtomType) -> ArithmeticCategory | None:
     if isinstance(atom, Int | Float):
         return "number"
-    if isinstance(atom, String):
-        return "string"
     if isinstance(atom, Quantity):
         return "quantity"
-    if isinstance(atom, Entity):
-        return "entity"
-    if isinstance(atom, Record):
-        return "record"
-    return "payload"
+    return None
+
+
+def _runtime_arithmetic_category(value: object) -> ArithmeticCategory | None:
+    if _is_number(value):
+        return "number"
+    if isinstance(value, QuantityValue):
+        return "quantity"
+    return None
 
 
 def _require_type_specific_compatibility(
     left: AtomType,
     right: AtomType,
 ) -> None:
-    if isinstance(left, Quantity) and isinstance(right, Quantity):
-        if not _quantity_types_are_compatible(left, right):
-            msg = "quantity operands do not guarantee compatible units"
-            raise TypeError(msg)
-        return
-    if isinstance(left, Entity) and isinstance(right, Entity):
-        # Entity equality is defined for every kind. Different concrete kinds
-        # simply compare unequal; an unspecified kind is an unconstrained ref.
-        return
-    if isinstance(left, Payload) and isinstance(right, Payload):
-        if left.schema_id != right.schema_id:
-            msg = "payload operands have incompatible schemas"
-            raise TypeError(msg)
-        return
-    if isinstance(left, Record) and isinstance(right, Record) and left != right:
-        msg = "record operands have incompatible structures"
-        raise TypeError(msg)
     if (
-        isinstance(left, Record)
-        and isinstance(right, Record)
-        and (
-            not _record_supports_equality(left) or not _record_supports_equality(right)
-        )
+        isinstance(left, Quantity)
+        and isinstance(right, Quantity)
+        and not _quantity_types_are_compatible(left, right)
     ):
-        msg = (
-            "record equality requires closed, recursively scalar fields "
-            "without payloads"
-        )
+        msg = "quantity operands do not guarantee compatible units"
         raise TypeError(msg)
 
 
 def _require_runtime_specific_compatibility(
     left: object,
     right: object,
-    *,
-    operator: ScalarOperator,
 ) -> None:
-    if operator in {"<", "<=", ">", ">="}:
-        _require_finite_ordering_value(left, operator=operator)
-        _require_finite_ordering_value(right, operator=operator)
     if isinstance(left, QuantityValue) and isinstance(right, QuantityValue):
         _quantity_comparison_values(left, right)
-        return
-    if isinstance(left, EntityRef) and isinstance(right, EntityRef):
-        return
-    if (
-        isinstance(left, PayloadValue)
-        and isinstance(right, PayloadValue)
-        and left.schema_id != right.schema_id
-    ):
-        raise _unsupported_runtime_operator(left, right, operator)
-
-
-def _require_finite_ordering_type(atom: AtomType) -> None:
-    if isinstance(atom, Float | Quantity) and not atom.finite:
-        msg = "ordering requires types that guarantee finite numeric values"
-        raise TypeError(msg)
-
-
-def _require_finite_ordering_value(
-    value: object,
-    *,
-    operator: ScalarOperator,
-) -> None:
-    number = value.value if isinstance(value, QuantityValue) else value
-    if isinstance(number, float) and not math.isfinite(number):
-        raise _unsupported_runtime_operator(value, value, operator)
-
-
-def _is_object_sequence(value: object) -> TypeGuard[Sequence[object]]:
-    return isinstance(value, Sequence) and not isinstance(value, str | bytes)
-
-
-def _nested_values_equal(left: object, right: object) -> bool:
-    if isinstance(left, Mapping) and isinstance(right, Mapping):
-        left_mapping = cast("Mapping[object, object]", left)
-        right_mapping = cast("Mapping[object, object]", right)
-        if set(left_mapping) != set(right_mapping):
-            return False
-        return all(
-            _nested_values_equal(left_mapping[key], right_mapping[key])
-            for key in left_mapping
-        )
-    left_value = cast("object", left)
-    if _is_object_sequence(left_value) and _is_object_sequence(right):
-        return len(left_value) == len(right) and all(
-            _nested_values_equal(left_item, right_item)
-            for left_item, right_item in zip(
-                left_value,
-                right,
-                strict=True,
-            )
-        )
-    try:
-        return runtime_values_equal(
-            cast("object", left),
-            right,
-        )
-    except TypeError:
-        return False
 
 
 def _arithmetic_result_type(
@@ -502,20 +300,6 @@ def _quantity_comparison_values(
         raise TypeError(msg) from error
 
 
-def _record_supports_equality(value_type: Record) -> bool:
-    if value_type.allow_extra_fields:
-        return False
-    for field in value_type.fields:
-        if not isinstance(field.value_type, Scalar):
-            return False
-        atom = field.value_type.atom
-        if isinstance(atom, Payload):
-            return False
-        if isinstance(atom, Record) and not _record_supports_equality(atom):
-            return False
-    return True
-
-
 def _describe_scalar(value_type: Scalar) -> str:
     nullable = "?" if value_type.nullable else ""
     return f"Scalar[{type(value_type.atom).__name__}]{nullable}"
@@ -540,20 +324,11 @@ def _unsupported_runtime_operator(
     return TypeError(f"operator {operator!r} is not defined for {left!r} and {right!r}")
 
 
-def _three_way_number(left: float, right: float) -> int:
-    if left < right:
-        return -1
-    if left > right:
-        return 1
-    return 0
-
-
-def _three_way_string(left: str, right: str) -> int:
-    if left < right:
-        return -1
-    if left > right:
-        return 1
-    return 0
+def _unsupported_runtime_equality(left: object, right: object) -> TypeError:
+    return TypeError(
+        "runtime equality requires matching bool, number, string, quantity, "
+        f"or entity values; got {left!r} and {right!r}"
+    )
 
 
 def _is_number(value: object) -> TypeGuard[int | float]:

@@ -7,35 +7,28 @@ incomplete tree walkers.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Collection, Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import cast
 
 from scopecat.graph.relations.model import (
     BinaryScalarExpr,
-    ColumnScalarExpr,
     InputRelationExpr,
     InputScalarExpr,
     InputSeriesExpr,
-    LiteralRowsRelationExpr,
     LiteralScalarExpr,
     ParameterLookupScalarExpr,
     ParameterScalarExpr,
     ParameterSeriesExpr,
     PointColumnScalarExpr,
-    RelationEntitiesSeriesExpr,
     RelationExpr,
     RelationExpression,
-    RowScopeId,
     ScalarExpr,
     ScalarExpression,
-    SelectRelationExpr,
     SeriesExpr,
     SeriesExpression,
     TableRelationExpr,
-    ValuesSeriesExpr,
-    WithColumnsRelationExpr,
 )
 
 type PlanNode = ScalarExpr | SeriesExpr | RelationExpr
@@ -44,7 +37,6 @@ type PlanNode = ScalarExpr | SeriesExpr | RelationExpr
 class PlanReferenceKind(StrEnum):
     """Shape-preserving identity for an external plan reference."""
 
-    ROW_COLUMN = "row_column"
     POINT_COLUMN = "point_column"
     INPUT_SCALAR = "input.scalar"
     INPUT_SERIES = "input.series"
@@ -58,14 +50,10 @@ class PlanReferenceKind(StrEnum):
 class PlanReference:
     kind: PlanReferenceKind
     id: str
-    row_scope_id: RowScopeId | None = None
 
     def __post_init__(self) -> None:
         if not self.id:
             msg = "plan reference ids must be non-empty"
-            raise ValueError(msg)
-        if self.kind is PlanReferenceKind.ROW_COLUMN and self.row_scope_id is None:
-            msg = "row-column references require a nominal row scope"
             raise ValueError(msg)
 
 
@@ -80,11 +68,6 @@ class PlanReferences:
                 key=lambda reference: (
                     reference.kind.value,
                     reference.id,
-                    (
-                        reference.row_scope_id.qualified_name
-                        if reference.row_scope_id is not None
-                        else ""
-                    ),
                 ),
             )
         )
@@ -110,7 +93,6 @@ def iter_plan_children(node: PlanNode) -> Iterator[PlanNode]:
         if isinstance(
             scalar,
             LiteralScalarExpr
-            | ColumnScalarExpr
             | PointColumnScalarExpr
             | InputScalarExpr
             | ParameterScalarExpr,
@@ -124,22 +106,9 @@ def iter_plan_children(node: PlanNode) -> Iterator[PlanNode]:
         return
 
     if isinstance(node, SeriesExpr):
-        series = cast("SeriesExpression", node)
-        if isinstance(series, ValuesSeriesExpr | InputSeriesExpr | ParameterSeriesExpr):
-            return
-        yield series.source
         return
 
-    relation = cast("RelationExpression", node)
-    if isinstance(
-        relation, (LiteralRowsRelationExpr, TableRelationExpr, InputRelationExpr)
-    ):
-        return
-    if isinstance(relation, SelectRelationExpr):
-        yield relation.source
-        return
-    yield relation.source
-    yield from relation.new_columns.values()
+    return
 
 
 def walk_plan(root: PlanNode) -> Iterator[PlanNode]:
@@ -185,34 +154,9 @@ def rewrite_plan[NodeT: PlanNode](
             return transform(rewritten)
 
         if isinstance(node, SeriesExpr):
-            series = cast("SeriesExpression", node)
-            if isinstance(series, RelationEntitiesSeriesExpr):
-                rewritten = replace(
-                    series,
-                    source=cast("RelationExpression", visit(series.source)),
-                )
-            else:
-                rewritten = series
-            return transform(rewritten)
+            return transform(cast("SeriesExpression", node))
 
-        relation = cast("RelationExpression", node)
-        if isinstance(relation, SelectRelationExpr):
-            rewritten = replace(
-                relation,
-                source=cast("RelationExpression", visit(relation.source)),
-            )
-        elif isinstance(relation, WithColumnsRelationExpr):
-            rewritten = replace(
-                relation,
-                source=cast("RelationExpression", visit(relation.source)),
-                new_columns={
-                    name: cast("ScalarExpression", visit(value))
-                    for name, value in relation.new_columns.items()
-                },
-            )
-        else:
-            rewritten = relation
-        return transform(rewritten)
+        return transform(cast("RelationExpression", node))
 
     return cast("NodeT", visit(root))
 
@@ -243,141 +187,8 @@ def plan_input_refs(root: PlanNode) -> tuple[str, ...]:
     )
 
 
-class RelationPlanScopeError(ValueError):
-    """A row reference is not closed by its lexical relation binder."""
-
-    def __init__(self, reference: PlanReference) -> None:
-        self.reference = reference
-        row_scope_id = reference.row_scope_id
-        if row_scope_id is None:
-            raise AssertionError("row reference is missing its nominal scope")
-        super().__init__(
-            "relation row reference "
-            f"{reference.id!r} has no active scope {row_scope_id.qualified_name!r}"
-        )
-
-
-class RelationPlanBinderError(ValueError):
-    """A plan-local binder collides with an enclosing nominal row argument."""
-
-    def __init__(self, row_scope_id: RowScopeId) -> None:
-        self.row_scope_id = row_scope_id
-        super().__init__(
-            f"relation row binder {row_scope_id.qualified_name!r} collides "
-            "with an enclosing row argument"
-        )
-
-
-def verify_plan_scopes(
-    root: PlanNode,
-    *,
-    active_row_scopes: Collection[RowScopeId] = (),
-) -> None:
-    """Require every row reference to be closed by an explicit plan scope."""
-
-    external = frozenset(active_row_scopes)
-    for node, active in _walk_lexical_plan(root, active=external):
-        if isinstance(node, ColumnScalarExpr):
-            reference = _row_reference(node)
-            if node.row_scope_id not in active:
-                raise RelationPlanScopeError(reference)
-            continue
-        if isinstance(node, WithColumnsRelationExpr) and node.row_scope_id in external:
-            raise RelationPlanBinderError(node.row_scope_id)
-
-
-def free_row_references(root: PlanNode) -> PlanReferences:
-    """Return row uses not closed by a binder declared inside ``root``.
-
-    This is lexical dependency analysis, not a list of every column node.  A
-    A with-columns callback closes its own row argument. Any remaining use must
-    be supplied by an enclosing semantic region.
-    """
-
-    references = {
-        _row_reference(node)
-        for node, active in _walk_lexical_plan(root, active=frozenset())
-        if isinstance(node, ColumnScalarExpr) and node.row_scope_id not in active
-    }
-    return PlanReferences(frozenset(references))
-
-
-def _walk_lexical_plan(
-    node: PlanNode,
-    *,
-    active: frozenset[RowScopeId],
-) -> Iterator[tuple[PlanNode, frozenset[RowScopeId]]]:
-    """Walk a plan with the exact nominal row scopes active at each node."""
-
-    yield node, active
-    if isinstance(node, ScalarExpr):
-        for child in iter_plan_children(node):
-            yield from _walk_lexical_plan(
-                child,
-                active=active,
-            )
-        return
-
-    if isinstance(node, SeriesExpr):
-        for child in iter_plan_children(node):
-            yield from _walk_lexical_plan(
-                child,
-                active=active,
-            )
-        return
-
-    relation = cast("RelationExpression", node)
-    if isinstance(relation, WithColumnsRelationExpr):
-        yield from _walk_lexical_plan(
-            relation.source,
-            active=active,
-        )
-        for scalar in relation.new_columns.values():
-            yield from _walk_lexical_plan(
-                scalar,
-                active=active | {relation.row_scope_id},
-            )
-        return
-    for child in iter_plan_children(relation):
-        yield from _walk_lexical_plan(
-            child,
-            active=active,
-        )
-
-
-def prefix_plan_row_scopes[NodeT: PlanNode](
-    root: NodeT,
-    *scope: str,
-) -> NodeT:
-    """Alpha-rename every nominal row binder and reference in one plan."""
-
-    if not scope:
-        return root
-    return rewrite_plan(
-        root,
-        lambda node: (
-            replace(node, row_scope_id=node.row_scope_id.prefixed(*scope))
-            if isinstance(
-                node,
-                ColumnScalarExpr | WithColumnsRelationExpr,
-            )
-            else node
-        ),
-    )
-
-
-def _row_reference(scalar: ColumnScalarExpr) -> PlanReference:
-    return PlanReference(
-        PlanReferenceKind.ROW_COLUMN,
-        scalar.name,
-        row_scope_id=scalar.row_scope_id,
-    )
-
-
 def _scalar_reference(node: ScalarExpr) -> PlanReference | None:
     scalar = cast("ScalarExpression", node)
-    if isinstance(scalar, ColumnScalarExpr):
-        return _row_reference(scalar)
     if isinstance(scalar, PointColumnScalarExpr):
         return PlanReference(PlanReferenceKind.POINT_COLUMN, scalar.name)
     if isinstance(scalar, InputScalarExpr):

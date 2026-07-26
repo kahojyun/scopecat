@@ -9,7 +9,7 @@ from typing import cast
 
 import scopecat.graph.values as graph_values
 from scopecat.compiler.relations.verification import (
-    ExternalRowInterface,
+    PointRequirement,
     TypedPlanImport,
     VerifiedRelationPlan,
 )
@@ -88,9 +88,12 @@ class PlanExpressionSource:
     _expression: PlanExpression = field(hash=False, repr=False)
     _certified_type: ValueType
     _imports: tuple[TypedPlanImport, ...] = field(hash=False, repr=False)
-    # The verified plan is excluded from comparison, so retain its row interface
-    # to distinguish sources with different external requirements.
-    _row_interface: ExternalRowInterface = field(hash=False, repr=False)
+    # The verified plan is excluded from comparison, so retain its point
+    # requirement to distinguish sources with different external inputs.
+    _point_requirement: PointRequirement | None = field(
+        hash=False,
+        repr=False,
+    )
     _verified_plan: VerifiedPlanExpression = field(
         hash=False,
         repr=False,
@@ -104,7 +107,11 @@ class PlanExpressionSource:
         object.__setattr__(self, "_expression", verified_plan.root)
         object.__setattr__(self, "_certified_type", verified_plan.certified_type)
         object.__setattr__(self, "_imports", verified_plan.imports)
-        object.__setattr__(self, "_row_interface", verified_plan.external_row_interface)
+        object.__setattr__(
+            self,
+            "_point_requirement",
+            verified_plan.external_point_requirement,
+        )
         object.__setattr__(self, "_verified_plan", verified_plan)
 
     @property

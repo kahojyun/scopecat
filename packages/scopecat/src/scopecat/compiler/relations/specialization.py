@@ -12,7 +12,7 @@ from scopecat.compiler.relations.evaluator import (
     evaluate_relation_expression,
     evaluate_series_expression,
 )
-from scopecat.compiler.relations.scalar_eval import eval_binary, read_path
+from scopecat.compiler.relations.scalar_eval import cell_matches, eval_binary, read_path
 from scopecat.graph.relations.analysis import (
     PlanReferenceKind,
     plan_references,
@@ -21,7 +21,6 @@ from scopecat.graph.relations.analysis import (
 from scopecat.graph.relations.model import (
     BinaryScalarExpr,
     CellValue,
-    ColumnScalarExpr,
     InputScalarExpr,
     LiteralRowsRelationExpr,
     LiteralScalarExpr,
@@ -37,7 +36,6 @@ from scopecat.graph.relations.model import (
     ValuesSeriesExpr,
     lit,
 )
-from scopecat.graph.relations.operators import runtime_values_equal
 
 _KNOWN_EVALUATION_ERRORS = (ArithmeticError, KeyError, TypeError, ValueError)
 
@@ -87,16 +85,13 @@ def specialize_scalar(
     """Partially evaluate one pure scalar expression.
 
     Missing bindings and operations that fail for known operands remain
-    residual. Row scopes are never guessed, and no external effect can be
-    represented or executed by this evaluator.
+    residual. No external effect can be represented or executed here.
     """
 
     scalar = cast("ScalarExpression", expression)
     match scalar:
         case LiteralScalarExpr():
             return KnownScalar(deepcopy(scalar.value))
-        case ColumnScalarExpr():
-            return _residual(deepcopy(scalar))
         case PointColumnScalarExpr():
             return _known_leaf(
                 scalar,
@@ -149,7 +144,7 @@ def specialize_relation(
     known: EvalContext,
     parameter_cells: Sequence[ParameterCellBinding] = (),
 ) -> RelationExpression:
-    """Partially evaluate a relation and replace every closed subtree by rows."""
+    """Replace a closed relation leaf with literal rows."""
     return cast(
         "RelationExpression",
         rewrite_plan(
@@ -325,9 +320,7 @@ def _keys_equal(
 ) -> bool:
     if {column_id for column_id, _value in expected} != set(actual):
         return False
-    return all(
-        runtime_values_equal(value, actual[column_id]) for column_id, value in expected
-    )
+    return all(cell_matches(value, actual[column_id]) for column_id, value in expected)
 
 
 __all__ = [

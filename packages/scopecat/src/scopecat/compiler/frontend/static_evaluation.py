@@ -26,7 +26,7 @@ from scopecat.kernel.value_types import Scalar, Series, Table
 
 
 def _static_bindings(bindings: RelationTypeBindings) -> RelationTypeBindings:
-    """Exclude lexical rows that do not exist during host-side evaluation."""
+    """Exclude the point row, which does not exist during host evaluation."""
 
     return RelationTypeBindings(
         inputs=bindings.inputs,

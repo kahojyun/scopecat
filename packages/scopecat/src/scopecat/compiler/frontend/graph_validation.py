@@ -23,7 +23,6 @@ from scopecat.authoring._products import (
 from scopecat.authoring._value_refs import (
     ValueRef,
     internal_lower_value_ref,
-    internal_value_ref_is_row_dependent,
     internal_value_ref_point_dependencies,
     internal_value_ref_requires_execution,
 )
@@ -337,14 +336,6 @@ def _verify_static_value_dependencies(
                         location,
                     )
                 )
-            elif internal_value_ref_is_row_dependent(axis.size):
-                problems.append(
-                    _problem(
-                        "product_axis_value_depends_on_row",
-                        "product axis size cannot depend on a row scope",
-                        location,
-                    )
-                )
 
 
 def _verify_resource_entity_input(
@@ -387,15 +378,6 @@ def _require_plan_value(
             _problem(
                 "value_requires_execution",
                 f"{context} cannot depend on an external operation",
-                location,
-            )
-        )
-        return False
-    if internal_value_ref_is_row_dependent(value):
-        problems.append(
-            _problem(
-                "value_row_scope_unavailable",
-                f"{context} cannot depend on a row scope",
                 location,
             )
         )

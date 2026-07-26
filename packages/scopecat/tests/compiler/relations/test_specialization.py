@@ -25,11 +25,19 @@ from scopecat.graph.relations.model import (
     point_col,
     table,
 )
-from scopecat.kernel.value_types import Float, Scalar, String
+from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.value_types import Entity, Float, Scalar, String
 
 _DEVICE_FREQUENCY_LOOKUP = ParameterLookupUse(
     table_id="devices",
     key_input_types=(("id", Scalar(String())),),
+    literal_key_columns=frozenset(),
+    column_id="frequency",
+    result_type=Scalar(Float()),
+)
+_ENTITY_DEVICE_FREQUENCY_LOOKUP = ParameterLookupUse(
+    table_id="devices",
+    key_input_types=(("id", Scalar(Entity(entity_kind="qubit"))),),
     literal_key_columns=frozenset(),
     column_id="frequency",
     result_type=Scalar(Float()),
@@ -58,8 +66,8 @@ def test_specialization_materializes_configuration_static_series() -> None:
     assert result == ValuesSeriesExpr(items=[1, 3, 5])
 
 
-def test_specialization_materializes_closed_relation_pipeline() -> None:
-    expression = table("devices").select("id", "frequency")
+def test_specialization_materializes_static_parameter_table() -> None:
+    expression = table("devices")
 
     result = specialize_relation(expression, known=EvalContext(params=_parameters()))
 
@@ -154,6 +162,24 @@ def test_specialization_substitutes_scanned_parameter_cell() -> None:
 
     result = specialize_scalar(
         expression,
+        known=EvalContext(params=_parameters()),
+        parameter_cells=(binding,),
+    )
+
+    assert isinstance(result, ResidualScalar)
+    assert result.expression == point_col("frequency")
+
+
+def test_specialization_matches_entity_overlay_to_literal_id() -> None:
+    binding = ParameterCellBinding(
+        table_id="devices",
+        key=(("id", EntityRef(id="q0", kind="qubit")),),
+        column_id="frequency",
+        replacement=point_col("frequency"),
+    )
+
+    result = specialize_scalar(
+        parameter_lookup(_ENTITY_DEVICE_FREQUENCY_LOOKUP, key={"id": "q0"}),
         known=EvalContext(params=_parameters()),
         parameter_cells=(binding,),
     )

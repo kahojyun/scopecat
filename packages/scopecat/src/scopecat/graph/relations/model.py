@@ -15,7 +15,6 @@ from scopecat.graph.relations.operators import ScalarOperator
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Scalar
 
 type ScalarValue = str | int | float | bool | None | Quantity | EntityRef | PayloadValue
@@ -30,20 +29,6 @@ def is_cell_value(value: object) -> TypeGuard[CellValue]:
         value,
         str | int | float | bool | Quantity | EntityRef | PayloadValue | dict,
     )
-
-
-@dataclass(frozen=True, slots=True)
-class RowScopeId:
-    """Nominal lexical identity for one relation-row callback binder."""
-
-    symbol: SymbolId
-
-    @property
-    def qualified_name(self) -> str:
-        return self.symbol.qualified_name
-
-    def prefixed(self, *scope: str) -> RowScopeId:
-        return RowScopeId(self.symbol.prefixed(*scope))
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,40 +101,17 @@ class ScalarExpr:
     def __truediv__(self, other: object) -> BinaryScalarExpr:
         return self._binary("/", other)
 
-    def eq(self, other: object) -> BinaryScalarExpr:
-        return self._binary("==", other)
-
-    def ne(self, other: object) -> BinaryScalarExpr:
-        return self._binary("!=", other)
-
-    def lt(self, other: object) -> BinaryScalarExpr:
-        return self._binary("<", other)
-
-    def le(self, other: object) -> BinaryScalarExpr:
-        return self._binary("<=", other)
-
-    def gt(self, other: object) -> BinaryScalarExpr:
-        return self._binary(">", other)
-
-    def ge(self, other: object) -> BinaryScalarExpr:
-        return self._binary(">=", other)
-
-    def and_(self, other: object) -> BinaryScalarExpr:
-        return self._binary("and", other)
-
-    def or_(self, other: object) -> BinaryScalarExpr:
-        return self._binary("or", other)
+    def __rtruediv__(self, other: object) -> BinaryScalarExpr:
+        return BinaryScalarExpr(
+            op="/",
+            left=as_scalar_expr(other),
+            right=cast("ScalarExpression", self),
+        )
 
 
 @dataclass(frozen=True, slots=True)
 class LiteralScalarExpr(ScalarExpr):
     value: CellValue
-
-
-@dataclass(frozen=True, slots=True)
-class ColumnScalarExpr(ScalarExpr):
-    name: str
-    row_scope_id: RowScopeId
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,7 +144,6 @@ class BinaryScalarExpr(ScalarExpr):
 
 type ScalarExpression = (
     LiteralScalarExpr
-    | ColumnScalarExpr
     | PointColumnScalarExpr
     | InputScalarExpr
     | ParameterScalarExpr
@@ -210,50 +171,11 @@ class ParameterSeriesExpr(SeriesExpr):
     name: str
 
 
-@dataclass(frozen=True, slots=True)
-class RelationEntitiesSeriesExpr(SeriesExpr):
-    source: RelationExpression
-    columns: list[str]
-
-
-type SeriesExpression = (
-    ValuesSeriesExpr
-    | InputSeriesExpr
-    | ParameterSeriesExpr
-    | RelationEntitiesSeriesExpr
-)
+type SeriesExpression = ValuesSeriesExpr | InputSeriesExpr | ParameterSeriesExpr
 
 
 class RelationExpr:
-    """Common base for relation plan variants."""
-
-    def select(self, *columns: str) -> SelectRelationExpr:
-        return SelectRelationExpr(
-            source=cast("RelationExpression", self),
-            select_columns=list(columns),
-        )
-
-    def with_columns(
-        self,
-        *,
-        row_scope_id: RowScopeId,
-        **columns: object,
-    ) -> WithColumnsRelationExpr:
-        return WithColumnsRelationExpr(
-            source=cast("RelationExpression", self),
-            new_columns={
-                name: as_scalar_expr(value) for name, value in columns.items()
-            },
-            row_scope_id=row_scope_id,
-        )
-
-    def entities(self, *columns: str) -> RelationEntitiesSeriesExpr:
-        """Flatten entity columns row-major and remove duplicates stably."""
-
-        return RelationEntitiesSeriesExpr(
-            source=cast("RelationExpression", self),
-            columns=list(columns),
-        )
+    """Opaque table value passed through to Python or a domain compiler."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -271,25 +193,8 @@ class InputRelationExpr(RelationExpr):
     name: str
 
 
-@dataclass(frozen=True, slots=True)
-class SelectRelationExpr(RelationExpr):
-    source: RelationExpression
-    select_columns: list[str]
-
-
-@dataclass(frozen=True, slots=True)
-class WithColumnsRelationExpr(RelationExpr):
-    source: RelationExpression
-    new_columns: dict[str, ScalarExpression]
-    row_scope_id: RowScopeId
-
-
 type RelationExpression = (
-    LiteralRowsRelationExpr
-    | TableRelationExpr
-    | InputRelationExpr
-    | SelectRelationExpr
-    | WithColumnsRelationExpr
+    LiteralRowsRelationExpr | TableRelationExpr | InputRelationExpr
 )
 
 
@@ -297,12 +202,8 @@ def lit(value: CellValue) -> LiteralScalarExpr:
     return LiteralScalarExpr(value=value)
 
 
-def col(name: str, *, row_scope_id: RowScopeId) -> ColumnScalarExpr:
-    return ColumnScalarExpr(name=name, row_scope_id=row_scope_id)
-
-
 def point_col(name: str) -> PointColumnScalarExpr:
-    """Reference a field from the experiment point independently of row scope."""
+    """Reference a field from the current experiment point."""
 
     return PointColumnScalarExpr(name=name)
 

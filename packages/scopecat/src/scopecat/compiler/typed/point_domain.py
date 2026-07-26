@@ -269,14 +269,13 @@ def _verify_center_role(
     issues: list[PointDomainVerificationIssue],
 ) -> None:
     plan = value.plan
-    row_interface = plan.external_row_interface
-    open_interface = bool(row_interface.arguments) or row_interface.point is not None
+    open_interface = plan.external_point_requirement is not None
     if open_interface:
         issues.append(
             PointDomainVerificationIssue(
-                "point_axis_center_open_row_interface",
+                "point_axis_center_open_point",
                 path,
-                "point-axis center has an unbound external row",
+                "point-axis center depends on the current experiment point",
             )
         )
     if any(
@@ -297,7 +296,6 @@ def _verify_center_role(
             bindings=replace(
                 plan.bindings,
                 point_row=None,
-                row_arguments={},
             ),
             expected_type=expected_type,
         )
@@ -313,7 +311,7 @@ def _verify_center_role(
     if (
         reverified.certified_type != plan.certified_type
         or reverified.imports != plan.imports
-        or reverified.external_row_interface != plan.external_row_interface
+        or reverified.external_point_requirement != plan.external_point_requirement
     ):
         issues.append(
             PointDomainVerificationIssue(

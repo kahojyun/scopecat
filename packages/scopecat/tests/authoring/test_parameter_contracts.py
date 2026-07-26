@@ -640,36 +640,3 @@ def test_unknown_parameter_table_has_authoring_problem() -> None:
     assert error.value.problems[0].location == model_location(
         "parameters", "missing_table"
     )
-
-
-def test_table_row_callback_retains_source_and_added_parameter_contracts() -> None:
-    table = sc.parameter(
-        "device_parameters",
-        sc.TableType(
-            columns=(
-                sc.TableColumn(
-                    "device",
-                    sc.ScalarType(sc.EntityType(entity_kind="logical_device")),
-                ),
-                sc.TableColumn(
-                    "frequency",
-                    sc.ScalarType(sc.QuantityType()),
-                ),
-            )
-        ),
-    )
-    derived = table.with_columns(
-        lambda row: {
-            "invalid_frequency": sc.parameter_lookup(
-                "device_parameters",
-                key={"device": row["device"]},
-                column="frequency",
-                value_type=sc.ScalarType(sc.StringType()),
-            )
-        }
-    )
-
-    with pytest.raises(CheckFailed) as error:
-        _resolve_dependency(derived, _config_with_parameter_table())
-
-    assert error.value.problems[0].code == "semantic_parameter_lookup_type_conflict"

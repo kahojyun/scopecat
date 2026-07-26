@@ -59,16 +59,23 @@ def specialize_core_program(
 ) -> CoreProgram:
     """Partially evaluate pure values across one CoreProgram."""
 
-    known = EvalContext(params=parameters)
+    base_known = EvalContext(params=parameters)
     parameter_cells = resolve_parameter_cell_bindings(
         program.parameter_overlays,
-        known=known,
+        known=base_known,
+    )
+    # Any overlay makes the whole table point-local, including dynamic keys
+    # that cannot produce a static ParameterCellBinding.
+    known = EvalContext(
+        params=parameters.without_tables(
+            {overlay.table_id for overlay in program.parameter_overlays}
+        )
     )
     return replace(
         program,
         point_domain=_specialize_point_domain(
             program.point_domain,
-            known=known,
+            known=base_known,
         ),
         parameter_overlays=tuple(
             _specialize_parameter_overlay(

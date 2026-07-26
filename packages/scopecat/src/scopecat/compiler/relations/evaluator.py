@@ -7,14 +7,12 @@ from typing import cast
 
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.scalar_eval import (
-    cell_matches,
     eval_binary,
     read_path,
 )
 from scopecat.graph.relations.model import (
     BinaryScalarExpr,
     CellValue,
-    ColumnScalarExpr,
     InputRelationExpr,
     InputScalarExpr,
     InputSeriesExpr,
@@ -24,19 +22,15 @@ from scopecat.graph.relations.model import (
     ParameterScalarExpr,
     ParameterSeriesExpr,
     PointColumnScalarExpr,
-    RelationEntitiesSeriesExpr,
     RelationExpr,
     RelationExpression,
     Row,
-    RowScopeId,
     ScalarExpr,
     ScalarExpression,
-    SelectRelationExpr,
     SeriesExpr,
     SeriesExpression,
     TableRelationExpr,
     ValuesSeriesExpr,
-    WithColumnsRelationExpr,
     is_cell_value,
 )
 from scopecat.kernel.entity import EntityRef
@@ -48,16 +42,6 @@ def evaluate_scalar_expression(expression: ScalarExpr, ctx: EvalContext) -> Cell
     match scalar:
         case LiteralScalarExpr():
             return scalar.value
-        case ColumnScalarExpr():
-            row_scope_id = scalar.row_scope_id
-            row = ctx.row_scopes.get(row_scope_id)
-            if row is None:
-                msg = (
-                    "row column references an inactive scope: "
-                    f"{row_scope_id.qualified_name!r}"
-                )
-                raise ValueError(msg)
-            return read_path(row, scalar.name)
         case PointColumnScalarExpr():
             return read_path(ctx.point_row, scalar.name)
         case InputScalarExpr():
@@ -90,14 +74,6 @@ def evaluate_series_expression(
             return _input_series(ctx.inputs, series.name)
         case ParameterSeriesExpr():
             return ctx.params.series_values(series.name)
-        case RelationEntitiesSeriesExpr():
-            entities: list[CellValue] = []
-            for row in evaluate_relation_expression(series.source, ctx):
-                for column in series.columns:
-                    value = read_path(row, column)
-                    if not any(cell_matches(existing, value) for existing in entities):
-                        entities.append(value)
-            return entities
 
 
 def evaluate_relation_expression(
@@ -111,43 +87,6 @@ def evaluate_relation_expression(
             return ctx.params.table_rows(relation.table_id)
         case InputRelationExpr():
             return _input_table(ctx.inputs, relation.name)
-        case SelectRelationExpr():
-            return [
-                {
-                    column: read_path(source_row, column)
-                    for column in relation.select_columns
-                }
-                for source_row in evaluate_relation_expression(relation.source, ctx)
-            ]
-        case WithColumnsRelationExpr():
-            derived: list[Row] = []
-            for source_row in evaluate_relation_expression(relation.source, ctx):
-                next_row = dict(source_row)
-                child_ctx = _child_context(
-                    ctx,
-                    row=next_row,
-                    row_scope_id=relation.row_scope_id,
-                )
-                for name, scalar in relation.new_columns.items():
-                    next_row[name] = evaluate_scalar_expression(scalar, child_ctx)
-                derived.append(next_row)
-            return derived
-
-
-def _child_context(
-    ctx: EvalContext,
-    *,
-    row: Row,
-    row_scope_id: RowScopeId,
-) -> EvalContext:
-    row_scopes = dict(ctx.row_scopes)
-    row_scopes[row_scope_id] = row
-    return EvalContext(
-        params=ctx.params,
-        point_row=ctx.point_row,
-        row_scopes=row_scopes,
-        inputs=ctx.inputs,
-    )
 
 
 def _input_series(inputs: Mapping[str, object], name: str) -> list[CellValue]:

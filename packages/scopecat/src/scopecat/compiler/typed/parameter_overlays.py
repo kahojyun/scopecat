@@ -12,6 +12,7 @@ from scopecat.compiler.relations.context import EvalContext, ParameterRelationDa
 from scopecat.compiler.relations.evaluation import (
     evaluate_scalar,
 )
+from scopecat.compiler.relations.scalar_eval import cell_matches
 from scopecat.compiler.relations.specialization import (
     KnownScalar,
     ParameterCellBinding,
@@ -28,11 +29,6 @@ from scopecat.graph.relations.analysis import PlanNode
 from scopecat.graph.relations.model import (
     CellValue,
     ScalarExpr,
-)
-from scopecat.graph.relations.operators import runtime_values_equal
-from scopecat.kernel.entity import (
-    EntityRef,
-    same_entity_identity,
 )
 from scopecat.kernel.problems import ModelLocation, model_location
 from scopecat.kernel.value_types import Scalar
@@ -184,7 +180,7 @@ def _apply_point_parameter_overlay(
         (row_index, row)
         for row_index, row in enumerate(rows)
         if all(
-            _cell_matches(row.get(column_id), value) for column_id, value in key.items()
+            cell_matches(row.get(column_id), value) for column_id, value in key.items()
         )
     ]
     if not matches:
@@ -280,12 +276,3 @@ def _coerce_overlay_value(
         raise CompilerProblemError(
             compiler_problem(code, str(error), location)
         ) from error
-
-
-def _cell_matches(left: CellValue | None, right: CellValue) -> bool:
-    if isinstance(left, EntityRef) and isinstance(right, EntityRef):
-        return same_entity_identity(left, right)
-    try:
-        return runtime_values_equal(left, right)
-    except TypeError:
-        return False

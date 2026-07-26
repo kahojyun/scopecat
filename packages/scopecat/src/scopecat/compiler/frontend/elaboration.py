@@ -978,7 +978,7 @@ def _scope_resource_ports(
             if isinstance(localized.value_type, TableType):
                 msg = (
                     "resource entity source must be scalar or series-shaped; "
-                    "select table entity columns with table.entities(...)"
+                    "declare the resource footprint explicitly"
                 )
                 raise TypeError(msg)
             entity_inputs.append(localized)

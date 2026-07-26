@@ -12,7 +12,6 @@ from scopecat.authoring._parameter_contracts import (
     ParameterValueContract,
 )
 from scopecat.authoring._value_refs import (
-    TableRow,
     ValueRef,
     capture_runtime_input,
     internal_input_value_ref,
@@ -296,7 +295,6 @@ __all__ = [
     "ParameterKeyInput",
     "RuntimeInput",
     "ScalarInput",
-    "TableRow",
     "ValueRef",
     "compute",
     "coordinate",

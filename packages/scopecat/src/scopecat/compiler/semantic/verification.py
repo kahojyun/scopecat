@@ -18,7 +18,6 @@ from scopecat.compiler.semantic.dependencies import (
 )
 from scopecat.compiler.semantic.model import (
     AcquireEffect,
-    LiteralValueSource,
     MeasurementTransformId,
     PlanExpressionSource,
     SemanticDomainExecution,
@@ -229,7 +228,6 @@ def verify_semantic_graph(
     _verify_plan_environment_consistency(tuple(definitions.values()), problems)
     _verify_scalar_operations(
         unambiguous_operations,
-        definitions,
         value_types,
         problems,
     )
@@ -696,7 +694,6 @@ def _verify_uses(
 
 def _verify_scalar_operations(
     operations: tuple[SemanticOperation, ...],
-    definitions: Mapping[ValueId, ValueDef],
     value_types: Mapping[ValueId, ValueType],
     problems: list[Problem],
 ) -> None:
@@ -733,23 +730,11 @@ def _verify_scalar_operations(
                 )
             )
             continue
-        left_definition = definitions.get(left_id)
-        right_definition = definitions.get(right_id)
-        left_source = None if left_definition is None else left_definition.source
-        right_source = None if right_definition is None else right_definition.source
         try:
             expected_type = scalar_operator_result_type(
                 left_type,
                 right_type,
                 semantics.operator,
-                left_is_null_literal=(
-                    isinstance(left_source, LiteralValueSource)
-                    and left_source.value is None
-                ),
-                right_is_null_literal=(
-                    isinstance(right_source, LiteralValueSource)
-                    and right_source.value is None
-                ),
             )
         except (TypeError, ValueError) as error:
             problems.append(
@@ -867,7 +852,7 @@ def _verify_plan_environment_consistency(
                     problems,
                 )
 
-        point_requirement = source.verified_plan.external_row_interface.point
+        point_requirement = source.verified_plan.external_point_requirement
         if point_requirement is None:
             continue
         for column in point_requirement.row_type.columns:

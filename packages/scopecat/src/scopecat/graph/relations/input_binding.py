@@ -17,17 +17,13 @@ from scopecat.graph.relations.model import (
     InputRelationExpr,
     InputScalarExpr,
     InputSeriesExpr,
-    LiteralRowsRelationExpr,
     ParameterLookupScalarExpr,
-    RelationEntitiesSeriesExpr,
     RelationExpr,
     RelationExpression,
     ScalarExpr,
     ScalarExpression,
-    SelectRelationExpr,
     SeriesExpr,
     SeriesExpression,
-    TableRelationExpr,
     lit,
     literal_rows,
     values,
@@ -192,18 +188,7 @@ def bind_series_input_refs(
             resolving=_descend_input_resolution(input_name, resolving),
         )
 
-    if isinstance(series, RelationEntitiesSeriesExpr):
-        source = series.source
-    else:
-        return series
-    return replace(
-        series,
-        source=bind_relation_input_refs(
-            source,
-            inputs,
-            resolving=resolving,
-        ),
-    )
+    return series
 
 
 def bind_relation_input_refs(
@@ -232,33 +217,7 @@ def bind_relation_input_refs(
             inputs,
             resolving=_descend_input_resolution(input_name, resolving),
         )
-    if isinstance(relation, (LiteralRowsRelationExpr, TableRelationExpr)):
-        return relation
-    if isinstance(relation, SelectRelationExpr):
-        return replace(
-            relation,
-            source=bind_relation_input_refs(
-                relation.source,
-                inputs,
-                resolving=resolving,
-            ),
-        )
-    return replace(
-        relation,
-        source=bind_relation_input_refs(
-            relation.source,
-            inputs,
-            resolving=resolving,
-        ),
-        new_columns={
-            name: bind_scalar_input_refs(
-                value,
-                inputs,
-                resolving=resolving,
-            )
-            for name, value in relation.new_columns.items()
-        },
-    )
+    return relation
 
 
 def series_input_value(input_name: str, value: object) -> SeriesExpression:

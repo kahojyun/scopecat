@@ -154,7 +154,7 @@ def test_value_specialization_folds_series_and_table_parameters() -> None:
     )
     specialized_table = specialize_value_expression(
         table_value_expr(
-            table("rows").select("x"),
+            table("rows"),
             bindings=bindings,
             expected_type=table_type,
         ),

@@ -301,7 +301,7 @@ def test_linear_center_rejects_a_point_dependency() -> None:
         )
 
     assert [issue.code for issue in caught.value.issues] == [
-        "point_axis_center_open_row_interface"
+        "point_axis_center_open_point"
     ]
     assert caught.value.issues[0].path == ("source", "center")
 

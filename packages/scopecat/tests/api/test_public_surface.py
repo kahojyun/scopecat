@@ -76,7 +76,6 @@ def test_user_facing_facades_expose_entry_points() -> None:
     assert callable(sc.coordinate)
     assert callable(sc.parameter)
     assert callable(sc.parameter_lookup)
-    assert sc.TableRow
     assert sc.ScalarType(sc.IntType())
     assert sc.SeriesType(sc.ScalarType(sc.EntityType()))
     assert sc.TableType(columns=())
@@ -128,18 +127,7 @@ def test_typed_values_are_the_public_module_wiring_surface() -> None:
             columns=(sc.TableColumn("qubit", sc.ScalarType(sc.EntityType())),)
         ),
     )
-    callback_rows: list[sc.TableRow] = []
-
-    def add_target(row: sc.TableRow) -> dict[str, sc.ValueRef]:
-        callback_rows.append(row)
-        return {"target": row["qubit"]}
-
-    projected = rows.with_columns(add_target)
-    assert isinstance(projected.value_type, sc.TableType)
-    assert [column.id for column in projected.value_type.columns] == [
-        "qubit",
-        "target",
-    ]
+    assert isinstance(rows.value_type, sc.TableType)
 
 
 def test_experiment_inputs_reject_non_finite_numbers() -> None:

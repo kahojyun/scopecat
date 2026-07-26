@@ -69,14 +69,6 @@ type RunRequestBinaryOperator = Literal[
     "-",
     "*",
     "/",
-    "==",
-    "!=",
-    "<",
-    "<=",
-    ">",
-    ">=",
-    "and",
-    "or",
 ]
 
 

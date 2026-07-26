@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 
 from scopecat.compiler.relations.scalar_eval import cell_matches
-from scopecat.graph.relations.model import CellValue, Row, RowScopeId
+from scopecat.graph.relations.model import CellValue, Row
 
 
 class ParameterRelationData:
@@ -98,6 +98,22 @@ class ParameterRelationData:
             msg = f"unknown series parameter {parameter_id!r}"
             raise KeyError(msg) from error
 
+    def without_tables(self, table_ids: Collection[str]) -> ParameterRelationData:
+        """Return bindings without the selected table parameters."""
+
+        removed = frozenset(table_ids)
+        if not removed:
+            return self
+        return ParameterRelationData(
+            scalars=self._scalars,
+            series=self._series,
+            tables={
+                table_id: rows
+                for table_id, rows in self._tables.items()
+                if table_id not in removed
+            },
+        )
+
     def with_table_cell(
         self,
         table_id: str,
@@ -158,7 +174,6 @@ class EvalContext:
 
     params: ParameterRelationData = field(default_factory=ParameterRelationData)
     point_row: Row = field(default_factory=dict)
-    row_scopes: dict[RowScopeId, Row] = field(default_factory=dict)
     inputs: dict[str, object] = field(default_factory=dict)
 
 

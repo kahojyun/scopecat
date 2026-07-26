@@ -17,17 +17,11 @@ from typing import cast
 
 from scopecat.graph.relations.analysis import (
     PlanNode,
-    PlanReferenceKind,
     PlanReferences,
-    RelationPlanBinderError,
-    RelationPlanScopeError,
-    free_row_references,
     plan_references,
-    verify_plan_scopes,
 )
 from scopecat.graph.relations.model import (
     BinaryScalarExpr,
-    ColumnScalarExpr,
     InputRelationExpr,
     InputScalarExpr,
     InputSeriesExpr,
@@ -38,18 +32,14 @@ from scopecat.graph.relations.model import (
     ParameterScalarExpr,
     ParameterSeriesExpr,
     PointColumnScalarExpr,
-    RelationEntitiesSeriesExpr,
     RelationExpr,
     RelationExpression,
-    RowScopeId,
     ScalarExpr,
     ScalarExpression,
-    SelectRelationExpr,
     SeriesExpr,
     SeriesExpression,
     TableRelationExpr,
     ValuesSeriesExpr,
-    WithColumnsRelationExpr,
 )
 from scopecat.graph.relations.operators import scalar_operator_result_type
 from scopecat.kernel.quantity import Quantity as QuantityValue
@@ -80,10 +70,6 @@ def _empty_value_bindings() -> dict[str, ValueType]:
     return {}
 
 
-def _empty_row_bindings() -> dict[RowScopeId, RowType]:
-    return {}
-
-
 @dataclass(frozen=True, slots=True)
 class RowType:
     """The structural type of one row, without collection cardinality or keys."""
@@ -103,8 +89,8 @@ class RowType:
 
 
 @dataclass(frozen=True, slots=True)
-class ExternalRowRequirement:
-    """The typed part of one external row that a plan can observe.
+class PointRequirement:
+    """The typed fields that a plan reads from the current experiment point.
 
     ``column_references`` retains the exact authored paths, while ``row_type``
     retains the corresponding root-column types and open-row semantics.
@@ -125,44 +111,12 @@ class ExternalRowRequirement:
 
 
 @dataclass(frozen=True, slots=True)
-class NamedExternalRowRequirement:
-    """One explicitly identified lexical row argument required by a plan."""
-
-    row_scope_id: RowScopeId
-    requirement: ExternalRowRequirement
-
-
-@dataclass(frozen=True, slots=True)
-class ExternalRowInterface:
-    """The complete external lexical-row interface of one verified plan."""
-
-    point: ExternalRowRequirement | None = None
-    arguments: tuple[NamedExternalRowRequirement, ...] = ()
-
-    def __post_init__(self) -> None:
-        arguments = tuple(
-            sorted(
-                self.arguments,
-                key=lambda item: item.row_scope_id.qualified_name,
-            )
-        )
-        ids = tuple(item.row_scope_id for item in arguments)
-        if len(ids) != len(set(ids)):
-            msg = "external row argument ids must be unique"
-            raise ValueError(msg)
-        object.__setattr__(self, "arguments", arguments)
-
-
-@dataclass(frozen=True, slots=True)
 class RelationTypeBindings:
-    """Typed imports and lexical rows available to one plan root."""
+    """Typed imports and the optional experiment-point row."""
 
     inputs: Mapping[str, ValueType] = field(default_factory=_empty_value_bindings)
     parameters: Mapping[str, ValueType] = field(default_factory=_empty_value_bindings)
     point_row: RowType | None = None
-    row_arguments: Mapping[RowScopeId, RowType] = field(
-        default_factory=_empty_row_bindings
-    )
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "inputs", _frozen_mapping(self.inputs, "input"))
@@ -170,11 +124,6 @@ class RelationTypeBindings:
             self,
             "parameters",
             _frozen_mapping(self.parameters, "parameter"),
-        )
-        object.__setattr__(
-            self,
-            "row_arguments",
-            MappingProxyType(dict(self.row_arguments)),
         )
 
 
@@ -212,8 +161,7 @@ class VerifiedRelationPlan[NodeT: PlanNode]:
     __slots__ = (
         "_bindings",
         "_certified_type",
-        "_external_row_interface",
-        "_free_row_references",
+        "_external_point_requirement",
         "_imports",
         "_references",
         "_root",
@@ -225,18 +173,14 @@ class VerifiedRelationPlan[NodeT: PlanNode]:
         certified_type: ValueType,
         imports: tuple[TypedPlanImport, ...],
         references: PlanReferences,
-        free_references: PlanReferences,
         bindings: RelationTypeBindings,
-        external_row_interface: ExternalRowInterface | None = None,
+        external_point_requirement: PointRequirement | None,
     ) -> None:
-        if external_row_interface is None:
-            raise AssertionError("verified relation plan row interface is missing")
         self._root = deepcopy(root)
         self._certified_type = certified_type
         self._imports = imports
         self._bindings = bindings
-        self._external_row_interface = external_row_interface
-        self._free_row_references = free_references
+        self._external_point_requirement = external_point_requirement
         self._references = references
 
     def __copy__(self) -> VerifiedRelationPlan[NodeT]:
@@ -269,12 +213,8 @@ class VerifiedRelationPlan[NodeT: PlanNode]:
         return self._bindings
 
     @property
-    def external_row_interface(self) -> ExternalRowInterface:
-        return self._external_row_interface
-
-    @property
-    def free_row_references(self) -> PlanReferences:
-        return self._free_row_references
+    def external_point_requirement(self) -> PointRequirement | None:
+        return self._external_point_requirement
 
     @property
     def references(self) -> PlanReferences:
@@ -287,27 +227,9 @@ def verify_relation_plan[NodeT: PlanNode](
     bindings: RelationTypeBindings | None = None,
     expected_type: ValueType | None = None,
 ) -> VerifiedRelationPlan[NodeT]:
-    """Close scopes, infer every node, and certify the root against its consumer."""
+    """Verify imports and types, then certify the root for its consumer."""
 
     selected = bindings or RelationTypeBindings()
-    try:
-        verify_plan_scopes(
-            root,
-            active_row_scopes=selected.row_arguments,
-        )
-    except RelationPlanScopeError as error:
-        raise RelationPlanVerificationError(
-            "unbound_row_reference",
-            (),
-            str(error),
-        ) from error
-    except RelationPlanBinderError as error:
-        raise RelationPlanVerificationError(
-            "row_binder_collision",
-            (),
-            str(error),
-        ) from error
-
     verifier = _Verifier(selected)
     inferred = verifier.infer(root, (), expected_type)
     if expected_type is not None and not is_assignable(inferred, expected_type):
@@ -317,43 +239,19 @@ def verify_relation_plan[NodeT: PlanNode](
             f"inferred {inferred!r}, which is not assignable to {expected_type!r}",
         )
     certified = expected_type or inferred
-    free_references = free_row_references(root)
     return VerifiedRelationPlan(
         root,
         certified,
         tuple(verifier.imports.values()),
         plan_references(root),
-        free_references,
         selected,
-        _external_row_interface(verifier, free_references, selected),
+        _external_point_requirement(verifier, selected),
     )
-
-
-@dataclass(frozen=True, slots=True)
-class _Rows:
-    point: RowType | None
-    arguments: Mapping[RowScopeId, RowType]
-
-    def with_binder(
-        self,
-        row: RowType,
-        row_scope_id: RowScopeId,
-    ) -> _Rows:
-        arguments = dict(self.arguments)
-        arguments[row_scope_id] = row
-        return _Rows(
-            self.point,
-            MappingProxyType(arguments),
-        )
 
 
 class _Verifier:
     def __init__(self, bindings: RelationTypeBindings) -> None:
         self.bindings = bindings
-        self.rows = _Rows(
-            bindings.point_row,
-            bindings.row_arguments,
-        )
         self.external_point_references: set[str] = set()
         self.imports: dict[
             tuple[PlanImportNamespace, str, ParameterLookupUse | None],
@@ -365,10 +263,7 @@ class _Verifier:
         node: PlanNode,
         path: PlanPath,
         expected: ValueType | None = None,
-        *,
-        rows: _Rows | None = None,
     ) -> ValueType:
-        selected_rows = rows or self.rows
         match node:
             case ScalarExpr():
                 scalar_expected = expected if isinstance(expected, Scalar) else None
@@ -378,7 +273,7 @@ class _Verifier:
                         path,
                         "expected a non-scalar value",
                     )
-                result = self.scalar(node, path, scalar_expected, selected_rows)
+                result = self.scalar(node, path, scalar_expected)
             case SeriesExpr():
                 series_expected = expected if isinstance(expected, Series) else None
                 if expected is not None and series_expected is None:
@@ -387,7 +282,7 @@ class _Verifier:
                         path,
                         "expected a non-series value",
                     )
-                result = self.series(node, path, series_expected, selected_rows)
+                result = self.series(node, path, series_expected)
             case RelationExpr():
                 table_expected = expected if isinstance(expected, Table) else None
                 if expected is not None and table_expected is None:
@@ -396,7 +291,7 @@ class _Verifier:
                         path,
                         "expected a non-table value",
                     )
-                result = self.relation(node, path, table_expected, selected_rows)
+                result = self.relation(node, path, table_expected)
         return result
 
     def scalar(
@@ -404,18 +299,14 @@ class _Verifier:
         node: ScalarExpr,
         path: PlanPath,
         expected: Scalar | None,
-        rows: _Rows,
     ) -> Scalar:
         scalar = cast("ScalarExpression", node)
         match scalar:
             case LiteralScalarExpr():
                 result = self.literal(scalar.value, path, expected)
-            case ColumnScalarExpr():
-                selected = rows.arguments.get(scalar.row_scope_id)
-                result = self.row_column(selected, scalar.name, path)
             case PointColumnScalarExpr():
                 name = scalar.name
-                result = self.row_column(rows.point, name, path)
+                result = self.row_column(self.bindings.point_row, name, path)
                 self.external_point_references.add(name)
             case InputScalarExpr():
                 result = self.import_type(
@@ -432,60 +323,21 @@ class _Verifier:
                     path,
                 )
             case ParameterLookupScalarExpr():
-                result = self.parameter_lookup(scalar, path, rows)
+                result = self.parameter_lookup(scalar, path)
             case BinaryScalarExpr():
-                left_node = scalar.left
-                right_node = scalar.right
-                if scalar.op in {"==", "!="} and _is_null_literal(left_node):
-                    if _is_null_literal(right_node):
-                        raise self.error(
-                            "ambiguous_null",
-                            path,
-                            "comparing two null literals has no scalar type context",
-                        )
-                    right = cast(
-                        "Scalar",
-                        self.infer(right_node, (*path, "right"), rows=rows),
-                    )
-                    left = cast(
-                        "Scalar",
-                        self.infer(
-                            left_node,
-                            (*path, "left"),
-                            Scalar(right.atom, nullable=True),
-                            rows=rows,
-                        ),
-                    )
-                elif scalar.op in {"==", "!="} and _is_null_literal(right_node):
-                    left = cast(
-                        "Scalar",
-                        self.infer(left_node, (*path, "left"), rows=rows),
-                    )
-                    right = cast(
-                        "Scalar",
-                        self.infer(
-                            right_node,
-                            (*path, "right"),
-                            Scalar(left.atom, nullable=True),
-                            rows=rows,
-                        ),
-                    )
-                else:
-                    left = cast(
-                        "Scalar",
-                        self.infer(left_node, (*path, "left"), rows=rows),
-                    )
-                    right = cast(
-                        "Scalar",
-                        self.infer(right_node, (*path, "right"), rows=rows),
-                    )
+                left = cast(
+                    "Scalar",
+                    self.infer(scalar.left, (*path, "left")),
+                )
+                right = cast(
+                    "Scalar",
+                    self.infer(scalar.right, (*path, "right")),
+                )
                 try:
                     result = scalar_operator_result_type(
                         left,
                         right,
                         scalar.op,
-                        left_is_null_literal=_is_null_literal(scalar.left),
-                        right_is_null_literal=_is_null_literal(scalar.right),
                     )
                 except (TypeError, ValueError) as error:
                     raise self.error(
@@ -505,7 +357,6 @@ class _Verifier:
         node: SeriesExpr,
         path: PlanPath,
         expected: Series | None,
-        rows: _Rows,
     ) -> Series:
         series = cast("SeriesExpression", node)
         match series:
@@ -546,30 +397,6 @@ class _Verifier:
                     Series,
                     path,
                 )
-            case RelationEntitiesSeriesExpr():
-                source = cast(
-                    "Table",
-                    self.infer(series.source, (*path, "source"), rows=rows),
-                )
-                entity_types = [
-                    self.row_column(
-                        RowType.from_table(source),
-                        name,
-                        (*path, "columns", index),
-                    )
-                    for index, name in enumerate(series.columns)
-                ]
-                for index, item in enumerate(entity_types):
-                    if item.nullable or not isinstance(item.atom, Entity):
-                        raise self.error(
-                            "non_entity_column",
-                            (*path, "columns", index),
-                            "relation entities requires non-null Entity columns",
-                        )
-                item = _common_scalars(entity_types, path)
-                maximum = _multiply_optional(source.max_rows, len(entity_types))
-                minimum = 1 if source.min_rows > 0 and entity_types else 0
-                result = Series(item, minimum, maximum)
         self.require_expected(result, expected, path)
         return result
 
@@ -578,7 +405,6 @@ class _Verifier:
         node: RelationExpr,
         path: PlanPath,
         expected: Table | None,
-        rows: _Rows,
     ) -> Table:
         relation = cast("RelationExpression", node)
         match relation:
@@ -615,68 +441,6 @@ class _Verifier:
                     Table,
                     path,
                 )
-            case SelectRelationExpr():
-                source = cast(
-                    "Table",
-                    self.infer(relation.source, (*path, "source"), rows=rows),
-                )
-                selected_columns = tuple(
-                    TableColumn(
-                        name,
-                        self.row_column(
-                            RowType.from_table(source),
-                            name,
-                            (*path, "select_columns", index),
-                        ),
-                    )
-                    for index, name in enumerate(relation.select_columns)
-                )
-                _require_unique_column_ids(selected_columns, path)
-                selected_ids = {column.id for column in selected_columns}
-                primary_key = (
-                    source.primary_key
-                    if source.primary_key and set(source.primary_key) <= selected_ids
-                    else ()
-                )
-                result = Table(
-                    selected_columns,
-                    primary_key,
-                    source.min_rows,
-                    source.max_rows,
-                )
-            case WithColumnsRelationExpr():
-                source = cast(
-                    "Table",
-                    self.infer(relation.source, (*path, "source"), rows=rows),
-                )
-                columns = list(source.columns)
-                overwritten: set[str] = set()
-                for name, expression in relation.new_columns.items():
-                    current = RowType(tuple(columns), source.allow_extra_columns)
-                    value_type = cast(
-                        "Scalar",
-                        self.infer(
-                            expression,
-                            (*path, "new_columns", name),
-                            rows=rows.with_binder(current, relation.row_scope_id),
-                        ),
-                    )
-                    if any(column.id == name for column in columns):
-                        overwritten.add(name)
-                        columns = [column for column in columns if column.id != name]
-                    columns.append(TableColumn(name, value_type))
-                primary_key = (
-                    source.primary_key
-                    if not overwritten.intersection(source.primary_key)
-                    else ()
-                )
-                result = Table(
-                    tuple(columns),
-                    primary_key,
-                    source.min_rows,
-                    source.max_rows,
-                    source.allow_extra_columns,
-                )
         self.require_expected(result, expected, path)
         return result
 
@@ -684,7 +448,6 @@ class _Verifier:
         self,
         node: ParameterLookupScalarExpr,
         path: PlanPath,
-        rows: _Rows,
     ) -> Scalar:
         use = node.use
         selected_key_types = dict(use.key_input_types)
@@ -693,7 +456,6 @@ class _Verifier:
                 expression,
                 (*path, "key", name),
                 selected_key_types[name],
-                rows=rows,
             )
         import_key = (PlanImportNamespace.PARAMETER, use.table_id, use)
         self.imports.setdefault(
@@ -1028,20 +790,6 @@ def _int_type_is_float_representable(value_type: Int) -> bool:
         return False
 
 
-def _require_unique_column_ids(
-    columns: Sequence[TableColumn],
-    path: PlanPath,
-) -> None:
-    ids = [column.id for column in columns]
-    duplicates = sorted({column_id for column_id in ids if ids.count(column_id) > 1})
-    if duplicates:
-        raise RelationPlanVerificationError(
-            "duplicate_columns",
-            path,
-            "duplicate output columns: " + ", ".join(duplicates),
-        )
-
-
 def _frozen_mapping(
     values: Mapping[str, ValueType],
     label: str,
@@ -1054,46 +802,20 @@ def _frozen_mapping(
     return MappingProxyType(copied)
 
 
-def _external_row_interface(
+def _external_point_requirement(
     verifier: _Verifier,
-    free_references: PlanReferences,
     bindings: RelationTypeBindings,
-) -> ExternalRowInterface:
-    arguments: dict[RowScopeId, set[str]] = {}
-    for reference in free_references:
-        if reference.kind is PlanReferenceKind.ROW_COLUMN:
-            row_scope_id = reference.row_scope_id
-            if row_scope_id is None:
-                raise AssertionError(
-                    "row-column reference is missing its nominal scope"
-                )
-            arguments.setdefault(row_scope_id, set()).add(reference.id)
-
-    named = tuple(
-        NamedExternalRowRequirement(
-            row_scope_id,
-            _required(
-                _external_row_requirement(
-                    bindings.row_arguments.get(row_scope_id),
-                    references,
-                )
-            ),
-        )
-        for row_scope_id, references in arguments.items()
-    )
-    return ExternalRowInterface(
-        point=_external_row_requirement(
-            bindings.point_row,
-            verifier.external_point_references,
-        ),
-        arguments=named,
+) -> PointRequirement | None:
+    return _point_requirement(
+        bindings.point_row,
+        verifier.external_point_references,
     )
 
 
-def _external_row_requirement(
+def _point_requirement(
     row_type: RowType | None,
     references: set[str],
-) -> ExternalRowRequirement | None:
+) -> PointRequirement | None:
     if not references:
         return None
     bound = row_type or RowType()
@@ -1102,7 +824,7 @@ def _external_row_requirement(
         tuple(column for column in bound.columns if column.id in selected_ids),
         bound.allow_extra_columns,
     )
-    return ExternalRowRequirement(
+    return PointRequirement(
         row_type=required_type,
         column_references=tuple(references),
     )
@@ -1120,10 +842,6 @@ def _row_column_root_id(row: RowType | None, name: str) -> str:
     return root
 
 
-def _is_null_literal(node: ScalarExpr) -> bool:
-    return isinstance(node, LiteralScalarExpr) and node.value is None
-
-
 def _is_zero_literal(node: ScalarExpr) -> bool:
     if not isinstance(node, LiteralScalarExpr):
         return False
@@ -1131,18 +849,6 @@ def _is_zero_literal(node: ScalarExpr) -> bool:
     if isinstance(value, QuantityValue):
         return value.value == 0
     return isinstance(value, int | float) and not isinstance(value, bool) and value == 0
-
-
-def _multiply_optional(left: int | None, right: int | None) -> int | None:
-    if left is None or right is None:
-        return None
-    return left * right
-
-
-def _required[ValueT](value: ValueT | None) -> ValueT:
-    if value is None:
-        raise AssertionError("validated relation node is missing a required field")
-    return value
 
 
 def _format_path(path: PlanPath) -> str:

@@ -23,21 +23,16 @@ from scopecat.authoring._parameter_contracts import (
 )
 from scopecat.graph.relations.analysis import (
     PlanReferenceKind,
-    free_row_references,
     plan_references,
-    prefix_plan_row_scopes,
-    verify_plan_scopes,
 )
 from scopecat.graph.relations.model import (
     BinaryScalarExpr,
     ParameterLookupUse,
     RelationExpr,
-    RowScopeId,
     ScalarExpr,
     ScalarExpression,
     SeriesExpr,
     as_scalar_expr,
-    col,
     input_ref,
     input_series,
     input_table,
@@ -64,14 +59,7 @@ from scopecat.kernel.value_type_compatibility import (
 from scopecat.kernel.value_type_compatibility import (
     literal_scalar_type as _literal_scalar_type,
 )
-from scopecat.kernel.value_types import (
-    Entity,
-    Scalar,
-    Series,
-    Table,
-    TableColumn,
-    ValueType,
-)
+from scopecat.kernel.value_types import Scalar, Series, Table, ValueType
 from scopecat.kernel.value_validation import (
     ValuePath,
     coerce_literal,
@@ -188,68 +176,6 @@ class PointValueDependency:
     value_type: Scalar
 
 
-@dataclass(frozen=True, slots=True, init=False, eq=False, repr=False)
-class TableRow:
-    """Typed row scope supplied by table callbacks.
-
-    Row values only exist while an authoring callback is being evaluated, which
-    keeps column references tied to the table schema that introduced their scope.
-    """
-
-    columns: Mapping[str, TableColumn]
-    scope_id: RowScopeId
-    parameter_contracts: tuple[ParameterContract, ...]
-    point_dependencies: tuple[PointValueDependency, ...]
-
-    def __init__(self, value: ValueRef, *, scope_id: RowScopeId) -> None:
-        table_type = value.value_type
-        if not isinstance(table_type, Table):
-            msg = "row scope requires a table value"
-            raise TypeError(msg)
-        object.__setattr__(
-            self,
-            "columns",
-            {column.id: column for column in table_type.columns},
-        )
-        object.__setattr__(self, "scope_id", scope_id)
-        object.__setattr__(
-            self,
-            "parameter_contracts",
-            internal_value_ref_parameter_contracts(value),
-        )
-        object.__setattr__(
-            self,
-            "point_dependencies",
-            internal_value_ref_point_dependencies(value),
-        )
-
-    def __copy__(self) -> TableRow:
-        return self
-
-    def __deepcopy__(self, memo: dict[int, object]) -> TableRow:
-        del memo
-        return self
-
-    @override
-    def __repr__(self) -> str:
-        return (
-            f"{type(self).__qualname__}("
-            f"columns={self.columns!r}, scope_id={self.scope_id!r})"
-        )
-
-    def __getitem__(self, column_id: str) -> ValueRef:
-        column = self.columns.get(column_id)
-        if column is None:
-            msg = f"table row has no column {column_id!r}"
-            raise KeyError(msg)
-        return internal_value_ref_from_expression(
-            col(column_id, row_scope_id=self.scope_id),
-            column.value_type,
-            parameter_contracts=self.parameter_contracts,
-            point_dependencies=self.point_dependencies,
-        )
-
-
 @dataclass(frozen=True, slots=True, eq=False, repr=False)
 class ValueRef:
     """Opaque first-class typed edge in the public authoring value graph.
@@ -326,184 +252,8 @@ class ValueRef:
     def __truediv__(self, other: object) -> ValueRef:
         return _binary_value(self, other, "/")
 
-    def eq(self, other: object) -> ValueRef:
-        return _comparison_value(self, other, "==")
-
-    def ne(self, other: object) -> ValueRef:
-        return _comparison_value(self, other, "!=")
-
-    def lt(self, other: object) -> ValueRef:
-        return _comparison_value(self, other, "<")
-
-    def le(self, other: object) -> ValueRef:
-        return _comparison_value(self, other, "<=")
-
-    def gt(self, other: object) -> ValueRef:
-        return _comparison_value(self, other, ">")
-
-    def ge(self, other: object) -> ValueRef:
-        return _comparison_value(self, other, ">=")
-
-    def and_(self, other: object) -> ValueRef:
-        """Combine two non-nullable typed boolean values."""
-
-        return _logical_value(self, other, "and")
-
-    def or_(self, other: object) -> ValueRef:
-        """Combine two non-nullable typed boolean values."""
-
-        return _logical_value(self, other, "or")
-
-    def select(self, *column_ids: str) -> ValueRef:
-        """Return a typed table projection."""
-
-        table_type = self.value_type
-        if not isinstance(table_type, Table):
-            msg = "select requires a table value"
-            raise TypeError(msg)
-        columns = {column.id: column for column in table_type.columns}
-        missing = [column_id for column_id in column_ids if column_id not in columns]
-        if missing:
-            msg = "table value has no columns: " + ", ".join(missing)
-            raise KeyError(msg)
-        expression = internal_lower_table_value_ref(self)
-        selected_ids = set(column_ids)
-        primary_key = (
-            table_type.primary_key
-            if set(table_type.primary_key) <= selected_ids
-            else ()
-        )
-        return internal_value_ref_from_expression(
-            expression.select(*column_ids),
-            Table(
-                columns=tuple(columns[column_id] for column_id in column_ids),
-                primary_key=primary_key,
-                min_rows=table_type.min_rows,
-                max_rows=table_type.max_rows,
-                allow_extra_columns=False,
-            ),
-            parameter_contracts=self.parameter_contracts,
-            point_dependencies=self.point_dependencies,
-        )
-
-    def with_columns(
-        self,
-        build: Callable[[TableRow], Mapping[str, ValueRef]],
-    ) -> ValueRef:
-        """Add or replace columns inside a schema-bound row callback."""
-
-        table_type = self.value_type
-        if not isinstance(table_type, Table):
-            msg = "with_columns requires a table value"
-            raise TypeError(msg)
-        declaration_key = ValueDeclarationKey.fresh()
-        row = TableRow(
-            self,
-            scope_id=RowScopeId(SymbolId(local_id=f"row_{declaration_key.value.hex}")),
-        )
-        built = cast(
-            "object",
-            build(row),
-        )
-        if not isinstance(built, Mapping):
-            msg = "with_columns callback must return a mapping of typed values"
-            raise TypeError(msg)
-        columns = cast("Mapping[object, object]", built)
-        expressions: dict[str, ScalarExpr] = {}
-        column_types: dict[str, Scalar] = {}
-        for column_id, value in columns.items():
-            if not isinstance(column_id, str) or not column_id:
-                msg = "with_columns callback keys must be non-empty strings"
-                raise TypeError(msg)
-            if not isinstance(value, ValueRef):
-                msg = f"table column {column_id!r} must be a typed value"
-                raise TypeError(msg)
-            if not isinstance(value.value_type, Scalar):
-                msg = f"table column {column_id!r} must be scalar-shaped"
-                raise TypeError(msg)
-            expressions[column_id] = internal_lower_scalar_value_ref(value)
-            column_types[column_id] = value.value_type
-        existing = {column.id: column for column in table_type.columns}
-        updated = tuple(
-            TableColumn(
-                column.id,
-                column_types.get(column.id, column.value_type),
-                required=column.id in column_types or column.required,
-            )
-            for column in table_type.columns
-        )
-        added = tuple(
-            TableColumn(column_id, value_type)
-            for column_id, value_type in column_types.items()
-            if column_id not in existing
-        )
-        primary_key = (
-            ()
-            if set(table_type.primary_key) & set(column_types)
-            else table_type.primary_key
-        )
-        expression = internal_lower_table_value_ref(self).with_columns(
-            row_scope_id=row.scope_id,
-            **expressions,
-        )
-        verify_plan_scopes(expression)
-        return internal_value_ref_from_expression(
-            expression,
-            Table(
-                columns=(*updated, *added),
-                primary_key=primary_key,
-                min_rows=table_type.min_rows,
-                max_rows=table_type.max_rows,
-                allow_extra_columns=table_type.allow_extra_columns,
-            ),
-            parameter_contracts=merge_parameter_contracts(
-                self.parameter_contracts,
-                *(
-                    internal_value_ref_parameter_contracts(value)
-                    for value in columns.values()
-                    if isinstance(value, ValueRef)
-                ),
-            ),
-            point_dependencies=_merge_point_dependencies(
-                self.point_dependencies,
-                *(
-                    internal_value_ref_point_dependencies(value)
-                    for value in columns.values()
-                    if isinstance(value, ValueRef)
-                ),
-            ),
-            declaration_key=declaration_key,
-        )
-
-    def entities(self, *column_ids: str) -> ValueRef:
-        """Return a typed, stably deduplicated entity series from table columns."""
-
-        table_type = self.value_type
-        if not isinstance(table_type, Table):
-            msg = "entities requires a table value"
-            raise TypeError(msg)
-        if not column_ids:
-            msg = "entities requires at least one column"
-            raise ValueError(msg)
-        columns = {column.id: column for column in table_type.columns}
-        selected: list[Entity] = []
-        for column_id in column_ids:
-            column = columns.get(column_id)
-            if column is None:
-                msg = f"table value has no column {column_id!r}"
-                raise KeyError(msg)
-            if not isinstance(column.value_type.atom, Entity):
-                msg = f"table column {column_id!r} is not entity-typed"
-                raise TypeError(msg)
-            selected.append(column.value_type.atom)
-        entity_kinds = {entity.entity_kind for entity in selected}
-        entity_kind = entity_kinds.pop() if len(entity_kinds) == 1 else None
-        return internal_value_ref_from_expression(
-            internal_lower_table_value_ref(self).entities(*column_ids),
-            Series(Scalar(Entity(entity_kind=entity_kind))),
-            parameter_contracts=self.parameter_contracts,
-            point_dependencies=self.point_dependencies,
-        )
+    def __rtruediv__(self, other: object) -> ValueRef:
+        return _binary_value(other, self, "/")
 
 
 def internal_input_value_ref(input_id: str, value_type: ValueType) -> ValueRef:
@@ -910,14 +660,10 @@ def internal_scope_value_ref(
             declaration_scope=declaration_scope,
         )
     if isinstance(source, _ExpressionValueSource):
-        expression = prefix_plan_row_scopes(
-            source.expression,
-            *scope,
-        )
         layers = source.input_binding_layers
         return ValueRef(
             source=_ExpressionValueSource(
-                expression=expression,
+                expression=source.expression,
                 input_binding_layers=tuple(
                     tuple(
                         (
@@ -1036,41 +782,6 @@ def _value_ref_requires_execution(
     )
 
 
-def internal_value_ref_is_row_dependent(value: ValueRef) -> bool:
-    """Return whether a value is lexically bound by a row scope."""
-
-    return _value_ref_is_row_dependent(value, seen=frozenset())
-
-
-def _value_ref_is_row_dependent(
-    value: ValueRef,
-    *,
-    seen: frozenset[_ValueDeclarationIdentity],
-) -> bool:
-    marker = internal_value_ref_declaration_identity(value)
-    if marker in seen:
-        return False
-    nested_seen = seen | {marker}
-    source = value.source
-    if isinstance(source, _ModuleExportSource):
-        raise ValueError(
-            "cannot determine row dependencies of unresolved module export "
-            f"{source.export_id!r}"
-        )
-    if isinstance(source, _ScalarOperationValueSource):
-        return any(
-            _value_ref_is_row_dependent(operand, seen=nested_seen)
-            for operand in _scalar_operation_value_operands(source.operation)
-        )
-    if isinstance(source, _ComputeValueSource | _PointValueSource | _InputValueSource):
-        return False
-    return bool(free_row_references(source.expression).references) or any(
-        _value_ref_is_row_dependent(bound, seen=nested_seen)
-        for layer in source.input_binding_layers
-        for _input_id, bound in layer
-    )
-
-
 def internal_lower_value_ref(value: ValueRef) -> _ValueExpression | ComputeResultRef:
     """Lower a typed edge at the private compiler boundary."""
 
@@ -1145,19 +856,6 @@ def internal_lower_scalar_value_ref(value: ValueRef) -> ScalarExpression:
         msg = "compute outputs must be connected as standalone values"
         raise TypeError(msg)
     return cast("ScalarExpression", lowered)
-
-
-def internal_lower_table_value_ref(value: ValueRef) -> RelationExpr:
-    """Lower a typed table edge at the private compiler boundary."""
-
-    if not isinstance(value.value_type, Table):
-        msg = "table expression requires a table value"
-        raise TypeError(msg)
-    lowered = internal_lower_value_ref(value)
-    if not isinstance(lowered, RelationExpr):
-        msg = "compute outputs must be connected as standalone values"
-        raise TypeError(msg)
-    return lowered
 
 
 def internal_value_ref_from_expression(
@@ -1341,40 +1039,6 @@ def _binary_value(left: object, right: object, operator: str) -> ValueRef:
     )
 
 
-def _comparison_value(left: object, right: object, operator: str) -> ValueRef:
-    left_type = _scalar_operand_type(left)
-    right_type = _scalar_operand_type(right)
-    result_type = scalar_operator_result_type(
-        left_type,
-        right_type,
-        cast("ScalarOperator", operator),
-        left_is_null_literal=_is_null_literal(left),
-        right_is_null_literal=_is_null_literal(right),
-    )
-    return _scalar_operation_value(
-        operator=cast("ScalarOperator", operator),
-        left=left,
-        right=right,
-        value_type=result_type,
-    )
-
-
-def _logical_value(left: object, right: object, operator: str) -> ValueRef:
-    left_type = _scalar_operand_type(left)
-    right_type = _scalar_operand_type(right)
-    result_type = scalar_operator_result_type(
-        left_type,
-        right_type,
-        cast("ScalarOperator", operator),
-    )
-    return _scalar_operation_value(
-        operator=cast("ScalarOperator", operator),
-        left=left,
-        right=right,
-        value_type=result_type,
-    )
-
-
 def _scalar_operation_value(
     *,
     operator: ScalarOperator,
@@ -1433,10 +1097,6 @@ def _scalar_operand_type(value: object) -> Scalar:
         msg = "scalar operations require typed values or closed scalar literals"
         raise TypeError(msg)
     return _literal_scalar_type(value)
-
-
-def _is_null_literal(value: object) -> bool:
-    return value is None
 
 
 def _require_expression_shape(

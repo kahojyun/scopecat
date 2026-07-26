@@ -127,9 +127,10 @@ def _state_rows_type() -> authoring.TableType:
 def test_collections_cross_module_resource_entity_axis_with_provenance() -> None:
     gate_table = _gate_table_type()
     offsets_type = authoring.SeriesType(authoring.ScalarType(authoring.FloatType()))
+    entities_type = authoring.SeriesType(_entity_scalar())
     gates = authoring.input("gates", gate_table)
     offsets = authoring.input("offsets", offsets_type)
-    gate_entities = gates.entities("control", "target")
+    gate_entities = authoring.input("entities", entities_type)
     prepare = authoring.compute(
         "prepare",
         fn=_echo_rows_offsets,
@@ -138,7 +139,7 @@ def test_collections_cross_module_resource_entity_axis_with_provenance() -> None
     )
     child = (
         authoring.module_body(id="test.collections.child")
-        .inputs(gates, offsets)
+        .inputs(gates, offsets, gate_entities)
         .resource(
             "source",
             requires=("set_frequency", "scalar_signal"),
@@ -159,14 +160,16 @@ def test_collections_cross_module_resource_entity_axis_with_provenance() -> None
     )
     gate_rows = authoring.input("gate_rows", gate_table)
     offset_values = authoring.input("offset_values", offsets_type)
+    entity_values = authoring.input("entity_values", entities_type)
     child_instance = child.instantiate(
         "collections-child",
         gates=gate_rows,
         offsets=offset_values,
+        entities=entity_values,
     )
     parent = (
         authoring.module_body(id="test.collections.parent")
-        .inputs(gate_rows, offset_values)
+        .inputs(gate_rows, offset_values, entity_values)
         .use(child_instance)
         .build()
     )
@@ -190,6 +193,7 @@ def test_collections_cross_module_resource_entity_axis_with_provenance() -> None
                 {"control": "q0", "target": "q0"},
             ),
             offset_values=(0.25, 0.5),
+            entity_values=("q0",),
         ),
         config_profile=config,
     )
@@ -200,6 +204,7 @@ def test_collections_cross_module_resource_entity_axis_with_provenance() -> None
                 {"control": "q0", "target": "q0"},
             ),
             offset_values=(0.25, 0.5),
+            entity_values=("q0",),
         ),
         config,
     )
@@ -240,7 +245,7 @@ def test_collections_cross_module_resource_entity_axis_with_provenance() -> None
     assert materialize_series_value(
         target_entities,
         EvalContext(),
-    ) == [EntityRef(id="q0")]
+    ) == [EntityRef(id="q0", kind="logical_device")]
 
     axis = experiment.product_defs[0].axes[0]
     assert axis.size == 1

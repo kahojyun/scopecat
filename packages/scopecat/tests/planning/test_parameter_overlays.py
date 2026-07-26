@@ -1,8 +1,9 @@
 from dataclasses import replace
-from typing import Never
+from typing import Never, cast
 
 import pytest
 
+from scopecat.compiler.linking.linked import link_program as link_core_program
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.specialization import (
     ResidualScalar,
@@ -13,29 +14,49 @@ from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
 )
+from scopecat.compiler.semantic.model import (
+    ImplementationId,
+    LocalPythonImplementation,
+)
+from scopecat.compiler.semantic.operation_contract import (
+    LOCAL_OPAQUE_OPERATION_CONTRACT,
+)
 from scopecat.compiler.typed.parameter_overlays import (
     resolve_parameter_cell_bindings,
 )
 from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.program import LogicalResourceRequirement
+from scopecat.compiler.typed.program import (
+    LogicalResourceRequirement,
+    TypedComputeNode,
+    ValueInput,
+)
+from scopecat.compiler.typed.program import set_state_field as set_typed_state_field
 from scopecat.config.environment import build_config_environment
+from scopecat.execution.local.program import BoundInput, ComputeOperation
 from scopecat.graph.relations.model import (
     CellValue,
+    Row,
     parameter_lookup,
     point_col,
+    table,
 )
 from scopecat.graph.relations.point_domain import (
     PointAxis,
     point_axis_values,
     point_product,
 )
+from scopecat.graph.values import ComputeOutput, OperationId, operation_result_id
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import logical_resource_port_id
+from scopecat.kernel.symbols import SymbolId
+from scopecat.kernel.value_types import Payload, Scalar, String, TableColumn
 from scopecat.kernel.value_types import Quantity as QuantityType
-from scopecat.kernel.value_types import Scalar, String, TableColumn
 from tests.testkit.authoring import load_config
-from tests.testkit.local_materialization import materialize_local_execution
+from tests.testkit.local_materialization import (
+    materialize_local_execution,
+    operations_of_type,
+)
 from tests.testkit.materialized_effects import (
     config_with_physical_resources,
     materialized_state_fields,
@@ -45,8 +66,9 @@ from tests.testkit.parameter_fixtures import (
     READOUT_FREQUENCY_LOOKUP,
     parameters,
 )
-from tests.testkit.relation_plans import state_field
+from tests.testkit.relation_plans import state_field, table_value_expr
 from tests.testkit.typed_program import (
+    compute_result,
     link_program,
     overlay_parameter_cell,
     typed_program,
@@ -169,6 +191,102 @@ def test_point_parameter_overlay_replaces_only_one_existing_cell() -> None:
     assert [
         row["frequency"] for row in environment.parameters.table_rows("readout_devices")
     ] == base_frequencies
+
+
+def test_whole_parameter_table_compute_is_point_scoped_after_overlay() -> None:
+    def summarize_rows(*, rows: tuple[Row, ...]) -> dict[str, int]:
+        return {"row_count": len(rows)}
+
+    points = _point_domain(
+        (TableColumn("device_id", _DEVICE_ID),),
+        (("r0",), ("r1",)),
+    )
+    bindings = _point_bindings(points)
+    operation_id = OperationId(SymbolId(local_id="consume-readout-table"))
+    sink = logical_resource_port_id("sink")
+    spec = typed_program(
+        id="whole-table-parameter-overlay",
+        kind="readout.frequency_scan",
+        point_domain=points,
+        resource_requirements=(
+            LogicalResourceRequirement(
+                port_id=sink,
+                capabilities=("consume_rows",),
+            ),
+        ),
+        parameter_overlays=[
+            _frequency_overlay(
+                key=point_col("device_id"),
+                value=Quantity(value=5.9, unit="GHz"),
+                bindings=bindings,
+            )
+        ],
+        compute_nodes=[
+            TypedComputeNode(
+                id=operation_id,
+                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
+                implementation=LocalPythonImplementation(
+                    id=ImplementationId("python.consume-readout-table.v1"),
+                    kernel=summarize_rows,
+                ),
+                inputs={
+                    "rows": ValueInput(
+                        value=table_value_expr(
+                            table("readout_devices"),
+                            expected_type=_PARAMETER_TYPES["readout_devices"],
+                            bindings=bindings,
+                        )
+                    )
+                },
+                result=ComputeOutput(
+                    id=operation_result_id(operation_id),
+                    value_type=Scalar(Payload("row_summary")),
+                ),
+            )
+        ],
+        state=[
+            set_typed_state_field(
+                resource_port_id=sink,
+                capability_id="consume_rows",
+                field_path="count",
+                value=compute_result(operation_id),
+            )
+        ],
+    )
+
+    environment = replace(
+        build_config_environment(
+            config_with_physical_resources({"sink-a": ("consume_rows",)})
+        ),
+        parameters=parameters(),
+    )
+    plan = materialize_local_execution(link_core_program(spec, environment))
+
+    compute_effects = [
+        effect
+        for effect in plan.effects
+        if isinstance(effect.operation, ComputeOperation)
+    ]
+    assert plan.preamble_operations == ()
+    assert [effect.point_indices for effect in compute_effects] == [(0,), (1,)]
+
+    bound_tables: list[tuple[Row, ...]] = []
+    for point in plan.points:
+        [operation] = operations_of_type(
+            plan,
+            ComputeOperation,
+            point_index=point.ordinal,
+        )
+        rows_input = operation.inputs["rows"]
+        assert isinstance(rows_input, BoundInput)
+        assert isinstance(rows_input.value, tuple)
+        bound_tables.append(cast("tuple[Row, ...]", rows_input.value))
+
+    assert [len(rows) for rows in bound_tables] == [2, 2]
+    assert [
+        next(row["frequency"] for row in rows if row["device_id"] == device_id)
+        for device_id, rows in zip(("r0", "r1"), bound_tables, strict=True)
+    ] == [Quantity(value=5.9, unit="GHz")] * 2
 
 
 def test_point_parameter_overlay_residualizes_parameter_lookup() -> None:
