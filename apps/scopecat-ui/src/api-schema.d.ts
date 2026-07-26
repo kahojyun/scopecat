@@ -501,24 +501,18 @@ export interface components {
         };
         /** CandidateConfigRegistrySource */
         CandidateConfigRegistrySource: {
+            /** Approval Record Id */
+            approval_record_id: string;
             base_config_content_hash: components["schemas"]["ConfigContentHash"];
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
             kind: "candidate_config";
-            proposal_evidence: components["schemas"]["CandidateProposalRegistryEvidence"];
-            /** Run Id */
-            run_id: string;
-        };
-        /** CandidateProposalRegistryEvidence */
-        CandidateProposalRegistryEvidence: {
-            approval_record_content_hash: components["schemas"]["EvidenceContentHash"];
-            /** Approval Record Id */
-            approval_record_id: string;
             /** Proposal Id */
             proposal_id: string;
-            proposal_record_content_hash: components["schemas"]["EvidenceContentHash"];
+            /** Run Id */
+            run_id: string;
         };
         /** ConfigActivationHistoryView */
         ConfigActivationHistoryView: {
@@ -909,7 +903,6 @@ export interface components {
             /** Next Cursor */
             next_cursor?: number | null;
         };
-        EvidenceContentHash: string;
         /**
          * ExternalLocation
          * @description A location in an imported document or other external source.
@@ -1269,45 +1262,6 @@ export interface components {
             };
             /** @constant */
             shape: "scalar";
-        } | {
-            item_type: {
-                /** @constant */
-                type: "bool";
-            } | {
-                maximum?: number;
-                minimum?: number;
-                /** @constant */
-                type: "int";
-            } | {
-                /** @constant */
-                finite?: true;
-                maximum?: number;
-                minimum?: number;
-                /** @constant */
-                type: "float";
-            } | {
-                choices?: [
-                    string,
-                    ...string[]
-                ];
-                /** @constant */
-                type: "string";
-            } | {
-                dimension?: string;
-                /** @constant */
-                finite?: true;
-                maximum?: number;
-                minimum?: number;
-                /** @constant */
-                type: "quantity";
-                unit?: string;
-            } | {
-                entity_kind?: string;
-                /** @constant */
-                type: "entity";
-            };
-            /** @constant */
-            shape: "series";
         } | {
             columns: {
                 id: string;
@@ -1717,36 +1671,6 @@ export interface components {
             value: number;
         };
         /**
-         * SeriesParameterValue
-         * @description One stored ordered parameter series.
-         */
-        "SeriesParameterValue-Input": {
-            /** Id */
-            id: string;
-            /** Items */
-            items?: components["schemas"]["ParameterAtomValue-Input"][];
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            shape: "series";
-        };
-        /**
-         * SeriesParameterValue
-         * @description One stored ordered parameter series.
-         */
-        "SeriesParameterValue-Output": {
-            /** Id */
-            id: string;
-            /** Items */
-            items?: unknown[];
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            shape: "series";
-        };
-        /**
          * StorageLocation
          * @description A location in project storage or one durable run namespace.
          */
@@ -1766,8 +1690,8 @@ export interface components {
             /** Run Id */
             run_id?: string | null;
         };
-        "StoredParameterValue-Input": components["schemas"]["ScalarParameterValue-Input"] | components["schemas"]["SeriesParameterValue-Input"] | components["schemas"]["TableParameterValue-Input"];
-        "StoredParameterValue-Output": components["schemas"]["ScalarParameterValue-Output"] | components["schemas"]["SeriesParameterValue-Output"] | components["schemas"]["TableParameterValue-Output"];
+        "StoredParameterValue-Input": components["schemas"]["ScalarParameterValue-Input"] | components["schemas"]["TableParameterValue-Input"];
+        "StoredParameterValue-Output": components["schemas"]["ScalarParameterValue-Output"] | components["schemas"]["TableParameterValue-Output"];
         /**
          * SystemSpec
          * @description Stable system topology and logical parameter definitions.
