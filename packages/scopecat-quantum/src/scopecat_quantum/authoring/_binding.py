@@ -50,7 +50,6 @@ from scopecat_quantum.pulses import (
     AcquireSignal,
     AcquisitionSlot,
     AnalyticEnvelope,
-    Barrier,
     Constant,
     Delay,
     FrameSignal,
@@ -93,7 +92,6 @@ from ._ir import (
     QuantumQuantity,
     Qubit,
     RepeatCount,
-    _BarrierFragment,
     _DelayFragment,
     _ExpandedFragment,
     _FragmentCall,
@@ -455,7 +453,7 @@ def _bind_quantum_fragment(
         )
     if isinstance(
         fragment,
-        _PlayFragment | _DelayFragment | _ShiftPhaseFragment | _BarrierFragment,
+        _PlayFragment | _DelayFragment | _ShiftPhaseFragment,
     ):
         return PulseBlock(
             id=CircuitOperationId(_operation_id(path, "pulse")),
@@ -571,14 +569,6 @@ def _bind_pulse_fragment(
                 _substitute_signal(fragment.signal, element_bindings),
             ),
             phase=_bound_quantity(fragment.phase, bindings),
-        )
-    if isinstance(fragment, _BarrierFragment):
-        return Barrier(
-            id=PulseEventId("barrier", scope=path),
-            signals=tuple(
-                cast("PlaySignal", _substitute_signal(signal, element_bindings))
-                for signal in fragment.signals
-            ),
         )
     if isinstance(fragment, _PulseTemplateCallFragment):
         return _bind_pulse_fragment(

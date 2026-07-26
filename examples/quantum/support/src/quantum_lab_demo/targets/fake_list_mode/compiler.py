@@ -26,7 +26,6 @@ from scopecat_quantum.pulses import (
     DRAG,
     Acquire,
     AcquireSignal,
-    Barrier,
     Constant,
     Delay,
     DriveSignal,
@@ -362,14 +361,6 @@ class FakeListTargetCompiler:
                         frame_phases.get(instruction.signal, 0.0)
                         + _wrapped_phase(float(instruction.phase.value))
                     )
-                case Barrier():
-                    for signal in instruction.signals:
-                        self._validate_signal_binding(
-                            entry_id=entry.id,
-                            signal=signal,
-                            issues=issues,
-                        )
-
         if duration_samples is None or duration_samples <= 0:
             return None
         return _EntryPlan(

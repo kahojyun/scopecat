@@ -382,11 +382,6 @@ class _DelayFragment(PulseFragment):
 
 
 @dataclass(frozen=True, slots=True)
-class _BarrierFragment(PulseFragment):
-    signals: tuple[PlaySignal, ...]
-
-
-@dataclass(frozen=True, slots=True)
 class _ShiftPhaseFragment(PulseFragment):
     signal: FrameSignal
     phase: QuantumQuantity

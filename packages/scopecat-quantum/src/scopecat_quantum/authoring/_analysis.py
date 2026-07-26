@@ -67,7 +67,6 @@ from ._ir import (
     QuantumFragment,
     QuantumQuantity,
     Qubit,
-    _BarrierFragment,
     _DelayFragment,
     _ExpandedFragment,
     _FragmentCall,
@@ -476,12 +475,6 @@ def _summarize_fragment(fragment: QuantumFragment) -> _FragmentFacts:
             inputs=(
                 (fragment.phase,) if isinstance(fragment.phase, ProgramInput) else ()
             ),
-        )
-    if isinstance(fragment, _BarrierFragment):
-        return _FragmentFacts(
-            pulse_only=True,
-            pulse_owners=tuple(_signal_owner(signal) for signal in fragment.signals),
-            element_uses=tuple(_signal_element(signal) for signal in fragment.signals),
         )
     if isinstance(fragment, _PulseTemplateCallFragment):
         body = _summarize_fragment(fragment.body)

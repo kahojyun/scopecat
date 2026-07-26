@@ -59,7 +59,6 @@ from ._ir import (
     QuantumQuantity,
     Qubit,
     RepeatCount,
-    _BarrierFragment,
     _DelayFragment,
     _FragmentCall,
     _GateFragment,
@@ -613,13 +612,6 @@ def _substitute_pulse_fragment(
                 "QuantumQuantity",
                 _substitute_template_value(fragment.phase, input_bindings),
             ),
-        )
-    if isinstance(fragment, _BarrierFragment):
-        return _BarrierFragment(
-            signals=tuple(
-                cast("PlaySignal", _substitute_signal(signal, element_bindings))
-                for signal in fragment.signals
-            )
         )
     if isinstance(fragment, _PulseTemplateCallFragment):
         return _PulseTemplateCallFragment(

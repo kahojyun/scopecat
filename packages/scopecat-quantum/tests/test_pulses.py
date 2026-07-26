@@ -10,7 +10,6 @@ from scopecat import Quantity
 
 from scopecat_quantum._ids import (
     AcquisitionSlotId,
-    CouplerId,
     PulseEventId,
     PulseProgramId,
     QubitId,
@@ -21,11 +20,9 @@ from scopecat_quantum.pulses import (
     Acquire,
     AcquireSignal,
     AcquisitionSlot,
-    Barrier,
     Constant,
     Delay,
     DriveSignal,
-    FluxSignal,
     Gaussian,
     Parallel,
     Play,
@@ -184,9 +181,13 @@ def test_parallel_phase_shifts_are_canonical_and_preserve_signal_identity() -> N
     ]
 
 
-def test_same_time_control_chain_precedes_parallel_waveform_sampling() -> None:
-    barrier = Barrier(PulseEventId("z-barrier"), (DRIVE_Q0,))
-    shift = ShiftPhase(
+def test_same_time_frame_chain_precedes_parallel_waveform_sampling() -> None:
+    first_shift = ShiftPhase(
+        PulseEventId("z-first-shift"),
+        DRIVE_Q0,
+        Quantity(0.25, "rad"),
+    )
+    second_shift = ShiftPhase(
         PulseEventId("z-shift"),
         DRIVE_Q0,
         Quantity(0.5, "rad"),
@@ -197,7 +198,7 @@ def test_same_time_control_chain_precedes_parallel_waveform_sampling() -> None:
         _program(
             Parallel(
                 (
-                    Sequence((barrier, shift)),
+                    Sequence((first_shift, second_shift)),
                     play,
                 )
             )
@@ -205,7 +206,7 @@ def test_same_time_control_chain_precedes_parallel_waveform_sampling() -> None:
     )
 
     assert [event.id.value for event in scheduled.events] == [
-        "z-barrier",
+        "z-first-shift",
         "z-shift",
         "a-play",
     ]
@@ -341,8 +342,16 @@ def test_canonical_order_uses_structural_identity_not_rendered_text() -> None:
             id=PulseProgramId("structural-order"),
             body=Parallel(
                 (
-                    Barrier(rendered_first_event, (DRIVE_Q0,)),
-                    Barrier(structurally_first_event, (DRIVE_Q0,)),
+                    ShiftPhase(
+                        rendered_first_event,
+                        DRIVE_Q0,
+                        Quantity(0.25, "rad"),
+                    ),
+                    ShiftPhase(
+                        structurally_first_event,
+                        DRIVE_Q0,
+                        Quantity(0.5, "rad"),
+                    ),
                     Acquire(
                         PulseEventId("acquire-q1"),
                         q1_acquire,
@@ -361,10 +370,12 @@ def test_canonical_order_uses_structural_identity_not_rendered_text() -> None:
         )
     )
 
-    barrier_ids = tuple(
-        event.id for event in scheduled.events if isinstance(event.instruction, Barrier)
+    shift_ids = tuple(
+        event.id
+        for event in scheduled.events
+        if isinstance(event.instruction, ShiftPhase)
     )
-    assert barrier_ids == (structurally_first_event, rendered_first_event)
+    assert shift_ids == (structurally_first_event, rendered_first_event)
     assert tuple(slot.id for slot in scheduled.acquisition_slots) == (
         structurally_first_slot,
         rendered_first_slot,
@@ -626,23 +637,6 @@ def test_gaussian_and_drag_shape_parameters_are_validated() -> None:
         "pulse_sigma_exceeds_duration",
         "pulse_time_unit_invalid",
     } <= _issue_codes(raised.value)
-
-
-def test_logical_flux_and_barrier_are_hardware_independent_and_canonical() -> None:
-    qubit_flux = FluxSignal(Q0)
-    coupler_flux = FluxSignal(CouplerId("c0"))
-    barrier = Barrier(
-        PulseEventId("barrier"),
-        (coupler_flux, DRIVE_Q0, qubit_flux),
-    )
-
-    scheduled = schedule(_program(barrier))
-
-    assert cast("Barrier", scheduled.events[0].instruction).signals == (
-        DRIVE_Q0,
-        coupler_flux,
-        qubit_flux,
-    )
 
 
 def test_schedule_preserves_timeline_beyond_float_range() -> None:

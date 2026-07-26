@@ -89,7 +89,6 @@ from ._ir import (
     QuantumResultContract,
     Qubit,
     RepeatCount,
-    _BarrierFragment,
     _DelayFragment,
     _ExpandedFragment,
     _ParallelFragment,
@@ -424,15 +423,6 @@ def delay(signal: PlaySignal, duration: QuantumQuantity, /) -> PulseFragment:
 
     _require_quantity_expression(duration, field="duration", kind="time")
     return _DelayFragment(signal=signal, duration=duration)
-
-
-def barrier(*signals: PlaySignal) -> PulseFragment:
-    """Synchronize one or more logical signals without advancing time."""
-
-    if not signals:
-        msg = "barrier requires at least one logical signal"
-        raise ValueError(msg)
-    return _BarrierFragment(signals=signals)
 
 
 @overload

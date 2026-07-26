@@ -45,7 +45,6 @@ from ._ir import (
     QuantumQuantity,
     QuantumResultAxis,
     Qubit,
-    _BarrierFragment,
     _DelayFragment,
     _ExpandedFragment,
     _FragmentCall,
@@ -161,9 +160,6 @@ def _inspection_node(fragment: QuantumFragment) -> _InspectionNode:
             f"delay {_inspection_signal(fragment.signal)} "
             f"duration={_inspection_value(fragment.duration)}"
         )
-    if isinstance(fragment, _BarrierFragment):
-        signals = ", ".join(_inspection_signal(item) for item in fragment.signals)
-        return _InspectionNode(f"barrier {signals}")
     if isinstance(fragment, _ShiftPhaseFragment):
         return _InspectionNode(
             f"shift_phase {_inspection_signal(fragment.signal)} "

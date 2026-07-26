@@ -16,7 +16,6 @@ from ._construction import (
 )
 from ._construction import (
     acquire,
-    barrier,
     constant,
     coupler,
     delay,
@@ -133,7 +132,6 @@ __all__ = [
     "SingleQubitGate",
     "TwoQubitGate",
     "acquire",
-    "barrier",
     "bind",
     "constant",
     "coupler",
