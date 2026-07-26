@@ -43,7 +43,7 @@ def test_cartesian_is_flattened_in_declaration_order() -> None:
 
     verified = verify_scans((grouped,))
     resolved = lower_scans_point_domain(
-        tuple(axis.leaf for axis in verified.axes),
+        verified.axes,
         inputs={},
     )
 

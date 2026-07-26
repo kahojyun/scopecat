@@ -13,9 +13,6 @@ from types import MappingProxyType
 from typing import cast
 
 from scopecat.authoring._binding_intents import ResourcePort
-from scopecat.authoring._point_domain_intents import (
-    point_domain_intent_value_type,
-)
 from scopecat.authoring._products import (
     ModuleProductDecl,
     ProductAxis,
@@ -36,7 +33,10 @@ from scopecat.compiler.semantic.verification import (
     verify_semantic_graph,
 )
 from scopecat.graph.relations.model import ScalarExpr, SeriesExpr
-from scopecat.graph.relations.point_domain import is_point_coordinate_type
+from scopecat.graph.relations.point_domain import (
+    analyze_point_domain,
+    is_point_coordinate_type,
+)
 from scopecat.graph.values import (
     OperationId,
 )
@@ -488,7 +488,7 @@ def _verify_product_schema(
 
     point_columns = {
         column.id
-        for column in point_domain_intent_value_type(assembly.point_domain).columns
+        for column in analyze_point_domain(assembly.point_domain).value_type.columns
         if is_point_coordinate_type(column.value_type)
     }
     for record_id in sorted(set(record_ids) & point_columns):

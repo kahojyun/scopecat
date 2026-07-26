@@ -1,4 +1,4 @@
-"""Private typed intent graph behind the opaque public scan handles."""
+"""One private axis model behind the opaque public scan handles."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ type ScanCenter = ValueRef | Quantity
 
 
 class Scan:
-    """Opaque public handle for one scan or a Cartesian bundle."""
+    """Opaque public handle for one axis or a Cartesian bundle."""
 
     __slots__ = ()
 
@@ -36,138 +36,127 @@ class Scan:
         raise TypeError(msg)
 
 
-@dataclass(frozen=True, slots=True, repr=False)
-class ImplicitScanCenter:
-    """Use the accepted parameter value unless a default scan supplies a center."""
-
-
-@dataclass(frozen=True, slots=True, repr=False)
-class ExplicitPointScanIntent(Scan):
-    target: ValueRef
+@dataclass(frozen=True, slots=True)
+class ValuesScanSource:
     values: tuple[ScanValue, ...]
     unit: str | None = None
 
 
-@dataclass(frozen=True, slots=True, repr=False)
-class CenteredPointScanIntent(Scan):
-    target: ValueRef
-    center: ScanCenter | ImplicitScanCenter
+@dataclass(frozen=True, slots=True)
+class AroundScanSource:
+    """A linear axis; ``center=None`` inherits or reads the target parameter."""
+
+    center: ScanCenter | None
     span: Quantity
     points: int
 
 
-@dataclass(frozen=True, slots=True, repr=False)
-class ExplicitParameterScanIntent(Scan):
-    target: ValueRef
+type ScanSource = ValuesScanSource | AroundScanSource
+
+
+@dataclass(frozen=True, slots=True)
+class ParameterCellOverlay:
     lookup: ValueRef
-    values: tuple[ScanValue, ...]
-    unit: str | None = None
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class CenteredParameterScanIntent(Scan):
+class AxisSpec(Scan):
     target: ValueRef
-    lookup: ValueRef
-    span: Quantity
-    points: int
+    source: ScanSource
+    overlay: ParameterCellOverlay | None = None
 
+    @property
+    def id(self) -> str:
+        point_id = internal_value_ref_point_id(self.target)
+        assert point_id is not None
+        return point_id
 
-type PointScanIntent = ExplicitPointScanIntent | CenteredPointScanIntent
-type ParameterScanIntent = ExplicitParameterScanIntent | CenteredParameterScanIntent
-type ScanLeafIntent = PointScanIntent | ParameterScanIntent
+    @property
+    def value_type(self) -> Scalar:
+        return cast("Scalar", self.target.value_type)
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class CartesianScanIntent(Scan):
-    scans: tuple[ScanLeafIntent, ...]
+class CartesianScan(Scan):
+    axes: tuple[AxisSpec, ...]
 
 
-def iter_scan_leaves(scan: Scan) -> tuple[ScanLeafIntent, ...]:
-    """Return scan leaves in deterministic declaration order."""
+def iter_scan_axes(scan: Scan) -> tuple[AxisSpec, ...]:
+    """Return axes in deterministic declaration order."""
 
-    if isinstance(scan, CartesianScanIntent):
-        return scan.scans
-    if isinstance(
-        scan,
-        ExplicitPointScanIntent
-        | CenteredPointScanIntent
-        | ExplicitParameterScanIntent
-        | CenteredParameterScanIntent,
-    ):
+    if isinstance(scan, CartesianScan):
+        return scan.axes
+    if isinstance(scan, AxisSpec):
         return (scan,)
-    msg = "invalid scan handle"
-    raise TypeError(msg)
+    raise TypeError("invalid scan handle")
 
 
-def scan_point_id(scan: ScanLeafIntent) -> str:
-    point_id = internal_value_ref_point_id(scan.target)
-    assert point_id is not None
-    return point_id
-
-
-def parameter_scan_lookup(
-    scan: ParameterScanIntent,
+def parameter_cell_lookup(
+    axis: AxisSpec,
 ) -> tuple[
     ParameterLookupUse,
     tuple[tuple[str, ScalarOperationOperand], ...],
 ]:
-    lookup = internal_value_ref_parameter_lookup(scan.lookup)
+    if axis.overlay is None:
+        raise TypeError("scan axis does not overlay a parameter cell")
+    lookup = internal_value_ref_parameter_lookup(axis.overlay.lookup)
     assert lookup is not None
     return lookup
 
 
 def inherit_default_scan_fields(
-    default: ScanLeafIntent,
-    replacement: ScanLeafIntent,
-) -> ScanLeafIntent:
-    """Preserve a centered default for an implicit-center override."""
+    default: AxisSpec,
+    replacement: AxisSpec,
+) -> AxisSpec:
+    """Preserve a default center when an override only supplies span/points."""
 
     if default.target.value_type != replacement.target.value_type:
         msg = (
-            f"scan override for point {scan_point_id(replacement)!r} must reuse its "
+            f"scan override for point {replacement.id!r} must reuse its "
             "declared value type"
         )
         raise TypeError(msg)
-    match default, replacement:
-        case (
-            CenteredPointScanIntent(),
-            CenteredPointScanIntent(center=ImplicitScanCenter()),
-        ):
-            return replace(
-                replacement,
-                center=default.center,
-            )
-        case _:
-            return replacement
+    if (
+        isinstance(default.source, AroundScanSource)
+        and isinstance(replacement.source, AroundScanSource)
+        and replacement.source.center is None
+    ):
+        return replace(
+            replacement,
+            source=replace(
+                replacement.source,
+                center=default.source.center,
+            ),
+        )
+    return replacement
 
 
 def scan_parameter_contracts(scan: Scan) -> tuple[ParameterContract, ...]:
-    match scan:
-        case ExplicitPointScanIntent():
-            return ()
-        case CenteredPointScanIntent(center=ImplicitScanCenter()):
-            return (
-                ParameterValueContract(
-                    parameter_id=scan_point_id(scan),
-                    value_type=cast("Scalar", scan.target.value_type),
+    return merge_parameter_contracts(
+        *(
+            merge_parameter_contracts(
+                _value_parameter_contracts(
+                    axis.overlay.lookup if axis.overlay is not None else None
                 ),
+                _source_parameter_contracts(axis),
             )
-        case CenteredPointScanIntent():
-            return _value_parameter_contracts(scan.center)
-        case ExplicitParameterScanIntent():
-            return merge_parameter_contracts(
-                internal_value_ref_parameter_contracts(scan.lookup),
-                *(_value_parameter_contracts(value) for value in scan.values),
-            )
-        case CenteredParameterScanIntent():
-            return internal_value_ref_parameter_contracts(scan.lookup)
-        case CartesianScanIntent():
-            return merge_parameter_contracts(
-                *(scan_parameter_contracts(child) for child in scan.scans)
-            )
-        case _:
-            msg = "invalid scan handle"
-            raise TypeError(msg)
+            for axis in iter_scan_axes(scan)
+        )
+    )
+
+
+def _source_parameter_contracts(axis: AxisSpec) -> tuple[ParameterContract, ...]:
+    source = axis.source
+    if not isinstance(source, AroundScanSource):
+        return ()
+    if source.center is None:
+        return (
+            ParameterValueContract(
+                parameter_id=axis.id,
+                value_type=axis.value_type,
+            ),
+        )
+    return _value_parameter_contracts(source.center)
 
 
 def _value_parameter_contracts(value: object) -> tuple[ParameterContract, ...]:

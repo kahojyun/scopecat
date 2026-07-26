@@ -5,10 +5,10 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import cast
 
-from scopecat.authoring._intents import ModuleInputPort, ParameterScanOverlayIntent
-from scopecat.authoring._point_domain_intents import (
-    PointDomainIntent,
-    point_domain_intent_output_types,
+from scopecat.authoring._intents import ModuleInputPort
+from scopecat.authoring._scan_intents import (
+    AxisSpec,
+    parameter_cell_lookup,
 )
 from scopecat.authoring._value_refs import (
     ValueRef,
@@ -76,6 +76,7 @@ from scopecat.graph.relations.point_domain import (
     PointDomainExpr,
     PointProduct,
     PointUnit,
+    analyze_point_domain,
 )
 from scopecat.graph.values import (
     ComputeOutput,
@@ -97,24 +98,23 @@ from scopecat.records.parameter import ParameterCatalog
 
 def lower_parameter_overlay_intent(
     parameter_catalog: ParameterCatalog,
-    intent: ParameterScanOverlayIntent,
+    intent: AxisSpec,
     inputs: Mapping[str, object],
     *,
     type_bindings: RelationTypeBindings,
 ) -> PointParameterOverlay:
-    definition = parameter_catalog.get(intent.table_id)
+    lookup, key = parameter_cell_lookup(intent)
+    definition = parameter_catalog.get(lookup.table_id)
     if definition is None or not isinstance(definition.value_type, TableType):
         raise AssertionError("validated parameter overlay table is missing")
     columns = {column.id: column for column in definition.value_type.columns}
     try:
-        target_column = columns[intent.column_id]
-        key_types = {
-            column_id: columns[column_id].value_type for column_id, _ in intent.key
-        }
+        target_column = columns[lookup.column_id]
+        key_types = {column_id: columns[column_id].value_type for column_id, _ in key}
     except KeyError as error:
         raise AssertionError("validated parameter overlay column is missing") from error
     return PointParameterOverlay(
-        table_id=intent.table_id,
+        table_id=lookup.table_id,
         key_uses={
             name: relation_use(
                 verify_scalar_value_expr(
@@ -128,12 +128,12 @@ def lower_parameter_overlay_intent(
                     expected_type=key_types[name],
                 )
             )
-            for name, value in intent.key
+            for name, value in key
         },
-        column_id=intent.column_id,
+        column_id=lookup.column_id,
         value_use=relation_use(
             verify_scalar_value_expr(
-                point_col(intent.point_id),
+                point_col(intent.id),
                 bindings=type_bindings,
                 expected_type=target_column.value_type,
             )
@@ -407,11 +407,10 @@ def validate_consumed_inputs(
 ) -> None:
     """Reject only free module inputs that the assembled program actually uses."""
 
-    point_input_ids = set(point_domain_intent_output_types(assembly.point_domain))
-    point_domain_dependencies = point_domain_input_dependencies(
-        assembly.point_domain,
-        inputs=inputs,
-    )
+    point_input_ids = {
+        column.id
+        for column in analyze_point_domain(assembly.point_domain).value_type.columns
+    }
     consumed_dependencies: set[str] = set()
     values: list[object] = []
     values.extend(
@@ -421,7 +420,9 @@ def validate_consumed_inputs(
     )
     values.extend(binding.value for binding in assembly.bindings)
     values.extend(
-        value for overlay in assembly.parameter_overlays for _name, value in overlay.key
+        value
+        for overlay in assembly.parameter_overlays
+        for _name, value in parameter_cell_lookup(overlay)[1]
     )
     consumed_dependencies.update(
         input_id
@@ -436,10 +437,7 @@ def validate_consumed_inputs(
         consumed_dependencies.update(_nested_input_dependencies(value, inputs=inputs))
 
     provided = set(inputs)
-    missing = sorted(
-        (point_domain_dependencies - provided)
-        | (consumed_dependencies - provided - point_input_ids)
-    )
+    missing = sorted(consumed_dependencies - provided - point_input_ids)
     if missing:
         raise_frontend_problem(
             "module_input_binding_missing",
@@ -448,31 +446,6 @@ def validate_consumed_inputs(
             "inputs",
             phase=ProblemPhase.AUTHORING,
         )
-
-
-def point_domain_input_dependencies(
-    domain: PointDomainIntent,
-    *,
-    inputs: Mapping[str, object],
-) -> set[str]:
-    """Return runtime inputs consumed by closed linear-axis centers."""
-
-    axes = (
-        ()
-        if isinstance(domain, PointUnit)
-        else (domain,)
-        if isinstance(domain, PointAxis)
-        else domain.factors
-    )
-    return {
-        input_id
-        for axis in axes
-        if isinstance(axis.source, PointAxisLinear)
-        for input_id in _nested_input_dependencies(
-            axis.source.center,
-            inputs=inputs,
-        )
-    }
 
 
 _EMPTY_VISITED_VALUE_IDS: frozenset[int] = frozenset()
@@ -530,7 +503,7 @@ def _nested_input_dependencies(
 
 
 def lower_point_domain(
-    point_domain: PointDomainIntent,
+    point_domain: PointDomainExpr[ValueRef],
     *,
     inputs: Mapping[str, object],
     type_bindings: RelationTypeBindings,

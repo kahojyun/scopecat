@@ -22,12 +22,14 @@ from scopecat.authoring._module_ir import (
     ModuleAcquireProduct,
     ModuleBindingEffect,
 )
-from scopecat.authoring._point_domain_intents import PointDomainIntent
 from scopecat.authoring._products import (
     ModuleProductDecl,
     ProductRef,
 )
-from scopecat.authoring._scan_intents import ScanLeafIntent
+from scopecat.authoring._scan_intents import (
+    AxisSpec,
+    scan_parameter_contracts,
+)
 from scopecat.authoring._value_refs import (
     ValueRef,
     internal_bind_value_ref_inputs,
@@ -50,7 +52,7 @@ from scopecat.compiler.frontend.resolution import (
     compile_invocation,
 )
 from scopecat.compiler.frontend.scan_lowering import (
-    lower_scan_points,
+    lower_scans_point_domain,
     project_scan_record,
 )
 from scopecat.compiler.linking.linked import link_program
@@ -133,22 +135,20 @@ def _table_definition(
 _QUANTITY_VALUE = authoring.ScalarType(authoring.QuantityType())
 
 
-def _around_parameter_points(
+def _around_parameter_axis(
     parameter_id: str = "drive_frequency",
     *,
     points: int = 5,
-) -> PointDomainIntent:
+) -> AxisSpec:
     point_type = authoring.ScalarType(authoring.QuantityType(unit="GHz"))
-    return lower_scan_points(
-        cast(
-            "ScanLeafIntent",
-            sc.axis(
-                sc.coordinate(parameter_id, point_type),
-                center=sc.parameter(parameter_id, _QUANTITY_VALUE),
-                span=Quantity(value=200.0, unit="MHz"),
-                points=points,
-            ),
-        )
+    return cast(
+        "AxisSpec",
+        sc.axis(
+            sc.coordinate(parameter_id, point_type),
+            center=sc.parameter(parameter_id, _QUANTITY_VALUE),
+            span=Quantity(value=200.0, unit="MHz"),
+            points=points,
+        ),
     )
 
 
@@ -510,7 +510,7 @@ def test_entity_scan_captures_an_immutable_durable_snapshot() -> None:
 
     scan = sc.axis(subject, [entity])
     labels.append("changed")
-    request = project_scan_record(cast("ScanLeafIntent", scan))
+    request = project_scan_record(cast("AxisSpec", scan))
 
     assert request.model_dump(mode="json")["values"] == [
         {
@@ -1158,11 +1158,13 @@ def test_request_projection_rejects_transient_typed_and_compiler_values() -> Non
 
 def test_link_resolves_config_dependent_assembly_fragments() -> None:
     source = elaborate_module(SIMPLE_MODULE.ir, subject="q0")
+    axis = _around_parameter_axis()
     assembly = replace(
         source,
         experiment_id="authored-simple-scan",
         kind="simple_scan",
-        point_domain=_around_parameter_points(),
+        point_domain=lower_scans_point_domain((axis,)),
+        parameter_contracts=scan_parameter_contracts(axis),
     )
     environment = build_config_environment(load_config())
     resolved = link_program(
@@ -1179,11 +1181,13 @@ def test_link_resolves_config_dependent_assembly_fragments() -> None:
     assert materialized_state_fields(preview)[0][1].instrument_id == "source-0"
 
 
-def test_link_validates_parameter_contracts_owned_by_point_source() -> None:
+def test_link_validates_scan_axis_parameter_contracts() -> None:
+    axis = _around_parameter_axis("missing_frequency")
     assembly = SemanticExperimentIR(
         experiment_id="missing-parameter-scan",
         kind="simple_scan",
-        point_domain=_around_parameter_points("missing_frequency"),
+        point_domain=lower_scans_point_domain((axis,)),
+        parameter_contracts=scan_parameter_contracts(axis),
     )
     environment = build_config_environment(load_config())
     with pytest.raises(CheckFailed) as caught:

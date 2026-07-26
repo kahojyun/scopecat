@@ -13,17 +13,11 @@ from typing import Protocol
 from scopecat.authoring._module_ir import ModuleIR
 from scopecat.authoring._problems import authoring_problem as problem
 from scopecat.authoring._scan_intents import (
-    CenteredParameterScanIntent,
-    CenteredPointScanIntent,
-    ExplicitParameterScanIntent,
-    ExplicitPointScanIntent,
-    ImplicitScanCenter,
-    ParameterScanIntent,
-    PointScanIntent,
+    AroundScanSource,
+    AxisSpec,
     Scan,
-    iter_scan_leaves,
-    parameter_scan_lookup,
-    scan_point_id,
+    iter_scan_axes,
+    parameter_cell_lookup,
 )
 from scopecat.authoring._value_refs import (
     ValueRef,
@@ -119,8 +113,8 @@ def _definition_input_types(
     problems: list[Problem] = []
 
     for scan in default_scans:
-        for leaf in iter_scan_leaves(scan):
-            for input_id, value_type in _direct_scan_input_types(leaf):
+        for axis in iter_scan_axes(scan):
+            for input_id, value_type in _direct_scan_input_types(axis):
                 existing = selected.get(input_id)
                 if existing is None or is_assignable(value_type, existing):
                     selected[input_id] = value_type
@@ -137,20 +131,18 @@ def _definition_input_types(
 
 
 def _direct_scan_input_types(
-    scan: PointScanIntent | ParameterScanIntent,
+    axis: AxisSpec,
 ) -> tuple[tuple[str, ValueType], ...]:
     selected: list[tuple[str, ValueType]] = []
-    match scan:
-        case ExplicitPointScanIntent():
-            values: tuple[object, ...] = ()
-        case CenteredPointScanIntent(center=ImplicitScanCenter()):
-            selected.append((scan_point_id(scan), scan.target.value_type))
-            values = ()
-        case CenteredPointScanIntent():
-            values = (scan.center,)
-        case ExplicitParameterScanIntent() | CenteredParameterScanIntent():
-            _lookup, key = parameter_scan_lookup(scan)
-            values = tuple(value for _name, value in key)
+    values: tuple[object, ...] = ()
+    if isinstance(axis.source, AroundScanSource):
+        if axis.source.center is None:
+            selected.append((axis.id, axis.target.value_type))
+        else:
+            values = (axis.source.center,)
+    if axis.overlay is not None:
+        _lookup, key = parameter_cell_lookup(axis)
+        values = (*values, *(value for _name, value in key))
     for value in values:
         if not isinstance(value, ValueRef):
             continue

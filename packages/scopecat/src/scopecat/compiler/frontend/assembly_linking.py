@@ -6,12 +6,7 @@ from dataclasses import replace
 
 from scopecat.authoring._binding_intents import ExperimentBindingIntent
 from scopecat.authoring._parameter_contracts import (
-    ParameterContract,
     ParameterValueContract,
-    merge_parameter_contracts,
-)
-from scopecat.authoring._point_domain_intents import (
-    point_domain_intent_parameter_contracts,
 )
 from scopecat.compiler.environment import ConfigEnvironment
 from scopecat.compiler.frontend.assembly_lowering import (
@@ -89,7 +84,7 @@ def _bind_verified_assembly(
     inputs = assembly.inputs
     validate_parameter_contracts(
         parameter_catalog,
-        _assembly_parameter_contracts(assembly),
+        assembly.parameter_contracts,
     )
     validate_entity_inputs(topology, assembly.entity_inputs, inputs)
     root_type_bindings = _relation_type_bindings(assembly, parameter_catalog)
@@ -186,7 +181,7 @@ def _relation_type_bindings(
 ) -> RelationTypeBindings:
     """Project assembly contracts into the final plan-verification environment."""
 
-    contracts = _assembly_parameter_contracts(assembly)
+    contracts = assembly.parameter_contracts
     return RelationTypeBindings(
         inputs={port.id: port.value_type for port in assembly.input_ports},
         parameters={
@@ -198,17 +193,6 @@ def _relation_type_bindings(
             for contract in contracts
             if isinstance(contract, ParameterValueContract)
         },
-    )
-
-
-def _assembly_parameter_contracts(
-    assembly: SemanticExperimentIR,
-) -> tuple[ParameterContract, ...]:
-    """Return every config contract consumed while linking the assembly."""
-
-    return merge_parameter_contracts(
-        assembly.parameter_contracts,
-        point_domain_intent_parameter_contracts(assembly.point_domain),
     )
 
 

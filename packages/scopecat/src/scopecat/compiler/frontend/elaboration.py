@@ -18,7 +18,6 @@ from scopecat.authoring._intents import (
     ComputeNodeInputValue,
     ModuleInputPort,
     ModuleOperationDecl,
-    ParameterScanOverlayIntent,
 )
 from scopecat.authoring._module_ir import (
     ModuleAcquireEffect,
@@ -31,15 +30,13 @@ from scopecat.authoring._parameter_contracts import (
     ParameterContract,
     merge_parameter_contracts,
 )
-from scopecat.authoring._point_domain_intents import (
-    PointDomainIntent,
-)
 from scopecat.authoring._products import (
     ModuleProductDecl,
     RecordSelection,
     localize_product_input_refs,
     prefix_product_decl,
 )
+from scopecat.authoring._scan_intents import AxisSpec
 from scopecat.authoring._value_refs import (
     PointValueDependency,
     ValueRef,
@@ -78,7 +75,7 @@ from scopecat.compiler.semantic.model import (
     SemanticDomainExecution,
     SemanticGraphIR,
 )
-from scopecat.graph.relations.point_domain import POINT_UNIT
+from scopecat.graph.relations.point_domain import POINT_UNIT, PointDomainExpr
 from scopecat.graph.values import (
     OperationId,
 )
@@ -106,7 +103,7 @@ class _ExperimentEnvelope:
     entity_inputs: tuple[str, ...] = ()
     resource_ports: tuple[ResourcePort, ...] = ()
     point_dependencies: tuple[PointValueDependency, ...] = ()
-    parameter_overlays: tuple[ParameterScanOverlayIntent, ...] = ()
+    parameter_overlays: tuple[AxisSpec, ...] = ()
     product_declarations: tuple[ModuleProductDecl, ...] = ()
     record_selections: tuple[RecordSelection, ...] = ()
     parameter_contracts: tuple[ParameterContract, ...] = ()
@@ -146,7 +143,7 @@ class _ModuleFragmentValueRoots:
 class SemanticExperimentIR(_ExperimentEnvelope):
     """Closed config-free semantic graph plus plan and resource intents."""
 
-    point_domain: PointDomainIntent = POINT_UNIT
+    point_domain: PointDomainExpr[ValueRef] = POINT_UNIT
     semantic_graph: SemanticGraphIR = field(default_factory=SemanticGraphIR)
     implementations: Mapping[OperationId, LocalPythonImplementation] = field(
         default_factory=dict[OperationId, LocalPythonImplementation],
@@ -209,7 +206,7 @@ def _merge_module_fragments(
     entity_inputs: list[str] = []
     resource_ports: list[ResourcePort] = []
     point_dependencies: list[tuple[PointValueDependency, ...]] = []
-    parameter_overlays: list[ParameterScanOverlayIntent] = []
+    parameter_overlays: list[AxisSpec] = []
     operations: list[ModuleOperationDecl] = []
     measurement_transforms: list[MeasurementTransform] = []
     python_implementations: list[ScopedPythonImplementation] = []

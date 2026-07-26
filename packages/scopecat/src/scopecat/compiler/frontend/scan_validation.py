@@ -4,17 +4,14 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from scopecat.authoring._scan_intents import (
-    CartesianScanIntent,
-    CenteredParameterScanIntent,
-    CenteredPointScanIntent,
-    ExplicitParameterScanIntent,
+    AroundScanSource,
+    AxisSpec,
+    CartesianScan,
     Scan,
-    ScanLeafIntent,
-    iter_scan_leaves,
-    scan_point_id,
+    iter_scan_axes,
 )
 from scopecat.authoring._value_refs import (
     ValueRef,
@@ -27,16 +24,6 @@ from scopecat.kernel.value_types import Scalar, ValueType
 from scopecat.kernel.value_validation import ValueValidationError
 
 type ScanPath = tuple[str | int, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class ScanAxis:
-    """One uniquely provided axis in declaration order."""
-
-    id: str
-    value_type: Scalar
-    path: ScanPath
-    leaf: ScanLeafIntent = field(repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,7 +43,7 @@ class ScanValidationError(ValueError):
 class VerifiedScans:
     """Flat Cartesian scan axes accepted by the compiler."""
 
-    axes: tuple[ScanAxis, ...]
+    axes: tuple[AxisSpec, ...]
 
 
 def verify_scans(
@@ -67,7 +54,8 @@ def verify_scans(
 ) -> VerifiedScans:
     """Validate targets and require every dynamic scan source to be closed."""
 
-    axes = _index_scan_axes(scans)
+    indexed_axes = _index_scan_axes(scans)
+    axes = tuple(axis for axis, _path in indexed_axes)
     duplicate_ids = sorted(
         axis_id
         for axis_id, count in Counter(axis.id for axis in axes).items()
@@ -87,7 +75,7 @@ def verify_scans(
     issues: list[ScanValidationIssue] = []
     expected_types = input_types or {}
     bound_input_ids = frozenset((inputs or {}).keys())
-    for axis in axes:
+    for axis, path in indexed_axes:
         expected = expected_types.get(axis.id)
         if expected is not None:
             try:
@@ -101,11 +89,11 @@ def verify_scans(
                     ScanValidationIssue(
                         "module_input_type_mismatch",
                         str(error),
-                        axis.path,
+                        path,
                     )
                 )
 
-        source, source_path, context = _scan_source(axis.leaf)
+        source, source_path, context = _scan_source(axis)
         if source is None:
             continue
         if internal_value_ref_requires_execution(source):
@@ -113,7 +101,7 @@ def verify_scans(
                 ScanValidationIssue(
                     "value_requires_execution",
                     f"{context} cannot depend on an external operation",
-                    (*axis.path, *source_path),
+                    (*path, *source_path),
                 )
             )
         dependencies = internal_value_ref_point_dependencies(source)
@@ -126,7 +114,7 @@ def verify_scans(
                     "scan_point_dependency_unsupported",
                     f"scan axis {axis.id!r} source depends on scanned point: "
                     f"{dependency_ids}",
-                    (*axis.path, *source_path),
+                    (*path, *source_path),
                 )
             )
         unbound_inputs = sorted(
@@ -138,7 +126,7 @@ def verify_scans(
                     "scan_source_input_unbound",
                     f"scan axis {axis.id!r} source uses unbound input: "
                     + ", ".join(unbound_inputs),
-                    (*axis.path, *source_path),
+                    (*path, *source_path),
                 )
             )
 
@@ -148,36 +136,31 @@ def verify_scans(
     return VerifiedScans(axes=axes)
 
 
-def _index_scan_axes(scans: Sequence[Scan]) -> tuple[ScanAxis, ...]:
-    axes: list[ScanAxis] = []
+def _index_scan_axes(
+    scans: Sequence[Scan],
+) -> tuple[tuple[AxisSpec, ScanPath], ...]:
+    axes: list[tuple[AxisSpec, ScanPath]] = []
     for root_index, scan in enumerate(scans):
-        leaves = iter_scan_leaves(scan)
-        for leaf_index, leaf in enumerate(leaves):
+        children = iter_scan_axes(scan)
+        for axis_index, axis in enumerate(children):
             path = (
-                (root_index, "scans", leaf_index)
-                if isinstance(scan, CartesianScanIntent)
+                (root_index, "scans", axis_index)
+                if isinstance(scan, CartesianScan)
                 else (root_index,)
             )
-            value_type = leaf.target.value_type
-            if not isinstance(value_type, Scalar):
+            if not isinstance(axis.target.value_type, Scalar):
                 msg = "scan target must carry a scalar value type"
                 raise TypeError(msg)
-            axes.append(
-                ScanAxis(
-                    id=scan_point_id(leaf),
-                    value_type=value_type,
-                    path=path,
-                    leaf=leaf,
-                )
-            )
+            axes.append((axis, path))
     return tuple(axes)
 
 
 def _scan_source(
-    scan: ScanLeafIntent,
+    axis: AxisSpec,
 ) -> tuple[ValueRef | None, ScanPath, str]:
-    if isinstance(scan, CenteredPointScanIntent) and isinstance(scan.center, ValueRef):
-        return scan.center, ("center",), "scan center"
-    if isinstance(scan, ExplicitParameterScanIntent | CenteredParameterScanIntent):
-        return scan.lookup, (), "parameter scan key"
+    if axis.overlay is not None:
+        return axis.overlay.lookup, (), "parameter scan key"
+    source = axis.source
+    if isinstance(source, AroundScanSource) and isinstance(source.center, ValueRef):
+        return source.center, ("center",), "scan center"
     return None, (), "scan source"

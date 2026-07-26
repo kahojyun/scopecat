@@ -7,19 +7,12 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import cast
 
-from scopecat.authoring._intents import ParameterScanOverlayIntent
 from scopecat.authoring._parameter_contracts import merge_parameter_contracts
-from scopecat.authoring._point_domain_intents import point_domain_intent_output_types
 from scopecat.authoring._scan_intents import (
-    CenteredParameterScanIntent,
-    ExplicitParameterScanIntent,
-    ParameterScanIntent,
-    ScanLeafIntent,
+    AxisSpec,
     inherit_default_scan_fields,
-    iter_scan_leaves,
-    parameter_scan_lookup,
+    iter_scan_axes,
     scan_parameter_contracts,
-    scan_point_id,
 )
 from scopecat.authoring._value_refs import (
     ValueRef,
@@ -52,6 +45,7 @@ from scopecat.compiler.frontend.scan_validation import (
     verify_scans,
 )
 from scopecat.compiler.linking.linked import LinkedPlan, link_program
+from scopecat.graph.relations.point_domain import analyze_point_domain
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import Problem
 from scopecat.kernel.value_type_compatibility import (
@@ -176,16 +170,16 @@ def _validate_required_invocation_inputs(
         )
 
 
-def _effective_scans(invocation: ExperimentInvocation) -> tuple[ScanLeafIntent, ...]:
+def _effective_scans(invocation: ExperimentInvocation) -> tuple[AxisSpec, ...]:
     defaults = tuple(
-        leaf
+        axis
         for scan in invocation.definition.default_scans
-        for leaf in iter_scan_leaves(scan)
+        for axis in iter_scan_axes(scan)
     )
     overrides = tuple(
-        leaf for scan in invocation.scans for leaf in iter_scan_leaves(scan)
+        axis for scan in invocation.scans for axis in iter_scan_axes(scan)
     )
-    override_axis_ids = [scan_point_id(scan) for scan in overrides]
+    override_axis_ids = [axis.id for axis in overrides]
     # Validate before indexing so repeated overrides cannot silently collapse.
     duplicate_overrides = sorted(
         axis_id for axis_id, count in Counter(override_axis_ids).items() if count > 1
@@ -200,17 +194,15 @@ def _effective_scans(invocation: ExperimentInvocation) -> tuple[ScanLeafIntent, 
                 )
             ]
         )
-    default_axis_ids = {scan_point_id(scan) for scan in defaults}
-    override_by_id = {scan_point_id(scan): scan for scan in overrides}
+    default_axis_ids = {axis.id for axis in defaults}
+    override_by_id = {axis.id: axis for axis in overrides}
     replaced = tuple(
-        inherit_default_scan_fields(default, override_by_id[scan_point_id(default)])
-        if scan_point_id(default) in override_by_id
+        inherit_default_scan_fields(default, override_by_id[default.id])
+        if default.id in override_by_id
         else default
         for default in defaults
     )
-    additions = tuple(
-        scan for scan in overrides if scan_point_id(scan) not in default_axis_ids
-    )
+    additions = tuple(axis for axis in overrides if axis.id not in default_axis_ids)
     return (*replaced, *additions)
 
 
@@ -236,7 +228,7 @@ def _materialized_request(
 ) -> RunRequest:
     request_inputs = project_run_request_inputs(inputs)
     request_scans = [
-        project_scan_record(axis.leaf, inputs=inputs) for axis in verified_scans.axes
+        project_scan_record(axis, inputs=inputs) for axis in verified_scans.axes
     ]
     return RunRequest.model_validate(
         {
@@ -281,9 +273,8 @@ def _apply_scans(
     *,
     inputs: Mapping[str, object],
 ) -> SemanticExperimentIR:
-    scan_leaves = tuple(axis.leaf for axis in verified_scans.axes)
     point_domain = lower_scans_point_domain(
-        scan_leaves,
+        verified_scans.axes,
         inputs=inputs,
     )
     consumed_point_input_ids = {port.id for port in assembly.input_ports}
@@ -298,18 +289,11 @@ def _apply_scans(
         point_domain=point_domain,
         parameter_contracts=merge_parameter_contracts(
             assembly.parameter_contracts,
-            *(scan_parameter_contracts(axis.leaf) for axis in verified_scans.axes),
+            *(scan_parameter_contracts(axis) for axis in verified_scans.axes),
         ),
         parameter_overlays=(
             *assembly.parameter_overlays,
-            *tuple(
-                _runtime_parameter_overlay_intent(axis.leaf)
-                for axis in verified_scans.axes
-                if isinstance(
-                    axis.leaf,
-                    ExplicitParameterScanIntent | CenteredParameterScanIntent,
-                )
-            ),
+            *(axis for axis in verified_scans.axes if axis.overlay is not None),
         ),
     )
 
@@ -329,8 +313,9 @@ def _validate_point_dependencies(
     assembly: SemanticExperimentIR,
     verified_scans: VerifiedScans,
 ) -> None:
+    domain_type = analyze_point_domain(assembly.point_domain).value_type
     point_types = {
-        **point_domain_intent_output_types(assembly.point_domain),
+        **{column.id: column.value_type for column in domain_type.columns},
         **{axis.id: axis.value_type for axis in verified_scans.axes},
     }
     problems: list[Problem] = []
@@ -361,15 +346,3 @@ def _validate_point_dependencies(
         )
     if problems:
         raise CheckFailed(problems)
-
-
-def _runtime_parameter_overlay_intent(
-    scan: ParameterScanIntent,
-) -> ParameterScanOverlayIntent:
-    lookup, key = parameter_scan_lookup(scan)
-    return ParameterScanOverlayIntent(
-        table_id=lookup.table_id,
-        key=key,
-        column_id=lookup.column_id,
-        point_id=scan_point_id(scan),
-    )
