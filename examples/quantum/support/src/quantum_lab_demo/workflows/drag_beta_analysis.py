@@ -22,9 +22,9 @@ from quantum_lab_demo.workflows.drag_beta_calibration import (
     POSITIVE_CANDIDATE_ID,
 )
 
-DRAG_BETA_FIT_MODEL_ID = "quantum_lab_demo.drag_beta.shared_n2_quadratic.v1"
-DRAG_BETA_ANALYSIS_KEY = "drag-beta-calibration"
-DRAG_BETA_PROPOSAL_ID = "q0-drag-beta"
+_DRAG_BETA_FIT_MODEL_ID = "quantum_lab_demo.drag_beta.shared_n2_quadratic.v1"
+_DRAG_BETA_ANALYSIS_KEY = "drag-beta-calibration"
+_DRAG_BETA_PROPOSAL_ID = "q0-drag-beta"
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,17 +46,6 @@ class DragBetaFit:
     linear: float
     scaled_offset: float
     rmse: float
-
-
-@dataclass(frozen=True, slots=True)
-class DragBetaRunAnalysis:
-    """The fitted evidence and parameter proposal authored for one run."""
-
-    run_id: str
-    observations: tuple[DragBetaObservation, ...]
-    fit: DragBetaFit
-    analysis: sc.Analysis
-    proposal_id: str
 
 
 def fit_drag_beta(observations: Sequence[DragBetaObservation]) -> DragBetaFit:
@@ -110,22 +99,18 @@ def fit_drag_beta(observations: Sequence[DragBetaObservation]) -> DragBetaFit:
     )
 
 
-def analyze_drag_beta_run(run: sc.RunHandle) -> DragBetaRunAnalysis:
-    """Fit a completed run and author its table, figure, and proposal."""
+@sc.analysis_step(id=_DRAG_BETA_ANALYSIS_KEY)
+def drag_beta_analysis(context: sc.AnalysisContext) -> sc.Analysis:
+    """Fit one DRAG run and author its table, figure, and proposal."""
 
-    if run.manifest.status != "completed":
-        raise ValueError("DRAG-beta analysis requires a completed run")
-
-    measurements = run.data().measurements()
+    measurements = context.data.measurements()
     observations = tuple(
         _observation_from_record(record) for record in measurements.dataset.records
     )
-    if not observations:
-        raise ValueError("DRAG-beta analysis requires measurement records")
     fit = fit_drag_beta(observations)
 
-    analysis = (
-        run.analysis("DRAG beta calibration", key=DRAG_BETA_ANALYSIS_KEY)
+    return (
+        context.result("DRAG beta calibration")
         .input(
             measurements.dataset_entry.id,
             role="fit-input",
@@ -150,12 +135,12 @@ def analyze_drag_beta_run(run: sc.RunHandle) -> DragBetaRunAnalysis:
                 "y": "probability_1",
                 "series": "amplification",
                 "source_dataset": measurements.dataset_entry.id,
-                "model_id": DRAG_BETA_FIT_MODEL_ID,
+                "model_id": _DRAG_BETA_FIT_MODEL_ID,
             },
             title="DRAG beta fit",
         )
         .propose(
-            DRAG_BETA_PROPOSAL_ID,
+            _DRAG_BETA_PROPOSAL_ID,
             sc.update_parameter_rows(
                 QUBIT_PARAMETER_TABLE,
                 key=q0_parameter_key(),
@@ -167,13 +152,6 @@ def analyze_drag_beta_run(run: sc.RunHandle) -> DragBetaRunAnalysis:
                 f"RMSE={fit.rmse:.6g}."
             ),
         )
-    )
-    return DragBetaRunAnalysis(
-        run_id=run.id,
-        observations=observations,
-        fit=fit,
-        analysis=analysis,
-        proposal_id=DRAG_BETA_PROPOSAL_ID,
     )
 
 
@@ -201,7 +179,7 @@ def _observation_from_record(record: MeasurementRecord) -> DragBetaObservation:
 
 def _fit_summary(fit: DragBetaFit) -> dict[str, object]:
     return {
-        "model_id": DRAG_BETA_FIT_MODEL_ID,
+        "model_id": _DRAG_BETA_FIT_MODEL_ID,
         "beta_hat": _beta_ns(fit.beta_hat),
         "beta_unit": "ns",
         "baseline": fit.baseline,
@@ -220,12 +198,8 @@ def _beta_ns(value: Quantity) -> float:
 
 
 __all__ = [
-    "DRAG_BETA_ANALYSIS_KEY",
-    "DRAG_BETA_FIT_MODEL_ID",
-    "DRAG_BETA_PROPOSAL_ID",
     "DragBetaFit",
     "DragBetaObservation",
-    "DragBetaRunAnalysis",
-    "analyze_drag_beta_run",
+    "drag_beta_analysis",
     "fit_drag_beta",
 ]

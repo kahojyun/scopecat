@@ -16,18 +16,18 @@ from quantum_lab_demo.virtual_lab.responses.drag_beta import (
     synthetic_drag_beta_response,
 )
 from quantum_lab_demo.workflows.drag_beta_analysis import (
-    DRAG_BETA_PROPOSAL_ID,
     DragBetaObservation,
-    analyze_drag_beta_run,
+    drag_beta_analysis,
     fit_drag_beta,
 )
 from quantum_lab_demo.workflows.drag_beta_experiment import (
     DEFAULT_AMPLIFICATIONS,
-    DEFAULT_BETAS,
     drag_beta_template,
 )
 
 from .demo_lab_experiment_testkit import in_process_quantum_lab
+
+_BETA_VALUES = tuple(Quantity(value, "ns") for value in (0.0, 0.25, 0.5, 0.75, 1.0))
 
 
 def _entity_id(value: object) -> str:
@@ -48,7 +48,7 @@ def test_synthetic_joint_quadratic_recovers_beta_optimum() -> None:
             p1=synthetic_drag_beta_response(beta, amplification=amplification),
         )
         for amplification in DEFAULT_AMPLIFICATIONS
-        for beta in DEFAULT_BETAS
+        for beta in _BETA_VALUES
     )
 
     fit = fit_drag_beta(observations)
@@ -65,7 +65,7 @@ def test_drag_beta_closes_measurement_analysis_activation_and_rollback(
 ) -> None:
     lab = in_process_quantum_lab(project_root=tmp_path)
     source_run = lab.prepare(drag_beta_template).run()
-    result = analyze_drag_beta_run(source_run)
+    analysis = source_run.analyze(drag_beta_analysis())
 
     assert source_run.manifest.status == "completed"
     records = source_run.data().measurements().dataset.records
@@ -76,27 +76,26 @@ def test_drag_beta_closes_measurement_analysis_activation_and_rollback(
         == pytest.approx(1.0)
         for record in records
     )
-    assert float(result.fit.beta_hat.to("ns").value) == pytest.approx(0.765)
-    assert result.proposal_id == DRAG_BETA_PROPOSAL_ID
-    assert [selected.kind for selected in result.analysis.inputs] == [
-        "measurement_dataset"
-    ]
-    assert [output.kind for output in result.analysis.outputs] == [
+    assert analysis.step_id == drag_beta_analysis.id
+    assert [selected.kind for selected in analysis.inputs] == ["measurement_dataset"]
+    assert [output.kind for output in analysis.outputs] == [
         "table",
         "table",
         "figure",
         "parameter_change_proposal",
     ]
 
-    [proposal] = result.analysis.parameter_proposals
+    [proposal] = analysis.parameter_proposals
     [delta] = proposal.deltas
     assert delta.parameter_id == QUBIT_PARAMETER_TABLE
     assert isinstance(delta.after, TableParameterValue)
     q0 = next(row for row in delta.after.rows if _entity_id(row["qubit"]) == "q0")
-    assert q0[DRAG_BETA_PARAMETER_COLUMN] == result.fit.beta_hat
+    fitted_beta = q0[DRAG_BETA_PARAMETER_COLUMN]
+    assert isinstance(fitted_beta, Quantity)
+    assert float(fitted_beta.to("ns").value) == pytest.approx(0.765)
 
-    saved = result.analysis.save()
-    candidate = result.analysis.candidate_config()
+    saved = analysis.save()
+    candidate = analysis.candidate_config()
     baseline = lab.activate_config(
         source_run.config,
         entry_id="drag-beta-baseline",
@@ -127,9 +126,9 @@ def test_drag_beta_closes_measurement_analysis_activation_and_rollback(
             for point in active_preview.points
         }
     )
-    fitted_beta = float(result.fit.beta_hat.to("ns").value)
+    fitted_beta_ns = float(fitted_beta.to("ns").value)
     assert active_betas == pytest.approx(
-        [fitted_beta + offset for offset in (-0.5, -0.25, 0.0, 0.25, 0.5)]
+        [fitted_beta_ns + offset for offset in (-0.5, -0.25, 0.0, 0.25, 0.5)]
     )
 
     restored = lab.rollback(
@@ -145,5 +144,5 @@ def test_drag_beta_closes_measurement_analysis_activation_and_rollback(
     )
     assert restored.activation.action == "rollback"
     assert restored_betas == pytest.approx(
-        [float(beta.to("ns").value) for beta in DEFAULT_BETAS]
+        [float(beta.to("ns").value) for beta in _BETA_VALUES]
     )

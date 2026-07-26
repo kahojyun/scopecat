@@ -5,7 +5,7 @@ from __future__ import annotations
 # %%
 import scopecat as sc
 from quantum_lab_demo import EXAMPLE_ROOT
-from quantum_lab_demo.workflows.drag_beta_analysis import analyze_drag_beta_run
+from quantum_lab_demo.workflows.drag_beta_analysis import drag_beta_analysis
 from quantum_lab_demo.workflows.drag_beta_experiment import drag_beta_template
 from quantum_lab_demo.workflows.production_drag_gate import production_drag_template
 
@@ -19,9 +19,10 @@ baseline_run = experiment.run(
 )
 
 # %%
-result = analyze_drag_beta_run(baseline_run)
-saved_analysis = result.analysis.save()
-candidate = result.analysis.candidate_config()
+analysis = baseline_run.analyze(drag_beta_analysis())
+saved_analysis = analysis.save()
+candidate = analysis.candidate_config()
+[proposal] = analysis.parameter_proposals
 
 # A candidate run records its analysis provenance without changing the default.
 candidate_run = lab.prepare(drag_beta_template(), config=candidate).run(
@@ -52,9 +53,8 @@ production_source = production_run.manifest.config_source
 drag_beta_summary = {
     "status": baseline_run.manifest.status,
     "point_count": preview.point_count,
-    "beta_hat": result.fit.beta_hat,
     "analysis": saved_analysis.record.id,
-    "proposal_id": result.proposal_id,
+    "proposal_id": proposal.id,
     "candidate_run_uses_analysis": (
         candidate_source is not None
         and candidate_source.kind == "analysis_candidate"

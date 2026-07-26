@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from typing import Annotated
 
 import scopecat as sc
@@ -26,7 +25,6 @@ DRAG_BETA_EXPERIMENT_ID = "drag-beta-calibration"
 DRAG_BETA_SHOTS = 64
 DRAG_BETA_SPAN = Quantity(1.0, "ns")
 DRAG_BETA_POINTS = 5
-DEFAULT_BETAS = tuple(Quantity(value, "ns") for value in (0.0, 0.25, 0.5, 0.75, 1.0))
 DEFAULT_AMPLIFICATIONS = (1, 2, 3)
 
 
@@ -113,34 +111,10 @@ def drag_beta_template() -> sc.ExperimentBody:
     )
 
 
-@sc.scratch(
-    id="quantum_lab_demo.workflows.drag_beta.scratch",
-    kind=DRAG_BETA_EXPERIMENT_ID,
-)
-def drag_beta_scratch_experiment(
-    *,
-    betas: Sequence[Quantity] = DEFAULT_BETAS,
-    amplifications: Sequence[int] = DEFAULT_AMPLIFICATIONS,
-) -> sc.ExperimentBody:
-    """Build the same 2-D semantics without a reusable template."""
-
-    return _drag_beta_experiment_body(
-        sc.cartesian(
-            sc.param_axis(
-                BETA,
-                q0_drag_beta_lookup(),
-                tuple(betas),
-            ),
-            sc.axis(AMPLIFICATION, tuple(amplifications)),
-        )
-    )
-
-
 __all__ = [
     "AMPLIFICATION",
     "BETA",
     "DEFAULT_AMPLIFICATIONS",
-    "DEFAULT_BETAS",
     "DRAG_BETA_EXPERIMENT_ID",
     "DRAG_BETA_POINTS",
     "DRAG_BETA_SHOTS",
@@ -148,6 +122,5 @@ __all__ = [
     "DRAG_BETA_TEMPLATE_ID",
     "drag_beta_capture",
     "drag_beta_program",
-    "drag_beta_scratch_experiment",
     "drag_beta_template",
 ]

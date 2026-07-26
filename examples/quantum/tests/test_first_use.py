@@ -4,7 +4,7 @@ from typing import Protocol
 
 import scopecat as sc
 from quantum_lab_demo import EXAMPLE_ROOT
-from quantum_lab_demo.workflows.drag_beta_analysis import analyze_drag_beta_run
+from quantum_lab_demo.workflows.drag_beta_analysis import drag_beta_analysis
 from quantum_lab_demo.workflows.drag_beta_experiment import drag_beta_template
 from scopecat.records.run import (
     AnalysisCandidateRunConfigSource,
@@ -26,9 +26,9 @@ def test_drag_beta_first_use_closes_config_provenance_loop(
             name="first-use smoke",
             tags=("first-use",),
         )
-        result = analyze_drag_beta_run(baseline)
-        saved = result.analysis.save()
-        candidate = result.analysis.candidate_config()
+        analysis = baseline.analyze(drag_beta_analysis())
+        saved = analysis.save()
+        candidate = analysis.candidate_config()
         candidate_run = lab.prepare(
             drag_beta_template(),
             config=candidate,

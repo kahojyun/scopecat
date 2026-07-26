@@ -29,7 +29,7 @@ uv run python examples/quantum/notebooks/calibration/01_drag_beta.py
 The file can also be run cell by cell in an editor. It:
 
 1. prepares and runs `drag_beta_template()`;
-2. fits the measurement dataset with `analyze_drag_beta_run()`;
+2. runs `run.analyze(drag_beta_analysis())` against the measurement dataset;
 3. saves table and figure evidence plus one parameter proposal;
 4. runs once with the candidate without changing the default;
 5. accepts that candidate through the daemon;

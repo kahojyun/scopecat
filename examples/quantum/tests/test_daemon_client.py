@@ -11,7 +11,7 @@ from quantum_lab_demo import (
     quantum_lab_bootstrap_config,
 )
 from quantum_lab_demo.virtual_lab.provider import QuantumLabVirtualProvider
-from quantum_lab_demo.workflows.drag_beta_analysis import analyze_drag_beta_run
+from quantum_lab_demo.workflows.drag_beta_analysis import drag_beta_analysis
 from quantum_lab_demo.workflows.drag_beta_experiment import drag_beta_template
 
 
@@ -60,9 +60,9 @@ def test_drag_beta_candidate_accept_and_undo_round_trip_through_shared_daemon(
 ) -> None:
     with sc.open_project(EXAMPLE_ROOT).connect(demo_daemon.url) as lab:
         run = lab.prepare(drag_beta_template()).run(name="DRAG beta daemon round trip")
-        result = analyze_drag_beta_run(run)
-        saved = result.analysis.save()
-        candidate = result.analysis.candidate_config()
+        analysis = run.analyze(drag_beta_analysis())
+        saved = analysis.save()
+        candidate = analysis.candidate_config()
         accepted = lab.config.accept(
             candidate,
             note="accept the DRAG beta golden candidate",
@@ -90,7 +90,8 @@ def test_drag_beta_candidate_accept_and_undo_round_trip_through_shared_daemon(
     assert detail.control.state == "closed"
     assert detail.manifest.status == "completed"
     assert len(measurements.items) == 15
-    assert candidate.proposal_id == result.proposal_id
+    [proposal] = analysis.parameter_proposals
+    assert candidate.parameter_proposal == proposal
     assert proposals.items[0].approval is not None
     assert proposals.items[0].approval.actor == "operator"
     assert registry.active_state == restored.active_state
