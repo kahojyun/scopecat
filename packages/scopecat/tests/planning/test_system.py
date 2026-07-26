@@ -81,7 +81,6 @@ from scopecat.sdk.domain.execution import (
 from scopecat.sdk.domain.job import (
     DomainInvocationSpec,
     DomainResultValue,
-    DomainTargetArtifactIdentity,
 )
 from scopecat.sdk.domain.result_mapping import (
     DomainResultBinding,
@@ -194,15 +193,11 @@ class _DomainCompiler:
             invocation_id=(
                 f"{self.compiler_id}.invocation.batch-{request.batch_ordinal}"
             ),
-            target=DomainTargetArtifactIdentity(
-                target_id=self.target_id,
-                compiler_id=self.compiler_id,
-                capability_fingerprint=f"{self.compiler_id}.capabilities",
-                artifact_id=(
-                    f"{self.compiler_id}.artifact.batch-{request.batch_ordinal}"
-                ),
-                artifact_fingerprint=f"{self.compiler_id}.artifact-fingerprint",
-            ),
+            target_id=self.target_id,
+            compiler_id=self.compiler_id,
+            capability_fingerprint=f"{self.compiler_id}.capabilities",
+            artifact_id=(f"{self.compiler_id}.artifact.batch-{request.batch_ordinal}"),
+            artifact_fingerprint=f"{self.compiler_id}.artifact-fingerprint",
             target_intent={
                 "compiler_id": self.compiler_id,
                 "batch_ordinal": str(request.batch_ordinal),

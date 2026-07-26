@@ -78,7 +78,7 @@ def _compiled_cz_point(
     [artifact] = artifacts
     assert artifact.program.id == cz_conditional_phase.id
     [prepared] = artifact.entries
-    [artifact_entry] = artifact.compiled.artifact.entries
+    [artifact_entry] = artifact.target_artifact.entries
     return prepared, artifact_entry
 
 
@@ -231,7 +231,7 @@ def _capture_artifacts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> list[_ListQuantumLabArtifact]:
     artifacts: list[_ListQuantumLabArtifact] = []
-    compile_target = compiler._compile_target_artifact
+    compile_artifact = compiler._compile_target_artifact
 
     def compile_and_capture(
         program: quantum.Program,
@@ -239,7 +239,7 @@ def _capture_artifacts(
         *,
         shots: int,
     ) -> _ListQuantumLabArtifact:
-        artifact = compile_target(program, inputs, shots=shots)
+        artifact = compile_artifact(program, inputs, shots=shots)
         artifacts.append(artifact)
         return artifact
 

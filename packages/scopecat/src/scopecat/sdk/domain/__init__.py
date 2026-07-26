@@ -10,7 +10,6 @@ from scopecat.sdk.domain.execution import PreparedDomainExecution
 from scopecat.sdk.domain.job import (
     DomainInvocationSpec,
     DomainResultValue,
-    DomainTargetArtifactIdentity,
 )
 from scopecat.sdk.domain.preparation import DomainPreparationBuilder
 from scopecat.sdk.domain.result_mapping import (
@@ -68,6 +67,5 @@ __all__ = [
     "DomainSubmissionId",
     "DomainSubmitReceipt",
     "DomainSubmitRequest",
-    "DomainTargetArtifactIdentity",
     "PreparedDomainExecution",
 ]

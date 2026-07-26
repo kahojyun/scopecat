@@ -3,11 +3,9 @@
 from quantum_lab_demo.targets.fake_list_mode.circuit_runtime import (
     CorrelatedFakeListFrame,
     CorrelatedFakeListRun,
-    SelectedFakeMeasurementOutput,
-    SelectedFakeMeasurementRealization,
     correlate_fake_list_run,
     realize_fake_measurements,
-    select_fake_measurement_realization,
+    validate_fake_measurement_mapping,
 )
 from quantum_lab_demo.targets.fake_list_mode.compiler import FakeListTargetCompiler
 from quantum_lab_demo.targets.fake_list_mode.defaults import (
@@ -16,6 +14,7 @@ from quantum_lab_demo.targets.fake_list_mode.defaults import (
 from quantum_lab_demo.targets.fake_list_mode.domain_runtime import (
     FakeListDomainRuntime,
     FakeMeasurementInvocationSpec,
+    MappedFakeListTarget,
     fake_measurement_invocation_spec,
     realize_fetched_fake_measurements,
 )
@@ -68,12 +67,11 @@ __all__ = [
     "FakeOutputBinding",
     "FakeOutputSignal",
     "FakeSegmentedDigitizer",
-    "SelectedFakeMeasurementOutput",
-    "SelectedFakeMeasurementRealization",
+    "MappedFakeListTarget",
     "configured_fake_list_target",
     "correlate_fake_list_run",
     "fake_measurement_invocation_spec",
     "realize_fake_measurements",
     "realize_fetched_fake_measurements",
-    "select_fake_measurement_realization",
+    "validate_fake_measurement_mapping",
 ]

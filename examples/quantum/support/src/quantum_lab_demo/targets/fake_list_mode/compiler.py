@@ -21,7 +21,6 @@ from scopecat_quantum._ids import (
     TargetArtifactId,
     TargetCompileEntryId,
     TargetCompilerId,
-    TargetId,
 )
 from scopecat_quantum.pulses import (
     DRAG,
@@ -99,14 +98,6 @@ class FakeListTargetCompiler:
 
     id: TargetCompilerId
     target: FakeListTarget
-
-    @property
-    def target_id(self) -> TargetId:
-        return self.target.id
-
-    @property
-    def capability_fingerprint(self) -> str:
-        return self.target.capability_fingerprint
 
     def compile(self, request: TargetCompileRequest) -> FakeListArtifact:
         """Compile one checked finite request without performing hardware effects."""
@@ -203,7 +194,7 @@ class FakeListTargetCompiler:
             id=TargetArtifactId(f"fake-list-artifact-{digest}"),
             target_id=self.target.id,
             compiler_id=self.id,
-            capability_fingerprint=self.capability_fingerprint,
+            capability_fingerprint=self.target.capability_fingerprint,
             artifact_fingerprint=artifact_fingerprint,
             source_entry_ids=tuple(entry.id for entry in request.entries),
             repetitions=request.repetitions,

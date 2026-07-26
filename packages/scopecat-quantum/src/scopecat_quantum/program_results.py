@@ -1,15 +1,4 @@
-"""Map prepared mixed-program target results to logical domain outputs.
-
-The public mapping retains the sealed
-:class:`~scopecat_quantum.program_targets.PreparedQuantumTargetBatch`, rather
-than reducing it to a target request.  Entry-qualified acquisition addresses
-therefore remain correlated with their source ``QuantumProgramId`` and mixed
-gate/pulse provenance throughout compilation.
-
-This module is deliberately independent of concrete compiler
-implementations.  Compilation correlation operates on the domain-neutral
-``CompiledTargetArtifact`` proof exposed by the quantum target boundary.
-"""
+"""Map prepared target results to logical domain outputs."""
 
 from __future__ import annotations
 
@@ -20,20 +9,17 @@ from scopecat.sdk.domain import (
     DomainPointRef,
     DomainPreparationBuilder,
     DomainProductUseRef,
+    DomainResultBinding,
     DomainResultMapping,
 )
 
 from scopecat_quantum._ids import TargetCompileEntryId
-from scopecat_quantum._target_results import (
-    map_target_results,
-    validate_compiled_target_request,
-    validate_target_result_mapping,
-)
 from scopecat_quantum.program_targets import PreparedQuantumTargetBatch
 from scopecat_quantum.targets import (
-    CompiledTargetArtifact,
     TargetArtifact,
     TargetResultAddress,
+    target_result_acquisition_addresses,
+    target_result_entry_id,
 )
 
 
@@ -54,25 +40,11 @@ class QuantumTargetResultUseBinding:
 
 
 @dataclass(frozen=True, slots=True)
-class QuantumTargetResultMapping:
-    """Sealed exact mapping from one prepared mixed-program batch to outputs."""
+class MappedQuantumTarget[ArtifactT: TargetArtifact]:
+    """One opaque target artifact and its exact logical result mapping."""
 
-    batch: PreparedQuantumTargetBatch
-    domain_mapping: DomainResultMapping[TargetResultAddress]
-
-    def __post_init__(self) -> None:
-        validate_target_result_mapping(self.batch.request, self.domain_mapping)
-
-
-@dataclass(frozen=True, slots=True)
-class CompiledQuantumTarget[ArtifactT: TargetArtifact]:
-    """Compiled artifact correlated to one exact mixed-program result mapping."""
-
-    mapping: QuantumTargetResultMapping
-    compiled: CompiledTargetArtifact[ArtifactT]
-
-    def __post_init__(self) -> None:
-        _validate_compiled_target_correlation(self.mapping, self.compiled)
+    artifact: ArtifactT
+    mapping: DomainResultMapping[TargetResultAddress]
 
 
 def seal_quantum_target_result_mapping(
@@ -80,28 +52,39 @@ def seal_quantum_target_result_mapping(
     batch: PreparedQuantumTargetBatch,
     entry_bindings: Sequence[QuantumTargetEntryPointBinding],
     result_bindings: Sequence[QuantumTargetResultUseBinding],
-) -> QuantumTargetResultMapping:
+) -> DomainResultMapping[TargetResultAddress]:
     """Close exact target entry/result coverage against logical outputs."""
 
     selected_entry_bindings = tuple(entry_bindings)
     selected_result_bindings = tuple(result_bindings)
-    domain_mapping = map_target_results(
-        preparation,
-        batch.request,
-        tuple((binding.entry_id, binding.point) for binding in selected_entry_bindings),
-        tuple(
-            (binding.address, binding.product_use)
+    point_by_entry = {
+        binding.entry_id: binding.point for binding in selected_entry_bindings
+    }
+    expected_entry_ids = batch.request.source_entry_ids
+    if len(point_by_entry) != len(selected_entry_bindings) or set(
+        point_by_entry
+    ) != set(expected_entry_ids):
+        raise ValueError("quantum entry-point bindings must cover target entries")
+    domain_mapping = preparation.map_measurements(
+        results=tuple(
+            DomainResultBinding(
+                result_address=binding.address,
+                point=point_by_entry[target_result_entry_id(binding.address)],
+                product_use=binding.product_use,
+            )
             for binding in selected_result_bindings
-        ),
+        )
     )
-    return QuantumTargetResultMapping(batch, domain_mapping)
-
-
-def _validate_compiled_target_correlation[ArtifactT: TargetArtifact](
-    mapping: QuantumTargetResultMapping,
-    compiled: CompiledTargetArtifact[ArtifactT],
-) -> None:
-    validate_compiled_target_request(
-        mapping.batch.request,
-        compiled,
+    expected_addresses = batch.request.acquisition_addresses
+    mapped_addresses = tuple(
+        address
+        for result in domain_mapping.results
+        for address in target_result_acquisition_addresses(result.result_address)
     )
+    if len(mapped_addresses) != len(expected_addresses) or set(mapped_addresses) != set(
+        expected_addresses
+    ):
+        raise ValueError(
+            "domain mapping must exactly cover prepared acquisition addresses"
+        )
+    return domain_mapping

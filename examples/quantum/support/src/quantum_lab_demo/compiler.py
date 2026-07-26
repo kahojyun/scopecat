@@ -20,7 +20,7 @@ from scopecat_quantum._ids import (
     TargetCompilerId,
 )
 from scopecat_quantum.program_results import (
-    CompiledQuantumTarget,
+    MappedQuantumTarget,
     QuantumTargetEntryPointBinding,
     QuantumTargetResultUseBinding,
     seal_quantum_target_result_mapping,
@@ -38,9 +38,7 @@ from scopecat_quantum.pulse_implementations import ResolvedPulseImplementations
 from scopecat_quantum.pulse_recipes import PulseRecipeProfile
 from scopecat_quantum.result_collections import ResultCollection
 from scopecat_quantum.targets import (
-    CompiledTargetArtifact,
     TargetResultAddress,
-    compile_target,
 )
 
 from quantum_lab_demo.point_values import QuantumLabPointValues
@@ -60,10 +58,9 @@ from quantum_lab_demo.targets.fake_list_mode import (
     FakeListTarget,
     FakeListTargetCompiler,
     FakeSegmentedDigitizer,
-    SelectedFakeMeasurementRealization,
+    MappedFakeListTarget,
     fake_measurement_invocation_spec,
     realize_fetched_fake_measurements,
-    select_fake_measurement_realization,
 )
 from quantum_lab_demo.virtual_lab.compiler_parameters import QuantumCompilerParameters
 from quantum_lab_demo.virtual_lab.parameters import QUBIT_PARAMETER_TABLE
@@ -83,7 +80,7 @@ class _QuantumLabArtifact:
 class _ListQuantumLabArtifact(_QuantumLabArtifact):
     entries: tuple[PreparedQuantumTargetEntry, ...]
     batch: PreparedQuantumTargetBatch
-    compiled: CompiledTargetArtifact[FakeListArtifact] = field(repr=False)
+    target_artifact: FakeListArtifact = field(repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,9 +150,6 @@ class QuantumLabCompiler:
         )
         batch = prepare_quantum_target_batch(
             entries,
-            target_id=self._target.id,
-            compiler_id=self._target_compiler.id,
-            capability_fingerprint=self._target.capability_fingerprint,
             repetitions=shots,
         )
         return _ListQuantumLabArtifact(
@@ -163,7 +157,7 @@ class QuantumLabCompiler:
             points=tuple(point.values for point in points),
             entries=entries,
             batch=batch,
-            compiled=compile_target(self._target_compiler, batch.request),
+            target_artifact=self._target_compiler.compile(batch.request),
         )
 
     def compile_batch(
@@ -201,13 +195,9 @@ class QuantumLabCompiler:
                 for product_use in request.call.result(result.id).product_uses
             ),
         )
-        compiled_target = CompiledQuantumTarget(
+        mapped_target = MappedQuantumTarget(
+            artifact.target_artifact,
             mapping,
-            artifact.compiled,
-        )
-        realization = select_fake_measurement_realization(
-            compiled_target,
-            self._target,
         )
         response = self._response_registry.response_for(
             QuantumLabResponseRequest(
@@ -219,7 +209,7 @@ class QuantumLabCompiler:
         )
         runtime = self._runtime if response is None else _response_runtime(response)
         invocation = fake_measurement_invocation_spec(
-            realization,
+            mapped_target,
             invocation_id=(
                 f"{artifact.program.id}.batch-{request.batch_ordinal}."
                 f"point-{artifact.points[0].ordinal}"
@@ -234,10 +224,10 @@ class QuantumLabCompiler:
             ),
         )
         return preparation.build(
-            mapping=mapping.domain_mapping,
+            mapping=mapping,
             invocation=invocation,
             runtime=runtime,
-            realize=lambda fetched: _realize(realization, fetched),
+            realize=lambda fetched: _realize(mapped_target, fetched),
         )
 
 
@@ -385,10 +375,10 @@ def _response_runtime(response: FakeAcquisitionResponse) -> FakeListDomainRuntim
 
 
 def _realize(
-    realization: SelectedFakeMeasurementRealization,
+    mapped_target: MappedFakeListTarget,
     fetched: CorrelatedDomainFetch[FakeListRun],
 ):
-    return realize_fetched_fake_measurements(realization, fetched)
+    return realize_fetched_fake_measurements(mapped_target, fetched)
 
 
 __all__ = [

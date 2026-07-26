@@ -20,7 +20,7 @@ from scopecat_quantum._ids import (
     TargetArtifactId,
     TargetCompileEntryId,
 )
-from scopecat_quantum.targets import CompiledTargetArtifact, TargetAcquisitionAddress
+from scopecat_quantum.targets import TargetAcquisitionAddress
 
 from quantum_lab_demo.targets.fake_list_mode.model import (
     FakeAcquisitionWindow,
@@ -236,9 +236,8 @@ class FakeListRuntime:
 
     def execute(
         self,
-        compiled: CompiledTargetArtifact[FakeListArtifact],
+        artifact: FakeListArtifact,
     ) -> FakeListRun:
-        artifact = compiled.artifact
         playbacks = self.awg.play(artifact)
         frames = self.digitizer.capture(artifact, playbacks)
         return FakeListRun(

@@ -17,8 +17,6 @@ from dataclasses import dataclass
 from scopecat_quantum._ids import (
     QuantumProgramId,
     TargetCompileEntryId,
-    TargetCompilerId,
-    TargetId,
 )
 from scopecat_quantum.programs import (
     LoweredQuantumPulseProgram,
@@ -64,7 +62,7 @@ class QuantumTargetAcquisitionOrigin:
 
 @dataclass(frozen=True, slots=True)
 class PreparedQuantumTargetEntry:
-    """Factory-built mixed-source lowering and target-entry proof."""
+    """One scheduled target entry with its mixed-source provenance."""
 
     lowered: LoweredQuantumPulseProgram
     target_entry: TargetCompileEntry
@@ -120,23 +118,10 @@ def prepare_quantum_target_entry(
 
 @dataclass(frozen=True, slots=True)
 class PreparedQuantumTargetBatch:
-    """Factory-built ordered batch with a derived request and origins."""
+    """Factory-built ordered batch with its compile request and origins."""
 
     entries: tuple[PreparedQuantumTargetEntry, ...]
-    target_id: TargetId
-    compiler_id: TargetCompilerId
-    capability_fingerprint: str
-    repetitions: int
-
-    @property
-    def request(self) -> TargetCompileRequest:
-        return TargetCompileRequest(
-            target_id=self.target_id,
-            compiler_id=self.compiler_id,
-            capability_fingerprint=self.capability_fingerprint,
-            entries=tuple(entry.target_entry for entry in self.entries),
-            repetitions=self.repetitions,
-        )
+    request: TargetCompileRequest
 
     @property
     def acquisition_origins(self) -> tuple[QuantumTargetAcquisitionOrigin, ...]:
@@ -164,9 +149,6 @@ class PreparedQuantumTargetBatch:
 def prepare_quantum_target_batch(
     entries: Sequence[PreparedQuantumTargetEntry],
     *,
-    target_id: TargetId,
-    compiler_id: TargetCompilerId,
-    capability_fingerprint: str,
     repetitions: int,
 ) -> PreparedQuantumTargetBatch:
     """Close ordered mixed-program entries into one target compile request."""
@@ -176,18 +158,12 @@ def prepare_quantum_target_batch(
         msg = "quantum target batches require at least one PreparedQuantumTargetEntry"
         raise ValueError(msg)
     request = TargetCompileRequest(
-        target_id=target_id,
-        compiler_id=compiler_id,
-        capability_fingerprint=capability_fingerprint,
         entries=tuple(entry.target_entry for entry in selected_entries),
         repetitions=repetitions,
     )
     return PreparedQuantumTargetBatch(
         entries=selected_entries,
-        target_id=request.target_id,
-        compiler_id=request.compiler_id,
-        capability_fingerprint=request.capability_fingerprint,
-        repetitions=request.repetitions,
+        request=request,
     )
 
 

@@ -13,7 +13,6 @@ _NEW_ADAPTER_VALUES = {
     "DomainMappedResult",
     "DomainResultValue",
     "DomainSubmitRequest",
-    "DomainTargetArtifactIdentity",
 }
 
 

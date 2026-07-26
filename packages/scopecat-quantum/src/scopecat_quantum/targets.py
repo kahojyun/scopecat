@@ -13,7 +13,7 @@ content because core cannot interpret that content itself.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
@@ -108,17 +108,10 @@ class TargetCompileRequest:
     responsible only for accepting and lowering that representation.
     """
 
-    target_id: TargetId
-    compiler_id: TargetCompilerId
-    capability_fingerprint: str
     entries: tuple[TargetCompileEntry, ...]
     repetitions: int
 
     def __post_init__(self) -> None:
-        _require_text(
-            self.capability_fingerprint,
-            field="target capability fingerprint",
-        )
         if not self.entries:
             msg = "target compile requests require at least one entry"
             raise ValueError(msg)
@@ -156,10 +149,8 @@ class TargetCompileRequest:
 class TargetCompilationIssueDimension(StrEnum):
     """Hardware-neutral part of target compilation that rejected input."""
 
-    REQUEST = "request"
     CAPABILITY = "capability"
     PROGRAM = "program"
-    COMPILER = "compiler"
 
 
 @dataclass(frozen=True, slots=True)
@@ -227,184 +218,3 @@ class TargetArtifact(Protocol):
 
     @property
     def repetitions(self) -> int: ...
-
-
-@runtime_checkable
-class TargetCompiler[
-    ArtifactT: TargetArtifact,
-](Protocol):
-    """Lower one closed target-owned request into one target artifact.
-
-    This protocol does not own domain routing or input resolution. When used in
-    an ``ExperimentSystem`` integration, it is an internal stage invoked by the
-    domain compiler rather than a second system compiler.
-    """
-
-    @property
-    def id(self) -> TargetCompilerId: ...
-
-    @property
-    def target_id(self) -> TargetId: ...
-
-    @property
-    def capability_fingerprint(self) -> str: ...
-
-    def compile(self, request: TargetCompileRequest) -> ArtifactT: ...
-
-
-@dataclass(frozen=True, slots=True)
-class CompiledTargetArtifact[ArtifactT: TargetArtifact]:
-    """Checked snapshot of return-time artifact provenance.
-
-    This result records checks made immediately after the trusted in-process
-    compiler returns. It is not a security boundary and cannot independently
-    inspect or prove the meaning of a target-owned opaque payload.
-    """
-
-    request: TargetCompileRequest
-    artifact: ArtifactT
-    _artifact_id: TargetArtifactId = field(init=False)
-    _artifact_fingerprint: str = field(init=False)
-
-    def __post_init__(self) -> None:
-        issues = _target_artifact_issues(self.request, self.artifact)
-        if issues:
-            raise TargetCompilationError(issues)
-        object.__setattr__(self, "_artifact_id", self.artifact.id)
-        object.__setattr__(
-            self,
-            "_artifact_fingerprint",
-            self.artifact.artifact_fingerprint,
-        )
-
-    @property
-    def artifact_id(self) -> TargetArtifactId:
-        return self._artifact_id
-
-    @property
-    def artifact_fingerprint(self) -> str:
-        return self._artifact_fingerprint
-
-    @property
-    def target_id(self) -> TargetId:
-        return self.request.target_id
-
-    @property
-    def compiler_id(self) -> TargetCompilerId:
-        return self.request.compiler_id
-
-    @property
-    def capability_fingerprint(self) -> str:
-        return self.request.capability_fingerprint
-
-    @property
-    def source_entry_ids(self) -> tuple[TargetCompileEntryId, ...]:
-        return self.request.source_entry_ids
-
-    @property
-    def repetitions(self) -> int:
-        return self.request.repetitions
-
-
-def _target_artifact_issues(
-    request: TargetCompileRequest,
-    artifact: TargetArtifact,
-) -> tuple[TargetCompilationIssue, ...]:
-    expected_entry_ids = request.source_entry_ids
-    issues: list[TargetCompilationIssue] = []
-    if artifact.target_id != request.target_id:
-        issues.append(
-            TargetCompilationIssue(
-                dimension=TargetCompilationIssueDimension.COMPILER,
-                code="target_artifact_target_mismatch",
-                message="target artifact identifies another target",
-            )
-        )
-    if artifact.compiler_id != request.compiler_id:
-        issues.append(
-            TargetCompilationIssue(
-                dimension=TargetCompilationIssueDimension.COMPILER,
-                code="target_artifact_compiler_mismatch",
-                message="target artifact identifies another compiler",
-            )
-        )
-    if artifact.capability_fingerprint != request.capability_fingerprint:
-        issues.append(
-            TargetCompilationIssue(
-                dimension=TargetCompilationIssueDimension.CAPABILITY,
-                code="target_artifact_capability_mismatch",
-                message="target artifact has another capability fingerprint",
-            )
-        )
-    if artifact.source_entry_ids != expected_entry_ids:
-        issues.append(
-            TargetCompilationIssue(
-                dimension=TargetCompilationIssueDimension.COMPILER,
-                code="target_artifact_entry_coverage_mismatch",
-                message="target artifact does not preserve ordered entry coverage",
-            )
-        )
-    if artifact.repetitions != request.repetitions:
-        issues.append(
-            TargetCompilationIssue(
-                dimension=TargetCompilationIssueDimension.COMPILER,
-                code="target_artifact_repetitions_mismatch",
-                message="target artifact does not preserve finite repetitions",
-            )
-        )
-    if not artifact.artifact_fingerprint.strip():
-        issues.append(
-            TargetCompilationIssue(
-                dimension=TargetCompilationIssueDimension.COMPILER,
-                code="target_artifact_fingerprint_missing",
-                message="target artifact requires a non-empty artifact fingerprint",
-            )
-        )
-    return tuple(issues)
-
-
-def compile_target[
-    ArtifactT: TargetArtifact,
-](
-    compiler: TargetCompiler[ArtifactT],
-    request: TargetCompileRequest,
-) -> CompiledTargetArtifact[ArtifactT]:
-    """Check dispatch and return-time provenance around one compiler call.
-
-    Expected target rejections remain ``TargetCompilationError``. Unexpected
-    exceptions raised by the laboratory compiler are deliberately not caught
-    or reclassified at this pure domain boundary. The compiler is trusted
-    in-process domain code; untrusted or deserialized artifacts require fresh
-    adapter-specific validation.
-    """
-
-    preflight_issues: list[TargetCompilationIssue] = []
-    if request.target_id != compiler.target_id:
-        preflight_issues.append(
-            TargetCompilationIssue(
-                dimension=TargetCompilationIssueDimension.REQUEST,
-                code="target_compile_request_target_mismatch",
-                message="compile request does not select this compiler's target",
-            )
-        )
-    if request.compiler_id != compiler.id:
-        preflight_issues.append(
-            TargetCompilationIssue(
-                dimension=TargetCompilationIssueDimension.REQUEST,
-                code="target_compile_request_compiler_mismatch",
-                message="compile request does not select this compiler",
-            )
-        )
-    if request.capability_fingerprint != compiler.capability_fingerprint:
-        preflight_issues.append(
-            TargetCompilationIssue(
-                dimension=TargetCompilationIssueDimension.CAPABILITY,
-                code="target_compile_request_capability_mismatch",
-                message="compile request capability fingerprint is stale",
-            )
-        )
-    if preflight_issues:
-        raise TargetCompilationError(tuple(preflight_issues))
-
-    artifact = compiler.compile(request)
-    return CompiledTargetArtifact(request, artifact)

@@ -122,37 +122,37 @@ def test_active_drag_beta_changes_program_and_compiler_segments(
     [restored_entry] = restored.entries
     baseline_production = _event_samples(
         baseline_entry,
-        baseline.compiled.artifact,
+        baseline.target_artifact,
         target,
         production_x90_event_id(baseline_entry),
     )
     active_production = _event_samples(
         active_entry,
-        active.compiled.artifact,
+        active.target_artifact,
         target,
         production_x90_event_id(active_entry),
     )
     restored_production = _event_samples(
         restored_entry,
-        restored.compiled.artifact,
+        restored.target_artifact,
         target,
         production_x90_event_id(restored_entry),
     )
     baseline_reference = _event_samples(
         baseline_entry,
-        baseline.compiled.artifact,
+        baseline.target_artifact,
         target,
         accepted_xm90_event_id(baseline_entry),
     )
     active_reference = _event_samples(
         active_entry,
-        active.compiled.artifact,
+        active.target_artifact,
         target,
         accepted_xm90_event_id(active_entry),
     )
     restored_reference = _event_samples(
         restored_entry,
-        restored.compiled.artifact,
+        restored.target_artifact,
         target,
         accepted_xm90_event_id(restored_entry),
     )
@@ -166,7 +166,8 @@ def test_active_drag_beta_changes_program_and_compiler_segments(
     )
     assert restored_production == baseline_production
     assert (
-        restored.compiled.artifact_fingerprint == baseline.compiled.artifact_fingerprint
+        restored.target_artifact.artifact_fingerprint
+        == baseline.target_artifact.artifact_fingerprint
     )
     assert len(baseline_production) == 16
     assert len(baseline_reference) == 16
@@ -219,7 +220,8 @@ def test_active_drag_beta_changes_program_and_compiler_segments(
     assert restored_source.registry_generation == 3
     assert restored_run.manifest.config_content_hash == (restored_source.content_hash)
     assert (
-        baseline.compiled.artifact_fingerprint != active.compiled.artifact_fingerprint
+        baseline.target_artifact.artifact_fingerprint
+        != active.target_artifact.artifact_fingerprint
     )
 
 
@@ -228,7 +230,7 @@ def _capture_artifacts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> list[_ListQuantumLabArtifact]:
     artifacts: list[_ListQuantumLabArtifact] = []
-    compile_target = compiler._compile_target_artifact
+    compile_artifact = compiler._compile_target_artifact
 
     def compile_and_capture(
         program: quantum.Program,
@@ -236,7 +238,7 @@ def _capture_artifacts(
         *,
         shots: int,
     ) -> _ListQuantumLabArtifact:
-        artifact = compile_target(program, inputs, shots=shots)
+        artifact = compile_artifact(program, inputs, shots=shots)
         artifacts.append(artifact)
         return artifact
 

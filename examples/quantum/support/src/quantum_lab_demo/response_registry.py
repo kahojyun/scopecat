@@ -26,7 +26,7 @@ class QuantumLabResponseRequest:
 
     @property
     def shots(self) -> int:
-        return self.batch.repetitions
+        return self.batch.request.repetitions
 
 
 type QuantumLabResponseFactory = Callable[

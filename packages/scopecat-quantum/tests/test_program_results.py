@@ -47,9 +47,8 @@ from scopecat_quantum._ids import (
 )
 from scopecat_quantum.acquisitions import AcquisitionKind
 from scopecat_quantum.program_results import (
-    CompiledQuantumTarget,
+    MappedQuantumTarget,
     QuantumTargetEntryPointBinding,
-    QuantumTargetResultMapping,
     QuantumTargetResultUseBinding,
     seal_quantum_target_result_mapping,
 )
@@ -79,10 +78,8 @@ from scopecat_quantum.pulses import Parallel as PulseParallel
 from scopecat_quantum.pulses import Sequence as PulseSequence
 from scopecat_quantum.result_collections import ResultCollection
 from scopecat_quantum.targets import (
-    CompiledTargetArtifact,
     TargetAcquisitionAddress,
     TargetCompileRequest,
-    compile_target,
     target_result_acquisition_addresses,
     target_result_entry_id,
 )
@@ -203,9 +200,6 @@ def _batch() -> PreparedQuantumTargetBatch:
     )
     return prepare_quantum_target_batch(
         entries,
-        target_id=TargetId("target"),
-        compiler_id=TargetCompilerId("compiler.v1"),
-        capability_fingerprint="capabilities:v1",
         repetitions=11,
     )
 
@@ -310,18 +304,16 @@ class _TargetCompiler:
 
 def _compile(
     request: TargetCompileRequest,
-) -> CompiledTargetArtifact[_TargetArtifact]:
-    return compile_target(
-        _TargetCompiler(
-            id=request.compiler_id,
-            target_id=request.target_id,
-            capability_fingerprint=request.capability_fingerprint,
-        ),
-        request,
+) -> _TargetArtifact:
+    compiler = _TargetCompiler(
+        id=TargetCompilerId("compiler.v1"),
+        target_id=TargetId("target"),
+        capability_fingerprint="capabilities:v1",
     )
+    return compiler.compile(request)
 
 
-def test_mapping_preserves_logical_order_and_mixed_source_origins() -> None:
+def test_mapping_preserves_logical_order_while_batch_retains_origins() -> None:
     preparation, batch, entry_bindings, result_bindings = _valid_inputs()
 
     mapping = seal_quantum_target_result_mapping(
@@ -331,27 +323,25 @@ def test_mapping_preserves_logical_order_and_mixed_source_origins() -> None:
         result_bindings,
     )
 
-    assert mapping.batch is batch
-    assert isinstance(mapping.domain_mapping, DomainResultMapping)
-    assert mapping.domain_mapping.context is preparation.context
+    assert isinstance(mapping, DomainResultMapping)
+    assert mapping.context is preparation.context
     assert tuple(
-        target_result_entry_id(result.result_address)
-        for result in mapping.domain_mapping.results
+        target_result_entry_id(result.result_address) for result in mapping.results
     ) == (
         batch.entries[1].id,
         batch.entries[0].id,
     )
-    assert {result.result_address for result in mapping.domain_mapping.results} == set(
+    assert {result.result_address for result in mapping.results} == set(
         batch.acquisition_addresses
     )
-    assert tuple(entry.source_program_id for entry in mapping.batch.entries) == (
+    assert tuple(entry.source_program_id for entry in batch.entries) == (
         QuantumProgramId("mixed-source-b"),
         QuantumProgramId("mixed-source-a"),
     )
-    entry_by_id = {entry.id: entry for entry in mapping.batch.entries}
-    for result in mapping.domain_mapping.results:
+    entry_by_id = {entry.id: entry for entry in batch.entries}
+    for result in mapping.results:
         [address] = target_result_acquisition_addresses(result.result_address)
-        origin = mapping.batch.acquisition_origin_for(address)
+        origin = batch.acquisition_origin_for(address)
         assert isinstance(
             origin.provenance,
             AuthoredPulseAcquisitionProvenance,
@@ -372,9 +362,6 @@ def test_mapping_groups_one_logical_result_over_a_recursive_physical_axis() -> N
     )
     batch = prepare_quantum_target_batch(
         entries,
-        target_id=TargetId("target"),
-        compiler_id=TargetCompilerId("compiler.v1"),
-        capability_fingerprint="capabilities:v1",
         repetitions=3,
     )
     points = preparation.context.points
@@ -397,36 +384,13 @@ def test_mapping_groups_one_logical_result_over_a_recursive_physical_axis() -> N
     )
 
     assert tuple(
-        target_result_entry_id(result.result_address)
-        for result in mapping.domain_mapping.results
+        target_result_entry_id(result.result_address) for result in mapping.results
     ) == (entries[1].id, entries[0].id)
     assert tuple(
         address
-        for result in mapping.domain_mapping.results
+        for result in mapping.results
         for address in target_result_acquisition_addresses(result.result_address)
     ) == (*entries[1].acquisition_addresses, *entries[0].acquisition_addresses)
-
-
-def test_mapping_accepts_adapter_owned_batch_reordering() -> None:
-    preparation, batch, entry_bindings, result_bindings = _valid_inputs()
-    mapping = seal_quantum_target_result_mapping(
-        preparation,
-        batch,
-        entry_bindings,
-        result_bindings,
-    )
-    reversed_batch = prepare_quantum_target_batch(
-        tuple(reversed(batch.entries)),
-        target_id=batch.request.target_id,
-        compiler_id=batch.request.compiler_id,
-        capability_fingerprint=batch.request.capability_fingerprint,
-        repetitions=batch.request.repetitions,
-    )
-
-    rebound = QuantumTargetResultMapping(reversed_batch, mapping.domain_mapping)
-
-    assert rebound.batch is reversed_batch
-    assert rebound.domain_mapping is mapping.domain_mapping
 
 
 @pytest.mark.parametrize("change", ("missing", "duplicate", "foreign"))
@@ -487,7 +451,7 @@ def test_result_mapping_requires_exact_qualified_addresses(change: str) -> None:
         )
 
 
-def test_compiled_target_binding_retains_exact_request_and_source_order() -> None:
+def test_mapped_target_retains_only_artifact_and_logical_mapping() -> None:
     preparation, batch, entry_bindings, result_bindings = _valid_inputs()
     mapping = seal_quantum_target_result_mapping(
         preparation,
@@ -495,32 +459,9 @@ def test_compiled_target_binding_retains_exact_request_and_source_order() -> Non
         entry_bindings,
         result_bindings,
     )
-    compiled = _compile(batch.request)
+    artifact = _compile(batch.request)
 
-    bound = CompiledQuantumTarget(mapping, compiled)
+    mapped = MappedQuantumTarget(artifact, mapping)
 
-    assert bound.mapping is mapping
-    assert bound.compiled is compiled
-    assert bound.compiled.request == mapping.batch.request
-    assert bound.compiled.source_entry_ids == tuple(
-        entry.id for entry in mapping.batch.entries
-    )
-    assert tuple(entry.source_program_id for entry in bound.mapping.batch.entries) == (
-        QuantumProgramId("mixed-source-b"),
-        QuantumProgramId("mixed-source-a"),
-    )
-
-
-def test_compiled_target_binding_rejects_another_request() -> None:
-    preparation, batch, entry_bindings, result_bindings = _valid_inputs()
-    mapping = seal_quantum_target_result_mapping(
-        preparation,
-        batch,
-        entry_bindings,
-        result_bindings,
-    )
-    with pytest.raises(ValueError, match="exactly match the mapped quantum batch"):
-        CompiledQuantumTarget(
-            mapping,
-            _compile(replace(batch.request, repetitions=12)),
-        )
+    assert mapped.artifact is artifact
+    assert mapped.mapping is mapping

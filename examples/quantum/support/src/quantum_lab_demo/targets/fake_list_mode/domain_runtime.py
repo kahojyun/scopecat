@@ -22,7 +22,6 @@ from scopecat.sdk.domain import (
     DomainResultValue,
     DomainSubmitReceipt,
     DomainSubmitRequest,
-    DomainTargetArtifactIdentity,
 )
 from scopecat.sdk.problems import (
     Problem,
@@ -30,17 +29,19 @@ from scopecat.sdk.problems import (
     model_location,
     problem,
 )
+from scopecat_quantum.program_results import MappedQuantumTarget
 from scopecat_quantum.targets import (
     TargetAcquisitionAddress,
     TargetResultAddress,
 )
 
 from quantum_lab_demo.targets.fake_list_mode.circuit_runtime import (
-    SelectedFakeMeasurementRealization,
     correlate_fake_list_run,
     realize_fake_measurements,
+    validate_fake_measurement_mapping,
 )
 from quantum_lab_demo.targets.fake_list_mode.model import (
+    FakeListArtifact,
     acquisition_slot_identity_payload,
 )
 from quantum_lab_demo.targets.fake_list_mode.runtime import (
@@ -49,9 +50,8 @@ from quantum_lab_demo.targets.fake_list_mode.runtime import (
     FakeListRuntime,
 )
 
-type FakeMeasurementInvocationSpec = DomainInvocationSpec[
-    SelectedFakeMeasurementRealization
-]
+type MappedFakeListTarget = MappedQuantumTarget[FakeListArtifact]
+type FakeMeasurementInvocationSpec = DomainInvocationSpec[MappedFakeListTarget]
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,7 +63,7 @@ class _FakeListDomainJob:
 
 
 def fake_measurement_invocation_spec(
-    selection: SelectedFakeMeasurementRealization,
+    mapped_target: MappedFakeListTarget,
     *,
     invocation_id: str,
     response_intent: object | None = None,
@@ -74,7 +74,8 @@ def fake_measurement_invocation_spec(
     content covers that response's fingerprint and configuration.
     """
 
-    compiled = selection.compiled_target.compiled
+    validate_fake_measurement_mapping(mapped_target)
+    artifact = mapped_target.artifact
     selected_response_intent = (
         {
             "schema": "quantum_lab_demo.fake_acquisition_response_intent.v1",
@@ -85,22 +86,20 @@ def fake_measurement_invocation_spec(
     )
     return DomainInvocationSpec(
         invocation_id=invocation_id,
-        target=DomainTargetArtifactIdentity(
-            target_id=compiled.target_id.value,
-            compiler_id=compiled.compiler_id.value,
-            capability_fingerprint=compiled.capability_fingerprint,
-            artifact_id=compiled.artifact_id.value,
-            artifact_fingerprint=compiled.artifact_fingerprint,
-        ),
+        target_id=artifact.target_id.value,
+        compiler_id=artifact.compiler_id.value,
+        capability_fingerprint=artifact.capability_fingerprint,
+        artifact_id=artifact.id.value,
+        artifact_fingerprint=artifact.artifact_fingerprint,
         target_intent={
             "schema": "quantum_lab_demo.fake_measurement_invocation.v4",
             "results": [
-                _result_address_intent(output.result_address)
-                for output in selection.outputs
+                _result_address_intent(result.result_address)
+                for result in mapped_target.mapping.results
             ],
             "response": selected_response_intent,
         },
-        payload=selection,
+        payload=mapped_target,
     )
 
 
@@ -131,10 +130,10 @@ class FakeListDomainRuntime:
 
     def submit(
         self,
-        request: DomainSubmitRequest[SelectedFakeMeasurementRealization],
+        request: DomainSubmitRequest[MappedFakeListTarget],
     ) -> DomainSubmitReceipt:
         submission_id = request.submission_id
-        selection = request.payload
+        mapped_target = request.payload
         with self._lock:
             existing = self._jobs.get(submission_id.submission_key)
             if existing is not None:
@@ -168,7 +167,7 @@ class FakeListDomainRuntime:
             )
             self._jobs[submission_id.submission_key] = job
             try:
-                target_run = self._device.execute(selection.compiled_target.compiled)
+                target_run = self._device.execute(mapped_target.artifact)
             except Exception:
                 self._jobs[submission_id.submission_key] = _FakeListDomainJob(
                     intent_fingerprint=job.intent_fingerprint,
@@ -266,7 +265,7 @@ class FakeListDomainRuntime:
 
 
 def realize_fetched_fake_measurements(
-    selection: SelectedFakeMeasurementRealization,
+    mapped_target: MappedFakeListTarget,
     fetched: CorrelatedDomainFetch[FakeListRun],
 ) -> tuple[DomainResultValue[TargetResultAddress], ...]:
     """Correlate and decode one fetched raw run under selected policies."""
@@ -278,10 +277,10 @@ def realize_fetched_fake_measurements(
         msg = "fetched fake target receipt has the wrong raw frame count"
         raise ValueError(msg)
     correlated = correlate_fake_list_run(
-        selection.compiled_target,
+        mapped_target,
         fetched.result,
     )
-    return realize_fake_measurements(selection, correlated)
+    return realize_fake_measurements(correlated)
 
 
 def _fake_runtime_problem(
@@ -299,6 +298,7 @@ def _fake_runtime_problem(
 __all__ = [
     "FakeListDomainRuntime",
     "FakeMeasurementInvocationSpec",
+    "MappedFakeListTarget",
     "fake_measurement_invocation_spec",
     "realize_fetched_fake_measurements",
 ]

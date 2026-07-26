@@ -26,7 +26,6 @@ from scopecat.sdk.domain.invocation import DomainOutputValue, seal_domain_output
 from scopecat.sdk.domain.job import (
     DomainInvocationSpec,
     DomainResultValue,
-    DomainTargetArtifactIdentity,
 )
 from scopecat.sdk.domain.runtime import (
     CorrelatedDomainFetch,
@@ -303,13 +302,11 @@ def test_measurement_plan_and_build_close_the_complete_public_sdk_declaration(
 
     invocation = DomainInvocationSpec(
         invocation_id="test.complete-sdk.invocation",
-        target=DomainTargetArtifactIdentity(
-            target_id="test.target",
-            compiler_id="test.compiler",
-            capability_fingerprint="test.capabilities.v1",
-            artifact_id="test.artifact",
-            artifact_fingerprint="test.artifact.v1",
-        ),
+        target_id="test.target",
+        compiler_id="test.compiler",
+        capability_fingerprint="test.capabilities.v1",
+        artifact_id="test.artifact",
+        artifact_fingerprint="test.artifact.v1",
         target_intent={"mode": "test"},
         payload={"job": "test"},
     )

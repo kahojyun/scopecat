@@ -1,9 +1,8 @@
 """Correlate fake target evidence to Scopecat logical quantum outputs.
 
 The ordinary fake-list runtime remains usable as a target-specific component.
-This adapter layer additionally proves that a compiled logical circuit or
-mixed gate/pulse batch, its raw run, and every returned frame belong to the
-same transient mapping chain.
+This adapter correlates a mapped target artifact, its raw run, and every
+returned frame.
 Frames remain raw target evidence after correlation and are then projected to
 the integrated-IQ result contract.
 """
@@ -12,7 +11,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from decimal import Decimal
 
 from scopecat.kernel.errors import CheckFailed, ProviderContractError
 from scopecat.measurements.results import ComplexQuantity, MeasurementArray
@@ -29,12 +27,9 @@ from scopecat.sdk.problems import (
     model_location,
     problem,
 )
-from scopecat_quantum._ids import PulseEventId, PulseProgramId
 from scopecat_quantum.program_results import (
-    CompiledQuantumTarget,
+    MappedQuantumTarget,
 )
-from scopecat_quantum.program_targets import QuantumTargetAcquisitionOrigin
-from scopecat_quantum.pulses import Acquire, AcquireSignal
 from scopecat_quantum.result_collections import (
     ResultCollection,
     result_collection_axes,
@@ -46,9 +41,7 @@ from scopecat_quantum.targets import (
 )
 
 from quantum_lab_demo.targets.fake_list_mode.model import (
-    FakeAcquisitionWindow,
     FakeListArtifact,
-    FakeListTarget,
 )
 from quantum_lab_demo.targets.fake_list_mode.runtime import (
     FakeDigitizerFrame,
@@ -57,8 +50,7 @@ from quantum_lab_demo.targets.fake_list_mode.runtime import (
 
 _FAKE_RESPONSE_UNIT = "ratio"
 
-type _FakeListCompiledTarget = CompiledQuantumTarget[FakeListArtifact]
-type _FakeListAcquisitionOrigin = QuantumTargetAcquisitionOrigin
+type _MappedFakeListTarget = MappedQuantumTarget[FakeListArtifact]
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,121 +83,21 @@ class CorrelatedFakeListFrame:
 
 @dataclass(frozen=True, slots=True)
 class CorrelatedFakeListRun:
-    """Checked, canonically ordered fake target evidence."""
+    """Canonically ordered raw target data after correlation."""
 
-    compiled_target: _FakeListCompiledTarget
+    mapped_target: _MappedFakeListTarget
     target_run: FakeListRun
     frames: tuple[CorrelatedFakeListFrame, ...]
 
 
-@dataclass(frozen=True, slots=True, init=False)
-class SelectedFakeMeasurementOutput:
-    """One mapped result validated against its compiled acquisition inventory."""
-
-    result: DomainMappedResult[TargetResultAddress] = field(repr=False)
-
-    def __init__(
-        self,
-        result: DomainMappedResult[TargetResultAddress],
-        acquisition_origins: tuple[_FakeListAcquisitionOrigin, ...],
-        acquisition_windows: tuple[FakeAcquisitionWindow, ...],
-    ) -> None:
-        addresses = target_result_acquisition_addresses(result.result_address)
-        if tuple(origin.address for origin in acquisition_origins) != addresses:
-            msg = "selected fake output origins must cover its physical result tree"
-            raise ValueError(msg)
-        if tuple(window.slot_id for window in acquisition_windows) != tuple(
-            address.slot_id for address in addresses
-        ):
-            msg = "selected fake output windows must cover its physical result tree"
-            raise ValueError(msg)
-        object.__setattr__(self, "result", result)
-
-    @property
-    def result_address(self) -> TargetResultAddress:
-        return self.result.result_address
-
-    @property
-    def point(self) -> DomainPointRef:
-        return self.result.point
-
-    @property
-    def product_uses(self) -> tuple[DomainProductUseRef, ...]:
-        return self.result.product_uses
-
-
-@dataclass(frozen=True, slots=True, init=False)
-class SelectedFakeMeasurementRealization:
-    """Exact pre-effect closure of fake measurement inputs."""
-
-    compiled_target: _FakeListCompiledTarget = field(repr=False)
-    target: FakeListTarget = field(repr=False)
-    outputs: tuple[SelectedFakeMeasurementOutput, ...]
-
-    def __init__(
-        self,
-        compiled_target: _FakeListCompiledTarget,
-        target: FakeListTarget,
-        outputs: tuple[SelectedFakeMeasurementOutput, ...],
-    ) -> None:
-        artifact = compiled_target.compiled.artifact
-        if (
-            target.id != compiled_target.compiled.target_id
-            or target.capability_fingerprint
-            != compiled_target.compiled.capability_fingerprint
-            or target.sample_rate_hz != artifact.sample_rate_hz
-        ):
-            msg = "fake measurement selection target does not match its artifact"
-            raise ValueError(msg)
-        mapping = compiled_target.mapping.domain_mapping
-        selected_outputs = tuple(outputs)
-        mapping_results = mapping.results
-        if len(selected_outputs) != len(mapping_results) or any(
-            output.result is not result
-            for output, result in zip(selected_outputs, mapping_results, strict=True)
-        ):
-            msg = (
-                "selected fake measurement outputs must exactly follow canonical "
-                "mapping result order"
-            )
-            raise ValueError(msg)
-        if len({output.result_address for output in selected_outputs}) != len(
-            selected_outputs
-        ):
-            msg = "selected fake measurement outputs require unique result addresses"
-            raise ValueError(msg)
-        object.__setattr__(self, "compiled_target", compiled_target)
-        object.__setattr__(self, "target", target)
-        object.__setattr__(self, "outputs", selected_outputs)
-
-
-def select_fake_measurement_realization(
-    compiled_target: _FakeListCompiledTarget,
-    target: FakeListTarget,
-) -> SelectedFakeMeasurementRealization:
-    """Seal compiled result inputs before target effects."""
-
-    selected_outputs = _select_fake_measurement_outputs(
-        compiled_target,
-        target,
-    )
-    return SelectedFakeMeasurementRealization(
-        compiled_target,
-        target,
-        selected_outputs,
-    )
-
-
 def correlate_fake_list_run(
-    compiled_target: _FakeListCompiledTarget,
+    mapped_target: _MappedFakeListTarget,
     target_run: FakeListRun,
 ) -> CorrelatedFakeListRun:
-    """Revalidate and correlate one raw fake run without interpreting values."""
+    """Correlate one raw fake run without interpreting values."""
 
-    target_mapping = compiled_target.mapping
-    mapping = target_mapping.domain_mapping
-    compiled = compiled_target.compiled
-    artifact = compiled.artifact
+    mapping = mapped_target.mapping
+    artifact = mapped_target.artifact
     if target_run.artifact != artifact:
         msg = "fake-list run does not retain the compiled target artifact"
         raise ValueError(msg)
@@ -220,7 +112,7 @@ def correlate_fake_list_run(
         (address, shot_index)
         for result in mapping.results
         for address in target_result_acquisition_addresses(result.result_address)
-        for shot_index in range(compiled.repetitions)
+        for shot_index in range(artifact.repetitions)
     }
     if set(raw_by_address_shot) != expected_keys:
         msg = (
@@ -235,40 +127,33 @@ def correlate_fake_list_run(
             mapped_result=result,
         )
         for result in mapping.results
-        for shot_index in range(compiled.repetitions)
+        for shot_index in range(artifact.repetitions)
         for address in target_result_acquisition_addresses(result.result_address)
     )
     return CorrelatedFakeListRun(
-        compiled_target,
+        mapped_target,
         target_run,
         correlated_frames,
     )
 
 
 def realize_fake_measurements(
-    selection: SelectedFakeMeasurementRealization,
     correlated_run: CorrelatedFakeListRun,
 ) -> tuple[DomainResultValue[TargetResultAddress], ...]:
     """Project one correlated run to canonical integrated-IQ values."""
 
-    if selection.compiled_target is not correlated_run.compiled_target:
-        msg = "fake measurement realization requires the selected compiled target"
-        raise ValueError(msg)
-
     candidates: list[DomainResultValue[TargetResultAddress]] = []
     problems: list[Problem] = []
-    for result_index, selected_output in enumerate(selection.outputs):
-        frames = _frames_for_result_address(
-            correlated_run, selected_output.result_address
-        )
+    for result_index, result in enumerate(correlated_run.mapped_target.mapping.results):
+        frames = _frames_for_result_address(correlated_run, result.result_address)
         value = _realize_integrated_iq_value(
-            selected_output,
+            result,
             frames,
             result_index=result_index,
             problems=problems,
         )
         if value is not None:
-            candidates.append(DomainResultValue(selected_output.result_address, value))
+            candidates.append(DomainResultValue(result.result_address, value))
     if problems:
         raise ProviderContractError(problems)
 
@@ -284,14 +169,13 @@ def _frames_for_result_address(
 
 
 def _realize_integrated_iq_value(
-    selected_output: SelectedFakeMeasurementOutput,
+    result: DomainMappedResult[TargetResultAddress],
     frames: tuple[CorrelatedFakeListFrame, ...],
     *,
     result_index: int,
     problems: list[Problem],
 ) -> MeasurementArray | None:
     initial_problem_count = len(problems)
-    result = selected_output.result
     details = _realization_identity_details(result)
     path = ("results", result_index)
     addresses = target_result_acquisition_addresses(result.result_address)
@@ -353,254 +237,22 @@ def _result_collection_values(
     ]
 
 
-@dataclass(frozen=True, slots=True)
-class _PreparedAcquisition:
-    list_index: int
-    program_id: PulseProgramId
-    event_id: PulseEventId
-    signal: AcquireSignal
-    start_seconds: Decimal
-    duration_seconds: Decimal
+def validate_fake_measurement_mapping(
+    mapped_target: _MappedFakeListTarget,
+) -> None:
+    """Require the logical result shapes consumed by fake IQ realization."""
 
-
-@dataclass(frozen=True, slots=True)
-class _ArtifactAcquisition:
-    list_index: int
-    program_id: PulseProgramId
-    window: FakeAcquisitionWindow
-
-
-def _select_fake_measurement_outputs(
-    compiled_target: _FakeListCompiledTarget,
-    target: FakeListTarget,
-) -> tuple[SelectedFakeMeasurementOutput, ...]:
-    mapping = compiled_target.mapping.domain_mapping
-    compiled = compiled_target.compiled
-    artifact = compiled.artifact
-    expected_acquisition_addresses = {
-        address
-        for result in mapping.results
-        for address in target_result_acquisition_addresses(result.result_address)
-    }
     problems: list[Problem] = []
-    target_mismatch = False
-    for field_name, expected, actual in (
-        ("target_id", compiled.target_id, target.id),
-        (
-            "capability_fingerprint",
-            compiled.capability_fingerprint,
-            target.capability_fingerprint,
-        ),
-    ):
-        if actual == expected:
-            continue
-        target_mismatch = True
-        problems.append(
-            _target_selection_problem(
-                "fake_measurement_target_mismatch",
-                f"selected target {field_name} does not match compiled request",
-                path=("target", field_name),
-                details={
-                    "field": field_name,
-                    "expected": _problem_fact(expected),
-                    "actual": _problem_fact(actual),
-                },
-            )
-        )
-    if not target_mismatch and artifact.sample_rate_hz != target.sample_rate_hz:
-        problems.append(
-            _artifact_selection_problem(
-                "fake_measurement_artifact_capability_mismatch",
-                "compiled artifact sample rate does not match the selected target",
-                path=("artifact", "sample_rate_hz"),
-                details={
-                    "field": "sample_rate_hz",
-                    "expected": target.sample_rate_hz,
-                    "actual": artifact.sample_rate_hz,
-                },
-            )
-        )
-
-    prepared = _prepared_acquisitions(compiled_target)
-    artifact_acquisitions = _artifact_acquisitions(compiled_target)
-    if set(prepared) != expected_acquisition_addresses:
-        problems.append(
-            _artifact_selection_problem(
-                "fake_measurement_prepared_acquisition_coverage_mismatch",
-                "prepared acquisition inventory does not cover the result mapping",
-                path=("prepared_acquisitions",),
-                details={
-                    "expected_count": len(expected_acquisition_addresses),
-                    "actual_count": len(prepared),
-                },
-            )
-        )
-    if set(artifact_acquisitions) != expected_acquisition_addresses:
-        problems.append(
-            _artifact_selection_problem(
-                "fake_measurement_artifact_acquisition_coverage_mismatch",
-                "compiled artifact acquisition inventory does not cover the "
-                "result mapping",
-                path=("artifact", "acquisitions"),
-                details={
-                    "expected_count": len(expected_acquisition_addresses),
-                    "actual_count": len(artifact_acquisitions),
-                },
-            )
-        )
-    if problems:
-        raise CheckFailed(problems)
-
-    selected_outputs: list[SelectedFakeMeasurementOutput] = []
-    for result_index, result in enumerate(mapping.results):
-        initial_problem_count = len(problems)
-        result_address = result.result_address
-        addresses = target_result_acquisition_addresses(result_address)
-        selected_prepared = tuple(prepared[address] for address in addresses)
-        selected_artifacts = tuple(
-            artifact_acquisitions[address] for address in addresses
-        )
-        for prepared_acquisition, artifact_acquisition in zip(
-            selected_prepared,
-            selected_artifacts,
-            strict=True,
-        ):
-            problems.extend(
-                _artifact_acquisition_problems(
-                    result,
-                    prepared=prepared_acquisition,
-                    compiled=artifact_acquisition,
-                    target=target,
-                    result_index=result_index,
-                )
-            )
+    for result_index, result in enumerate(mapped_target.mapping.results):
         problems.extend(
             _product_problems(
                 result,
-                repetitions=compiled_target.compiled.repetitions,
+                repetitions=mapped_target.artifact.repetitions,
                 result_index=result_index,
             )
         )
-        if len(problems) == initial_problem_count:
-            selected_outputs.append(
-                SelectedFakeMeasurementOutput(
-                    result,
-                    tuple(
-                        compiled_target.mapping.batch.acquisition_origin_for(address)
-                        for address in addresses
-                    ),
-                    tuple(item.window for item in selected_artifacts),
-                )
-            )
     if problems:
         raise CheckFailed(problems)
-    return tuple(selected_outputs)
-
-
-def _prepared_acquisitions(
-    compiled_target: _FakeListCompiledTarget,
-) -> dict[TargetAcquisitionAddress, _PreparedAcquisition]:
-    prepared: dict[TargetAcquisitionAddress, _PreparedAcquisition] = {}
-    for list_index, entry in enumerate(compiled_target.mapping.batch.request.entries):
-        slots_by_id = {slot.id: slot for slot in entry.program.acquisition_slots}
-        for event in entry.program.events:
-            instruction = event.instruction
-            if not isinstance(instruction, Acquire):
-                continue
-            slot = slots_by_id.get(instruction.slot_id)
-            if slot is None:
-                msg = "prepared target acquisition event references an unknown slot"
-                raise ValueError(msg)
-            address = TargetAcquisitionAddress(
-                entry_id=entry.id,
-                slot_id=instruction.slot_id,
-            )
-            if address in prepared:
-                msg = "prepared target contains duplicate acquisition addresses"
-                raise ValueError(msg)
-            prepared[address] = _PreparedAcquisition(
-                list_index=list_index,
-                program_id=entry.program.id,
-                event_id=event.id,
-                signal=instruction.signal,
-                start_seconds=event.start_seconds,
-                duration_seconds=event.duration_seconds,
-            )
-    return prepared
-
-
-def _artifact_acquisitions(
-    compiled_target: _FakeListCompiledTarget,
-) -> dict[TargetAcquisitionAddress, _ArtifactAcquisition]:
-    artifact = compiled_target.compiled.artifact
-    acquisitions: dict[TargetAcquisitionAddress, _ArtifactAcquisition] = {}
-    for entry in artifact.entries:
-        for window in entry.acquisitions:
-            address = TargetAcquisitionAddress(
-                entry_id=entry.entry_id,
-                slot_id=window.slot_id,
-            )
-            if address in acquisitions:
-                msg = "fake list artifact contains duplicate acquisition addresses"
-                raise ValueError(msg)
-            acquisitions[address] = _ArtifactAcquisition(
-                list_index=entry.list_index,
-                program_id=entry.program_id,
-                window=window,
-            )
-    return acquisitions
-
-
-def _artifact_acquisition_problems(
-    result: DomainMappedResult[TargetResultAddress],
-    *,
-    prepared: _PreparedAcquisition,
-    compiled: _ArtifactAcquisition,
-    target: FakeListTarget,
-    result_index: int,
-) -> list[Problem]:
-    details = _realization_identity_details(result)
-    path = ("results", result_index, "artifact", "acquisition")
-    expected_start = _exact_sample_index(
-        prepared.start_seconds,
-        target.sample_rate_hz,
-    )
-    expected_count = _exact_sample_index(
-        prepared.duration_seconds,
-        target.sample_rate_hz,
-    )
-    facts: tuple[tuple[str, object, object], ...] = (
-        ("list_index", prepared.list_index, compiled.list_index),
-        ("program_id", prepared.program_id, compiled.program_id),
-        ("event_id", prepared.event_id, compiled.window.event_id),
-        ("signal", prepared.signal, compiled.window.signal),
-        (
-            "channel_id",
-            target.acquisition_channel(prepared.signal),
-            compiled.window.channel_id,
-        ),
-        ("start_sample", expected_start, compiled.window.start_sample),
-        ("sample_count", expected_count, compiled.window.sample_count),
-    )
-    problems: list[Problem] = []
-    for field_name, expected, actual in facts:
-        if expected == actual:
-            continue
-        problems.append(
-            _artifact_selection_problem(
-                "fake_measurement_artifact_acquisition_mismatch",
-                "compiled acquisition window does not match prepared "
-                f"{field_name}: {actual!r} != {expected!r}",
-                path=(*path, field_name),
-                details={
-                    **details,
-                    "field": field_name,
-                    "expected": _problem_fact(expected),
-                    "actual": _problem_fact(actual),
-                },
-            )
-        )
-    return problems
 
 
 def _product_problems(
@@ -701,16 +353,6 @@ def _product_problems(
     return problems
 
 
-def _exact_sample_index(seconds: Decimal, sample_rate_hz: int) -> int | None:
-    scaled = seconds * Decimal(sample_rate_hz)
-    integral = scaled.to_integral_value()
-    return int(integral) if scaled == integral else None
-
-
-def _problem_fact(value: object) -> str | int | None:
-    return value if isinstance(value, int | str) or value is None else repr(value)
-
-
 def _mapped_result_product(
     result: DomainMappedResult[TargetResultAddress],
 ) -> DomainProductContractView:
@@ -766,44 +408,10 @@ def _selection_problem(
     )
 
 
-def _target_selection_problem(
-    code: str,
-    message: str,
-    *,
-    path: tuple[str | int, ...],
-    details: Mapping[str, object],
-) -> Problem:
-    return problem(
-        code,
-        message,
-        phase=ProblemPhase.PLANNING,
-        location=model_location("fake_measurement_realization", *path),
-        details=details,
-    )
-
-
-def _artifact_selection_problem(
-    code: str,
-    message: str,
-    *,
-    path: tuple[str | int, ...],
-    details: Mapping[str, object],
-) -> Problem:
-    return problem(
-        code,
-        message,
-        phase=ProblemPhase.PLANNING,
-        location=model_location("fake_measurement_realization", *path),
-        details=details,
-    )
-
-
 __all__ = [
     "CorrelatedFakeListFrame",
     "CorrelatedFakeListRun",
-    "SelectedFakeMeasurementOutput",
-    "SelectedFakeMeasurementRealization",
     "correlate_fake_list_run",
     "realize_fake_measurements",
-    "select_fake_measurement_realization",
+    "validate_fake_measurement_mapping",
 ]

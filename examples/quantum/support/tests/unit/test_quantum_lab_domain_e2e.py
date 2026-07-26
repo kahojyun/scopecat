@@ -39,7 +39,7 @@ from quantum_lab_demo import (
 from quantum_lab_demo.targets.fake_list_mode import (
     FakeListDomainRuntime,
     FakeListRun,
-    SelectedFakeMeasurementRealization,
+    MappedFakeListTarget,
     configured_fake_list_target,
 )
 from quantum_lab_demo.virtual_lab.parameters import (
@@ -89,7 +89,7 @@ class _IndeterminateFakeListDomainRuntime(FakeListDomainRuntime):
     @override
     def submit(
         self,
-        request: DomainSubmitRequest[SelectedFakeMeasurementRealization],
+        request: DomainSubmitRequest[MappedFakeListTarget],
     ) -> DomainSubmitReceipt:
         _ = request
         raise RuntimeError("target did not return submit evidence")

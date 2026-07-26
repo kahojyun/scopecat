@@ -13,8 +13,6 @@ from scopecat_quantum._ids import (
     QuantumProgramId,
     QubitId,
     TargetCompileEntryId,
-    TargetCompilerId,
-    TargetId,
 )
 from scopecat_quantum.acquisitions import AcquisitionKind
 from scopecat_quantum.circuits import Measure
@@ -177,9 +175,6 @@ def _batch(
 ) -> PreparedQuantumTargetBatch:
     return prepare_quantum_target_batch(
         entries,
-        target_id=TargetId("target"),
-        compiler_id=TargetCompilerId("compiler.v1"),
-        capability_fingerprint="capabilities:v1",
         repetitions=7,
     )
 
@@ -292,9 +287,6 @@ def test_batch_preserves_entry_order_and_total_qualified_origin_coverage() -> No
 
     assert batch.entries == (second, first)
     assert batch.request.entries == (second.target_entry, first.target_entry)
-    assert batch.request.target_id == TargetId("target")
-    assert batch.request.compiler_id == TargetCompilerId("compiler.v1")
-    assert batch.request.capability_fingerprint == "capabilities:v1"
     assert batch.request.repetitions == 7
     assert batch.acquisition_addresses == tuple(
         address for entry in (second, first) for address in entry.acquisition_addresses

@@ -62,7 +62,7 @@ def _golden_point(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     [artifact] = artifacts
     assert artifact.program.id == drag_beta_program.id
     [prepared] = artifact.entries
-    return drag_beta_program, prepared, artifact.compiled.artifact
+    return drag_beta_program, prepared, artifact.target_artifact
 
 
 def _nanoseconds(seconds: Decimal) -> Decimal:
@@ -239,7 +239,7 @@ def _capture_artifacts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> list[_ListQuantumLabArtifact]:
     artifacts: list[_ListQuantumLabArtifact] = []
-    compile_target = compiler._compile_target_artifact
+    compile_artifact = compiler._compile_target_artifact
 
     def compile_and_capture(
         program: quantum.Program,
@@ -247,7 +247,7 @@ def _capture_artifacts(
         *,
         shots: int,
     ) -> _ListQuantumLabArtifact:
-        artifact = compile_target(program, inputs, shots=shots)
+        artifact = compile_artifact(program, inputs, shots=shots)
         artifacts.append(artifact)
         return artifact
 

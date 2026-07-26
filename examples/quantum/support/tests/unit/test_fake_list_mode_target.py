@@ -73,7 +73,6 @@ from scopecat_quantum.targets import (
     TargetCompilationError,
     TargetCompileEntry,
     TargetCompileRequest,
-    compile_target,
 )
 
 from quantum_lab_demo.targets.fake_list_mode import (
@@ -383,9 +382,6 @@ def _request(
         msg = "entry_ids must exactly cover programs"
         raise ValueError(msg)
     request = TargetCompileRequest(
-        target_id=target.id,
-        compiler_id=compiler.id,
-        capability_fingerprint=target.capability_fingerprint,
         entries=tuple(
             TargetCompileEntry(
                 TargetCompileEntryId(selected_entry_ids[index]),
@@ -411,7 +407,7 @@ def _compile_two_entries(*, repetitions: int = 3):
         ),
         repetitions=repetitions,
     )
-    return compile_target(compiler, request)
+    return compiler.compile(request)
 
 
 def _issue_codes(error: TargetCompilationError) -> set[str]:
@@ -419,8 +415,7 @@ def _issue_codes(error: TargetCompilationError) -> set[str]:
 
 
 def test_compiler_builds_immutable_ordered_list_artifact() -> None:
-    compiled = _compile_two_entries()
-    artifact = compiled.artifact
+    artifact = _compile_two_entries()
 
     assert isinstance(artifact, TargetArtifact)
     assert artifact.source_entry_ids == (
@@ -496,7 +491,7 @@ def test_compiler_accumulates_frame_phase_per_entry_and_adds_envelope_phase() ->
         repetitions=1,
     )
 
-    artifact = compile_target(compiler, request).artifact
+    artifact = compiler.compile(request)
 
     assert artifact.entries[0].waveforms[0].samples == pytest.approx(
         (0.25j,) * 4 + (-0.25 + 0j,) * 4
@@ -536,7 +531,7 @@ def test_compiler_wraps_large_frame_and_envelope_phases_before_combining() -> No
     )
     compiler, request = _request(_target(), (program,), repetitions=1)
 
-    artifact = compile_target(compiler, request).artifact
+    artifact = compiler.compile(request)
 
     reduced = math.remainder(large_phase, math.tau)
     combined = math.remainder(
@@ -620,7 +615,7 @@ def test_calibrated_gate_circuit_reaches_fake_list_target() -> None:
     assert scheduled.events[0].id.scope != scheduled.events[1].id.scope
     target = _target()
     compiler, request = _request(target, (scheduled,), repetitions=1)
-    artifact = compile_target(compiler, request).artifact
+    artifact = compiler.compile(request)
     entry = artifact.entries[0]
     assert entry.sample_count == 8
     assert entry.waveforms[0].samples == (0.25 + 0j,) * 8
@@ -709,8 +704,8 @@ def test_calibrated_measurement_reaches_fake_awg_and_digitizer() -> None:
     } == {("programs", "x-then-measure", "operations", "measure")}
     target = _target()
     compiler, request = _request(target, (scheduled,), repetitions=2)
-    compiled = compile_target(compiler, request)
-    entry = compiled.artifact.entries[0]
+    compiled = compiler.compile(request)
+    entry = compiled.entries[0]
     waveforms = {
         waveform.channel_id.value: waveform.samples for waveform in entry.waveforms
     }
@@ -760,13 +755,10 @@ def test_prepared_quantum_batch_resolves_reused_slots_from_runtime_frames() -> N
     repetitions = 3
     batch = prepare_quantum_target_batch(
         (iq_entry, q1_entry),
-        target_id=target.id,
-        compiler_id=compiler.id,
-        capability_fingerprint=target.capability_fingerprint,
         repetitions=repetitions,
     )
 
-    compiled = compile_target(compiler, batch.request)
+    compiled = compiler.compile(batch.request)
     run = FakeListRuntime().execute(compiled)
 
     assert len(batch.acquisition_addresses) == 2
@@ -883,7 +875,7 @@ def test_runtime_preserves_multiple_slot_order_within_each_list_entry() -> None:
         repetitions=2,
     )
 
-    run = FakeListRuntime().execute(compile_target(compiler, request))
+    run = FakeListRuntime().execute(compiler.compile(request))
 
     assert [
         (frame.shot_index, frame.segment_index, frame.slot_id.value)
@@ -913,19 +905,15 @@ def test_response_depends_on_waveform_but_not_physical_list_position() -> None:
         entry_ids=("logical-high", "logical-low"),
     )
 
-    original = FakeListRuntime().execute(compile_target(compiler, request))
-    reordered = FakeListRuntime().execute(
-        compile_target(reversed_compiler, reversed_request)
-    )
+    original = FakeListRuntime().execute(compiler.compile(request))
+    reordered = FakeListRuntime().execute(reversed_compiler.compile(reversed_request))
     changed_compiler, changed_request = _request(
         target,
         (_scheduled_program("low", qubit=Q0, amplitude=0.9),),
         repetitions=2,
         entry_ids=("logical-low",),
     )
-    changed = FakeListRuntime().execute(
-        compile_target(changed_compiler, changed_request)
-    )
+    changed = FakeListRuntime().execute(changed_compiler.compile(changed_request))
 
     original_values = {
         (frame.entry_id, frame.shot_index, frame.slot_id): frame.value
@@ -952,8 +940,7 @@ def test_response_depends_on_waveform_but_not_physical_list_position() -> None:
 
 
 def test_digitizer_rejects_reordered_or_incomplete_playback_coverage() -> None:
-    compiled = _compile_two_entries(repetitions=2)
-    artifact = compiled.artifact
+    artifact = _compile_two_entries(repetitions=2)
     playbacks = FakeListRuntime().awg.play(artifact)
     digitizer = FakeSegmentedDigitizer()
 
@@ -985,17 +972,14 @@ def test_artifact_fingerprint_is_deterministic_and_entry_order_sensitive() -> No
         _scheduled_program("q1-program", qubit=Q1),
     )
     compiler, request = _request(target, programs)
-    first = compile_target(compiler, request).artifact
-    second = compile_target(compiler, request).artifact
+    first = compiler.compile(request)
+    second = compiler.compile(request)
     reversed_compiler, reversed_request = _request(
         target,
         tuple(reversed(programs)),
         entry_ids=("entry-zeta", "entry-alpha"),
     )
-    reversed_artifact = compile_target(
-        reversed_compiler,
-        reversed_request,
-    ).artifact
+    reversed_artifact = reversed_compiler.compile(reversed_request)
 
     assert first == second
     assert first.artifact_fingerprint == second.artifact_fingerprint
@@ -1013,7 +997,7 @@ def test_exact_sample_grid_accepts_integer_nanosecond_durations(
         repetitions=1,
     )
 
-    artifact = compile_target(compiler, request).artifact
+    artifact = compiler.compile(request)
 
     assert artifact.entries[0].sample_count == duration_ns
 
@@ -1034,7 +1018,7 @@ def test_exact_sample_grid_rejects_half_sample_durations(duration_ns: int) -> No
     )
 
     with pytest.raises(TargetCompilationError) as raised:
-        compile_target(compiler, request)
+        compiler.compile(request)
 
     assert {
         "fake_list_event_duration_off_grid",
@@ -1056,7 +1040,7 @@ def test_compiler_aggregates_physical_collision_and_capability_errors() -> None:
     )
 
     with pytest.raises(TargetCompilationError) as raised:
-        compile_target(compiler, request)
+        compiler.compile(request)
 
     assert {
         "fake_list_amplitude_unit_unsupported",
@@ -1077,7 +1061,7 @@ def test_drag_is_midpoint_sampled_into_a_complex_waveform() -> None:
         repetitions=1,
     )
 
-    artifact = compile_target(compiler, request).artifact
+    artifact = compiler.compile(request)
     samples = artifact.entries[0].waveforms[0].samples
     offsets_ns = (-1.5, -0.5, 0.5, 1.5)
     gaussians = tuple(0.2 * math.exp(-(offset**2) / 2.0) for offset in offsets_ns)
@@ -1107,7 +1091,7 @@ def test_drag_uses_complex_sample_magnitude_for_amplitude_limit() -> None:
     )
 
     with pytest.raises(TargetCompilationError) as raised:
-        compile_target(compiler, request)
+        compiler.compile(request)
 
     assert "fake_list_amplitude_limit_exceeded" in _issue_codes(raised.value)
 
@@ -1119,8 +1103,8 @@ def test_drag_artifact_fingerprint_is_deterministic_and_beta_sensitive() -> None
         (_scheduled_drag_program("drag-fingerprint"),),
         repetitions=1,
     )
-    first = compile_target(compiler, request).artifact
-    second = compile_target(compiler, request).artifact
+    first = compiler.compile(request)
+    second = compiler.compile(request)
     changed_compiler, changed_request = _request(
         target,
         (
@@ -1131,7 +1115,7 @@ def test_drag_artifact_fingerprint_is_deterministic_and_beta_sensitive() -> None
         ),
         repetitions=1,
     )
-    changed = compile_target(changed_compiler, changed_request).artifact
+    changed = changed_compiler.compile(changed_request)
 
     assert first == second
     assert first.artifact_fingerprint == second.artifact_fingerprint
@@ -1152,9 +1136,9 @@ def test_compiler_rejects_unbound_signal_and_amplitude_limit() -> None:
     )
 
     with pytest.raises(TargetCompilationError) as unbound:
-        compile_target(unbound_compiler, unbound_request)
+        unbound_compiler.compile(unbound_request)
     with pytest.raises(TargetCompilationError) as loud:
-        compile_target(limit_compiler, limit_request)
+        limit_compiler.compile(limit_request)
 
     assert {
         "fake_list_acquisition_signal_unbound",
@@ -1182,7 +1166,7 @@ def test_compiler_aggregates_batch_memory_repetition_and_frame_limits() -> None:
     )
 
     with pytest.raises(TargetCompilationError) as raised:
-        compile_target(compiler, request)
+        compiler.compile(request)
 
     assert {
         "fake_list_capture_memory_limit_exceeded",
@@ -1208,7 +1192,7 @@ def test_compiler_rejects_samples_per_entry_limit() -> None:
     )
 
     with pytest.raises(TargetCompilationError) as raised:
-        compile_target(compiler, request)
+        compiler.compile(request)
 
     assert {
         "fake_list_capture_memory_limit_exceeded",
@@ -1237,7 +1221,7 @@ def test_capacity_limits_are_inclusive_at_the_exact_boundary() -> None:
         repetitions=1,
     )
 
-    artifact = compile_target(compiler, request).artifact
+    artifact = compiler.compile(request)
 
     assert len(artifact.entries) == target.max_list_entries
 
@@ -1284,7 +1268,7 @@ def test_nonzero_event_start_must_lie_on_exact_sample_grid() -> None:
     compiler, request = _request(_target(), (program,), repetitions=1)
 
     with pytest.raises(TargetCompilationError) as raised:
-        compile_target(compiler, request)
+        compiler.compile(request)
 
     assert "fake_list_event_start_off_grid" in _issue_codes(raised.value)
 

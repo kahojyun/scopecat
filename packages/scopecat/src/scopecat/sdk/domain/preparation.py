@@ -37,7 +37,7 @@ from scopecat.sdk.domain.runtime import CorrelatedDomainFetch, DomainRuntime
 
 
 class DomainPreparationBuilder:
-    """Context-bound constructor for one complete prepared execution proof.
+    """Context-bound constructor for one complete prepared execution.
 
     Result mapping, value ownership, invocation identity, and result decoding
     are lowered behind this facade. Laboratory adapters provide only SDK
@@ -102,15 +102,14 @@ class DomainPreparationBuilder:
         if mapping.context is not self._context:
             msg = "domain result mapping belongs to another batch context"
             raise ValueError(msg)
-        target = invocation.target
         native_invocation = close_domain_invocation(
             mapping,
             invocation_id=invocation.invocation_id,
-            target_id=target.target_id,
-            compiler_id=target.compiler_id,
-            capability_fingerprint=target.capability_fingerprint,
-            artifact_id=target.artifact_id,
-            artifact_fingerprint=target.artifact_fingerprint,
+            target_id=invocation.target_id,
+            compiler_id=invocation.compiler_id,
+            capability_fingerprint=invocation.capability_fingerprint,
+            artifact_id=invocation.artifact_id,
+            artifact_fingerprint=invocation.artifact_fingerprint,
             target_intent=invocation.target_intent,
             payload=invocation.payload,
         )

@@ -71,22 +71,20 @@ from scopecat_quantum._ids import (
     PulseProgramId,
     QuantumProgramId,
     QubitId,
-    TargetArtifactId,
     TargetCompileEntryId,
     TargetCompilerId,
-    TargetId,
 )
 from scopecat_quantum.acquisitions import AcquisitionKind
 from scopecat_quantum.circuits import Measure
 from scopecat_quantum.gates import GateCall, GateDefinition
 from scopecat_quantum.program_results import (
-    CompiledQuantumTarget,
+    MappedQuantumTarget,
     QuantumTargetEntryPointBinding,
-    QuantumTargetResultMapping,
     QuantumTargetResultUseBinding,
     seal_quantum_target_result_mapping,
 )
 from scopecat_quantum.program_targets import (
+    PreparedQuantumTargetBatch,
     QuantumTargetAcquisitionOrigin,
     prepare_quantum_target_batch,
     prepare_quantum_target_entry,
@@ -125,9 +123,7 @@ from scopecat_quantum.pulses import (
 )
 from scopecat_quantum.targets import (
     TargetAcquisitionAddress,
-    TargetCompileRequest,
     TargetResultAddress,
-    compile_target,
     target_result_acquisition_addresses,
     target_result_entry_id,
 )
@@ -138,20 +134,18 @@ from tests.testkit.runtime import (
 
 from quantum_lab_demo.targets.fake_list_mode import (
     FakeAwgPlayback,
-    FakeDigitizerChannelId,
     FakeListArtifact,
     FakeListAwg,
     FakeListDomainRuntime,
     FakeListRun,
     FakeListRuntime,
     FakeListTargetCompiler,
-    SelectedFakeMeasurementRealization,
+    MappedFakeListTarget,
     configured_fake_list_target,
     correlate_fake_list_run,
     fake_measurement_invocation_spec,
     realize_fake_measurements,
     realize_fetched_fake_measurements,
-    select_fake_measurement_realization,
 )
 from quantum_lab_demo.virtual_lab.wiring import quantum_wiring_config_profile
 
@@ -181,57 +175,9 @@ _MIXED_AUX_RESULT_ID = "aux-result"
 class _Scenario:
     linked_points: MaterializedLinkedPoints
     preparation: DomainPreparationBuilder
-    mapping: QuantumTargetResultMapping
+    batch: PreparedQuantumTargetBatch
     compiler: FakeListTargetCompiler
-    compiled_target: CompiledQuantumTarget[FakeListArtifact]
-
-
-@dataclass(frozen=True, slots=True)
-class _FaultyAcquisitionCompiler:
-    """Return a self-declared artifact whose acquisition disagrees with input."""
-
-    inner: FakeListTargetCompiler
-    mutation: str
-
-    @property
-    def id(self) -> TargetCompilerId:
-        return self.inner.id
-
-    @property
-    def target_id(self) -> TargetId:
-        return self.inner.target_id
-
-    @property
-    def capability_fingerprint(self) -> str:
-        return self.inner.capability_fingerprint
-
-    def compile(self, request: TargetCompileRequest) -> FakeListArtifact:
-        artifact = self.inner.compile(request)
-        if self.mutation == "sample_rate":
-            return replace(
-                artifact,
-                id=TargetArtifactId("faulty-sample-rate"),
-                artifact_fingerprint="sha256:faulty-sample-rate",
-                sample_rate_hz=artifact.sample_rate_hz * 2,
-            )
-        entry = artifact.entries[0]
-        window = entry.acquisitions[0]
-        if self.mutation == "event":
-            bad_window = replace(window, event_id=PulseEventId("foreign-event"))
-        elif self.mutation == "channel":
-            bad_window = replace(
-                window,
-                channel_id=FakeDigitizerChannelId("foreign-channel"),
-            )
-        else:
-            bad_window = replace(window, sample_count=window.sample_count - 1)
-        bad_entry = replace(entry, acquisitions=(bad_window, *entry.acquisitions[1:]))
-        return replace(
-            artifact,
-            id=TargetArtifactId(f"faulty-{self.mutation}"),
-            artifact_fingerprint=f"sha256:faulty-{self.mutation}",
-            entries=(bad_entry, *artifact.entries[1:]),
-        )
+    mapped_target: MappedFakeListTarget
 
 
 class _CountingFakeListAwg(FakeListAwg):
@@ -622,9 +568,6 @@ def _scenario(
     )
     batch = prepare_quantum_target_batch(
         entries,
-        target_id=target.id,
-        compiler_id=compiler.id,
-        capability_fingerprint=target.capability_fingerprint,
         repetitions=repetitions,
     )
     preparation = _preparation_for_all_points(linked_points)
@@ -653,13 +596,13 @@ def _scenario(
             for product_use in product_uses
         ),
     )
-    compiled = compile_target(compiler, batch.request)
+    compiled = compiler.compile(batch.request)
     return _Scenario(
         linked_points=linked_points,
         preparation=preparation,
-        mapping=mapping,
+        batch=batch,
         compiler=compiler,
-        compiled_target=CompiledQuantumTarget(mapping, compiled),
+        mapped_target=MappedQuantumTarget(compiled, mapping),
     )
 
 
@@ -699,9 +642,6 @@ def _mixed_scenario(
     )
     batch = prepare_quantum_target_batch(
         entries,
-        target_id=target.id,
-        compiler_id=compiler.id,
-        capability_fingerprint=target.capability_fingerprint,
         repetitions=repetitions,
     )
     preparation = _preparation_for_all_points(linked_points)
@@ -735,47 +675,45 @@ def _mixed_scenario(
             for address in entry.acquisition_addresses
         ),
     )
-    compiled = compile_target(compiler, batch.request)
+    compiled = compiler.compile(batch.request)
     return _Scenario(
         linked_points=linked_points,
         preparation=preparation,
-        mapping=mapping,
+        batch=batch,
         compiler=compiler,
-        compiled_target=CompiledQuantumTarget(mapping, compiled),
+        mapped_target=MappedQuantumTarget(compiled, mapping),
     )
 
 
 def _prepared_mixed_execution(
     scenario: _Scenario,
-    runtime: DomainRuntime[SelectedFakeMeasurementRealization, FakeListRun],
+    runtime: DomainRuntime[MappedFakeListTarget, FakeListRun],
     *,
     response_intent: object | None = None,
 ) -> PreparedDomainExecution:
-    selection = select_fake_measurement_realization(
-        scenario.compiled_target,
-        scenario.compiler.target,
-    )
     return scenario.preparation.build(
-        mapping=scenario.mapping.domain_mapping,
+        mapping=scenario.mapped_target.mapping,
         invocation=fake_measurement_invocation_spec(
-            selection,
+            scenario.mapped_target,
             invocation_id="mixed-readout",
             response_intent=response_intent,
         ),
         runtime=runtime,
-        realize=lambda fetched: realize_fetched_fake_measurements(selection, fetched),
+        realize=lambda fetched: realize_fetched_fake_measurements(
+            scenario.mapped_target, fetched
+        ),
     )
 
 
 type _ClosedMixedInvocation = ClosedDomainInvocation[
     TargetResultAddress,
-    SelectedFakeMeasurementRealization,
+    MappedFakeListTarget,
 ]
 
 
 def _closed_mixed_invocation(
     scenario: _Scenario,
-    runtime: DomainRuntime[SelectedFakeMeasurementRealization, FakeListRun],
+    runtime: DomainRuntime[MappedFakeListTarget, FakeListRun],
     *,
     response_intent: object | None = None,
 ) -> _ClosedMixedInvocation:
@@ -791,8 +729,8 @@ def test_three_point_fake_quantum_run_correlates_target_and_logical_order() -> N
     scenario = _scenario()
 
     correlated = correlate_fake_list_run(
-        scenario.compiled_target,
-        FakeListRuntime().execute(scenario.compiled_target.compiled),
+        scenario.mapped_target,
+        FakeListRuntime().execute(scenario.mapped_target.artifact),
     )
 
     points = scenario.preparation.context.points
@@ -800,7 +738,7 @@ def test_three_point_fake_quantum_run_correlates_target_and_logical_order() -> N
         _SINGLE_RESULT_ID
     ).product_uses[0]
     assert tuple(
-        address.slot_id for address in scenario.mapping.batch.acquisition_addresses
+        address.slot_id for address in scenario.batch.acquisition_addresses
     ) == (
         SHARED_SLOT,
         SHARED_SLOT,
@@ -827,7 +765,7 @@ def test_three_point_fake_quantum_run_correlates_target_and_logical_order() -> N
         for _shot_index in range(2)
     )
 
-    mapping = scenario.mapping.domain_mapping
+    mapping = scenario.mapped_target.mapping
     for point_index, point in enumerate(points):
         mapped_result = next(
             result
@@ -835,7 +773,7 @@ def test_three_point_fake_quantum_run_correlates_target_and_logical_order() -> N
             if result.point is point and product_use in result.product_uses
         )
         address = _only_acquisition_address(mapped_result.result_address)
-        origin = scenario.mapping.batch.acquisition_origin_for(address)
+        origin = scenario.batch.acquisition_origin_for(address)
         assert address.entry_id == TargetCompileEntryId(f"entry-{point_index}")
         assert origin.source_program_id == QuantumProgramId("shared-readout-program")
         assert isinstance(origin.provenance, CircuitPulseAcquisitionProvenance)
@@ -850,7 +788,7 @@ def test_three_point_fake_quantum_run_correlates_target_and_logical_order() -> N
             assert frame.mapped_result is mapped_result
 
 
-def test_mixed_quantum_program_reuses_fake_selection_and_correlation() -> None:
+def test_mixed_quantum_program_maps_and_correlates_target_results() -> None:
     linked_points = _linked_points(
         product_unit="ratio",
         product_axes=(shot_axis(2),),
@@ -870,9 +808,6 @@ def test_mixed_quantum_program_reuses_fake_selection_and_correlation() -> None:
     )
     batch = prepare_quantum_target_batch(
         entries,
-        target_id=target.id,
-        compiler_id=compiler.id,
-        capability_fingerprint=target.capability_fingerprint,
         repetitions=2,
     )
     points = preparation.context.points
@@ -898,34 +833,28 @@ def test_mixed_quantum_program_reuses_fake_selection_and_correlation() -> None:
             for entry in batch.entries
         ),
     )
-    compiled_target = CompiledQuantumTarget(
+    mapped_target = MappedQuantumTarget(
+        compiler.compile(batch.request),
         mapping,
-        compile_target(compiler, batch.request),
-    )
-    selection = select_fake_measurement_realization(
-        compiled_target,
-        target,
     )
     correlated = correlate_fake_list_run(
-        selection.compiled_target,
-        FakeListRuntime().execute(selection.compiled_target.compiled),
+        mapped_target,
+        FakeListRuntime().execute(mapped_target.artifact),
     )
-    realized = realize_fake_measurements(selection, correlated)
+    realized = realize_fake_measurements(correlated)
 
-    assert isinstance(compiled_target, CompiledQuantumTarget)
-    assert isinstance(mapping, QuantumTargetResultMapping)
-    assert selection.compiled_target is compiled_target
-    assert tuple(result.point for result in mapping.domain_mapping.results) == points
+    assert isinstance(mapped_target, MappedQuantumTarget)
+    assert mapped_target.mapping is mapping
+    assert tuple(result.point for result in mapping.results) == points
     assert tuple(
-        target_result_entry_id(result.result_address)
-        for result in mapping.domain_mapping.results
+        target_result_entry_id(result.result_address) for result in mapping.results
     ) == tuple(
         TargetCompileEntryId(f"mixed-program-entry-{index}") for index in range(3)
     )
     assert len({address.slot_id for address in batch.acquisition_addresses}) == 1
     assert len(set(batch.acquisition_addresses)) == len(points)
     assert tuple(value.result_address for value in realized) == tuple(
-        result.result_address for result in mapping.domain_mapping.results
+        result.result_address for result in mapping.results
     )
 
     for entry in batch.entries:
@@ -944,9 +873,7 @@ def test_mixed_quantum_program_reuses_fake_selection_and_correlation() -> None:
         )
 
         mapped_result = next(
-            result
-            for result in mapping.domain_mapping.results
-            if result.result_address == address
+            result for result in mapping.results if result.result_address == address
         )
         frames = tuple(frame for frame in correlated.frames if frame.address == address)
         assert tuple(frame.shot_index for frame in frames) == (0, 1)
@@ -962,11 +889,11 @@ def test_one_physical_fake_result_fans_out_to_every_product_use() -> None:
     points = scenario.preparation.context.points
     uses = scenario.preparation.context.call.result(_SINGLE_RESULT_ID).product_uses
     correlated = correlate_fake_list_run(
-        scenario.compiled_target,
-        FakeListRuntime().execute(scenario.compiled_target.compiled),
+        scenario.mapped_target,
+        FakeListRuntime().execute(scenario.mapped_target.artifact),
     )
 
-    mapping = scenario.mapping.domain_mapping
+    mapping = scenario.mapped_target.mapping
     assert len(mapping.results) == len(points)
     assert len(correlated.frames) == len(points) * 2
     assert all(result.product_uses == uses for result in mapping.results)
@@ -980,11 +907,7 @@ def test_one_physical_fake_result_fans_out_to_every_product_use() -> None:
             assert frame.product_uses == uses
             assert frame.shot_index == shot_index
 
-    selection = select_fake_measurement_realization(
-        scenario.compiled_target,
-        scenario.compiler.target,
-    )
-    realized = realize_fake_measurements(selection, correlated)
+    realized = realize_fake_measurements(correlated)
 
     assert len(realized) == len(points)
     values_by_address = {value.result_address: value for value in realized}
@@ -1000,29 +923,26 @@ def test_integrated_iq_shot_realization_accepts_exact_product_contract() -> None
         product_unit="ratio",
         product_axes=(shot_axis(2),),
     )
-    selection = select_fake_measurement_realization(
-        scenario.compiled_target,
-        scenario.compiler.target,
+    fake_measurement_invocation_spec(
+        scenario.mapped_target,
+        invocation_id="exact-product-contract",
     )
     correlated = correlate_fake_list_run(
-        selection.compiled_target,
-        FakeListRuntime().execute(selection.compiled_target.compiled),
+        scenario.mapped_target,
+        FakeListRuntime().execute(scenario.mapped_target.artifact),
     )
-    realized = realize_fake_measurements(selection, correlated)
+    realized = realize_fake_measurements(correlated)
 
-    assert tuple(output.result for output in selection.outputs) == (
-        scenario.mapping.domain_mapping.results
-    )
     assert tuple(value.result_address for value in realized) == tuple(
-        result.result_address for result in scenario.mapping.domain_mapping.results
+        result.result_address for result in scenario.mapped_target.mapping.results
     )
-    for output, result_value in zip(
-        selection.outputs,
+    for result, result_value in zip(
+        scenario.mapped_target.mapping.results,
         realized,
         strict=True,
     ):
         frames = tuple(
-            frame for frame in correlated.frames if frame.mapped_result is output.result
+            frame for frame in correlated.frames if frame.mapped_result is result
         )
         value = result_value.value
         assert isinstance(value, MeasurementArray)
@@ -1070,77 +990,19 @@ def test_integrated_iq_shot_realization_accepts_exact_product_contract() -> None
         ),
     ),
 )
-def test_integrated_iq_realization_rejects_implicit_or_incompatible_policies(
+def test_fake_invocation_rejects_incompatible_result_policies(
     scenario_kwargs: _ScenarioKwargs,
     expected_code: str,
 ) -> None:
     scenario = _scenario(**scenario_kwargs)
 
     with pytest.raises(CheckFailed) as captured:
-        select_fake_measurement_realization(
-            scenario.compiled_target,
-            scenario.compiler.target,
+        fake_measurement_invocation_spec(
+            scenario.mapped_target,
+            invocation_id="incompatible-product-contract",
         )
 
     assert expected_code in {problem.code for problem in captured.value.problems}
-    assert all(problem.phase.value == "planning" for problem in captured.value.problems)
-
-
-@pytest.mark.parametrize(
-    ("mutation", "expected_code"),
-    (
-        ("event", "fake_measurement_artifact_acquisition_mismatch"),
-        ("channel", "fake_measurement_artifact_acquisition_mismatch"),
-        ("sample_count", "fake_measurement_artifact_acquisition_mismatch"),
-        ("sample_rate", "fake_measurement_artifact_capability_mismatch"),
-    ),
-)
-def test_measurement_selection_rejects_faulty_artifact_acquisition_before_effects(
-    mutation: str,
-    expected_code: str,
-) -> None:
-    scenario = _scenario(
-        product_unit="ratio",
-        product_axes=(shot_axis(2),),
-    )
-    faulty_compiled = compile_target(
-        _FaultyAcquisitionCompiler(scenario.compiler, mutation),
-        scenario.mapping.batch.request,
-    )
-    faulty_target = CompiledQuantumTarget(
-        scenario.mapping,
-        faulty_compiled,
-    )
-
-    with pytest.raises(CheckFailed) as captured:
-        select_fake_measurement_realization(
-            faulty_target,
-            scenario.compiler.target,
-        )
-
-    assert {problem.code for problem in captured.value.problems} == {expected_code}
-    assert all(problem.phase.value == "planning" for problem in captured.value.problems)
-
-
-def test_measurement_selection_rejects_a_different_target_capability() -> None:
-    scenario = _scenario(
-        product_unit="ratio",
-        product_axes=(shot_axis(2),),
-    )
-    different_target = replace(
-        scenario.compiler.target,
-        sample_rate_hz=scenario.compiler.target.sample_rate_hz * 2,
-    )
-
-    with pytest.raises(CheckFailed) as captured:
-        select_fake_measurement_realization(
-            scenario.compiled_target,
-            different_target,
-        )
-
-    assert {problem.code for problem in captured.value.problems} == {
-        "fake_measurement_target_mismatch"
-    }
     assert all(problem.phase.value == "planning" for problem in captured.value.problems)
 
 
@@ -1151,34 +1013,31 @@ def test_two_integrated_results_share_one_batch_execution() -> None:
         sample_count=4,
     )
 
-    selection = select_fake_measurement_realization(
-        scenario.compiled_target,
-        scenario.compiler.target,
+    fake_measurement_invocation_spec(
+        scenario.mapped_target,
+        invocation_id="two-integrated-results",
     )
     awg = _CountingFakeListAwg()
     runtime = FakeListRuntime(awg=awg)
     correlated = correlate_fake_list_run(
-        selection.compiled_target,
-        runtime.execute(selection.compiled_target.compiled),
+        scenario.mapped_target,
+        runtime.execute(scenario.mapped_target.artifact),
     )
-    realized = realize_fake_measurements(selection, correlated)
+    realized = realize_fake_measurements(correlated)
 
-    assert len(selection.outputs) == len(scenario.mapping.domain_mapping.results) == 6
+    assert len(scenario.mapped_target.mapping.results) == 6
     assert awg.play_calls == 1
-    assert tuple(output.result for output in selection.outputs) == (
-        scenario.mapping.domain_mapping.results
-    )
     assert tuple(value.result_address for value in realized) == tuple(
-        result.result_address for result in scenario.mapping.domain_mapping.results
+        result.result_address for result in scenario.mapped_target.mapping.results
     )
 
-    for output, result_value in zip(
-        selection.outputs,
+    for result, result_value in zip(
+        scenario.mapped_target.mapping.results,
         realized,
         strict=True,
     ):
         frames = tuple(
-            frame for frame in correlated.frames if frame.mapped_result is output.result
+            frame for frame in correlated.frames if frame.mapped_result is result
         )
         value = result_value.value
         assert isinstance(value, MeasurementArray)
@@ -1198,20 +1057,20 @@ def test_two_integrated_results_share_one_batch_execution() -> None:
 def test_fake_measurement_invocation_closes_exact_intent() -> None:
     scenario = _mixed_scenario(repetitions=2, sample_count=4)
     invocation = _closed_mixed_invocation(scenario, FakeListDomainRuntime())
-    compiled = scenario.compiled_target.compiled
+    artifact = scenario.mapped_target.artifact
 
     assert tuple(
         result.result_address for result in invocation.result_mapping.results
     ) == tuple(
-        result.result_address for result in scenario.mapping.domain_mapping.results
+        result.result_address for result in scenario.mapped_target.mapping.results
     )
-    assert invocation.payload.compiled_target is scenario.compiled_target
+    assert invocation.payload is scenario.mapped_target
     assert invocation.intent.invocation_id == "mixed-readout"
-    assert invocation.intent.target_id == compiled.target_id.value
-    assert invocation.intent.compiler_id == compiled.compiler_id.value
-    assert invocation.intent.capability_fingerprint == compiled.capability_fingerprint
-    assert invocation.intent.artifact_id == compiled.artifact_id.value
-    assert invocation.intent.artifact_fingerprint == compiled.artifact_fingerprint
+    assert invocation.intent.target_id == artifact.target_id.value
+    assert invocation.intent.compiler_id == artifact.compiler_id.value
+    assert invocation.intent.capability_fingerprint == artifact.capability_fingerprint
+    assert invocation.intent.artifact_id == artifact.id.value
+    assert invocation.intent.artifact_fingerprint == artifact.artifact_fingerprint
 
 
 def test_fake_measurement_invocation_identity_covers_response_intent() -> None:
@@ -1265,7 +1124,7 @@ def test_fake_domain_submit_fetch_and_realize_preserve_canonical_outputs() -> No
     assert submission.submission_id is submission_id
     assert fetched.receipt.status == "fetched"
     assert tuple(value.result_address for value in realized) == tuple(
-        result.result_address for result in scenario.mapping.domain_mapping.results
+        result.result_address for result in scenario.mapped_target.mapping.results
     )
     assert [(entry.stage, entry.effect, entry.state) for entry in journal.entries] == [
         ("domain_submit", "acquisition", "started"),
@@ -1433,32 +1292,26 @@ def test_fake_domain_submit_is_idempotent_for_one_submission_id() -> None:
 
 def test_correlation_uses_artifact_content_identity_not_python_identity() -> None:
     scenario = _scenario()
-    equivalent_compiled = compile_target(
-        scenario.compiler,
-        scenario.mapping.batch.request,
-    )
+    equivalent_compiled = scenario.compiler.compile(scenario.batch.request)
     equivalent_run = FakeListRuntime().execute(equivalent_compiled)
 
-    assert equivalent_compiled.artifact == scenario.compiled_target.compiled.artifact
-    assert (
-        equivalent_compiled.artifact is not scenario.compiled_target.compiled.artifact
-    )
-    correlated = correlate_fake_list_run(scenario.compiled_target, equivalent_run)
+    assert equivalent_compiled == scenario.mapped_target.artifact
+    assert equivalent_compiled is not scenario.mapped_target.artifact
+    correlated = correlate_fake_list_run(scenario.mapped_target, equivalent_run)
     assert correlated.target_run == equivalent_run
 
 
 def test_correlation_rejects_a_run_from_another_compiled_artifact() -> None:
     scenario = _scenario()
-    foreign_compiled = compile_target(
-        scenario.compiler,
-        replace(scenario.mapping.batch.request, repetitions=1),
+    foreign_compiled = scenario.compiler.compile(
+        replace(scenario.batch.request, repetitions=1),
     )
     foreign_run = FakeListRuntime().execute(foreign_compiled)
 
     with pytest.raises(
         ValueError, match="does not retain the compiled target artifact"
     ):
-        correlate_fake_list_run(scenario.compiled_target, foreign_run)
+        correlate_fake_list_run(scenario.mapped_target, foreign_run)
 
 
 @pytest.mark.parametrize(
@@ -1474,7 +1327,7 @@ def test_correlation_rejects_invalid_frame_coverage(
     message: str,
 ) -> None:
     scenario = _scenario()
-    target_run = FakeListRuntime().execute(scenario.compiled_target.compiled)
+    target_run = FakeListRuntime().execute(scenario.mapped_target.artifact)
     frames = target_run.frames
     if mutation == "missing":
         selected_frames = frames[:-1]
@@ -1508,4 +1361,4 @@ def test_correlation_rejects_invalid_frame_coverage(
     object.__setattr__(tampered, "frames", selected_frames)
 
     with pytest.raises(ValueError, match=message):
-        correlate_fake_list_run(scenario.compiled_target, tampered)
+        correlate_fake_list_run(scenario.mapped_target, tampered)
