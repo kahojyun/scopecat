@@ -127,9 +127,14 @@ Run the repository checks from the repository root:
 ```sh
 uv run pytest
 uv run basedpyright
+uv run lint-imports
 uv run ruff check packages examples docs scripts
 uv run ruff format --check packages examples docs scripts
 ```
+
+The default test run includes all package tests and one end-to-end quantum
+first-use slice. Run the complete demo suite explicitly with
+`uv run pytest examples/quantum/tests examples/quantum/support/tests`.
 
 To assemble release artifacts without modifying either source tree:
 
