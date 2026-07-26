@@ -11,29 +11,10 @@ from scopecat.api.run import (
 )
 from scopecat.authoring import ExperimentInvocation, ExperimentTemplate, ValueRef
 from scopecat.authoring.scans import Scan, ScanCenter, ScanValue
-from scopecat.compiler.environment import ConfigEnvironment
-from scopecat.compiler.frontend.resolution import (
-    compile_invocation,
-    resolve_compiled_invocation,
-)
-from scopecat.compiler.linking.linked import (
-    LinkedPlan,
-    MaterializedLinkedPoints,
-    materialize_linked_points,
-)
-from scopecat.compiler.linking.linked import (
-    link_program as link_core_program,
-)
-from scopecat.compiler.measurement_projection import (
-    project_measurement_catalog,
-    project_run_point_catalog,
-)
-from scopecat.compiler.typed.program import CoreProgram
 from scopecat.config.candidates import (
     CandidateConfig,
 )
 from scopecat.config.changes import prepare_parameter_change_approval
-from scopecat.config.environment import build_config_environment
 from scopecat.config.registry import service as config_registry_service
 from scopecat.config.registry.records import (
     ConfigRegistryActivationRecord,
@@ -41,24 +22,8 @@ from scopecat.config.registry.records import (
     ConfigRegistryEntry,
 )
 from scopecat.execution.interpreter import execute_admitted_run
-from scopecat.execution.local.program import ComputeOperation, LocalOperation
-from scopecat.execution.program import RunCoverageEffect
 from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.resource_identity import ResourceClaim
-from scopecat.measurements.points import RunPoint
-from scopecat.measurements.projection import (
-    MeasurementProjection,
-    select_measurement_projection,
-)
 from scopecat.planning.check_results import ExperimentCheckResult
-from scopecat.planning.local_effects import (
-    MaterializedLocalEffects as LocalEffects,
-)
-from scopecat.planning.local_effects import local_operation_resource_claims
-from scopecat.planning.local_materialization import (
-    materialize_local_execution,
-    prepare_local_target,
-)
 from scopecat.planning.preview_models import ExperimentPreview
 from scopecat.planning.system import ExperimentSystem
 from scopecat.project_state import ProjectStateServices
@@ -69,15 +34,12 @@ from tests.testkit.runtime import (
     ServiceRunOperations,
     admit_test_run,
     check_experiment,
-    list_test_runs,
     plan_experiment,
-    resolve_test_config,
     sqlite_execution_session,
     sqlite_project_services,
 )
 
 from quantum_lab_demo.compiler import QuantumLabCompiler
-from quantum_lab_demo.configuration import quantum_lab_bootstrap_config
 from quantum_lab_demo.lab import quantum_lab_config_profile, quantum_lab_system
 
 from .demo_lab_test_paths import (
@@ -98,17 +60,6 @@ class _RegisteredConfigActivation:
     entry: ConfigRegistryEntry
     active_state: ConfigRegistryActiveState
     activation: ConfigRegistryActivationRecord
-
-
-def link_invocation(
-    invocation: ExperimentInvocation,
-    *,
-    config_profile: ConfigProfileSnapshot,
-) -> LinkedPlan:
-    return resolve_compiled_invocation(
-        compile_invocation(invocation),
-        environment=build_config_environment(config_profile),
-    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -217,23 +168,6 @@ class InProcessQuantumLab:
 
     def get_run(self, run: RunSelector | RunHandle) -> RunHandle:
         return RunHandle(session=self, id=run_handle_id(run))
-
-    def runs(self) -> tuple[RunHandle, ...]:
-        return tuple(
-            RunHandle(session=self, id=manifest.run_id)
-            for manifest in list_test_runs(self.services.runs)
-        )
-
-    def resolve_config(
-        self,
-        *,
-        config: str | ConfigProfileSnapshot | CandidateConfig | None = None,
-    ) -> ConfigProfileSnapshot:
-        selected = self.config if config is None else config
-        return resolve_test_config(
-            services=self.services,
-            config=selected,
-        )[0]
 
     def review_parameter_proposal(
         self,
@@ -366,129 +300,3 @@ def in_process_quantum_lab(
             compiler=compiler,
         ),
     )
-
-
-@dataclass(frozen=True, slots=True)
-class LocalEffectInspection:
-    """Production-aligned view of logical points and local effect coverage."""
-
-    points: tuple[RunPoint, ...]
-    effects: tuple[RunCoverageEffect, ...]
-    resource_order: tuple[str, ...]
-    resource_claims: tuple[ResourceClaim, ...]
-    preamble_operations: tuple[ComputeOperation, ...] = ()
-
-
-def load_experiment_config() -> ConfigProfileSnapshot:
-    return quantum_lab_bootstrap_config()
-
-
-def link_program(
-    program: CoreProgram,
-    environment: ConfigEnvironment,
-) -> LinkedPlan:
-    """Link an externally constructed test program."""
-
-    return link_core_program(program, environment)
-
-
-def materialized_effects(
-    invocation: ExperimentInvocation,
-    *,
-    config: ConfigProfileSnapshot | None = None,
-) -> LocalEffectInspection:
-    """Compile an invocation for direct test-only inspection."""
-
-    linked_points = _materialized_linked_points(invocation, config=config)
-    target = prepare_local_target(
-        linked_points.linked_plan,
-        product_use_ids=frozenset(
-            use.id for use in linked_points.linked_plan.program.product_uses
-        ),
-    )
-    lowered: LocalEffects = materialize_local_execution(
-        linked_points,
-        target=target,
-    )
-    ordered_effects = (
-        *lowered.compute_operations,
-        *(effect for group in lowered.effect_operations for effect in group),
-    )
-    claims = tuple(
-        dict.fromkeys(
-            claim
-            for effect in ordered_effects
-            for claim in local_operation_resource_claims(effect.operation)
-        )
-    )
-    instrument_ids = {claim.id for claim in claims if claim.kind == "instrument"}
-    resource_order = (
-        *(item for item in target.instrument_order if item in instrument_ids),
-        *sorted(instrument_ids - set(target.instrument_order)),
-    )
-    return LocalEffectInspection(
-        points=project_run_point_catalog(linked_points).points,
-        effects=ordered_effects,
-        resource_order=resource_order,
-        resource_claims=claims,
-        preamble_operations=target.run_operations,
-    )
-
-
-def operations_of_type[T: LocalOperation](
-    inspection: LocalEffectInspection,
-    operation_type: type[T],
-    *,
-    point_index: int | None = None,
-) -> tuple[T, ...]:
-    """Select operations, optionally restricted to one logical point."""
-
-    return tuple(
-        effect.operation
-        for effect in inspection.effects
-        if (point_index is None or point_index in effect.point_indices)
-        and isinstance(effect.operation, operation_type)
-    )
-
-
-def measurement_projection(
-    invocation: ExperimentInvocation,
-    *,
-    config: ConfigProfileSnapshot | None = None,
-) -> MeasurementProjection:
-    """Build the production record projection for focused shape assertions."""
-
-    linked_points = _materialized_linked_points(invocation, config=config)
-    return select_measurement_projection(
-        project_measurement_catalog(linked_points),
-        linked_points.linked_plan.program.record_uses,
-    )
-
-
-def measurement_projection_and_points(
-    invocation: ExperimentInvocation,
-    *,
-    config: ConfigProfileSnapshot | None = None,
-) -> tuple[MeasurementProjection, tuple[RunPoint, ...]]:
-    linked_points = _materialized_linked_points(invocation, config=config)
-    return (
-        select_measurement_projection(
-            project_measurement_catalog(linked_points),
-            linked_points.linked_plan.program.record_uses,
-        ),
-        project_run_point_catalog(linked_points).points,
-    )
-
-
-def _materialized_linked_points(
-    invocation: ExperimentInvocation,
-    *,
-    config: ConfigProfileSnapshot | None,
-) -> MaterializedLinkedPoints:
-    selected_config = config or load_experiment_config()
-    resolved = link_invocation(invocation, config_profile=selected_config)
-    environment = replace(
-        build_config_environment(selected_config),
-        parameters=resolved.environment.parameters,
-    )
-    return materialize_linked_points(link_program(resolved.program, environment))

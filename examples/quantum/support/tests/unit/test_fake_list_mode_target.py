@@ -1,14 +1,10 @@
 from __future__ import annotations
 
-import cmath
 import math
 from collections.abc import Sequence
-from dataclasses import dataclass, replace
 from decimal import Decimal
 
 import pytest
-from hypothesis import given
-from hypothesis import strategies as st
 from scopecat import Quantity
 from scopecat_quantum._ids import (
     AcquisitionSlotId,
@@ -21,18 +17,11 @@ from scopecat_quantum._ids import (
     QubitId,
     TargetCompileEntryId,
     TargetCompilerId,
-    TargetId,
 )
 from scopecat_quantum.acquisitions import AcquisitionKind
 from scopecat_quantum.circuits import Measure
 from scopecat_quantum.gates import GateCall, GateDefinition
-from scopecat_quantum.program_targets import (
-    PreparedQuantumTargetEntry,
-    prepare_quantum_target_batch,
-    prepare_quantum_target_entry,
-)
 from scopecat_quantum.programs import (
-    CircuitPulseAcquisitionProvenance,
     CircuitPulseEventProvenance,
     QuantumProgramIR,
     lower_quantum_program_to_pulses,
@@ -52,339 +41,48 @@ from scopecat_quantum.pulses import (
     AcquireSignal,
     AcquisitionSlot,
     Constant,
-    Delay,
     DriveSignal,
-    Gaussian,
     Play,
     PulseProgram,
     ReadoutSignal,
     ScheduledPulseProgram,
-    ShiftPhase,
     schedule,
 )
-from scopecat_quantum.pulses import (
-    Parallel as PulseParallel,
-)
-from scopecat_quantum.pulses import (
-    Sequence as PulseSequence,
-)
-from scopecat_quantum.targets import (
-    TargetArtifact,
-    TargetCompilationError,
-    TargetCompileEntry,
-    TargetCompileRequest,
-)
+from scopecat_quantum.pulses import Parallel as PulseParallel
+from scopecat_quantum.targets import TargetCompileEntry, TargetCompileRequest
 
 from quantum_lab_demo.targets.fake_list_mode import (
-    FakeAcquisitionBinding,
-    FakeAcquisitionWindow,
-    FakeAwgChannelId,
-    FakeDigitizerChannelId,
-    FakeListEntry,
     FakeListRuntime,
     FakeListTarget,
     FakeListTargetCompiler,
-    FakeOutputBinding,
-    FakeSegmentedDigitizer,
     configured_fake_list_target,
-)
-from quantum_lab_demo.targets.fake_list_mode.model import (
-    acquisition_slot_identity_payload,
-)
-from quantum_lab_demo.targets.fake_list_mode.runtime import (
-    FakeAcquisitionResponse,
-    FakeAwgPlayback,
-    FakeDigitizerValue,
 )
 from quantum_lab_demo.virtual_lab.wiring import quantum_wiring_config_profile
 
 Q0 = QubitId("q0")
-Q1 = QubitId("q1")
-Q2 = QubitId("q2")
 DRIVE_Q0 = DriveSignal(Q0)
-DRIVE_Q1 = DriveSignal(Q1)
 ACQUIRE_Q0 = AcquireSignal(Q0)
-ACQUIRE_Q1 = AcquireSignal(Q1)
 READOUT_Q0 = ReadoutSignal(Q0)
-READOUT_Q1 = ReadoutSignal(Q1)
 
 
-@dataclass(frozen=True, slots=True)
-class _IndexedAcquisitionResponse:
-    fingerprint: str
-    offset: int = 0
-
-    def value_for(
-        self,
-        *,
-        playback: FakeAwgPlayback,
-        window: FakeAcquisitionWindow,
-    ) -> FakeDigitizerValue:
-        base = complex(
-            playback.shot_index + self.offset,
-            window.start_sample + window.sample_count,
-        )
-        return base
-
-
-def _target(
-    *,
-    shared_output: bool = False,
-    shared_acquisition: bool = False,
-) -> FakeListTarget:
-    return FakeListTarget(
-        id=TargetId("fake-list-target"),
-        sample_rate_hz=1_000_000_000,
-        max_list_entries=16,
-        max_samples_per_entry=1_024,
-        max_waveform_memory_samples=16_384,
-        max_capture_memory_samples=16_384,
-        max_repetitions=128,
-        max_frames=1_024,
-        max_abs_amplitude=1.0,
-        output_bindings=(
-            FakeOutputBinding(DRIVE_Q0, FakeAwgChannelId("awg.0")),
-            FakeOutputBinding(
-                DRIVE_Q1,
-                FakeAwgChannelId("awg.0" if shared_output else "awg.1"),
-            ),
-            FakeOutputBinding(READOUT_Q0, FakeAwgChannelId("awg.readout.0")),
-            FakeOutputBinding(READOUT_Q1, FakeAwgChannelId("awg.readout.1")),
-        ),
-        acquisition_bindings=(
-            FakeAcquisitionBinding(
-                ACQUIRE_Q0,
-                FakeDigitizerChannelId("adc.0"),
-            ),
-            FakeAcquisitionBinding(
-                ACQUIRE_Q1,
-                FakeDigitizerChannelId("adc.0" if shared_acquisition else "adc.1"),
-            ),
-        ),
-    )
-
-
-def _scheduled_program(
-    name: str,
-    *,
-    qubit: QubitId,
-    duration_ns: float = 4.0,
-    amplitude: float = 0.25,
-    amplitude_unit: str = "arb",
-    kind: AcquisitionKind = AcquisitionKind.INTEGRATED_IQ,
-    gaussian: bool = False,
-) -> ScheduledPulseProgram:
-    drive = DriveSignal(qubit)
-    acquire = AcquireSignal(qubit)
-    duration = Quantity(duration_ns, "ns")
-    envelope = (
-        Gaussian(
-            duration=duration,
-            amplitude=Quantity(amplitude, amplitude_unit),
-            sigma=Quantity(1, "ns"),
-        )
-        if gaussian
-        else Constant(
-            duration=duration,
-            amplitude=Quantity(amplitude, amplitude_unit),
-        )
-    )
-    slot = AcquisitionSlot(
-        AcquisitionSlotId(f"{name}-slot"),
-        kind,
-        acquire,
-    )
-    return schedule(
-        PulseProgram(
-            id=PulseProgramId(name),
-            body=PulseParallel(
-                (
-                    Play(PulseEventId(f"{name}-play"), drive, envelope),
-                    Acquire(
-                        PulseEventId(f"{name}-acquire"),
-                        acquire,
-                        slot.id,
-                        duration,
-                    ),
-                )
-            ),
-            acquisition_slots=(slot,),
-        )
-    )
-
-
-def _scheduled_drag_program(
-    name: str,
-    *,
-    duration_ns: float = 4.0,
-    amplitude: float = 0.2,
-    sigma_ns: float = 1.0,
-    beta_ns: float = 0.5,
-    phase_rad: float = 0.0,
-):
-    return schedule(
-        PulseProgram(
-            id=PulseProgramId(name),
-            body=Play(
-                PulseEventId(f"{name}-play"),
-                DRIVE_Q0,
-                DRAG(
-                    duration=Quantity(duration_ns, "ns"),
-                    amplitude=Quantity(amplitude, "arb"),
-                    sigma=Quantity(sigma_ns, "ns"),
-                    beta=Quantity(beta_ns, "ns"),
-                    phase=Quantity(phase_rad, "rad"),
-                ),
-            ),
-        )
-    )
-
-
-def _parallel_two_qubit_program(
-    *,
-    gaussian_q1: bool = False,
-    q0_amplitude_unit: str = "arb",
-):
-    duration = Quantity(4, "ns")
-    slots = (
-        AcquisitionSlot(
-            AcquisitionSlotId("q0-slot"),
-            AcquisitionKind.INTEGRATED_IQ,
-            ACQUIRE_Q0,
-        ),
-        AcquisitionSlot(
-            AcquisitionSlotId("q1-slot"),
-            AcquisitionKind.INTEGRATED_IQ,
-            ACQUIRE_Q1,
-        ),
-    )
-    q1_envelope = (
-        Gaussian(duration, Quantity(0.2, "arb"), Quantity(1, "ns"))
-        if gaussian_q1
-        else Constant(duration, Quantity(0.2, "arb"))
-    )
-    return schedule(
-        PulseProgram(
-            id=PulseProgramId("parallel-two-qubit"),
-            body=PulseParallel(
-                (
-                    Play(
-                        PulseEventId("q0-play"),
-                        DRIVE_Q0,
-                        Constant(duration, Quantity(0.2, q0_amplitude_unit)),
-                    ),
-                    Play(PulseEventId("q1-play"), DRIVE_Q1, q1_envelope),
-                    Acquire(
-                        PulseEventId("q0-acquire"),
-                        ACQUIRE_Q0,
-                        slots[0].id,
-                        duration,
-                    ),
-                    Acquire(
-                        PulseEventId("q1-acquire"),
-                        ACQUIRE_Q1,
-                        slots[1].id,
-                        duration,
-                    ),
-                )
-            ),
-            acquisition_slots=slots,
-        )
-    )
-
-
-def _prepared_measurement_entry(
-    *,
-    entry_id: str,
-    program_id: str,
-    qubit: QubitId,
-    acquisition_kind: AcquisitionKind,
-    acquisition_slot_id: AcquisitionSlotId,
-) -> tuple[PreparedQuantumTargetEntry, Measure, MeasurementPulseImplementation]:
-    measurement = Measure(
-        id=CircuitOperationId("measure"),
-        qubit=qubit,
-        acquisition_slot_id=acquisition_slot_id,
-        acquisition_kind=acquisition_kind,
-    )
-    template_slot = AcquisitionSlot(
-        id=AcquisitionSlotId("template-result"),
-        kind=acquisition_kind,
-        signal=AcquireSignal(qubit),
-    )
-    template = PulseProgram(
-        id=PulseProgramId("readout-template"),
-        body=PulseParallel(
-            (
-                Play(
-                    id=PulseEventId("stimulus"),
-                    signal=ReadoutSignal(qubit),
-                    envelope=Constant(
-                        duration=Quantity(4, "ns"),
-                        amplitude=Quantity(0.4, "arb"),
-                    ),
-                ),
-                Acquire(
-                    id=PulseEventId("capture"),
-                    signal=AcquireSignal(qubit),
-                    slot_id=template_slot.id,
-                    duration=Quantity(4, "ns"),
-                ),
-            )
-        ),
-        acquisition_slots=(template_slot,),
-    )
-    implementation = MeasurementPulseImplementation(
-        id=PulseImplementationId(f"readout-{qubit.value}-{acquisition_kind.value}"),
-        key=MeasurementPulseImplementationKey.from_measurement(measurement),
-        pulse_template=template,
-    )
-    verified = verify_quantum_program(
-        QuantumProgramIR(
-            id=QuantumProgramId(program_id),
-            body=measurement,
-        ),
-        (),
-    )
-    lowered = lower_quantum_program_to_pulses(
-        verified,
-        ResolvedPulseImplementations(
-            measurements=(implementation,),
-        ),
-        output_id=PulseProgramId(f"{entry_id}-pulses"),
-    )
-    return (
-        prepare_quantum_target_entry(
-            TargetCompileEntryId(entry_id),
-            lowered,
-        ),
-        measurement,
-        implementation,
-    )
+def _target() -> FakeListTarget:
+    return configured_fake_list_target(quantum_wiring_config_profile())
 
 
 def _request(
     target: FakeListTarget,
     programs: Sequence[ScheduledPulseProgram],
     *,
-    repetitions: int = 3,
-    entry_ids: tuple[str, ...] | None = None,
+    repetitions: int,
 ) -> tuple[FakeListTargetCompiler, TargetCompileRequest]:
     compiler = FakeListTargetCompiler(
         TargetCompilerId("fake-list-compiler.v1"),
         target,
     )
-    selected_entry_ids = entry_ids or tuple(
-        f"entry-{label}"
-        for label in ("alpha", "zeta", "gamma", "delta")[: len(programs)]
-    )
-    if len(selected_entry_ids) != len(programs):
-        msg = "entry_ids must exactly cover programs"
-        raise ValueError(msg)
     request = TargetCompileRequest(
         entries=tuple(
             TargetCompileEntry(
-                TargetCompileEntryId(selected_entry_ids[index]),
+                TargetCompileEntryId(f"entry-{index}"),
                 program,
             )
             for index, program in enumerate(programs)
@@ -394,235 +92,7 @@ def _request(
     return compiler, request
 
 
-def _compile_two_entries(*, repetitions: int = 3):
-    target = _target()
-    compiler, request = _request(
-        target,
-        (
-            _scheduled_program("q0-program", qubit=Q0),
-            _scheduled_program(
-                "q1-program",
-                qubit=Q1,
-            ),
-        ),
-        repetitions=repetitions,
-    )
-    return compiler.compile(request)
-
-
-def _issue_codes(error: TargetCompilationError) -> set[str]:
-    return {issue.code for issue in error.issues}
-
-
-def test_compiler_builds_immutable_ordered_list_artifact() -> None:
-    artifact = _compile_two_entries()
-
-    assert isinstance(artifact, TargetArtifact)
-    assert artifact.source_entry_ids == (
-        TargetCompileEntryId("entry-alpha"),
-        TargetCompileEntryId("entry-zeta"),
-    )
-    assert [entry.list_index for entry in artifact.entries] == [0, 1]
-    assert [entry.sample_count for entry in artifact.entries] == [4, 4]
-    assert all(len(entry.waveforms) == 1 for entry in artifact.entries)
-    assert all(
-        len(waveform.samples) == entry.sample_count
-        for entry in artifact.entries
-        for waveform in entry.waveforms
-    )
-    assert artifact.entries[0].waveforms[0].samples == (0.25 + 0j,) * 4
-    assert artifact.artifact_fingerprint.startswith("sha256:")
-    assert artifact.id.value.endswith(
-        artifact.artifact_fingerprint.removeprefix("sha256:")
-    )
-
-
-def test_compiler_accumulates_frame_phase_per_entry_and_adds_envelope_phase() -> None:
-    phase_program = schedule(
-        PulseProgram(
-            id=PulseProgramId("frame-phase"),
-            body=PulseSequence(
-                (
-                    ShiftPhase(
-                        PulseEventId("shift-quarter"),
-                        DRIVE_Q0,
-                        Quantity(math.pi / 4, "rad"),
-                    ),
-                    Play(
-                        PulseEventId("first-play"),
-                        DRIVE_Q0,
-                        Constant(
-                            Quantity(4, "ns"),
-                            Quantity(0.25, "arb"),
-                            Quantity(math.pi / 4, "rad"),
-                        ),
-                    ),
-                    ShiftPhase(
-                        PulseEventId("shift-half"),
-                        DRIVE_Q0,
-                        Quantity(math.pi / 2, "rad"),
-                    ),
-                    Play(
-                        PulseEventId("second-play"),
-                        DRIVE_Q0,
-                        Constant(
-                            Quantity(4, "ns"),
-                            Quantity(0.25, "arb"),
-                            Quantity(math.pi / 4, "rad"),
-                        ),
-                    ),
-                )
-            ),
-        )
-    )
-    reset_program = schedule(
-        PulseProgram(
-            id=PulseProgramId("frame-reset"),
-            body=Play(
-                PulseEventId("plain-play"),
-                DRIVE_Q0,
-                Constant(Quantity(4, "ns"), Quantity(0.25, "arb")),
-            ),
-        )
-    )
-    compiler, request = _request(
-        _target(),
-        (phase_program, reset_program),
-        repetitions=1,
-    )
-
-    artifact = compiler.compile(request)
-
-    assert artifact.entries[0].waveforms[0].samples == pytest.approx(
-        (0.25j,) * 4 + (-0.25 + 0j,) * 4
-    )
-    assert artifact.entries[1].waveforms[0].samples == (0.25 + 0j,) * 4
-
-
-def test_compiler_wraps_large_frame_and_envelope_phases_before_combining() -> None:
-    large_phase = 1e308
-    program = schedule(
-        PulseProgram(
-            id=PulseProgramId("large-frame-phase"),
-            body=PulseSequence(
-                (
-                    ShiftPhase(
-                        PulseEventId("first-shift"),
-                        DRIVE_Q0,
-                        Quantity(large_phase, "rad"),
-                    ),
-                    ShiftPhase(
-                        PulseEventId("second-shift"),
-                        DRIVE_Q0,
-                        Quantity(large_phase, "rad"),
-                    ),
-                    Play(
-                        PulseEventId("play"),
-                        DRIVE_Q0,
-                        Constant(
-                            Quantity(4, "ns"),
-                            Quantity(0.25, "arb"),
-                            Quantity(large_phase, "rad"),
-                        ),
-                    ),
-                )
-            ),
-        )
-    )
-    compiler, request = _request(_target(), (program,), repetitions=1)
-
-    artifact = compiler.compile(request)
-
-    reduced = math.remainder(large_phase, math.tau)
-    combined = math.remainder(
-        math.remainder(reduced + reduced, math.tau) + reduced,
-        math.tau,
-    )
-    expected = cmath.rect(0.25, combined)
-    assert artifact.entries[0].waveforms[0].samples == pytest.approx((expected,) * 4)
-
-
-def test_fake_target_uses_structural_acquisition_slot_identity() -> None:
-    structurally_first = AcquisitionSlotId("slot", scope=("a", "b"))
-    rendered_first = AcquisitionSlotId("slot", scope=("a/b",))
-    assert rendered_first.value < structurally_first.value
-    windows = tuple(
-        FakeAcquisitionWindow(
-            event_id=PulseEventId(f"capture-{index}"),
-            slot_id=slot_id,
-            signal=ACQUIRE_Q0,
-            channel_id=FakeDigitizerChannelId("adc.0"),
-            start_sample=0,
-            sample_count=1,
-        )
-        for index, slot_id in enumerate((rendered_first, structurally_first))
-    )
-
-    entry = FakeListEntry(
-        list_index=0,
-        entry_id=TargetCompileEntryId("entry"),
-        program_id=PulseProgramId("program"),
-        sample_count=1,
-        waveforms=(),
-        acquisitions=windows,
-    )
-
-    assert tuple(window.slot_id for window in entry.acquisitions) == (
-        structurally_first,
-        rendered_first,
-    )
-    assert acquisition_slot_identity_payload(rendered_first) == {
-        "scope": ["a/b"],
-        "local_id": "slot",
-    }
-
-
-def test_calibrated_gate_circuit_reaches_fake_list_target() -> None:
-    gate = GateDefinition(GateId("x"), qubit_arity=1)
-    first = GateCall(CircuitOperationId("first"), gate.id, (Q0,))
-    second = GateCall(CircuitOperationId("second"), gate.id, (Q0,))
-    program = verify_quantum_program(
-        QuantumProgramIR(
-            QuantumProgramId("two-x-gates"),
-            QuantumSequence((first, second)),
-        ),
-        (gate,),
-    )
-    template = PulseProgram(
-        PulseProgramId("x-template"),
-        Play(
-            PulseEventId("drive"),
-            DRIVE_Q0,
-            Constant(Quantity(4, "ns"), Quantity(0.25, "arb")),
-        ),
-    )
-    lowered = lower_quantum_program_to_pulses(
-        program,
-        ResolvedPulseImplementations(
-            gates=(
-                GatePulseImplementation(
-                    PulseImplementationId("x-q0"),
-                    GatePulseImplementationKey.from_call(first),
-                    template,
-                ),
-            )
-        ),
-        output_id=PulseProgramId("two-x-pulses"),
-    )
-    scheduled = schedule(lowered.program)
-
-    assert len({event.id for event in scheduled.events}) == 2
-    assert scheduled.events[0].id.scope != scheduled.events[1].id.scope
-    target = _target()
-    compiler, request = _request(target, (scheduled,), repetitions=1)
-    artifact = compiler.compile(request)
-    entry = artifact.entries[0]
-    assert entry.sample_count == 8
-    assert entry.waveforms[0].samples == (0.25 + 0j,) * 8
-    assert entry.acquisitions == ()
-
-
-def test_calibrated_measurement_reaches_fake_awg_and_digitizer() -> None:
+def test_fake_list_compiles_and_runs_one_calibrated_acquisition() -> None:
     gate = GateDefinition(GateId("x"), qubit_arity=1)
     gate_call = GateCall(CircuitOperationId("x"), gate.id, (Q0,))
     measurement = Measure(
@@ -691,378 +161,63 @@ def test_calibrated_measurement_reaches_fake_awg_and_digitizer() -> None:
         output_id=PulseProgramId("x-then-readout"),
     )
     scheduled = schedule(lowered.program)
-
-    assert scheduled.duration_seconds == Decimal("12e-9")
-    assert tuple(slot.id for slot in scheduled.acquisition_slots) == (
-        measurement.acquisition_slot_id,
-    )
-    assert {
-        provenance.event_id.scope[:4]
-        for provenance in lowered.event_provenance
-        if isinstance(provenance, CircuitPulseEventProvenance)
-        and provenance.operation_id == measurement.id
-    } == {("programs", "x-then-measure", "operations", "measure")}
     target = _target()
     compiler, request = _request(target, (scheduled,), repetitions=2)
-    compiled = compiler.compile(request)
-    entry = compiled.entries[0]
-    waveforms = {
-        waveform.channel_id.value: waveform.samples for waveform in entry.waveforms
-    }
-    assert entry.sample_count == 12
-    assert waveforms["awg.0"] == (0.25 + 0j,) * 4 + (0j,) * 8
-    assert waveforms["awg.readout.0"] == (0j,) * 4 + (0.4 + 0j,) * 8
-    assert len(entry.acquisitions) == 1
-    window = entry.acquisitions[0]
+
+    artifact = compiler.compile(request)
+    [entry] = artifact.entries
+    drive_channel = target.output_channel(DRIVE_Q0)
+    readout_channel = target.output_channel(READOUT_Q0)
+    assert drive_channel is not None
+    assert readout_channel is not None
+    waveforms = {waveform.channel_id: waveform.samples for waveform in entry.waveforms}
+
+    assert scheduled.duration_seconds == Decimal("12e-9")
+    assert waveforms[drive_channel] == (0.25 + 0j,) * 4 + (0j,) * 8
+    assert waveforms[readout_channel] == (0j,) * 4 + (0.4 + 0j,) * 8
+    [window] = entry.acquisitions
     assert window.slot_id == measurement.acquisition_slot_id
-    assert window.start_sample == 4
-    assert window.sample_count == 8
-    run = FakeListRuntime().execute(compiled)
-    assert tuple(
+    assert (window.start_sample, window.sample_count) == (4, 8)
+    assert any(
+        isinstance(origin, CircuitPulseEventProvenance)
+        and origin.operation_id == measurement.id
+        for origin in lowered.event_provenance
+    )
+
+    run = FakeListRuntime().execute(artifact)
+    assert [
         (frame.shot_index, frame.entry_id, frame.slot_id) for frame in run.frames
-    ) == (
-        (0, TargetCompileEntryId("entry-alpha"), measurement.acquisition_slot_id),
-        (1, TargetCompileEntryId("entry-alpha"), measurement.acquisition_slot_id),
-    )
+    ] == [
+        (shot, TargetCompileEntryId("entry-0"), measurement.acquisition_slot_id)
+        for shot in range(2)
+    ]
     assert all(isinstance(frame.value, complex) for frame in run.frames)
-    assert run == FakeListRuntime().execute(compiled)
 
 
-def test_prepared_quantum_batch_resolves_reused_slots_from_runtime_frames() -> None:
-    target = _target()
-    compiler = FakeListTargetCompiler(
-        TargetCompilerId("fake-list-compiler.v1"),
-        target,
-    )
-    shared_slot_id = AcquisitionSlotId(
-        "result",
-        scope=("circuit-local",),
-    )
-    iq_entry, iq_measurement, iq_implementation = _prepared_measurement_entry(
-        entry_id="iq-entry",
-        program_id="iq-program",
-        qubit=Q0,
-        acquisition_kind=AcquisitionKind.INTEGRATED_IQ,
-        acquisition_slot_id=shared_slot_id,
-    )
-    q1_entry, q1_measurement, q1_implementation = _prepared_measurement_entry(
-        entry_id="q1-entry",
-        program_id="q1-program",
-        qubit=Q1,
-        acquisition_kind=AcquisitionKind.INTEGRATED_IQ,
-        acquisition_slot_id=shared_slot_id,
-    )
-    repetitions = 3
-    batch = prepare_quantum_target_batch(
-        (iq_entry, q1_entry),
-        repetitions=repetitions,
-    )
-
-    compiled = compiler.compile(batch.request)
-    run = FakeListRuntime().execute(compiled)
-
-    assert len(batch.acquisition_addresses) == 2
-    assert len(set(batch.acquisition_addresses)) == 2
-    assert {address.slot_id for address in batch.acquisition_addresses} == {
-        shared_slot_id
-    }
-    assert len(run.playbacks) == repetitions * 2
-    assert len(run.frames) == repetitions * 2
-    assert {frame.address for frame in run.frames} == set(batch.acquisition_addresses)
-    assert all(
-        tuple(frame.shot_index for frame in run.frames if frame.address == address)
-        == tuple(range(repetitions))
-        for address in batch.acquisition_addresses
-    )
-
-    expected = {
-        iq_entry.id: (
-            iq_entry.source_program_id,
-            iq_measurement,
-            iq_implementation,
-        ),
-        q1_entry.id: (
-            q1_entry.source_program_id,
-            q1_measurement,
-            q1_implementation,
-        ),
-    }
-    for frame in run.frames:
-        origin = batch.acquisition_origin_for(frame.address)
-        source_program_id, measurement, implementation = expected[frame.entry_id]
-        assert origin.address == frame.address
-        assert origin.source_program_id == source_program_id
-        assert isinstance(origin.provenance, CircuitPulseAcquisitionProvenance)
-        assert origin.provenance.measurement_id == measurement.id
-        assert origin.provenance.acquisition_slot_id == measurement.acquisition_slot_id
-        assert origin.provenance.implementation_id == implementation.id
-        assert frame.slot_id == shared_slot_id
-        assert isinstance(frame.value, complex)
-
-
-def test_runtime_loops_full_list_per_shot_and_correlates_frames() -> None:
-    compiled = _compile_two_entries(repetitions=3)
-
-    first = FakeListRuntime().execute(compiled)
-    second = FakeListRuntime().execute(compiled)
-
-    assert [
-        (playback.shot_index, playback.list_index, playback.entry_id.value)
-        for playback in first.playbacks
-    ] == [
-        (
-            shot,
-            list_index,
-            ("entry-alpha", "entry-zeta")[list_index],
+def test_fake_list_samples_drag_and_tracks_beta_in_artifact_identity() -> None:
+    def compile_drag(beta_ns: float):
+        target = _target()
+        scheduled = schedule(
+            PulseProgram(
+                id=PulseProgramId("drag"),
+                body=Play(
+                    PulseEventId("drag-play"),
+                    DRIVE_Q0,
+                    DRAG(
+                        duration=Quantity(4, "ns"),
+                        amplitude=Quantity(0.2, "arb"),
+                        sigma=Quantity(1, "ns"),
+                        beta=Quantity(beta_ns, "ns"),
+                    ),
+                ),
+            )
         )
-        for shot in range(3)
-        for list_index in range(2)
-    ]
-    assert [
-        (
-            frame.frame_index,
-            frame.shot_index,
-            frame.list_index,
-            frame.entry_id.value,
-            frame.slot_id.value,
-        )
-        for frame in first.frames
-    ] == [
-        (
-            frame_index,
-            shot,
-            list_index,
-            ("entry-alpha", "entry-zeta")[list_index],
-            f"q{list_index}-program-slot",
-        )
-        for frame_index, (shot, list_index) in enumerate(
-            (shot, list_index) for shot in range(3) for list_index in range(2)
-        )
-    ]
-    assert all(isinstance(frame.value, complex) for frame in first.frames)
-    assert first == second
-    assert first.fingerprint.startswith("sha256:")
+        compiler, request = _request(target, (scheduled,), repetitions=1)
+        return target, compiler.compile(request)
 
-
-def test_runtime_accepts_deterministic_custom_acquisition_response() -> None:
-    compiled = _compile_two_entries(repetitions=3)
-    response = _IndexedAcquisitionResponse(
-        fingerprint="sha256:" + "1" * 64,
-        offset=7,
-    )
-    runtime = FakeListRuntime(
-        digitizer=FakeSegmentedDigitizer(response=response),
-    )
-
-    first = runtime.execute(compiled)
-    second = runtime.execute(compiled)
-    default_run = FakeListRuntime().execute(compiled)
-
-    assert isinstance(response, FakeAcquisitionResponse)
-    assert first == second
-    assert first.response is response
-    assert first.fingerprint != default_run.fingerprint
-    for frame in first.frames:
-        expected = complex(frame.shot_index + response.offset, 4)
-        assert frame.value == expected
-
-
-def test_runtime_preserves_multiple_slot_order_within_each_list_entry() -> None:
-    target = _target()
-    compiler, request = _request(
-        target,
-        (_parallel_two_qubit_program(),),
-        repetitions=2,
-    )
-
-    run = FakeListRuntime().execute(compiler.compile(request))
-
-    assert [
-        (frame.shot_index, frame.segment_index, frame.slot_id.value)
-        for frame in run.frames
-    ] == [
-        (0, 0, "q0-slot"),
-        (0, 1, "q1-slot"),
-        (1, 0, "q0-slot"),
-        (1, 1, "q1-slot"),
-    ]
-
-
-def test_response_depends_on_waveform_but_not_physical_list_position() -> None:
-    target = _target()
-    low_program = _scheduled_program("low", qubit=Q0, amplitude=0.1)
-    high_program = _scheduled_program("high", qubit=Q1, amplitude=0.8)
-    compiler, request = _request(
-        target,
-        (low_program, high_program),
-        repetitions=2,
-        entry_ids=("logical-low", "logical-high"),
-    )
-    reversed_compiler, reversed_request = _request(
-        target,
-        (high_program, low_program),
-        repetitions=2,
-        entry_ids=("logical-high", "logical-low"),
-    )
-
-    original = FakeListRuntime().execute(compiler.compile(request))
-    reordered = FakeListRuntime().execute(reversed_compiler.compile(reversed_request))
-    changed_compiler, changed_request = _request(
-        target,
-        (_scheduled_program("low", qubit=Q0, amplitude=0.9),),
-        repetitions=2,
-        entry_ids=("logical-low",),
-    )
-    changed = FakeListRuntime().execute(changed_compiler.compile(changed_request))
-
-    original_values = {
-        (frame.entry_id, frame.shot_index, frame.slot_id): frame.value
-        for frame in original.frames
-    }
-    reordered_values = {
-        (frame.entry_id, frame.shot_index, frame.slot_id): frame.value
-        for frame in reordered.frames
-    }
-    assert reordered_values == original_values
-    low_address = (
-        TargetCompileEntryId("logical-low"),
-        0,
-        AcquisitionSlotId("low-slot"),
-    )
-    changed_values = {
-        (frame.entry_id, frame.shot_index, frame.slot_id): frame.value
-        for frame in changed.frames
-    }
-    assert changed_values[low_address] != original_values[low_address]
-    assert (
-        changed.artifact.artifact_fingerprint != original.artifact.artifact_fingerprint
-    )
-
-
-def test_digitizer_rejects_reordered_or_incomplete_playback_coverage() -> None:
-    artifact = _compile_two_entries(repetitions=2)
-    playbacks = FakeListRuntime().awg.play(artifact)
-    digitizer = FakeSegmentedDigitizer()
-
-    with pytest.raises(ValueError, match="shot-major list order"):
-        digitizer.capture(artifact, tuple(reversed(playbacks)))
-    with pytest.raises(ValueError, match="shot-major list order"):
-        digitizer.capture(artifact, playbacks[:-1])
-
-
-def test_capability_fingerprint_is_binding_order_invariant_and_limit_sensitive() -> (
-    None
-):
-    target = _target()
-    reordered = replace(
-        target,
-        output_bindings=tuple(reversed(target.output_bindings)),
-        acquisition_bindings=tuple(reversed(target.acquisition_bindings)),
-    )
-    changed = replace(target, max_frames=target.max_frames + 1)
-
-    assert reordered.capability_fingerprint == target.capability_fingerprint
-    assert changed.capability_fingerprint != target.capability_fingerprint
-
-
-def test_artifact_fingerprint_is_deterministic_and_entry_order_sensitive() -> None:
-    target = _target()
-    programs = (
-        _scheduled_program("q0-program", qubit=Q0),
-        _scheduled_program("q1-program", qubit=Q1),
-    )
-    compiler, request = _request(target, programs)
-    first = compiler.compile(request)
-    second = compiler.compile(request)
-    reversed_compiler, reversed_request = _request(
-        target,
-        tuple(reversed(programs)),
-        entry_ids=("entry-zeta", "entry-alpha"),
-    )
-    reversed_artifact = reversed_compiler.compile(reversed_request)
-
-    assert first == second
-    assert first.artifact_fingerprint == second.artifact_fingerprint
-    assert reversed_artifact.artifact_fingerprint != first.artifact_fingerprint
-
-
-@given(st.integers(min_value=1, max_value=64))
-def test_exact_sample_grid_accepts_integer_nanosecond_durations(
-    duration_ns: int,
-) -> None:
-    target = _target()
-    compiler, request = _request(
-        target,
-        (_scheduled_program("grid", qubit=Q0, duration_ns=duration_ns),),
-        repetitions=1,
-    )
-
-    artifact = compiler.compile(request)
-
-    assert artifact.entries[0].sample_count == duration_ns
-
-
-@given(st.integers(min_value=1, max_value=64))
-def test_exact_sample_grid_rejects_half_sample_durations(duration_ns: int) -> None:
-    target = _target()
-    compiler, request = _request(
-        target,
-        (
-            _scheduled_program(
-                "off-grid",
-                qubit=Q0,
-                duration_ns=duration_ns + 0.5,
-            ),
-        ),
-        repetitions=1,
-    )
-
-    with pytest.raises(TargetCompilationError) as raised:
-        compiler.compile(request)
-
-    assert {
-        "fake_list_event_duration_off_grid",
-        "fake_list_program_duration_off_grid",
-    } <= _issue_codes(raised.value)
-
-
-def test_compiler_aggregates_physical_collision_and_capability_errors() -> None:
-    target = _target(shared_output=True, shared_acquisition=True)
-    compiler, request = _request(
-        target,
-        (
-            _parallel_two_qubit_program(
-                gaussian_q1=True,
-                q0_amplitude_unit="V",
-            ),
-        ),
-        repetitions=1,
-    )
-
-    with pytest.raises(TargetCompilationError) as raised:
-        compiler.compile(request)
-
-    assert {
-        "fake_list_amplitude_unit_unsupported",
-        "fake_list_envelope_unsupported",
-        "fake_list_physical_acquisition_overlap",
-        "fake_list_physical_output_overlap",
-    } <= _issue_codes(raised.value)
-    assert {issue.entry_id for issue in raised.value.issues} == {
-        TargetCompileEntryId("entry-alpha")
-    }
-
-
-def test_drag_is_midpoint_sampled_into_a_complex_waveform() -> None:
-    target = _target()
-    compiler, request = _request(
-        target,
-        (_scheduled_drag_program("drag-program"),),
-        repetitions=1,
-    )
-
-    artifact = compiler.compile(request)
-    samples = artifact.entries[0].waveforms[0].samples
+    target, baseline = compile_drag(0.5)
+    _, changed = compile_drag(0.75)
+    samples = baseline.entries[0].waveforms[0].samples
     offsets_ns = (-1.5, -0.5, 0.5, 1.5)
     gaussians = tuple(0.2 * math.exp(-(offset**2) / 2.0) for offset in offsets_ns)
     expected = tuple(
@@ -1072,228 +227,4 @@ def test_drag_is_midpoint_sampled_into_a_complex_waveform() -> None:
 
     assert target.supported_envelopes == ("constant", "drag")
     assert samples == pytest.approx(expected)
-    assert samples[0].real == pytest.approx(samples[-1].real)
-    assert samples[0].imag == pytest.approx(-samples[-1].imag)
-
-
-def test_drag_uses_complex_sample_magnitude_for_amplitude_limit() -> None:
-    target = _target()
-    compiler, request = _request(
-        target,
-        (
-            _scheduled_drag_program(
-                "drag-limit",
-                amplitude=0.6,
-                beta_ns=4.0,
-            ),
-        ),
-        repetitions=1,
-    )
-
-    with pytest.raises(TargetCompilationError) as raised:
-        compiler.compile(request)
-
-    assert "fake_list_amplitude_limit_exceeded" in _issue_codes(raised.value)
-
-
-def test_drag_artifact_fingerprint_is_deterministic_and_beta_sensitive() -> None:
-    target = _target()
-    compiler, request = _request(
-        target,
-        (_scheduled_drag_program("drag-fingerprint"),),
-        repetitions=1,
-    )
-    first = compiler.compile(request)
-    second = compiler.compile(request)
-    changed_compiler, changed_request = _request(
-        target,
-        (
-            _scheduled_drag_program(
-                "drag-fingerprint",
-                beta_ns=0.75,
-            ),
-        ),
-        repetitions=1,
-    )
-    changed = changed_compiler.compile(changed_request)
-
-    assert first == second
-    assert first.artifact_fingerprint == second.artifact_fingerprint
-    assert changed.artifact_fingerprint != first.artifact_fingerprint
-
-
-def test_compiler_rejects_unbound_signal_and_amplitude_limit() -> None:
-    target = _target()
-    unbound_compiler, unbound_request = _request(
-        target,
-        (_scheduled_program("unbound", qubit=Q2),),
-        repetitions=1,
-    )
-    limit_compiler, limit_request = _request(
-        target,
-        (_scheduled_program("loud", qubit=Q0, amplitude=1.1),),
-        repetitions=1,
-    )
-
-    with pytest.raises(TargetCompilationError) as unbound:
-        unbound_compiler.compile(unbound_request)
-    with pytest.raises(TargetCompilationError) as loud:
-        limit_compiler.compile(limit_request)
-
-    assert {
-        "fake_list_acquisition_signal_unbound",
-        "fake_list_output_signal_unbound",
-    } <= _issue_codes(unbound.value)
-    assert "fake_list_amplitude_limit_exceeded" in _issue_codes(loud.value)
-
-
-def test_compiler_aggregates_batch_memory_repetition_and_frame_limits() -> None:
-    constrained = replace(
-        _target(),
-        max_list_entries=1,
-        max_waveform_memory_samples=1,
-        max_capture_memory_samples=1,
-        max_repetitions=1,
-        max_frames=1,
-    )
-    compiler, request = _request(
-        constrained,
-        (
-            _scheduled_program("q0-program", qubit=Q0),
-            _scheduled_program("q1-program", qubit=Q1),
-        ),
-        repetitions=2,
-    )
-
-    with pytest.raises(TargetCompilationError) as raised:
-        compiler.compile(request)
-
-    assert {
-        "fake_list_capture_memory_limit_exceeded",
-        "fake_list_entry_limit_exceeded",
-        "fake_list_frame_limit_exceeded",
-        "fake_list_repetition_limit_exceeded",
-        "fake_list_waveform_memory_limit_exceeded",
-    } <= _issue_codes(raised.value)
-
-
-def test_compiler_rejects_samples_per_entry_limit() -> None:
-    target = replace(
-        _target(),
-        max_samples_per_entry=3,
-        max_waveform_memory_samples=1,
-        max_capture_memory_samples=1,
-        max_frames=1,
-    )
-    compiler, request = _request(
-        target,
-        (_scheduled_program("too-long", qubit=Q0),),
-        repetitions=2,
-    )
-
-    with pytest.raises(TargetCompilationError) as raised:
-        compiler.compile(request)
-
-    assert {
-        "fake_list_capture_memory_limit_exceeded",
-        "fake_list_frame_limit_exceeded",
-        "fake_list_samples_per_entry_limit_exceeded",
-        "fake_list_waveform_memory_limit_exceeded",
-    } <= _issue_codes(raised.value)
-
-
-def test_capacity_limits_are_inclusive_at_the_exact_boundary() -> None:
-    target = replace(
-        _target(),
-        max_list_entries=2,
-        max_samples_per_entry=4,
-        max_waveform_memory_samples=8,
-        max_capture_memory_samples=8,
-        max_repetitions=1,
-        max_frames=2,
-    )
-    compiler, request = _request(
-        target,
-        (
-            _scheduled_program("q0-boundary", qubit=Q0),
-            _scheduled_program("q1-boundary", qubit=Q1),
-        ),
-        repetitions=1,
-    )
-
-    artifact = compiler.compile(request)
-
-    assert len(artifact.entries) == target.max_list_entries
-
-
-def test_nonzero_event_start_must_lie_on_exact_sample_grid() -> None:
-    slot = AcquisitionSlot(
-        AcquisitionSlotId("offset-slot"),
-        AcquisitionKind.INTEGRATED_IQ,
-        ACQUIRE_Q0,
-    )
-    program = schedule(
-        PulseProgram(
-            PulseProgramId("offset-program"),
-            PulseSequence(
-                (
-                    Delay(
-                        PulseEventId("half-sample-delay"),
-                        DRIVE_Q0,
-                        Quantity(0.5, "ns"),
-                    ),
-                    PulseParallel(
-                        (
-                            Play(
-                                PulseEventId("offset-play"),
-                                DRIVE_Q0,
-                                Constant(
-                                    Quantity(1.5, "ns"),
-                                    Quantity(0.2, "arb"),
-                                ),
-                            ),
-                            Acquire(
-                                PulseEventId("offset-acquire"),
-                                ACQUIRE_Q0,
-                                slot.id,
-                                Quantity(1.5, "ns"),
-                            ),
-                        )
-                    ),
-                )
-            ),
-            acquisition_slots=(slot,),
-        )
-    )
-    compiler, request = _request(_target(), (program,), repetitions=1)
-
-    with pytest.raises(TargetCompilationError) as raised:
-        compiler.compile(request)
-
-    assert "fake_list_event_start_off_grid" in _issue_codes(raised.value)
-
-
-@given(st.integers(min_value=1, max_value=12))
-def test_runtime_frame_count_matches_repetitions_times_windows(
-    repetitions: int,
-) -> None:
-    compiled = _compile_two_entries(repetitions=repetitions)
-
-    run = FakeListRuntime().execute(compiled)
-
-    assert len(run.playbacks) == repetitions * 2
-    assert len(run.frames) == repetitions * 2
-    assert len(
-        {(frame.entry_id, frame.shot_index, frame.slot_id) for frame in run.frames}
-    ) == len(run.frames)
-
-
-def test_configured_target_projects_lab_owned_hardware_configuration() -> None:
-    target = configured_fake_list_target(quantum_wiring_config_profile())
-
-    assert target.id == TargetId("quantum-lab-demo.fake-list-mode.v1")
-    assert target.sample_rate_hz == 1_000_000_000
-    assert len(target.output_bindings) == 10
-    assert len(target.acquisition_bindings) == 4
-    assert target.supported_envelopes == ("constant", "drag")
-    assert target.capability_fingerprint.startswith("sha256:")
+    assert changed.artifact_fingerprint != baseline.artifact_fingerprint

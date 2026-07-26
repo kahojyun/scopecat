@@ -1,78 +1,65 @@
-"""Accept a high-confidence DRAG fit."""
+"""Run the supported DRAG-beta calibration from measurement to undo."""
 
 from __future__ import annotations
 
 # %%
 import scopecat as sc
 from quantum_lab_demo import EXAMPLE_ROOT
-from quantum_lab_demo.virtual_lab import (
-    q0_drag_beta_lookup,
-)
 from quantum_lab_demo.workflows.drag_beta_analysis import analyze_drag_beta_run
-from quantum_lab_demo.workflows.drag_beta_experiment import (
-    BETA,
-    DRAG_BETA_POINTS,
-    DRAG_BETA_SPAN,
-    drag_beta_template,
-)
+from quantum_lab_demo.workflows.drag_beta_experiment import drag_beta_template
 from quantum_lab_demo.workflows.production_drag_gate import production_drag_template
 
 # %%
-# The active DRAG beta centers this parameter-table scan. Each point binds the
-# same Program input used later by the production X90 gate.
 lab = sc.open_project(EXAMPLE_ROOT).connect()
-parameter_scan = sc.param_axis(
-    BETA,
-    q0_drag_beta_lookup(),
-    span=DRAG_BETA_SPAN,
-    points=DRAG_BETA_POINTS,
-)
-experiment = lab.prepare(drag_beta_template()).scan(parameter_scan)
+experiment = lab.prepare(drag_beta_template())
 preview = experiment.preview()
-completed_run = experiment.run(
+baseline_run = experiment.run(
     name="DRAG beta rough calibration",
     tags=("calibration", "gate-pulse"),
 )
 
 # %%
-# Analysis proposes a candidate only after the fit clears its local quality
-# checks. No separate verification run is required by the config lifecycle.
-result = analyze_drag_beta_run(completed_run)
-if result.proposal_id is None:
-    msg = "the DRAG fit did not produce an eligible proposal"
-    raise RuntimeError(msg)
+result = analyze_drag_beta_run(baseline_run)
+saved_analysis = result.analysis.save()
+candidate = result.analysis.candidate_config()
+
+# A candidate run records its analysis provenance without changing the default.
+candidate_run = lab.prepare(drag_beta_template(), config=candidate).run(
+    name="DRAG beta candidate check",
+    tags=("calibration", "candidate"),
+)
 
 # %%
 accepted = lab.config.accept(
-    result.analysis,
+    candidate,
     operator="nightly-calibration",
-    note="fit passed the DRAG quality checks",
+    note="accept the reviewed DRAG fit",
 )
 
-# A later production experiment naturally exercises the accepted parameter,
-# but it is downstream evidence rather than a prerequisite for acceptance.
 production_run = lab.prepare(production_drag_template()).run(
     name="Production X90 with accepted DRAG beta",
     tags=("calibration", "production-gate", "active-config"),
 )
 
 # %%
-# Undo restores the previous default while retaining the fit, approval,
-# immutable revision, production run, and activation history.
+# Undo restores the previous default while retaining the durable audit trail.
 restored = lab.config.undo(
     note="restore the previous default after the calibration example",
 )
+candidate_source = candidate_run.manifest.config_source
 production_source = production_run.manifest.config_source
 
 drag_beta_summary = {
-    "status": completed_run.manifest.status,
+    "status": baseline_run.manifest.status,
     "point_count": preview.point_count,
     "beta_hat": result.fit.beta_hat,
-    "fit_rmse": result.fit.rmse,
-    "quality_score": result.assessment.quality_score,
+    "analysis": saved_analysis.record.id,
     "proposal_id": result.proposal_id,
-    "approved_by": "nightly-calibration",
-    "production_run": production_run.id,
+    "candidate_run_uses_analysis": (
+        candidate_source is not None
+        and candidate_source.kind == "analysis_candidate"
+        and candidate_source.proposal_id == candidate.proposal_id
+    ),
     "accepted_as_default": (
         production_source is not None
         and production_source.content_hash == accepted.entry.content_hash

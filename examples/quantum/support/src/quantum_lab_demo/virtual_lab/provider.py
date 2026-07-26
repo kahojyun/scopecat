@@ -22,11 +22,7 @@ from scopecat.sdk.instruments import (
     InstrumentStateField,
     InstrumentStateSnapshot,
     capability,
-    float_field,
     payload_field,
-    product,
-    product_axis,
-    quantity_field,
 )
 from scopecat.sdk.problems import Problem
 
@@ -34,9 +30,6 @@ from quantum_lab_demo.virtual_lab.devices import VirtualDevice, VirtualLab
 from quantum_lab_demo.virtual_lab.profiles import (
     VirtualLabProfileInput,
     load_virtual_lab_profile,
-)
-from quantum_lab_demo.virtual_lab.responses import (
-    record_quantum_measurement,
 )
 
 
@@ -108,20 +101,7 @@ class QuantumDriveStack(_VirtualInstrumentDriver):
             capabilities=[
                 capability(
                     "play_pulse_program",
-                    fields=[
-                        payload_field("program", schema_id="pulse_program"),
-                        quantity_field("length", unit="ns"),
-                        quantity_field("amplitude", unit="arb"),
-                        quantity_field("frequency", unit="GHz"),
-                    ],
-                ),
-                capability(
-                    "play_gate_sequence",
-                    fields=[
-                        payload_field("sequence", schema_id="gate_sequence"),
-                        quantity_field("clifford_count", unit="count"),
-                        float_field("seed"),
-                    ],
+                    fields=[payload_field("program", schema_id="pulse_program")],
                 ),
             ],
             metadata={"mode": "virtual_lab", "source": "quantum-lab-demo"},
@@ -138,67 +118,8 @@ class QuantumReadoutStack(_VirtualInstrumentDriver):
             implementation_id=self.implementation_id,
             implementation_version=self.implementation_version,
             capabilities=[
-                capability(
-                    "readout_pulse",
-                    fields=[
-                        quantity_field("frequency", unit="GHz"),
-                        quantity_field("power", unit="dBm"),
-                    ],
-                ),
-                capability(
-                    "acquire_iq",
-                    fields=[quantity_field("repetitions", unit="count")],
-                    products=[
-                        product("probability_0", unit="ratio"),
-                        product("probability_1", unit="ratio"),
-                        product("raw_iq", dtype="complex128", unit="ratio"),
-                        product(
-                            "multiplexed_iq",
-                            dtype="complex128",
-                            unit="ratio",
-                            axes=[product_axis("qubit", kind="entity")],
-                        ),
-                        product("state0_iq", dtype="complex128", unit="ratio"),
-                        product("state1_iq", dtype="complex128", unit="ratio"),
-                        product("state0_iq_stdev", unit="ratio"),
-                        product("state1_iq_stdev", unit="ratio"),
-                    ],
-                ),
-            ],
-            metadata={"mode": "virtual_lab", "source": "quantum-lab-demo"},
-        )
-
-    @override
-    def collect(self, command: CollectCommand) -> CollectReceipt:
-        if not command.requests:
-            return CollectReceipt(readback=InstrumentReadback())
-        return CollectReceipt(
-            readback=InstrumentReadback(
-                values=record_quantum_measurement(
-                    command=command,
-                )
-            )
-        )
-
-
-class QuantumCouplerStack(_VirtualInstrumentDriver):
-    implementation_id = "quantum_lab_demo.virtual_lab.coupler_stack"
-    implementation_version = "v0"
-
-    def __init__(self, *, device: VirtualDevice) -> None:
-        super().__init__(
-            device=device,
-            implementation_id=self.implementation_id,
-            implementation_version=self.implementation_version,
-            capabilities=[
-                capability(
-                    "play_coupler_pulse",
-                    fields=[payload_field("program", schema_id="pulse_program")],
-                ),
-                capability(
-                    "set_flux_bias",
-                    fields=[quantity_field("offset", unit="arb")],
-                ),
+                capability("readout_pulse"),
+                capability("acquire_iq"),
             ],
             metadata={"mode": "virtual_lab", "source": "quantum-lab-demo"},
         )
@@ -290,12 +211,10 @@ class QuantumLabVirtualProvider(_VirtualLabProvider):
         return [
             QuantumDriveStack(device=lab.device("drive-stack")),
             QuantumReadoutStack(device=lab.device("readout-stack")),
-            QuantumCouplerStack(device=lab.device("coupler-stack")),
         ]
 
 
 __all__ = [
-    "QuantumCouplerStack",
     "QuantumDriveStack",
     "QuantumLabVirtualProvider",
     "QuantumReadoutStack",

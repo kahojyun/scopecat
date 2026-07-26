@@ -14,31 +14,23 @@ from scopecat_quantum._ids import QubitId
 
 @dataclass(frozen=True, slots=True)
 class QubitPulseParameters:
-    """Resolved control and readout values for one logical qubit."""
+    """Resolved DRAG pulse values for one logical qubit."""
 
     qubit: QubitId
-    x_duration: Quantity
-    x_amplitude: Quantity
     quarter_turn_duration: Quantity
     quarter_turn_amplitude: Quantity
     quarter_turn_sigma: Quantity
     drag_beta: Quantity
-    readout_duration: Quantity
-    readout_amplitude: Quantity
 
     @classmethod
     def from_row(cls, row: Mapping[str, object]) -> QubitPulseParameters:
         qubit = cast("EntityRef", row["qubit"])
         return cls(
             qubit=QubitId(qubit.id),
-            x_duration=cast("Quantity", row["x_duration"]),
-            x_amplitude=cast("Quantity", row["x_amplitude"]),
             quarter_turn_duration=cast("Quantity", row["quarter_turn_duration"]),
             quarter_turn_amplitude=cast("Quantity", row["quarter_turn_amplitude"]),
             quarter_turn_sigma=cast("Quantity", row["quarter_turn_sigma"]),
             drag_beta=cast("Quantity", row["drag_beta"]),
-            readout_duration=cast("Quantity", row["readout_duration"]),
-            readout_amplitude=cast("Quantity", row["readout_amplitude"]),
         )
 
 

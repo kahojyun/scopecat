@@ -4,10 +4,8 @@ from typing import Protocol
 
 import scopecat as sc
 from quantum_lab_demo import EXAMPLE_ROOT
-from quantum_lab_demo.workflows.readout_frequency import (
-    readout_frequency_analysis,
-    readout_frequency_template,
-)
+from quantum_lab_demo.workflows.drag_beta_analysis import analyze_drag_beta_run
+from quantum_lab_demo.workflows.drag_beta_experiment import drag_beta_template
 from scopecat.records.run import (
     AnalysisCandidateRunConfigSource,
     ConfigRegistryRunConfigSource,
@@ -18,21 +16,21 @@ class _DemoDaemon(Protocol):
     url: str
 
 
-def test_daemon_client_closes_config_provenance_loop(
+def test_drag_beta_first_use_closes_config_provenance_loop(
     demo_daemon: _DemoDaemon,
 ) -> None:
     """Exercise run, candidate, accept, history, and undo through one daemon."""
 
     with sc.open_project(EXAMPLE_ROOT).connect(demo_daemon.url) as lab:
-        baseline = lab.prepare(readout_frequency_template(qubit="q0")).run(
+        baseline = lab.prepare(drag_beta_template()).run(
             name="first-use smoke",
             tags=("first-use",),
         )
-        analysis = baseline.analyze(readout_frequency_analysis(qubit="q0"))
-        saved = analysis.save()
-        candidate = analysis.candidate_config()
+        result = analyze_drag_beta_run(baseline)
+        saved = result.analysis.save()
+        candidate = result.analysis.candidate_config()
         candidate_run = lab.prepare(
-            readout_frequency_template(qubit="q0"),
+            drag_beta_template(),
             config=candidate,
         ).run(
             name="first-use candidate",
@@ -42,7 +40,7 @@ def test_daemon_client_closes_config_provenance_loop(
             candidate,
             note="accept the first-use fit",
         )
-        default_run = lab.prepare(readout_frequency_template(qubit="q0")).run(
+        default_run = lab.prepare(drag_beta_template()).run(
             name="first-use accepted default",
             tags=("first-use", "default"),
         )

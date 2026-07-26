@@ -1,9 +1,9 @@
 # Quantum Lab Demo Support Package
 
-`quantum-lab-demo` is the local support package used by the runnable examples
-in `examples/quantum`. It contains reusable experiment definitions, analysis,
-virtual laboratory configuration, and one quantum lab compiler so the
-notebooks can focus on the user workflow.
+`quantum-lab-demo` supports the runnable DRAG-beta example in
+`examples/quantum`. It keeps one complete calibration path—from experiment
+through analysis, proposal, acceptance, and production use—rather than a
+catalog of unrelated scenarios.
 
 This is copyable example code, not a stable product API or a required layout
 for laboratory projects.
@@ -12,20 +12,17 @@ for laboratory projects.
 
 Inside `src/quantum_lab_demo/`:
 
-- `workflows/`: recommended vertical `@q.program`, module, template, scratch,
-  analysis, and production examples.
-- `scenarios/`: the opaque collection boundary for a target without a domain
-  compiler.
+- `workflows/`: the DRAG-beta program, experiment, quadratic analysis, and
+  production-gate follow-up.
 - `application.py`: the daemon-side `LabApplication` composition root.
 - `lab.py`: shared configuration, compiler, and experiment-system wiring.
 - `configuration.py`: combine schema-checked infrastructure with Python values.
-- `parameters.py`: compact Python source for initial scalar and table values.
+- `parameters.py`: the q0 DRAG calibration row.
 - `compiler.py`: the unified `QuantumLabCompiler` domain boundary.
 - `response_registry.py`: deterministic fake-response selection by program.
 - `targets/`: fake target lowering and execution.
-- `virtual_lab/`: wiring, typed parameter collections, instrument providers,
-  compiler parameter materialization, pulse implementation resolution, and
-  fake responses.
+- `virtual_lab/`: q0 drive/readout wiring, compiler parameters, X90/Xm90 pulse
+  recipes, and the deterministic DRAG response.
 
 Focused behavior checks live in `tests/unit/`.
 

@@ -17,7 +17,6 @@ from scopecat_quantum._ids import (
     AcquisitionSlotId,
     PulseEventId,
     PulseProgramId,
-    QubitId,
     TargetArtifactId,
     TargetCompileEntryId,
     TargetCompilerId,
@@ -26,7 +25,6 @@ from scopecat_quantum._ids import (
 from scopecat_quantum.pulses import (
     AcquireSignal,
     DriveSignal,
-    FluxSignal,
     ReadoutSignal,
 )
 
@@ -80,7 +78,7 @@ class FakeDigitizerChannelId:
         _require_text(self.value, field_name="digitizer channel id")
 
 
-type FakeOutputSignal = DriveSignal | ReadoutSignal | FluxSignal
+type FakeOutputSignal = DriveSignal | ReadoutSignal
 
 
 def signal_key(
@@ -92,10 +90,7 @@ def signal_key(
         return ("drive", "qubit", signal.qubit.value)
     if isinstance(signal, ReadoutSignal):
         return ("readout", "qubit", signal.qubit.value)
-    if isinstance(signal, AcquireSignal):
-        return ("acquire", "qubit", signal.qubit.value)
-    owner_kind = "qubit" if isinstance(signal.owner, QubitId) else "coupler"
-    return ("flux", owner_kind, signal.owner.value)
+    return ("acquire", "qubit", signal.qubit.value)
 
 
 @dataclass(frozen=True, slots=True)

@@ -9,7 +9,10 @@ from scopecat.records.config import ConfigProfileSnapshot
 from scopecat_quantum.pulse_recipes import PulseRecipeProfile
 
 from quantum_lab_demo.compiler import QuantumLabCompiler
-from quantum_lab_demo.configuration import DEMO_VIRTUAL_LAB_PROFILE
+from quantum_lab_demo.configuration import (
+    DEMO_VIRTUAL_LAB_PROFILE,
+    quantum_lab_bootstrap_config,
+)
 from quantum_lab_demo.response_registry import QuantumLabResponseRegistry
 from quantum_lab_demo.targets.configuration import (
     FAKE_LIST_TARGET_KIND,
@@ -25,7 +28,6 @@ from quantum_lab_demo.virtual_lab.pulse_profile import QUANTUM_PULSE_PROFILE
 from quantum_lab_demo.virtual_lab.quantum_responses import (
     quantum_lab_response_registry,
 )
-from quantum_lab_demo.virtual_lab.wiring import quantum_wiring_config_profile
 
 PathInput = str | Path
 
@@ -102,7 +104,7 @@ def _config_snapshot(
     config_profile: ConfigProfileSnapshot | None,
 ) -> ConfigProfileSnapshot:
     if config_profile is None:
-        return quantum_wiring_config_profile()
+        return quantum_lab_bootstrap_config()
     return config_profile
 
 

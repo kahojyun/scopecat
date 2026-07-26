@@ -29,8 +29,10 @@ from scopecat_quantum.pulses import (
     Constant,
     Delay,
     DriveSignal,
+    FluxSignal,
     FrameSignal,
     Gaussian,
+    LogicalSignal,
     Play,
     ReadoutSignal,
     ShiftPhase,
@@ -384,16 +386,22 @@ class FakeListTargetCompiler:
         phase_offset: float,
         issues: list[TargetCompilationIssue],
     ) -> None:
-        channel_id = self.target.output_channel(instruction.signal)
+        signal = instruction.signal
+        if isinstance(signal, FluxSignal):
+            _entry_issue(
+                issues,
+                entry_id,
+                code="fake_list_signal_unsupported",
+                message="the DRAG demo target does not support flux signals",
+            )
+            return
+        channel_id = self.target.output_channel(signal)
         if channel_id is None:
             _entry_issue(
                 issues,
                 entry_id,
                 code="fake_list_output_signal_unbound",
-                message=(
-                    f"output signal {_signal_label(instruction.signal)} has no AWG "
-                    "binding"
-                ),
+                message=(f"output signal {_signal_label(signal)} has no AWG binding"),
             )
         if (
             channel_id is not None
@@ -472,9 +480,17 @@ class FakeListTargetCompiler:
         self,
         *,
         entry_id: TargetCompileEntryId,
-        signal: FakeOutputSignal | AcquireSignal,
+        signal: LogicalSignal,
         issues: list[TargetCompilationIssue],
     ) -> None:
+        if isinstance(signal, FluxSignal):
+            _entry_issue(
+                issues,
+                entry_id,
+                code="fake_list_signal_unsupported",
+                message="the DRAG demo target does not support flux signals",
+            )
+            return
         if isinstance(signal, AcquireSignal):
             if self.target.acquisition_channel(signal) is None:
                 _entry_issue(

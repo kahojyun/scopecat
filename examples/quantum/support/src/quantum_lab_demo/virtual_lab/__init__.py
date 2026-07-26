@@ -5,15 +5,10 @@ from quantum_lab_demo.virtual_lab.models import (
     VirtualLabProfile,
 )
 from quantum_lab_demo.virtual_lab.parameters import (
-    CZ_AMPLITUDE_PARAMETER_COLUMN,
     DRAG_BETA_PARAMETER_COLUMN,
     QUBIT_PARAMETER_TABLE,
-    TWO_QUBIT_GATE_PARAMETER_TABLE,
     q0_drag_beta_lookup,
     q0_parameter_key,
-    q0_q1_cz_amplitude_lookup,
-    q0_q1_cz_parameter_key,
-    two_qubit_gate_parameters,
 )
 from quantum_lab_demo.virtual_lab.profiles import (
     VirtualLabProfileInput,
@@ -24,7 +19,6 @@ from quantum_lab_demo.virtual_lab.provider import (
 )
 from quantum_lab_demo.virtual_lab.wiring import (
     ChannelWiring,
-    CouplerWiring,
     QuantumWiring,
     QuantumWiringBuilder,
     QubitWiring,
@@ -35,12 +29,9 @@ from quantum_lab_demo.virtual_lab.wiring import (
 )
 
 __all__ = [
-    "CZ_AMPLITUDE_PARAMETER_COLUMN",
     "DRAG_BETA_PARAMETER_COLUMN",
     "QUBIT_PARAMETER_TABLE",
-    "TWO_QUBIT_GATE_PARAMETER_TABLE",
     "ChannelWiring",
-    "CouplerWiring",
     "QuantumLabVirtualProvider",
     "QuantumWiring",
     "QuantumWiringBuilder",
@@ -53,9 +44,6 @@ __all__ = [
     "load_virtual_lab_profile",
     "q0_drag_beta_lookup",
     "q0_parameter_key",
-    "q0_q1_cz_amplitude_lookup",
-    "q0_q1_cz_parameter_key",
     "quantum_wiring",
     "quantum_wiring_config_profile",
-    "two_qubit_gate_parameters",
 ]

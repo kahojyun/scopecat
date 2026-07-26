@@ -30,14 +30,9 @@ from scopecat.sdk.problems import (
 from scopecat_quantum.program_results import (
     MappedQuantumTarget,
 )
-from scopecat_quantum.result_collections import (
-    ResultCollection,
-    result_collection_axes,
-)
 from scopecat_quantum.targets import (
     TargetAcquisitionAddress,
     TargetResultAddress,
-    target_result_acquisition_addresses,
 )
 
 from quantum_lab_demo.targets.fake_list_mode.model import (
@@ -109,9 +104,8 @@ def correlate_fake_list_run(
         msg = "fake-list run contains duplicate acquisition-address shots"
         raise ValueError(msg)
     expected_keys = {
-        (address, shot_index)
+        (_single_acquisition_address(result.result_address), shot_index)
         for result in mapping.results
-        for address in target_result_acquisition_addresses(result.result_address)
         for shot_index in range(artifact.repetitions)
     }
     if set(raw_by_address_shot) != expected_keys:
@@ -123,12 +117,16 @@ def correlate_fake_list_run(
 
     correlated_frames = tuple(
         CorrelatedFakeListFrame(
-            frame=raw_by_address_shot[(address, shot_index)],
+            frame=raw_by_address_shot[
+                (
+                    _single_acquisition_address(result.result_address),
+                    shot_index,
+                )
+            ],
             mapped_result=result,
         )
         for result in mapping.results
         for shot_index in range(artifact.repetitions)
-        for address in target_result_acquisition_addresses(result.result_address)
     )
     return CorrelatedFakeListRun(
         mapped_target,
@@ -164,8 +162,8 @@ def _frames_for_result_address(
     correlated_run: CorrelatedFakeListRun,
     result_address: TargetResultAddress,
 ) -> tuple[CorrelatedFakeListFrame, ...]:
-    addresses = set(target_result_acquisition_addresses(result_address))
-    return tuple(frame for frame in correlated_run.frames if frame.address in addresses)
+    address = _single_acquisition_address(result_address)
+    return tuple(frame for frame in correlated_run.frames if frame.address == address)
 
 
 def _realize_integrated_iq_value(
@@ -178,10 +176,10 @@ def _realize_integrated_iq_value(
     initial_problem_count = len(problems)
     details = _realization_identity_details(result)
     path = ("results", result_index)
-    addresses = target_result_acquisition_addresses(result.result_address)
+    address = _single_acquisition_address(result.result_address)
     values_by_frame: dict[tuple[int, TargetAcquisitionAddress], ComplexQuantity] = {}
     for frame_index, frame in enumerate(frames):
-        expected_shot = frame_index // len(addresses)
+        expected_shot = frame_index
         frame_path = (*path, "frames", frame_index)
         if frame.shot_index != expected_shot:
             problems.append(
@@ -205,36 +203,15 @@ def _realize_integrated_iq_value(
         )
     if len(problems) != initial_problem_count:
         return None
-    shot_count = len(frames) // len(addresses)
+    shot_count = len(frames)
     return MeasurementArray(
         dtype="complex128",
         unit=_FAKE_RESPONSE_UNIT,
-        shape=[
-            shot_count,
-            *(size for _axis_id, size in result_collection_axes(result.result_address)),
-        ],
+        shape=[shot_count],
         values=[
-            _result_collection_values(
-                result.result_address,
-                {
-                    address: values_by_frame[(shot_index, address)]
-                    for address in addresses
-                },
-            )
-            for shot_index in range(shot_count)
+            values_by_frame[(shot_index, address)] for shot_index in range(shot_count)
         ],
     )
-
-
-def _result_collection_values(
-    address: TargetResultAddress,
-    values_by_address: Mapping[TargetAcquisitionAddress, object],
-) -> object:
-    if not isinstance(address, ResultCollection):
-        return values_by_address[address]
-    return [
-        _result_collection_values(item, values_by_address) for item in address.items
-    ]
 
 
 def validate_fake_measurement_mapping(
@@ -285,8 +262,8 @@ def _product_problems(
             )
         )
 
-    collection_axes = result_collection_axes(result.result_address)
-    expected_axis_count = 1 + len(collection_axes)
+    _single_acquisition_address(result.result_address)
+    expected_axis_count = 1
     if len(product.axes) != expected_axis_count:
         problems.append(
             _selection_problem(
@@ -331,26 +308,15 @@ def _product_problems(
                 },
             )
         )
-    for offset, ((axis_id, axis_size), product_axis) in enumerate(
-        zip(collection_axes, product.axes[1:], strict=False),
-        start=1,
-    ):
-        if product_axis.id == axis_id and product_axis.size == axis_size:
-            continue
-        problems.append(
-            _selection_problem(
-                "fake_integrated_iq_collection_axis_mismatch",
-                f"fake integrated-IQ result tree requires axis {axis_id!r} "
-                f"of size {axis_size}",
-                path=(*path, "axes", offset),
-                details={
-                    **details,
-                    "expected": f"{axis_id}/{axis_size}",
-                    "actual": f"{product_axis.id}/{product_axis.size}",
-                },
-            )
-        )
     return problems
+
+
+def _single_acquisition_address(
+    address: TargetResultAddress,
+) -> TargetAcquisitionAddress:
+    if not isinstance(address, TargetAcquisitionAddress):
+        raise ValueError("fake list-mode results require one acquisition address")
+    return address
 
 
 def _mapped_result_product(

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import math
-from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from scopecat.sdk.domain import (
@@ -36,10 +34,7 @@ from scopecat_quantum.programs import (
 )
 from scopecat_quantum.pulse_implementations import ResolvedPulseImplementations
 from scopecat_quantum.pulse_recipes import PulseRecipeProfile
-from scopecat_quantum.result_collections import ResultCollection
-from scopecat_quantum.targets import (
-    TargetResultAddress,
-)
+from scopecat_quantum.targets import TargetAcquisitionAddress
 
 from quantum_lab_demo.point_values import QuantumLabPointValues
 from quantum_lab_demo.response_registry import (
@@ -183,14 +178,10 @@ class QuantumLabCompiler:
             ),
             tuple(
                 QuantumTargetResultUseBinding(
-                    _result_address(entry, result, point_values),
+                    _result_address(entry, result),
                     product_use,
                 )
-                for entry, point_values in zip(
-                    entries,
-                    artifact.points,
-                    strict=True,
-                )
+                for entry in entries
                 for result in _measurement_results(artifact.program)
                 for product_use in request.call.result(result.id).product_uses
             ),
@@ -318,48 +309,17 @@ def _compile_points(
 def _result_address(
     entry: PreparedQuantumTargetEntry,
     result: quantum.MeasurementResult,
-    point: QuantumLabPointValues,
-) -> TargetResultAddress:
+) -> TargetAcquisitionAddress:
+    if result.contract.axes:
+        raise ValueError("quantum lab results must have one acquisition address")
     addresses = tuple(
         address
         for address in entry.acquisition_addresses
         if address.slot_id.local_id == result.id
     )
-    values = dict(point.values)
-    axes = tuple(
-        (axis.id, _result_axis_size(axis, values)) for axis in result.contract.axes
-    )
-    expected_count = math.prod(size for _axis_id, size in axes)
-    if len(addresses) != expected_count:
-        raise ValueError("quantum result axes do not cover its target acquisitions")
-    if not axes:
-        [address] = addresses
-        return address
-
-    next_address = iter(addresses)
-
-    def collect(axis_index: int) -> TargetResultAddress:
-        if axis_index == len(axes):
-            return next(next_address)
-        axis_id, size = axes[axis_index]
-        return ResultCollection(
-            axis_id,
-            tuple(collect(axis_index + 1) for _index in range(size)),
-        )
-
-    return collect(0)
-
-
-def _result_axis_size(
-    axis: quantum.QuantumResultAxis,
-    values: Mapping[str, object],
-) -> int:
-    selected = axis.size if isinstance(axis.size, int) else values[axis.size.id]
-    if not isinstance(selected, int) or isinstance(selected, bool) or selected <= 0:
-        raise AssertionError(
-            "verified quantum result axes resolve to positive integers"
-        )
-    return selected
+    if len(addresses) != 1:
+        raise ValueError("quantum lab results must have one acquisition address")
+    return addresses[0]
 
 
 def _measurement_results(

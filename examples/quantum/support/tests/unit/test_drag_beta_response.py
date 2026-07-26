@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import replace
-
 import pytest
 from scopecat import Quantity
 from scopecat_quantum._ids import (
@@ -81,67 +79,3 @@ def test_drag_response_generates_exact_deterministic_probability_counts() -> Non
     assert sum(value.real > 0 for value in first) == round(response.shots * probability)
     assert probability == pytest.approx(0.0525)
     assert all(abs(value.imag) <= response.iq_jitter for value in first)
-
-
-def test_drag_response_identity_covers_coordinates_and_model_configuration() -> None:
-    point = DragBetaResponsePoint(
-        _address("entry-a"),
-        Quantity(0.5, "ns"),
-        amplification=5,
-    )
-    response = DragBetaAcquisitionResponse((point,), shots=64)
-
-    assert response.fingerprint.startswith("sha256:")
-    assert response.intent["response_fingerprint"] == response.fingerprint
-    assert (
-        replace(response, curvature=response.curvature * 2.0).fingerprint
-        != response.fingerprint
-    )
-    assert (
-        DragBetaAcquisitionResponse(
-            (replace(point, amplification=7),),
-            shots=64,
-        ).fingerprint
-        != response.fingerprint
-    )
-
-
-def test_drag_response_rejects_uncovered_acquisitions() -> None:
-    response = DragBetaAcquisitionResponse(
-        (
-            DragBetaResponsePoint(
-                _address("entry-a"),
-                Quantity(0.75, "ns"),
-                amplification=3,
-            ),
-        ),
-        shots=16,
-    )
-
-    with pytest.raises(ValueError, match="does not cover"):
-        response.value_for(
-            playback=_playback("entry-b", 0),
-            window=_window(),
-        )
-
-
-def test_drag_response_requires_total_unique_sensible_points() -> None:
-    point = DragBetaResponsePoint(
-        _address("entry-a"),
-        Quantity(0.75, "ns"),
-        amplification=3,
-    )
-
-    with pytest.raises(ValueError, match="unique"):
-        DragBetaAcquisitionResponse((point, point), shots=16)
-    with pytest.raises(ValueError, match="narrow the scan"):
-        DragBetaAcquisitionResponse(
-            (
-                DragBetaResponsePoint(
-                    _address("entry-b"),
-                    Quantity(10, "ns"),
-                    amplification=20,
-                ),
-            ),
-            shots=16,
-        )

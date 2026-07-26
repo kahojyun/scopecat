@@ -104,14 +104,11 @@ def fake_measurement_invocation_spec(
 
 
 def _result_address_intent(address: TargetResultAddress) -> object:
-    if isinstance(address, TargetAcquisitionAddress):
-        return {
-            "entry_id": address.entry_id.value,
-            "slot_id": acquisition_slot_identity_payload(address.slot_id),
-        }
+    if not isinstance(address, TargetAcquisitionAddress):
+        raise ValueError("fake list-mode results require one acquisition address")
     return {
-        "axis_id": address.axis_id,
-        "items": [_result_address_intent(item) for item in address.items],
+        "entry_id": address.entry_id.value,
+        "slot_id": acquisition_slot_identity_payload(address.slot_id),
     }
 
 
