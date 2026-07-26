@@ -20,7 +20,6 @@ from scopecat.graph.relations.model import (
     LiteralScalarExpr,
     ParameterLookupScalarExpr,
     ParameterScalarExpr,
-    ParameterSeriesExpr,
     PointColumnScalarExpr,
     RelationExpr,
     RelationExpression,
@@ -42,7 +41,6 @@ class PlanReferenceKind(StrEnum):
     INPUT_SERIES = "input.series"
     INPUT_TABLE = "input.table"
     PARAMETER_SCALAR = "parameter.scalar"
-    PARAMETER_SERIES = "parameter.series"
     PARAMETER_TABLE = "parameter.table"
 
 
@@ -208,11 +206,6 @@ def _series_reference(node: SeriesExpr) -> PlanReference | None:
     if isinstance(series, InputSeriesExpr):
         return PlanReference(
             PlanReferenceKind.INPUT_SERIES,
-            series.name,
-        )
-    if isinstance(series, ParameterSeriesExpr):
-        return PlanReference(
-            PlanReferenceKind.PARAMETER_SERIES,
             series.name,
         )
     return None

@@ -12,7 +12,6 @@ from scopecat.kernel.value_types import (
     Int,
     Quantity,
     Scalar,
-    Series,
     String,
     Table,
     TableColumn,
@@ -26,7 +25,6 @@ from scopecat.records.parameter import (
     ParameterAtomValue,
     ParameterDefinition,
     ScalarParameterValue,
-    SeriesParameterValue,
     StoredParameterValue,
     TableParameterValue,
 )
@@ -115,23 +113,9 @@ def coerce_stored_parameter_value(
                 )
             }
         )
-    if isinstance(value_type, Series):
-        if not isinstance(stored, SeriesParameterValue):
-            _raise_shape_mismatch(definition, stored, expected="series", path=path)
-        items = _coerce_parameter_collection(
-            parameter_id=definition.id,
-            value_type=value_type,
-            value=stored.items,
-            path=(*path, "items"),
-        )
-        return stored.model_copy(
-            update={
-                "items": cast("tuple[ParameterAtomValue, ...]", items),
-            }
-        )
     if not isinstance(stored, TableParameterValue):
         _raise_shape_mismatch(definition, stored, expected="table", path=path)
-    rows = _coerce_parameter_collection(
+    rows = _coerce_parameter_table(
         parameter_id=definition.id,
         value_type=value_type,
         value=stored.rows,
@@ -159,10 +143,10 @@ def coerce_parameter_table_cell(
     )
 
 
-def _coerce_parameter_collection(
+def _coerce_parameter_table(
     *,
     parameter_id: str,
-    value_type: Series | Table,
+    value_type: Table,
     value: object,
     path: ValuePath,
 ) -> object:

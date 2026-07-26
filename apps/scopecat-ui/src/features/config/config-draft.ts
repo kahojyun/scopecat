@@ -179,9 +179,6 @@ function storedValuesEqual(
   if (left.shape === "scalar" && right.shape === "scalar") {
     return atomsEqual(left.value, right.value);
   }
-  if (left.shape === "series" && right.shape === "series") {
-    return atomsEqual(left.items ?? [], right.items ?? []);
-  }
   if (left.shape === "table" && right.shape === "table") {
     return atomsEqual(left.rows ?? [], right.rows ?? []);
   }

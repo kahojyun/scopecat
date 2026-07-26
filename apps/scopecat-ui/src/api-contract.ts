@@ -107,7 +107,6 @@ export type ParameterUpdate = components["schemas"]["ParameterUpdate"];
 export type ParameterQuantity = components["schemas"]["scopecat__kernel__quantity__Quantity"];
 export type ParameterScalarType =
   | Extract<components["schemas"]["PersistableValueType"], { shape: "scalar" }>["atom"]
-  | Extract<components["schemas"]["PersistableValueType"], { shape: "series" }>["item_type"]
   | Extract<
       components["schemas"]["PersistableValueType"],
       { shape: "table" }
@@ -124,7 +123,6 @@ export type Quantity = components["schemas"]["scopecat__kernel__quantity__Quanti
 export type RunContentEntry = components["schemas"]["RunContentEntry-Output"];
 export type RunManifest = components["schemas"]["RunManifest"];
 export type RunResourceView = components["schemas"]["RunResourceView"];
-export type SeriesParameterValue = Extract<StoredParameterValue, { shape: "series" }>;
 export type StoredParameterValue = components["schemas"]["StoredParameterValue-Input"];
 export type TableParameterType = Extract<ParameterValueType, { shape: "table" }>;
 export type TableParameterValue = Extract<StoredParameterValue, { shape: "table" }>;

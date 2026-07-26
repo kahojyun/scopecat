@@ -74,16 +74,8 @@ def _echo_program(*, program: object) -> dict[str, object]:
     return {"program": program}
 
 
-def _echo_values(*, values: object) -> dict[str, object]:
-    return {"values": values}
-
-
 def _empty_payload() -> dict[str, object]:
     return {}
-
-
-def _empty_series() -> list[object]:
-    return []
 
 
 def _entity_scalar() -> authoring.ScalarType:
@@ -702,54 +694,6 @@ def test_compute_output_is_a_typed_child_input_edge() -> None:
             "incompatible-child",
             program=incompatible_produce.output,
         )
-
-
-def test_series_compute_output_is_a_first_class_typed_value() -> None:
-    float_series = authoring.SeriesType(authoring.ScalarType(authoring.FloatType()))
-    values = authoring.input("values", float_series)
-    consume = authoring.compute(
-        "consume-series",
-        fn=_echo_values,
-        inputs={"values": values},
-        output_type=authoring.ScalarType(authoring.PayloadType("consumed-series")),
-    )
-    child = (
-        authoring.module_body(id="test.compute_series.child")
-        .inputs(values)
-        .computes(consume)
-        .build()
-    )
-    produce = authoring.compute(
-        "produce-series",
-        fn=_empty_series,
-        output_type=float_series,
-    )
-    parent = (
-        authoring.module_body(id="test.compute_series.parent")
-        .computes(produce)
-        .use(child.instantiate("series-child", values=produce.output))
-        .build()
-    )
-
-    program = _bind_program(
-        template_fixture(
-            parent,
-            id="test.compute_series",
-            kind="compute_series",
-        ).bind(),
-        load_config(),
-    )
-    produce = next(
-        node for node in program.compute_nodes if node.id.local_id == "produce-series"
-    )
-    consume = next(
-        node for node in program.compute_nodes if node.id.local_id == "consume-series"
-    )
-    assert produce.result.value_type == float_series
-    values_edge = consume.inputs["values"]
-    assert isinstance(values_edge, ComputeEdge)
-    assert values_edge.value_id == produce.result.id
-    assert values_edge.expected_type == produce.result.value_type
 
 
 def test_explicit_null_is_rejected_as_a_bound_value() -> None:

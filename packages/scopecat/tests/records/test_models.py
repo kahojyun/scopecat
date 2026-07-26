@@ -14,7 +14,6 @@ from scopecat.kernel.value_types import (
     Int,
     Payload,
     Scalar,
-    Series,
     String,
     Table,
     TableColumn,
@@ -26,7 +25,6 @@ from scopecat.records.parameter import (
     ParameterDefinition,
     ParameterSnapshot,
     ScalarParameterValue,
-    SeriesParameterValue,
     TableParameterValue,
 )
 from scopecat.records.run_request import (
@@ -384,12 +382,11 @@ def test_parameter_snapshot_is_recursively_immutable_and_durable() -> None:
     assert ParameterSnapshot.model_validate_json(snapshot.model_dump_json()) == snapshot
 
 
-def test_parameter_snapshot_uses_one_shape_discriminated_namespace() -> None:
+def test_parameter_snapshot_uses_one_discriminated_namespace() -> None:
     snapshot = ParameterSnapshot(
         id="parameter-snapshot",
         values=[
             ScalarParameterValue(id="enabled", value=True),
-            SeriesParameterValue(id="frequencies", items=[4.9, 5.0]),
             TableParameterValue(id="calibrations", rows=[{"id": "q0"}]),
         ],
     )
@@ -397,29 +394,24 @@ def test_parameter_snapshot_uses_one_shape_discriminated_namespace() -> None:
     restored = ParameterSnapshot.model_validate_json(snapshot.model_dump_json())
 
     assert isinstance(restored.get("enabled"), ScalarParameterValue)
-    assert isinstance(restored.get("frequencies"), SeriesParameterValue)
     assert isinstance(restored.get("calibrations"), TableParameterValue)
     with pytest.raises(ValidationError, match="duplicate stored parameter value"):
         ParameterSnapshot(
             id="duplicate",
             values=[
                 ScalarParameterValue(id="same", value=1),
-                SeriesParameterValue(id="same", items=[1]),
+                TableParameterValue(id="same"),
             ],
         )
 
 
-def test_parameter_catalog_supports_all_value_shapes() -> None:
+def test_parameter_catalog_supports_scalar_and_table_shapes() -> None:
     catalog = ParameterCatalog(
         id="public-lab-catalog",
         definitions=[
             ParameterDefinition(
                 id="enabled",
                 value_type=Scalar(Bool()),
-            ),
-            ParameterDefinition(
-                id="frequencies",
-                value_type=Series(Scalar(QuantityType(unit="GHz"))),
             ),
             ParameterDefinition(
                 id="calibration_points",
@@ -443,13 +435,10 @@ def test_parameter_catalog_supports_all_value_shapes() -> None:
     restored = assert_model_round_trip(catalog)
 
     enabled = restored.get("enabled")
-    frequencies = restored.get("frequencies")
     calibration_points = restored.get("calibration_points")
     assert enabled is not None
-    assert frequencies is not None
     assert calibration_points is not None
     assert isinstance(enabled.value_type, Scalar)
-    assert isinstance(frequencies.value_type, Series)
     assert isinstance(calibration_points.value_type, Table)
 
 
@@ -463,6 +452,16 @@ def test_durable_parameter_schema_rejects_invalid_values() -> None:
         )
     with pytest.raises(ValidationError, match="duplicate parameter definition"):
         ParameterCatalog(id="catalog", definitions=[definition, definition])
+    with pytest.raises(ValidationError, match="unsupported persisted parameter shape"):
+        ParameterDefinition.model_validate(
+            {
+                "id": "frequencies",
+                "value_type": {
+                    "shape": "series",
+                    "item_type": {"kind": "float", "finite": True},
+                },
+            }
+        )
     with pytest.raises(ValidationError, match="unsupported unit"):
         Quantity(1.0, "invalid")
 
@@ -570,7 +569,7 @@ def test_persistable_value_type_wire_is_strict_and_schema_matches_it() -> None:
     schema = ParameterDefinition.model_json_schema(mode="validation")
     value_schema = schema["properties"]["value_type"]
     value_schema = schema["$defs"][value_schema["$ref"].rsplit("/", maxsplit=1)[-1]]
-    assert len(value_schema["oneOf"]) == 3
+    assert len(value_schema["oneOf"]) == 2
     assert all(
         variant["additionalProperties"] is False for variant in value_schema["oneOf"]
     )

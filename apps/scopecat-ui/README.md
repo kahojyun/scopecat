@@ -91,8 +91,7 @@ The configuration view uses the daemon-owned registry directly:
 The default entry exposes structured scalar and table controls. **Set as
 default** is one action: the client may preview internally, then the daemon
 validates, saves, and selects the result atomically. Explicit preview and
-register-only controls remain available for inspection under Advanced. Series
-editing remains a Python workflow while its structured UI is still settling.
+register-only controls remain available for inspection under Advanced.
 
 When the default came from GUI parameter edits or an analysis candidate, the
 summary labels it **Runtime-derived default**. The browser cannot safely decide

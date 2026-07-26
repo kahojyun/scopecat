@@ -10,7 +10,6 @@ from scopecat.config.parameters import (
     delete_parameter_rows,
     insert_parameter_rows,
     replace_scalar_parameter,
-    replace_series_parameter,
     replace_table_parameter,
     update_parameter_rows,
 )
@@ -20,9 +19,7 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import (
     Bool,
     Float,
-    Int,
     Scalar,
-    Series,
     String,
     Table,
     TableColumn,
@@ -33,7 +30,6 @@ from scopecat.records.parameter import (
     ParameterDefinition,
     ParameterSnapshot,
     ScalarParameterValue,
-    SeriesParameterValue,
     TableParameterValue,
 )
 
@@ -50,7 +46,6 @@ def test_typed_replacements_materialize_authoritative_snapshot_and_deltas() -> N
                 "drive.lo_frequency",
                 Quantity(value=5100, unit="MHz"),
             ),
-            replace_series_parameter("thresholds", [3, 4, 5]),
             replace_table_parameter(
                 "drive_channels",
                 [
@@ -67,15 +62,10 @@ def test_typed_replacements_materialize_authoritative_snapshot_and_deltas() -> N
     )
 
     frequency = candidate.get("drive.lo_frequency")
-    thresholds = candidate.get("thresholds")
     channels = candidate.get("drive_channels")
     assert frequency == ScalarParameterValue(
         id="drive.lo_frequency",
         value=Quantity(value=5.1, unit="GHz"),
-    )
-    assert thresholds == SeriesParameterValue(
-        id="thresholds",
-        items=(3, 4, 5),
     )
     assert isinstance(channels, TableParameterValue)
     assert channels.rows == (
@@ -89,7 +79,6 @@ def test_typed_replacements_materialize_authoritative_snapshot_and_deltas() -> N
     )
     assert [delta.parameter_id for delta in deltas] == [
         "drive.lo_frequency",
-        "thresholds",
         "drive_channels",
     ]
     assert all(candidate.get(delta.parameter_id) == delta.after for delta in deltas)
@@ -196,7 +185,7 @@ def test_materialization_rejects_unknown_and_wrong_shape_updates() -> None:
     for update, message in (
         (replace_scalar_parameter("unknown", True), "not defined"),
         (
-            replace_series_parameter("drive.lo_frequency", [1, 2]),
+            replace_table_parameter("drive.lo_frequency", []),
             "replacement shape",
         ),
         (
@@ -318,10 +307,6 @@ def _catalog() -> ParameterCatalog:
                 value_type=Scalar(QuantityType(unit="GHz", minimum=4.0, maximum=6.0)),
             ),
             ParameterDefinition(
-                id="thresholds",
-                value_type=Series(Scalar(Int())),
-            ),
-            ParameterDefinition(
                 id="drive_channels",
                 value_type=Table(
                     columns=(
@@ -355,7 +340,6 @@ def _snapshot() -> ParameterSnapshot:
                 id="drive.lo_frequency",
                 value=Quantity(value=5.0, unit="GHz"),
             ),
-            SeriesParameterValue(id="thresholds", items=(1, 2)),
             TableParameterValue(
                 id="drive_channels",
                 rows=(

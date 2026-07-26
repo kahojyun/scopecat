@@ -160,15 +160,16 @@ def test_compile_rejects_a_table_shaped_plan_state_binding() -> None:
 
 
 def test_static_record_schema_is_checked_before_parameter_catalog() -> None:
+    value_type = sc.ScalarType(sc.FloatType())
     missing_parameter = sc.parameter(
         "missing-record-parameter",
-        sc.ScalarType(sc.FloatType()),
+        value_type,
     )
     consume = sc.compute(
         "consume-parameter",
         fn=_identity_value,
         inputs={"value": missing_parameter},
-        output_type=missing_parameter.value_type,
+        output_type=value_type,
     )
     duplicate_axis = sc.product_axis("sample", size=2)
     module = (

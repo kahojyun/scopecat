@@ -30,14 +30,6 @@ export function ParameterEditor({
   tableRowOrigins?: Array<"base" | "new">;
   onTableRowOriginsChange: (origins: Array<"base" | "new">) => void;
 }) {
-  if (definition.value_type.shape === "series") {
-    return (
-      <div className="config-draft-empty">
-        Series editing stays in Python for now. Scalar values and table rows have structured browser
-        controls.
-      </div>
-    );
-  }
   if (definition.value_type.shape === "scalar" && value.shape === "scalar") {
     return (
       <div className="config-scalar-editor">

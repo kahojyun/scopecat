@@ -6,9 +6,7 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import (
     Bool,
     Float,
-    Int,
     Scalar,
-    Series,
     String,
     Table,
     TableColumn,
@@ -20,7 +18,6 @@ from scopecat.records.parameter import (
     ParameterDefinition,
     ParameterSnapshot,
     ScalarParameterValue,
-    SeriesParameterValue,
     TableParameterValue,
 )
 from tests.testkit.workflow_fixtures import load_config
@@ -29,13 +26,9 @@ from tests.testkit.workflow_fixtures import load_config
 def test_draft_builds_candidate_and_deltas() -> None:
     source = _config()
     source_before = source.model_copy(deep=True)
-    draft = (
-        ConfigDraft.from_snapshot(source)
-        .replace_scalar(
-            "drive.lo_frequency",
-            Quantity(value=5100, unit="MHz"),
-        )
-        .replace_series("thresholds", [3, 4, 5])
+    draft = ConfigDraft.from_snapshot(source).replace_scalar(
+        "drive.lo_frequency",
+        Quantity(value=5100, unit="MHz"),
     )
     (
         draft.table("drive_channels")
@@ -64,7 +57,6 @@ def test_draft_builds_candidate_and_deltas() -> None:
     assert result.candidate.parameter_snapshot.id == "candidate.parameters"
     assert [delta.parameter_id for delta in result.deltas] == [
         "drive.lo_frequency",
-        "thresholds",
         "drive_channels",
     ]
     frequency = result.candidate.parameter_snapshot.get("drive.lo_frequency")
@@ -72,7 +64,7 @@ def test_draft_builds_candidate_and_deltas() -> None:
         id="drive.lo_frequency",
         value=Quantity(value=5.1, unit="GHz"),
     )
-    table_delta = result.deltas[2]
+    table_delta = result.deltas[1]
     assert isinstance(table_delta.before, TableParameterValue)
     assert isinstance(table_delta.after, TableParameterValue)
     assert [row["channel_id"] for row in table_delta.before.rows] == ["xy0", "xy1"]
@@ -159,10 +151,6 @@ def _catalog() -> ParameterCatalog:
                 value_type=Scalar(QuantityType(unit="GHz", minimum=4.0, maximum=6.0)),
             ),
             ParameterDefinition(
-                id="thresholds",
-                value_type=Series(Scalar(Int())),
-            ),
-            ParameterDefinition(
                 id="drive_channels",
                 value_type=Table(
                     columns=(
@@ -196,7 +184,6 @@ def _snapshot() -> ParameterSnapshot:
                 id="drive.lo_frequency",
                 value=Quantity(value=5.0, unit="GHz"),
             ),
-            SeriesParameterValue(id="thresholds", items=(1, 2)),
             TableParameterValue(
                 id="drive_channels",
                 rows=(

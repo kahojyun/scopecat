@@ -18,7 +18,7 @@ from scopecat.authoring._value_refs import (
     internal_input_value_ref,
     internal_operation_result_value_ref,
 )
-from scopecat.authoring.value_types import ValueType
+from scopecat.authoring.value_types import Scalar, ValueType
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.quantity import Quantity
@@ -35,7 +35,7 @@ class ModuleOperationDecl:
 
     id: str
     declaration_key: ComputeDeclarationKey
-    output_type: ValueType
+    output_type: Scalar
     inputs: tuple[tuple[str, ComputeNodeInputValue], ...] = ()
     scope: tuple[str, ...] = ()
     instance_path: tuple[InvocationKey, ...] = ()

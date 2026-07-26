@@ -108,9 +108,9 @@ def test_candidate_checks_and_run_leave_source_run_unchanged(
             "missing_frequency",
             sc.Quantity(4.9, "GHz"),
         ),
-        sc.replace_series_parameter(
+        sc.replace_table_parameter(
             "drive_frequency",
-            [sc.Quantity(4.9, "GHz")],
+            [],
         ),
         sc.replace_scalar_parameter("drive_frequency", True),
     ],

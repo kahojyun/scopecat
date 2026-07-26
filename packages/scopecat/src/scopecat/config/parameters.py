@@ -9,7 +9,6 @@ from scopecat.config.parameter_updates import (
     delete_parameter_rows,
     insert_parameter_rows,
     replace_scalar_parameter,
-    replace_series_parameter,
     replace_table_parameter,
     update_parameter_rows,
 )
@@ -21,7 +20,6 @@ from scopecat.records.parameter import (
     ParameterSnapshot,
     PersistableValueType,
     ScalarParameterValue,
-    SeriesParameterValue,
     StoredParameterValue,
     TableParameterValue,
 )
@@ -44,14 +42,12 @@ __all__ = [
     "Quantity",
     "ReplaceParameter",
     "ScalarParameterValue",
-    "SeriesParameterValue",
     "StoredParameterValue",
     "TableParameterValue",
     "UpdateParameterRows",
     "delete_parameter_rows",
     "insert_parameter_rows",
     "replace_scalar_parameter",
-    "replace_series_parameter",
     "replace_table_parameter",
     "update_parameter_rows",
 ]

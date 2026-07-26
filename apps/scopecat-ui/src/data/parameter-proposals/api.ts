@@ -96,8 +96,6 @@ function parameterValue(value: WireProposalDelta["before"]): unknown {
   switch (value.shape) {
     case "scalar":
       return value.value;
-    case "series":
-      return value.items;
     case "table":
       return value.rows;
     case undefined:

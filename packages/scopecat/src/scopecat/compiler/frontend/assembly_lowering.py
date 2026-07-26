@@ -307,7 +307,7 @@ def _lower_semantic_input(
     if value_id in operation_results:
         return ComputeEdge(
             value_id=value_id,
-            expected_type=value_types[value_id],
+            expected_type=operation_results[value_id].result_type,
         )
     definition = definitions[value_id]
     source = definition.source

@@ -19,7 +19,6 @@ from scopecat.graph.relations.model import (
     literal_rows,
     param,
     parameter_lookup,
-    parameter_series,
     point_col,
     table,
     values,
@@ -133,10 +132,6 @@ def test_input_and_parameter_namespaces_are_typed_independently() -> None:
         (
             param("wrong"),
             RelationTypeBindings(parameters={"wrong": TABLE_PARAMETER}),
-        ),
-        (
-            parameter_series("wrong"),
-            RelationTypeBindings(parameters={"wrong": FLOAT}),
         ),
         (
             table("wrong"),

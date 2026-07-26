@@ -233,7 +233,6 @@ def _normalize_evaluation_context[NodeT: PlanNode](
 
     inputs: dict[str, object] = dict(ctx.inputs)
     parameter_scalars: dict[str, CellValue] = {}
-    parameter_series: dict[str, list[CellValue]] = {}
     tables_by_parameter: dict[str, list[Row]] = {}
 
     for imported in verified_plan.imports:
@@ -258,10 +257,8 @@ def _normalize_evaluation_context[NodeT: PlanNode](
         )
         if imported.lookup is not None or isinstance(imported.value_type, Table):
             tables_by_parameter[imported.id] = cast("list[Row]", normalized)
-        elif isinstance(imported.value_type, Scalar):
-            parameter_scalars[imported.id] = cast("CellValue", normalized)
         else:
-            parameter_series[imported.id] = cast("list[CellValue]", normalized)
+            parameter_scalars[imported.id] = cast("CellValue", normalized)
 
     point_requirement = verified_plan.external_point_requirement
     point_row = (
@@ -282,7 +279,6 @@ def _normalize_evaluation_context[NodeT: PlanNode](
     return EvalContext(
         params=ParameterRelationData(
             scalars=parameter_scalars,
-            series=parameter_series,
             tables=tables_by_parameter,
         ),
         point_row=point_row,

@@ -32,7 +32,7 @@ from scopecat.kernel.product_identity import ProductId
 from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.symbols import SymbolId
-from scopecat.kernel.value_types import ValueType
+from scopecat.kernel.value_types import Scalar, ValueType
 from scopecat.measurements.postprocessor_contract import (
     MeasurementPostprocessorKernel,
 )
@@ -181,7 +181,7 @@ class SemanticOperation:
     contract: OperationContract
     inputs: tuple[tuple[str, ValueUse], ...]
     result_id: graph_values.ValueId
-    result_type: SemanticValueType
+    result_type: Scalar
 
     def __post_init__(self) -> None:
         _require_unique_names("operation input", self.inputs)

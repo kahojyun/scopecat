@@ -168,12 +168,13 @@ def test_check_experiment_resolves_template_invocation_with_config_snapshot(
 
 
 def _module_consuming_input() -> tuple[sc.ExperimentModule[...], sc.ValueRef]:
-    value = sc.input("value", sc.ScalarType(sc.FloatType()))
+    value_type = sc.ScalarType(sc.FloatType())
+    value = sc.input("value", value_type)
     consume = sc.compute(
         "consume-value",
         fn=_identity_value,
         inputs={"value": value},
-        output_type=value.value_type,
+        output_type=value_type,
     )
     module = (
         sc.module_body(id="test.consumed-input").inputs(value).computes(consume).build()

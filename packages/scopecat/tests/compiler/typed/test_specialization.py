@@ -11,7 +11,6 @@ from scopecat.compiler.semantic.operation_contract import (
     LOCAL_OPAQUE_OPERATION_CONTRACT,
 )
 from scopecat.compiler.semantic.value_expressions import (
-    SeriesValueExpr,
     TableValueExpr,
 )
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
@@ -19,7 +18,6 @@ from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     ComputeEdge,
     CoreProgram,
-    LogicalResourceRequirement,
     TypedComputeNode,
     TypedDomainExecution,
     ValueInput,
@@ -35,10 +33,8 @@ from scopecat.graph.relations.model import (
     LiteralRowsRelationExpr,
     LiteralScalarExpr,
     PointColumnScalarExpr,
-    ValuesSeriesExpr,
     param,
     parameter_lookup,
-    parameter_series,
     point_col,
     table,
 )
@@ -66,7 +62,6 @@ from scopecat.kernel.value_types import (
     Int,
     Quantity,
     Scalar,
-    Series,
     String,
     Table,
     TableColumn,
@@ -78,7 +73,6 @@ from tests.testkit.parameter_fixtures import (
 )
 from tests.testkit.relation_plans import (
     scalar_value_expr,
-    series_value_expr,
     table_value_expr,
 )
 
@@ -128,25 +122,12 @@ def test_core_specialization_folds_scalar_inputs_across_effect_kinds() -> None:
     assert isinstance(domain_input.value.plan.root, LiteralScalarExpr)
 
 
-def test_value_specialization_folds_series_and_table_parameters() -> None:
+def test_value_specialization_folds_table_parameters() -> None:
     integer = Scalar(Int())
-    series_type = Series(integer)
     table_type = Table((TableColumn("x", integer),))
-    bindings = RelationTypeBindings(
-        parameters={"values": series_type, "rows": table_type}
-    )
+    bindings = RelationTypeBindings(parameters={"rows": table_type})
     parameters = ParameterRelationData(
-        series={"values": [1, 2]},
         tables={"rows": [{"x": 3}, {"x": 4}]},
-    )
-    specialized_series = specialize_value_expression(
-        series_value_expr(
-            parameter_series("values"),
-            bindings=bindings,
-            expected_type=series_type,
-        ),
-        known=EvalContext(params=parameters),
-        parameter_cells=(),
     )
     specialized_table = specialize_value_expression(
         table_value_expr(
@@ -158,43 +139,10 @@ def test_value_specialization_folds_series_and_table_parameters() -> None:
         parameter_cells=(),
     )
 
-    assert isinstance(specialized_series, SeriesValueExpr)
-    assert isinstance(specialized_series.plan.root, ValuesSeriesExpr)
-    assert specialized_series.plan.root.items == [1, 2]
-    assert specialized_series.value_type == series_type
     assert isinstance(specialized_table, TableValueExpr)
     assert isinstance(specialized_table.plan.root, LiteralRowsRelationExpr)
     assert specialized_table.plan.root.rows == [{"x": 3}, {"x": 4}]
     assert specialized_table.value_type == table_type
-
-
-def test_core_specialization_folds_series_target_entities() -> None:
-    integer = Scalar(Int())
-    series_type = Series(integer)
-    target_entities = series_value_expr(
-        parameter_series("entities"),
-        bindings=RelationTypeBindings(parameters={"entities": series_type}),
-        expected_type=series_type,
-    )
-
-    specialized = specialize_core_program(
-        CoreProgram(
-            id="resource-selection-specialized",
-            kind="test",
-            point_domain=PointDomain(POINT_UNIT),
-            resource_requirements=(
-                LogicalResourceRequirement(
-                    port_id=logical_resource_port_id("drive"),
-                    entity_uses=(relation_use(target_entities),),
-                ),
-            ),
-        ),
-        parameters=ParameterRelationData(series={"entities": [1, 2]}),
-    )
-
-    root = specialized.resource_requirements[0].entity_uses[0].value.plan.root
-    assert isinstance(root, ValuesSeriesExpr)
-    assert root.items == [1, 2]
 
 
 def test_core_specialization_prunes_dead_compute_nodes() -> None:

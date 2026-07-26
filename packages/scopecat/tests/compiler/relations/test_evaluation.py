@@ -42,24 +42,18 @@ def _int_row(*column_ids: str) -> RowType:
 
 def test_parameter_data_owns_its_containers_and_returns_detached_values() -> None:
     source_scalars: dict[str, CellValue] = {"gain": 1}
-    source_series: list[CellValue] = [2, 3]
     source_rows: list[Row] = [{"id": "r0", "value": 4}]
     parameters = ParameterRelationData(
         scalars=source_scalars,
-        series={"offsets": source_series},
         tables={"calibrations": source_rows},
     )
 
     source_scalars["gain"] = 10
-    source_series[0] = 20
     source_rows[0]["value"] = 40
-    series_values = parameters.series_values("offsets")
     table_rows = parameters.table_rows("calibrations")
-    series_values[0] = 30
     table_rows[0]["value"] = 50
 
     assert parameters.scalar("gain") == 1
-    assert parameters.series_values("offsets") == [2, 3]
     assert parameters.table_rows("calibrations") == [{"id": "r0", "value": 4}]
 
 

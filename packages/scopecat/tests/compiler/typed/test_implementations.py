@@ -24,7 +24,7 @@ from scopecat.graph.values import (
     operation_result_id,
 )
 from scopecat.kernel.symbols import SymbolId
-from scopecat.kernel.value_types import Float, Int, Payload, Scalar, ValueType
+from scopecat.kernel.value_types import Float, Int, Payload, Scalar
 from tests.testkit.authoring import load_config
 from tests.testkit.local_materialization import (
     materialize_local_execution,
@@ -41,7 +41,7 @@ def _operation_id(local_id: str = "compute") -> OperationId:
 
 def _result(
     operation_id: OperationId,
-    value_type: ValueType = _FLOAT,
+    value_type: Scalar = _FLOAT,
     *,
     value_id: ValueId | None = None,
 ) -> ComputeOutput:
@@ -55,7 +55,7 @@ def _program(
     *,
     implementation_id: str = "python-v1",
     kernel: Callable[..., object] = lambda: 1.0,
-    output_type: ValueType = _FLOAT,
+    output_type: Scalar = _FLOAT,
     output_id: ValueId | None = None,
     point_count: int = 1,
 ) -> CoreProgram:

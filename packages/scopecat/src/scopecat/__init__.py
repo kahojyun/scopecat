@@ -83,7 +83,6 @@ if TYPE_CHECKING:
         delete_parameter_rows,
         insert_parameter_rows,
         replace_scalar_parameter,
-        replace_series_parameter,
         replace_table_parameter,
         update_parameter_rows,
     )
@@ -160,10 +159,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "replace_scalar_parameter": (
         "scopecat.config.parameters",
         "replace_scalar_parameter",
-    ),
-    "replace_series_parameter": (
-        "scopecat.config.parameters",
-        "replace_series_parameter",
     ),
     "replace_table_parameter": (
         "scopecat.config.parameters",

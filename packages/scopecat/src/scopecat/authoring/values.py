@@ -24,7 +24,6 @@ from scopecat.authoring._value_refs import (
 from scopecat.graph.relations.model import (
     ParameterLookupUse,
     param,
-    parameter_series,
     table,
 )
 from scopecat.kernel.entity import EntityRef
@@ -32,7 +31,7 @@ from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_type_compatibility import literal_scalar_type
-from scopecat.kernel.value_types import Scalar, Series, ValueType
+from scopecat.kernel.value_types import Scalar, Table, ValueType
 
 type ComputeFunction = Callable[..., object]
 type ScalarInput = Quantity | EntityRef | PayloadValue | str | int | float | bool | None
@@ -69,7 +68,7 @@ class Compute:
     id: str
     fn: ComputeFunction
     inputs: tuple[tuple[str, ComputeInput], ...]
-    output_type: ValueType
+    output_type: Scalar
     declaration_key: ComputeDeclarationKey
 
     def __post_init__(self) -> None:
@@ -131,17 +130,11 @@ def coordinate(id: str, value_type: Scalar) -> ValueRef:
     return internal_point_value_ref(id, value_type)
 
 
-def parameter(id: str, value_type: ValueType) -> ValueRef:
-    """Declare a typed scalar, series, or table parameter dependency."""
+def parameter(id: str, value_type: Scalar | Table) -> ValueRef:
+    """Declare a typed scalar or table parameter dependency."""
 
     return internal_value_ref_from_expression(
-        (
-            param(id)
-            if isinstance(value_type, Scalar)
-            else parameter_series(id)
-            if isinstance(value_type, Series)
-            else table(id)
-        ),
+        param(id) if isinstance(value_type, Scalar) else table(id),
         value_type,
         parameter_contracts=(
             ParameterValueContract(
@@ -199,7 +192,7 @@ def compute(
     *,
     fn: ComputeFunction,
     inputs: Mapping[str, ComputeInput] | None = None,
-    output_type: ValueType,
+    output_type: Scalar,
 ) -> Compute:
     """Declare a compute node whose output is a first-class typed value."""
 

@@ -42,10 +42,8 @@ from scopecat.kernel.value_types import (
 )
 from scopecat.kernel.value_types import (
     Scalar,
-    Series,
     Table,
     TableColumn,
-    ValueType,
 )
 from scopecat.kernel.value_types import (
     String as StringType,
@@ -85,15 +83,6 @@ def _persistable_value_type_schema() -> dict[str, object]:
         "required": ["shape", "atom"],
         "additionalProperties": False,
     }
-    series_shape = {
-        "type": "object",
-        "properties": {
-            "shape": {"const": "series"},
-            "item_type": scalar,
-        },
-        "required": ["shape", "item_type"],
-        "additionalProperties": False,
-    }
     table_column = {
         "type": "object",
         "properties": {
@@ -113,7 +102,7 @@ def _persistable_value_type_schema() -> dict[str, object]:
         "required": ["shape", "columns"],
         "additionalProperties": False,
     }
-    return {"oneOf": [scalar_shape, series_shape, table_shape]}
+    return {"oneOf": [scalar_shape, table_shape]}
 
 
 _PERSISTABLE_VALUE_TYPE_SCHEMA = _persistable_value_type_schema()
@@ -138,15 +127,9 @@ def _require_persistable_scalar_type(value: Scalar, *, path: str) -> Scalar:
     return value
 
 
-def _validate_persistable_value_type(value: ValueType) -> ValueType:
+def _validate_persistable_value_type(value: Scalar | Table) -> Scalar | Table:
     if isinstance(value, Scalar):
         return _require_persistable_scalar_type(value, path="persisted parameter")
-    if isinstance(value, Series):
-        _require_persistable_scalar_type(
-            value.item_type,
-            path="persisted parameter series item",
-        )
-        return value
     for column in value.columns:
         _require_persistable_scalar_type(
             column.value_type,
@@ -155,8 +138,8 @@ def _validate_persistable_value_type(value: ValueType) -> ValueType:
     return value
 
 
-def _persistable_value_type_from_wire(value: object) -> ValueType:
-    if isinstance(value, Scalar | Series | Table):
+def _persistable_value_type_from_wire(value: object) -> Scalar | Table:
+    if isinstance(value, Scalar | Table):
         return _validate_persistable_value_type(value)
     if not isinstance(value, Mapping):
         msg = "persisted parameter value_type must be an object"
@@ -170,14 +153,7 @@ def _persistable_value_type_from_wire(value: object) -> ValueType:
     try:
         if shape == "scalar":
             _require_exact_fields(data, required={"atom"}, optional=set())
-            selected: ValueType = scalar_type_from_wire(data["atom"])
-        elif shape == "series":
-            _require_exact_fields(
-                data,
-                required={"item_type"},
-                optional=set(),
-            )
-            selected = Series(item_type=scalar_type_from_wire(data["item_type"]))
+            selected: Scalar | Table = scalar_type_from_wire(data["atom"])
         elif shape == "table":
             _require_exact_fields(
                 data,
@@ -252,15 +228,10 @@ def _require_exact_fields(
         raise ValueError(msg)
 
 
-def _persistable_value_type_to_wire(value: ValueType) -> dict[str, object]:
+def _persistable_value_type_to_wire(value: Scalar | Table) -> dict[str, object]:
     selected = _validate_persistable_value_type(value)
     if isinstance(selected, Scalar):
         return {"shape": "scalar", "atom": scalar_type_to_wire(selected)}
-    if isinstance(selected, Series):
-        return {
-            "shape": "series",
-            "item_type": scalar_type_to_wire(selected.item_type),
-        }
     data: dict[str, object] = {
         "shape": "table",
         "columns": [
@@ -277,7 +248,7 @@ def _persistable_value_type_to_wire(value: ValueType) -> dict[str, object]:
 
 
 type PersistableValueType = Annotated[
-    ValueType,
+    Scalar | Table,
     BeforeValidator(_persistable_value_type_from_wire),
     PlainSerializer(_persistable_value_type_to_wire, return_type=dict[str, object]),
     WithJsonSchema(_PERSISTABLE_VALUE_TYPE_SCHEMA, mode="validation"),
@@ -347,7 +318,7 @@ class ParameterDefinition(BaseModel):
 
     @field_validator("value_type")
     @classmethod
-    def validate_value_type(cls, value: ValueType) -> ValueType:
+    def validate_value_type(cls, value: Scalar | Table) -> Scalar | Table:
         return _validate_persistable_value_type(value)
 
 
@@ -402,25 +373,6 @@ class ScalarParameterValue(_StoredParameterValue):
         return _validate_finite_parameter_scalar(value)
 
 
-class SeriesParameterValue(_StoredParameterValue):
-    """One stored ordered parameter series."""
-
-    shape: Literal["series"] = "series"
-    items: Sequence[ParameterAtomValue] = Field(default_factory=tuple)
-
-    @field_validator("items")
-    @classmethod
-    def validate_items(
-        cls,
-        value: Sequence[ParameterAtomValue],
-    ) -> Sequence[ParameterAtomValue]:
-        return tuple(_validate_finite_parameter_scalar(item) for item in value)
-
-    @field_serializer("items")
-    def serialize_items(self, value: Sequence[ParameterAtomValue]) -> list[object]:
-        return [_serialize_parameter_scalar(item) for item in value]
-
-
 class TableParameterValue(_StoredParameterValue):
     """One stored typed table parameter."""
 
@@ -456,7 +408,7 @@ class TableParameterValue(_StoredParameterValue):
 
 
 type StoredParameterValue = Annotated[
-    ScalarParameterValue | SeriesParameterValue | TableParameterValue,
+    ScalarParameterValue | TableParameterValue,
     Field(discriminator="shape"),
 ]
 

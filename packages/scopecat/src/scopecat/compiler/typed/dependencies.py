@@ -325,7 +325,6 @@ def _value_dependencies(value: ValueExpr) -> ComputeDependencies:
         ),
         parameters=references.ids(
             PlanReferenceKind.PARAMETER_SCALAR,
-            PlanReferenceKind.PARAMETER_SERIES,
             PlanReferenceKind.PARAMETER_TABLE,
         ),
     )

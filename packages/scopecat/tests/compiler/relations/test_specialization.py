@@ -11,17 +11,14 @@ from scopecat.compiler.relations.specialization import (
     ResidualScalar,
     specialize_relation,
     specialize_scalar,
-    specialize_series,
 )
 from scopecat.graph.relations.model import (
     LiteralRowsRelationExpr,
     ParameterLookupUse,
     TableRelationExpr,
-    ValuesSeriesExpr,
     input_ref,
     param,
     parameter_lookup,
-    parameter_series,
     point_col,
     table,
 )
@@ -47,7 +44,6 @@ _ENTITY_DEVICE_FREQUENCY_LOOKUP = ParameterLookupUse(
 def _parameters() -> ParameterRelationData:
     return ParameterRelationData(
         scalars={"gain": 2},
-        series={"offsets": [1, 3, 5]},
         tables={
             "devices": [
                 {"id": "q0", "frequency": 5.0},
@@ -55,15 +51,6 @@ def _parameters() -> ParameterRelationData:
             ]
         },
     )
-
-
-def test_specialization_materializes_configuration_static_series() -> None:
-    result = specialize_series(
-        parameter_series("offsets"),
-        known=EvalContext(params=_parameters()),
-    )
-
-    assert result == ValuesSeriesExpr(items=[1, 3, 5])
 
 
 def test_specialization_materializes_static_parameter_table() -> None:

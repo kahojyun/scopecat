@@ -13,7 +13,6 @@ from scopecat.config.parameter_updates import (
     insert_parameter_rows,
     materialize_parameter_updates,
     replace_scalar_parameter,
-    replace_series_parameter,
     replace_table_parameter,
     update_parameter_rows,
 )
@@ -101,13 +100,6 @@ class ConfigDraft:
         value: ParameterAtomValue,
     ) -> Self:
         return self.apply(replace_scalar_parameter(parameter_id, value))
-
-    def replace_series(
-        self,
-        parameter_id: str,
-        items: Sequence[ParameterAtomValue],
-    ) -> Self:
-        return self.apply(replace_series_parameter(parameter_id, items))
 
     def table(self, parameter_id: str) -> ConfigTableDraft:
         """Select one table parameter for replacement or keyed row edits."""

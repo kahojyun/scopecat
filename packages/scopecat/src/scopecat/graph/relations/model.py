@@ -166,12 +166,7 @@ class InputSeriesExpr(SeriesExpr):
     name: str
 
 
-@dataclass(frozen=True, slots=True)
-class ParameterSeriesExpr(SeriesExpr):
-    name: str
-
-
-type SeriesExpression = ValuesSeriesExpr | InputSeriesExpr | ParameterSeriesExpr
+type SeriesExpression = ValuesSeriesExpr | InputSeriesExpr
 
 
 class RelationExpr:
@@ -216,12 +211,6 @@ def input_series(name: str) -> InputSeriesExpr:
     """Reference a series-shaped input."""
 
     return InputSeriesExpr(name=name)
-
-
-def parameter_series(name: str) -> ParameterSeriesExpr:
-    """Reference one series-shaped parameter."""
-
-    return ParameterSeriesExpr(name=name)
 
 
 def input_table(name: str) -> InputRelationExpr:

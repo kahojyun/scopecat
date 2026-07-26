@@ -8,7 +8,6 @@ from scopecat.kernel.problems import model_location
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter import (
     ParameterDefinition,
-    SeriesParameterValue,
     TableParameterValue,
 )
 from tests.testkit.authoring import link_invocation, load_config, template_fixture
@@ -17,6 +16,10 @@ from tests.testkit.materialized_effects import materialized_effects_contract
 
 def _identity(value: object) -> object:
     return value
+
+
+def _capture(value: object) -> dict[str, object]:
+    return {"value": value}
 
 
 def _resolve_dependency(
@@ -28,9 +31,9 @@ def _resolve_dependency(
 ) -> None:
     dependency = sc.compute(
         "consume-parameter-dependency",
-        fn=_identity,
+        fn=_capture,
         inputs={"value": value},
-        output_type=value.value_type,
+        output_type=sc.ScalarType(sc.PayloadType("parameter-dependency")),
     )
     module = (
         sc.module_body(id="test.parameter-contract")
@@ -184,46 +187,17 @@ def test_unknown_scalar_parameter_has_authoring_problem() -> None:
     )
 
 
-def test_series_parameter_is_first_class_in_authoring_and_resolution() -> None:
-    config = load_config()
-    series_type = sc.SeriesType(sc.ScalarType(sc.FloatType()))
-    definition = ParameterDefinition(id="frequency_offsets", value_type=series_type)
-    system = config.system.model_copy(
-        update={
-            "parameter_catalog": config.parameter_catalog.model_copy(
-                update={
-                    "definitions": (*config.parameter_catalog.definitions, definition)
-                }
-            )
-        }
-    )
-    parameter_snapshot = config.parameter_snapshot.model_copy(
-        update={
-            "values": (
-                *config.parameter_snapshot.values,
-                SeriesParameterValue(id="frequency_offsets", items=(0.0, 0.1)),
-            )
-        }
-    )
-
-    _resolve_dependency(
-        sc.parameter("frequency_offsets", series_type),
-        config.model_copy(
-            update={"system": system, "parameter_snapshot": parameter_snapshot}
-        ),
-    )
-
-
 def test_parameter_contract_survives_nested_elaboration() -> None:
+    frequency_type = sc.ScalarType(sc.StringType())
     frequency = sc.input(
         "frequency",
-        sc.ScalarType(sc.StringType()),
+        frequency_type,
     )
     dependency = sc.compute(
         "consume-child-frequency",
         fn=_identity,
         inputs={"value": frequency},
-        output_type=frequency.value_type,
+        output_type=frequency_type,
     )
     child = (
         sc.module_body(id="test.parameter-contract-child")
@@ -471,7 +445,7 @@ def test_parameter_lookup_checks_primary_key_shape_and_typed_key_values() -> Non
         "consume-typed-parameter-key",
         fn=_identity,
         inputs={"value": lookup},
-        output_type=lookup.value_type,
+        output_type=sc.ScalarType(sc.QuantityType(unit="GHz")),
     )
     module = (
         sc.module_body(id="test.typed-parameter-key")

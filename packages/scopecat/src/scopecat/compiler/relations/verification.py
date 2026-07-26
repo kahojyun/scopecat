@@ -28,7 +28,6 @@ from scopecat.graph.relations.model import (
     ParameterLookupScalarExpr,
     ParameterLookupUse,
     ParameterScalarExpr,
-    ParameterSeriesExpr,
     PointColumnScalarExpr,
     RelationExpr,
     RelationExpression,
@@ -344,13 +343,6 @@ class _Verifier:
             case InputSeriesExpr():
                 result = self.import_type(
                     PlanImportNamespace.INPUT,
-                    series.name,
-                    Series,
-                    path,
-                )
-            case ParameterSeriesExpr():
-                result = self.import_type(
-                    PlanImportNamespace.PARAMETER,
                     series.name,
                     Series,
                     path,

@@ -20,7 +20,6 @@ from scopecat.graph.relations.model import (
     LiteralScalarExpr,
     ParameterLookupScalarExpr,
     ParameterScalarExpr,
-    ParameterSeriesExpr,
     PointColumnScalarExpr,
     RelationExpr,
     RelationExpression,
@@ -72,8 +71,6 @@ def evaluate_series_expression(
             return list(series.items)
         case InputSeriesExpr():
             return _input_series(ctx.inputs, series.name)
-        case ParameterSeriesExpr():
-            return ctx.params.series_values(series.name)
 
 
 def evaluate_relation_expression(

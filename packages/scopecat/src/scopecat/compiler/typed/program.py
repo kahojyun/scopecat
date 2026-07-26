@@ -46,7 +46,7 @@ from scopecat.kernel.product_identity import (
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
 )
-from scopecat.kernel.value_types import ValueType
+from scopecat.kernel.value_types import Scalar, ValueType
 from scopecat.measurements.postprocessor_contract import (
     MeasurementPostprocessorKernel,
 )
@@ -79,10 +79,10 @@ class ComputeEdge:
     """Explicit dependency on the result of another compute node."""
 
     value_id: ValueId
-    expected_type: ValueType
+    expected_type: Scalar
 
     @property
-    def value_type(self) -> ValueType:
+    def value_type(self) -> Scalar:
         return self.expected_type
 
 

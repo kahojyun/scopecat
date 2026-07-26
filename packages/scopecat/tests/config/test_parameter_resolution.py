@@ -8,7 +8,6 @@ from scopecat.kernel.value_types import (
     Bool,
     Float,
     Scalar,
-    Series,
     String,
     Table,
     TableColumn,
@@ -20,7 +19,6 @@ from scopecat.records.parameter import (
     ParameterDefinition,
     ParameterSnapshot,
     ScalarParameterValue,
-    SeriesParameterValue,
     TableParameterValue,
 )
 from tests.testkit.authoring import load_config
@@ -72,7 +70,7 @@ def test_resolve_config_parameters_reports_missing_unknown_and_invalid_values() 
     assert resolved.data.parameter_shape("drive_frequency") is None
 
 
-def test_resolve_config_parameters_normalizes_scalar_series_and_table() -> None:
+def test_resolve_config_parameters_normalizes_scalar_and_table() -> None:
     catalog = ParameterCatalog(
         id="catalog",
         definitions=[
@@ -83,10 +81,6 @@ def test_resolve_config_parameters_normalizes_scalar_series_and_table() -> None:
             ParameterDefinition(
                 id="enabled",
                 value_type=Scalar(Bool()),
-            ),
-            ParameterDefinition(
-                id="notes",
-                value_type=Series(Scalar(String())),
             ),
             ParameterDefinition(
                 id="channels",
@@ -105,7 +99,6 @@ def test_resolve_config_parameters_normalizes_scalar_series_and_table() -> None:
         values=[
             ScalarParameterValue(id="gain", value=1),
             ScalarParameterValue(id="enabled", value=True),
-            SeriesParameterValue(id="notes", items=["ready"]),
             TableParameterValue(
                 id="channels",
                 rows=[{"id": "ch-1", "gain": 0.5}],
@@ -120,7 +113,6 @@ def test_resolve_config_parameters_normalizes_scalar_series_and_table() -> None:
     assert resolved.problems == ()
     assert resolved.data.scalar("gain") == 1.0
     assert resolved.data.scalar("enabled") is True
-    assert resolved.data.series_values("notes") == ["ready"]
     assert resolved.data.table_rows("channels") == [{"id": "ch-1", "gain": 0.5}]
     assert validate_parameter_snapshot(catalog, snapshot) == ()
 
@@ -130,8 +122,8 @@ def test_validate_parameter_snapshot_checks_shape_and_table_keys() -> None:
         id="catalog",
         definitions=[
             ParameterDefinition(
-                id="series",
-                value_type=Series(Scalar(String())),
+                id="scalar",
+                value_type=Scalar(String()),
             ),
             ParameterDefinition(
                 id="table",
@@ -148,7 +140,7 @@ def test_validate_parameter_snapshot_checks_shape_and_table_keys() -> None:
         ParameterSnapshot(
             id="wrong-shape",
             values=[
-                ScalarParameterValue(id="series", value="value"),
+                TableParameterValue(id="scalar"),
                 TableParameterValue(
                     id="table",
                     rows=[{"id": "same"}, {"id": "same"}],
@@ -160,6 +152,7 @@ def test_validate_parameter_snapshot_checks_shape_and_table_keys() -> None:
         "parameter_shape_mismatch",
         "invalid_parameter_value",
     ]
+
 
 def test_parameter_problem_locations_preserve_dotted_ids_as_segments() -> None:
     catalog = ParameterCatalog(

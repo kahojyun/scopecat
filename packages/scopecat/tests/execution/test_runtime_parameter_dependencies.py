@@ -20,7 +20,6 @@ from scopecat.config.environment import build_config_environment
 from scopecat.graph.relations.model import (
     lit,
     param,
-    parameter_series,
     table,
 )
 from scopecat.graph.relations.point_domain import POINT_UNIT
@@ -36,7 +35,6 @@ from scopecat.kernel.value_types import (
     Bool,
     Float,
     Scalar,
-    Series,
     Table,
     TableColumn,
 )
@@ -49,14 +47,10 @@ from tests.testkit.typed_program import link_program, typed_program
 def test_bound_compute_call_carries_dependency_provenance() -> None:
     operation_id = OperationId(SymbolId(local_id="consume-parameters"))
     gain_type = Scalar(Float())
-    offsets_type = Series(Scalar(Float()))
-    calibrations_type = Table(
-        columns=(TableColumn("gain", Scalar(Float())),)
-    )
+    calibrations_type = Table(columns=(TableColumn("gain", Scalar(Float())),))
     bindings = RelationTypeBindings(
         parameters={
             "gain": gain_type,
-            "offsets": offsets_type,
             "calibrations": calibrations_type,
         }
     )
@@ -75,14 +69,6 @@ def test_bound_compute_call_carries_dependency_provenance() -> None:
                     bindings=bindings,
                 ),
                 origin_input_ids=("gain_input",),
-            ),
-            "offsets": ValueInput(
-                value=value_expr(
-                    parameter_series("offsets"),
-                    expected_type=offsets_type,
-                    bindings=bindings,
-                ),
-                origin_input_ids=("offsets_input",),
             ),
             "calibrations": ValueInput(
                 value=value_expr(
@@ -110,7 +96,6 @@ def test_bound_compute_call_carries_dependency_provenance() -> None:
     )
     parameters = ParameterRelationData(
         scalars={"gain": 1.0},
-        series={"offsets": [1.0, 2.0]},
         tables={"calibrations": [{"gain": 1.0}]},
     )
     environment = replace(
@@ -124,10 +109,9 @@ def test_bound_compute_call_carries_dependency_provenance() -> None:
         "input_refs": (
             "calibrations_input",
             "gain_input",
-            "offsets_input",
             "runtime_value",
         ),
-        "parameters": ("calibrations", "gain", "offsets"),
+        "parameters": ("calibrations", "gain"),
     }
 
 
@@ -156,7 +140,6 @@ def test_parameter_relation_data_rejects_cross_shape_id_collisions() -> None:
     with pytest.raises(ValueError, match="parameter ids must be unique"):
         ParameterRelationData(
             scalars={"shared": 1},
-            series={"shared": [2]},
             tables={"shared": [{"value": 3}]},
         )
 
