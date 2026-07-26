@@ -4,7 +4,6 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from scopecat.analysis.service import AnalysisOutput, save_analysis
-from scopecat.application.services import ProjectStateServices
 from scopecat.config.changes import (
     _prepare_parameter_change_decision,
     parameter_change_proposal_from_updates,
@@ -21,8 +20,9 @@ from scopecat.config.registry.service import (
     _validate_required_text,
     load_config_registry_entry_snapshot,
 )
+from scopecat.kernel.quantity import Quantity
+from scopecat.project_state import ProjectStateServices
 from scopecat.records.config import ConfigContentHash, ConfigProfileSnapshot
-from scopecat.records.parameter import Quantity
 from scopecat.records.parameter_change import (
     HumanDecisionAuthority,
     ParameterChangeDecisionAuthority,

@@ -7,13 +7,19 @@ from dataclasses import dataclass, replace
 from itertools import product
 from typing import cast
 
+from scopecat.compiler.relations.context import EvalContext, ParameterRelationData
 from scopecat.compiler.relations.evaluation import (
-    EvalContext,
-    ParameterRelationData,
     evaluate_scalar,
 )
-from scopecat.compiler.relations.model import CellValue, Row
-from scopecat.compiler.relations.point_domain import (
+from scopecat.compiler.relations.uses import RelationUse
+from scopecat.compiler.relations.verification import (
+    PlanImportNamespace,
+    RelationPlanVerificationError,
+    verify_relation_plan,
+)
+from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
+from scopecat.graph.relations.model import CellValue, Row
+from scopecat.graph.relations.point_domain import (
     PointAxis,
     PointAxisLinear,
     PointAxisValues,
@@ -26,17 +32,10 @@ from scopecat.compiler.relations.point_domain import (
     is_point_coordinate_type,
     point_axis_linear_value,
 )
-from scopecat.compiler.relations.uses import RelationUse
-from scopecat.compiler.relations.verification import (
-    PlanImportNamespace,
-    RelationPlanVerificationError,
-    verify_relation_plan,
-)
-from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
+from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.kernel.value_types import Entity, Scalar, Table, TableColumn
 from scopecat.kernel.value_validation import coerce_literal
-from scopecat.records.parameter import Quantity as QuantityValue
 
 type PointRowNormalizer = Callable[[Row], Mapping[str, object]]
 type CompilerPointDomainExpr = PointDomainExpr[RelationUse[ScalarValueExpr]]

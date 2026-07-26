@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import scopecat as sc
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateLiteral
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     InstrumentSpec,
     RoutingEndpointBinding,
 )
-from scopecat.records.parameter import Quantity
 from scopecat.sdk.instruments import (
     InstrumentProviderContext,
     InstrumentProviderDescription,

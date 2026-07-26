@@ -28,6 +28,7 @@ from scopecat.authoring._value_refs import (
 from scopecat.authoring.scans import Scan
 from scopecat.authoring.templates import ExperimentInvocation
 from scopecat.authoring.values import ModuleInput
+from scopecat.compiler.environment import ConfigEnvironment
 from scopecat.compiler.frontend.assembly_linking import (
     bind_verified_assembly,
 )
@@ -36,7 +37,6 @@ from scopecat.compiler.frontend.elaboration import (
     SemanticExperimentIR,
     elaborate_module,
 )
-from scopecat.compiler.frontend.environment import ConfigEnvironment
 from scopecat.compiler.frontend.graph_validation import VerifiedAssembly
 from scopecat.compiler.frontend.problems import frontend_problem as _problem
 from scopecat.compiler.frontend.request_values import (

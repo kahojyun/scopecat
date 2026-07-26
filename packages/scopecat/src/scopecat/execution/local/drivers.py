@@ -6,7 +6,6 @@ import logging
 from typing import cast
 
 from scopecat.execution.events import TransitionRecorder
-from scopecat.execution.problems import problem_from_exception, runtime_problem
 from scopecat.kernel.problems import (
     LocationPathItem,
     Problem,
@@ -22,6 +21,7 @@ from scopecat.sdk.instruments.contracts import (
     InstrumentDescription,
     InstrumentDriver,
 )
+from scopecat.sdk.runtime_problems import problem_from_exception, runtime_problem
 
 logger = logging.getLogger(__name__)
 

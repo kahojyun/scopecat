@@ -1,19 +1,10 @@
-from scopecat.compiler.relations.model import (
-    CellValue,
-    parameter_lookup,
-    point_col,
-)
-from scopecat.compiler.relations.point_domain import point_axis_values
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
 )
-from scopecat.compiler.semantic.compute_result import ComputeOutput
 from scopecat.compiler.semantic.model import (
     ImplementationId,
     LocalPythonImplementation,
-    OperationId,
-    operation_result_id,
 )
 from scopecat.compiler.semantic.operation_contract import (
     LOCAL_OPAQUE_OPERATION_CONTRACT,
@@ -32,12 +23,23 @@ from scopecat.execution.local.program import (
     ApplyStateOperation,
     CollectOperation,
 )
+from scopecat.graph.relations.model import (
+    CellValue,
+    parameter_lookup,
+    point_col,
+)
+from scopecat.graph.relations.point_domain import point_axis_values
+from scopecat.graph.values import (
+    ComputeOutput,
+    OperationId,
+    operation_result_id,
+)
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.state import PayloadRef
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Int, Payload, Scalar, String
 from scopecat.kernel.value_types import Quantity as QuantityType
-from scopecat.records.parameter import Quantity
 from tests.testkit.local_materialization import operations_of_type
 from tests.testkit.materialized_effects import (
     config_with_physical_resources,

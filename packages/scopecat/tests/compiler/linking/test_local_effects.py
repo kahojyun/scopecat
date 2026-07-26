@@ -5,27 +5,14 @@ from enum import IntEnum, StrEnum
 
 import pytest
 
-from scopecat.compiler.frontend.environment import build_config_environment
-from scopecat.compiler.relations.model import (
-    CellValue,
-    RelationExpr,
-    lit,
-    literal_rows,
-    point_col,
-)
-from scopecat.compiler.relations.point_domain import POINT_UNIT, point_axis_values
 from scopecat.compiler.relations.verification import (
     RelationPlanVerificationError,
     RelationTypeBindings,
     RowType,
 )
-from scopecat.compiler.semantic.compute_result import ComputeOutput
 from scopecat.compiler.semantic.model import (
     ImplementationId,
     LocalPythonImplementation,
-    OperationId,
-    ValueId,
-    operation_result_id,
 )
 from scopecat.compiler.semantic.operation_contract import (
     LOCAL_OPAQUE_OPERATION_CONTRACT,
@@ -38,14 +25,30 @@ from scopecat.compiler.typed.program import (
     ValueInput,
     set_state_field,
 )
+from scopecat.config.environment import build_config_environment
 from scopecat.execution.local.program import (
     ApplyStateOperation,
     BoundInput,
     ComputeOperation,
     OutputInput,
 )
+from scopecat.graph.relations.model import (
+    CellValue,
+    RelationExpr,
+    lit,
+    literal_rows,
+    point_col,
+)
+from scopecat.graph.relations.point_domain import POINT_UNIT, point_axis_values
+from scopecat.graph.values import (
+    ComputeOutput,
+    OperationId,
+    ValueId,
+    operation_result_id,
+)
 from scopecat.kernel.content_identity import content_fingerprint
 from scopecat.kernel.payloads import PayloadValue
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
     logical_resource_port_id,
@@ -63,7 +66,6 @@ from scopecat.kernel.value_types import (
     TableColumn,
 )
 from scopecat.kernel.value_types import Quantity as QuantityType
-from scopecat.records.parameter import Quantity
 from tests.testkit.authoring import load_config
 from tests.testkit.local_materialization import (
     materialize_local_execution,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from scopecat.records.parameter import Quantity
+from scopecat.kernel.quantity import Quantity
 from scopecat.sdk.domain.job import (
     DomainInvocationSpec,
     DomainResultValue,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import keyword
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Protocol, cast, overload, override
@@ -16,24 +17,25 @@ from scopecat.authoring._binding_intents import (
 from scopecat.authoring._binding_intents import (
     bind_field as binding_field,
 )
-from scopecat.authoring._frozen_values import (
-    capture_module_inputs,
-    capture_runtime_input,
-    empty_frozen_mapping,
-)
+from scopecat.authoring._identities import InvocationKey
 from scopecat.authoring._intents import (
     ModuleInputPort,
     ModuleOperationDecl,
 )
 from scopecat.authoring._module_ir import (
-    InvocationKey,
     ModuleAcquireEffect,
     ModuleAcquireProduct,
     ModuleBindingEffect,
+    ModuleBodyIR,
     ModuleDomainEffect,
     ModuleEffectIR,
+    ModuleImportBinding,
+    ModuleInstanceIR,
+    ModuleInstanceLookup,
+    ModuleInterfaceIR,
     ModuleIR,
     ModulePythonImplementation,
+    ModuleResourceBinding,
     ModuleValueExport,
 )
 from scopecat.authoring._products import (
@@ -44,6 +46,9 @@ from scopecat.authoring._products import (
 )
 from scopecat.authoring._value_refs import (
     ValueRef,
+    capture_module_inputs,
+    capture_runtime_input,
+    empty_frozen_mapping,
     internal_literal_value_ref,
     internal_module_export_value_ref,
     internal_value_ref_input_id,
@@ -66,17 +71,17 @@ from scopecat.authoring.values import (
     MetadataValue,
     ModuleInput,
 )
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.product_identity import ProductId
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
     logical_resource_port_id,
 )
 from scopecat.kernel.value_type_compatibility import require_assignable
 from scopecat.measurements.results import MeasurementDType
-from scopecat.records.entity import EntityRef
-from scopecat.records.parameter import Quantity
 
 type StateLiteral = (
     Quantity | EntityRef | PayloadValue | str | int | float | bool | None
@@ -165,8 +170,6 @@ class ModuleBuilder:
         self,
         *modules: ModuleInvocation | ModuleCall,
     ) -> ModuleBuilder:
-        from scopecat.authoring._module_construction import module_use_invocation
-
         invocations = tuple(module_use_invocation(module) for module in modules)
         return replace(
             self,
@@ -457,10 +460,6 @@ class ModuleBuilder:
         id: str | None = None,  # noqa: A002
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> ExperimentModule[...]:
-        from scopecat.authoring._module_construction import (
-            build_module_from_builder,
-        )
-
         return build_module_from_builder(
             self,
             id=id,
@@ -843,3 +842,108 @@ def _capture_state_literal(value: object) -> object:
     if isinstance(value, PayloadValue):
         return value
     return capture_runtime_input(value)
+
+
+def build_module_ir(
+    builder: ModuleBuilder,
+    id: str | None = None,  # noqa: A002
+    *,
+    metadata: Mapping[str, MetadataValue] | None = None,
+) -> ModuleIR:
+    """Close a builder at the single module-definition boundary."""
+
+    module_id = id or builder.id
+    if not module_id:
+        msg = "module builder requires an id before conversion to ModuleIR"
+        raise ValueError(msg)
+    merged_metadata: dict[str, MetadataValue] = dict(builder.metadata)
+    merged_metadata.update(dict(metadata or {}))
+    closed_procedure = tuple(
+        _module_instance_ir(effect) if isinstance(effect, ModuleInvocation) else effect
+        for effect in builder.procedure
+    )
+    return ModuleIR(
+        id=module_id,
+        interface=ModuleInterfaceIR(
+            imports=builder.input_ports,
+            exports=builder.output_ports,
+            resources=builder.resources,
+        ),
+        body=ModuleBodyIR(
+            procedure=closed_procedure,
+            operations=builder.operations,
+            measurement_transforms=builder.measurement_transform_intents,
+            products=builder.product_declarations,
+        ),
+        python_implementations=builder.python_implementations,
+        metadata=freeze_json_mapping(merged_metadata),
+    )
+
+
+def _module_instance_ir(invocation: ModuleInvocation) -> ModuleInstanceIR:
+    bindings = tuple(
+        ModuleImportBinding(import_id=import_id, source=source)
+        for import_id, source in invocation.inputs.items()
+    )
+    return ModuleInstanceIR(
+        lookup=ModuleInstanceLookup(
+            invocation_key=invocation.invocation_key,
+            instance_id=invocation.instance_id,
+        ),
+        module=invocation.module.ir,
+        input_bindings=bindings,
+        resource_bindings=tuple(
+            ModuleResourceBinding(import_id=child_id, source_id=parent_id)
+            for child_id, parent_id in invocation.resource_bindings.items()
+        ),
+    )
+
+
+def build_module_from_builder(
+    builder: ModuleBuilder,
+    id: str | None = None,  # noqa: A002
+    *,
+    metadata: Mapping[str, MetadataValue] | None = None,
+) -> ExperimentModule[...]:
+    module_ir = build_module_ir(builder, id=id, metadata=metadata)
+    return create_experiment_module_internal(
+        module_ir,
+        signature=_module_signature(module_ir.interface.imports),
+    )
+
+
+def _module_signature(
+    input_ports: Sequence[ModuleInputPort],
+) -> inspect.Signature:
+    input_ids = {port.id for port in input_ports}
+    extra_name = "_inputs"
+    while extra_name in input_ids:
+        extra_name = f"_{extra_name}"
+    parameters = [
+        inspect.Parameter(
+            port.id,
+            inspect.Parameter.KEYWORD_ONLY,
+            annotation=port.value_type,
+        )
+        for port in input_ports
+        if port.id.isidentifier() and not keyword.iskeyword(port.id)
+    ]
+    parameters.append(
+        inspect.Parameter(
+            extra_name,
+            inspect.Parameter.VAR_KEYWORD,
+        )
+    )
+    return inspect.Signature(parameters)
+
+
+def module_use_invocation(
+    selected: ModuleInvocation | ModuleCall | object,
+) -> ModuleInvocation:
+    if isinstance(selected, ModuleInvocation):
+        return selected
+    invocation = getattr(selected, "module_invocation", None)
+    if isinstance(invocation, ModuleInvocation):
+        return invocation
+    msg = "module composition requires a ModuleInvocation or a domain module call"
+    raise TypeError(msg)

@@ -13,12 +13,6 @@ from dataclasses import dataclass
 from enum import StrEnum
 from types import MappingProxyType
 
-from scopecat.compiler.relations.analysis import PlanReferenceKind
-from scopecat.compiler.semantic.compute_result import ComputeResultRef
-from scopecat.compiler.semantic.model import (
-    OperationId,
-    ValueId,
-)
 from scopecat.compiler.semantic.value_expressions import ValueExpr
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.program import (
@@ -28,6 +22,12 @@ from scopecat.compiler.typed.program import (
     core_state,
 )
 from scopecat.compiler.typed.state import SetStateSpec
+from scopecat.graph.relations.analysis import PlanReferenceKind
+from scopecat.graph.values import (
+    ComputeResultRef,
+    OperationId,
+    ValueId,
+)
 
 
 @dataclass(frozen=True, slots=True)

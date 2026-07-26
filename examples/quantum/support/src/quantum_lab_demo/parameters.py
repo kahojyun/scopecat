@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from scopecat.records.entity import EntityRef
+from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.quantity import Quantity
 from scopecat.records.parameter import (
     ParameterAtomValue,
     ParameterSnapshot,
-    Quantity,
     ScalarParameterValue,
     TableParameterValue,
 )

@@ -19,10 +19,10 @@ from scopecat.authoring.values import MetadataValue
 from scopecat.config.candidates import CandidateConfig
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.views import DaemonHealth
+from scopecat.kernel.quantity import Quantity
 from scopecat.planning.preview_models import ExperimentPreview
 from scopecat.planning.system import ExperimentSystemBuilder
 from scopecat.records.config import ConfigProfileSnapshot
-from scopecat.records.parameter import Quantity
 from scopecat.records.run import RunConfigSource
 from scopecat.runs.selectors import RunSelector
 

@@ -101,7 +101,7 @@ export type ParameterAtom = components["schemas"]["ParameterAtomValue-Input"];
 export type ParameterDefinition = components["schemas"]["ParameterDefinition"];
 export type ParameterEntity = components["schemas"]["EntityRef-Input"];
 export type ParameterUpdate = components["schemas"]["ParameterUpdate"];
-export type ParameterQuantity = components["schemas"]["scopecat__records__parameter__Quantity"];
+export type ParameterQuantity = components["schemas"]["scopecat__kernel__quantity__Quantity"];
 export type ParameterScalarType =
   | Extract<components["schemas"]["PersistableValueType"], { shape: "scalar" }>["atom"]
   | Extract<components["schemas"]["PersistableValueType"], { shape: "series" }>["item_type"]
@@ -117,7 +117,7 @@ export type ParameterValueDelta = Omit<
   after: StoredParameterValue;
 };
 export type ParameterValueType = components["schemas"]["PersistableValueType"];
-export type Quantity = components["schemas"]["scopecat__records__parameter__Quantity"];
+export type Quantity = components["schemas"]["scopecat__kernel__quantity__Quantity"];
 export type RunContentEntry = components["schemas"]["RunContentEntry-Output"];
 export type RunManifest = components["schemas"]["RunManifest"];
 export type RunResourceView = components["schemas"]["RunResourceView"];

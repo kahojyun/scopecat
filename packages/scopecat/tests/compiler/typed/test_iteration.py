@@ -4,19 +4,7 @@ from typing import cast
 
 import pytest
 
-from scopecat.compiler.relations.evaluation import ParameterRelationData
-from scopecat.compiler.relations.model import (
-    CellValue,
-    ScalarExpr,
-    lit,
-    param,
-)
-from scopecat.compiler.relations.point_domain import (
-    PointAxis,
-    point_axis_linear,
-    point_axis_values,
-    point_product,
-)
+from scopecat.compiler.relations.context import ParameterRelationData
 from scopecat.compiler.relations.uses import RelationUse, relation_use
 from scopecat.compiler.relations.verification import RelationTypeBindings
 from scopecat.compiler.semantic.value_expressions import (
@@ -33,6 +21,19 @@ from scopecat.compiler.typed.point_domain import (
     materialize_point_domain,
     verify_point_domain,
 )
+from scopecat.graph.relations.model import (
+    CellValue,
+    ScalarExpr,
+    lit,
+    param,
+)
+from scopecat.graph.relations.point_domain import (
+    PointAxis,
+    point_axis_linear,
+    point_axis_values,
+    point_product,
+)
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import (
     Int,
     Scalar,
@@ -40,7 +41,6 @@ from scopecat.kernel.value_types import (
 from scopecat.kernel.value_types import (
     Quantity as QuantityType,
 )
-from scopecat.records.parameter import Quantity
 
 _INT = Scalar(Int())
 _FREQUENCY = Scalar(QuantityType(unit="GHz"))

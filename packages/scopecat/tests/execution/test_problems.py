@@ -9,8 +9,8 @@ import pytest
 from scopecat.compiler.typed.program import core_acquisitions, core_state
 from scopecat.compiler.typed.state import SetStateSpec
 from scopecat.kernel.errors import ProviderContractError, RunFailed, RunIndeterminate
+from scopecat.kernel.quantity import Quantity
 from scopecat.records.instrument import InstrumentReadback
-from scopecat.records.parameter import Quantity
 from scopecat.sdk.instruments.contracts import (
     CollectCommand,
     CollectReceipt,

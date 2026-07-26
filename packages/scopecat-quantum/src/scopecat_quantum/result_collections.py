@@ -31,8 +31,9 @@ class ResultCollection[LeafT]:
 def _result_collection_axes(value: object) -> tuple[tuple[str, int], ...]:
     if not isinstance(value, ResultCollection):
         return ()
-    child_axes = _result_collection_axes(value.items[0])
-    return ((value.axis_id, len(value.items)), *child_axes)
+    collection = cast("ResultCollection[object]", value)
+    child_axes = _result_collection_axes(collection.items[0])
+    return ((collection.axis_id, len(collection.items)), *child_axes)
 
 
 def result_collection_axes[LeafT](
@@ -47,7 +48,8 @@ def _iter_result_leaves(value: object) -> Iterator[object]:
     if not isinstance(value, ResultCollection):
         yield value
         return
-    for item in value.items:
+    collection = cast("ResultCollection[object]", value)
+    for item in collection.items:
         yield from _iter_result_leaves(item)
 
 

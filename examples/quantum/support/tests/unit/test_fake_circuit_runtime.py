@@ -7,15 +7,12 @@ from typing import TypedDict, cast, override
 
 import pytest
 from scopecat import Quantity
-from scopecat.compiler.frontend.environment import build_config_environment
 from scopecat.compiler.linking.linked import (
     MaterializedLinkedPoints,
     materialize_linked_points,
 )
-from scopecat.compiler.relations.point_domain import point_axis_values
 from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.products import ProductAxisDef, ProductDef
 from scopecat.compiler.typed.program import (
     CoreProgram,
     TypedDomainExecution,
@@ -25,20 +22,23 @@ from scopecat.compiler.typed.program import (
     record_product,
     shot_axis,
 )
+from scopecat.config.environment import build_config_environment
 from scopecat.config.profiles import load_config_profile
 from scopecat.domain.program import DomainProgramDef, DomainResultPort
 from scopecat.execution.effects.domain import execute_domain_job_values
 from scopecat.execution.events import TransitionRecorder
+from scopecat.execution.measurement_recording import (
+    append_measurement_dataset,
+    seal_measurement_dataset,
+)
+from scopecat.graph.relations.point_domain import point_axis_values
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.product_identity import product_id
 from scopecat.kernel.value_types import Float, Scalar
+from scopecat.measurements.products import ProductAxisDef, ProductDef
 from scopecat.measurements.projection import (
     project_measurement_records,
     select_measurement_projection,
-)
-from scopecat.measurements.recording import (
-    append_measurement_dataset,
-    seal_measurement_dataset,
 )
 from scopecat.measurements.results import (
     ComplexQuantity,

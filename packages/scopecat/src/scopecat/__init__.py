@@ -90,11 +90,14 @@ if TYPE_CHECKING:
         replace_table_parameter,
         update_parameter_rows,
     )
+    from scopecat.kernel.entity import (
+        EntityRef,
+        entity_ref,
+    )
+    from scopecat.kernel.quantity import Quantity
     from scopecat.planning.preview_models import ExperimentPreview
     from scopecat.planning.system import ExperimentSystem
     from scopecat.project import Project, open_project
-    from scopecat.records.entity import EntityRef, entity_ref
-    from scopecat.records.parameter import Quantity
     from scopecat.records.parameter_change import AutomaticPolicyDecisionAuthority
 
 _EXPORTS: dict[str, tuple[str, str]] = {
@@ -161,8 +164,8 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "param_axis": ("scopecat.authoring.scans", "param_axis"),
     "ExperimentSystem": ("scopecat.planning.system", "ExperimentSystem"),
     "Project": ("scopecat.project", "Project"),
-    "EntityRef": ("scopecat.records.entity", "EntityRef"),
-    "entity_ref": ("scopecat.records.entity", "entity_ref"),
+    "EntityRef": ("scopecat.kernel.entity", "EntityRef"),
+    "entity_ref": ("scopecat.kernel.entity", "entity_ref"),
     "delete_parameter_rows": ("scopecat.config.parameters", "delete_parameter_rows"),
     "insert_parameter_rows": ("scopecat.config.parameters", "insert_parameter_rows"),
     "replace_scalar_parameter": (
@@ -182,7 +185,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "Analysis": ("scopecat.api.analysis", "Analysis"),
     "AnalysisContext": ("scopecat.api.analysis", "AnalysisContext"),
     "CandidateConfig": ("scopecat.config.candidates", "CandidateConfig"),
-    "Quantity": ("scopecat.records.parameter", "Quantity"),
+    "Quantity": ("scopecat.kernel.quantity", "Quantity"),
     "RunHandle": ("scopecat.api.run", "RunHandle"),
     "open_project": ("scopecat.project", "open_project"),
     "analysis_step": ("scopecat.api.analysis", "analysis_step"),

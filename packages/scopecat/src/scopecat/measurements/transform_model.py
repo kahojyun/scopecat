@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import override
 
-from scopecat.compiler.typed.products import ProductDef
 from scopecat.kernel.product_identity import ProductUseId
+from scopecat.measurements.products import ProductDef
 from scopecat.measurements.semantics import (
     MeasurementTransformSemanticContract,
 )

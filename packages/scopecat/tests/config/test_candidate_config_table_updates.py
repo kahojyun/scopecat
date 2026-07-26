@@ -8,12 +8,12 @@ from scopecat.config.registry import (
     CandidateConfigRegistrySource,
 )
 from scopecat.config.resolution import register_and_activate_candidate_config
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import Float, Scalar, String, Table, TableColumn
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter import (
     ParameterDefinition,
-    Quantity,
     TableParameterValue,
 )
 from tests.testkit.config_registry import load_config_registry_config

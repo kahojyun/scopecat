@@ -9,9 +9,9 @@ from typing import cast
 
 from pydantic import JsonValue, TypeAdapter
 
-from scopecat.execution.effect_interpreter import (
+from scopecat.execution.effect_interpreter import RunEffectInterpreter
+from scopecat.execution.effect_result import (
     CoverageMeasurementObserver,
-    RunEffectInterpreter,
     RunEffectResult,
 )
 from scopecat.execution.events import (
@@ -24,11 +24,6 @@ from scopecat.execution.local.drivers import (
     validate_instruments,
 )
 from scopecat.execution.observation import RuntimePayloadObserver
-from scopecat.execution.problems import (
-    contextualize_problems,
-    problem_from_exception,
-    runtime_problem,
-)
 from scopecat.execution.program import RunProgram
 from scopecat.kernel.errors import (
     ProviderContractError,
@@ -48,6 +43,11 @@ from scopecat.sdk.instruments.contracts import (
     InstrumentProvider,
     InstrumentProviderContext,
     InstrumentProviderResult,
+)
+from scopecat.sdk.runtime_problems import (
+    contextualize_problems,
+    problem_from_exception,
+    runtime_problem,
 )
 
 _PROVIDER_METADATA_ADAPTER = TypeAdapter(dict[str, JsonValue])

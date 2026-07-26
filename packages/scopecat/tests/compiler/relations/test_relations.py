@@ -1,12 +1,15 @@
 import pytest
 
-from scopecat.compiler.relations.evaluation import EvalContext, ParameterRelationData
-from scopecat.compiler.relations.input_binding import (
+from scopecat.compiler.relations.context import EvalContext, ParameterRelationData
+from scopecat.compiler.relations.verification import (
+    RelationTypeBindings,
+)
+from scopecat.graph.relations.input_binding import (
     bind_relation_input_refs,
     bind_scalar_input_refs,
     bind_series_input_refs,
 )
-from scopecat.compiler.relations.model import (
+from scopecat.graph.relations.model import (
     LiteralScalarExpr,
     ParameterLookupUse,
     RowScopeId,
@@ -23,9 +26,8 @@ from scopecat.compiler.relations.model import (
     table,
     values,
 )
-from scopecat.compiler.relations.verification import (
-    RelationTypeBindings,
-)
+from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import (
     Bool,
@@ -40,8 +42,6 @@ from scopecat.kernel.value_types import (
 from scopecat.kernel.value_types import (
     Quantity as QuantityType,
 )
-from scopecat.records.entity import EntityRef
-from scopecat.records.parameter import Quantity
 from tests.testkit.relation_plans import evaluate_relation, evaluate_series
 
 _BOOL = Scalar(Bool())

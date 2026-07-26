@@ -12,7 +12,7 @@ import scopecat as sc
 from scopecat.kernel.content_identity import content_fingerprint
 from scopecat.kernel.errors import RunIndeterminate
 from scopecat.kernel.problems import ProblemPhase, problem
-from scopecat.records.parameter import Quantity
+from scopecat.kernel.quantity import Quantity
 from scopecat.sdk.domain.runtime import (
     DomainFetchCandidate,
     DomainFetchReceipt,

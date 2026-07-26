@@ -5,33 +5,13 @@ from typing import cast
 
 import pytest
 
-from scopecat.compiler.frontend.environment import (
-    ConfigEnvironment,
-    build_config_environment,
-)
+from scopecat.compiler.environment import ConfigEnvironment
 from scopecat.compiler.linking.linked import (
     link_program,
     materialize_linked_points,
 )
-from scopecat.compiler.relations.evaluation import (
+from scopecat.compiler.relations.context import (
     ParameterRelationData,
-)
-from scopecat.compiler.relations.model import (
-    CellValue,
-    ParameterLookupUse,
-    ScalarExpr,
-    input_ref,
-    param,
-    parameter_lookup,
-)
-from scopecat.compiler.relations.point_domain import (
-    POINT_UNIT,
-    PointAxis,
-    PointProduct,
-    PointUnit,
-    point_axis_linear,
-    point_axis_values,
-    point_product,
 )
 from scopecat.compiler.relations.uses import RelationUse, relation_use
 from scopecat.compiler.relations.verification import RelationTypeBindings
@@ -47,12 +27,32 @@ from scopecat.compiler.typed.program import (
 from scopecat.compiler.typed.verification import (
     ProgramRelationConsumerKind,
 )
+from scopecat.config.environment import build_config_environment
 from scopecat.execution.local.program import CollectOperation
+from scopecat.graph.relations.model import (
+    CellValue,
+    ParameterLookupUse,
+    ScalarExpr,
+    input_ref,
+    param,
+    parameter_lookup,
+)
+from scopecat.graph.relations.point_domain import (
+    POINT_UNIT,
+    PointAxis,
+    PointProduct,
+    PointUnit,
+    point_axis_linear,
+    point_axis_values,
+    point_product,
+)
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
     ProblemPhase,
     model_location,
 )
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.value_types import (
     Entity,
@@ -61,8 +61,6 @@ from scopecat.kernel.value_types import (
     String,
 )
 from scopecat.kernel.value_types import Quantity as QuantityType
-from scopecat.records.entity import EntityRef
-from scopecat.records.parameter import Quantity
 from tests.testkit.authoring import load_config
 from tests.testkit.local_materialization import (
     materialize_local_execution,

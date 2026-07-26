@@ -11,10 +11,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import cast
 
-from scopecat.authoring._frozen_values import capture_runtime_input
 from scopecat.authoring._intents import ComputeNodeInputValue
 from scopecat.authoring._products import ProductRef
-from scopecat.authoring._value_refs import ValueRef
+from scopecat.authoring._value_refs import ValueRef, capture_runtime_input
 from scopecat.authoring.value_types import ValueType
 from scopecat.domain.program import (
     DomainInputPort,

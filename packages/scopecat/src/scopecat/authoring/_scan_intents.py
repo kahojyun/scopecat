@@ -17,10 +17,10 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_parameter_lookup,
     internal_value_ref_point_id,
 )
-from scopecat.compiler.relations.model import ParameterLookupUse
+from scopecat.graph.relations.model import ParameterLookupUse
+from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import Scalar
-from scopecat.records.entity import EntityRef
-from scopecat.records.parameter import Quantity
 
 type ScanValue = Quantity | EntityRef | str | int | float | bool | None
 type ScanCenter = ValueRef | Quantity

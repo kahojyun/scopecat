@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateLiteral, StateValue
-from scopecat.records.parameter import Quantity
 from scopecat.sdk.instruments import (
     CapabilityField,
     CollectCommand,

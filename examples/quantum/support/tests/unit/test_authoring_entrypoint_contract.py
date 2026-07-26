@@ -16,7 +16,7 @@ from scopecat.compiler.frontend.resolution import (
     CompiledInvocation,
     compile_invocation,
 )
-from scopecat.compiler.relations.point_domain import (
+from scopecat.graph.relations.point_domain import (
     PointAxis,
     PointAxisLinear,
     PointDomainExpr,

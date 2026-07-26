@@ -4,31 +4,31 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import cast
 
-from scopecat.compiler.relations.analysis import PlanNode
+from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.evaluation import (
-    EvalContext,
     evaluate_scalar,
     evaluate_series,
-)
-from scopecat.compiler.relations.model import (
-    CellValue,
-    ScalarExpr,
-    SeriesExpr,
 )
 from scopecat.compiler.relations.uses import (
     RelationUse,
     RelationUseId,
 )
 from scopecat.compiler.relations.verification import VerifiedRelationPlan
-from scopecat.compiler.semantic.compute_result import ComputeResultRef
 from scopecat.compiler.semantic.value_expressions import (
     ScalarOrSeriesValueExpr,
     ScalarValueExpr,
 )
+from scopecat.graph.relations.analysis import PlanNode
+from scopecat.graph.relations.model import (
+    CellValue,
+    ScalarExpr,
+    SeriesExpr,
+)
+from scopecat.graph.values import ComputeResultRef
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
 )
-from scopecat.records.entity import EntityRef
 
 type TargetEntityValue = str | EntityRef
 type RelationPlanResolver = Callable[[RelationUseId], VerifiedRelationPlan[PlanNode]]

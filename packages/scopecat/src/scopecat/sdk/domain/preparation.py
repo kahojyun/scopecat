@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Hashable, Mapping, Sequence
-from dataclasses import dataclass, field
+from collections.abc import Callable, Hashable, Sequence
 from types import MappingProxyType
 from typing import cast
 
-from scopecat.compiler.typed.products import ProductDef
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
-from scopecat.kernel.point_identity import LogicalPointId
-from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
+from scopecat.kernel.product_identity import ProductId, ProductUseId
 from scopecat.measurements.host_transforms import (
     HostMeasurementTransformPlan,
     bind_host_measurement_transforms,
@@ -18,9 +15,9 @@ from scopecat.measurements.host_transforms import (
 from scopecat.measurements.values import (
     MeasurementValueCandidate,
 )
-from scopecat.sdk.domain._bridge import point_id, product_use_id
+from scopecat.sdk.domain._context_contract import DomainBatchContextView
+from scopecat.sdk.domain._identities import product_use_id
 from scopecat.sdk.domain._measurement_bridge import lower_domain_host_transform_binding
-from scopecat.sdk.domain.context import DomainBatchContext
 from scopecat.sdk.domain.execution import (
     ErasedDomainInvocation,
     ErasedDomainRealizer,
@@ -37,69 +34,12 @@ from scopecat.sdk.domain.job import (
     DomainResultValue,
 )
 from scopecat.sdk.domain.measurements import DomainHostTransformBinding
+from scopecat.sdk.domain.result_mapping import (
+    DomainMappedResult,
+    DomainResultBinding,
+    DomainResultMapping,
+)
 from scopecat.sdk.domain.runtime import CorrelatedDomainFetch, DomainRuntime
-from scopecat.sdk.domain.view import DomainPointRef, DomainProductUseRef
-
-
-@dataclass(frozen=True, slots=True)
-class DomainResultBinding[ResultAddressT: Hashable]:
-    """Opaque target result location bound to one logical product occurrence."""
-
-    result_address: ResultAddressT
-    point: DomainPointRef
-    product_use: DomainProductUseRef
-
-
-@dataclass(frozen=True, slots=True)
-class DomainMappedResult[ResultAddressT: Hashable]:
-    """One opaque result location and its exact logical output ownership."""
-
-    result_address: ResultAddressT
-    point: DomainPointRef
-    product_uses: tuple[DomainProductUseRef, ...]
-    product: ProductDef = field(repr=False)
-
-    @property
-    def logical_point_id(self) -> LogicalPointId:
-        return point_id(self.point)
-
-    @property
-    def product_use_ids(self) -> tuple[ProductUseId, ...]:
-        return tuple(product_use_id(use) for use in self.product_uses)
-
-    @property
-    def product_id(self) -> ProductId:
-        return self.product.id
-
-
-@dataclass(frozen=True, slots=True)
-class DomainResultMapping[
-    ResultAddressT: Hashable,
-]:
-    """Exact inventory from opaque result locations to SDK-owned references.
-
-    ``results`` follows canonical logical-point and product-use order. All point
-    and product-use values are the exact references assembled for the
-    preparation context; physical entry structure remains adapter-owned.
-    """
-
-    context: DomainBatchContext
-    selected_product_uses: tuple[ProductUse, ...] = field(repr=False)
-    results: tuple[DomainMappedResult[ResultAddressT], ...]
-    product_by_use_id: Mapping[ProductUseId, ProductDef] = field(
-        repr=False, compare=False
-    )
-    _contract_fingerprint: str = field(repr=False, compare=False)
-
-    @property
-    def contract_fingerprint(self) -> str:
-        return self._contract_fingerprint
-
-    def product_for_use(self, product_use_id: ProductUseId) -> ProductDef:
-        try:
-            return self.product_by_use_id[product_use_id]
-        except KeyError as error:
-            raise KeyError(product_use_id.value) from error
 
 
 class DomainPreparationBuilder:
@@ -112,11 +52,11 @@ class DomainPreparationBuilder:
 
     __slots__ = ("_context",)
 
-    def __init__(self, context: DomainBatchContext) -> None:
+    def __init__(self, context: DomainBatchContextView) -> None:
         self._context = context
 
     @property
-    def context(self) -> DomainBatchContext:
+    def context(self) -> DomainBatchContextView:
         return self._context
 
     def map_measurements[
@@ -209,7 +149,7 @@ class DomainPreparationBuilder:
 
 
 def _bind_host_transforms(
-    context: DomainBatchContext,
+    context: DomainBatchContextView,
     supplied_bindings: tuple[DomainHostTransformBinding, ...],
 ) -> HostMeasurementTransformPlan | None:
     authored = {
@@ -243,7 +183,7 @@ def _bind_host_transforms(
 def _close_result_mapping[
     ResultAddressT: Hashable,
 ](
-    context: DomainBatchContext,
+    context: DomainBatchContextView,
     result_bindings: tuple[DomainResultBinding[ResultAddressT], ...],
 ) -> DomainResultMapping[ResultAddressT]:
     use_refs = context.direct_product_uses

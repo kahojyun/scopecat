@@ -7,17 +7,17 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import cast
 
-from scopecat.authoring._frozen_values import (
-    capture_runtime_inputs,
-    empty_frozen_mapping,
-)
 from scopecat.authoring._module_ir import ModuleIR
 from scopecat.authoring._products import RecordSelection
 from scopecat.authoring._validation import (
     validate_experiment_definition,
     validate_experiment_inputs,
 )
-from scopecat.authoring._value_refs import ValueRef
+from scopecat.authoring._value_refs import (
+    ValueRef,
+    capture_runtime_inputs,
+    empty_frozen_mapping,
+)
 from scopecat.authoring.scans import (
     Scan,
     ScanCenter,
@@ -29,8 +29,8 @@ from scopecat.authoring.values import (
     RuntimeInput,
 )
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import ValueType
-from scopecat.records.parameter import Quantity
 
 
 class _InputDefaultMissing:

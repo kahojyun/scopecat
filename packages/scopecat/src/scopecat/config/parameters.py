@@ -13,13 +13,13 @@ from scopecat.config.parameter_updates import (
     replace_table_parameter,
     update_parameter_rows,
 )
+from scopecat.kernel.quantity import Quantity
 from scopecat.records.parameter import (
     ParameterAtomValue,
     ParameterCatalog,
     ParameterDefinition,
     ParameterSnapshot,
     PersistableValueType,
-    Quantity,
     ScalarParameterValue,
     SeriesParameterValue,
     StoredParameterValue,

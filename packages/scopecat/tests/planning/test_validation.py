@@ -1,8 +1,8 @@
 import pytest
 from pydantic import ValidationError
 
+from scopecat.config.profile_validation import validate_config_profile
 from scopecat.config.profiles import load_config_profile
-from scopecat.planning.validation import validate_config_profile
 from scopecat.records.config import ConfigProfileSnapshot
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 

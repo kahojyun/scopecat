@@ -1,0 +1,321 @@
+# pyright: reportPrivateUsage=false
+"""Dependency-free inspection for symbolic quantum programs."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import (
+    Protocol,
+)
+
+from scopecat import Quantity
+from scopecat.authoring.value_types import (
+    Entity as EntityAtomType,
+)
+from scopecat.authoring.value_types import (
+    Payload as PayloadType,
+)
+from scopecat.authoring.value_types import (
+    Quantity as QuantityAtomType,
+)
+
+from scopecat_quantum.pulses import (
+    AcquireSignal,
+    AnalyticEnvelope,
+    Constant,
+    DriveSignal,
+    Gaussian,
+    LogicalSignal,
+    ReadoutSignal,
+)
+
+from ._analysis import (
+    _pulse_envelope_parts,
+)
+from ._ir import (
+    Acquisition,
+    Coupler,
+    Measurement,
+    ProgramInput,
+    ProgramPort,
+    ProgramResult,
+    ProgramResults,
+    PulseEnvelope,
+    QuantumFragment,
+    QuantumQuantity,
+    QuantumResultAxis,
+    Qubit,
+    _BarrierFragment,
+    _DelayFragment,
+    _ExpandedFragment,
+    _FragmentCall,
+    _GateFragment,
+    _ImplementedGateFragment,
+    _ParallelFragment,
+    _PlayFragment,
+    _PulseTemplateCallFragment,
+    _QuantumConditionalFragment,
+    _QuantumParallelFragment,
+    _QuantumRepeatFragment,
+    _QuantumSequenceFragment,
+    _RepeatFragment,
+    _SequenceFragment,
+    _ShiftPhaseFragment,
+)
+
+
+class _InspectableProgram(Protocol):
+    @property
+    def id(self) -> str: ...
+
+    @property
+    def description(self) -> str | None: ...
+
+    @property
+    def ports(self) -> tuple[ProgramPort, ...]: ...
+
+    @property
+    def results(self) -> ProgramResults: ...
+
+    @property
+    def body(self) -> QuantumFragment: ...
+
+
+@dataclass(frozen=True, slots=True)
+class _InspectionNode:
+    label: str
+    children: tuple[_InspectionNode, ...] = ()
+
+
+def describe(program: _InspectableProgram, /) -> str:
+    """Return a concise typed declaration summary for ``program``."""
+
+    lines = [f"program {program.id}"]
+    if program.description is not None:
+        lines.append("description:")
+        lines.extend(f"  {line}" for line in program.description.splitlines())
+    lines.append("ports:")
+    if not program.ports:
+        lines.append("  (none)")
+    for port in program.ports:
+        if isinstance(port, Qubit):
+            value_type = "qubit"
+        elif isinstance(port, Coupler):
+            value_type = "coupler"
+        else:
+            value_type = _describe_program_input(port)
+        lines.append(f"  {port.id}: {value_type}")
+    lines.append("results:")
+    if not program.results:
+        lines.append("  (none)")
+    for result in program.results:
+        lines.append(f"  {result.id}: {_describe_result(result)}")
+    return "\n".join(lines)
+
+
+def draw(program: _InspectableProgram, /) -> str:
+    """Return a dependency-free text tree of ``program`` source structure."""
+
+    root = _InspectionNode(
+        label=f"program {program.id}",
+        children=(_inspection_node(program.body),),
+    )
+    lines = [root.label]
+    _draw_inspection_children(root.children, prefix="", lines=lines)
+    return "\n".join(lines)
+
+
+def _draw_inspection_children(
+    children: tuple[_InspectionNode, ...],
+    *,
+    prefix: str,
+    lines: list[str],
+) -> None:
+    for index, child in enumerate(children):
+        last = index == len(children) - 1
+        lines.append(f"{prefix}{'└─' if last else '├─'} {child.label}")
+        _draw_inspection_children(
+            child.children,
+            prefix=prefix + ("   " if last else "│  "),
+            lines=lines,
+        )
+
+
+def _inspection_node(fragment: QuantumFragment) -> _InspectionNode:
+    if isinstance(fragment, _GateFragment):
+        return _InspectionNode(f"gate {_inspection_gate_call(fragment)}")
+    if isinstance(fragment, Measurement):
+        result = fragment.result
+        return _InspectionNode(f"measure {result.qubit.id} -> {result.id}")
+    if isinstance(fragment, Acquisition):
+        return _InspectionNode(
+            f"acquire {fragment.result.qubit.id} "
+            f"duration={_inspection_value(fragment.duration)} -> {fragment.result.id}"
+        )
+    if isinstance(fragment, _PlayFragment):
+        return _InspectionNode(
+            f"play {_inspection_signal(fragment.signal)} "
+            f"{_inspection_envelope(fragment.envelope)}"
+        )
+    if isinstance(fragment, _DelayFragment):
+        return _InspectionNode(
+            f"delay {_inspection_signal(fragment.signal)} "
+            f"duration={_inspection_value(fragment.duration)}"
+        )
+    if isinstance(fragment, _BarrierFragment):
+        signals = ", ".join(_inspection_signal(item) for item in fragment.signals)
+        return _InspectionNode(f"barrier {signals}")
+    if isinstance(fragment, _ShiftPhaseFragment):
+        return _InspectionNode(
+            f"shift_phase {_inspection_signal(fragment.signal)} "
+            f"phase={_inspection_value(fragment.phase)}"
+        )
+    if isinstance(fragment, _PulseTemplateCallFragment):
+        return _InspectionNode(
+            f"pulse {fragment.template.id}",
+            (_inspection_node(fragment.body),),
+        )
+    if isinstance(fragment, _ImplementedGateFragment):
+        candidate = (
+            ""
+            if fragment.candidate_id is None
+            else f" candidate={fragment.candidate_id!r}"
+        )
+        return _InspectionNode(
+            f"implementation {_inspection_gate_call(fragment.gate)}{candidate}",
+            (_inspection_node(fragment.pulse),),
+        )
+    if isinstance(fragment, _FragmentCall):
+        arguments = ", ".join(
+            f"{name}={_inspection_value(value)}" for name, value in fragment.arguments
+        )
+        return _InspectionNode(f"fragment {fragment.definition.id}({arguments})")
+    if isinstance(fragment, _ExpandedFragment):
+        return _InspectionNode(
+            f"fragment {fragment.definition_id}",
+            (_inspection_node(fragment.body),),
+        )
+    if isinstance(fragment, _SequenceFragment | _QuantumSequenceFragment):
+        return _InspectionNode(
+            f"sequence{_inspection_axis(fragment.result_axis)}",
+            tuple(_inspection_node(item) for item in fragment.operations),
+        )
+    if isinstance(fragment, _ParallelFragment | _QuantumParallelFragment):
+        return _InspectionNode(
+            f"parallel{_inspection_axis(fragment.result_axis)}",
+            tuple(_inspection_node(item) for item in fragment.branches),
+        )
+    if isinstance(fragment, _RepeatFragment | _QuantumRepeatFragment):
+        return _InspectionNode(
+            f"repeat {_inspection_value(fragment.count)}"
+            f"{_inspection_axis(fragment.result_axis)}",
+            (_inspection_node(fragment.operation),),
+        )
+    if isinstance(fragment, _QuantumConditionalFragment):
+        return _InspectionNode(
+            f"when {fragment.condition.id} == {fragment.equals}",
+            (
+                _InspectionNode("true", (_inspection_node(fragment.when_true),)),
+                _InspectionNode("false", (_inspection_node(fragment.when_false),)),
+            ),
+        )
+    raise AssertionError(f"unsupported quantum fragment {type(fragment).__name__}")
+
+
+def _inspection_gate_call(fragment: _GateFragment) -> str:
+    arguments = [qubit.id for qubit in fragment.qubits]
+    arguments.extend(
+        f"{name}={_inspection_value(value)}" for name, value in fragment.arguments
+    )
+    return f"{fragment.gate.id}({', '.join(arguments)})"
+
+
+def _inspection_signal(signal: LogicalSignal) -> str:
+    if isinstance(signal, DriveSignal):
+        return f"drive({signal.qubit.value})"
+    if isinstance(signal, ReadoutSignal):
+        return f"readout({signal.qubit.value})"
+    if isinstance(signal, AcquireSignal):
+        return f"acquire({signal.qubit.value})"
+    return f"flux({signal.owner.value})"
+
+
+def _inspection_envelope(envelope: PulseEnvelope | AnalyticEnvelope) -> str:
+    if isinstance(envelope, PulseEnvelope):
+        kind, duration, amplitude, sigma, beta, phase = _pulse_envelope_parts(envelope)
+    elif isinstance(envelope, Constant):
+        kind = "constant"
+        duration, amplitude = envelope.duration, envelope.amplitude
+        sigma, beta, phase = None, None, envelope.phase
+    elif isinstance(envelope, Gaussian):
+        kind = "gaussian"
+        duration, amplitude, sigma = (
+            envelope.duration,
+            envelope.amplitude,
+            envelope.sigma,
+        )
+        beta, phase = None, envelope.phase
+    else:
+        kind = "drag"
+        duration, amplitude, sigma, beta, phase = (
+            envelope.duration,
+            envelope.amplitude,
+            envelope.sigma,
+            envelope.beta,
+            envelope.phase,
+        )
+    fields = [
+        f"duration={_inspection_value(duration)}",
+        f"amplitude={_inspection_value(amplitude)}",
+    ]
+    if sigma is not None:
+        fields.append(f"sigma={_inspection_value(sigma)}")
+    if beta is not None:
+        fields.append(f"beta={_inspection_value(beta)}")
+    if not _is_zero_phase(phase):
+        fields.append(f"phase={_inspection_value(phase)}")
+    return f"{kind}({', '.join(fields)})"
+
+
+def _is_zero_phase(value: QuantumQuantity) -> bool:
+    return isinstance(value, Quantity) and value.to("rad").value == 0
+
+
+def _inspection_axis(axis: QuantumResultAxis | None) -> str:
+    if axis is None:
+        return ""
+    return f" axis={axis.id}:{axis.kind}[{_inspection_value(axis.size)}]"
+
+
+def _inspection_value(value: object) -> str:
+    if isinstance(value, Qubit | Coupler):
+        return value.id
+    if isinstance(value, ProgramInput):
+        return f"${value.id}"
+    if isinstance(value, Quantity):
+        return f"{value.value:g} {value.unit}"
+    return repr(value)
+
+
+def _describe_program_input(value: ProgramInput) -> str:
+    atom = value.value_type.atom
+    detail: str | None = None
+    if isinstance(atom, QuantityAtomType):
+        detail = atom.unit or atom.dimension
+    elif isinstance(atom, EntityAtomType):
+        detail = atom.entity_kind
+    elif isinstance(atom, PayloadType):
+        detail = atom.schema_id
+    atom_name = type(atom).__name__
+    return f"{atom_name}[{detail}]" if detail is not None else atom_name
+
+
+def _describe_result(result: ProgramResult) -> str:
+    contract = result.contract
+    axes = ["shot"]
+    axes.extend(f"{axis.id}[{_inspection_value(axis.size)}]" for axis in contract.axes)
+    unit = "" if contract.unit is None else f" {contract.unit}"
+    return (
+        f"{result.acquisition_kind.value} {contract.dtype}{unit} "
+        f"on {result.qubit.id}; axes={' x '.join(axes)}"
+    )

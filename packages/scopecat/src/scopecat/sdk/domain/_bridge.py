@@ -9,24 +9,24 @@ from scopecat.compiler.linking.linked import (
     LinkedPlan,
     MaterializedLinkedPoints,
 )
+from scopecat.compiler.measurement_projection import (
+    project_measurement_catalog,
+    project_run_point_catalog,
+)
 from scopecat.compiler.semantic.model import (
     MeasurementTransformId,
 )
 from scopecat.compiler.typed.domain_results import (
     DomainResultClosure,
 )
-from scopecat.compiler.typed.products import ProductDef
 from scopecat.compiler.typed.program import (
     TypedDomainExecution,
     core_domain_executions,
 )
 from scopecat.domain.program import DomainProgramDef
-from scopecat.kernel.point_identity import LogicalPointId
 from scopecat.kernel.product_identity import ProductId, ProductUseId
-from scopecat.measurements._bridge import (
-    project_measurement_catalog,
-    project_run_point_catalog,
-)
+from scopecat.measurements.products import ProductDef
+from scopecat.sdk.domain._identities import product_use_id
 from scopecat.sdk.domain.compiler import (
     DomainCompileRequest,
     DomainCompileTemplate,
@@ -210,14 +210,6 @@ def make_domain_batch_context(
             point_ordinals,
         ).points,
     )
-
-
-def point_id(ref: DomainPointRef) -> LogicalPointId:
-    return cast("LogicalPointId", ref.native)
-
-
-def product_use_id(ref: DomainProductUseRef) -> ProductUseId:
-    return cast("ProductUseId", ref.native)
 
 
 def _product_contract_view(product: ProductDef) -> DomainProductContractView:

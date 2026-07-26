@@ -39,38 +39,16 @@ from scopecat.compiler.frontend.value_binding import (
     literal_data_expr,
     value_input_refs,
 )
-from scopecat.compiler.relations.model import (
-    BinaryScalarExpr,
-    CellValue,
-    RelationExpr,
-    ScalarExpr,
-    ScalarExpression,
-    SeriesExpr,
-    as_scalar_expr,
-    point_col,
-)
-from scopecat.compiler.relations.point_domain import (
-    POINT_UNIT,
-    PointAxis,
-    PointAxisLinear,
-    PointAxisValues,
-    PointDomainExpr,
-    PointProduct,
-    PointUnit,
-)
 from scopecat.compiler.relations.uses import RelationUse, relation_use
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
 )
-from scopecat.compiler.semantic.compute_result import ComputeOutput, ComputeResultRef
 from scopecat.compiler.semantic.model import (
     LocalPythonImplementation,
-    OperationId,
     PlanExpressionSource,
     SemanticDomainExecution,
     SemanticOperation,
     ValueDef,
-    ValueId,
 )
 from scopecat.compiler.semantic.operation_contract import ScalarBinarySemantics
 from scopecat.compiler.semantic.value_expressions import (
@@ -90,6 +68,32 @@ from scopecat.compiler.typed.program import (
     set_state_field,
 )
 from scopecat.compiler.typed.state import SetStateSpec
+from scopecat.graph.relations.model import (
+    BinaryScalarExpr,
+    CellValue,
+    RelationExpr,
+    ScalarExpr,
+    ScalarExpression,
+    SeriesExpr,
+    as_scalar_expr,
+    point_col,
+)
+from scopecat.graph.relations.point_domain import (
+    POINT_UNIT,
+    PointAxis,
+    PointAxisLinear,
+    PointAxisValues,
+    PointDomainExpr,
+    PointProduct,
+    PointUnit,
+)
+from scopecat.graph.values import (
+    ComputeOutput,
+    ComputeResultRef,
+    OperationId,
+    ValueId,
+)
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.problems import ProblemPhase
 from scopecat.kernel.product_identity import (
     ProductId,
@@ -98,7 +102,6 @@ from scopecat.kernel.product_identity import (
 )
 from scopecat.kernel.value_type_compatibility import require_assignable
 from scopecat.records.config import Topology
-from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import ParameterCatalog
 
 

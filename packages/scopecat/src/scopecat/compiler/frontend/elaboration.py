@@ -13,6 +13,7 @@ from scopecat.authoring._binding_intents import (
     ResourceSelector,
     prefix_resource_port,
 )
+from scopecat.authoring._identities import InvocationKey
 from scopecat.authoring._intents import (
     ComputeNodeInputValue,
     ModuleInputPort,
@@ -20,7 +21,6 @@ from scopecat.authoring._intents import (
     ParameterScanOverlayIntent,
 )
 from scopecat.authoring._module_ir import (
-    InvocationKey,
     ModuleAcquireEffect,
     ModuleBindingEffect,
     ModuleDomainEffect,
@@ -70,15 +70,17 @@ from scopecat.compiler.frontend.semantic_elaboration import (
     elaborate_semantic_graph,
     semantic_operation_id,
 )
-from scopecat.compiler.relations.point_domain import POINT_UNIT
 from scopecat.compiler.semantic.model import (
     AcquireEffect,
     AcquireId,
     AcquireProduct,
     LocalPythonImplementation,
-    OperationId,
     SemanticDomainExecution,
     SemanticGraphIR,
+)
+from scopecat.graph.relations.point_domain import POINT_UNIT
+from scopecat.graph.values import (
+    OperationId,
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (

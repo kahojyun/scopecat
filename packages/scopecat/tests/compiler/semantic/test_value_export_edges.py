@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 import scopecat as sc
-from scopecat.authoring._module_ir import InvocationKey
+from scopecat.authoring._identities import InvocationKey
 from scopecat.authoring._value_refs import (
     internal_bind_value_ref_inputs,
     internal_input_value_ref,
@@ -17,7 +17,7 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_module_export,
 )
 from scopecat.compiler.frontend.elaboration import elaborate_module
-from scopecat.compiler.relations.evaluation import EvalContext
+from scopecat.compiler.relations.context import EvalContext
 from scopecat.kernel.value_types import Float, Scalar, String
 from tests.testkit.relation_plans import evaluate_scalar
 

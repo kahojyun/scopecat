@@ -3,7 +3,7 @@ name = "scopecat-workspace"
 version = "0.1.0"
 description = "Workspace for Scopecat packages, examples, and fixtures."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
   "quantum-lab-demo",
   "scopecat",
@@ -14,7 +14,9 @@ dependencies = [
 [dependency-groups]
 dev = [
   "basedpyright>=1.39.6",
+  "coverage[toml]>=7.10",
   "hypothesis>=6.155.7",
+  "import-linter>=2.13",
   "pytest>=9",
   "ruff>=0.15.14",
 ]
@@ -41,7 +43,7 @@ exclude = [
   ".ruff_cache",
   ".venv",
 ]
-pythonVersion = "3.12"
+pythonVersion = "3.14"
 pythonPlatform = "All"
 typeCheckingMode = "recommended"
 extraPaths = [
@@ -96,9 +98,141 @@ reportAny = "none"
 reportExplicitAny = "none"
 reportPrivateUsage = "none"
 
-[[tool.basedpyright.executionEnvironments]]
-root = "packages/scopecat"
-reportImportCycles = "none"
+[tool.coverage.run]
+branch = true
+source = [
+  "quantum_lab_demo",
+  "scopecat",
+  "scopecat_quantum",
+  "scopecat_server",
+]
+
+[tool.coverage.report]
+skip_empty = true
+
+[tool.importlinter]
+root_packages = [
+  "quantum_lab_demo",
+  "scopecat",
+  "scopecat_quantum",
+]
+exclude_type_checking_imports = true
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Scopecat core remains domain neutral and offline"
+type = "forbidden"
+source_modules = ["scopecat"]
+forbidden_modules = [
+  "labrad",
+  "numpy",
+  "pandas",
+  "pyvisa",
+  "quantum_lab_demo",
+  "requests",
+  "scipy",
+  "scopecat_quantum",
+  "serial",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Inward layers do not depend on application or storage"
+type = "forbidden"
+source_modules = [
+  "scopecat.compiler",
+  "scopecat.kernel",
+  "scopecat.records",
+]
+forbidden_modules = [
+  "scopecat.adapters",
+  "scopecat.api.analysis",
+  "scopecat.api.data",
+  "scopecat.api.lab",
+  "scopecat.api.run",
+  "scopecat.config.registry",
+  "scopecat.execution",
+  "scopecat.runs",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Records do not depend on SDK contracts"
+type = "forbidden"
+source_modules = ["scopecat.records"]
+forbidden_modules = ["scopecat.sdk"]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Authoring does not depend on later compiler or planning layers"
+type = "forbidden"
+source_modules = ["scopecat.authoring"]
+forbidden_modules = [
+  "scopecat.compiler.frontend",
+  "scopecat.compiler.linking",
+  "scopecat.compiler.typed",
+  "scopecat.planning",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Application layers do not select concrete adapters"
+type = "forbidden"
+source_modules = [
+  "scopecat.analysis",
+  "scopecat.api",
+  "scopecat.application",
+  "scopecat.config",
+  "scopecat.execution",
+  "scopecat.measurements",
+  "scopecat.planning",
+  "scopecat.runs",
+]
+forbidden_modules = ["scopecat.adapters"]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Planning does not depend on the project application bundle"
+type = "forbidden"
+source_modules = ["scopecat.planning"]
+forbidden_modules = ["scopecat.application"]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Notebook facades delegate persistence use cases"
+type = "forbidden"
+source_modules = [
+  "scopecat.api.analysis",
+  "scopecat.api.lab",
+  "scopecat.api.run",
+]
+forbidden_modules = [
+  "scopecat.adapters",
+  "scopecat.runs.access",
+  "scopecat.runs.repository",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Quantum lab demo uses the supported domain SDK"
+type = "forbidden"
+source_modules = ["quantum_lab_demo"]
+forbidden_modules = [
+  "scopecat.compiler",
+  "scopecat.measurements.host_transforms",
+  "scopecat.measurements.projection",
+  "scopecat.measurements.transform_model",
+  "scopecat.measurements.values",
+  "scopecat.sdk.domain.invocation",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Scopecat package dependencies are acyclic"
+type = "acyclic_siblings"
+ancestors = ["scopecat"]
+# Deeper sibling aggregation can report cycles when the concrete module graph is acyclic.
+depth = 0
 
 [tool.pytest]
 minversion = "9.0"
@@ -114,7 +248,7 @@ testpaths = [
 ]
 
 [tool.ruff]
-target-version = "py312"
+target-version = "py314"
 line-length = 88
 src = [
   "packages/scopecat/src",
@@ -164,6 +298,10 @@ select = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
+"packages/scopecat/src/scopecat/graph/relations/point_domain.py" = [
+  # PEP 695 has no explicit variance syntax; PointAxis[Never] needs covariance.
+  "UP046",
+]
 "**/tests/**/*.py" = [
   "ARG001",
   "S101",
@@ -173,7 +311,7 @@ select = [
 ]
 
 [tool.ruff.lint.mccabe]
-max-complexity = 30
+max-complexity = 20
 
 [tool.uv]
 exclude-newer = "14d"

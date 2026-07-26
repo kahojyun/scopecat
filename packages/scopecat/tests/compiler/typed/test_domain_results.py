@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from scopecat.compiler.relations.point_domain import POINT_UNIT
 from scopecat.compiler.semantic.model import (
     MeasurementTransformId,
 )
@@ -15,6 +14,7 @@ from scopecat.compiler.typed.program import (
     TypedMeasurementTransformOutput,
 )
 from scopecat.domain.program import DomainProgramDef
+from scopecat.graph.relations.point_domain import POINT_UNIT
 from scopecat.kernel.product_identity import (
     ProductUse,
     ProductUseId,

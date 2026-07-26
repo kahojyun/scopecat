@@ -461,8 +461,7 @@ function filterRuns(runs: ProjectRun[], filter: FilterKey, search: string): Proj
       filter === "all" ||
       (filter === "active" && ["accepted", "running"].includes(run.status)) ||
       (filter === "attention" && run.status === "attention_required") ||
-      (filter === "complete" &&
-        ["succeeded", "failed", "cancelled", "terminal"].includes(run.status));
+      (filter === "complete" && ["succeeded", "failed", "cancelled"].includes(run.status));
     if (!matchesFilter) return false;
     if (!query) return true;
     return [

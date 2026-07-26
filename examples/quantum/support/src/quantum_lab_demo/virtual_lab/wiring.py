@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal, Self
 
+from scopecat.kernel.entity import EntityRef
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     RoutingEndpointBinding,
@@ -13,7 +14,6 @@ from scopecat.records.config import (
     SystemSpec,
     Topology,
 )
-from scopecat.records.entity import EntityRef
 
 from quantum_lab_demo.configuration import quantum_lab_bootstrap_config
 from quantum_lab_demo.targets.configuration import (

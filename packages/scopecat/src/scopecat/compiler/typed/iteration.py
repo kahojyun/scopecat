@@ -6,8 +6,12 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from math import prod
 
-from scopecat.compiler.relations.model import LiteralScalarExpr
-from scopecat.compiler.relations.point_domain import (
+from scopecat.compiler.relations.scalar_eval import read_path
+from scopecat.compiler.relations.uses import RelationUse
+from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
+from scopecat.compiler.typed.point_domain import VerifiedPointDomain
+from scopecat.graph.relations.model import LiteralScalarExpr
+from scopecat.graph.relations.point_domain import (
     PointAxis,
     PointAxisLinear,
     PointAxisValues,
@@ -15,12 +19,8 @@ from scopecat.compiler.relations.point_domain import (
     PointUnit,
     point_axis_linear_value,
 )
-from scopecat.compiler.relations.scalar_eval import read_path
-from scopecat.compiler.relations.uses import RelationUse
-from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
-from scopecat.compiler.typed.point_domain import VerifiedPointDomain
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
-from scopecat.records.parameter import Quantity
+from scopecat.kernel.quantity import Quantity
 
 
 @dataclass(frozen=True, slots=True)

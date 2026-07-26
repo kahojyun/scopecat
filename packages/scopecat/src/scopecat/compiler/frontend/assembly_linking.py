@@ -13,6 +13,7 @@ from scopecat.authoring._parameter_contracts import (
 from scopecat.authoring._point_domain_intents import (
     point_domain_intent_parameter_contracts,
 )
+from scopecat.compiler.environment import ConfigEnvironment
 from scopecat.compiler.frontend.assembly_lowering import (
     input_row,
     lower_parameter_overlay_intent,
@@ -27,7 +28,6 @@ from scopecat.compiler.frontend.binding_lowering import (
     lower_binding_intent,
 )
 from scopecat.compiler.frontend.elaboration import SemanticExperimentIR
-from scopecat.compiler.frontend.environment import ConfigEnvironment
 from scopecat.compiler.frontend.graph_validation import VerifiedAssembly
 from scopecat.compiler.frontend.measurement_transform_lowering import (
     lower_semantic_measurement_transform_graph,

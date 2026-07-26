@@ -6,15 +6,15 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from inspect import Parameter, signature
 from typing import cast
-from uuid import UUID, uuid4
 
-from scopecat.authoring._frozen_values import capture_runtime_input
+from scopecat.authoring._identities import ComputeDeclarationKey
 from scopecat.authoring._parameter_contracts import (
     ParameterValueContract,
 )
 from scopecat.authoring._value_refs import (
     TableRow,
     ValueRef,
+    capture_runtime_input,
     internal_input_value_ref,
     internal_operation_result_value_ref,
     internal_parameter_lookup_value_ref,
@@ -22,18 +22,18 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_from_expression,
     internal_value_ref_point_dependencies,
 )
-from scopecat.compiler.relations.model import (
+from scopecat.graph.relations.model import (
     ParameterLookupUse,
     param,
     parameter_series,
     table,
 )
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.payloads import PayloadValue
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_type_compatibility import literal_scalar_type
 from scopecat.kernel.value_types import Scalar, Series, ValueType
-from scopecat.records.entity import EntityRef
-from scopecat.records.parameter import Quantity
 
 type ComputeFunction = Callable[..., object]
 type ScalarInput = Quantity | EntityRef | PayloadValue | str | int | float | bool | None
@@ -61,17 +61,6 @@ type ModuleInput = (
 type ParameterKeyInput = (
     ValueRef | Quantity | EntityRef | str | int | float | bool | None
 )
-
-
-@dataclass(frozen=True, slots=True)
-class ComputeDeclarationKey:
-    """Nominal identity shared by a compute declaration and its result use."""
-
-    value: UUID
-
-    @classmethod
-    def fresh(cls) -> ComputeDeclarationKey:
-        return cls(uuid4())
 
 
 @dataclass(frozen=True, slots=True, repr=False)

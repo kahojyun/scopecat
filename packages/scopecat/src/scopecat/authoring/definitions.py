@@ -16,19 +16,16 @@ from typing import (
     overload,
 )
 
-from scopecat.authoring._frozen_values import empty_frozen_mapping
-from scopecat.authoring._module_construction import (
-    build_module_ir,
-    module_use_invocation,
-)
 from scopecat.authoring._module_handles import (
     ExperimentModule,
     ModuleBuilder,
     ModuleInvocation,
+    build_module_ir,
     create_experiment_module_internal,
+    module_use_invocation,
 )
 from scopecat.authoring._products import ProductRef, RecordSelection, record_product
-from scopecat.authoring._value_refs import ValueRef
+from scopecat.authoring._value_refs import ValueRef, empty_frozen_mapping
 from scopecat.authoring.scans import Scan, ScanCenter, ScanValue, build_scan
 from scopecat.authoring.templates import (
     ExperimentDefinition,
@@ -52,9 +49,9 @@ from scopecat.authoring.value_types import (
 )
 from scopecat.authoring.values import MetadataValue, RuntimeInput
 from scopecat.authoring.values import input as authoring_input
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import freeze_json_mapping
-from scopecat.records.entity import EntityRef
-from scopecat.records.parameter import Quantity as QuantityValue
+from scopecat.kernel.quantity import Quantity as QuantityValue
 
 type DefinitionFunction = Callable[..., object]
 type Input[T] = T | ValueRef

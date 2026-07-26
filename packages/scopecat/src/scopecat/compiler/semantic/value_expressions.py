@@ -5,12 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar, Literal, Self, cast, overload
 
-from scopecat.compiler.relations.model import RelationExpr, ScalarExpr, SeriesExpr
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     VerifiedRelationPlan,
     verify_relation_plan,
 )
+from scopecat.graph.relations.model import RelationExpr, ScalarExpr, SeriesExpr
 from scopecat.kernel.value_types import Scalar, Series, Table, ValueType
 
 

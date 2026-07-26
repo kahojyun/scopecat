@@ -4,14 +4,12 @@ from __future__ import annotations
 
 from typing import cast
 
-from scopecat.compiler.relations.analysis import PlanNode
+from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.evaluation import (
-    EvalContext,
     evaluate_relation,
     evaluate_scalar,
     evaluate_series,
 )
-from scopecat.compiler.relations.model import RelationExpr, ScalarExpr, SeriesExpr
 from scopecat.compiler.relations.verification import VerifiedRelationPlan
 from scopecat.compiler.semantic.value_expressions import (
     ScalarValueExpr,
@@ -19,6 +17,8 @@ from scopecat.compiler.semantic.value_expressions import (
     TableValueExpr,
     ValueExpr,
 )
+from scopecat.graph.relations.analysis import PlanNode
+from scopecat.graph.relations.model import RelationExpr, ScalarExpr, SeriesExpr
 
 
 def evaluate_value_expr(

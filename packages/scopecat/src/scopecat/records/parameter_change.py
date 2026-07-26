@@ -8,9 +8,9 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from scopecat.kernel.run_outcome import utc_now
 from scopecat.records.config import ConfigContentHash
 from scopecat.records.parameter import StoredParameterValue
-from scopecat.records.run import utc_now
 
 ParameterChangeReviewState = Literal["approved", "rejected"]
 ParameterChangeDecision = Literal["approved", "rejected", "invalidated"]

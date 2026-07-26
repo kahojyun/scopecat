@@ -62,21 +62,24 @@ from scopecat.daemon.wire import (
     RunSubmission,
     TerminalRunCommitCommand,
 )
+from scopecat.kernel.quantity import Quantity
+from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.measurement_recording import MeasurementDatasetAppend
-from scopecat.records.parameter import Quantity, ScalarParameterValue
+from scopecat.records.parameter import ScalarParameterValue
 from scopecat.records.parameter_change import (
     AutomaticPolicyDecisionAuthority,
     ParameterChangeDecisionRecord,
     ParameterChangeProposal,
 )
-from scopecat.records.run import RunManifest, RunOutcome
+from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.refs import artifact_content_ref, record_content_ref
 from tests.testkit.runtime import list_test_runs
 
+import scopecat_server.lease_supervisor as lease_supervisor_services
 import scopecat_server.services as daemon_services
 from scopecat_server import BackendConflict, LocalDaemonRuntime
 
@@ -253,7 +256,7 @@ def test_runtime_cleans_up_partially_started_supervisor(
             del target, name, daemon
             return FailingThread()
 
-        monkeypatch.setattr(daemon_services, "Thread", build_thread)
+        monkeypatch.setattr(lease_supervisor_services, "Thread", build_thread)
 
     with pytest.raises(RuntimeError, match=r"(reconciliation|thread) failed"):
         LocalDaemonRuntime(tmp_path)

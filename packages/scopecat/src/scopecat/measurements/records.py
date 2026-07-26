@@ -1,0 +1,406 @@
+"""Logical record uses and their config-bound dataset projections."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
+from typing import Protocol, cast
+
+from pydantic import JsonValue as WireJsonValue
+
+from scopecat.graph.relations.model import (
+    CellValue,
+)
+from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping, thaw_json_value
+from scopecat.kernel.json_types import JsonValue
+from scopecat.kernel.problems import (
+    Problem,
+    ProblemPhase,
+    model_location,
+    problem,
+)
+from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
+from scopecat.kernel.quantity import Quantity
+from scopecat.kernel.units import compatible_units
+from scopecat.measurements.products import ProductAxisDef, ProductDef
+from scopecat.measurements.results import (
+    MeasurementDatasetSchema,
+    MeasurementDimension,
+    MeasurementDType,
+    MeasurementVariable,
+)
+
+
+def _empty_metadata() -> FrozenMapping[str, JsonValue]:
+    return FrozenMapping()
+
+
+@dataclass(frozen=True, slots=True)
+class RecordUse:
+    """Template-owned durable destination for one logical product use."""
+
+    id: str
+    product_use_id: ProductUseId
+    metadata: Mapping[str, JsonValue] = field(default_factory=_empty_metadata)
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            msg = "record use id must be non-empty"
+            raise ValueError(msg)
+        object.__setattr__(
+            self,
+            "metadata",
+            freeze_json_mapping(self.metadata, path=f"record use {self.id!r} metadata"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class RecordAxisPlan:
+    id: str
+    kind: str
+    size: int
+    unit: str | None = None
+    metadata: Mapping[str, JsonValue] = field(default_factory=_empty_metadata)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "metadata",
+            freeze_json_mapping(
+                self.metadata, path=f"record axis {self.id!r} metadata"
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class RecordPlan:
+    id: str
+    product_use_id: ProductUseId
+    product_id: ProductId
+    dtype: MeasurementDType
+    unit: str | None = None
+    axes: tuple[RecordAxisPlan, ...] = ()
+    dims: tuple[str, ...] = ()
+    shape: tuple[int, ...] = ()
+    metadata: Mapping[str, JsonValue] = field(default_factory=_empty_metadata)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "axes", tuple(self.axes))
+        object.__setattr__(self, "dims", tuple(self.dims))
+        object.__setattr__(self, "shape", tuple(self.shape))
+        object.__setattr__(
+            self,
+            "metadata",
+            freeze_json_mapping(
+                self.metadata, path=f"record plan {self.id!r} metadata"
+            ),
+        )
+
+
+class PointRecordLike(Protocol):
+    @property
+    def row(self) -> Mapping[str, object]: ...
+
+
+def plan_records(
+    products: Sequence[ProductDef],
+    product_uses: Sequence[ProductUse],
+    record_uses: Sequence[RecordUse],
+    *,
+    point_count: int,
+) -> list[RecordPlan]:
+    products_by_id = {product.id: product for product in products}
+    uses_by_id = {use.id: use for use in product_uses}
+    plans: list[RecordPlan] = []
+    for record in record_uses:
+        try:
+            use = uses_by_id[record.product_use_id]
+            product = products_by_id[use.product_id]
+        except KeyError as error:
+            msg = "record planning requires a closed verified product graph"
+            raise ValueError(msg) from error
+        plans.append(
+            RecordPlan(
+                id=record.id,
+                product_use_id=use.id,
+                product_id=product.id,
+                unit=product.unit,
+                dtype=product.dtype,
+                axes=tuple(_plan_axis(axis) for axis in product.axes),
+                dims=("point", *(axis.id for axis in product.axes)),
+                shape=(point_count, *(axis.size for axis in product.axes)),
+                metadata={**product.metadata, **record.metadata},
+            )
+        )
+    return plans
+
+
+def _plan_axis(axis: ProductAxisDef) -> RecordAxisPlan:
+    return RecordAxisPlan(
+        id=axis.id,
+        kind=axis.kind,
+        size=axis.size,
+        unit=axis.unit,
+        metadata=axis.metadata,
+    )
+
+
+def validate_record_axes(
+    records: Sequence[RecordPlan],
+    *,
+    phase: ProblemPhase = ProblemPhase.PLANNING,
+) -> list[Problem]:
+    """Validate compatibility that only becomes concrete after lowering."""
+
+    problems: list[Problem] = []
+    axes_by_id: dict[str, tuple[str, RecordAxisPlan]] = {}
+    for record in records:
+        seen_axis_ids: set[str] = set()
+        for axis in record.axes:
+            if axis.id in seen_axis_ids:
+                continue
+            seen_axis_ids.add(axis.id)
+            existing = axes_by_id.get(axis.id)
+            if existing is None:
+                axes_by_id[axis.id] = (record.id, axis)
+                continue
+            existing_record_id, existing_axis = existing
+            if _axes_are_compatible(existing_axis, axis):
+                continue
+            problems.append(
+                problem(
+                    "experiment_record_axis_conflict",
+                    f"record {record.id!r} axis {axis.id!r} conflicts with "
+                    f"record {existing_record_id!r}; shared axes must have "
+                    "identical kind, size, unit, and metadata",
+                    phase=phase,
+                    location=model_location("records", record.id, "axes", axis.id),
+                    related_locations=(
+                        model_location(
+                            "records",
+                            existing_record_id,
+                            "axes",
+                            axis.id,
+                        ),
+                    ),
+                )
+            )
+    return problems
+
+
+def validate_record_plan(
+    records: Sequence[RecordPlan],
+    *,
+    coordinate_ids: Sequence[str] = (),
+    phase: ProblemPhase = ProblemPhase.PLANNING,
+) -> list[Problem]:
+    """Validate an independently supplied record plan at a projection boundary."""
+
+    problems: list[Problem] = []
+    record_ids = [record.id for record in records]
+    duplicate_record_ids = _duplicates(record_ids)
+    for record_id in sorted(duplicate_record_ids):
+        problems.append(
+            problem(
+                "experiment_record_duplicate",
+                f"experiment record {record_id!r} is duplicated",
+                phase=phase,
+                location=model_location("records"),
+            )
+        )
+    coordinate_collisions = set(record_ids) & set(coordinate_ids)
+    for record_id in sorted(coordinate_collisions):
+        problems.append(
+            problem(
+                "experiment_record_coordinate_collision",
+                f"record {record_id!r} conflicts with a point coordinate",
+                phase=phase,
+                location=model_location("records", record_id),
+            )
+        )
+    problems.extend(validate_record_axes(records, phase=phase))
+    return problems
+
+
+def expected_dataset_schema(
+    *,
+    experiment_id: str,
+    points: Sequence[PointRecordLike],
+    records: Sequence[RecordPlan],
+    dataset_id: str = "raw-measurements",
+) -> MeasurementDatasetSchema | None:
+    if not points or not records:
+        return None
+    dimensions = [
+        MeasurementDimension(id="point", kind="point", size=len(points)),
+        *_record_axes(records),
+    ]
+    coordinates = _coordinate_variables(points)
+    observables = [
+        MeasurementVariable(
+            id=record.id,
+            role="observable",
+            dtype=record.dtype,
+            unit=record.unit,
+            dims=list(record.dims),
+            shape=list(record.shape),
+            metadata=_wire_metadata(record.metadata),
+        )
+        for record in records
+    ]
+    return MeasurementDatasetSchema(
+        dataset_id=dataset_id,
+        dataset_role="raw",
+        dimensions=dimensions,
+        variables=[*coordinates, *observables],
+        primary_coordinates=[variable.id for variable in coordinates],
+        primary_observables=[record.id for record in records],
+        metadata={"experiment_id": experiment_id},
+    )
+
+
+def point_coordinate_ids(points: Sequence[PointRecordLike]) -> list[str]:
+    return [variable.id for variable in _coordinate_variables(points)]
+
+
+def _record_axes(records: Sequence[RecordPlan]) -> list[MeasurementDimension]:
+    dimensions: list[MeasurementDimension] = []
+    seen: dict[str, RecordAxisPlan] = {}
+    for record in records:
+        for axis in record.axes:
+            existing = seen.get(axis.id)
+            if existing is not None:
+                continue
+            seen[axis.id] = axis
+            dimensions.append(
+                MeasurementDimension(
+                    id=axis.id,
+                    kind=axis.kind,
+                    size=axis.size,
+                    unit=axis.unit,
+                    metadata=_wire_metadata(axis.metadata),
+                )
+            )
+    return dimensions
+
+
+def _axes_are_compatible(left: RecordAxisPlan, right: RecordAxisPlan) -> bool:
+    return (
+        left.kind == right.kind
+        and left.size == right.size
+        and left.unit == right.unit
+        and left.metadata == right.metadata
+    )
+
+
+def _coordinate_variables(
+    points: Sequence[PointRecordLike],
+) -> list[MeasurementVariable]:
+    variables: list[MeasurementVariable] = []
+    dimensions = ["point"]
+    shape = [len(points)]
+    for column in _point_columns(points):
+        values = cast(
+            "list[CellValue]",
+            [point.row[column] for point in points if column in point.row],
+        )
+        if len(values) != len(points):
+            continue
+        variable = _coordinate_variable(
+            column,
+            values,
+            dimensions=dimensions,
+            shape=shape,
+        )
+        if variable is not None:
+            variables.append(variable)
+    return variables
+
+
+def _coordinate_variable(
+    column: str,
+    values: list[CellValue],
+    *,
+    dimensions: list[str],
+    shape: list[int],
+) -> MeasurementVariable | None:
+    dtype = _measurement_dtype(values)
+    if dtype is None:
+        return None
+    unit = _compatible_quantity_unit(values)
+    metadata: dict[str, WireJsonValue] = {}
+    entity_kind = _entity_kind(values)
+    if entity_kind is not None:
+        metadata["entity_kind"] = entity_kind
+    return MeasurementVariable(
+        id=column,
+        role="coordinate",
+        dtype=dtype,
+        unit=unit,
+        dims=dimensions,
+        shape=shape,
+        metadata=metadata,
+    )
+
+
+def _wire_metadata(metadata: Mapping[str, JsonValue]) -> dict[str, WireJsonValue]:
+    return cast("dict[str, WireJsonValue]", thaw_json_value(metadata))
+
+
+def _point_columns(points: Sequence[PointRecordLike]) -> list[str]:
+    columns: list[str] = []
+    for point in points:
+        for column in point.row:
+            if column not in columns:
+                columns.append(column)
+    return columns
+
+
+def _measurement_dtype(values: Sequence[CellValue]) -> MeasurementDType | None:
+    if all(isinstance(value, Quantity) for value in values):
+        return "float64"
+    if all(isinstance(value, bool) for value in values):
+        return "bool"
+    if all(isinstance(value, int) and not isinstance(value, bool) for value in values):
+        return "int64"
+    if all(
+        isinstance(value, int | float) and not isinstance(value, bool)
+        for value in values
+    ):
+        return "float64"
+    if all(isinstance(value, str) for value in values):
+        return "string"
+    if all(isinstance(value, EntityRef) for value in values):
+        return "string"
+    return None
+
+
+def _entity_kind(values: Sequence[CellValue]) -> str | None:
+    entity_values = [value for value in values if isinstance(value, EntityRef)]
+    if not entity_values:
+        return None
+    first_kind = entity_values[0].kind
+    if all(value.kind == first_kind for value in entity_values):
+        return first_kind
+    return None
+
+
+def _compatible_quantity_unit(values: Sequence[CellValue]) -> str | None:
+    quantity_values = [value for value in values if isinstance(value, Quantity)]
+    if not quantity_values:
+        return None
+    first_unit = quantity_values[0].unit
+    if all(compatible_units(first_unit, value.unit) for value in quantity_values):
+        return first_unit
+    return None
+
+
+def _duplicates(values: Sequence[str]) -> set[str]:
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for value in values:
+        if value in seen:
+            duplicates.add(value)
+        seen.add(value)
+    return duplicates

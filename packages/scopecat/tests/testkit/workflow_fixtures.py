@@ -12,9 +12,9 @@ from scopecat.authoring import (
 from scopecat.authoring.scans import axis
 from scopecat.compiler.typed.program import CoreProgram
 from scopecat.config.profiles import load_config_profile
+from scopecat.kernel.quantity import Quantity
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
-from scopecat.records.parameter import Quantity
 from scopecat.runs.access import (
     artifact_storage_ref,
 )

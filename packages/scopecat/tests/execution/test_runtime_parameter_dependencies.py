@@ -2,22 +2,11 @@ from dataclasses import replace
 
 import pytest
 
-from scopecat.compiler.frontend.environment import build_config_environment
-from scopecat.compiler.relations.evaluation import ParameterRelationData
-from scopecat.compiler.relations.model import (
-    lit,
-    param,
-    parameter_series,
-    table,
-)
-from scopecat.compiler.relations.point_domain import POINT_UNIT
+from scopecat.compiler.relations.context import ParameterRelationData
 from scopecat.compiler.relations.verification import RelationTypeBindings
-from scopecat.compiler.semantic.compute_result import ComputeOutput
 from scopecat.compiler.semantic.model import (
     ImplementationId,
     LocalPythonImplementation,
-    OperationId,
-    operation_result_id,
 )
 from scopecat.compiler.semantic.operation_contract import (
     LOCAL_OPAQUE_OPERATION_CONTRACT,
@@ -27,10 +16,23 @@ from scopecat.compiler.typed.program import (
     TypedComputeNode,
     ValueInput,
 )
+from scopecat.config.environment import build_config_environment
+from scopecat.graph.relations.model import (
+    lit,
+    param,
+    parameter_series,
+    table,
+)
+from scopecat.graph.relations.point_domain import POINT_UNIT
+from scopecat.graph.values import (
+    ComputeOutput,
+    OperationId,
+    operation_result_id,
+)
 from scopecat.kernel.content_identity import content_fingerprint
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Bool, Float, Scalar, Series, Table
-from scopecat.records.entity import EntityRef
 from tests.testkit.authoring import load_config
 from tests.testkit.local_materialization import materialize_local_execution
 from tests.testkit.relation_plans import value_expr

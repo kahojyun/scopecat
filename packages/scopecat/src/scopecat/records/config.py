@@ -8,8 +8,8 @@ from typing import Annotated, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from scopecat.kernel.entity import EntityRef
 from scopecat.records._metadata import JsonMetadata
-from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import (
     ParameterCatalog,
     ParameterSnapshot,

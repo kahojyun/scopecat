@@ -27,10 +27,10 @@ from scopecat.execution.observation import (
     RuntimeProgress,
     RuntimeTransitionEvent,
 )
-from scopecat.execution.ports.journal import ExecutionJournal, commit_transition
+from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.records.artifact import CommandPayload
 from scopecat.records.execution_journal import ExecutionTransition
-from scopecat.records.run import RunOutcome
+from scopecat.sdk.journal import ExecutionJournal, commit_transition
 
 logger = logging.getLogger(__name__)
 

@@ -4,15 +4,16 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from scopecat.compiler.relations.analysis import (
-    RelationPlanScopeError,
-    verify_plan_scopes,
-)
-from scopecat.compiler.relations.evaluation import (
+from scopecat.compiler.relations.context import (
     EvalContext,
     ParameterRelationData,
 )
-from scopecat.compiler.relations.model import (
+from scopecat.compiler.relations.verification import RelationTypeBindings, RowType
+from scopecat.graph.relations.analysis import (
+    RelationPlanScopeError,
+    verify_plan_scopes,
+)
+from scopecat.graph.relations.model import (
     CellValue,
     ParameterLookupUse,
     Row,
@@ -26,7 +27,8 @@ from scopecat.compiler.relations.model import (
     point_col,
     table,
 )
-from scopecat.compiler.relations.verification import RelationTypeBindings, RowType
+from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import (
     Entity,
@@ -38,8 +40,6 @@ from scopecat.kernel.value_types import (
     TableColumn,
 )
 from scopecat.kernel.value_validation import ValueValidationError
-from scopecat.records.entity import EntityRef
-from scopecat.records.parameter import Quantity as QuantityValue
 from tests.testkit.relation_plans import evaluate_relation, evaluate_scalar
 
 _SMALL_INT = st.integers(min_value=-2, max_value=2)

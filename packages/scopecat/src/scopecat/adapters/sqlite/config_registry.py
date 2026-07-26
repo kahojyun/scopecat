@@ -10,6 +10,7 @@ from typing import Self, cast
 from pydantic import BaseModel, ValidationError
 from pydantic_core import PydanticSerializationError
 
+from scopecat.adapters.sqlite.connection import connect
 from scopecat.config.registry.records import (
     ConfigRegistryActivationRecord,
     ConfigRegistryActiveState,
@@ -246,7 +247,7 @@ class SQLiteConfigRegistryRepository:
                     _encode_model(record, ref=self.active_ref),
                 ),
             )
-        except (Conflict, DataIntegrityError):
+        except Conflict, DataIntegrityError:
             raise
         except sqlite3.Error as error:
             raise _storage_failure(self.active_ref) from error
@@ -283,7 +284,7 @@ class SQLiteConfigRegistryUnitOfWork:
             raise RuntimeError(msg)
         connection = self._borrowed_connection
         if connection is None:
-            connection = _connect(
+            connection = connect(
                 self.database,
                 busy_timeout_seconds=self._busy_timeout_seconds,
             )
@@ -355,21 +356,6 @@ class SQLiteConfigRegistryStore:
             busy_timeout_seconds=self._busy_timeout_seconds,
             _borrowed_connection=connection,
         )
-
-
-def _connect(
-    database: Path,
-    *,
-    busy_timeout_seconds: float,
-) -> sqlite3.Connection:
-    connection = sqlite3.connect(
-        database,
-        isolation_level=None,
-        timeout=busy_timeout_seconds,
-    )
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON")
-    return connection
 
 
 def _parse_model[TModel: BaseModel](

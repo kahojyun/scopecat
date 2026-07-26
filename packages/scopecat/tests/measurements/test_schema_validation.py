@@ -3,15 +3,16 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
+from scopecat.kernel.problems import model_location
+from scopecat.kernel.quantity import Quantity
+from scopecat.measurements.results import validate_measurement_records_against_schema
 from scopecat.records.measurement import (
     MeasurementArray,
     MeasurementDatasetSchema,
     MeasurementDimension,
     MeasurementRecord,
     MeasurementVariable,
-    validate_measurement_records_against_schema,
 )
-from scopecat.records.parameter import Quantity
 from tests.testkit.measurement_models import signal_record
 
 
@@ -264,3 +265,46 @@ def test_validate_measurement_records_against_schema_reports_unit_and_dtype() ->
 
     assert "measurement_record_dtype_mismatch" in codes
     assert "measurement_record_unit_mismatch" in codes
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_schema_validation_reports_non_finite_integer_values(value: float) -> None:
+    schema = MeasurementDatasetSchema(
+        dataset_id="raw-measurements",
+        dataset_role="raw",
+        dimensions=[MeasurementDimension(id="point", kind="point", size=1)],
+        variables=[
+            MeasurementVariable(
+                id="shot_index",
+                role="coordinate",
+                dtype="int64",
+                unit="count",
+                dims=["point"],
+                shape=[1],
+            )
+        ],
+        primary_coordinates=["shot_index"],
+    )
+    record = MeasurementRecord(
+        run_id="run-test",
+        point_index=0,
+        coordinates={"shot_index": Quantity(value=value, unit="count")},
+        observables={},
+    )
+
+    problems = validate_measurement_records_against_schema(
+        [record],
+        schema,
+        "raw-measurements",
+        "raw",
+    )
+
+    assert [item.code for item in problems] == ["measurement_record_dtype_mismatch"]
+    assert problems[0].location == model_location(
+        "measurement_dataset",
+        "records",
+        0,
+        "coordinates",
+        "shot_index",
+        "dtype",
+    )

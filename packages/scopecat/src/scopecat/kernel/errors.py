@@ -14,7 +14,10 @@ from collections.abc import Sequence
 from typing import Literal, Protocol
 
 from scopecat.kernel.problems import Problem
-from scopecat.records.run import RunCertainty, RunOutcome
+from scopecat.kernel.run_outcome import (
+    RunCertainty,
+    RunOutcome,
+)
 
 
 class ScopecatError(Exception):

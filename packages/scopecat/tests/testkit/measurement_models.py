@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from scopecat.kernel.quantity import Quantity
 from scopecat.records.measurement import (
     MeasurementDatasetRole,
     MeasurementDatasetSchema,
@@ -7,7 +8,6 @@ from scopecat.records.measurement import (
     MeasurementRecord,
     MeasurementVariable,
 )
-from scopecat.records.parameter import Quantity
 
 
 def signal_record(

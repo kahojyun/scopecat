@@ -35,7 +35,7 @@ to direct and transitive dependency resolution.
 pnpm run format:check
 pnpm run lint
 pnpm run typecheck
-pnpm test
+pnpm run test:coverage
 ```
 
 Oxfmt owns layout and Oxlint owns correctness checks. Generated API types and

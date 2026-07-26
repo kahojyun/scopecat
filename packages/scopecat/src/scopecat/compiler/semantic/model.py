@@ -7,14 +7,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import cast
 
-from scopecat.compiler.relations.analysis import (
-    PlanReferenceKind,
-)
-from scopecat.compiler.relations.model import (
-    RelationExpr,
-    ScalarExpr,
-    SeriesExpr,
-)
+import scopecat.graph.values as graph_values
 from scopecat.compiler.relations.verification import (
     ExternalRowInterface,
     TypedPlanImport,
@@ -24,18 +17,26 @@ from scopecat.compiler.semantic.operation_contract import (
     OperationContract,
 )
 from scopecat.domain.program import DomainProgramDef
+from scopecat.graph.relations.analysis import (
+    PlanReferenceKind,
+)
+from scopecat.graph.relations.model import (
+    RelationExpr,
+    ScalarExpr,
+    SeriesExpr,
+)
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.product_identity import ProductId
+from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import ValueType
 from scopecat.measurements.semantics import (
     MeasurementTransformSemanticContract,
 )
-from scopecat.records.entity import EntityRef
-from scopecat.records.parameter import Quantity as QuantityValue
 
 type PlanExpression = ScalarExpr | SeriesExpr | RelationExpr
 type VerifiedPlanExpression = VerifiedRelationPlan[PlanExpression]
@@ -61,28 +62,6 @@ class AcquireId:
 
 
 @dataclass(frozen=True, slots=True)
-class OperationId:
-    """Nominal identity in the semantic-operation symbol space."""
-
-    symbol: SymbolId
-
-    @property
-    def qualified_name(self) -> str:
-        return self.symbol.qualified_name
-
-    @property
-    def scope(self) -> tuple[str, ...]:
-        return self.symbol.scope
-
-    @property
-    def local_id(self) -> str:
-        return self.symbol.local_id
-
-    def prefixed(self, *scope: str) -> OperationId:
-        return OperationId(self.symbol.prefixed(*scope))
-
-
-@dataclass(frozen=True, slots=True)
 class MeasurementTransformId:
     """Nominal identity in the authored measurement-transform symbol space."""
 
@@ -102,37 +81,6 @@ class MeasurementTransformId:
 
     def prefixed(self, *scope: str) -> MeasurementTransformId:
         return MeasurementTransformId(self.symbol.prefixed(*scope))
-
-
-@dataclass(frozen=True, slots=True)
-class ValueId:
-    """Nominal identity in the semantic-value symbol space."""
-
-    symbol: SymbolId
-
-    @property
-    def qualified_name(self) -> str:
-        return self.symbol.qualified_name
-
-    @property
-    def scope(self) -> tuple[str, ...]:
-        return self.symbol.scope
-
-    @property
-    def local_id(self) -> str:
-        return self.symbol.local_id
-
-    def prefixed(self, *scope: str) -> ValueId:
-        return ValueId(self.symbol.prefixed(*scope))
-
-
-def operation_result_id(operation_id: OperationId) -> ValueId:
-    return ValueId(
-        SymbolId(
-            scope=(*operation_id.scope, operation_id.local_id, "outputs"),
-            local_id="result",
-        )
-    )
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -211,7 +159,7 @@ type ValueSource = PlanExpressionSource | LiteralValueSource
 class ValueDef:
     """One plan-available value; operation results live on their operation."""
 
-    id: ValueId
+    id: graph_values.ValueId
     value_type: SemanticValueType
     source: ValueSource
 
@@ -220,15 +168,15 @@ class ValueDef:
 class ValueUse:
     """A use contains only the identity of its target definition."""
 
-    value_id: ValueId
+    value_id: graph_values.ValueId
 
 
 @dataclass(frozen=True, slots=True)
 class SemanticOperation:
-    id: OperationId
+    id: graph_values.OperationId
     contract: OperationContract
     inputs: tuple[tuple[str, ValueUse], ...]
-    result_id: ValueId
+    result_id: graph_values.ValueId
     result_type: SemanticValueType
 
     def __post_init__(self) -> None:

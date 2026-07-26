@@ -1,14 +1,5 @@
 import pytest
 
-from scopecat.compiler.frontend.environment import build_config_environment
-from scopecat.compiler.relations.model import (
-    param,
-    point_col,
-)
-from scopecat.compiler.relations.point_domain import (
-    point_axis_linear,
-    point_axis_values,
-)
 from scopecat.compiler.relations.uses import relation_use
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
@@ -20,13 +11,22 @@ from scopecat.compiler.typed.program import (
     LogicalResourceRequirement,
     record_product,
 )
+from scopecat.config.environment import build_config_environment
 from scopecat.config.profiles import load_config_profile
+from scopecat.graph.relations.model import (
+    param,
+    point_col,
+)
+from scopecat.graph.relations.point_domain import (
+    point_axis_linear,
+    point_axis_values,
+)
 from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar
 from scopecat.records.config import ConfigProfileSnapshot
-from scopecat.records.parameter import Quantity
 from tests.testkit.materialized_effects import (
     materialized_effects_contract,
     materialized_state_fields,

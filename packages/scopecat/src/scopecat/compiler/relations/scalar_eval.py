@@ -5,19 +5,19 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TypeGuard, cast
 
-from scopecat.compiler.relations.operators import (
+from scopecat.graph.relations.model import CellValue, is_cell_value
+from scopecat.graph.relations.operators import (
     ScalarOperator,
     compare_ordered_values,
     require_finite_arithmetic_result,
     require_runtime_operator,
     runtime_values_equal,
 )
-from scopecat.kernel.payloads import PayloadValue
-from scopecat.records.entity import EntityRef, same_entity_identity
-from scopecat.records.parameter import Quantity
-
-type ScalarValue = str | int | float | bool | None | Quantity | EntityRef | PayloadValue
-type CellValue = ScalarValue | dict[str, object]
+from scopecat.kernel.entity import (
+    EntityRef,
+    same_entity_identity,
+)
+from scopecat.kernel.quantity import Quantity
 
 
 def read_path(row: Mapping[str, object], path: str) -> CellValue:
@@ -69,13 +69,6 @@ def eval_binary(op: ScalarOperator, left: CellValue, right: CellValue) -> CellVa
         return _bool(left) or _bool(right)
     msg = f"unsupported binary operator: {op}"
     raise ValueError(msg)
-
-
-def is_cell_value(value: object) -> TypeGuard[CellValue]:
-    return value is None or isinstance(
-        value,
-        str | int | float | bool | Quantity | EntityRef | PayloadValue | dict,
-    )
 
 
 def cell_matches(left: CellValue | None, right: CellValue) -> bool:

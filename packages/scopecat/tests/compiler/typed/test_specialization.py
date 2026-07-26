@@ -1,36 +1,12 @@
 from __future__ import annotations
 
-from scopecat.compiler.relations.evaluation import EvalContext, ParameterRelationData
-from scopecat.compiler.relations.model import (
-    LiteralRowsRelationExpr,
-    LiteralScalarExpr,
-    PointColumnScalarExpr,
-    ValuesSeriesExpr,
-    param,
-    parameter_lookup,
-    parameter_series,
-    point_col,
-    table,
-)
-from scopecat.compiler.relations.point_domain import (
-    POINT_UNIT,
-    PointAxis,
-    PointAxisLinear,
-    PointProduct,
-    PointUnit,
-    point_axis_linear,
-    point_axis_values,
-    point_product,
-)
+from scopecat.compiler.relations.context import EvalContext, ParameterRelationData
 from scopecat.compiler.relations.specialization import BindingTime
 from scopecat.compiler.relations.uses import RelationUse, relation_use
 from scopecat.compiler.relations.verification import RelationTypeBindings, RowType
-from scopecat.compiler.semantic.compute_result import ComputeOutput, ComputeResultRef
 from scopecat.compiler.semantic.model import (
     ImplementationId,
     LocalPythonImplementation,
-    OperationId,
-    operation_result_id,
 )
 from scopecat.compiler.semantic.operation_contract import (
     LOCAL_OPAQUE_OPERATION_CONTRACT,
@@ -56,6 +32,34 @@ from scopecat.compiler.typed.specialization import (
 )
 from scopecat.compiler.typed.state import SetStateSpec
 from scopecat.domain.program import DomainInputPort, DomainProgramDef
+from scopecat.graph.relations.model import (
+    LiteralRowsRelationExpr,
+    LiteralScalarExpr,
+    PointColumnScalarExpr,
+    ValuesSeriesExpr,
+    param,
+    parameter_lookup,
+    parameter_series,
+    point_col,
+    table,
+)
+from scopecat.graph.relations.point_domain import (
+    POINT_UNIT,
+    PointAxis,
+    PointAxisLinear,
+    PointProduct,
+    PointUnit,
+    point_axis_linear,
+    point_axis_values,
+    point_product,
+)
+from scopecat.graph.values import (
+    ComputeOutput,
+    ComputeResultRef,
+    OperationId,
+    operation_result_id,
+)
+from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import (
@@ -68,7 +72,6 @@ from scopecat.kernel.value_types import (
     Table,
     TableColumn,
 )
-from scopecat.records.parameter import Quantity as QuantityValue
 from tests.testkit.parameter_fixtures import (
     PARAMETER_TYPES,
     READOUT_FREQUENCY_LOOKUP,

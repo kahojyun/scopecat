@@ -1125,8 +1125,8 @@ export interface components {
             root: string;
         };
         NonEmptyText: string;
-        "ParameterAtomValue-Input": components["schemas"]["scopecat__records__parameter__Quantity"] | components["schemas"]["EntityRef-Input"] | boolean | number | string | null;
-        "ParameterAtomValue-Output": components["schemas"]["scopecat__records__parameter__Quantity"] | components["schemas"]["EntityRef-Output"] | boolean | number | string | null;
+        "ParameterAtomValue-Input": components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Input"] | boolean | number | string | null;
+        "ParameterAtomValue-Output": components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Output"] | boolean | number | string | null;
         /**
          * ParameterCatalog
          * @description Authored parameter schema in one shape-independent namespace.
@@ -1833,7 +1833,7 @@ export interface components {
          * Quantity
          * @description A numeric value with an explicit unit.
          */
-        scopecat__records__parameter__Quantity: {
+        scopecat__kernel__quantity__Quantity: {
             /** Unit */
             unit: string;
             /** Value */

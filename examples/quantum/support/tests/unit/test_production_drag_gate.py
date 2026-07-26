@@ -6,9 +6,9 @@ from pathlib import Path
 import pytest
 from scopecat import Quantity
 from scopecat.authoring._value_refs import internal_lower_scalar_value_ref
-from scopecat.compiler.relations.model import LiteralScalarExpr
+from scopecat.graph.relations.model import LiteralScalarExpr
+from scopecat.kernel.entity import EntityRef
 from scopecat.records.config import ConfigProfileSnapshot
-from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import TableParameterValue
 from scopecat.records.run import ConfigRegistryRunConfigSource
 from scopecat.sdk.domain import DomainCompilation, DomainCompileRequest

@@ -2,34 +2,34 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from scopecat.compiler.frontend.environment import build_config_environment
 from scopecat.compiler.linking.linked import (
     MaterializedLinkedPoints,
     materialize_linked_points,
 )
-from scopecat.compiler.relations.point_domain import point_axis_values, point_product
+from scopecat.compiler.measurement_projection import (
+    project_measurement_catalog,
+    project_run_point_catalog,
+)
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     CoreProgram,
     LogicalResourceRequirement,
 )
-from scopecat.compiler.typed.records import RecordUse
-from scopecat.execution.points import RunPoint
+from scopecat.config.environment import build_config_environment
+from scopecat.graph.relations.point_domain import point_axis_values, point_product
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.product_identity import ProductUse, product_use
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.value_types import Float, Payload, Scalar
-from scopecat.measurements._bridge import (
-    project_measurement_catalog,
-    project_run_point_catalog,
-)
+from scopecat.measurements.points import RunPoint
+from scopecat.measurements.records import RecordUse
 from scopecat.measurements.values import (
     ClosedMeasurementProductValues,
     MeasurementValueCandidate,
     MeasurementValueCatalog,
     seal_measurement_values,
 )
-from scopecat.records.parameter import Quantity
 from tests.testkit.authoring import load_config
 from tests.testkit.typed_program import (
     instrument_acquisitions,

@@ -70,18 +70,20 @@ from scopecat.daemon.wire import (
     RunSubmission,
     TerminalRunCommitCommand,
 )
+from scopecat.kernel.quantity import Quantity
+from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.measurements.results import MeasurementDataset, MeasurementDatasetSchema
 from scopecat.records.analysis import AnalysisRecord
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import config_content_hash
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.measurement import MeasurementRecord
-from scopecat.records.parameter import Quantity, ScalarParameterValue
+from scopecat.records.parameter import ScalarParameterValue
 from scopecat.records.parameter_change import (
     HumanDecisionAuthority,
     ParameterChangeDecisionRecord,
 )
-from scopecat.records.run import RunManifest, RunOutcome
+from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.data import (
     RunArtifactJsonResult,
@@ -527,195 +529,221 @@ def _run_content_response(request: httpx2.Request) -> httpx2.Response | None:
 def _client(requests: list[httpx2.Request]) -> DaemonClient:
     def handler(request: httpx2.Request) -> httpx2.Response:
         requests.append(request)
-        path = request.url.path
-        if path == "/api/v1/health":
-            return _json(
-                {
-                    "status": "ok",
-                    "project_id": "project-1",
-                    "project_name": "test-lab",
-                    "project_root": "/projects/test-lab",
-                }
-            )
-        if path == "/api/v1/config-registry" and request.method == "GET":
-            entry, state = _config_registry_records()
-            return _model(ConfigRegistryView(entries=(entry,), active_state=state))
-        if path == "/api/v1/config-registry/active" and request.method == "GET":
-            entry, state = _config_registry_records()
-            return _model(
-                ActiveConfigView(
-                    entry=entry,
-                    active_state=state,
-                    config=load_config(),
-                )
-            )
-        if path == "/api/v1/config-registry/entries/baseline":
-            entry, _state = _config_registry_records()
-            return _model(ConfigEntryView(entry=entry, config=load_config()))
-        if path == "/api/v1/config-registry/entries":
-            entry, _state = _config_registry_records()
-            return _model(entry, status_code=201)
-        if path == "/api/v1/config-registry/drafts/preview":
-            command = ConfigDraftCommand.model_validate_json(request.content)
-            return _model(_config_draft_preview(command))
-        if path == "/api/v1/config-registry/drafts/register":
-            command = ConfigDraftRegistrationCommand.model_validate_json(
-                request.content
-            )
-            preview = _config_draft_preview(command.draft)
-            assert preview.result_content_hash is not None
-            return _model(
-                ConfigDraftRegistrationReceipt(
-                    entry=ConfigRegistryEntry(
-                        id=command.entry_id,
-                        config_ref=(
-                            f"config-registry/entries/{command.entry_id}/config.json"
-                        ),
-                        content_hash=preview.result_content_hash,
-                        source=ManualConfigDraftRegistrySource(
-                            base_entry_id=command.draft.base_entry_id,
-                            base_config_content_hash=command.draft.base_content_hash,
-                            base_registry_generation=command.draft.base_generation,
-                        ),
-                        registered_by=command.registered_by,
-                        note=command.note,
-                    ),
-                    result_content_hash=preview.result_content_hash,
-                    deltas=preview.deltas,
-                ),
-                status_code=201,
-            )
-        if path == "/api/v1/config-registry/candidates/activate":
-            entry, state = _config_registry_records()
-            return _model(
-                CandidateConfigActivationReceipt(
-                    entry=entry,
-                    active_state=state,
-                    activation=state.history[-1],
-                )
-            )
-        if path in {
-            "/api/v1/config-registry/active",
-            "/api/v1/config-registry/rollback",
-        }:
-            _entry, state = _config_registry_records()
-            return _model(
-                ConfigActivationReceipt(
-                    active_state=state,
-                    activation=state.history[-1],
-                )
-            )
-        if path == "/api/v1/runs" and request.method == "GET":
-            return _model(
-                RunSummaryPage(
-                    items=(
-                        RunSummary(
-                            control=_control_run(),
-                            manifest=_accepted_manifest(),
-                        ),
-                    )
-                )
-            )
-        if path == "/api/v1/events":
-            return _model(
-                EventPage(
-                    items=(
-                        DurableEvent(
-                            event_id=4,
-                            run_id="run-1",
-                            kind="run_state_changed",
-                            payload={"state": "running"},
-                            occurred_at=_NOW,
-                        ),
-                    )
-                )
-            )
-        if path == "/api/v1/runs/missing":
-            return _json({"detail": "run was not found: missing"}, status_code=404)
-        if path == "/api/v1/runs/invalid":
-            return _json({"detail": "invalid request"}, status_code=422)
-        if path == "/api/v1/runs/run-1" and request.method == "GET":
-            return _model(
-                RunDetail(
-                    control=_control_run(),
-                    manifest=_accepted_manifest(),
-                )
-            )
-        if path == "/api/v1/runs/run-1/config":
-            config = load_config()
-            return _model(
-                RunConfigView(
-                    run_id="run-1",
-                    config_content_hash=config_content_hash(config),
-                    config=config,
-                )
-            )
-        if (content_response := _run_content_response(request)) is not None:
-            return content_response
-        if path == "/api/v1/runs/run-1/parameter-proposals":
-            return _model(
-                ParameterProposalListView(
-                    run_id="run-1",
-                    items=(ParameterProposalView(proposal=_proposal()),),
-                )
-            )
-        if path.endswith("/parameter-proposals/drive-frequency/review"):
-            command = ParameterProposalReviewCommand.model_validate_json(
-                request.content
-            )
-            return _model(
-                ParameterChangeDecisionRecord(
-                    event_id="decision-1",
-                    run_id="run-1",
-                    proposal_id="drive-frequency",
-                    decision=command.decision,
-                    authority=HumanDecisionAuthority(actor=command.reviewer),
-                )
-            )
-        if path == "/api/v1/runs/run-1/attention":
-            return _model(
-                AttentionResolutionReceipt(
-                    run_id="run-1",
-                    state="closed",
-                    released_resource_count=1,
-                )
-            )
-        if path == "/api/v1/runs/run-1/measurements":
-            return _model(
-                MeasurementPage(
-                    items=(
-                        MeasurementRecord(
-                            run_id="run-1",
-                            logical_point_id="point-0",
-                            point_index=0,
-                            coordinates={},
-                            observables={"signal": Quantity(value=1.0, unit="ratio")},
-                        ),
-                    )
-                )
-            )
-        if path == "/api/v1/runs" and request.method == "POST":
-            if b'"submission_id":"duplicate"' in request.content:
-                return _json(
-                    {"detail": "submission already exists"},
-                    status_code=409,
-                )
-            submission = RunSubmission.model_validate_json(request.content)
-            return _model(_admission(submission.submission_id), status_code=201)
-        if path == "/api/v1/runs/run-1/executor/start":
-            return _model(_lease())
-        if path == "/api/v1/runs/run-1/executor/heartbeat":
-            return _model(_lease())
-        if path == "/api/v1/runs/run-1/transitions":
-            return _model(_transition().model_copy(update={"sequence": 1}))
-        if path == "/api/v1/runs/run-1/terminal":
-            return _model(_terminal_manifest())
-        raise AssertionError(f"unexpected request: {request.method} {path}")
+        return _client_response(request)
 
     return DaemonClient(
         "http://daemon.local/",
         transport=httpx2.MockTransport(handler),
     )
+
+
+def _client_response(request: httpx2.Request) -> httpx2.Response:
+    for response_factory in (
+        _service_response,
+        _config_registry_response,
+        _run_read_response,
+        _run_command_response,
+    ):
+        response = response_factory(request)
+        if response is not None:
+            return response
+    raise AssertionError(f"unexpected request: {request.method} {request.url.path}")
+
+
+def _service_response(request: httpx2.Request) -> httpx2.Response | None:
+    path = request.url.path
+    if path == "/api/v1/health":
+        return _json(
+            {
+                "status": "ok",
+                "project_id": "project-1",
+                "project_name": "test-lab",
+                "project_root": "/projects/test-lab",
+            }
+        )
+    if path == "/api/v1/events":
+        return _model(
+            EventPage(
+                items=(
+                    DurableEvent(
+                        event_id=4,
+                        run_id="run-1",
+                        kind="run_state_changed",
+                        payload={"state": "running"},
+                        occurred_at=_NOW,
+                    ),
+                )
+            )
+        )
+    return None
+
+
+def _config_registry_response(request: httpx2.Request) -> httpx2.Response | None:
+    path = request.url.path
+    if path == "/api/v1/config-registry" and request.method == "GET":
+        entry, state = _config_registry_records()
+        return _model(ConfigRegistryView(entries=(entry,), active_state=state))
+    if path == "/api/v1/config-registry/active" and request.method == "GET":
+        entry, state = _config_registry_records()
+        return _model(
+            ActiveConfigView(
+                entry=entry,
+                active_state=state,
+                config=load_config(),
+            )
+        )
+    if path == "/api/v1/config-registry/entries/baseline":
+        entry, _state = _config_registry_records()
+        return _model(ConfigEntryView(entry=entry, config=load_config()))
+    if path == "/api/v1/config-registry/entries":
+        entry, _state = _config_registry_records()
+        return _model(entry, status_code=201)
+    if path == "/api/v1/config-registry/drafts/preview":
+        command = ConfigDraftCommand.model_validate_json(request.content)
+        return _model(_config_draft_preview(command))
+    if path == "/api/v1/config-registry/drafts/register":
+        command = ConfigDraftRegistrationCommand.model_validate_json(request.content)
+        preview = _config_draft_preview(command.draft)
+        assert preview.result_content_hash is not None
+        return _model(
+            ConfigDraftRegistrationReceipt(
+                entry=ConfigRegistryEntry(
+                    id=command.entry_id,
+                    config_ref=f"config-registry/entries/{command.entry_id}/config.json",
+                    content_hash=preview.result_content_hash,
+                    source=ManualConfigDraftRegistrySource(
+                        base_entry_id=command.draft.base_entry_id,
+                        base_config_content_hash=command.draft.base_content_hash,
+                        base_registry_generation=command.draft.base_generation,
+                    ),
+                    registered_by=command.registered_by,
+                    note=command.note,
+                ),
+                result_content_hash=preview.result_content_hash,
+                deltas=preview.deltas,
+            ),
+            status_code=201,
+        )
+    if path == "/api/v1/config-registry/candidates/activate":
+        entry, state = _config_registry_records()
+        return _model(
+            CandidateConfigActivationReceipt(
+                entry=entry,
+                active_state=state,
+                activation=state.history[-1],
+            )
+        )
+    if path in {
+        "/api/v1/config-registry/active",
+        "/api/v1/config-registry/rollback",
+    }:
+        _entry, state = _config_registry_records()
+        return _model(
+            ConfigActivationReceipt(
+                active_state=state,
+                activation=state.history[-1],
+            )
+        )
+    return None
+
+
+def _run_read_response(request: httpx2.Request) -> httpx2.Response | None:
+    path = request.url.path
+    if path == "/api/v1/runs" and request.method == "GET":
+        return _model(
+            RunSummaryPage(
+                items=(
+                    RunSummary(
+                        control=_control_run(),
+                        manifest=_accepted_manifest(),
+                    ),
+                )
+            )
+        )
+    if path == "/api/v1/runs/missing":
+        return _json({"detail": "run was not found: missing"}, status_code=404)
+    if path == "/api/v1/runs/invalid":
+        return _json({"detail": "invalid request"}, status_code=422)
+    if path == "/api/v1/runs/run-1" and request.method == "GET":
+        return _model(
+            RunDetail(
+                control=_control_run(),
+                manifest=_accepted_manifest(),
+            )
+        )
+    if path == "/api/v1/runs/run-1/config":
+        config = load_config()
+        return _model(
+            RunConfigView(
+                run_id="run-1",
+                config_content_hash=config_content_hash(config),
+                config=config,
+            )
+        )
+    if (content_response := _run_content_response(request)) is not None:
+        return content_response
+    if path == "/api/v1/runs/run-1/parameter-proposals":
+        return _model(
+            ParameterProposalListView(
+                run_id="run-1",
+                items=(ParameterProposalView(proposal=_proposal()),),
+            )
+        )
+    if path == "/api/v1/runs/run-1/measurements":
+        return _model(
+            MeasurementPage(
+                items=(
+                    MeasurementRecord(
+                        run_id="run-1",
+                        logical_point_id="point-0",
+                        point_index=0,
+                        coordinates={},
+                        observables={"signal": Quantity(value=1.0, unit="ratio")},
+                    ),
+                )
+            )
+        )
+    return None
+
+
+def _run_command_response(request: httpx2.Request) -> httpx2.Response | None:
+    path = request.url.path
+    if path.endswith("/parameter-proposals/drive-frequency/review"):
+        command = ParameterProposalReviewCommand.model_validate_json(request.content)
+        return _model(
+            ParameterChangeDecisionRecord(
+                event_id="decision-1",
+                run_id="run-1",
+                proposal_id="drive-frequency",
+                decision=command.decision,
+                authority=HumanDecisionAuthority(actor=command.reviewer),
+            )
+        )
+    if path == "/api/v1/runs/run-1/attention":
+        return _model(
+            AttentionResolutionReceipt(
+                run_id="run-1",
+                state="closed",
+                released_resource_count=1,
+            )
+        )
+    if path == "/api/v1/runs" and request.method == "POST":
+        if b'"submission_id":"duplicate"' in request.content:
+            return _json(
+                {"detail": "submission already exists"},
+                status_code=409,
+            )
+        submission = RunSubmission.model_validate_json(request.content)
+        return _model(_admission(submission.submission_id), status_code=201)
+    if path == "/api/v1/runs/run-1/executor/start":
+        return _model(_lease())
+    if path == "/api/v1/runs/run-1/executor/heartbeat":
+        return _model(_lease())
+    if path == "/api/v1/runs/run-1/transitions":
+        return _model(_transition().model_copy(update={"sequence": 1}))
+    if path == "/api/v1/runs/run-1/terminal":
+        return _model(_terminal_manifest())
+    return None
 
 
 def _model(model: BaseModel, *, status_code: int = 200) -> httpx2.Response:

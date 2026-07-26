@@ -7,10 +7,11 @@ from typing import Protocol
 
 from pydantic import BaseModel
 
+from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.measurement import MeasurementRecord
-from scopecat.records.run import RunManifest, RunOutcome
+from scopecat.records.run import RunManifest
 
 
 @dataclass(frozen=True, slots=True)

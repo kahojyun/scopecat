@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.records.artifact import RunContentEntry
-from scopecat.records.run import RunManifest, RunOutcome
+from scopecat.records.run import RunManifest
 from scopecat.runs.access import upsert_contents
 
 

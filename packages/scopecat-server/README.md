@@ -5,6 +5,10 @@ SQLite daemon runtime. Published distributions include the project GUI. In a
 source checkout, use `--api-only` with the Vite development server, or pass a
 built `apps/scopecat-ui/dist` with `--static-dir`.
 
+When a bundled distribution is needed,
+`scripts/build_server_distribution.py` assembles the Python server and built
+GUI. Ordinary package builds remain available for local Python development.
+
 Create a runnable starter project or point it at an existing project
 containing `scopecat.toml`:
 
@@ -83,9 +87,13 @@ def create_application(project: Path) -> LabApplication:
 ```
 
 The named callable must accept the resolved project `Path` and return
-`LabApplication`. The daemon adds both the project root and its optional `src/`
-directory to the import path, so flat modules and standard `src` layouts work
-without an editable install.
+`LabApplication`. Scopecat exposes the project root and its optional `src/`
+directory for the process lifetime, so flat modules, delayed imports, and
+standard `src` layouts work without an editable install.
+
+A Python process may load application code from only one project root. Loading
+a second project would make Python's global module cache ambiguous, so Scopecat
+rejects it and requires a separate daemon or notebook process.
 
 The notebook-side builder receives the exact accepted snapshot selected for
 each run. The application's `bootstrap_config` seeds daemon state once, and the

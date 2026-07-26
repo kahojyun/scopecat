@@ -9,7 +9,7 @@ from scopecat.authoring._parameter_contracts import (
     ParameterValueContract,
 )
 from scopecat.compiler.frontend.problems import raise_frontend_problem
-from scopecat.compiler.relations.model import ParameterLookupUse
+from scopecat.graph.relations.model import ParameterLookupUse
 from scopecat.kernel.value_type_compatibility import describe_value_type, is_assignable
 from scopecat.kernel.value_types import Entity, String, Table, ValueType
 from scopecat.records.parameter import ParameterCatalog, ParameterDefinition

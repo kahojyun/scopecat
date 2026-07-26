@@ -3,7 +3,7 @@ name = "scopecat-server"
 version = "0.1.0"
 description = "Local HTTP and SSE transport for a Scopecat project daemon."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
   "fastapi>=0.116,<1",
   "filelock>=3.18,<4",

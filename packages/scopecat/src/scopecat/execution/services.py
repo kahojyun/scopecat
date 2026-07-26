@@ -5,11 +5,11 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from scopecat.execution.ports.journal import ExecutionJournal
 from scopecat.execution.ports.measurement import MeasurementDatasetWriter
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run import RunManifest
 from scopecat.runs.repository import TerminalRunCommit
+from scopecat.sdk.journal import ExecutionJournal
 
 
 @dataclass(frozen=True, slots=True)

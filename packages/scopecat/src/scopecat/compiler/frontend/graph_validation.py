@@ -29,15 +29,17 @@ from scopecat.authoring._value_refs import (
 )
 from scopecat.compiler.frontend.elaboration import SemanticExperimentIR
 from scopecat.compiler.frontend.semantic_elaboration import semantic_value_id
-from scopecat.compiler.relations.model import ScalarExpr, SeriesExpr
-from scopecat.compiler.relations.point_domain import is_point_coordinate_type
 from scopecat.compiler.semantic.model import (
     LocalPythonImplementation,
-    OperationId,
 )
 from scopecat.compiler.semantic.verification import (
     VerifiedSemanticGraph,
     verify_semantic_graph,
+)
+from scopecat.graph.relations.model import ScalarExpr, SeriesExpr
+from scopecat.graph.relations.point_domain import is_point_coordinate_type
+from scopecat.graph.values import (
+    OperationId,
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
@@ -49,10 +51,10 @@ from scopecat.kernel.problems import (
     problem,
 )
 from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
+from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.units import is_supported_unit
 from scopecat.kernel.value_types import Entity, Payload, Scalar, Series
-from scopecat.records.parameter import Quantity as QuantityValue
 
 
 @dataclass(frozen=True, slots=True)

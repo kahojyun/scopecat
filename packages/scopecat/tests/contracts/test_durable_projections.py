@@ -8,11 +8,11 @@ from typing import Any, cast
 import pytest
 from pydantic import ValidationError
 
-from scopecat.compiler.frontend.environment import build_config_environment
 from scopecat.compiler.frontend.resolution import (
     compile_invocation,
     resolve_compiled_invocation,
 )
+from scopecat.config.environment import build_config_environment
 from scopecat.records.run_request import RunRequest
 from tests.testkit.workflow_fixtures import load_config, load_invocation
 

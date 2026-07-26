@@ -6,7 +6,7 @@ import math
 from collections.abc import Mapping
 from typing import cast
 
-from scopecat.records.parameter import Quantity
+from scopecat.kernel.quantity import Quantity
 
 
 def normalize_json_value(value: object) -> object:

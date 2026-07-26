@@ -6,6 +6,7 @@ import "./tokens.css";
 import "./styles/base.css";
 import "./styles/shell.css";
 import "./styles/runs.css";
+import "./styles/proposals.css";
 import "./styles/config.css";
 import "./styles/overlays.css";
 import "./styles/responsive.css";

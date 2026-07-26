@@ -10,8 +10,8 @@ from scopecat.kernel.problems import (
     model_location,
     problem,
 )
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateValue
-from scopecat.records.parameter import Quantity
 from scopecat.sdk.instruments import (
     ApplyReceipt,
     CollectCommand,

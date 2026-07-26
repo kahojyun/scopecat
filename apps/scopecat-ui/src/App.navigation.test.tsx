@@ -42,7 +42,7 @@ vi.mock("./features/config/ConfigWorkspace", () => ({
   ),
 }));
 
-vi.mock("./features/runs/RunProposals", () => ({
+vi.mock("./features/proposals/RunProposals", () => ({
   RunProposals: () => <div>Proposal details</div>,
 }));
 

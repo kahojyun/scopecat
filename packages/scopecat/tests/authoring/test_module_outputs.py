@@ -13,17 +13,19 @@ from scopecat.authoring._value_refs import (
 from scopecat.authoring.templates import ExperimentInvocation
 from scopecat.compiler.frontend.assembly_linking import bind_verified_assembly
 from scopecat.compiler.frontend.elaboration import elaborate_module
-from scopecat.compiler.frontend.environment import build_config_environment
 from scopecat.compiler.frontend.resolution import compile_invocation
-from scopecat.compiler.relations.evaluation import EvalContext
-from scopecat.compiler.relations.model import ScalarExpr
+from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.semantic.model import (
     LiteralValueSource,
-    OperationId,
     PlanExpressionSource,
 )
 from scopecat.compiler.semantic.operation_contract import ScalarBinarySemantics
 from scopecat.compiler.typed.program import ComputeEdge, CoreProgram
+from scopecat.config.environment import build_config_environment
+from scopecat.graph.relations.model import ScalarExpr
+from scopecat.graph.values import (
+    OperationId,
+)
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.symbols import SymbolId
 from scopecat.records.config import ConfigProfileSnapshot

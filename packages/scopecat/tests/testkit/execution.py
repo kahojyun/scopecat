@@ -7,15 +7,15 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from scopecat.authoring.templates import ExperimentInvocation
-from scopecat.compiler.frontend.environment import build_config_environment
 from scopecat.compiler.typed.program import CoreProgram
+from scopecat.config.environment import build_config_environment
 from scopecat.execution.interpreter import execute_admitted_run
 from scopecat.execution.observation import RuntimeEventSink, RuntimePayloadObserver
+from scopecat.planning.service import plan_scratch_experiment
 from scopecat.planning.system import ExperimentSystem
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run import RunConfigSource, RunManifest
 from scopecat.records.run_request import RunRequest
-from scopecat.runs.service import plan_scratch_experiment
 from scopecat.sdk.instruments.contracts import (
     InstrumentDriver,
     InstrumentProvider,

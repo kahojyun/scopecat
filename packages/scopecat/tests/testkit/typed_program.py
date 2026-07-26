@@ -5,29 +5,20 @@ from __future__ import annotations
 from collections.abc import Sequence
 from copy import deepcopy
 
-from scopecat.compiler.frontend.environment import ConfigEnvironment
+from scopecat.compiler.environment import ConfigEnvironment
 from scopecat.compiler.linking.linked import (
     LinkedPlan,
 )
-from scopecat.compiler.relations.model import ScalarExpr, as_scalar_expr
 from scopecat.compiler.relations.uses import relation_use
 from scopecat.compiler.relations.verification import RelationTypeBindings
-from scopecat.compiler.semantic.compute_result import ComputeResultRef
 from scopecat.compiler.semantic.model import (
     AcquireEffect,
     AcquireId,
     AcquireProduct,
-    OperationId,
-    ValueId,
-    operation_result_id,
 )
 from scopecat.compiler.semantic.value_expressions import verify_scalar_value_expr
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.products import (
-    ProductAxisDef,
-    ProductDef,
-)
 from scopecat.compiler.typed.program import (
     CoreProgram,
     LogicalResourceRequirement,
@@ -35,9 +26,15 @@ from scopecat.compiler.typed.program import (
     TypedDomainExecution,
     TypedMeasurementTransform,
 )
-from scopecat.compiler.typed.records import RecordUse
 from scopecat.compiler.typed.state import SetStateSpec
 from scopecat.compiler.typed.verification import seal_typed_program
+from scopecat.graph.relations.model import ScalarExpr, as_scalar_expr
+from scopecat.graph.values import (
+    ComputeResultRef,
+    OperationId,
+    ValueId,
+    operation_result_id,
+)
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.problems import ProblemPhase
 from scopecat.kernel.product_identity import (
@@ -51,6 +48,11 @@ from scopecat.kernel.resource_identity import (
 )
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Scalar
+from scopecat.measurements.products import (
+    ProductAxisDef,
+    ProductDef,
+)
+from scopecat.measurements.records import RecordUse
 from scopecat.measurements.results import MeasurementDType
 
 

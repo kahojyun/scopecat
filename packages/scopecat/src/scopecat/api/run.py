@@ -239,6 +239,18 @@ class RunHandle:
             expected_kind=expected_kind,
         )
 
+    def artifact_bytes(
+        self,
+        selector: str,
+        *,
+        expected_kind: str | None = None,
+    ) -> RunArtifactBytesResult:
+        return self.session.run_operations.artifact_bytes(
+            self.id,
+            selector=selector,
+            expected_kind=expected_kind,
+        )
+
     def artifact_json(
         self,
         selector: str,

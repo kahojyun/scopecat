@@ -8,18 +8,19 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import cast
 
-from scopecat.compiler.relations.analysis import (
+from scopecat.compiler.relations.context import EvalContext
+from scopecat.compiler.relations.evaluator import (
+    evaluate_relation_expression,
+    evaluate_series_expression,
+)
+from scopecat.compiler.relations.scalar_eval import eval_binary, read_path
+from scopecat.graph.relations.analysis import (
     PlanReferenceKind,
     PlanReferences,
     plan_references,
     rewrite_plan,
 )
-from scopecat.compiler.relations.evaluation import EvalContext
-from scopecat.compiler.relations.evaluator import (
-    evaluate_relation_expression,
-    evaluate_series_expression,
-)
-from scopecat.compiler.relations.model import (
+from scopecat.graph.relations.model import (
     BinaryScalarExpr,
     CellValue,
     ColumnScalarExpr,
@@ -38,8 +39,7 @@ from scopecat.compiler.relations.model import (
     ValuesSeriesExpr,
     lit,
 )
-from scopecat.compiler.relations.operators import runtime_values_equal
-from scopecat.compiler.relations.scalar_eval import eval_binary, read_path
+from scopecat.graph.relations.operators import runtime_values_equal
 
 _KNOWN_EVALUATION_ERRORS = (ArithmeticError, KeyError, TypeError, ValueError)
 

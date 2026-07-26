@@ -6,8 +6,8 @@ from collections.abc import Iterator, Mapping
 from typing import override
 
 from scopecat.authoring._value_refs import ValueRef, internal_lower_value_ref
-from scopecat.compiler.relations import input_binding as relation_input_binding
-from scopecat.compiler.relations.model import (
+from scopecat.graph.relations import input_binding as relation_input_binding
+from scopecat.graph.relations.model import (
     CellValue,
     RelationExpr,
     ScalarExpr,

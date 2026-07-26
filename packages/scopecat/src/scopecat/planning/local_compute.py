@@ -5,8 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 
 from scopecat.compiler.diagnostics import compiler_problem
-from scopecat.compiler.relations.evaluation import EvalContext
-from scopecat.compiler.semantic.model import ValueId
+from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.typed.dependencies import ComputePlan
 from scopecat.compiler.typed.program import TypedComputeNode, ValueInput
 from scopecat.compiler.typed.verification import VerifiedCoreProgram
@@ -16,6 +15,7 @@ from scopecat.execution.local.program import (
     OutputInput,
     PayloadSlot,
 )
+from scopecat.graph.values import ValueId
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.payloads import unwrap_payload_values
 from scopecat.kernel.problems import Problem, model_location

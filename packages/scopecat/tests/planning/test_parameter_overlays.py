@@ -3,18 +3,7 @@ from typing import Never
 
 import pytest
 
-from scopecat.compiler.frontend.environment import build_config_environment
-from scopecat.compiler.relations.evaluation import EvalContext
-from scopecat.compiler.relations.model import (
-    CellValue,
-    parameter_lookup,
-    point_col,
-)
-from scopecat.compiler.relations.point_domain import (
-    PointAxis,
-    point_axis_values,
-    point_product,
-)
+from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.specialization import (
     ResidualScalar,
     specialize_scalar,
@@ -29,11 +18,22 @@ from scopecat.compiler.typed.parameter_overlays import (
 )
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import LogicalResourceRequirement
+from scopecat.config.environment import build_config_environment
+from scopecat.graph.relations.model import (
+    CellValue,
+    parameter_lookup,
+    point_col,
+)
+from scopecat.graph.relations.point_domain import (
+    PointAxis,
+    point_axis_values,
+    point_product,
+)
 from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar, String, TableColumn
-from scopecat.records.parameter import Quantity
 from tests.testkit.authoring import load_config
 from tests.testkit.local_materialization import materialize_local_execution
 from tests.testkit.materialized_effects import (

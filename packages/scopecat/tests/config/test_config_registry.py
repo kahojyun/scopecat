@@ -9,7 +9,6 @@ from typing import Literal
 import pytest
 
 import scopecat.config.resolution as config_workflow
-from scopecat.application.services import ProjectStateServices
 from scopecat.config.candidates import (
     CandidateConfig,
     resolve_candidate_config_snapshot,
@@ -48,8 +47,10 @@ from scopecat.kernel.errors import (
     DataIntegrityError,
     NotFound,
 )
+from scopecat.kernel.quantity import Quantity
+from scopecat.project_state import ProjectStateServices
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
-from scopecat.records.parameter import Quantity, ScalarParameterValue
+from scopecat.records.parameter import ScalarParameterValue
 from scopecat.records.parameter_change import (
     AutomaticPolicyDecisionAuthority,
     ParameterChangeProposal,

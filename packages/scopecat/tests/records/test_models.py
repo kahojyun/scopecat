@@ -5,6 +5,8 @@ import pytest
 from pydantic import BaseModel, ValidationError
 
 from scopecat.config.profiles import load_config_profile
+from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import (
     Bool,
     Entity,
@@ -19,12 +21,10 @@ from scopecat.kernel.value_types import (
 )
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.records.artifact import RunContentEntry
-from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import (
     ParameterCatalog,
     ParameterDefinition,
     ParameterSnapshot,
-    Quantity,
     ScalarParameterValue,
     SeriesParameterValue,
     TableParameterValue,

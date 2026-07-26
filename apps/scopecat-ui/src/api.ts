@@ -13,10 +13,10 @@ import type {
   ProjectHealth,
   ProjectRun,
   ProjectRunPage,
+  PresentationRunStatus,
   ResourceClaim,
   RunAnalysis,
   RunContentPreview,
-  RunStatus,
 } from "./types";
 
 const API = {
@@ -25,7 +25,6 @@ const API = {
   events: "/api/v1/events?limit=500&latest=true",
 } as const;
 
-type CurrentRunStatus = Exclude<RunStatus, "terminal" | "unknown">;
 type AdmissionResource = ControlRun["admission"]["plan"]["run_resource_claims"][number];
 
 export class ApiError extends Error {
@@ -326,7 +325,7 @@ function artifactFormat(entry: ContentEntry): RunContentPreview["format"] | unde
   return undefined;
 }
 
-function normalizeStatus(control: ControlRun, manifest: RunManifest): CurrentRunStatus {
+function normalizeStatus(control: ControlRun, manifest: RunManifest): PresentationRunStatus {
   if (control.state === "attention_required") {
     return "attention_required";
   }
@@ -341,7 +340,7 @@ function normalizeStatus(control: ControlRun, manifest: RunManifest): CurrentRun
   return control.state === "leased" ? "running" : "accepted";
 }
 
-function statusLabel(status: CurrentRunStatus): string {
+function statusLabel(status: PresentationRunStatus): string {
   switch (status) {
     case "accepted":
       return "Accepted";

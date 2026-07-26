@@ -11,11 +11,10 @@ from __future__ import annotations
 
 from collections.abc import Hashable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
-from scopecat.compiler.typed.products import ProductDef
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.errors import CheckFailed, ProviderContractError
 from scopecat.kernel.product_identity import (
@@ -27,22 +26,21 @@ from scopecat.measurements.contracts import (
     measurement_value_contract_issues,
     validated_measurement_value_copy,
 )
+from scopecat.measurements.products import ProductDef
 from scopecat.measurements.values import (
     MeasurementValueCandidate,
 )
 from scopecat.records.measurement import MeasurementValue
+from scopecat.sdk.domain.result_mapping import (
+    DomainMappedResult,
+    DomainResultMapping,
+)
 from scopecat.sdk.problems import (
     Problem,
     ProblemPhase,
     model_location,
     problem,
 )
-
-if TYPE_CHECKING:
-    from scopecat.sdk.domain.preparation import (
-        DomainMappedResult,
-        DomainResultMapping,
-    )
 
 
 @dataclass(frozen=True, slots=True)

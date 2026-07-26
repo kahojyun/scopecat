@@ -9,6 +9,7 @@ from scopecat.execution.local.program import CollectionResultBinding, CollectOpe
 from scopecat.execution.local.receipts import validate_readback
 from scopecat.kernel.problems import ModelLocation
 from scopecat.kernel.product_identity import ProductUseId
+from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.contracts import (
     MeasurementValueContractIssueCode,
     measurement_value_contract_issues,
@@ -18,7 +19,6 @@ from scopecat.records.measurement import (
     MeasurementArray,
     MeasurementDType,
 )
-from scopecat.records.parameter import Quantity
 from scopecat.sdk.instruments import (
     CollectAxisRequest,
     CollectCommand,

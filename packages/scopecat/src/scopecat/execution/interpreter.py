@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from scopecat.execution.effect_interpreter import RunEffectResult
+from scopecat.execution.effect_result import RunEffectResult
 from scopecat.execution.effects.domain import (
     domain_runtime_terminal_problem,
     measurement_recording_terminal_problem,
@@ -20,6 +20,10 @@ from scopecat.execution.evidence import (
     raw_measurement_schema,
 )
 from scopecat.execution.local.executor import execute_run_operations
+from scopecat.execution.measurement_recording import (
+    append_measurement_dataset,
+    seal_measurement_dataset,
+)
 from scopecat.execution.observation import (
     RuntimeEventSink,
     RuntimePayloadObserver,
@@ -27,11 +31,6 @@ from scopecat.execution.observation import (
 from scopecat.execution.persistence import (
     validate_raw_measurement_dataset,
     validate_run_measurements,
-)
-from scopecat.execution.problems import (
-    contextualize_problems,
-    problem_from_exception,
-    runtime_problem,
 )
 from scopecat.execution.program import RunCoverageBlock, RunDomainJob, RunProgram
 from scopecat.execution.services import (
@@ -49,23 +48,25 @@ from scopecat.kernel.problems import (
     Problem,
     ProblemPhase,
 )
+from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.measurements.datasets import RAW_MEASUREMENTS_DATASET_ID
 from scopecat.measurements.projection import project_measurement_records
-from scopecat.measurements.recording import (
-    append_measurement_dataset,
-    seal_measurement_dataset,
-)
 from scopecat.measurements.values import (
     MeasurementValueCandidate,
     seal_measurement_values,
 )
 from scopecat.records.config import ConfigProfileSnapshot
-from scopecat.records.run import RunManifest, RunOutcome
+from scopecat.records.run import RunManifest
 from scopecat.runs.repository import (
     RunModelWrite,
     TerminalRunCommit,
 )
 from scopecat.sdk.instruments.contracts import InstrumentProvider
+from scopecat.sdk.runtime_problems import (
+    contextualize_problems,
+    problem_from_exception,
+    runtime_problem,
+)
 
 
 def execute_admitted_run(

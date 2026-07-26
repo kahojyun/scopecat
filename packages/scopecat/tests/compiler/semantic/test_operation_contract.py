@@ -3,24 +3,16 @@ from __future__ import annotations
 from functools import partial
 
 from scopecat.compiler.frontend.assembly_lowering import lower_semantic_compute_graph
-from scopecat.compiler.frontend.environment import build_config_environment
-from scopecat.compiler.relations.operators import (
-    ScalarOperator,
-)
-from scopecat.compiler.relations.point_domain import POINT_UNIT
 from scopecat.compiler.relations.scalar_eval import eval_binary
 from scopecat.compiler.relations.verification import RelationTypeBindings
 from scopecat.compiler.semantic.model import (
     ImplementationId,
     LiteralValueSource,
     LocalPythonImplementation,
-    OperationId,
     SemanticGraphIR,
     SemanticOperation,
     ValueDef,
-    ValueId,
     ValueUse,
-    operation_result_id,
 )
 from scopecat.compiler.semantic.operation_contract import (
     LOCAL_OPAQUE_OPERATION_CONTRACT,
@@ -29,6 +21,16 @@ from scopecat.compiler.semantic.operation_contract import (
 from scopecat.compiler.semantic.verification import verify_semantic_graph
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import CoreProgram
+from scopecat.config.environment import build_config_environment
+from scopecat.graph.relations.operators import (
+    ScalarOperator,
+)
+from scopecat.graph.relations.point_domain import POINT_UNIT
+from scopecat.graph.values import (
+    OperationId,
+    ValueId,
+    operation_result_id,
+)
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Scalar
 from tests.testkit.authoring import load_config

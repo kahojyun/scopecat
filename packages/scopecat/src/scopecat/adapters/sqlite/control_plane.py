@@ -13,6 +13,7 @@ from uuid import uuid4
 
 from pydantic import JsonValue, TypeAdapter
 
+from scopecat.adapters.sqlite.connection import connect, immediate_transaction
 from scopecat.control.models import (
     ControlRun,
     ControlRunState,
@@ -50,9 +51,9 @@ class SQLiteControlPlane:
 
     def __init__(self, path: str | Path, *, busy_timeout: timedelta | None = None):
         self.path = Path(path)
-        self._busy_timeout_ms = int(
-            (busy_timeout or timedelta(seconds=5)).total_seconds() * 1000
-        )
+        self._busy_timeout_seconds = (
+            busy_timeout or timedelta(seconds=5)
+        ).total_seconds()
 
     def admit_run_in_transaction(
         self,
@@ -924,15 +925,11 @@ class SQLiteControlPlane:
 
     @contextmanager
     def _transaction(self) -> Generator[sqlite3.Connection]:
-        with closing(self._connect()) as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            try:
-                yield connection
-            except BaseException:
-                connection.rollback()
-                raise
-            else:
-                connection.commit()
+        with immediate_transaction(
+            self.path,
+            busy_timeout_seconds=self._busy_timeout_seconds,
+        ) as connection:
+            yield connection
 
     @contextmanager
     def transaction(self) -> Generator[sqlite3.Connection]:
@@ -942,15 +939,10 @@ class SQLiteControlPlane:
             yield connection
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(
+        return connect(
             self.path,
-            isolation_level=None,
-            timeout=self._busy_timeout_ms / 1000,
+            busy_timeout_seconds=self._busy_timeout_seconds,
         )
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute(f"PRAGMA busy_timeout = {self._busy_timeout_ms}")
-        return connection
 
 
 def _run(row: sqlite3.Row) -> ControlRun:

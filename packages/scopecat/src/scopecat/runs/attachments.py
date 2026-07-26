@@ -9,7 +9,6 @@ from typing import NoReturn
 
 from pydantic import JsonValue
 
-from scopecat.application.services import ProjectStateServices
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
@@ -18,6 +17,7 @@ from scopecat.kernel.problems import (
     model_location,
     problem,
 )
+from scopecat.project_state import ProjectStateServices
 from scopecat.records.artifact import RunContentEntry
 from scopecat.runs.refs import artifact_content_ref
 from scopecat.runs.repository import RunBytesWrite, RunContentPublication

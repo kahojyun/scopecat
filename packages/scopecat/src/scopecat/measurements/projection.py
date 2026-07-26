@@ -7,20 +7,19 @@ from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from typing import cast
 
-from scopecat.compiler.diagnostics import compiler_problem
-from scopecat.compiler.typed.products import ProductDef
-from scopecat.compiler.typed.records import (
+from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
+from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.problems import Problem, ProblemPhase, model_location, problem
+from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
+from scopecat.measurements.points import RunPoint
+from scopecat.measurements.products import ProductDef
+from scopecat.measurements.records import (
     RecordPlan,
     RecordUse,
     expected_dataset_schema,
     plan_records,
     validate_record_plan,
 )
-from scopecat.execution.points import RunPoint
-from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
-from scopecat.kernel.errors import CheckFailed
-from scopecat.kernel.problems import Problem, model_location
-from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
 from scopecat.measurements.values import (
     ClosedMeasurementProductValues,
     MeasurementValueCatalog,
@@ -268,8 +267,9 @@ def _projection_problem(
     *,
     path: tuple[str | int, ...],
 ) -> Problem:
-    return compiler_problem(
+    return problem(
         code,
         message,
-        model_location("measurement_projection", *path),
+        phase=ProblemPhase.PLANNING,
+        location=model_location("measurement_projection", *path),
     )

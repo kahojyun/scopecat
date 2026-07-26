@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
@@ -15,11 +17,19 @@ from scopecat.daemon.endpoint import (
     daemon_record_path,
 )
 from scopecat.project import (
+    ProjectApplicationLoadError,
     ProjectManifestError,
     load_application_factory,
     load_project,
     open_project,
 )
+from tests.testkit.project_loading import isolated_project_application_imports
+
+
+@pytest.fixture(autouse=True)
+def isolate_project_loader() -> Iterator[None]:
+    with isolated_project_application_imports():
+        yield
 
 
 def test_project_application_is_resolved_from_manifest(tmp_path: Path) -> None:
@@ -112,11 +122,16 @@ def test_application_is_imported_from_project_src(
     (package / "application.py").write_text(
         (
             "from scopecat.application import LabApplication\n\n"
-            "def unavailable_bootstrap():\n"
-            "    raise RuntimeError('bootstrap input is unavailable')\n\n"
+            "def lazy_bootstrap():\n"
+            "    from project_application_bootstrap import CONFIG\n"
+            "    return CONFIG\n\n"
             "def create(_project):\n"
-            "    return LabApplication(bootstrap_config=unavailable_bootstrap)\n"
+            "    return LabApplication(bootstrap_config=lazy_bootstrap)\n"
         ),
+        encoding="utf-8",
+    )
+    (tmp_path / "src" / "project_application_bootstrap.py").write_text(
+        "CONFIG = {'id': 'lazy-project-config'}\n",
         encoding="utf-8",
     )
     (tmp_path / "scopecat.toml").write_text(
@@ -124,16 +139,71 @@ def test_application_is_imported_from_project_src(
         encoding="utf-8",
     )
     monkeypatch.setattr(sys, "path", sys.path.copy())
+    original_path = tuple(sys.path)
 
     factory = load_application_factory(
         "project_application_fixture.application:create",
         tmp_path,
     )
+    repeated = load_application_factory(
+        "project_application_fixture.application:create",
+        tmp_path,
+    )
 
-    assert isinstance(factory(tmp_path), LabApplication)
+    application = factory(tmp_path)
+    assert isinstance(application, LabApplication)
+    assert application.bootstrap_config is not None
+    assert application.bootstrap_config() == {"id": "lazy-project-config"}
+    assert isinstance(repeated(tmp_path), LabApplication)
+    assert str(tmp_path / "src") in sys.path
+    assert str(tmp_path) in sys.path
+    assert tuple(sys.path) != original_path
     client = open_project(tmp_path).connect("http://daemon.local")
     assert isinstance(client, LabClient)
     client.close()
+
+
+def test_different_projects_cannot_reuse_the_same_application_module(
+    tmp_path: Path,
+) -> None:
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    module_name = "shared_project_application_fixture"
+    _write_application_module(first, module_name, marker="first")
+    _write_application_module(second, module_name, marker="second")
+    first_factory = load_application_factory(f"{module_name}.application:create", first)
+
+    assert isinstance(first_factory(first), LabApplication)
+    with pytest.raises(
+        ProjectApplicationLoadError,
+        match="already loaded project application code",
+    ) as caught:
+        load_application_factory(f"{module_name}.application:create", second)
+
+    assert str(first.resolve()) in str(caught.value)
+    assert str(second.resolve()) in str(caught.value)
+    assert "separate process" in str(caught.value)
+    loaded_module = sys.modules[f"{module_name}.application"]
+    assert vars(loaded_module)["PROJECT_MARKER"] == "first"
+    assert str(first / "src") in sys.path
+    assert str(second / "src") not in sys.path
+
+
+def test_preloaded_application_module_from_outside_project_is_rejected(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module_name = "conflicting_project_application_fixture"
+    _write_application_module(tmp_path, module_name, marker="project")
+    conflicting = ModuleType(module_name)
+    conflicting.__file__ = str(tmp_path.parent / "foreign" / "__init__.py")
+    monkeypatch.setitem(sys.modules, module_name, conflicting)
+
+    with pytest.raises(
+        ProjectApplicationLoadError,
+        match="already loaded from outside this project",
+    ):
+        load_application_factory(f"{module_name}.application:create", tmp_path)
 
 
 @pytest.mark.parametrize(
@@ -166,3 +236,18 @@ def test_invalid_application_specs_fail_at_the_boundary(
 ) -> None:
     with pytest.raises(ValueError, match="MODULE:CALLABLE"):
         load_application_factory(spec, tmp_path)
+
+
+def _write_application_module(root: Path, module_name: str, *, marker: str) -> None:
+    package = root / "src" / module_name
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "application.py").write_text(
+        (
+            "from scopecat.application import LabApplication\n\n"
+            f"PROJECT_MARKER = {marker!r}\n\n"
+            "def create(_project):\n"
+            "    return LabApplication()\n"
+        ),
+        encoding="utf-8",
+    )

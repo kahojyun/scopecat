@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from scopecat.execution.effect_interpreter import RunEffectResult
+from scopecat.execution.effect_result import RunEffectResult
 from scopecat.kernel.content_identity import model_wire_content_hash
+from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.measurements.datasets import (
     MEASUREMENT_DATASET_KIND,
     RAW_MEASUREMENTS_DATASET_ID,
@@ -11,7 +12,6 @@ from scopecat.measurements.datasets import (
 from scopecat.measurements.results import MeasurementDatasetSchema
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.execution import InstrumentStateEvidence
-from scopecat.records.run import RunOutcome
 from scopecat.runs.refs import record_content_ref
 
 INSTRUMENT_STATE_EVIDENCE_ID = "instrument-state-evidence"

@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from uuid import uuid4
 
-from scopecat.application.services import ProjectStateServices
 from scopecat.config.parameter_resolution import validate_parameter_snapshot
 from scopecat.config.parameter_updates import (
     ParameterUpdate,
@@ -25,6 +24,7 @@ from scopecat.kernel.problems import (
     model_location,
     problem,
 )
+from scopecat.project_state import ProjectStateServices
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.parameter_change import (

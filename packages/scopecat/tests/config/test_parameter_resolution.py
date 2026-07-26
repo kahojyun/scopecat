@@ -3,6 +3,7 @@ from scopecat.config.parameter_resolution import (
     validate_parameter_snapshot,
 )
 from scopecat.kernel.problems import ModelLocation, Problem
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import (
     Bool,
     Float,
@@ -18,7 +19,6 @@ from scopecat.records.parameter import (
     ParameterCatalog,
     ParameterDefinition,
     ParameterSnapshot,
-    Quantity,
     ScalarParameterValue,
     SeriesParameterValue,
     TableParameterValue,

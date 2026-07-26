@@ -10,7 +10,7 @@ from scopecat.authoring._value_refs import (
     ValueRef,
     internal_value_ref_parameter_contracts,
 )
-from scopecat.compiler.relations.point_domain import (
+from scopecat.graph.relations.point_domain import (
     POINT_UNIT,
     PointDomainExpr,
     analyze_point_domain,

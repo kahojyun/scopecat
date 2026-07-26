@@ -17,13 +17,13 @@ from scopecat.kernel.errors import (
     NotFound,
     StorageError,
 )
+from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.run import (
     ConfigRegistryRunConfigSource,
     RunConfigSource,
     RunManifest,
-    RunOutcome,
 )
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.admission import RunSkeleton

@@ -6,11 +6,13 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from scopecat.compiler.semantic.model import (
-    OperationId,
     SemanticOperation,
-    ValueId,
 )
 from scopecat.compiler.semantic.operation_contract import OpaqueSemantics
+from scopecat.graph.values import (
+    OperationId,
+    ValueId,
+)
 
 
 @dataclass(frozen=True, slots=True)

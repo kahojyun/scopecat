@@ -26,9 +26,9 @@ from scopecat.sdk.domain.measurements import (
     DomainHostTransformImplementation,
     MeasurementTransformSemanticContract,
 )
-from scopecat.sdk.domain.preparation import (
+from scopecat.sdk.domain.preparation import DomainPreparationBuilder
+from scopecat.sdk.domain.result_mapping import (
     DomainMappedResult,
-    DomainPreparationBuilder,
     DomainResultBinding,
     DomainResultMapping,
 )

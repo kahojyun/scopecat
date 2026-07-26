@@ -17,6 +17,10 @@ from scopecat.compiler.linking.linked import (
     MaterializedLinkedPoints,
     materialize_linked_points,
 )
+from scopecat.compiler.measurement_projection import (
+    project_measurement_catalog_from_domain,
+    project_run_point_catalog_from_domain,
+)
 from scopecat.compiler.typed.domain_results import (
     domain_result_closure,
 )
@@ -31,7 +35,6 @@ from scopecat.execution.local.program import (
     ApplyStateOperation,
     CollectOperation,
 )
-from scopecat.execution.points import RunPoint, RunPointCatalog
 from scopecat.execution.program import (
     RunCoverageBlock,
     RunCoverageCheckpoint,
@@ -49,10 +52,7 @@ from scopecat.kernel.problems import (
     problem,
 )
 from scopecat.kernel.resource_identity import ResourceClaim
-from scopecat.measurements._bridge import (
-    project_measurement_catalog_from_domain,
-    project_run_point_catalog_from_domain,
-)
+from scopecat.measurements.points import RunPoint, RunPointCatalog
 from scopecat.measurements.projection import select_measurement_projection
 from scopecat.planning.local_effects import (
     MaterializedLocalEffects,

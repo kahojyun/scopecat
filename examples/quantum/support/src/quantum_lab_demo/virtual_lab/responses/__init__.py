@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.results import (
     ComplexQuantity,
     MeasurementArray,
     MeasurementValue,
 )
-from scopecat.records.parameter import Quantity
 from scopecat.sdk.instruments import (
     CollectCommand,
     CollectProductRequest,

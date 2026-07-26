@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 from scopecat.application import LabApplication
 from scopecat.config.profiles import load_config_profile
+from scopecat.daemon.endpoint import DaemonEndpointRecord
 from scopecat.project import Project
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from typer.testing import CliRunner
@@ -133,6 +135,78 @@ def test_config_check_reports_application_import_error(tmp_path: Path) -> None:
     assert result.exit_code == 1
     assert "error:" in result.output
     assert "No module named 'missing_cli_application'" in result.output
+
+
+def test_hidden_executor_lease_ttl_option_reaches_start_and_serve(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_manifest(tmp_path)
+    start_ttls: list[timedelta | None] = []
+    serve_ttls: list[timedelta | None] = []
+
+    def start_selected(
+        project: Project,
+        *,
+        host: str,
+        port: int,
+        static_dir: Path | None,
+        lease_ttl: timedelta | None,
+    ) -> DaemonEndpointRecord:
+        del host, port, static_dir
+        start_ttls.append(lease_ttl)
+        return DaemonEndpointRecord(
+            project_root=project.root,
+            pid=123,
+            process_create_time=1,
+            base_url="http://127.0.0.1:4321",
+            started_at=datetime.now(UTC),
+        )
+
+    def serve_selected(
+        project: Project,
+        *,
+        host: str,
+        port: int,
+        static_dir: Path | None,
+        lease_ttl: timedelta | None,
+    ) -> None:
+        del project, host, port, static_dir
+        serve_ttls.append(lease_ttl)
+
+    monkeypatch.setattr("scopecat_server.cli.start_project", start_selected)
+    monkeypatch.setattr("scopecat_server.cli.serve_project", serve_selected)
+    runner = CliRunner()
+
+    default_start = runner.invoke(app, ["start", str(tmp_path), "--api-only"])
+    explicit_start = runner.invoke(
+        app,
+        [
+            "start",
+            str(tmp_path),
+            "--api-only",
+            "--executor-lease-ttl-seconds",
+            "1.25",
+        ],
+    )
+    explicit_serve = runner.invoke(
+        app,
+        [
+            "serve",
+            str(tmp_path),
+            "--api-only",
+            "--executor-lease-ttl-seconds",
+            "1.25",
+        ],
+    )
+    help_result = runner.invoke(app, ["start", "--help"])
+
+    assert default_start.exit_code == 0, default_start.output
+    assert explicit_start.exit_code == 0, explicit_start.output
+    assert explicit_serve.exit_code == 0, explicit_serve.output
+    assert start_ttls == [None, timedelta(seconds=1.25)]
+    assert serve_ttls == [timedelta(seconds=1.25)]
+    assert "--executor-lease-ttl-seconds" not in help_result.output
 
 
 def _write_manifest(project: Path) -> None:

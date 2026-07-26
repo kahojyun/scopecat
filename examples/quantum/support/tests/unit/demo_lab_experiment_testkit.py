@@ -9,13 +9,9 @@ from scopecat.api.run import (
     RunOperations,
     run_handle_id,
 )
-from scopecat.application.services import ProjectStateServices
 from scopecat.authoring import ExperimentInvocation, ExperimentTemplate, ValueRef
 from scopecat.authoring.scans import Scan, ScanCenter, ScanValue
-from scopecat.compiler.frontend.environment import (
-    ConfigEnvironment,
-    build_config_environment,
-)
+from scopecat.compiler.environment import ConfigEnvironment
 from scopecat.compiler.frontend.resolution import (
     compile_invocation,
     resolve_compiled_invocation,
@@ -28,9 +24,14 @@ from scopecat.compiler.linking.linked import (
 from scopecat.compiler.linking.linked import (
     link_program as link_core_program,
 )
+from scopecat.compiler.measurement_projection import (
+    project_measurement_catalog,
+    project_run_point_catalog,
+)
 from scopecat.compiler.typed.program import CoreProgram
 from scopecat.config.candidates import CandidateConfig
 from scopecat.config.changes import prepare_parameter_change_review
+from scopecat.config.environment import build_config_environment
 from scopecat.config.registry import service as config_registry_service
 from scopecat.config.registry.records import (
     ConfigRegistryActivationRecord,
@@ -45,13 +46,10 @@ from scopecat.config.resolution import (
 from scopecat.execution.interpreter import execute_admitted_run
 from scopecat.execution.local.program import ComputeOperation, LocalOperation
 from scopecat.execution.observation import RuntimeEventSink, RuntimePayloadObserver
-from scopecat.execution.points import RunPoint
 from scopecat.execution.program import RunCoverageEffect
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import ResourceClaim
-from scopecat.measurements._bridge import (
-    project_measurement_catalog,
-    project_run_point_catalog,
-)
+from scopecat.measurements.points import RunPoint
 from scopecat.measurements.projection import (
     MeasurementProjection,
     select_measurement_projection,
@@ -67,8 +65,8 @@ from scopecat.planning.local_materialization import (
 )
 from scopecat.planning.preview_models import ExperimentPreview
 from scopecat.planning.system import ExperimentSystem
+from scopecat.project_state import ProjectStateServices
 from scopecat.records.config import ConfigProfileSnapshot
-from scopecat.records.parameter import Quantity
 from scopecat.records.parameter_change import (
     ParameterChangeDecisionRecord,
     ParameterChangeReviewState,

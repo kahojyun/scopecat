@@ -2,8 +2,15 @@ from __future__ import annotations
 
 import pytest
 
-from scopecat.compiler.relations.analysis import PlanNode
-from scopecat.compiler.relations.model import (
+from scopecat.compiler.relations.verification import (
+    ExternalRowRequirement,
+    RelationPlanVerificationError,
+    RelationTypeBindings,
+    RowType,
+    verify_relation_plan,
+)
+from scopecat.graph.relations.analysis import PlanNode
+from scopecat.graph.relations.model import (
     LiteralRowsRelationExpr,
     ParameterLookupUse,
     RelationExpr,
@@ -20,13 +27,6 @@ from scopecat.compiler.relations.model import (
     point_col,
     table,
     values,
-)
-from scopecat.compiler.relations.verification import (
-    ExternalRowRequirement,
-    RelationPlanVerificationError,
-    RelationTypeBindings,
-    RowType,
-    verify_relation_plan,
 )
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import (

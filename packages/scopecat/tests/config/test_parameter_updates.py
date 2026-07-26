@@ -15,6 +15,8 @@ from scopecat.config.parameters import (
     update_parameter_rows,
 )
 from scopecat.config.validation import parameter_table_key_part
+from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import (
     Bool,
     Float,
@@ -26,12 +28,10 @@ from scopecat.kernel.value_types import (
     TableColumn,
 )
 from scopecat.kernel.value_types import Quantity as QuantityType
-from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import (
     ParameterCatalog,
     ParameterDefinition,
     ParameterSnapshot,
-    Quantity,
     ScalarParameterValue,
     SeriesParameterValue,
     TableParameterValue,

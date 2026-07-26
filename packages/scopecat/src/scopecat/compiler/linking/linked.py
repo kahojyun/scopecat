@@ -12,20 +12,13 @@ from scopecat.compiler.entity_resolution import (
     EntityResolutionError,
     resolve_entity,
 )
-from scopecat.compiler.frontend.environment import ConfigEnvironment
+from scopecat.compiler.environment import ConfigEnvironment
+from scopecat.compiler.relations.context import EvalContext, ParameterRelationData
 from scopecat.compiler.relations.evaluation import (
-    EvalContext,
-    ParameterRelationData,
     evaluate_relation,
     evaluate_scalar,
     evaluate_series,
     normalize_relation_parameter_import,
-)
-from scopecat.compiler.relations.model import (
-    RelationExpr,
-    Row,
-    ScalarExpr,
-    SeriesExpr,
 )
 from scopecat.compiler.relations.verification import (
     PlanImportNamespace,
@@ -55,6 +48,13 @@ from scopecat.compiler.typed.verification import (
     VerifiedCoreProgram,
     seal_typed_program,
 )
+from scopecat.graph.relations.model import (
+    RelationExpr,
+    Row,
+    ScalarExpr,
+    SeriesExpr,
+)
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.problems import (
@@ -63,7 +63,6 @@ from scopecat.kernel.problems import (
     model_location,
 )
 from scopecat.kernel.value_validation import ValueValidationError, coerce_literal
-from scopecat.records.entity import EntityRef
 
 
 @dataclass(frozen=True, slots=True)

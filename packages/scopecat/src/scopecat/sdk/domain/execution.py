@@ -14,8 +14,8 @@ from __future__ import annotations
 from collections.abc import Callable, Hashable
 from dataclasses import dataclass, field
 
-from scopecat.execution.points import RunPoint
 from scopecat.measurements.host_transforms import HostMeasurementTransformPlan
+from scopecat.measurements.points import RunPoint
 from scopecat.measurements.values import MeasurementValueCandidate
 from scopecat.sdk.domain.invocation import ClosedDomainInvocation
 from scopecat.sdk.domain.runtime import CorrelatedDomainFetch, DomainRuntime

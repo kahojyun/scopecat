@@ -8,12 +8,12 @@ from scopecat.compiler.frontend.scan_validation import (
     ScanValidationError,
     verify_scans,
 )
-from scopecat.compiler.relations.point_domain import (
+from scopecat.graph.relations.point_domain import (
     PointAxis,
     PointDomainExpr,
     PointUnit,
 )
-from scopecat.records.parameter import Quantity
+from scopecat.kernel.quantity import Quantity
 
 _FREQUENCY = sc.ScalarType(sc.QuantityType(unit="GHz"))
 _DURATION = sc.ScalarType(sc.QuantityType(unit="ns"))

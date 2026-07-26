@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from scopecat.config.parameter_resolution import validate_parameter_snapshot
-from scopecat.records.entity import EntityRef
+from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.quantity import Quantity
 from scopecat.records.parameter import (
-    Quantity,
     ScalarParameterValue,
     TableParameterValue,
 )

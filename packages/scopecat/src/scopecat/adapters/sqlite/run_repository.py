@@ -14,6 +14,7 @@ from typing import cast
 from pydantic import BaseModel, ValidationError
 from pydantic_core import PydanticSerializationError
 
+from scopecat.adapters.sqlite.connection import connect, immediate_transaction
 from scopecat.adapters.sqlite.object_store import (
     ImmutableObjectStore,
     ObjectCorruptError,
@@ -96,6 +97,12 @@ class SQLiteRunRepository:
         self.database = Path(database)
         self.objects = ImmutableObjectStore(objects)
         self._busy_timeout_seconds = busy_timeout_seconds
+
+    @property
+    def busy_timeout_seconds(self) -> float:
+        """Return the timeout used by adapters sharing this run store."""
+
+        return self._busy_timeout_seconds
 
     def exists(self, run_id: str, ref: str) -> bool:
         _validate_identity(run_id, ref)
@@ -498,25 +505,17 @@ class SQLiteRunRepository:
 
     @contextmanager
     def _transaction(self) -> Generator[sqlite3.Connection]:
-        with closing(self._connect()) as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            try:
-                yield connection
-            except BaseException:
-                connection.rollback()
-                raise
-            else:
-                connection.commit()
+        with immediate_transaction(
+            self.database,
+            busy_timeout_seconds=self._busy_timeout_seconds,
+        ) as connection:
+            yield connection
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(
+        return connect(
             self.database,
-            isolation_level=None,
-            timeout=self._busy_timeout_seconds,
+            busy_timeout_seconds=self._busy_timeout_seconds,
         )
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
-        return connection
 
 
 def _encode_model(model: BaseModel) -> bytes:

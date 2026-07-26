@@ -18,13 +18,15 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Protocol, cast
-from uuid import UUID, uuid4
 
 from scopecat.authoring._binding_intents import (
     ExperimentBindingIntent,
     ResourcePort,
 )
-from scopecat.authoring._frozen_values import empty_frozen_mapping
+from scopecat.authoring._identities import (
+    ComputeDeclarationKey,
+    InvocationKey,
+)
 from scopecat.authoring._intents import (
     ModuleInputPort,
     ModuleOperationDecl,
@@ -35,6 +37,7 @@ from scopecat.authoring._products import (
 )
 from scopecat.authoring._value_refs import (
     ValueRef,
+    empty_frozen_mapping,
     internal_transform_value_ref,
     internal_value_ref_input_id,
     internal_value_ref_module_export,
@@ -46,7 +49,6 @@ from scopecat.authoring.domain import DomainExecution
 from scopecat.authoring.measurements import MeasurementTransform
 from scopecat.authoring.value_types import ValueType
 from scopecat.authoring.values import (
-    ComputeDeclarationKey,
     ComputeFunction,
     MetadataValue,
 )
@@ -60,23 +62,6 @@ from scopecat.kernel.problems import (
 )
 from scopecat.kernel.product_identity import ProductId
 from scopecat.kernel.resource_identity import LogicalResourcePortId
-
-
-@dataclass(frozen=True, slots=True)
-class InvocationKey:
-    """Nominal identity of one explicit authoring invocation.
-
-    Instance names are structural names inside a parent module and therefore
-    are not sufficient to distinguish a reference obtained from a foreign
-    invocation with the same spelling.  This typed key exists only while
-    authoring edges are associated with their selected instance.
-    """
-
-    value: UUID
-
-    @classmethod
-    def fresh(cls) -> InvocationKey:
-        return cls(uuid4())
 
 
 @dataclass(frozen=True, slots=True)

@@ -6,8 +6,11 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
+from scopecat.kernel.entity import (
+    EntityRef,
+    entity_ref,
+)
 from scopecat.records.config import Topology
-from scopecat.records.entity import EntityRef, entity_ref
 
 type EntityResolutionCode = Literal["unknown_entity", "kind_mismatch"]
 

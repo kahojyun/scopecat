@@ -8,11 +8,8 @@ from dataclasses import field as dc_field
 from types import MappingProxyType
 
 from scopecat.compiler.diagnostics import compiler_problem
-from scopecat.compiler.relations.analysis import PlanNode
-from scopecat.compiler.relations.point_domain import iter_point_axis_linear
 from scopecat.compiler.relations.uses import RelationUseId
 from scopecat.compiler.relations.verification import VerifiedRelationPlan
-from scopecat.compiler.semantic.compute_result import ComputeResultRef
 from scopecat.compiler.semantic.value_expressions import ValueExpr
 from scopecat.compiler.typed.dependencies import (
     ComputePlan,
@@ -36,9 +33,11 @@ from scopecat.compiler.typed.program import (
     core_domain_executions,
     core_state,
 )
-from scopecat.compiler.typed.records import plan_records, validate_record_axes
 from scopecat.compiler.typed.relation_consumers import ProgramRelationConsumerKind
 from scopecat.compiler.typed.state import SetStateSpec
+from scopecat.graph.relations.analysis import PlanNode
+from scopecat.graph.relations.point_domain import iter_point_axis_linear
+from scopecat.graph.values import ComputeResultRef
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
     ModelLocation,
@@ -46,6 +45,7 @@ from scopecat.kernel.problems import (
     ProblemPhase,
     model_location,
 )
+from scopecat.measurements.records import plan_records, validate_record_axes
 
 
 def _seal_core_program(

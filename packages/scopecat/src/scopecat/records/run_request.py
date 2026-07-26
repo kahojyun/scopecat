@@ -11,11 +11,11 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
+from scopecat.kernel.quantity import Quantity
 from scopecat.records._run_request_values import (
     normalize_json_value,
     normalize_run_request_value,
 )
-from scopecat.records.parameter import Quantity
 
 type RunRequestJsonValue = Annotated[
     str

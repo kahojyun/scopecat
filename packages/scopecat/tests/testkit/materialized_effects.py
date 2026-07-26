@@ -3,15 +3,15 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 
-from scopecat.compiler.frontend.environment import build_config_environment
 from scopecat.compiler.linking.linked import link_program, materialize_linked_points
-from scopecat.compiler.relations.evaluation import ParameterRelationData
+from scopecat.compiler.measurement_projection import project_measurement_catalog
+from scopecat.compiler.relations.context import ParameterRelationData
 from scopecat.compiler.typed.program import CoreProgram
+from scopecat.config.environment import build_config_environment
 from scopecat.execution.local.program import (
     ApplyStateOperation,
     StateTarget,
 )
-from scopecat.measurements._bridge import project_measurement_catalog
 from scopecat.measurements.projection import (
     MeasurementProjection,
     select_measurement_projection,

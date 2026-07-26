@@ -10,13 +10,13 @@ from scopecat.execution.local.program import (
     ApplyStateOperation,
     CollectOperation,
 )
+from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.quantity import Quantity
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     RoutingEndpointBinding,
     RoutingGraph,
 )
-from scopecat.records.entity import EntityRef
-from scopecat.records.parameter import Quantity
 from tests.testkit.authoring import link_invocation, load_config, template_fixture
 from tests.testkit.local_materialization import operations_of_type
 from tests.testkit.materialized_effects import (

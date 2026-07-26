@@ -5,18 +5,6 @@ from typing import cast
 
 import pytest
 
-from scopecat.compiler.relations.model import (
-    LiteralScalarExpr,
-    RelationExpr,
-    RowScopeId,
-    ScalarExpr,
-    SeriesExpr,
-    as_scalar_expr,
-    col,
-    input_ref,
-    literal_rows,
-    point_col,
-)
 from scopecat.compiler.relations.verification import (
     RelationPlanVerificationError,
     RelationTypeBindings,
@@ -28,14 +16,11 @@ from scopecat.compiler.semantic.dependencies import (
 )
 from scopecat.compiler.semantic.model import (
     LiteralValueSource,
-    OperationId,
     PlanExpressionSource,
     SemanticGraphIR,
     SemanticOperation,
     ValueDef,
-    ValueId,
     ValueUse,
-    operation_result_id,
 )
 from scopecat.compiler.semantic.operation_contract import (
     LOCAL_OPAQUE_OPERATION_CONTRACT,
@@ -43,6 +28,23 @@ from scopecat.compiler.semantic.operation_contract import (
 )
 from scopecat.compiler.semantic.verification import (
     verify_semantic_graph,
+)
+from scopecat.graph.relations.model import (
+    LiteralScalarExpr,
+    RelationExpr,
+    RowScopeId,
+    ScalarExpr,
+    SeriesExpr,
+    as_scalar_expr,
+    col,
+    input_ref,
+    literal_rows,
+    point_col,
+)
+from scopecat.graph.values import (
+    OperationId,
+    ValueId,
+    operation_result_id,
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue

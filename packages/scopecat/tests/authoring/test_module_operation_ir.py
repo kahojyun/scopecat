@@ -3,13 +3,13 @@ from __future__ import annotations
 import pytest
 
 import scopecat as sc
+from scopecat.authoring._identities import ComputeDeclarationKey
 from scopecat.authoring._module_ir import (
     ModuleBodyIR,
     ModuleInterfaceIR,
     ModuleIR,
 )
 from scopecat.authoring._value_refs import internal_value_ref_operation_origin
-from scopecat.authoring.values import ComputeDeclarationKey
 from scopecat.compiler.frontend.elaboration import elaborate_module
 
 

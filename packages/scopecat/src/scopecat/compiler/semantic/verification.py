@@ -12,16 +12,6 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
 
-from scopecat.compiler.relations.model import (
-    ParameterLookupUse,
-    RelationExpr,
-    ScalarExpr,
-    SeriesExpr,
-)
-from scopecat.compiler.relations.operators import (
-    is_scalar_operator,
-    scalar_operator_result_type,
-)
 from scopecat.compiler.relations.verification import PlanImportNamespace
 from scopecat.compiler.semantic.dependencies import (
     analyze_residual_dependencies,
@@ -30,17 +20,29 @@ from scopecat.compiler.semantic.model import (
     AcquireEffect,
     LiteralValueSource,
     MeasurementTransformId,
-    OperationId,
     PlanExpressionSource,
     SemanticDomainExecution,
     SemanticGraphIR,
     SemanticMeasurementTransform,
     SemanticOperation,
     ValueDef,
-    ValueId,
 )
 from scopecat.compiler.semantic.operation_contract import (
     ScalarBinarySemantics,
+)
+from scopecat.graph.relations.model import (
+    ParameterLookupUse,
+    RelationExpr,
+    ScalarExpr,
+    SeriesExpr,
+)
+from scopecat.graph.relations.operators import (
+    is_scalar_operator,
+    scalar_operator_result_type,
+)
+from scopecat.graph.values import (
+    OperationId,
+    ValueId,
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (

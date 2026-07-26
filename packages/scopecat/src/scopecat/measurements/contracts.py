@@ -2,21 +2,34 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import cast
 
 from pydantic import ValidationError
 
+from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.problems import (
+    Problem,
+    ProblemPhase,
+    model_location,
+    problem,
+)
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.units import compatible_units
 from scopecat.records.measurement import (
+    MEASUREMENT_RECORD_SCHEMA_VERSION,
     ComplexQuantity,
+    CoordinateValue,
     MeasurementArray,
+    MeasurementDatasetRole,
+    MeasurementDatasetSchema,
     MeasurementDType,
+    MeasurementRecord,
     MeasurementValue,
+    MeasurementVariable,
 )
-from scopecat.records.parameter import Quantity
 
 type MeasurementValueContractPathItem = str | int
 type MeasurementValueContractFact = str | int | None | tuple[int, ...]
@@ -45,7 +58,7 @@ class MeasurementValueContractIssue:
 
 
 def measurement_value_contract_issues(
-    value: MeasurementValue,
+    value: MeasurementValue | CoordinateValue,
     *,
     expected_dtype: MeasurementDType,
     expected_unit: str | None,
@@ -74,33 +87,37 @@ def measurement_value_contract_issues(
             if structure_issues:
                 return tuple(structure_issues)
 
-    try:
-        selected_value = validated_measurement_value_copy(value)
-    except ValidationError as error:
-        errors = error.errors(
-            include_url=False,
-            include_context=False,
-            include_input=False,
-        )
-        first_error = cast("dict[str, object]", cast("object", errors[0]))
-        first_path = _validation_error_path(first_error.get("loc", ()))
-        return (
-            MeasurementValueContractIssue(
-                code=MeasurementValueContractIssueCode.VALUE_MODEL_INVALID,
-                path=first_path,
-                expected=type(value).__name__,
-                actual=str(first_error.get("type", "validation_error")),
-            ),
-        )
-    except (TypeError, ValueError) as error:
-        return (
-            MeasurementValueContractIssue(
-                code=MeasurementValueContractIssueCode.VALUE_MODEL_INVALID,
-                path=(),
-                expected=type(value).__name__,
-                actual=type(error).__name__,
-            ),
-        )
+    selected_value: MeasurementValue | CoordinateValue
+    if isinstance(value, Quantity | ComplexQuantity | MeasurementArray):
+        try:
+            selected_value = validated_measurement_value_copy(value)
+        except ValidationError as error:
+            errors = error.errors(
+                include_url=False,
+                include_context=False,
+                include_input=False,
+            )
+            first_error = cast("dict[str, object]", cast("object", errors[0]))
+            first_path = _validation_error_path(first_error.get("loc", ()))
+            return (
+                MeasurementValueContractIssue(
+                    code=MeasurementValueContractIssueCode.VALUE_MODEL_INVALID,
+                    path=first_path,
+                    expected=type(value).__name__,
+                    actual=str(first_error.get("type", "validation_error")),
+                ),
+            )
+        except (OverflowError, TypeError, ValueError) as error:
+            return (
+                MeasurementValueContractIssue(
+                    code=MeasurementValueContractIssueCode.VALUE_MODEL_INVALID,
+                    path=(),
+                    expected=type(value).__name__,
+                    actual=type(error).__name__,
+                ),
+            )
+    else:
+        selected_value = value
 
     selected_shape = tuple(expected_shape)
     issues: list[MeasurementValueContractIssue] = []
@@ -174,19 +191,33 @@ def _validation_error_path(
     )
 
 
-def _measurement_value_dtype(value: MeasurementValue) -> str:
+def _measurement_value_dtype(
+    value: MeasurementValue | CoordinateValue,
+) -> MeasurementDType:
     if isinstance(value, MeasurementArray):
         return value.dtype
     if isinstance(value, ComplexQuantity):
         return "complex128"
+    if isinstance(value, bool):
+        return "bool"
+    if isinstance(value, int):
+        return "int64"
+    if isinstance(value, str | EntityRef) or value is None:
+        return "string"
     return "float64"
 
 
-def _measurement_value_unit(value: MeasurementValue) -> str | None:
-    return value.unit
+def _measurement_value_unit(
+    value: MeasurementValue | CoordinateValue,
+) -> str | None:
+    if isinstance(value, Quantity | ComplexQuantity | MeasurementArray):
+        return value.unit
+    return None
 
 
-def _measurement_value_shape(value: MeasurementValue) -> tuple[int, ...]:
+def _measurement_value_shape(
+    value: MeasurementValue | CoordinateValue,
+) -> tuple[int, ...]:
     if isinstance(value, MeasurementArray):
         return tuple(value.shape)
     return ()
@@ -194,8 +225,8 @@ def _measurement_value_shape(value: MeasurementValue) -> tuple[int, ...]:
 
 def _dtype_compatible(
     expected: MeasurementDType,
-    actual: str,
-    value: MeasurementValue,
+    actual: MeasurementDType,
+    value: MeasurementValue | CoordinateValue,
 ) -> bool:
     if actual == expected:
         return True
@@ -384,5 +415,255 @@ def _validate_array_leaf(
 def _is_integral_number(value: float) -> bool:
     try:
         return int(value) == value
-    except (OverflowError, ValueError):
+    except OverflowError, ValueError:
         return False
+
+
+def validate_measurement_records_against_schema(
+    records: Sequence[MeasurementRecord],
+    schema: MeasurementDatasetSchema,
+    dataset_id: str,
+    dataset_role: MeasurementDatasetRole,
+) -> list[Problem]:
+    """Validate persisted records through the canonical value contract."""
+
+    problems: list[Problem] = []
+    if schema.dataset_id != dataset_id:
+        problems.append(
+            _problem(
+                "measurement_dataset_id_mismatch",
+                f"measurement dataset schema id {schema.dataset_id} "
+                f"does not match artifact id {dataset_id}",
+                ("dataset_schema", "dataset_id"),
+            )
+        )
+    if schema.dataset_role != dataset_role:
+        problems.append(
+            _problem(
+                "measurement_dataset_role_mismatch",
+                f"measurement dataset schema role {schema.dataset_role} "
+                f"does not match artifact role {dataset_role}",
+                ("dataset_schema", "dataset_role"),
+            )
+        )
+    if schema.record_schema != MEASUREMENT_RECORD_SCHEMA_VERSION:
+        problems.append(
+            _problem(
+                "measurement_record_schema_mismatch",
+                f"measurement dataset record_schema {schema.record_schema} "
+                f"does not match {MEASUREMENT_RECORD_SCHEMA_VERSION}",
+                ("dataset_schema", "record_schema"),
+            )
+        )
+
+    problems.extend(_validate_dimension_sizes(records=records, schema=schema))
+    coordinate_variables = {
+        variable.id: variable
+        for variable in schema.variables
+        if variable.role == "coordinate"
+    }
+    observable_variables = {
+        variable.id: variable
+        for variable in schema.variables
+        if variable.role == "observable"
+    }
+    for variable in schema.variables:
+        if variable.role == "observable" and variable.dtype in {"bool", "string"}:
+            problems.append(
+                _problem(
+                    "measurement_dataset_unsupported_dtype",
+                    "measurement records store numeric scalar or array values "
+                    f"and do not support {variable.dtype} for {variable.id}",
+                    ("dataset_schema", "variables", variable.id, "dtype"),
+                )
+            )
+        problems.extend(
+            _validate_variable_shape(
+                variable=variable,
+                record_count=len(records),
+            )
+        )
+
+    for record in records:
+        problems.extend(
+            _validate_record_variables(
+                record=record,
+                variables=coordinate_variables,
+                actual=record.coordinates,
+                role="coordinate",
+            )
+        )
+        problems.extend(
+            _validate_record_variables(
+                record=record,
+                variables=observable_variables,
+                actual=record.observables,
+                role="observable",
+            )
+        )
+        extra_coordinates = set(record.coordinates) - set(coordinate_variables)
+        for variable_id in sorted(extra_coordinates):
+            problems.append(
+                _problem(
+                    "measurement_record_unexpected_coordinate",
+                    f"measurement record {record.point_index} has unexpected "
+                    f"coordinate {variable_id}",
+                    ("records", record.point_index, "coordinates", variable_id),
+                )
+            )
+        extra_observables = set(record.observables) - set(observable_variables)
+        for variable_id in sorted(extra_observables):
+            problems.append(
+                _problem(
+                    "measurement_record_unexpected_observable",
+                    f"measurement record {record.point_index} has unexpected "
+                    f"observable {variable_id}",
+                    ("records", record.point_index, "observables", variable_id),
+                )
+            )
+    return problems
+
+
+def _validate_dimension_sizes(
+    *, records: Sequence[MeasurementRecord], schema: MeasurementDatasetSchema
+) -> list[Problem]:
+    problems: list[Problem] = []
+    for dimension in schema.dimensions:
+        if dimension.size is None:
+            continue
+        if dimension.kind != "point" and dimension.id != "point":
+            continue
+        if dimension.size != len(records):
+            problems.append(
+                _problem(
+                    "measurement_dataset_record_count_mismatch",
+                    f"measurement dataset dimension {dimension.id} size "
+                    f"{dimension.size} does not match {len(records)} records",
+                    ("dataset_schema", "dimensions", dimension.id, "size"),
+                )
+            )
+    return problems
+
+
+def _validate_variable_shape(
+    *, variable: MeasurementVariable, record_count: int
+) -> list[Problem]:
+    problems: list[Problem] = []
+    if (
+        variable.shape
+        and variable.dims
+        and variable.dims[0] == "point"
+        and variable.shape[0] != record_count
+    ):
+        problems.append(
+            _problem(
+                "measurement_dataset_variable_shape_mismatch",
+                f"measurement variable {variable.id} shape {variable.shape} "
+                f"does not match {record_count} records",
+                ("dataset_schema", "variables", variable.id, "shape"),
+            )
+        )
+    return problems
+
+
+def _validate_record_variables(
+    *,
+    record: MeasurementRecord,
+    variables: dict[str, MeasurementVariable],
+    actual: Mapping[str, MeasurementValue | CoordinateValue],
+    role: str,
+) -> list[Problem]:
+    problems: list[Problem] = []
+    field_name = "coordinates" if role == "coordinate" else "observables"
+    missing_code = (
+        "measurement_record_missing_coordinate"
+        if role == "coordinate"
+        else "measurement_record_missing_observable"
+    )
+    for variable_id, variable in variables.items():
+        value = actual.get(variable_id)
+        if value is None:
+            problems.append(
+                _problem(
+                    missing_code,
+                    f"measurement record {record.point_index} is missing "
+                    f"{role} {variable_id}",
+                    ("records", record.point_index, field_name, variable_id),
+                )
+            )
+            continue
+        expected_shape = (
+            tuple(variable.shape[1:])
+            if variable.dims and variable.dims[0] == "point"
+            else tuple(variable.shape)
+        )
+        for issue in measurement_value_contract_issues(
+            value,
+            expected_dtype=variable.dtype,
+            expected_unit=variable.unit,
+            expected_shape=expected_shape,
+        ):
+            problems.append(
+                _record_contract_problem(
+                    record=record,
+                    variable_id=variable_id,
+                    field_name=field_name,
+                    issue=issue,
+                )
+            )
+    return problems
+
+
+def _record_contract_problem(
+    *,
+    record: MeasurementRecord,
+    variable_id: str,
+    field_name: str,
+    issue: MeasurementValueContractIssue,
+) -> Problem:
+    if issue.code in {
+        MeasurementValueContractIssueCode.DTYPE_MISMATCH,
+        MeasurementValueContractIssueCode.ARRAY_ELEMENT_TYPE_MISMATCH,
+    }:
+        code = "measurement_record_dtype_mismatch"
+        dimension = "dtype"
+    elif issue.code in {
+        MeasurementValueContractIssueCode.UNIT_MISMATCH,
+        MeasurementValueContractIssueCode.ARRAY_ELEMENT_UNIT_MISMATCH,
+    }:
+        code = "measurement_record_unit_mismatch"
+        dimension = "unit"
+    elif issue.code in {
+        MeasurementValueContractIssueCode.SHAPE_MISMATCH,
+        MeasurementValueContractIssueCode.ARRAY_STRUCTURE_MISMATCH,
+    }:
+        code = "measurement_record_shape_mismatch"
+        dimension = "shape"
+    else:
+        code = "measurement_record_value_invalid"
+        dimension = "value"
+    return _problem(
+        code,
+        f"measurement record {record.point_index} variable {variable_id} has "
+        f"incompatible {dimension} {issue.actual!r}, expected {issue.expected!r}",
+        (
+            "records",
+            record.point_index,
+            field_name,
+            variable_id,
+            *issue.path,
+        ),
+    )
+
+
+def _problem(
+    code: str,
+    message: str,
+    path: tuple[str | int, ...],
+) -> Problem:
+    return problem(
+        code,
+        message,
+        phase=ProblemPhase.ANALYSIS,
+        location=model_location("measurement_dataset", *path),
+    )

@@ -7,15 +7,15 @@ from scopecat.authoring._value_refs import (
     internal_lower_scalar_value_ref,
     internal_lower_table_value_ref,
 )
-from scopecat.compiler.relations.evaluation import EvalContext
-from scopecat.compiler.relations.model import (
+from scopecat.compiler.relations.context import EvalContext
+from scopecat.compiler.relations.verification import RelationTypeBindings
+from scopecat.graph.relations.model import (
     lit,
 )
-from scopecat.compiler.relations.operators import (
+from scopecat.graph.relations.operators import (
     compare_ordered_values,
     runtime_values_equal,
 )
-from scopecat.compiler.relations.verification import RelationTypeBindings
 from tests.testkit.relation_plans import evaluate_relation, evaluate_scalar
 
 

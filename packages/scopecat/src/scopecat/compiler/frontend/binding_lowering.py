@@ -23,26 +23,26 @@ from scopecat.compiler.frontend.problems import (
     raise_entity_resolution_problem,
 )
 from scopecat.compiler.frontend.value_binding import bind_value_input_refs
-from scopecat.compiler.relations.model import (
-    LiteralScalarExpr,
-    ScalarExpr,
-    SeriesExpr,
-    ValuesSeriesExpr,
-    as_scalar_expr,
-)
 from scopecat.compiler.relations.uses import relation_use
 from scopecat.compiler.relations.verification import RelationTypeBindings
-from scopecat.compiler.semantic.compute_result import ComputeResultRef
 from scopecat.compiler.semantic.value_expressions import (
     ScalarOrSeriesValueExpr,
     verify_scalar_value_expr,
     verify_series_value_expr,
 )
 from scopecat.compiler.typed.program import LogicalResourceRequirement
+from scopecat.graph.relations.model import (
+    LiteralScalarExpr,
+    ScalarExpr,
+    SeriesExpr,
+    ValuesSeriesExpr,
+    as_scalar_expr,
+)
+from scopecat.graph.values import ComputeResultRef
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.value_types import Entity, Scalar, Series
 from scopecat.records.config import Topology
-from scopecat.records.entity import EntityRef
 
 
 @dataclass(frozen=True)

@@ -28,6 +28,7 @@ from scopecat.execution.observation import (
 )
 from scopecat.planning.preview import build_run_program_preview
 from scopecat.planning.preview_models import ExperimentPreview
+from scopecat.planning.service import PlannedRun, plan_scratch_experiment
 from scopecat.planning.system import (
     ExperimentSystemBuilder,
     build_experiment_system,
@@ -38,7 +39,6 @@ from scopecat.records.run import (
     RunConfigSource,
     RunManifest,
 )
-from scopecat.runs.service import PlannedRun, plan_scratch_experiment
 
 
 @dataclass(frozen=True, slots=True)

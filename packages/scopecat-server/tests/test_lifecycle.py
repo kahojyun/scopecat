@@ -4,7 +4,8 @@ import os
 import stat
 import subprocess
 import sys
-from datetime import UTC, datetime
+from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import httpx2
@@ -17,18 +18,27 @@ from scopecat.daemon.endpoint import (
     daemon_record_path,
     read_daemon_endpoint_record,
 )
-from scopecat.project import open_project
+from scopecat.project import Project, open_project
 from scopecat.records.parameter import ScalarParameterValue
+from tests.testkit.project_loading import isolated_project_application_imports
 from typer.testing import CliRunner
 
 from scopecat_server.cli import app
 from scopecat_server.lifecycle import (
     DaemonLifecycleError,
+    DaemonStatus,
     initialize_project,
     inspect_daemon,
+    start_project,
     stop_project,
     write_daemon_endpoint_record,
 )
+
+
+@pytest.fixture(autouse=True)
+def isolate_project_loader() -> Iterator[None]:
+    with isolated_project_application_imports():
+        yield
 
 
 def test_init_creates_runnable_python_project_and_does_not_overwrite(
@@ -139,6 +149,64 @@ def test_matching_process_with_unreachable_health_is_degraded(
 
     assert observed.state == "degraded"
     assert observed.record == record
+
+
+@pytest.mark.parametrize(
+    ("lease_ttl", "expected_seconds"),
+    [
+        (None, None),
+        (timedelta(seconds=1), "1.0"),
+    ],
+)
+def test_start_project_forwards_only_explicit_lease_ttl_to_detached_serve(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    lease_ttl: timedelta | None,
+    expected_seconds: str | None,
+) -> None:
+    project = initialize_project(tmp_path)
+    record = _record(tmp_path, pid=4321, process_create_time=10)
+    observations = iter(
+        (
+            DaemonStatus(state="stopped"),
+            DaemonStatus(state="running", record=record),
+        )
+    )
+    commands: list[list[str]] = []
+
+    class StartedProcess:
+        pid = record.pid
+
+        @staticmethod
+        def poll() -> None:
+            return None
+
+    def start_process(command: list[str], **_kwargs: object) -> StartedProcess:
+        commands.append(command)
+        return StartedProcess()
+
+    def inspect_project(_project: Project) -> DaemonStatus:
+        return next(observations)
+
+    monkeypatch.setattr(
+        "scopecat_server.lifecycle.inspect_daemon",
+        inspect_project,
+    )
+    monkeypatch.setattr(
+        "scopecat_server.lifecycle.subprocess.Popen",
+        start_process,
+    )
+
+    started = start_project(project, lease_ttl=lease_ttl, timeout=0.1)
+
+    assert started == record
+    command = commands[0]
+    option = "--executor-lease-ttl-seconds"
+    if expected_seconds is None:
+        assert option not in command
+    else:
+        option_index = command.index(option)
+        assert command[option_index + 1] == expected_seconds
 
 
 def test_cli_init_prints_copyable_next_steps_at_narrow_width(

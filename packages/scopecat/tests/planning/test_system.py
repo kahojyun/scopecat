@@ -8,19 +8,12 @@ import pytest
 
 import scopecat.compiler.linking.linked as linking
 import scopecat.planning.system as planning_system
-from scopecat.compiler.frontend.environment import build_config_environment
 from scopecat.compiler.linking.linked import (
     LinkedPlan,
     MaterializedLinkedPoints,
     materialize_linked_points,
 )
-from scopecat.compiler.relations.evaluation import ParameterRelationData
-from scopecat.compiler.relations.model import (
-    lit,
-    parameter_lookup,
-    point_col,
-)
-from scopecat.compiler.relations.point_domain import POINT_UNIT, point_axis_values
+from scopecat.compiler.relations.context import ParameterRelationData
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
@@ -42,6 +35,7 @@ from scopecat.compiler.typed.program import (
     record_product,
     set_state_field,
 )
+from scopecat.config.environment import build_config_environment
 from scopecat.domain.program import (
     DomainInputPort,
     DomainProgramDef,
@@ -55,9 +49,16 @@ from scopecat.execution.program import (
     RunCoverageEffect,
     RunDomainJob,
 )
+from scopecat.graph.relations.model import (
+    lit,
+    parameter_lookup,
+    point_col,
+)
+from scopecat.graph.relations.point_domain import POINT_UNIT, point_axis_values
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import ProblemPhase
 from scopecat.kernel.product_identity import product_use
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
     ResourceClaim,
@@ -72,9 +73,6 @@ from scopecat.planning.system import ExperimentSystem
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     DomainTargetBinding,
-)
-from scopecat.records.parameter import (
-    Quantity,
 )
 from scopecat.sdk.domain.compiler import (
     DomainCompilation,
@@ -93,7 +91,7 @@ from scopecat.sdk.domain.job import (
     DomainResultValue,
     DomainTargetArtifactIdentity,
 )
-from scopecat.sdk.domain.preparation import (
+from scopecat.sdk.domain.result_mapping import (
     DomainResultBinding,
 )
 from scopecat.sdk.domain.runtime import (

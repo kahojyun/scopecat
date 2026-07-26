@@ -7,8 +7,8 @@ from typing import Literal
 import pytest
 from pydantic import ValidationError
 from scopecat import MeasurementTransform, Quantity
-from scopecat.compiler.typed.products import ProductAxisDef, ProductDef
 from scopecat.kernel.product_identity import product_id as product_id_
+from scopecat.measurements.products import ProductAxisDef, ProductDef
 from scopecat.measurements.results import (
     ComplexQuantity,
     MeasurementArray,

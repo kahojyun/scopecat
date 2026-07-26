@@ -11,7 +11,6 @@ from scopecat.api.run import (
     RunOperations,
     run_handle_id,
 )
-from scopecat.application.services import ProjectStateServices
 from scopecat.authoring._value_refs import ValueRef
 from scopecat.authoring.scans import Scan, ScanCenter, ScanValue
 from scopecat.authoring.templates import ExperimentInvocation, ExperimentTemplate
@@ -24,11 +23,12 @@ from scopecat.config.resolution import (
 from scopecat.execution.interpreter import execute_admitted_run
 from scopecat.execution.observation import RuntimeEventSink, RuntimePayloadObserver
 from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.quantity import Quantity
 from scopecat.planning.check_results import ExperimentCheckResult
 from scopecat.planning.preview_models import ExperimentPreview
 from scopecat.planning.system import ExperimentSystem
+from scopecat.project_state import ProjectStateServices
 from scopecat.records.config import ConfigProfileSnapshot
-from scopecat.records.parameter import Quantity
 from scopecat.records.parameter_change import (
     ParameterChangeDecisionRecord,
     ParameterChangeReviewState,

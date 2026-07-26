@@ -16,11 +16,11 @@ from scopecat.adapters.sqlite import (
     SQLiteRunRepository,
 )
 from scopecat.adapters.sqlite.execution import ExecutionJournalConflict
-from scopecat.execution.ports.journal import ExecutionJournalError
 from scopecat.kernel.problems import (
     ProblemPhase,
     problem,
 )
+from scopecat.kernel.quantity import Quantity
 from scopecat.records.execution_journal import (
     ExecutionTransition,
     execution_transition_content_hash,
@@ -33,7 +33,7 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetSeal,
     measurement_dataset_content_hash,
 )
-from scopecat.records.parameter import Quantity
+from scopecat.sdk.journal import ExecutionJournalError
 from tests.testkit.runtime import SQLiteTestExecutionJournal as SQLiteExecutionJournal
 
 

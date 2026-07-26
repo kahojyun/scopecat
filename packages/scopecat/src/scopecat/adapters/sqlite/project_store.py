@@ -7,6 +7,7 @@ from contextlib import closing
 from pathlib import Path
 from typing import cast
 
+from scopecat.adapters.sqlite.connection import connect
 from scopecat.adapters.sqlite.object_store import ImmutableObjectStore
 from scopecat.adapters.sqlite.schema import (
     PROJECT_SCHEMA_SQL,
@@ -82,14 +83,10 @@ class SQLiteProjectStore:
         return version
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(
+        return connect(
             self.database,
-            isolation_level=None,
-            timeout=self._busy_timeout_seconds,
+            busy_timeout_seconds=self._busy_timeout_seconds,
         )
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
-        return connection
 
 
 def _has_project_schema(connection: sqlite3.Connection) -> bool:

@@ -4,15 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from scopecat.application.services import ProjectStateServices
 from scopecat.authoring.templates import ExperimentInvocation
-from scopecat.compiler.frontend.environment import build_config_environment
 from scopecat.compiler.frontend.resolution import (
     CompiledInvocation,
     compile_invocation,
     resolve_compiled_invocation,
 )
 from scopecat.config.candidates import CandidateConfig
+from scopecat.config.environment import build_config_environment
 from scopecat.config.resolution import (
     ConfigProfileInput,
     resolve_experiment_config,
@@ -22,9 +21,10 @@ from scopecat.kernel.problems import Problem, ProblemPhase
 from scopecat.planning.check_results import ExperimentCheckResult
 from scopecat.planning.compilation import compile_run_program
 from scopecat.planning.preview import build_run_program_preview
+from scopecat.planning.service import PlannedRun
 from scopecat.planning.system import ExperimentSystem
+from scopecat.project_state import ProjectStateServices
 from scopecat.records.config import ConfigProfileSnapshot
-from scopecat.runs.service import PlannedRun
 
 
 def plan_experiment(

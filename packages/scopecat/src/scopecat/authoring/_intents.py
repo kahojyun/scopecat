@@ -8,8 +8,11 @@ data model does not depend on its lowering pipeline.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
+from scopecat.authoring._identities import (
+    ComputeDeclarationKey,
+    InvocationKey,
+)
 from scopecat.authoring._value_refs import (
     ScalarOperationOperand,
     ValueRef,
@@ -17,16 +20,10 @@ from scopecat.authoring._value_refs import (
     internal_operation_result_value_ref,
 )
 from scopecat.authoring.value_types import ValueType
-from scopecat.authoring.values import (
-    ComputeDeclarationKey,
-)
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.payloads import PayloadValue
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
-from scopecat.records.entity import EntityRef
-from scopecat.records.parameter import Quantity
-
-if TYPE_CHECKING:
-    from scopecat.authoring._module_ir import InvocationKey
 
 type ComputeNodeInputValue = (
     ValueRef | Quantity | str | int | float | bool | None | EntityRef | PayloadValue

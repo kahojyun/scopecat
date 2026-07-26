@@ -20,14 +20,14 @@ from scopecat.config.validation import (
     coerce_stored_parameter_value,
     parameter_table_key_part,
 )
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import FrozenMapping
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import Scalar, Series, Table
-from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import (
     ParameterAtomValue,
     ParameterCatalog,
     ParameterSnapshot,
-    Quantity,
     ScalarParameterValue,
     SeriesParameterValue,
     StoredParameterValue,

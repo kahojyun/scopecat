@@ -6,13 +6,13 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 
 from scopecat.authoring._value_refs import ValueRef
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.payloads import PayloadValue
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
     logical_resource_port_id,
 )
-from scopecat.records.entity import EntityRef
-from scopecat.records.parameter import Quantity
 
 type EntitySource = ValueRef
 type BindingValue = (

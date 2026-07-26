@@ -7,8 +7,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from scopecat.kernel.run_outcome import utc_now
 from scopecat.records.config import ConfigContentHash
-from scopecat.records.run import utc_now
 
 type EvidenceContentHash = Annotated[
     str,

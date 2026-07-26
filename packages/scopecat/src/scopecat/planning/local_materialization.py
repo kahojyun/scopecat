@@ -20,12 +20,11 @@ from scopecat.compiler.linking.linked import (
     LinkedPlan,
     MaterializedLinkedPoints,
 )
-from scopecat.compiler.relations.evaluation import (
+from scopecat.compiler.relations.context import (
     EvalContext,
     ParameterRelationData,
 )
-from scopecat.compiler.semantic.compute_result import ComputeResultRef
-from scopecat.compiler.semantic.model import AcquireEffect, ValueId
+from scopecat.compiler.semantic.model import AcquireEffect
 from scopecat.compiler.typed.dependencies import (
     ComputePlan,
     PointVariationSupport,
@@ -33,7 +32,6 @@ from scopecat.compiler.typed.dependencies import (
 from scopecat.compiler.typed.point_domain import (
     MaterializedPoint,
 )
-from scopecat.compiler.typed.products import ProductDef
 from scopecat.compiler.typed.program import CoreProgram, TypedDomainExecution
 from scopecat.compiler.typed.state import (
     SetStateSpec,
@@ -51,7 +49,9 @@ from scopecat.execution.local.program import (
     StateTarget,
 )
 from scopecat.execution.program import RunCoverageEffect
+from scopecat.graph.values import ComputeResultRef, ValueId
 from scopecat.kernel.content_identity import stable_content_hash
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.frozen import thaw_json_value
 from scopecat.kernel.problems import (
@@ -60,8 +60,10 @@ from scopecat.kernel.problems import (
     model_location,
 )
 from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.state import PayloadRef, StateValue
+from scopecat.measurements.products import ProductDef
 from scopecat.planning.local_compute import (
     bind_compute_operations as _bind_compute_operations,
 )
@@ -77,9 +79,7 @@ from scopecat.planning.routing import (
     ResourcePortManifest,
     RoutingView,
 )
-from scopecat.records.entity import EntityRef
 from scopecat.records.instrument import CommandChannelBinding
-from scopecat.records.parameter import Quantity
 from scopecat.sdk.instruments.contracts import (
     CollectAxisRequest,
     CollectCommand,

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.payloads import PayloadValue
+from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.kernel.units import compatible_units, unit_kind
 from scopecat.kernel.value_types import (
     AtomType,
@@ -20,8 +22,6 @@ from scopecat.kernel.value_types import (
     ValueType,
 )
 from scopecat.kernel.value_validation import ValuePath, ValueValidationError
-from scopecat.records.entity import EntityRef
-from scopecat.records.parameter import Quantity as QuantityValue
 
 
 def require_assignable(

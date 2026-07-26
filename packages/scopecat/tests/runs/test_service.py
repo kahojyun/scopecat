@@ -13,12 +13,10 @@ from scopecat.compiler.frontend.resolution import (
 )
 from scopecat.execution.interpreter import execute_admitted_run
 from scopecat.kernel.errors import CheckFailed
+from scopecat.planning.service import plan_scratch_experiment
 from scopecat.planning.system import ExperimentSystem
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
-from scopecat.runs.service import (
-    load_run_request,
-    plan_scratch_experiment,
-)
+from scopecat.runs.service import load_run_request
 from tests.testkit.authoring import simple_template
 from tests.testkit.execution import execute_invocation_run
 from tests.testkit.runtime import (

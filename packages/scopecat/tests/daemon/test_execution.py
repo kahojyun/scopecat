@@ -20,6 +20,8 @@ from scopecat.daemon.wire import (
     RunSubmission,
     TerminalRunCommitCommand,
 )
+from scopecat.kernel.quantity import Quantity
+from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.records.config import config_content_hash
 from scopecat.records.execution_journal import (
     ExecutionTransition,
@@ -32,8 +34,7 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetSeal,
     measurement_dataset_content_hash,
 )
-from scopecat.records.parameter import Quantity
-from scopecat.records.run import RunManifest, RunOutcome
+from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.repository import TerminalRunCommit
 from tests.testkit.workflow_fixtures import load_config

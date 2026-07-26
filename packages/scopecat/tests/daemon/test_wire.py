@@ -33,16 +33,14 @@ from scopecat.daemon.wire import (
     RunSubmission,
     TerminalRunCommitCommand,
 )
+from scopecat.kernel.quantity import Quantity
+from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.records.config import config_content_hash
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.measurement_recording import MeasurementDatasetAppend
-from scopecat.records.parameter import Quantity
 from scopecat.records.parameter_change import AutomaticPolicyDecisionAuthority
-from scopecat.records.run import (
-    ConfigRegistryRunConfigSource,
-    RunOutcome,
-)
+from scopecat.records.run import ConfigRegistryRunConfigSource
 from scopecat.records.run_request import RunRequest
 from tests.testkit.workflow_fixtures import load_config
 

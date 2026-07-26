@@ -6,12 +6,13 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import cast, override
 
-from scopecat.authoring._frozen_values import (
+from scopecat.authoring._value_refs import (
+    ValueRef,
     capture_runtime_input,
     empty_frozen_mapping,
 )
-from scopecat.authoring._value_refs import ValueRef
 from scopecat.authoring.values import MetadataValue
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
 from scopecat.kernel.product_identity import (
     ProductId,
@@ -19,10 +20,9 @@ from scopecat.kernel.product_identity import (
     parse_product_id,
     product_use,
 )
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
 from scopecat.measurements.results import MeasurementDType
-from scopecat.records.entity import EntityRef
-from scopecat.records.parameter import Quantity
 
 type AxisSizeInput = ValueRef | Quantity | float | tuple[EntityRef | str, ...]
 type LocalizeValueRef = Callable[[ValueRef, Mapping[str, object]], ValueRef]

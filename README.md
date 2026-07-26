@@ -118,6 +118,8 @@ describe the smaller public entry points for
 
 ## Development
 
+Development and source-checkout workflows require Python 3.14 or newer.
+
 Use `uv sync --group notebook` only when a local Jupyter kernel is needed.
 
 Run the repository checks from the repository root:

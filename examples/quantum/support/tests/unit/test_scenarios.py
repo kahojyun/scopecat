@@ -5,8 +5,8 @@ from pathlib import Path
 import pytest
 from scopecat.authoring import ExperimentInvocation
 from scopecat.execution.observation import RuntimePayloadObservation
+from scopecat.kernel.quantity import Quantity
 from scopecat.records.artifact import CommandPayload
-from scopecat.records.parameter import Quantity
 
 from quantum_lab_demo.scenarios.opaque_collection import (
     GATE_DURATION,

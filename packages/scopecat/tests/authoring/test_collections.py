@@ -9,13 +9,8 @@ from scopecat.authoring.scans import axis
 from scopecat.authoring.templates import ExperimentInvocation
 from scopecat.compiler.frontend.assembly_linking import bind_verified_assembly
 from scopecat.compiler.frontend.elaboration import elaborate_module
-from scopecat.compiler.frontend.environment import build_config_environment
 from scopecat.compiler.frontend.resolution import compile_invocation
-from scopecat.compiler.relations.evaluation import EvalContext
-from scopecat.compiler.relations.model import LiteralScalarExpr
-from scopecat.compiler.semantic.model import (
-    OperationId,
-)
+from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.semantic.value_expressions import (
     ScalarValueExpr,
     SeriesValueExpr,
@@ -27,11 +22,16 @@ from scopecat.compiler.typed.program import (
     CoreProgram,
     ValueInput,
 )
+from scopecat.config.environment import build_config_environment
 from scopecat.execution.local.program import CollectOperation
+from scopecat.graph.relations.model import LiteralScalarExpr
+from scopecat.graph.values import (
+    OperationId,
+)
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.symbols import SymbolId
 from scopecat.records.config import ConfigProfileSnapshot
-from scopecat.records.entity import EntityRef
 from tests.testkit.authoring import link_invocation, load_config, template_fixture
 from tests.testkit.local_materialization import (
     materialize_local_execution,

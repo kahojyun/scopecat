@@ -2,10 +2,6 @@
 
 from __future__ import annotations
 
-from scopecat.execution.ports.journal import ExecutionJournal
-from scopecat.execution.problems import (
-    runtime_problem,
-)
 from scopecat.kernel.errors import (
     DomainRuntimeFailure,
     DomainRuntimePersistenceError,
@@ -24,6 +20,10 @@ from scopecat.sdk.domain.runtime import (
     fetch_domain_invocation,
     plan_domain_submission,
     submit_domain_invocation,
+)
+from scopecat.sdk.journal import ExecutionJournal
+from scopecat.sdk.runtime_problems import (
+    runtime_problem,
 )
 
 

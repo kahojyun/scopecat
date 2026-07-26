@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from scopecat.measurements._bridge import (
+from scopecat.compiler.measurement_projection import (
     project_measurement_catalog,
     project_run_point_catalog,
 )
+from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.projection import (
     project_measurement_records,
     select_measurement_projection,
@@ -11,7 +12,6 @@ from scopecat.measurements.projection import (
 from scopecat.measurements.values import (
     seal_measurement_values,
 )
-from scopecat.records.parameter import Quantity
 from tests.testkit.measurement_assembly import (
     assembled_measurement_values_for_all_uses,
     measurement_assembly_scenario,

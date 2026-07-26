@@ -5,8 +5,13 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import cast
 
-from scopecat.compiler.relations.evaluation import EvalContext
-from scopecat.compiler.relations.model import (
+from scopecat.compiler.relations.context import EvalContext
+from scopecat.compiler.relations.scalar_eval import (
+    cell_matches,
+    eval_binary,
+    read_path,
+)
+from scopecat.graph.relations.model import (
     BinaryScalarExpr,
     CellValue,
     ColumnScalarExpr,
@@ -32,15 +37,10 @@ from scopecat.compiler.relations.model import (
     TableRelationExpr,
     ValuesSeriesExpr,
     WithColumnsRelationExpr,
-)
-from scopecat.compiler.relations.scalar_eval import (
-    cell_matches,
-    eval_binary,
     is_cell_value,
-    read_path,
 )
-from scopecat.records.entity import EntityRef
-from scopecat.records.parameter import Quantity
+from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.quantity import Quantity
 
 
 def evaluate_scalar_expression(expression: ScalarExpr, ctx: EvalContext) -> CellValue:

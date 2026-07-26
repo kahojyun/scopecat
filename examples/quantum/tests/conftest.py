@@ -13,6 +13,7 @@ from typing import cast
 
 import pytest
 import uvicorn
+from tests.testkit.project_loading import isolated_project_application_imports
 
 from quantum_lab_demo import DAEMON_URL_ENV, quantum_lab_application
 from scopecat.project import load_project
@@ -27,6 +28,12 @@ if str(EXAMPLE_ROOT) not in sys.path:
 class DemoDaemon:
     url: str
     runtime: LocalDaemonRuntime
+
+
+@pytest.fixture(autouse=True)
+def isolate_project_loader() -> Generator[None]:
+    with isolated_project_application_imports():
+        yield
 
 
 @pytest.fixture(scope="session", autouse=True)

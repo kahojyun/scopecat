@@ -1,6 +1,26 @@
 import pytest
 
-from scopecat.compiler.relations.analysis import (
+from scopecat.compiler.relations.verification import (
+    RelationTypeBindings,
+    RowType,
+)
+from scopecat.compiler.semantic.model import (
+    ImplementationId,
+    LocalPythonImplementation,
+)
+from scopecat.compiler.semantic.operation_contract import (
+    LOCAL_OPAQUE_OPERATION_CONTRACT,
+)
+from scopecat.compiler.typed.dependencies import (
+    ComputeScope,
+    analyze_compute_dependencies,
+)
+from scopecat.compiler.typed.program import (
+    ComputeEdge,
+    TypedComputeNode,
+    ValueInput,
+)
+from scopecat.graph.relations.analysis import (
     PlanReference,
     PlanReferenceKind,
     RelationPlanBinderError,
@@ -12,7 +32,7 @@ from scopecat.compiler.relations.analysis import (
     rewrite_plan,
     verify_plan_scopes,
 )
-from scopecat.compiler.relations.model import (
+from scopecat.graph.relations.model import (
     ColumnScalarExpr,
     InputScalarExpr,
     ParameterLookupUse,
@@ -27,28 +47,10 @@ from scopecat.compiler.relations.model import (
     parameter_lookup,
     point_col,
 )
-from scopecat.compiler.relations.verification import (
-    RelationTypeBindings,
-    RowType,
-)
-from scopecat.compiler.semantic.compute_result import ComputeOutput
-from scopecat.compiler.semantic.model import (
-    ImplementationId,
-    LocalPythonImplementation,
+from scopecat.graph.values import (
+    ComputeOutput,
     OperationId,
     operation_result_id,
-)
-from scopecat.compiler.semantic.operation_contract import (
-    LOCAL_OPAQUE_OPERATION_CONTRACT,
-)
-from scopecat.compiler.typed.dependencies import (
-    ComputeScope,
-    analyze_compute_dependencies,
-)
-from scopecat.compiler.typed.program import (
-    ComputeEdge,
-    TypedComputeNode,
-    ValueInput,
 )
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import (

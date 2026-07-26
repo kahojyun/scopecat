@@ -7,9 +7,6 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import cast
 
-from scopecat.compiler.diagnostics import compiler_problem
-from scopecat.compiler.typed.products import ProductDef
-from scopecat.execution.points import RunPoint, RunPointContract
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.errors import CheckFailed, ProviderContractError
 from scopecat.kernel.json_types import JsonValue
@@ -25,6 +22,8 @@ from scopecat.measurements.contracts import (
     measurement_value_contract_issues,
     validated_measurement_value_copy,
 )
+from scopecat.measurements.points import RunPoint, RunPointContract
+from scopecat.measurements.products import ProductDef
 from scopecat.records.measurement import MeasurementValue
 
 
@@ -362,10 +361,11 @@ def _catalog_problem(
     path: tuple[str | int, ...],
     details: Mapping[str, object] | None = None,
 ) -> Problem:
-    return compiler_problem(
+    return problem(
         code,
         message,
-        model_location("measurement_values", *path),
+        phase=ProblemPhase.PLANNING,
+        location=model_location("measurement_values", *path),
         details=details,
     )
 

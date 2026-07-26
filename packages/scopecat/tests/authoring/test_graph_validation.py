@@ -7,13 +7,11 @@ from scopecat.authoring._binding_intents import requires, resource_port
 from scopecat.authoring._products import ModuleProductDecl, record_product
 from scopecat.compiler.frontend.assembly_lowering import validate_assembly_entrypoint
 from scopecat.compiler.frontend.elaboration import SemanticExperimentIR
-from scopecat.compiler.frontend.environment import build_config_environment
 from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
 from scopecat.compiler.frontend.resolution import (
     compile_invocation,
     resolve_compiled_invocation,
 )
-from scopecat.compiler.relations.point_domain import point_axis_values
 from scopecat.compiler.semantic.model import (
     AcquireEffect,
     LiteralValueSource,
@@ -31,11 +29,13 @@ from scopecat.compiler.typed.verification import (
     VerifiedCoreProgram,
     seal_typed_program,
 )
+from scopecat.config.environment import build_config_environment
+from scopecat.graph.relations.point_domain import point_axis_values
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.problems import ProblemPhase, model_location
 from scopecat.kernel.value_types import Float, Payload, Scalar
-from scopecat.records.entity import EntityRef
 from tests.testkit.authoring import link_invocation, load_config, template_fixture
 
 

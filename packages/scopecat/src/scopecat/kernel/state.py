@@ -7,7 +7,7 @@ from typing import cast
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 
-from scopecat.records.parameter import Quantity
+from scopecat.kernel.quantity import Quantity
 
 
 class PayloadRef(BaseModel):

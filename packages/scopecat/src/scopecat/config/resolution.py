@@ -6,10 +6,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
-from scopecat.application.services import ProjectStateServices
 from scopecat.config.candidates import (
     CandidateConfig,
     resolve_candidate_config_snapshot,
+)
+from scopecat.config.profile_validation import (
+    validate_config_profile as validate_planning_config,
 )
 from scopecat.config.profiles import load_config_profile
 from scopecat.config.registry import (
@@ -25,9 +27,7 @@ from scopecat.kernel.problems import (
     model_location,
     problem,
 )
-from scopecat.planning.validation import (
-    validate_config_profile as validate_planning_config,
-)
+from scopecat.project_state import ProjectStateServices
 from scopecat.records.analysis import AnalysisRecord
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.run import AnalysisCandidateRunConfigSource, RunConfigSource

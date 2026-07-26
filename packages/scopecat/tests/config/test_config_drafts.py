@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from scopecat.config.drafts import ConfigDraft
 from scopecat.kernel.problems import ModelLocation
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import (
     Bool,
     Float,
@@ -18,7 +19,6 @@ from scopecat.records.parameter import (
     ParameterCatalog,
     ParameterDefinition,
     ParameterSnapshot,
-    Quantity,
     ScalarParameterValue,
     SeriesParameterValue,
     TableParameterValue,

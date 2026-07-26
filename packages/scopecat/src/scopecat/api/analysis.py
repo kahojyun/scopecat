@@ -7,7 +7,6 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import (
-    TYPE_CHECKING,
     Concatenate,
     NoReturn,
     Protocol,
@@ -45,15 +44,43 @@ from scopecat.kernel.problems import (
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter_change import ParameterChangeProposal
 
-if TYPE_CHECKING:
-    from scopecat.api.run import RunHandle
+
+class _AnalysisRun(Protocol):
+    """Run capabilities consumed by analysis without importing its facade."""
+
+    @property
+    def id(self) -> str: ...
+
+    @property
+    def config(self) -> ConfigProfileSnapshot: ...
+
+    def data(self) -> Data: ...
+
+    def analysis(
+        self,
+        title: str,
+        *,
+        key: str | None = None,
+        step_id: str | None = None,
+    ) -> Analysis: ...
+
+    def save_analysis(
+        self,
+        *,
+        title: str,
+        analysis_key: str,
+        step_id: str | None,
+        inputs: Sequence[AnalysisInput],
+        outputs: Sequence[AnalysisOutput],
+        parameter_proposals: Sequence[ParameterChangeProposal],
+    ) -> SavedAnalysis: ...
 
 
 @dataclass(frozen=True)
 class Analysis:
     """In-notebook analysis record for exploratory experiment work."""
 
-    run: RunHandle
+    run: _AnalysisRun
     title: str
     key: str | None = None
     step_id: str | None = None
@@ -302,7 +329,7 @@ class Analysis:
 
 @dataclass(frozen=True)
 class AnalysisContext:
-    run: RunHandle
+    run: _AnalysisRun
     data: Data
     default_key: str | None = None
     step_id: str | None = None

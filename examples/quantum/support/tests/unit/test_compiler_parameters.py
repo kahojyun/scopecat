@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from scopecat import Quantity
-from scopecat.records.entity import EntityRef
+from scopecat.kernel.entity import EntityRef
 from scopecat_quantum._ids import (
     AcquisitionSlotId,
     CircuitId,

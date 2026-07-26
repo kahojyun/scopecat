@@ -8,22 +8,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 import scopecat.compiler.typed.point_domain as point_domain_module
-from scopecat.compiler.relations.evaluation import ParameterRelationData
-from scopecat.compiler.relations.model import (
-    CellValue,
-    as_scalar_expr,
-    input_ref,
-    param,
-    point_col,
-)
-from scopecat.compiler.relations.point_domain import (
-    POINT_UNIT,
-    PointAxis,
-    iter_point_axis_linear,
-    point_axis_linear,
-    point_axis_values,
-    point_product,
-)
+from scopecat.compiler.relations.context import ParameterRelationData
 from scopecat.compiler.relations.uses import RelationUse, relation_use
 from scopecat.compiler.relations.verification import RelationTypeBindings, RowType
 from scopecat.compiler.semantic.value_expressions import (
@@ -40,7 +25,24 @@ from scopecat.compiler.typed.point_domain import (
     materialize_point_domain,
     verify_point_domain,
 )
+from scopecat.graph.relations.model import (
+    CellValue,
+    as_scalar_expr,
+    input_ref,
+    param,
+    point_col,
+)
+from scopecat.graph.relations.point_domain import (
+    POINT_UNIT,
+    PointAxis,
+    iter_point_axis_linear,
+    point_axis_linear,
+    point_axis_values,
+    point_product,
+)
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import (
     Entity,
     Int,
@@ -51,8 +53,6 @@ from scopecat.kernel.value_types import (
     Quantity as QuantityType,
 )
 from scopecat.kernel.value_validation import ValueValidationError
-from scopecat.records.entity import EntityRef
-from scopecat.records.parameter import Quantity
 
 _INT = Scalar(Int())
 _TIME = Scalar(QuantityType(dimension="time", unit="ns"))

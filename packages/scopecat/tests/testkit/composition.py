@@ -18,9 +18,9 @@ from scopecat.adapters.sqlite import (
     SQLiteRunRepository,
 )
 from scopecat.adapters.sqlite.run_repository import _PreparedRef
-from scopecat.application.services import ProjectStateServices
 from scopecat.config.registry.ports import ConfigRegistryUnitOfWorkFactory
 from scopecat.execution.services import ExecutionSession
+from scopecat.project_state import ProjectStateServices
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.run import RunConfigSource, RunManifest

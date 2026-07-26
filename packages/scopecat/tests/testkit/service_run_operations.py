@@ -14,7 +14,7 @@ from scopecat.analysis.service import (
     SavedAnalysis,
     save_analysis,
 )
-from scopecat.application.services import ProjectStateServices
+from scopecat.project_state import ProjectStateServices
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter_change import ParameterChangeProposal

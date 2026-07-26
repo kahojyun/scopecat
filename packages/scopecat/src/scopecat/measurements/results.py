@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from scopecat.measurements.contracts import (
+    validate_measurement_records_against_schema,
+)
 from scopecat.records.measurement import (
     ComplexQuantity,
     CoordinateValue,
@@ -15,7 +18,6 @@ from scopecat.records.measurement import (
     MeasurementValue,
     MeasurementVariable,
     MeasurementVariableRole,
-    validate_measurement_records_against_schema,
 )
 
 __all__ = [

@@ -6,11 +6,11 @@ import pytest
 
 from scopecat.kernel.errors import CheckFailed, ProviderContractError
 from scopecat.kernel.product_identity import ProductUseId
+from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.values import (
     MeasurementValueCandidate,
     seal_measurement_values,
 )
-from scopecat.records.parameter import Quantity
 from tests.testkit.measurement_assembly import (
     measurement_assembly_scenario,
     measurement_value_candidates,

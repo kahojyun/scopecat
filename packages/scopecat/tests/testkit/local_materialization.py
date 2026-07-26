@@ -5,12 +5,12 @@ from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 
 from scopecat.compiler.linking.linked import LinkedPlan, materialize_linked_points
+from scopecat.compiler.measurement_projection import project_run_point_catalog
 from scopecat.execution.local.program import ComputeOperation, LocalOperation
-from scopecat.execution.points import RunPoint
 from scopecat.execution.program import RunCoverageEffect
 from scopecat.kernel.product_identity import ProductUseId
 from scopecat.kernel.resource_identity import ResourceClaim
-from scopecat.measurements._bridge import project_run_point_catalog
+from scopecat.measurements.points import RunPoint
 from scopecat.planning.local_effects import local_operation_resource_claims
 from scopecat.planning.local_materialization import (
     materialize_local_execution as lower_local_execution,

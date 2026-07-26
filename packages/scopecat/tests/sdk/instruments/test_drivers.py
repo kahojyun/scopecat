@@ -8,6 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 import scopecat.sdk.instruments as instrument_sdk
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.kernel.value_types import Entity, Float, Payload, Scalar
 from scopecat.kernel.value_types import Quantity as QuantityType
@@ -24,7 +25,6 @@ from scopecat.records.instrument import (
 from scopecat.records.instrument import (
     InstrumentStateSnapshot as RecordInstrumentStateSnapshot,
 )
-from scopecat.records.parameter import Quantity
 from scopecat.sdk.instruments import (
     CapabilityField,
     CollectCommand,

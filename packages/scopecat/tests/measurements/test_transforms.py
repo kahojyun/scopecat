@@ -5,11 +5,11 @@ from typing import cast, override
 
 import pytest
 
-from scopecat.compiler.typed.products import ProductDef
 from scopecat.kernel.errors import CheckFailed, MeasurementTransformExecutionError
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.problems import ProblemPhase
 from scopecat.kernel.product_identity import ProductUse
+from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.host_transforms import (
     HostMeasurementTransformCall,
     HostMeasurementTransformImplementation,
@@ -18,6 +18,7 @@ from scopecat.measurements.host_transforms import (
     bind_host_measurement_transforms,
     execute_host_measurement_transforms,
 )
+from scopecat.measurements.products import ProductDef
 from scopecat.measurements.semantics import MeasurementTransformSemanticContract
 from scopecat.measurements.transform_model import (
     MeasurementTransformDef,
@@ -27,7 +28,6 @@ from scopecat.measurements.transform_model import (
 )
 from scopecat.measurements.values import seal_measurement_values
 from scopecat.records.measurement import MeasurementArray, MeasurementValue
-from scopecat.records.parameter import Quantity
 from tests.testkit.measurement_assembly import (
     MeasurementAssemblyScenario,
     measurement_assembly_scenario,

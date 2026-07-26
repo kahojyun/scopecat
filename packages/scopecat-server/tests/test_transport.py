@@ -71,18 +71,20 @@ from scopecat.daemon.wire import (
     RunSubmission,
     TerminalRunCommitCommand,
 )
+from scopecat.kernel.quantity import Quantity
+from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.measurements.results import MeasurementDataset, MeasurementDatasetSchema
 from scopecat.records.analysis import AnalysisRecord
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.measurement_recording import MeasurementDatasetReceipt
-from scopecat.records.parameter import Quantity, ScalarParameterValue
+from scopecat.records.parameter import ScalarParameterValue
 from scopecat.records.parameter_change import (
     HumanDecisionAuthority,
     ParameterChangeDecisionRecord,
 )
-from scopecat.records.run import RunManifest, RunOutcome
+from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.data import (
     RunArtifactJsonResult,

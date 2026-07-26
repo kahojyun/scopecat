@@ -2,15 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from scopecat.compiler.frontend.environment import build_config_environment
-from scopecat.compiler.relations.point_domain import point_axis_values
-from scopecat.compiler.semantic.compute_result import ComputeOutput
 from scopecat.compiler.semantic.model import (
     ImplementationId,
     LocalPythonImplementation,
-    OperationId,
-    ValueId,
-    operation_result_id,
 )
 from scopecat.compiler.semantic.operation_contract import (
     LOCAL_OPAQUE_OPERATION_CONTRACT,
@@ -20,7 +14,15 @@ from scopecat.compiler.typed.program import (
     CoreProgram,
     TypedComputeNode,
 )
+from scopecat.config.environment import build_config_environment
 from scopecat.execution.local.program import ComputeOperation
+from scopecat.graph.relations.point_domain import point_axis_values
+from scopecat.graph.values import (
+    ComputeOutput,
+    OperationId,
+    ValueId,
+    operation_result_id,
+)
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Int, Payload, Scalar, ValueType
 from tests.testkit.authoring import load_config

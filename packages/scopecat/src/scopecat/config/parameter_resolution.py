@@ -5,14 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import cast
 
-from scopecat.compiler.relations.evaluation import ParameterRelationData
-from scopecat.compiler.relations.model import (
-    CellValue,
-    Row,
-)
+from scopecat.compiler.relations.context import ParameterRelationData
 from scopecat.config.validation import (
     ParameterValueValidationError,
     coerce_stored_parameter_value,
+)
+from scopecat.graph.relations.model import (
+    CellValue,
+    Row,
 )
 from scopecat.kernel.problems import (
     Problem,

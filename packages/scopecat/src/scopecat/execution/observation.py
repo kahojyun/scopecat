@@ -9,13 +9,16 @@ from typing import Literal
 
 from pydantic import JsonValue
 
+from scopecat.kernel.run_outcome import (
+    RunCertainty,
+    RunResult,
+)
 from scopecat.records.artifact import CommandPayload
 from scopecat.records.execution_journal import (
     ExecutionEffect,
     ExecutionStage,
     JournalEntryState,
 )
-from scopecat.records.run import RunCertainty, RunResult
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

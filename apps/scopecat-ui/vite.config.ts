@@ -1,5 +1,6 @@
-import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
+import { loadEnv } from "vite";
+import { defineConfig } from "vitest/config";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
@@ -19,6 +20,14 @@ export default defineConfig(({ mode }) => {
       outDir: "dist",
       emptyOutDir: true,
       sourcemap: false,
+    },
+    test: {
+      coverage: {
+        provider: "v8",
+        include: ["src/**/*.{ts,tsx}"],
+        exclude: ["src/**/*.d.ts"],
+        reporter: ["text-summary"],
+      },
     },
   };
 });

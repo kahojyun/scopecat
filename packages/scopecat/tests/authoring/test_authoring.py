@@ -43,7 +43,6 @@ from scopecat.compiler.frontend.elaboration import (
     SemanticExperimentIR,
     elaborate_module,
 )
-from scopecat.compiler.frontend.environment import build_config_environment
 from scopecat.compiler.frontend.request_values import (
     project_run_request_inputs,
 )
@@ -55,36 +54,39 @@ from scopecat.compiler.frontend.scan_lowering import (
     project_scan_record,
 )
 from scopecat.compiler.linking.linked import link_program
-from scopecat.compiler.relations.evaluation import EvalContext
-from scopecat.compiler.relations.model import (
+from scopecat.compiler.relations.context import EvalContext
+from scopecat.compiler.relations.verification import RelationTypeBindings
+from scopecat.compiler.semantic.model import (
+    PlanExpressionSource,
+    ValueUse,
+)
+from scopecat.config.environment import build_config_environment
+from scopecat.execution.local.program import CollectOperation
+from scopecat.graph.relations.model import (
     InputScalarExpr,
     LiteralScalarExpr,
     as_scalar_expr,
     input_ref,
     param,
 )
-from scopecat.compiler.relations.verification import RelationTypeBindings
-from scopecat.compiler.semantic.compute_result import ComputeResultRef
-from scopecat.compiler.semantic.model import (
+from scopecat.graph.values import (
+    ComputeResultRef,
     OperationId,
-    PlanExpressionSource,
-    ValueUse,
     operation_result_id,
 )
-from scopecat.execution.local.program import CollectOperation
-from scopecat.execution.points import RunPoint
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.symbols import SymbolId
+from scopecat.measurements.points import RunPoint
 from scopecat.records.config import (
     RoutingEndpointBinding,
     RoutingGraph,
 )
-from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import (
     ParameterDefinition,
-    Quantity,
     TableParameterValue,
 )
 from tests.testkit.authoring import (

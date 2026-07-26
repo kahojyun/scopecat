@@ -18,6 +18,7 @@ application = "scopecat_lab.application:create_application"
 from __future__ import annotations
 
 import scopecat as sc
+from scopecat.kernel.entity import EntityRef
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     InstrumentRegistry,
@@ -25,7 +26,6 @@ from scopecat.records.config import (
     Topology,
     snapshot_config_profile,
 )
-from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import (
     ParameterCatalog,
     ParameterDefinition,

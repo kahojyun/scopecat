@@ -27,25 +27,25 @@ from scopecat.compiler.frontend.problems import (
     raise_frontend_problem,
 )
 from scopecat.compiler.frontend.static_evaluation import StaticRelationEvaluator
-from scopecat.compiler.relations.model import (
+from scopecat.compiler.relations.verification import RelationTypeBindings
+from scopecat.compiler.typed.program import product_axis as compiler_product_axis
+from scopecat.graph.relations.model import (
     RelationExpr,
     ScalarExpr,
     SeriesExpr,
     as_scalar_expr,
 )
-from scopecat.compiler.relations.verification import RelationTypeBindings
-from scopecat.compiler.semantic.compute_result import ComputeResultRef
-from scopecat.compiler.typed.products import ProductAxisDef, ProductDef
-from scopecat.compiler.typed.program import product_axis as compiler_product_axis
-from scopecat.compiler.typed.records import RecordUse
+from scopecat.graph.values import ComputeResultRef
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.problems import ModelLocation
 from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import Scalar, Series, Table, ValueType
+from scopecat.measurements.products import ProductAxisDef, ProductDef
+from scopecat.measurements.records import RecordUse
 from scopecat.records._run_request_values import normalize_json_value
 from scopecat.records.config import Topology
-from scopecat.records.entity import EntityRef
-from scopecat.records.parameter import Quantity
 
 type BindSeriesInputRefs = Callable[[SeriesExpr, Mapping[str, object]], SeriesExpr]
 type BindRelationInputRefs = Callable[

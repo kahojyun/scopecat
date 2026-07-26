@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shlex
 from collections.abc import Sequence
+from datetime import timedelta
 from pathlib import Path
 from typing import Annotated, Never
 
@@ -255,6 +256,15 @@ def serve(
         bool,
         typer.Option(help="Serve the API without the project GUI."),
     ] = False,
+    executor_lease_ttl_seconds: Annotated[
+        float | None,
+        typer.Option(
+            "--executor-lease-ttl-seconds",
+            help="Override the executor lease TTL for development and testing.",
+            min=0.001,
+            hidden=True,
+        ),
+    ] = None,
 ) -> None:
     """Run the project daemon in the foreground."""
 
@@ -269,6 +279,7 @@ def serve(
             host=host,
             port=port,
             static_dir=selected_static_dir,
+            lease_ttl=_lease_ttl(executor_lease_ttl_seconds),
         )
     except (DaemonLifecycleError, ProjectManifestError, OSError, ValueError) as error:
         _fail(error)
@@ -300,6 +311,15 @@ def start(
         bool,
         typer.Option(help="Start the daemon without the project GUI."),
     ] = False,
+    executor_lease_ttl_seconds: Annotated[
+        float | None,
+        typer.Option(
+            "--executor-lease-ttl-seconds",
+            help="Override the executor lease TTL for development and testing.",
+            min=0.001,
+            hidden=True,
+        ),
+    ] = None,
 ) -> None:
     """Start the project daemon in the background."""
 
@@ -314,6 +334,7 @@ def start(
             host=host,
             port=port,
             static_dir=selected_static_dir,
+            lease_ttl=_lease_ttl(executor_lease_ttl_seconds),
         )
     except (DaemonLifecycleError, ProjectManifestError, OSError, ValueError) as error:
         _fail(error)
@@ -338,6 +359,10 @@ def _select_static_dir(
             "or use --api-only"
         )
     return selected
+
+
+def _lease_ttl(seconds: float | None) -> timedelta | None:
+    return None if seconds is None else timedelta(seconds=seconds)
 
 
 @app.command()

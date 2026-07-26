@@ -7,9 +7,9 @@ from dataclasses import dataclass
 
 import scopecat as sc
 from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.results import ComplexQuantity, MeasurementRecord
 from scopecat.records.config import ConfigProfileSnapshot
-from scopecat.records.parameter import Quantity
 from scopecat.runs.access import dataset_storage_ref
 from scopecat.sdk.problems import (
     Problem,

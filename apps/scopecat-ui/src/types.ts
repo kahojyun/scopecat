@@ -1,12 +1,10 @@
-export type RunStatus =
+export type PresentationRunStatus =
   | "accepted"
   | "running"
   | "attention_required"
   | "succeeded"
   | "failed"
-  | "cancelled"
-  | "terminal"
-  | "unknown";
+  | "cancelled";
 
 export interface ResourceClaim {
   id: string;
@@ -34,7 +32,7 @@ export interface ProjectRun {
   sequence?: number;
   runId: string;
   experimentId: string;
-  status: RunStatus;
+  status: PresentationRunStatus;
   stateLabel: string;
   createdAt?: string;
   updatedAt?: string;

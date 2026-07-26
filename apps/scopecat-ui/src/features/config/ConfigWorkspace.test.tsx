@@ -13,7 +13,7 @@ import {
 } from "./config-api";
 import { ConfigWorkspace } from "./ConfigWorkspace";
 import type { ConfigProfileSnapshot, ConfigRegistryEntry } from "../../api-contract";
-import { getRunParameterProposals } from "../runs/proposal-api";
+import { getRunParameterProposals } from "../../data/parameter-proposals/api";
 
 vi.mock("../../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api")>()),
@@ -28,8 +28,8 @@ vi.mock("./config-api", async (importOriginal) => ({
   rollbackConfig: vi.fn(),
 }));
 
-vi.mock("../runs/proposal-api", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../runs/proposal-api")>()),
+vi.mock("../../data/parameter-proposals/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../data/parameter-proposals/api")>()),
   getRunParameterProposals: vi.fn(),
 }));
 

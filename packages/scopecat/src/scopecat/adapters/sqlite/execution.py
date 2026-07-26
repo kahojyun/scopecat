@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections.abc import Generator
-from contextlib import closing, contextmanager
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import cast
@@ -13,9 +13,9 @@ from typing import cast
 from pydantic import BaseModel
 from pydantic_core import PydanticSerializationError
 
+from scopecat.adapters.sqlite.connection import immediate_transaction
 from scopecat.adapters.sqlite.object_store import ObjectStoreError, StoredObject
 from scopecat.adapters.sqlite.run_repository import SQLiteRunRepository
-from scopecat.execution.ports.journal import ExecutionJournalError
 from scopecat.measurements.datasets import (
     MEASUREMENT_DATASET_KIND,
     RAW_MEASUREMENTS_DATASET_ID,
@@ -35,6 +35,7 @@ from scopecat.runs.refs import (
     EXECUTION_JOURNAL_DIR,
     dataset_content_ref,
 )
+from scopecat.sdk.journal import ExecutionJournalError
 
 
 class ExecutionJournalConflict(ExecutionJournalError):
@@ -538,26 +539,11 @@ def _publish_ref(
 def _transaction(
     runs: SQLiteRunRepository,
 ) -> Generator[sqlite3.Connection]:
-    with closing(_connect(runs)) as connection:
-        connection.execute("BEGIN IMMEDIATE")
-        try:
-            yield connection
-        except BaseException:
-            connection.rollback()
-            raise
-        else:
-            connection.commit()
-
-
-def _connect(runs: SQLiteRunRepository) -> sqlite3.Connection:
-    connection = sqlite3.connect(
+    with immediate_transaction(
         runs.database,
-        isolation_level=None,
-        timeout=5,
-    )
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON")
-    return connection
+        busy_timeout_seconds=runs.busy_timeout_seconds,
+    ) as connection:
+        yield connection
 
 
 def _one(cursor: sqlite3.Cursor) -> sqlite3.Row | None:

@@ -4,16 +4,12 @@ from dataclasses import replace
 
 import pytest
 
-from scopecat.compiler.frontend.environment import build_config_environment
-from scopecat.compiler.relations.model import lit
-from scopecat.compiler.relations.point_domain import POINT_UNIT
 from scopecat.compiler.relations.uses import relation_use
 from scopecat.compiler.semantic.model import AcquireEffect
 from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
 from scopecat.compiler.typed.point_domain import (
     PointDomain,
 )
-from scopecat.compiler.typed.products import ProductDef
 from scopecat.compiler.typed.program import (
     CoreProgram,
     LogicalResourceRequirement,
@@ -21,6 +17,7 @@ from scopecat.compiler.typed.program import (
     set_state_field,
 )
 from scopecat.compiler.typed.state import SetStateSpec
+from scopecat.config.environment import build_config_environment
 from scopecat.execution.effect_interpreter import RunEffectInterpreter
 from scopecat.execution.events import TransitionRecorder
 from scopecat.execution.local.program import (
@@ -28,7 +25,9 @@ from scopecat.execution.local.program import (
     CollectOperation,
     StateTarget,
 )
-from scopecat.execution.points import RunPoint
+from scopecat.graph.relations.model import lit
+from scopecat.graph.relations.point_domain import POINT_UNIT
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
 from scopecat.kernel.resource_identity import (
@@ -38,12 +37,13 @@ from scopecat.kernel.resource_identity import (
 )
 from scopecat.kernel.state import StateValue
 from scopecat.kernel.value_types import Entity, Float, Scalar
+from scopecat.measurements.points import RunPoint
+from scopecat.measurements.products import ProductDef
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     RoutingEndpointBinding,
     RoutingGraph,
 )
-from scopecat.records.entity import EntityRef
 from scopecat.sdk.instruments import (
     ApplyReceipt,
     CollectCommand,

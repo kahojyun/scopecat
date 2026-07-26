@@ -28,22 +28,22 @@ from scopecat.compiler.frontend.request_values import (
     project_run_request_value,
 )
 from scopecat.compiler.frontend.value_binding import bind_scalar_input_refs
-from scopecat.compiler.relations.model import (
+from scopecat.graph.relations.model import (
     CellValue,
     ScalarExpr,
     as_scalar_expr,
     param,
 )
-from scopecat.compiler.relations.point_domain import (
+from scopecat.graph.relations.point_domain import (
     POINT_UNIT,
     PointAxis,
     point_axis_linear,
     point_axis_values,
     point_product,
 )
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar
-from scopecat.records.parameter import Quantity
 from scopecat.records.run_request import (
     AroundScanRecord,
     ParameterAroundScanRecord,

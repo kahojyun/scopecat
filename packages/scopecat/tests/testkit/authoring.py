@@ -10,17 +10,17 @@ from scopecat.authoring._products import RecordSelection
 from scopecat.authoring.scans import Scan
 from scopecat.authoring.templates import create_experiment_definition_internal
 from scopecat.authoring.values import MetadataValue
-from scopecat.compiler.frontend.environment import build_config_environment
 from scopecat.compiler.frontend.resolution import (
     compile_invocation,
     resolve_compiled_invocation,
 )
 from scopecat.compiler.linking.linked import LinkedPlan
+from scopecat.config.environment import build_config_environment
 from scopecat.config.parameter_resolution import resolve_config_parameters
 from scopecat.config.profiles import load_config_profile
+from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.quantity import Quantity
 from scopecat.records.config import ConfigProfileSnapshot
-from scopecat.records.entity import EntityRef
-from scopecat.records.parameter import Quantity
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 
 

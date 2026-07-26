@@ -5,16 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import overload
 
-from scopecat.compiler.relations.analysis import PlanReferenceKind
-from scopecat.compiler.relations.evaluation import EvalContext, ParameterRelationData
-from scopecat.compiler.relations.model import (
-    LiteralRowsRelationExpr,
-    ValuesSeriesExpr,
-    lit,
-)
-from scopecat.compiler.relations.point_domain import (
-    map_point_axis_centers,
-)
+from scopecat.compiler.relations.context import EvalContext, ParameterRelationData
 from scopecat.compiler.relations.specialization import (
     BindingTime,
     KnownScalar,
@@ -25,8 +16,7 @@ from scopecat.compiler.relations.specialization import (
     specialize_series,
 )
 from scopecat.compiler.relations.uses import RelationUse
-from scopecat.compiler.semantic.compute_result import ComputeResultRef
-from scopecat.compiler.semantic.model import AcquireEffect, OperationId
+from scopecat.compiler.semantic.model import AcquireEffect
 from scopecat.compiler.semantic.value_expressions import (
     ScalarValueExpr,
     SeriesValueExpr,
@@ -52,6 +42,16 @@ from scopecat.compiler.typed.program import (
     ValueInput,
 )
 from scopecat.compiler.typed.state import SetStateSpec
+from scopecat.graph.relations.analysis import PlanReferenceKind
+from scopecat.graph.relations.model import (
+    LiteralRowsRelationExpr,
+    ValuesSeriesExpr,
+    lit,
+)
+from scopecat.graph.relations.point_domain import (
+    map_point_axis_centers,
+)
+from scopecat.graph.values import ComputeResultRef, OperationId
 
 
 def specialize_core_program(

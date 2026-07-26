@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from scopecat.compiler.semantic.model import ValueId
 from scopecat.compiler.typed.program import CoreProgram
 from scopecat.execution.local.program import (
     ApplyStateOperation,
@@ -14,6 +13,7 @@ from scopecat.execution.local.program import (
     LocalOperation,
 )
 from scopecat.execution.program import RunCoverageEffect
+from scopecat.graph.values import ValueId
 from scopecat.kernel.product_identity import ProductUse
 from scopecat.kernel.resource_identity import LogicalResourcePortId, ResourceClaim
 from scopecat.planning.routing import ResourcePortManifest

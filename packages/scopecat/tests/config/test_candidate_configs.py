@@ -20,7 +20,8 @@ from scopecat.config.parameter_updates import ParameterUpdate
 from scopecat.config.registry import list_config_registry_entries
 from scopecat.config.resolution import register_and_activate_candidate_config
 from scopecat.kernel.errors import CheckFailed, Conflict, DataIntegrityError
-from scopecat.records.parameter import Quantity, ScalarParameterValue
+from scopecat.kernel.quantity import Quantity
+from scopecat.records.parameter import ScalarParameterValue
 from scopecat.records.parameter_change import ParameterChangeProposal
 from tests.testkit.in_process_lab import InProcessLab, in_process_lab
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR

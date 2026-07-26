@@ -8,8 +8,6 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import cast
 
-from scopecat.compiler.diagnostics import compiler_problem
-from scopecat.execution.points import RunPoint
 from scopecat.kernel.errors import (
     CheckFailed,
     MeasurementTransformExecutionError,
@@ -23,10 +21,12 @@ from scopecat.kernel.problems import (
     problem,
 )
 from scopecat.kernel.product_identity import ProductUseId
+from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.contracts import (
     measurement_value_contract_issues,
     validated_measurement_value_copy,
 )
+from scopecat.measurements.points import RunPoint
 from scopecat.measurements.semantics import MeasurementTransformSemanticContract
 from scopecat.measurements.transform_model import (
     MeasurementTransformDef,
@@ -42,7 +42,6 @@ from scopecat.records.measurement import (
     MeasurementArray,
     MeasurementValue,
 )
-from scopecat.records.parameter import Quantity
 
 type MeasurementTransformColumn = tuple[MeasurementValue, ...]
 type MeasurementTransformPortValues = Mapping[str, MeasurementTransformColumn]
@@ -420,10 +419,11 @@ def _check_problem(
     path: tuple[str | int, ...],
     details: Mapping[str, object] | None = None,
 ) -> Problem:
-    return compiler_problem(
+    return problem(
         code,
         message,
-        model_location("measurement_transforms", *path),
+        phase=ProblemPhase.PLANNING,
+        location=model_location("measurement_transforms", *path),
         details=details,
     )
 
@@ -503,7 +503,7 @@ def _is_measurement_value(value: object) -> bool:
         return False
     try:
         validated_measurement_value_copy(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return False
     return True
 

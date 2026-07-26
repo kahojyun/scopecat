@@ -3,9 +3,11 @@ from __future__ import annotations
 import scopecat as sc
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.compiler.semantic.model import (
+    ValueUse,
+)
+from scopecat.graph.values import (
     OperationId,
     ValueId,
-    ValueUse,
 )
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Payload, Scalar

@@ -5,23 +5,22 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from scopecat.compiler.relations.context import EvalContext, ParameterRelationData
 from scopecat.compiler.relations.evaluation import (
-    EvalContext,
-    ParameterRelationData,
     evaluate_relation,
     evaluate_scalar,
     evaluate_series,
 )
-from scopecat.compiler.relations.model import (
+from scopecat.compiler.relations.verification import (
+    RelationTypeBindings,
+    verify_relation_plan,
+)
+from scopecat.graph.relations.model import (
     CellValue,
     RelationExpr,
     Row,
     ScalarExpr,
     SeriesExpr,
-)
-from scopecat.compiler.relations.verification import (
-    RelationTypeBindings,
-    verify_relation_plan,
 )
 from scopecat.kernel.value_types import Scalar, Series, Table
 

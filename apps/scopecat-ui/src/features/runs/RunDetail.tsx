@@ -25,7 +25,7 @@ import type {
   ProjectRun,
   RunAnalysis,
 } from "../../types";
-import { RunProposals } from "./RunProposals";
+import { RunProposals } from "../proposals/RunProposals";
 
 export function RunDetail({
   run,
@@ -150,7 +150,7 @@ export function RunDetail({
 function ProgressCard({ run, events }: { run: ProjectRun; events: ProjectEvent[] }) {
   const expected = run.plan.pointCount;
   const completed = completedPoints(run, events);
-  const terminal = ["succeeded", "failed", "cancelled", "terminal"].includes(run.status);
+  const terminal = ["succeeded", "failed", "cancelled"].includes(run.status);
   const hasProgress = expected !== undefined && expected > 0;
   const progressValue = hasProgress
     ? terminal && run.status === "succeeded"

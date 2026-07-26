@@ -24,7 +24,7 @@ from scopecat.sdk.domain.invocation import (
     ClosedDomainInvocation,
     close_domain_invocation,
 )
-from scopecat.sdk.domain.preparation import DomainResultMapping
+from scopecat.sdk.domain.result_mapping import DomainResultMapping
 from scopecat.sdk.domain.runtime import (
     CorrelatedDomainFetch,
     DomainFetchCandidate,

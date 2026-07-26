@@ -22,6 +22,7 @@ from scopecat.kernel.problems import (
     StorageLocation,
     problem,
 )
+from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.results import (
     MeasurementArray,
     MeasurementDatasetSchema,
@@ -29,7 +30,7 @@ from scopecat.measurements.results import (
     MeasurementValue,
 )
 from scopecat.records.config import ConfigProfileSnapshot
-from scopecat.records.parameter import Quantity, ScalarParameterValue
+from scopecat.records.parameter import ScalarParameterValue
 from scopecat.records.run import RunConfigSource, RunManifest
 from scopecat.runs.access import dataset_storage_ref
 from tests.testkit.execution import execute_invocation_run

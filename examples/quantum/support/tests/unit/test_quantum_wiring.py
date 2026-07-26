@@ -5,15 +5,15 @@ from pathlib import Path
 
 import pytest
 import scopecat as sc
-from scopecat.compiler.frontend.environment import build_config_environment
 from scopecat.compiler.frontend.resolution import (
     compile_invocation,
     resolve_compiled_invocation,
 )
+from scopecat.config.environment import build_config_environment
+from scopecat.config.profile_validation import validate_config_profile
 from scopecat.execution.interpreter import execute_admitted_run
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.planning.routing import RoutingView
-from scopecat.planning.validation import validate_config_profile
 from scopecat.sdk.instruments import (
     ApplyReceipt,
     CollectCommand,

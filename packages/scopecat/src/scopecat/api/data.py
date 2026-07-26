@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import Protocol
 
 from scopecat.measurements.results import MeasurementDatasetSchema
 from scopecat.records.artifact import RunContentEntry
@@ -17,15 +17,52 @@ from scopecat.runs.data import (
     RunMeasurementDatasetResult,
 )
 
-if TYPE_CHECKING:
-    from scopecat.api.run import RunHandle
+
+class _DataRun(Protocol):
+    """Run capabilities consumed by data access without importing its facade."""
+
+    @property
+    def artifacts(self) -> tuple[str, ...]: ...
+
+    @property
+    def datasets(self) -> tuple[str, ...]: ...
+
+    @property
+    def manifest(self) -> RunManifest: ...
+
+    def measurements(
+        self,
+        *,
+        selector: str = "raw-measurements",
+    ) -> RunMeasurementDatasetResult: ...
+
+    def artifact_text(
+        self,
+        selector: str,
+        *,
+        expected_kind: str | None = None,
+    ) -> RunArtifactTextResult: ...
+
+    def artifact_json(
+        self,
+        selector: str,
+        *,
+        expected_kind: str | None = None,
+    ) -> RunArtifactJsonResult: ...
+
+    def artifact_bytes(
+        self,
+        selector: str,
+        *,
+        expected_kind: str | None = None,
+    ) -> RunArtifactBytesResult: ...
 
 
 @dataclass(frozen=True)
 class Data:
     """Notebook-facing data access for one run."""
 
-    run: RunHandle
+    run: _DataRun
 
     @property
     def artifacts(self) -> tuple[str, ...]:
@@ -90,11 +127,7 @@ class Data:
             self.artifact(selector, expected_kind=expected_kind)
         elif artifact.kind not in {"figure", "plot"}:
             self.artifact(selector, expected_kind="figure")
-        return self.run.session.run_operations.artifact_bytes(
-            self.run.id,
-            selector,
-            expected_kind=expected_kind,
-        )
+        return self.run.artifact_bytes(selector, expected_kind=expected_kind)
 
     def text(
         self,
@@ -118,11 +151,7 @@ class Data:
         *,
         expected_kind: str | None = None,
     ) -> RunArtifactBytesResult:
-        return self.run.session.run_operations.artifact_bytes(
-            self.run.id,
-            selector,
-            expected_kind=expected_kind,
-        )
+        return self.run.artifact_bytes(selector, expected_kind=expected_kind)
 
     def _manifest(self) -> RunManifest:
         return self.run.manifest

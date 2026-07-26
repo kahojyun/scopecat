@@ -5,15 +5,15 @@ from typing import override
 import pytest
 
 from scopecat.execution.events import TransitionRecorder
+from scopecat.execution.measurement_recording import (
+    append_measurement_dataset,
+    seal_measurement_dataset,
+)
 from scopecat.kernel.errors import MeasurementRecordingError
 from scopecat.measurements.projection import (
     ProjectedMeasurementDataset,
     project_measurement_records,
     select_measurement_projection,
-)
-from scopecat.measurements.recording import (
-    append_measurement_dataset,
-    seal_measurement_dataset,
 )
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,

@@ -4,7 +4,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from scopecat.compiler.relations.point_domain import (
+from scopecat.graph.relations.point_domain import (
     POINT_UNIT,
     PointAxis,
     PointAxisLinear,
@@ -20,8 +20,8 @@ from scopecat.compiler.relations.point_domain import (
     point_axis_values,
     point_product,
 )
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import Int, Scalar, TableColumn
-from scopecat.records.parameter import Quantity
 
 _INT = Scalar(Int())
 _SPAN = Quantity(value=2.0, unit="V")

@@ -9,7 +9,6 @@ from scopecat.execution.local.program import (
 )
 from scopecat.execution.local.validation import validate_local_effect_block_instruments
 from scopecat.execution.persistence import validate_run_measurements
-from scopecat.execution.points import RunPoint
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
 from scopecat.kernel.problems import (
     ProblemPhase,
@@ -17,6 +16,7 @@ from scopecat.kernel.problems import (
 )
 from scopecat.kernel.product_identity import product_id, product_use
 from scopecat.kernel.resource_identity import ResourceClaim
+from scopecat.measurements.points import RunPoint
 from scopecat.measurements.results import MeasurementDType
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.sdk.instruments.contracts import (

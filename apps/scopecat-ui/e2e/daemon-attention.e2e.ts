@@ -78,7 +78,17 @@ const test = base.extend<{}, { daemon: ProjectDaemon }>({
         runUv(["scopecat", "init", projectRoot], REPOSITORY_ROOT);
         initialized = true;
         runUv(
-          ["scopecat", "start", projectRoot, "--port", "0", "--static-dir", UI_DIST],
+          [
+            "scopecat",
+            "start",
+            projectRoot,
+            "--port",
+            "0",
+            "--static-dir",
+            UI_DIST,
+            "--executor-lease-ttl-seconds",
+            "1",
+          ],
           projectRoot,
         );
         const endpoint = await readEndpoint(projectRoot);
@@ -96,7 +106,7 @@ const test = base.extend<{}, { daemon: ProjectDaemon }>({
 });
 
 test("handles naturally expired executors from the GUI", async ({ daemon, page }) => {
-  test.setTimeout(90_000);
+  test.setTimeout(30_000);
   await page.goto(daemon.baseUrl);
 
   const active = await checkedJson<ActiveConfigView>(
@@ -111,8 +121,8 @@ test("handles naturally expired executors from the GUI", async ({ daemon, page }
   await expect
     .poll(async () => (await getRunDetail(page, daemon.baseUrl, run.runId)).control.state, {
       message: "the abandoned executor lease should expire",
-      timeout: 45_000,
-      intervals: [1_000],
+      timeout: 8_000,
+      intervals: [250],
     })
     .toBe("attention_required");
 

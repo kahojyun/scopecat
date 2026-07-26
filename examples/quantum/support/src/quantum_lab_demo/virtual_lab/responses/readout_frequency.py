@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.quantity import Quantity
 from scopecat.records.config import ConfigProfileSnapshot
-from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import (
-    Quantity,
     ScalarParameterValue,
     TableParameterValue,
 )

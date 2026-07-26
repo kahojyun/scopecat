@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import cast
 
+from scopecat.kernel.quantity import Quantity
 from scopecat.records.measurement import (
     MEASUREMENT_DATASET_FORMAT_VERSION,
     MEASUREMENT_RECORD_SCHEMA_VERSION,
@@ -10,7 +11,6 @@ from scopecat.records.measurement import (
     MeasurementDataset,
     MeasurementRecord,
 )
-from scopecat.records.parameter import Quantity
 from tests.testkit.measurement_models import signal_point_schema, signal_record
 from tests.testkit.records import assert_model_round_trip
 

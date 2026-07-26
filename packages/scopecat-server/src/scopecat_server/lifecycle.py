@@ -11,7 +11,7 @@ import tempfile
 import time
 import webbrowser
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal, cast
 
@@ -124,6 +124,7 @@ def serve_project(
     host: str = "127.0.0.1",
     port: int = 0,
     static_dir: str | Path | None = None,
+    lease_ttl: timedelta | None = None,
 ) -> None:
     """Serve one project in the foreground and publish its actual endpoint."""
 
@@ -148,6 +149,7 @@ def serve_project(
         runtime = LocalDaemonRuntime(
             project.root,
             application_factory=application_factory,
+            lease_ttl=lease_ttl,
         )
         record = DaemonEndpointRecord(
             project_root=project.root,
@@ -182,6 +184,7 @@ def start_project(
     port: int = 0,
     timeout: float = 10.0,
     static_dir: str | Path | None = None,
+    lease_ttl: timedelta | None = None,
 ) -> DaemonEndpointRecord:
     """Start a detached daemon with the current Python interpreter."""
 
@@ -211,6 +214,13 @@ def start_project(
         "--port",
         str(port),
     ]
+    if lease_ttl is not None:
+        command.extend(
+            (
+                "--executor-lease-ttl-seconds",
+                str(lease_ttl.total_seconds()),
+            )
+        )
     if static_dir is None:
         command.append("--api-only")
     else:
@@ -327,7 +337,7 @@ def _matching_process(record: DaemonEndpointRecord) -> psutil.Process | None:
     try:
         process = psutil.Process(record.pid)
         create_time = process.create_time()
-    except (psutil.NoSuchProcess, psutil.ZombieProcess):
+    except psutil.NoSuchProcess, psutil.ZombieProcess:
         return None
     except psutil.AccessDenied as error:
         raise DaemonLifecycleError(

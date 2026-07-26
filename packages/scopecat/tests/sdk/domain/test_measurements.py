@@ -10,16 +10,15 @@ from scopecat.compiler.linking.linked import (
 )
 from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.program import core_domain_executions
-from scopecat.execution.points import RunPoint
+from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.host_transforms import HostMeasurementTransformCall
+from scopecat.measurements.points import RunPoint
 from scopecat.measurements.semantics import MeasurementTransformSemanticContract
-from scopecat.records.parameter import Quantity
 from scopecat.sdk.domain._bridge import (
     make_domain_batch_context,
     make_domain_compile_template,
-    point_id,
-    product_use_id,
 )
+from scopecat.sdk.domain._identities import point_id, product_use_id
 from scopecat.sdk.domain._measurement_bridge import (
     lower_domain_host_transform_binding,
     lower_domain_measurement_transform,

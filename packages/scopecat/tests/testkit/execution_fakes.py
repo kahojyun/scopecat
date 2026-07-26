@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from scopecat.execution.ports.journal import ExecutionJournalError
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.measurement_recording import (
@@ -12,6 +11,7 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetReceipt,
     MeasurementDatasetSeal,
 )
+from scopecat.sdk.journal import ExecutionJournalError
 
 
 class FakeExecutionJournal:

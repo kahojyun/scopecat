@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from scopecat.config.profiles import load_config_profile
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.records.config import ConfigProfileSnapshot
-from scopecat.records.parameter import Quantity
 from scopecat.sdk.instruments import (
     ApplyReceipt,
     CollectCommand,

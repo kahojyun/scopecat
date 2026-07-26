@@ -7,8 +7,8 @@ from scopecat.compiler.entity_resolution import (
     resolve_entities,
     resolve_entity,
 )
+from scopecat.kernel.entity import EntityRef
 from scopecat.records.config import Topology
-from scopecat.records.entity import EntityRef
 
 
 def _topology() -> Topology:

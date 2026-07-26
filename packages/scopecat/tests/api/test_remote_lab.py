@@ -72,18 +72,18 @@ from scopecat.execution.observation import (
 )
 from scopecat.execution.program import RunProgram
 from scopecat.execution.services import ExecutionSession
+from scopecat.kernel.quantity import Quantity
+from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.planning.preview import build_run_program_preview
+from scopecat.planning.service import PlannedRun
 from scopecat.planning.system import ExperimentSystem
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
-from scopecat.records.parameter import Quantity
 from scopecat.records.run import (
     ConfigRegistryRunConfigSource,
     RunManifest,
-    RunOutcome,
 )
 from scopecat.runs.repository import TerminalRunCommit
-from scopecat.runs.service import PlannedRun
 from scopecat.sdk.instruments.contracts import InstrumentProvider
 from tests.testkit.runtime import plan_experiment, sqlite_project_services
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider

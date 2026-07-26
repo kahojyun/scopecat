@@ -11,7 +11,6 @@ from typing import Literal, NoReturn, cast
 
 from pydantic import BaseModel, JsonValue
 
-from scopecat.application.services import ProjectStateServices
 from scopecat.config.changes import (
     parameter_change_proposal_record_ref,
     prepare_parameter_change_proposal_contents,
@@ -29,6 +28,7 @@ from scopecat.kernel.problems import (
     model_location,
     problem,
 )
+from scopecat.project_state import ProjectStateServices
 from scopecat.records.analysis import (
     AnalysisRecord,
     AnalysisRecordInput,

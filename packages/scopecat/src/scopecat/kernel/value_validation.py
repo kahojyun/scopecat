@@ -9,8 +9,13 @@ from typing import cast
 
 from pydantic import ValidationError
 
+from scopecat.kernel.entity import (
+    EntityRef,
+    normalize_entity_metadata,
+)
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.problems import LocationPathItem
+from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.kernel.units import compatible_units, unit_kind
 from scopecat.kernel.value_identity import ScalarIdentity, scalar_identity
 from scopecat.kernel.value_types import (
@@ -28,8 +33,6 @@ from scopecat.kernel.value_types import (
     Table,
     ValueType,
 )
-from scopecat.records.entity import EntityRef, normalize_entity_metadata
-from scopecat.records.parameter import Quantity as QuantityValue
 
 type ValuePath = tuple[LocationPathItem, ...]
 
@@ -77,7 +80,7 @@ def coerce_literal(
 
     Collections normalize to tuples, records and rows normalize to dictionaries,
     numeric float values normalize to ``float``, and entity strings normalize to
-    :class:`~scopecat.records.entity.EntityRef` objects. Opaque payloads normalize
+    :class:`~scopecat.kernel.entity.EntityRef` objects. Opaque payloads normalize
     to transient, schema-tagged runtime wrappers.
     """
 

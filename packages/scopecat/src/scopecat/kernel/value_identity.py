@@ -7,9 +7,12 @@ quantity unit normalization without importing one another.
 
 from __future__ import annotations
 
+from scopecat.kernel.entity import (
+    EntityRef,
+    entity_identity,
+)
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.units import compatible_units, to_base_value, unit_kind
-from scopecat.records.entity import EntityRef, entity_identity
-from scopecat.records.parameter import Quantity
 
 type ScalarIdentity = tuple[object, ...]
 

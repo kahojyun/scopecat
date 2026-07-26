@@ -11,7 +11,7 @@ from scopecat.compiler.linking.linked import (
 from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.program import core_domain_executions
 from scopecat.kernel.errors import ProviderContractError
-from scopecat.records.parameter import Quantity
+from scopecat.kernel.quantity import Quantity
 from scopecat.sdk.domain import (
     DomainBatchContext,
     DomainResultBinding,

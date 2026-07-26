@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import cast
 
 import pytest
-from scopecat.records.parameter import Quantity
+from scopecat.kernel.quantity import Quantity
 from scopecat.sdk.instruments import (
     DriverFault,
     InstrumentStateCommand,

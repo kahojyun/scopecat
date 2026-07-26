@@ -12,8 +12,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
-from scopecat.compiler.semantic.compute_result import ComputeOutput
-from scopecat.compiler.semantic.model import ValueId
+from scopecat.graph.values import ComputeOutput, ValueId
 from scopecat.kernel.product_identity import ProductUseId
 from scopecat.kernel.state import StateValue
 from scopecat.records.instrument import CommandChannelBinding

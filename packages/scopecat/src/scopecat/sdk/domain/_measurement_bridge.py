@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from scopecat.compiler.typed.products import ProductDef
 from scopecat.kernel.product_identity import ProductUseId
 from scopecat.measurements.host_transforms import (
     HostMeasurementTransformCall,
     HostMeasurementTransformImplementation,
 )
+from scopecat.measurements.products import ProductDef
 from scopecat.measurements.transform_model import (
     MeasurementTransformDef,
     MeasurementTransformInputPort,
@@ -17,8 +17,8 @@ from scopecat.measurements.transform_model import (
     NativeMeasurementTransformId,
 )
 from scopecat.records.measurement import MeasurementValue
-from scopecat.sdk.domain._bridge import point_id, product_use_id
-from scopecat.sdk.domain.context import DomainBatchContext
+from scopecat.sdk.domain._context_contract import DomainBatchContextView
+from scopecat.sdk.domain._identities import point_id, product_use_id
 from scopecat.sdk.domain.measurements import (
     DomainHostTransformBinding,
     DomainHostTransformCall,
@@ -33,7 +33,7 @@ from scopecat.sdk.domain.view import (
 
 
 def lower_domain_measurement_transform(
-    context: DomainBatchContext,
+    context: DomainBatchContextView,
     transform: DomainMeasurementTransform,
 ) -> MeasurementTransformDef:
     """Lower one context-owned SDK declaration into the core graph."""
@@ -53,7 +53,7 @@ def lower_domain_measurement_transform(
 
 
 def lower_domain_host_transform_binding(
-    context: DomainBatchContext,
+    context: DomainBatchContextView,
     binding: DomainHostTransformBinding,
 ) -> tuple[MeasurementTransformDef, HostMeasurementTransformImplementation]:
     """Lower one complete SDK host binding as a consistent native pair."""
@@ -98,7 +98,7 @@ def lower_domain_host_transform_binding(
 
 
 def _lower_input_port(
-    context: DomainBatchContext,
+    context: DomainBatchContextView,
     port: DomainTransformInputPort,
 ) -> MeasurementTransformInputPort:
     use_id, product = _native_product_contract(context, port.product_use)
@@ -106,7 +106,7 @@ def _lower_input_port(
 
 
 def _lower_output_port(
-    context: DomainBatchContext,
+    context: DomainBatchContextView,
     port: DomainTransformOutputPort,
 ) -> MeasurementTransformOutputPort:
     product = _native_product_def(context, port.product)
@@ -118,7 +118,7 @@ def _lower_output_port(
 
 
 def _native_product_contract(
-    context: DomainBatchContext,
+    context: DomainBatchContextView,
     product_use: DomainProductUseRef,
 ) -> tuple[ProductUseId, ProductDef]:
     if not any(product_use is owned for owned in context.product_uses):
@@ -138,7 +138,7 @@ def _native_product_contract(
 
 
 def _native_product_def(
-    context: DomainBatchContext,
+    context: DomainBatchContextView,
     contract: DomainProductContractView,
 ) -> ProductDef:
     catalog = context.measurement_catalog

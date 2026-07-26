@@ -4,11 +4,6 @@ from pathlib import Path
 from typing import override
 
 import scopecat as sc
-from scopecat.compiler.semantic.compute_result import ComputeOutput
-from scopecat.compiler.semantic.model import (
-    OperationId,
-    operation_result_id,
-)
 from scopecat.execution.effect_interpreter import RunEffectInterpreter
 from scopecat.execution.events import TransitionRecorder
 from scopecat.execution.local.program import (
@@ -20,8 +15,12 @@ from scopecat.execution.local.program import (
     OutputInput,
     StateTarget,
 )
-from scopecat.execution.points import RunPoint
 from scopecat.execution.program import RunCoverageBlock, RunCoverageEffect
+from scopecat.graph.values import (
+    ComputeOutput,
+    OperationId,
+    operation_result_id,
+)
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
 from scopecat.kernel.problems import (
     ProblemPhase,
@@ -29,14 +28,15 @@ from scopecat.kernel.problems import (
     problem,
 )
 from scopecat.kernel.product_identity import ProductUse, ProductUseId, product_id
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import ResourceClaim
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Scalar
 from scopecat.kernel.value_types import Quantity as QuantityType
+from scopecat.measurements.points import RunPoint
 from scopecat.measurements.values import MeasurementValueCandidate
 from scopecat.records.execution_journal import ExecutionTransition
-from scopecat.records.parameter import Quantity
 from scopecat.sdk.instruments import (
     ApplyReceipt,
     CollectCommand,

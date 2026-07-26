@@ -28,6 +28,7 @@ from scopecat.config.registry.records import (
 )
 from scopecat.control.models import RunPlanSummary
 from scopecat.kernel.content_identity import stable_content_hash
+from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import (
     ConfigContentHash,
@@ -44,7 +45,10 @@ from scopecat.records.parameter_change import (
     ParameterChangeReviewState,
     ParameterValueDelta,
 )
-from scopecat.records.run import RunConfigSource, RunManifest, RunOutcome
+from scopecat.records.run import (
+    RunConfigSource,
+    RunManifest,
+)
 from scopecat.records.run_request import RunRequest
 
 type NonEmptyText = Annotated[str, Field(min_length=1)]

@@ -30,6 +30,7 @@ from scopecat.config.parameter_updates import (
     ParameterUpdate,
     merge_parameter_change_deltas,
 )
+from scopecat.config.profile_validation import validate_config_profile
 from scopecat.config.registry.ports import (
     ConfigRegistryRepository,
     ConfigRegistryUnitOfWork,
@@ -59,7 +60,6 @@ from scopecat.kernel.problems import (
     ProblemPhase,
     StorageLocation,
 )
-from scopecat.planning.validation import validate_config_profile
 from scopecat.records.analysis import AnalysisRecord
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import (

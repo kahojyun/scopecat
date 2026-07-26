@@ -16,14 +16,14 @@ from scopecat.compiler.frontend.scan_lowering import (
     lower_scan_points,
     lower_scans_point_domain,
 )
-from scopecat.compiler.relations.model import ParameterLookupUse
-from scopecat.compiler.relations.point_domain import (
+from scopecat.graph.relations.model import ParameterLookupUse
+from scopecat.graph.relations.point_domain import (
     PointAxis,
     PointAxisLinear,
     PointAxisValues,
     PointProduct,
 )
-from scopecat.records.parameter import Quantity
+from scopecat.kernel.quantity import Quantity
 
 _FREQUENCY = sc.ScalarType(sc.QuantityType(unit="GHz"))
 

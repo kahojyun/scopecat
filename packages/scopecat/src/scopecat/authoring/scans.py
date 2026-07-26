@@ -11,7 +11,6 @@ import re
 from collections.abc import Sequence
 from typing import cast, overload
 
-from scopecat.authoring._frozen_values import capture_runtime_input
 from scopecat.authoring._scan_intents import (
     CartesianScanIntent as _CartesianScanIntent,
 )
@@ -42,14 +41,15 @@ from scopecat.authoring._scan_intents import (
 from scopecat.authoring._scan_intents import iter_scan_leaves
 from scopecat.authoring._value_refs import (
     ValueRef,
+    capture_runtime_input,
     internal_value_ref_parameter_lookup,
     internal_value_ref_point_id,
 )
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.units import compatible_units, unit_kind
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar
 from scopecat.kernel.value_validation import validate_literal
-from scopecat.records.parameter import Quantity
 
 
 def axis(

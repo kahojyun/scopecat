@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from scopecat.compiler.relations.evaluation import EvalContext
+from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.evaluation import (
     evaluate_relation as evaluate_selected_relation,
 )
@@ -14,19 +14,10 @@ from scopecat.compiler.relations.evaluation import (
 from scopecat.compiler.relations.evaluation import (
     evaluate_series as evaluate_selected_series,
 )
-from scopecat.compiler.relations.model import (
-    CellValue,
-    RelationExpr,
-    Row,
-    ScalarExpr,
-    SeriesExpr,
-    as_scalar_expr,
-)
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     verify_relation_plan,
 )
-from scopecat.compiler.semantic.compute_result import ComputeResultRef
 from scopecat.compiler.semantic.value_expressions import (
     ScalarValueExpr,
     SeriesValueExpr,
@@ -39,6 +30,15 @@ from scopecat.compiler.semantic.value_expressions import (
 )
 from scopecat.compiler.typed.program import set_state_field
 from scopecat.compiler.typed.state import SetStateSpec
+from scopecat.graph.relations.model import (
+    CellValue,
+    RelationExpr,
+    Row,
+    ScalarExpr,
+    SeriesExpr,
+    as_scalar_expr,
+)
+from scopecat.graph.values import ComputeResultRef
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
     logical_resource_port_id,

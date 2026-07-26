@@ -10,7 +10,7 @@ from scopecat.authoring import (
     ExperimentTemplate,
 )
 from scopecat.execution.observation import RuntimeEvent, RuntimeTransitionEvent
-from scopecat.records.parameter import Quantity
+from scopecat.kernel.quantity import Quantity
 from scopecat.records.run import AnalysisCandidateRunConfigSource
 from tests.testkit.authoring import DRIVE_FREQUENCY_POINT
 from tests.testkit.in_process_lab import in_process_lab

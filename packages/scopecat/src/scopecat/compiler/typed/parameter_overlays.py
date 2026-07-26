@@ -8,17 +8,10 @@ from dataclasses import dataclass
 from typing import cast
 
 from scopecat.compiler.diagnostics import CompilerProblemError, compiler_problem
-from scopecat.compiler.relations.analysis import PlanNode
+from scopecat.compiler.relations.context import EvalContext, ParameterRelationData
 from scopecat.compiler.relations.evaluation import (
-    EvalContext,
-    ParameterRelationData,
     evaluate_scalar,
 )
-from scopecat.compiler.relations.model import (
-    CellValue,
-    ScalarExpr,
-)
-from scopecat.compiler.relations.operators import runtime_values_equal
 from scopecat.compiler.relations.specialization import (
     KnownScalar,
     ParameterCellBinding,
@@ -31,10 +24,19 @@ from scopecat.compiler.relations.uses import (
 )
 from scopecat.compiler.relations.verification import VerifiedRelationPlan
 from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
+from scopecat.graph.relations.analysis import PlanNode
+from scopecat.graph.relations.model import (
+    CellValue,
+    ScalarExpr,
+)
+from scopecat.graph.relations.operators import runtime_values_equal
+from scopecat.kernel.entity import (
+    EntityRef,
+    same_entity_identity,
+)
 from scopecat.kernel.problems import ModelLocation, model_location
 from scopecat.kernel.value_types import Scalar
 from scopecat.kernel.value_validation import ValueValidationError, coerce_literal
-from scopecat.records.entity import EntityRef, same_entity_identity
 
 type RelationPlanResolver = Callable[[RelationUseId], VerifiedRelationPlan[PlanNode]]
 
@@ -105,7 +107,7 @@ def resolve_parameter_cell_bindings(
         }
         try:
             row = known.params.lookup_row(overlay.table_id, key)
-        except (KeyError, TypeError, ValueError):
+        except KeyError, TypeError, ValueError:
             continue
         if overlay.column_id not in row:
             continue

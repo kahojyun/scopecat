@@ -12,7 +12,7 @@ import scopecat.kernel.payloads as value_models
 import scopecat.measurements.results as results
 import scopecat.sdk.problems as problems
 from scopecat.authoring._value_refs import internal_lower_scalar_value_ref
-from scopecat.compiler.relations.evaluation import EvalContext
+from scopecat.compiler.relations.context import EvalContext
 from tests.testkit.relation_plans import evaluate_scalar
 
 _OWNER_ONLY_ROOT_NAMES = {

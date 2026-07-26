@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import scopecat as sc
-from scopecat.records.entity import EntityRef
+from scopecat.kernel.entity import EntityRef
 
 QUBIT_PARAMETER_TABLE = "qubits"
 TWO_QUBIT_GATE_PARAMETER_TABLE = "two_qubit_gates"

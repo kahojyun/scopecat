@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 from scopecat.authoring import ExperimentInvocation
-from scopecat.execution.points import RunPoint
+from scopecat.measurements.points import RunPoint
 from scopecat.measurements.projection import MeasurementProjection
 from scopecat.records.config import ConfigProfileSnapshot
 

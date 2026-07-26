@@ -13,8 +13,11 @@ from typing import cast
 
 from pydantic import BaseModel
 
+from scopecat.kernel.entity import (
+    EntityRef,
+    entity_identity,
+)
 from scopecat.kernel.payloads import PayloadValue
-from scopecat.records.entity import EntityRef, entity_identity
 
 
 def stable_content_hash(value: object) -> str:
@@ -130,30 +133,7 @@ def content_fingerprint(value: object) -> object:
     shape = cast("Sequence[object] | None", getattr(value, "shape", None))
     dtype = cast("object | None", getattr(value, "dtype", None))
     if shape is not None or dtype is not None:
-        if cast("bool", getattr(dtype, "hasobject", False)):
-            msg = f"cannot fingerprint object-backed array {_type_name(value)}"
-            raise TypeError(msg)
-        to_bytes = getattr(value, "tobytes", None)
-        if not callable(to_bytes):
-            msg = f"array-like value {_type_name(value)} has no stable byte codec"
-            raise TypeError(msg)
-        try:
-            encoded = to_bytes()
-        except Exception as error:
-            msg = f"array-like value {_type_name(value)} cannot be encoded"
-            raise TypeError(msg) from error
-        if not isinstance(encoded, bytes):
-            msg = f"array-like value {_type_name(value)} returned non-byte content"
-            raise TypeError(msg)
-        strides = cast("Sequence[object] | None", getattr(value, "strides", None))
-        return {
-            "kind": "array",
-            "type": _type_name(value),
-            "sha256": hashlib.sha256(encoded).hexdigest(),
-            "shape": list(shape) if shape is not None else None,
-            "dtype": str(dtype) if dtype is not None else None,
-            "strides": list(strides) if strides else None,
-        }
+        return _array_fingerprint(value, shape=shape, dtype=dtype)
     fingerprint = getattr(value, "__scopecat_fingerprint__", None)
     if callable(fingerprint):
         return {
@@ -167,6 +147,38 @@ def content_fingerprint(value: object) -> object:
         "__scopecat_fingerprint__()"
     )
     raise TypeError(msg)
+
+
+def _array_fingerprint(
+    value: object,
+    *,
+    shape: Sequence[object] | None,
+    dtype: object | None,
+) -> dict[str, object]:
+    if cast("bool", getattr(dtype, "hasobject", False)):
+        msg = f"cannot fingerprint object-backed array {_type_name(value)}"
+        raise TypeError(msg)
+    to_bytes = getattr(value, "tobytes", None)
+    if not callable(to_bytes):
+        msg = f"array-like value {_type_name(value)} has no stable byte codec"
+        raise TypeError(msg)
+    try:
+        encoded = to_bytes()
+    except Exception as error:
+        msg = f"array-like value {_type_name(value)} cannot be encoded"
+        raise TypeError(msg) from error
+    if not isinstance(encoded, bytes):
+        msg = f"array-like value {_type_name(value)} returned non-byte content"
+        raise TypeError(msg)
+    strides = cast("Sequence[object] | None", getattr(value, "strides", None))
+    return {
+        "kind": "array",
+        "type": _type_name(value),
+        "sha256": hashlib.sha256(encoded).hexdigest(),
+        "shape": list(shape) if shape is not None else None,
+        "dtype": str(dtype) if dtype is not None else None,
+        "strides": list(strides) if strides else None,
+    }
 
 
 def canonical_json(value: object) -> str:

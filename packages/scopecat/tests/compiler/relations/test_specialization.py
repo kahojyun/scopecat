@@ -1,11 +1,20 @@
 from __future__ import annotations
 
-from scopecat.compiler.relations.evaluation import (
+from scopecat.compiler.relations.context import (
     EvalContext,
     ParameterRelationData,
 )
 from scopecat.compiler.relations.evaluator import evaluate_scalar_expression
-from scopecat.compiler.relations.model import (
+from scopecat.compiler.relations.specialization import (
+    BindingTime,
+    KnownScalar,
+    ParameterCellBinding,
+    ResidualScalar,
+    specialize_relation,
+    specialize_scalar,
+    specialize_series,
+)
+from scopecat.graph.relations.model import (
     LiteralRowsRelationExpr,
     ParameterLookupUse,
     TableRelationExpr,
@@ -16,15 +25,6 @@ from scopecat.compiler.relations.model import (
     parameter_series,
     point_col,
     table,
-)
-from scopecat.compiler.relations.specialization import (
-    BindingTime,
-    KnownScalar,
-    ParameterCellBinding,
-    ResidualScalar,
-    specialize_relation,
-    specialize_scalar,
-    specialize_series,
 )
 from scopecat.kernel.value_types import Float, Scalar, String
 

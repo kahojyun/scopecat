@@ -3,7 +3,7 @@ name = "scopecat-quantum"
 version = "0.1.0"
 description = "Hardware-independent quantum domain building blocks for Scopecat."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
   "scopecat",
 ]

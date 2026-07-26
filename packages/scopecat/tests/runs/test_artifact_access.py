@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.records.artifact import RunContentEntry
-from scopecat.records.run import RunManifest, RunOutcome
+from scopecat.records.run import RunManifest
 from scopecat.runs.access import (
     list_payload_entries,
     list_records,

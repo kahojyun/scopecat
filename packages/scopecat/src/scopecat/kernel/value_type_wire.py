@@ -188,71 +188,86 @@ def scalar_type_to_wire(value: Scalar) -> dict[str, object]:
     match atom:
         case Bool():
             data = {"type": "bool"}
-        case Int(minimum=minimum, maximum=maximum):
-            data = {"type": "int"}
-            if minimum is not None:
-                data["minimum"] = minimum
-            if maximum is not None:
-                data["maximum"] = maximum
-        case Float(minimum=minimum, maximum=maximum, finite=finite):
-            data = {"type": "float"}
-            if minimum is not None:
-                data["minimum"] = minimum
-            if maximum is not None:
-                data["maximum"] = maximum
-            if not finite:
-                data["finite"] = False
-        case String(
-            min_length=min_length,
-            max_length=max_length,
-            pattern=pattern,
-            choices=choices,
-        ):
-            data = {"type": "string"}
-            if min_length:
-                data["min_length"] = min_length
-            if max_length is not None:
-                data["max_length"] = max_length
-            if pattern is not None:
-                data["pattern"] = pattern
-            if choices is not None:
-                data["choices"] = list(choices)
-        case Quantity(
-            dimension=dimension,
-            unit=unit,
-            minimum=minimum,
-            maximum=maximum,
-            finite=finite,
-        ):
-            data = {"type": "quantity"}
-            if dimension is not None:
-                data["dimension"] = dimension
-            if unit is not None:
-                data["unit"] = unit
-            if minimum is not None:
-                data["minimum"] = minimum
-            if maximum is not None:
-                data["maximum"] = maximum
-            if not finite:
-                data["finite"] = False
-        case Entity(entity_kind=entity_kind):
-            data = {"type": "entity"}
-            if entity_kind is not None:
-                data["entity_kind"] = entity_kind
-        case Payload(schema_id=schema_id, python_type=python_type):
-            if python_type is not None:
-                msg = (
-                    "payload scalar type python_type is runtime-only and cannot be "
-                    "serialized"
-                )
-                raise TypeError(msg)
-            data = {"type": "payload", "schema_id": schema_id}
+        case Int():
+            data = _int_type_to_wire(atom)
+        case Float():
+            data = _float_type_to_wire(atom)
+        case String():
+            data = _string_type_to_wire(atom)
+        case Quantity():
+            data = _quantity_type_to_wire(atom)
+        case Entity():
+            data = _entity_type_to_wire(atom)
+        case Payload():
+            data = _payload_type_to_wire(atom)
         case _:
             msg = f"unsupported durable scalar type: {type(atom).__name__}"
             raise TypeError(msg)
     if value.nullable:
         data["nullable"] = True
     return data
+
+
+def _int_type_to_wire(value: Int) -> dict[str, object]:
+    data: dict[str, object] = {"type": "int"}
+    if value.minimum is not None:
+        data["minimum"] = value.minimum
+    if value.maximum is not None:
+        data["maximum"] = value.maximum
+    return data
+
+
+def _float_type_to_wire(value: Float) -> dict[str, object]:
+    data: dict[str, object] = {"type": "float"}
+    if value.minimum is not None:
+        data["minimum"] = value.minimum
+    if value.maximum is not None:
+        data["maximum"] = value.maximum
+    if not value.finite:
+        data["finite"] = False
+    return data
+
+
+def _string_type_to_wire(value: String) -> dict[str, object]:
+    data: dict[str, object] = {"type": "string"}
+    if value.min_length:
+        data["min_length"] = value.min_length
+    if value.max_length is not None:
+        data["max_length"] = value.max_length
+    if value.pattern is not None:
+        data["pattern"] = value.pattern
+    if value.choices is not None:
+        data["choices"] = list(value.choices)
+    return data
+
+
+def _quantity_type_to_wire(value: Quantity) -> dict[str, object]:
+    data: dict[str, object] = {"type": "quantity"}
+    if value.dimension is not None:
+        data["dimension"] = value.dimension
+    if value.unit is not None:
+        data["unit"] = value.unit
+    if value.minimum is not None:
+        data["minimum"] = value.minimum
+    if value.maximum is not None:
+        data["maximum"] = value.maximum
+    if not value.finite:
+        data["finite"] = False
+    return data
+
+
+def _entity_type_to_wire(value: Entity) -> dict[str, object]:
+    data: dict[str, object] = {"type": "entity"}
+    if value.entity_kind is not None:
+        data["entity_kind"] = value.entity_kind
+    return data
+
+
+def _payload_type_to_wire(value: Payload) -> dict[str, object]:
+    if value.python_type is not None:
+        msg = "payload scalar type python_type is runtime-only and cannot be serialized"
+        raise TypeError(msg)
+    return {"type": "payload", "schema_id": value.schema_id}
 
 
 type ScalarWire = Annotated[

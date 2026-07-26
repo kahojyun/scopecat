@@ -16,10 +16,10 @@ from scopecat.adapters.sqlite import (
     SQLiteRunRepository,
 )
 from scopecat.application.lab import BootstrapConfigFactory
-from scopecat.application.services import ProjectStateServices
 from scopecat.config.resolution import ConfigProfileInput, validate_config_profile
 from scopecat.daemon.wire import DirectConfigDefaultCommand
 from scopecat.project import LabApplicationFactory
+from scopecat.project_state import ProjectStateServices
 from scopecat.records.config import config_content_hash
 
 from .services import (

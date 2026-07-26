@@ -9,9 +9,10 @@ from scopecat.execution.evidence import (
     build_terminal_contents,
     instrument_state_evidence_ref,
 )
+from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.execution import InstrumentStateEvidence
-from scopecat.records.run import RunManifest, RunOutcome
+from scopecat.records.run import RunManifest
 from scopecat.runs.repository import (
     RunContentPublication,
     TerminalRunCommit,

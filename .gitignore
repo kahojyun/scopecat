@@ -2,6 +2,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .ruff_cache/
+.coverage
 .scopecat-examples/
 .scopecat-embedded/
 .venv/

@@ -8,6 +8,7 @@ from functools import partial
 from types import MappingProxyType
 
 from scopecat.authoring._binding_intents import ExperimentBindingIntent
+from scopecat.authoring._identities import ComputeDeclarationKey
 from scopecat.authoring._intents import (
     ComputeNodeInputValue,
     ModuleOperationDecl,
@@ -26,13 +27,8 @@ from scopecat.authoring._value_refs import (
 )
 from scopecat.authoring.domain import LoweredDomainExecution
 from scopecat.authoring.measurements import MeasurementTransform
-from scopecat.authoring.values import ComputeDeclarationKey, ComputeFunction
+from scopecat.authoring.values import ComputeFunction
 from scopecat.compiler.frontend.value_binding import literal_data_expr
-from scopecat.compiler.relations.model import (
-    RelationExpr,
-    ScalarExpr,
-    SeriesExpr,
-)
 from scopecat.compiler.relations.scalar_eval import eval_binary
 from scopecat.compiler.relations.verification import (
     RelationPlanVerificationError,
@@ -40,27 +36,34 @@ from scopecat.compiler.relations.verification import (
     RowType,
     verify_relation_plan,
 )
-from scopecat.compiler.semantic.compute_result import ComputeResultRef
 from scopecat.compiler.semantic.model import (
     AcquireEffect,
     ImplementationId,
     LiteralValueSource,
     LocalPythonImplementation,
     MeasurementTransformId,
-    OperationId,
     PlanExpressionSource,
     SemanticDomainExecution,
     SemanticGraphIR,
     SemanticMeasurementTransform,
     SemanticOperation,
     ValueDef,
-    ValueId,
     ValueUse,
-    operation_result_id,
 )
 from scopecat.compiler.semantic.operation_contract import (
     LOCAL_OPAQUE_OPERATION_CONTRACT,
     scalar_binary_operation_contract,
+)
+from scopecat.graph.relations.model import (
+    RelationExpr,
+    ScalarExpr,
+    SeriesExpr,
+)
+from scopecat.graph.values import (
+    ComputeResultRef,
+    OperationId,
+    ValueId,
+    operation_result_id,
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (

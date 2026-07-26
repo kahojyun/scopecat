@@ -21,17 +21,6 @@ from pydantic import (
     model_validator,
 )
 
-from scopecat.execution.ports.journal import (
-    ExecutionJournal,
-)
-from scopecat.execution.ports.journal import (
-    commit_transition as _commit_transition,
-)
-from scopecat.execution.problems import (
-    contextualize_problems,
-    problem_from_exception,
-    runtime_problem,
-)
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.errors import (
     DomainFetchFailed,
@@ -44,9 +33,16 @@ from scopecat.sdk.domain.invocation import (
     ClosedDomainInvocation,
     DomainInvocationIntent,
 )
+from scopecat.sdk.journal import ExecutionJournal
+from scopecat.sdk.journal import commit_transition as _commit_transition
 from scopecat.sdk.problems import (
     Problem,
     ProblemPhase,
+)
+from scopecat.sdk.runtime_problems import (
+    contextualize_problems,
+    problem_from_exception,
+    runtime_problem,
 )
 
 
@@ -560,8 +556,11 @@ def _normalize_submit_receipt(value: object) -> DomainSubmitReceipt:
 def _normalize_fetch_candidate(value: object) -> DomainFetchCandidate[object]:
     if not isinstance(value, DomainFetchCandidate):
         raise TypeError("domain runtime fetch must return DomainFetchCandidate")
-    receipt = DomainFetchReceipt.model_validate(value.receipt.model_dump(mode="json"))
-    return DomainFetchCandidate(receipt, value.result)
+    candidate = cast("DomainFetchCandidate[object]", value)
+    receipt = DomainFetchReceipt.model_validate(
+        candidate.receipt.model_dump(mode="json")
+    )
+    return DomainFetchCandidate(receipt, candidate.result)
 
 
 def _transition(

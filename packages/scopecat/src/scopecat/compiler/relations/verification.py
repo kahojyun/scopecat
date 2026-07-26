@@ -15,7 +15,7 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import cast
 
-from scopecat.compiler.relations.analysis import (
+from scopecat.graph.relations.analysis import (
     PlanNode,
     PlanReferenceKind,
     PlanReferences,
@@ -25,7 +25,7 @@ from scopecat.compiler.relations.analysis import (
     plan_references,
     verify_plan_scopes,
 )
-from scopecat.compiler.relations.model import (
+from scopecat.graph.relations.model import (
     BinaryScalarExpr,
     ColumnScalarExpr,
     InputRelationExpr,
@@ -51,7 +51,8 @@ from scopecat.compiler.relations.model import (
     ValuesSeriesExpr,
     WithColumnsRelationExpr,
 )
-from scopecat.compiler.relations.operators import scalar_operator_result_type
+from scopecat.graph.relations.operators import scalar_operator_result_type
+from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.kernel.units import unit_kind
 from scopecat.kernel.value_type_compatibility import is_assignable, literal_scalar_type
 from scopecat.kernel.value_types import (
@@ -70,7 +71,6 @@ from scopecat.kernel.value_types import (
     ValueType,
 )
 from scopecat.kernel.value_validation import ValueValidationError, validate_literal
-from scopecat.records.parameter import Quantity as QuantityValue
 
 type PlanPathItem = str | int
 type PlanPath = tuple[PlanPathItem, ...]

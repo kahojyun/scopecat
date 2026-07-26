@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from scopecat.compiler.relations.model import ParameterLookupUse
+from scopecat.graph.relations.model import ParameterLookupUse
 from scopecat.kernel.value_types import ValueType
 
 

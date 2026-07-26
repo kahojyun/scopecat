@@ -9,22 +9,13 @@ import pytest
 from pydantic import JsonValue
 
 from scopecat.adapters.sqlite import SQLiteRunRepository
-from scopecat.compiler.frontend.environment import build_config_environment
-from scopecat.compiler.relations.model import (
-    lit,
-    point_col,
-)
-from scopecat.compiler.relations.point_domain import point_axis_values, point_product
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
 )
-from scopecat.compiler.semantic.compute_result import ComputeOutput
 from scopecat.compiler.semantic.model import (
     ImplementationId,
     LocalPythonImplementation,
-    OperationId,
-    operation_result_id,
 )
 from scopecat.compiler.semantic.operation_contract import (
     LOCAL_OPAQUE_OPERATION_CONTRACT,
@@ -38,6 +29,7 @@ from scopecat.compiler.typed.program import (
     record_product,
     set_state_field,
 )
+from scopecat.config.environment import build_config_environment
 from scopecat.execution.evidence import (
     instrument_state_evidence_ref,
 )
@@ -49,12 +41,23 @@ from scopecat.execution.observation import (
     RuntimeTransitionEvent,
 )
 from scopecat.execution.program import RunHostBinding
+from scopecat.graph.relations.model import (
+    lit,
+    point_col,
+)
+from scopecat.graph.relations.point_domain import point_axis_values, point_product
+from scopecat.graph.values import (
+    ComputeOutput,
+    OperationId,
+    operation_result_id,
+)
 from scopecat.kernel.errors import ProviderContractError, RunFailed
 from scopecat.kernel.problems import (
     Problem,
     ProblemPhase,
     model_location,
 )
+from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.state import StateValue
 from scopecat.kernel.symbols import SymbolId
@@ -73,7 +76,6 @@ from scopecat.records.instrument import (
     InstrumentStateField,
     InstrumentStateSnapshot,
 )
-from scopecat.records.parameter import Quantity
 from scopecat.records.run import RunManifest
 from scopecat.runs.access import dataset_storage_ref
 from scopecat.runs.repository import TerminalRunCommit

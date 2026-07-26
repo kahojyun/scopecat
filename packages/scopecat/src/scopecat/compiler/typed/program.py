@@ -16,13 +16,10 @@ from scopecat.compiler.relations.uses import (
     RelationUseId,
     relation_use,
 )
-from scopecat.compiler.semantic.compute_result import ComputeOutput, ComputeResultRef
 from scopecat.compiler.semantic.model import (
     AcquireEffect,
     LocalPythonImplementation,
     MeasurementTransformId,
-    OperationId,
-    ValueId,
 )
 from scopecat.compiler.semantic.operation_contract import OperationContract
 from scopecat.compiler.semantic.value_expressions import (
@@ -32,16 +29,17 @@ from scopecat.compiler.semantic.value_expressions import (
 )
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
-from scopecat.compiler.typed.products import (
-    ProductAxisDef,
-    ProductDef,
-)
-from scopecat.compiler.typed.records import RecordUse
 from scopecat.compiler.typed.state import (
     LogicalStateResourceTarget,
     SetStateSpec,
 )
 from scopecat.domain.program import DomainProgramDef
+from scopecat.graph.values import (
+    ComputeOutput,
+    ComputeResultRef,
+    OperationId,
+    ValueId,
+)
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.product_identity import (
     ProductId,
@@ -53,6 +51,11 @@ from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
 )
 from scopecat.kernel.value_types import ValueType
+from scopecat.measurements.products import (
+    ProductAxisDef,
+    ProductDef,
+)
+from scopecat.measurements.records import RecordUse
 from scopecat.measurements.semantics import (
     MeasurementTransformSemanticContract,
 )

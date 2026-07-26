@@ -10,8 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from scopecat.execution.local.program import ComputeOperation, LocalOperation
-from scopecat.execution.points import RunPoint, RunPointCatalog
 from scopecat.kernel.resource_identity import ResourceClaim
+from scopecat.measurements.points import RunPoint, RunPointCatalog
 from scopecat.measurements.projection import MeasurementProjection
 from scopecat.records.config import ConfigContentHash
 from scopecat.sdk.domain.execution import PreparedDomainExecution

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from scopecat.compiler.relations.operators import ScalarOperator
+from scopecat.graph.relations.operators import ScalarOperator
 
 
 @dataclass(frozen=True, slots=True)

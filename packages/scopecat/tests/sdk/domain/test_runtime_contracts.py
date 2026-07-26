@@ -5,7 +5,6 @@ import logging
 import pytest
 from pydantic import ValidationError
 
-from scopecat.execution.problems import problem_from_exception
 from scopecat.kernel.errors import RunFailed, RunIndeterminate
 from scopecat.kernel.problems import (
     Problem,
@@ -13,13 +12,14 @@ from scopecat.kernel.problems import (
     model_location,
     problem,
 )
-from scopecat.records.run import RunOutcome
+from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.sdk.instruments import (
     ApplyReceipt,
     CollectReceipt,
     DriverFault,
     InstrumentReadback,
 )
+from scopecat.sdk.runtime_problems import problem_from_exception
 
 
 def _runtime_problem() -> Problem:
@@ -130,7 +130,7 @@ def test_expected_driver_fault_is_not_logged_as_an_unexpected_exception(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     source = _runtime_problem()
-    caplog.set_level(logging.ERROR, logger="scopecat.execution.problems")
+    caplog.set_level(logging.ERROR, logger="scopecat.sdk.runtime_problems")
 
     problem = problem_from_exception(
         "unexpected_driver_failure",
@@ -147,7 +147,7 @@ def test_expected_driver_fault_is_not_logged_as_an_unexpected_exception(
 def test_unexpected_exception_is_logged_but_problem_is_sanitized(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    caplog.set_level(logging.ERROR, logger="scopecat.execution.problems")
+    caplog.set_level(logging.ERROR, logger="scopecat.sdk.runtime_problems")
 
     problem = problem_from_exception(
         "unexpected_driver_failure",
