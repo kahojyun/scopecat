@@ -6,11 +6,10 @@ from pathlib import Path
 from scopecat.analysis.service import AnalysisOutput, save_analysis
 from scopecat.config.candidates import (
     CandidateConfig,
-    resolve_candidate_config_snapshot,
 )
 from scopecat.config.changes import (
     parameter_change_proposal_from_updates,
-    prepare_parameter_change_decision,
+    prepare_parameter_change_approval,
 )
 from scopecat.config.parameters import replace_scalar_parameter
 from scopecat.config.registry.ports import ConfigRegistryUnitOfWorkFactory
@@ -29,12 +28,9 @@ from scopecat.config.registry.service import (
 )
 from scopecat.kernel.quantity import Quantity
 from scopecat.project_state import ProjectStateServices
-from scopecat.records.config import ConfigContentHash, ConfigProfileSnapshot
+from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter_change import (
-    HumanDecisionAuthority,
-    ParameterChangeDecision,
-    ParameterChangeDecisionAuthority,
-    ParameterChangeDecisionRecord,
+    ParameterChangeApprovalRecord,
 )
 from tests.testkit.runtime import sqlite_project_services
 from tests.testkit.signal_testkit import execute_signal_run
@@ -78,13 +74,11 @@ def load_config_registry_config(
 
 def register_candidate_config(
     *,
-    config: ConfigProfileSnapshot,
     unit_of_work: ConfigRegistryUnitOfWorkFactory,
     entry_id: str,
     registered_by: str,
     run_id: str,
     proposal_id: str,
-    base_config_content_hash: ConfigContentHash,
     note: str = "",
 ) -> ConfigRegistryEntry:
     """Register without activation for persistence tests."""
@@ -95,13 +89,11 @@ def register_candidate_config(
     _validate_required_text(proposal_id, field="proposal_id")
     with unit_of_work() as work:
         return _register_candidate_config_locked(
-            config=config,
             work=work,
             entry_id=entry_id,
             registered_by=registered_by,
             run_id=run_id,
             proposal_id=proposal_id,
-            base_config_content_hash=base_config_content_hash,
             note=note,
         )
 
@@ -117,20 +109,17 @@ def activate_candidate_config(
     activation_note: str | None = None,
     expected_generation: int | None = None,
 ) -> CandidateActivation:
-    config = resolve_candidate_config_snapshot(candidate, services=services)
     generation = (
         current_config_registry_generation(unit_of_work=services.config_registry)
         if expected_generation is None
         else expected_generation
     )
     entry, active_state, activation = register_and_activate_candidate_config(
-        config=config,
         unit_of_work=services.config_registry,
-        entry_id=entry_id or f"{config.id}-{candidate.source_run_id}",
+        entry_id=entry_id,
         registered_by=registered_by,
         run_id=candidate.source_run_id,
         proposal_id=candidate.proposal_id,
-        base_config_content_hash=candidate.base_config_content_hash,
         operator=operator,
         expected_generation=generation,
         note=note,
@@ -148,41 +137,19 @@ def review_parameter_change_proposal(
     run_id: str,
     selector: str,
     services: ProjectStateServices,
-    state: ParameterChangeDecision,
     reviewer: str,
     note: str = "",
-) -> ParameterChangeDecisionRecord:
-    prepared = prepare_parameter_change_decision(
+) -> ParameterChangeApprovalRecord:
+    prepared = prepare_parameter_change_approval(
         run_id=run_id,
         selector=selector,
         services=services,
-        decision=state,
-        authority=HumanDecisionAuthority(actor=reviewer),
+        actor=reviewer,
         note=note,
     )
-    services.runs.publish_content(prepared.publication)
-    return prepared.decision
-
-
-def decide_parameter_change_proposal(
-    *,
-    run_id: str,
-    selector: str,
-    services: ProjectStateServices,
-    decision: ParameterChangeDecision,
-    authority: ParameterChangeDecisionAuthority,
-    note: str = "",
-) -> ParameterChangeDecisionRecord:
-    prepared = prepare_parameter_change_decision(
-        run_id=run_id,
-        selector=selector,
-        services=services,
-        decision=decision,
-        authority=authority,
-        note=note,
-    )
-    services.runs.publish_content(prepared.publication)
-    return prepared.decision
+    if prepared.publication is not None:
+        services.runs.publish_content(prepared.publication)
+    return prepared.approval
 
 
 def signal_run_with_parameter_change(tmp_path: Path) -> str:

@@ -4,9 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import cast
-
-from pydantic import TypeAdapter
 
 from scopecat.execution.local.drivers import preflight_problem_from_exception
 from scopecat.execution.local.program import LocalOperation
@@ -25,10 +22,7 @@ from scopecat.sdk.instruments.contracts import (
     InstrumentDescription,
     InstrumentProvider,
     InstrumentProviderContext,
-    InstrumentProviderDescription,
 )
-
-_PROVIDER_DESCRIPTION_ADAPTER = TypeAdapter(InstrumentProviderDescription)
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,25 +43,11 @@ def preflight_instrument_provider(
     """Describe and normalize the provider before point-local lowering."""
 
     problems: list[Problem] = []
-    try:
-        provider_id = instrument_provider.provider_id
-        if type(provider_id) is not str or not provider_id:
-            msg = "instrument provider identity must be a non-empty string"
-            raise TypeError(msg)
-    except Exception as error:
-        problems.append(
-            preflight_problem_from_exception(
-                "instrument_provider_identity_failed",
-                "instrument provider identity lookup failed",
-                ("provider_id",),
-                error,
-            )
-        )
-        raise ProviderContractError(problems) from error
+    provider_id = instrument_provider.provider_id
 
     try:
-        description = _normalize_provider_description(
-            instrument_provider.describe(InstrumentProviderContext(config=config))
+        description = instrument_provider.describe(
+            InstrumentProviderContext(config=config)
         )
     except Exception as error:
         problems.append(
@@ -200,17 +180,3 @@ def _preflight_problem(
         phase=ProblemPhase.PROVIDER_PREFLIGHT,
         location=model_location("instrument_provider", *path),
     )
-
-
-def _normalize_provider_description(value: object) -> InstrumentProviderDescription:
-    if not isinstance(value, InstrumentProviderDescription):
-        msg = (
-            "instrument provider describe must return InstrumentProviderDescription, "
-            f"got {type(value).__module__}.{type(value).__qualname__}"
-        )
-        raise TypeError(msg)
-    wire = cast(
-        "object",
-        _PROVIDER_DESCRIPTION_ADAPTER.dump_python(value, mode="json"),
-    )
-    return _PROVIDER_DESCRIPTION_ADAPTER.validate_python(wire)

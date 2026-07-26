@@ -41,10 +41,9 @@ candidate = result.analysis.candidate_config()
 # %%
 # Explicit review and generation control remain available for audited operator
 # workflows. They are not required by the ordinary lab.config.accept() path.
-review = lab.config.review(
+approval = lab.config.approve(
     completed_run,
     result.proposal_id,
-    decision="approved",
     note="fit evidence and scan coverage reviewed manually",
 )
 generation = lab.config.registry().active_state
@@ -65,7 +64,7 @@ restored = lab.config.rollback(
 advanced_candidate_summary = {
     "analysis": saved_analysis.record.id,
     "proposal": result.proposal_id,
-    "review": review.decision,
+    "approved_by": approval.actor,
     "activated_entry": activated.entry.id,
     "activated_generation": activated.active_state.generation,
     "restored_entry": restored.active_state.active_entry_id,

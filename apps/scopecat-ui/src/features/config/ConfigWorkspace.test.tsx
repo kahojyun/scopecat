@@ -54,11 +54,11 @@ describe("ConfigWorkspace", () => {
         generation: 2,
         active_entry_id: "baseline",
         active_entry_content_hash: "sha256:baseline",
-        history: [
-          activation(2, "baseline", "sha256:baseline", "calibrated"),
-          activation(1, "calibrated", "sha256:calibrated"),
-        ],
       },
+      activation_history: [
+        activation(2, "baseline", "sha256:baseline", "calibrated"),
+        activation(1, "calibrated", "sha256:calibrated"),
+      ],
       entries: [
         configEntry("baseline", "sha256:baseline"),
         configEntry("calibrated", "sha256:calibrated"),
@@ -125,8 +125,8 @@ describe("ConfigWorkspace", () => {
           generation: 3,
           active_entry_id: entry.id,
           active_entry_content_hash: entry.content_hash,
-          history: [activation(3, entry.id, entry.content_hash)],
         },
+        activation_history: [activation(3, entry.id, entry.content_hash)],
         entries: [entry],
       });
       vi.mocked(getConfigRegistryEntry).mockResolvedValue({
@@ -161,8 +161,8 @@ describe("ConfigWorkspace", () => {
         generation: 3,
         active_entry_id: entry.id,
         active_entry_content_hash: entry.content_hash,
-        history: [activation(3, entry.id, entry.content_hash)],
       },
+      activation_history: [activation(3, entry.id, entry.content_hash)],
       entries,
     });
     vi.mocked(getConfigRegistryEntry).mockImplementation(async (entryId) => {
@@ -179,15 +179,15 @@ describe("ConfigWorkspace", () => {
     expect(screen.getByText("Direct configuration profile")).toBeInTheDocument();
   });
 
-  it("joins candidate proposals, analyses, and the latest decision", async () => {
+  it("joins candidate proposals, analyses, and approval", async () => {
     const entry = runtimeDerivedEntry("candidate_config");
     vi.mocked(getConfigRegistry).mockResolvedValue({
       active_state: {
         generation: 3,
         active_entry_id: entry.id,
         active_entry_content_hash: entry.content_hash,
-        history: [activation(3, entry.id, entry.content_hash)],
       },
+      activation_history: [activation(3, entry.id, entry.content_hash)],
       entries: [entry],
     });
     vi.mocked(getConfigRegistryEntry).mockResolvedValue(entryDetail(entry));
@@ -203,26 +203,11 @@ describe("ConfigWorkspace", () => {
           reason: "Peak moved",
           confidence: 0.98,
           deltas: [],
-          decisions: [
-            {
-              eventId: "decision-old",
-              decision: "approved",
-              actor: "Ada",
-              authorityKind: "human",
-              note: "Older note",
-              decidedAt: "2026-07-24T07:00:00Z",
-            },
-            {
-              eventId: "decision-latest",
-              decision: "approved",
-              actor: "nightly-calibration",
-              authorityKind: "automatic_policy",
-              policyId: "fit-confidence",
-              policyVersion: "2",
-              note: "High-confidence fit",
-              decidedAt: "2026-07-24T08:00:00Z",
-            },
-          ],
+          approval: {
+            actor: "nightly-calibration",
+            note: "High-confidence fit",
+            approvedAt: "2026-07-24T08:00:00Z",
+          },
         },
         {
           id: "endpoint-only-result",
@@ -233,7 +218,6 @@ describe("ConfigWorkspace", () => {
           reason: "Not part of this candidate",
           confidence: 0.9,
           deltas: [],
-          decisions: [],
         },
       ],
     });
@@ -266,25 +250,24 @@ describe("ConfigWorkspace", () => {
     expect(await screen.findByText("analysis-fit")).toBeInTheDocument();
     expect(screen.getByText("Frequency fit")).toBeInTheDocument();
     expect(
-      screen.getByText("Approved · Automatic policy fit-confidence@2 · nightly-calibration"),
+      screen.getByText("Approved · nightly-calibration"),
     ).toBeInTheDocument();
     expect(screen.getByText("High-confidence fit")).toBeInTheDocument();
-    expect(screen.queryByText("Older note")).not.toBeInTheDocument();
     expect(document.querySelector('time[datetime="2026-07-24T08:00:00Z"]')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Open producing run" }));
     expect(openRun).toHaveBeenCalledWith("run-calibration");
   });
 
-  it("keeps decision note and time unresolved while proposals load", async () => {
+  it("keeps approval note and time unresolved while proposals load", async () => {
     const entry = runtimeDerivedEntry("candidate_config");
     vi.mocked(getConfigRegistry).mockResolvedValue({
       active_state: {
         generation: 3,
         active_entry_id: entry.id,
         active_entry_content_hash: entry.content_hash,
-        history: [activation(3, entry.id, entry.content_hash)],
       },
+      activation_history: [activation(3, entry.id, entry.content_hash)],
       entries: [entry],
     });
     vi.mocked(getConfigRegistryEntry).mockResolvedValue(entryDetail(entry));
@@ -298,20 +281,20 @@ describe("ConfigWorkspace", () => {
       name: "Proposal fit-result",
     });
     expect(within(evidence).getByText("Loading proposal")).toBeInTheDocument();
-    expect(within(evidence).getByText("Loading decision")).toBeInTheDocument();
+    expect(within(evidence).getByText("Loading approval")).toBeInTheDocument();
     expect(within(evidence).queryByText("Note")).not.toBeInTheDocument();
-    expect(within(evidence).queryByText("Decided")).not.toBeInTheDocument();
+    expect(within(evidence).queryByText("Approved")).not.toBeInTheDocument();
   });
 
-  it("does not report missing decision note or time when proposals fail", async () => {
+  it("does not report missing approval note or time when proposals fail", async () => {
     const entry = runtimeDerivedEntry("candidate_config");
     vi.mocked(getConfigRegistry).mockResolvedValue({
       active_state: {
         generation: 3,
         active_entry_id: entry.id,
         active_entry_content_hash: entry.content_hash,
-        history: [activation(3, entry.id, entry.content_hash)],
       },
+      activation_history: [activation(3, entry.id, entry.content_hash)],
       entries: [entry],
     });
     vi.mocked(getConfigRegistryEntry).mockResolvedValue(entryDetail(entry));
@@ -326,9 +309,9 @@ describe("ConfigWorkspace", () => {
       name: "Proposal fit-result",
     });
     expect(within(evidence).getByText("Proposal details unavailable")).toBeInTheDocument();
-    expect(within(evidence).getByText("Decision unavailable")).toBeInTheDocument();
+    expect(within(evidence).getByText("Approval unavailable")).toBeInTheDocument();
     expect(within(evidence).queryByText("Note")).not.toBeInTheDocument();
-    expect(within(evidence).queryByText("Decided")).not.toBeInTheDocument();
+    expect(within(evidence).queryByText("Approved")).not.toBeInTheDocument();
   });
 });
 
@@ -378,7 +361,7 @@ function runtimeDerivedEntry(
             proposal_evidence: {
               proposal_id: proposalId,
               proposal_record_content_hash: `sha256:${proposalId}`,
-              approval_event_id: `approval-${proposalId}`,
+              approval_record_id: `${proposalId}-approval`,
               approval_record_content_hash: `sha256:approval-${proposalId}`,
             },
             run_id: "run-calibration",

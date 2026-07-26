@@ -15,7 +15,7 @@ from scopecat.authoring._value_refs import ValueRef
 from scopecat.authoring.scans import Scan, ScanCenter, ScanValue
 from scopecat.authoring.templates import ExperimentInvocation, ExperimentTemplate
 from scopecat.config.candidates import CandidateConfig
-from scopecat.config.changes import prepare_parameter_change_decision
+from scopecat.config.changes import prepare_parameter_change_approval
 from scopecat.execution.interpreter import execute_admitted_run
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.quantity import Quantity
@@ -24,11 +24,7 @@ from scopecat.planning.preview_models import ExperimentPreview
 from scopecat.planning.system import ExperimentSystem
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.config import ConfigProfileSnapshot
-from scopecat.records.parameter_change import (
-    HumanDecisionAuthority,
-    ParameterChangeDecision,
-    ParameterChangeDecisionRecord,
-)
+from scopecat.records.parameter_change import ParameterChangeApprovalRecord
 from scopecat.runs.selectors import RunSelector
 from tests.testkit.runtime import (
     ServiceRunOperations,
@@ -172,19 +168,18 @@ class InProcessLab:
         selector: str,
         *,
         reviewer: str | None = None,
-        decision: ParameterChangeDecision = "approved",
         note: str = "",
-    ) -> ParameterChangeDecisionRecord:
-        prepared = prepare_parameter_change_decision(
+    ) -> ParameterChangeApprovalRecord:
+        prepared = prepare_parameter_change_approval(
             run_id=run_handle_id(run),
             selector=selector,
             services=self.services,
-            decision=decision,
-            authority=HumanDecisionAuthority(actor=reviewer or self.reviewer),
+            actor=reviewer or self.reviewer,
             note=note,
         )
-        self.services.runs.publish_content(prepared.publication)
-        return prepared.decision
+        if prepared.publication is not None:
+            self.services.runs.publish_content(prepared.publication)
+        return prepared.approval
 
 
 def in_process_lab(

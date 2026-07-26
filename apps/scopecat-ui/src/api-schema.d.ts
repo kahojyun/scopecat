@@ -21,6 +21,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/config-registry/activations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Config Activation History */
+        get: operations["get_config_activation_history_api_v1_config_registry_activations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/config-registry/active": {
         parameters: {
             query?: never;
@@ -344,7 +361,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/runs/{run_id}/parameter-proposals/{proposal_id}/decision": {
+    "/api/v1/runs/{run_id}/parameter-proposals/{proposal_id}/approval": {
         parameters: {
             query?: never;
             header?: never;
@@ -353,8 +370,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Decide Parameter Proposal */
-        post: operations["decide_parameter_proposal_api_v1_runs__run_id__parameter_proposals__proposal_id__decision_post"];
+        /** Approve Parameter Proposal */
+        post: operations["approve_parameter_proposal_api_v1_runs__run_id__parameter_proposals__proposal_id__approval_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -456,20 +473,6 @@ export interface components {
              */
             state: "closed";
         };
-        /** AutomaticPolicyDecisionAuthority */
-        AutomaticPolicyDecisionAuthority: {
-            /** Actor */
-            actor: string;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "automatic_policy";
-            /** Policy Id */
-            policy_id: string;
-            /** Policy Version */
-            policy_version: string;
-        };
         /**
          * CandidateConfigActivationCommand
          * @description Build, register, and activate config from one durable approved proposal.
@@ -510,12 +513,20 @@ export interface components {
         };
         /** CandidateProposalRegistryEvidence */
         CandidateProposalRegistryEvidence: {
-            /** Approval Event Id */
-            approval_event_id: string;
             approval_record_content_hash: components["schemas"]["EvidenceContentHash"];
+            /** Approval Record Id */
+            approval_record_id: string;
             /** Proposal Id */
             proposal_id: string;
             proposal_record_content_hash: components["schemas"]["EvidenceContentHash"];
+        };
+        /** ConfigActivationHistoryView */
+        ConfigActivationHistoryView: {
+            /**
+             * Items
+             * @default []
+             */
+            items: components["schemas"]["ConfigRegistryActivationRecord"][];
         };
         /** ConfigActivationReceipt */
         ConfigActivationReceipt: {
@@ -690,8 +701,6 @@ export interface components {
             active_entry_id: string;
             /** Generation */
             generation: number;
-            /** History */
-            history?: components["schemas"]["ConfigRegistryActivationRecord"][];
             /**
              * Updated At
              * Format: date-time
@@ -739,7 +748,7 @@ export interface components {
         };
         /**
          * ConfigRegistryView
-         * @description Registered entries and the authoritative activation history.
+         * @description Registered entries and the current activation head.
          */
         ConfigRegistryView: {
             active_state?: components["schemas"]["ConfigRegistryActiveState"] | null;
@@ -930,16 +939,6 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
-        /** HumanDecisionAuthority */
-        HumanDecisionAuthority: {
-            /** Actor */
-            actor: string;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "human";
-        };
         /**
          * InsertParameterRows
          * @description Append rows to a table-shaped parameter.
@@ -973,13 +972,9 @@ export interface components {
             /** Kind */
             kind: string;
         };
-        "JsonMetadata-Input": {
-            [key: string]: components["schemas"]["JsonValue-Input"];
-        };
         "JsonMetadata-Output": {
             [key: string]: components["schemas"]["pydantic__types__JsonValue"];
         };
-        "JsonValue-Input": unknown;
         LocationPathItem: string | number;
         /**
          * ManualConfigDraftRegistrySource
@@ -1117,25 +1112,18 @@ export interface components {
             /** Id */
             id: string;
         };
-        ParameterChangeDecisionAuthority: components["schemas"]["HumanDecisionAuthority"] | components["schemas"]["AutomaticPolicyDecisionAuthority"];
         /**
-         * ParameterChangeDecisionRecord
-         * @description One immutable decision in a parameter proposal's history.
+         * ParameterChangeApprovalRecord
+         * @description The one immutable operator approval for a parameter proposal.
          */
-        ParameterChangeDecisionRecord: {
-            authority: components["schemas"]["ParameterChangeDecisionAuthority"];
+        ParameterChangeApprovalRecord: {
+            /** Actor */
+            actor: string;
             /**
-             * Decided At
+             * Approved At
              * Format: date-time
              */
-            decided_at?: string;
-            /**
-             * Decision
-             * @enum {string}
-             */
-            decision: "approved" | "rejected";
-            /** Event Id */
-            event_id: string;
+            approved_at?: string;
             /**
              * Note
              * @default
@@ -1186,14 +1174,9 @@ export interface components {
             id: string;
             value_type: components["schemas"]["PersistableValueType"];
         };
-        /** ParameterProposalDecisionCommand */
-        ParameterProposalDecisionCommand: {
-            authority: components["schemas"]["ParameterChangeDecisionAuthority"];
-            /**
-             * Decision
-             * @enum {string}
-             */
-            decision: "approved" | "rejected";
+        /** ParameterProposalApprovalCommand */
+        ParameterProposalApprovalCommand: {
+            actor: components["schemas"]["NonEmptyText"];
             /**
              * Note
              * @default
@@ -1212,14 +1195,10 @@ export interface components {
         };
         /**
          * ParameterProposalView
-         * @description One proposal and its append-only operator review history.
+         * @description One proposal and its optional immutable operator approval.
          */
         ParameterProposalView: {
-            /**
-             * Decisions
-             * @default []
-             */
-            decisions: components["schemas"]["ParameterChangeDecisionRecord"][];
+            approval?: components["schemas"]["ParameterChangeApprovalRecord"] | null;
             proposal: components["schemas"]["ParameterChangeProposal-Output"];
         };
         /**
@@ -1472,44 +1451,15 @@ export interface components {
          *     explicit desired-state effects or domain programs instead of replacing this
          *     ownership fact.
          */
-        "RoutingEndpointBinding-Input": {
+        RoutingEndpointBinding: {
             /** Capability */
             capability: string;
             /** Channel Id */
             channel_id?: string | null;
             /** Entity Id */
             entity_id?: string | null;
-            /** Group Ids */
-            group_ids?: string[];
             /** Instrument Id */
             instrument_id: string;
-            /** Line Id */
-            line_id?: string | null;
-            metadata?: components["schemas"]["JsonMetadata-Input"];
-        };
-        /**
-         * RoutingEndpointBinding
-         * @description Accepted physical ownership fact for one instrument endpoint.
-         *
-         *     A binding is reproducible configuration, not a runtime alternative. Devices
-         *     that change a physical path, such as switches or valves, are modeled as
-         *     explicit desired-state effects or domain programs instead of replacing this
-         *     ownership fact.
-         */
-        "RoutingEndpointBinding-Output": {
-            /** Capability */
-            capability: string;
-            /** Channel Id */
-            channel_id?: string | null;
-            /** Entity Id */
-            entity_id?: string | null;
-            /** Group Ids */
-            group_ids?: string[];
-            /** Instrument Id */
-            instrument_id: string;
-            /** Line Id */
-            line_id?: string | null;
-            metadata?: components["schemas"]["JsonMetadata-Output"];
         };
         /**
          * RoutingGraph
@@ -1519,21 +1469,9 @@ export interface components {
          *     index, but it never uses it for live availability, load balancing, or
          *     implicit failover.
          */
-        "RoutingGraph-Input": {
+        RoutingGraph: {
             /** Bindings */
-            bindings?: components["schemas"]["RoutingEndpointBinding-Input"][];
-        };
-        /**
-         * RoutingGraph
-         * @description Finite static endpoint index stored in an accepted system snapshot.
-         *
-         *     Planning may project logical capability and entity selections through this
-         *     index, but it never uses it for live availability, load balancing, or
-         *     implicit failover.
-         */
-        "RoutingGraph-Output": {
-            /** Bindings */
-            bindings?: components["schemas"]["RoutingEndpointBinding-Output"][];
+            bindings?: components["schemas"]["RoutingEndpointBinding"][];
         };
         /**
          * RunAdmissionRecord
@@ -1881,7 +1819,7 @@ export interface components {
             parameter_catalog: components["schemas"]["ParameterCatalog"];
             /** Primary Entity Id */
             primary_entity_id: string;
-            routing?: components["schemas"]["RoutingGraph-Input"];
+            routing?: components["schemas"]["RoutingGraph"];
             topology: components["schemas"]["Topology-Input"];
         };
         /**
@@ -1896,7 +1834,7 @@ export interface components {
             parameter_catalog: components["schemas"]["ParameterCatalog"];
             /** Primary Entity Id */
             primary_entity_id: string;
-            routing?: components["schemas"]["RoutingGraph-Output"];
+            routing?: components["schemas"]["RoutingGraph"];
             topology: components["schemas"]["Topology-Output"];
         };
         /**
@@ -2001,6 +1939,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConfigRegistryView"];
+                };
+            };
+        };
+    };
+    get_config_activation_history_api_v1_config_registry_activations_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigActivationHistoryView"];
                 };
             };
         };
@@ -2614,7 +2572,7 @@ export interface operations {
             };
         };
     };
-    decide_parameter_proposal_api_v1_runs__run_id__parameter_proposals__proposal_id__decision_post: {
+    approve_parameter_proposal_api_v1_runs__run_id__parameter_proposals__proposal_id__approval_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -2626,7 +2584,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ParameterProposalDecisionCommand"];
+                "application/json": components["schemas"]["ParameterProposalApprovalCommand"];
             };
         };
         responses: {
@@ -2636,7 +2594,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ParameterChangeDecisionRecord"];
+                    "application/json": components["schemas"]["ParameterChangeApprovalRecord"];
                 };
             };
             /** @description Validation Error */

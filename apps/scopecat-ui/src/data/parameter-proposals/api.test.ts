@@ -1,9 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   activateProposalCandidate,
-  decideParameterProposal,
+  approveParameterProposal,
   getRunParameterProposals,
-  latestProposalDecision,
 } from "./api";
 
 afterEach(() => {
@@ -11,7 +10,7 @@ afterEach(() => {
 });
 
 describe("parameter proposal reads", () => {
-  it("normalizes proposal deltas and durable decisions", async () => {
+  it("normalizes proposal deltas and durable approval", async () => {
     const fetchMock = vi.fn((_input: string | URL | Request) =>
       Promise.resolve(
         jsonResponse({
@@ -35,22 +34,13 @@ describe("parameter proposal reads", () => {
                   },
                 ],
               },
-              decisions: [
-                {
-                  event_id: "decision-1",
-                  run_id: "run/a",
-                  proposal_id: "drive-frequency",
-                  decision: "approved",
-                  authority: {
-                    kind: "automatic_policy",
-                    actor: "nightly-calibration",
-                    policy_id: "fit-confidence",
-                    policy_version: "2",
-                  },
-                  note: "Peak is clean",
-                  decided_at: "2026-07-23T10:02:00Z",
-                },
-              ],
+              approval: {
+                run_id: "run/a",
+                proposal_id: "drive-frequency",
+                actor: "nightly-calibration",
+                note: "Peak is clean",
+                approved_at: "2026-07-23T10:02:00Z",
+              },
             },
           ],
         }),
@@ -80,46 +70,30 @@ describe("parameter proposal reads", () => {
               after: 5.1,
             },
           ],
-          decisions: [
-            {
-              eventId: "decision-1",
-              decision: "approved",
-              actor: "nightly-calibration",
-              authorityKind: "automatic_policy",
-              policyId: "fit-confidence",
-              policyVersion: "2",
-              note: "Peak is clean",
-              decidedAt: "2026-07-23T10:02:00Z",
-            },
-          ],
+          approval: {
+            actor: "nightly-calibration",
+            note: "Peak is clean",
+            approvedAt: "2026-07-23T10:02:00Z",
+          },
         },
       ],
-    });
-    expect(latestProposalDecision(result.items[0]!)).toMatchObject({
-      eventId: "decision-1",
-      decision: "approved",
     });
   });
 });
 
 describe("parameter proposal commands", () => {
-  it("uses the path as decision identity and records the human authority", async () => {
+  it("uses the path as approval identity and records the actor", async () => {
     const fetchMock = vi.fn((_input: string | URL | Request) => Promise.resolve(jsonResponse({})));
     vi.stubGlobal("fetch", fetchMock);
 
-    await decideParameterProposal("run/a", "proposal b", {
-      decision: "rejected",
+    await approveParameterProposal("run/a", "proposal b", {
       reviewer: "Grace",
-      note: "Needs another sweep",
+      note: "Evidence reviewed",
     });
 
-    expectRequest(fetchMock, "/api/v1/runs/run%2Fa/parameter-proposals/proposal%20b/decision", {
-      decision: "rejected",
-      authority: {
-        kind: "human",
-        actor: "Grace",
-      },
-      note: "Needs another sweep",
+    expectRequest(fetchMock, "/api/v1/runs/run%2Fa/parameter-proposals/proposal%20b/approval", {
+      actor: "Grace",
+      note: "Evidence reviewed",
     });
   });
 

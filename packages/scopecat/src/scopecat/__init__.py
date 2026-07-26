@@ -97,15 +97,8 @@ if TYPE_CHECKING:
     from scopecat.planning.preview_models import ExperimentPreview
     from scopecat.planning.system import ExperimentSystem
     from scopecat.project import Project, open_project
-    from scopecat.records.parameter_change import (
-        AutomaticPolicyDecisionAuthority,
-    )
 
 _EXPORTS: dict[str, tuple[str, str]] = {
-    "AutomaticPolicyDecisionAuthority": (
-        "scopecat.records.parameter_change",
-        "AutomaticPolicyDecisionAuthority",
-    ),
     "BoolType": ("scopecat.authoring", "BoolType"),
     "Compute": ("scopecat.authoring", "Compute"),
     "ComputeInput": ("scopecat.authoring", "ComputeInput"),

@@ -2,10 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, GitCompareArrows, LoaderCircle, SlidersHorizontal } from "lucide-react";
 import { getRunAnalyses } from "../../api";
 import type { ConfigProfileSnapshot, ConfigRegistryEntry } from "../../api-contract";
-import {
-  getRunParameterProposals,
-  latestProposalDecision,
-} from "../../data/parameter-proposals/api";
+import { getRunParameterProposals } from "../../data/parameter-proposals/api";
 import type { ParameterProposal } from "../../data/parameter-proposals/types";
 import { errorMessage, formatDateTime, shorten } from "../../lib/presentation";
 import type { RunAnalysis } from "../../types";
@@ -208,7 +205,7 @@ function EntryProvenance({
   );
   const proposal = proposalsById.get(proposalId);
   const analysis = proposal ? analysesById.get(proposal.analysisRecordId) : undefined;
-  const decision = proposal ? latestProposalDecision(proposal) : undefined;
+  const approval = proposal?.approval;
   return (
     <div className="config-provenance candidate-provenance">
       <GitCompareArrows size={16} aria-hidden="true" />
@@ -264,32 +261,30 @@ function EntryProvenance({
                 </dd>
               </div>
               <div>
-                <dt>
-                  {decision?.decision === "approved" ? "Latest acceptance" : "Latest decision"}
-                </dt>
+                <dt>Operator approval</dt>
                 <dd>
-                  {decision
-                    ? `${displayDecision(decision.decision)} · ${decisionAuthorityLabel(decision)}`
+                  {approval
+                    ? `Approved · ${approval.actor}`
                     : candidateProposalsPending
-                      ? "Loading decision"
-                      : "Decision unavailable"}
+                      ? "Loading approval"
+                      : "Approval unavailable"}
                 </dd>
               </div>
-              {decision && (
+              {approval && (
                 <>
                   <div>
                     <dt>Note</dt>
-                    <dd>{decision.note || "No decision note"}</dd>
+                    <dd>{approval.note || "No approval note"}</dd>
                   </div>
                   <div>
-                    <dt>Decided</dt>
+                    <dt>Approved</dt>
                     <dd>
-                      {decision.decidedAt ? (
-                        <time dateTime={decision.decidedAt}>
-                          {formatDateTime(decision.decidedAt)}
+                      {approval.approvedAt ? (
+                        <time dateTime={approval.approvedAt}>
+                          {formatDateTime(approval.approvedAt)}
                         </time>
                       ) : (
-                        "Decision time unavailable"
+                        "Approval time unavailable"
                       )}
                     </dd>
                   </div>
@@ -301,23 +296,6 @@ function EntryProvenance({
       </div>
     </div>
   );
-}
-
-function decisionAuthorityLabel(
-  decision: NonNullable<ReturnType<typeof latestProposalDecision>>,
-): string {
-  if (decision.authorityKind === "automatic_policy") {
-    const policy =
-      decision.policyId && decision.policyVersion
-        ? `${decision.policyId}@${decision.policyVersion}`
-        : "unidentified policy";
-    return `Automatic policy ${policy} · ${decision.actor}`;
-  }
-  return `Human · ${decision.actor}`;
-}
-
-function displayDecision(value: string): string {
-  return value.charAt(0).toUpperCase() + value.slice(1).replaceAll("_", " ");
 }
 
 function SnapshotSummary({ snapshot }: { snapshot: ConfigSnapshotSummary }) {

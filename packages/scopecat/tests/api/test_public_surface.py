@@ -21,7 +21,6 @@ _OWNER_ONLY_ROOT_NAMES = {
     "DomainInputPort",
     "DomainResourcePort",
     "DomainResultPort",
-    "HumanDecisionAuthority",
     "MetadataValue",
     "ModuleInput",
     "PreparedLabExperiment",

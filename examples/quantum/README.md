@@ -63,8 +63,8 @@ accepted = lab.config.accept(analysis, note="fit passed")
 restored = lab.config.undo(note="restore the previous default")
 ```
 
-These calls retain immutable revisions, acceptance decisions, and activation
-history. Candidate
+These calls retain immutable revisions, one operator approval per proposal, and
+activation history. Candidate
 configuration can be used for one optional run without changing the default,
 or accepted directly from durable analysis evidence. Entry ids, registry
 generations, and explicit activation remain available in `advanced/`.
@@ -77,7 +77,7 @@ Start with `getting_started/`, then choose a path by intent:
 |---|---|
 | `notebooks/getting_started/` | Project, template, run, data, analysis, and candidate-config lifecycle. |
 | `notebooks/authoring/` | Recommended decorator and function authoring, from template/scratch through recursive quantum programs. |
-| `notebooks/calibration/` | Longer parameter calibration workflows, including policy-based acceptance without mandatory verification. |
+| `notebooks/calibration/` | Longer parameter calibration workflows with explicit operator approval. |
 | `notebooks/integration/` | The opaque collection escape hatch for a target without a domain compiler. |
 | `notebooks/advanced/` | Explicit registry, review, activation generation, and rollback controls. |
 
@@ -108,7 +108,7 @@ uv run python examples/quantum/notebooks/advanced/01_config_registry_controls.py
 | `authoring/03_point_bound_sequence.py` | Generate a composable `@q.fragment` after length and seed bind per scan point. |
 | `authoring/04_recursive_results.py` | Derive dense result axes from nested `parallel` and `repeat`. |
 | `authoring/05_mixed_gate_pulse.py` | Place standard-gate preparation and analysis around a direct multi-channel pulse layout. |
-| `calibration/01_drag_beta.py` | Accept a high-confidence fit with a versioned automatic policy, then undo. |
+| `calibration/01_drag_beta.py` | Approve and accept a high-confidence fit, then undo. |
 | `calibration/02_cz_phase.py` | Calibrate a two-qubit gate with an explicit coupler resource. |
 | `integration/01_opaque_collection.py` | Preserve one gate table as one opaque compute input when no domain compiler exists. |
 | `advanced/01_config_registry_controls.py` | Register, activate, and roll back with explicit entry ids and generations. |

@@ -28,20 +28,18 @@ export interface ConfigRegistryEntryDetail {
 }
 
 export async function getConfigRegistry(signal?: AbortSignal): Promise<ConfigRegistryOverview> {
-  const registry = await request<DaemonUiApi["configRegistry"]>(CONFIG_API, signal);
+  const [registry, activations] = await Promise.all([
+    request<DaemonUiApi["configRegistry"]>(CONFIG_API, signal),
+    request<DaemonUiApi["configActivations"]>(`${CONFIG_API}/activations`, signal),
+  ]);
   return {
     ...registry,
     entries: [...registry.entries].sort((left, right) =>
       (right.registered_at ?? "").localeCompare(left.registered_at ?? ""),
     ),
-    active_state: registry.active_state
-      ? {
-          ...registry.active_state,
-          history: [...(registry.active_state.history ?? [])].sort(
-            (left, right) => right.generation - left.generation,
-          ),
-        }
-      : registry.active_state,
+    activation_history: [...(activations.items ?? [])].sort(
+      (left, right) => right.generation - left.generation,
+    ),
   };
 }
 

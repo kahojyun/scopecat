@@ -144,6 +144,35 @@ class SQLiteConfigRegistryRepository:
 
     def read_active_state(self) -> ConfigRegistryActiveState | None:
         try:
+            row = _one(
+                self._connection.execute(
+                    """
+                    SELECT generation, record_json
+                    FROM config_registry_activations
+                    ORDER BY generation DESC
+                    LIMIT 1
+                    """
+                )
+            )
+        except sqlite3.Error as error:
+            raise _storage_failure(self.active_ref) from error
+        if row is None:
+            return None
+        latest = _parse_model(
+            _text(row, "record_json"),
+            ConfigRegistryActivationRecord,
+            ref=f"{self.active_ref}#generation-{_integer(row, 'generation')}",
+            code="config_registry.activation_record_invalid",
+        )
+        return ConfigRegistryActiveState(
+            generation=latest.generation,
+            active_entry_id=latest.entry_id,
+            active_entry_content_hash=latest.entry_content_hash,
+            updated_at=latest.recorded_at,
+        )
+
+    def list_activation_history(self) -> tuple[ConfigRegistryActivationRecord, ...]:
+        try:
             rows = _all(
                 self._connection.execute(
                     """
@@ -155,9 +184,7 @@ class SQLiteConfigRegistryRepository:
             )
         except sqlite3.Error as error:
             raise _storage_failure(self.active_ref) from error
-        if not rows:
-            return None
-        history = tuple(
+        return tuple(
             _parse_model(
                 _text(row, "record_json"),
                 ConfigRegistryActivationRecord,
@@ -165,19 +192,6 @@ class SQLiteConfigRegistryRepository:
                 code="config_registry.activation_record_invalid",
             )
             for row in rows
-        )
-        latest = history[-1]
-        return _validate_model(
-            {
-                "generation": latest.generation,
-                "active_entry_id": latest.entry_id,
-                "active_entry_content_hash": latest.entry_content_hash,
-                "history": history,
-                "updated_at": latest.recorded_at,
-            },
-            ConfigRegistryActiveState,
-            ref=self.active_ref,
-            code="config_registry.active_state_invalid",
         )
 
     def commit_registration(
@@ -367,23 +381,6 @@ def _parse_model[TModel: BaseModel](
 ) -> TModel:
     try:
         return model_type.model_validate_json(content)
-    except ValidationError as error:
-        raise _integrity_failure(
-            ref,
-            code=code,
-            message="config registry record does not match its durable schema",
-        ) from error
-
-
-def _validate_model[TModel: BaseModel](
-    value: object,
-    model_type: type[TModel],
-    *,
-    ref: str,
-    code: str,
-) -> TModel:
-    try:
-        return model_type.model_validate(value)
     except ValidationError as error:
         raise _integrity_failure(
             ref,

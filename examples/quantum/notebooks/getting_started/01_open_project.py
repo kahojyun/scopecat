@@ -18,11 +18,11 @@ summary = {
     "run_count": len(lab.runs()),
     "primary_entity": system.primary_entity_id,
     "entities": [entity.id for entity in system.topology.entities],
-    "lines": list(
+    "channels": list(
         dict.fromkeys(
-            binding.line_id
+            binding.channel_id
             for binding in system.routing.bindings
-            if binding.line_id is not None
+            if binding.channel_id is not None
         )
     ),
     "routing_instruments": list(

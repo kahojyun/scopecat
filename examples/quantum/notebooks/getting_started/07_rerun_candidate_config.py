@@ -31,7 +31,7 @@ follow_up = lab.prepare(readout_frequency_template(qubit="q0"), config=candidate
 )
 
 # %%
-# Accepting the same durable candidate records the human decision and makes its
+# Accepting the same durable candidate records operator approval and makes its
 # resolved snapshot the default. It does not depend on the optional run above.
 accepted = lab.config.accept(
     candidate,

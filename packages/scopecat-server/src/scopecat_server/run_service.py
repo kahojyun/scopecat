@@ -19,9 +19,9 @@ from scopecat.analysis.service import (
     prepare_analysis_artifact,
 )
 from scopecat.config.changes import (
-    list_parameter_change_decisions,
     list_parameter_change_proposals,
-    prepare_parameter_change_decision,
+    load_parameter_change_approval,
+    prepare_parameter_change_approval,
 )
 from scopecat.control.models import (
     ControlRunState,
@@ -48,7 +48,7 @@ from scopecat.daemon.wire import (
     AnalysisParameterProposalOutputPayload,
     AnalysisSaveCommand,
     AnalysisSaveReceipt,
-    ParameterProposalDecisionCommand,
+    ParameterProposalApprovalCommand,
     RunAttachmentCommand,
 )
 from scopecat.kernel.errors import (
@@ -60,7 +60,7 @@ from scopecat.kernel.errors import (
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.analysis import AnalysisRecord
 from scopecat.records.artifact import RunContentEntry
-from scopecat.records.parameter_change import ParameterChangeDecisionRecord
+from scopecat.records.parameter_change import ParameterChangeApprovalRecord
 from scopecat.runs.access import list_records
 from scopecat.runs.attachments import attach_run_artifact
 from scopecat.runs.data import (
@@ -408,33 +408,32 @@ class RunService:
                 items=tuple(
                     ParameterProposalView(
                         proposal=proposal,
-                        decisions=tuple(
-                            list_parameter_change_decisions(
-                                run_id=run_id,
-                                selector=proposal.id,
-                                storage=self._runs,
-                            )
+                        approval=load_parameter_change_approval(
+                            run_id=run_id,
+                            selector=proposal.id,
+                            storage=self._runs,
                         ),
                     )
                     for proposal in proposals
                 ),
             )
 
-    def decide_parameter_proposal(
+    def approve_parameter_proposal(
         self,
         run_id: str,
         proposal_id: str,
-        command: ParameterProposalDecisionCommand,
-    ) -> ParameterChangeDecisionRecord:
+        command: ParameterProposalApprovalCommand,
+    ) -> ParameterChangeApprovalRecord:
         with self._config_errors():
-            prepared = prepare_parameter_change_decision(
+            prepared = prepare_parameter_change_approval(
                 run_id=run_id,
                 selector=proposal_id,
                 services=self._services,
-                decision=command.decision,
-                authority=command.authority,
+                actor=command.actor,
                 note=command.note,
             )
+            if prepared.publication is None:
+                return prepared.approval
             publication = self._runs.prepare_content_publication(prepared.publication)
             with self._control.transaction() as connection:
                 self._runs.publish_prepared_content_in_transaction(
@@ -445,17 +444,15 @@ class RunService:
                     connection,
                     DurableEventInput(
                         run_id=run_id,
-                        kind="parameter_proposal_decided",
+                        kind="parameter_proposal_approved",
                         payload={
-                            "proposal_id": prepared.decision.proposal_id,
-                            "decision": prepared.decision.decision,
-                            "authority_kind": prepared.decision.authority.kind,
-                            "event_id": prepared.decision.event_id,
+                            "proposal_id": prepared.approval.proposal_id,
+                            "actor": prepared.approval.actor,
                         },
-                        occurred_at=prepared.decision.decided_at,
+                        occurred_at=prepared.approval.approved_at,
                     ),
                 )
-        return prepared.decision
+        return prepared.approval
 
     def measurements(
         self,

@@ -11,13 +11,6 @@ from scopecat.adapters.sqlite import (
     SQLiteConfigRegistryStore,
     SQLiteControlPlane,
 )
-from scopecat.config.candidates import (
-    CandidateConfig,
-    resolve_candidate_config_snapshot,
-)
-from scopecat.config.changes import (
-    load_parameter_change_proposal,
-)
 from scopecat.config.registry import service as config_registry_service
 from scopecat.config.registry.records import ConfigRegistryEntry
 from scopecat.config.resolution import validate_config_profile
@@ -26,6 +19,7 @@ from scopecat.control.models import (
 )
 from scopecat.daemon.views import (
     ActiveConfigView,
+    ConfigActivationHistoryView,
     ConfigDraftPreview,
     ConfigEntryView,
     ConfigRegistryView,
@@ -79,6 +73,14 @@ class ConfigService:
             return ConfigRegistryView(
                 entries=snapshot.entries,
                 active_state=snapshot.active_state,
+            )
+
+    def get_config_activation_history(self) -> ConfigActivationHistoryView:
+        with self._config_errors():
+            return ConfigActivationHistoryView(
+                items=config_registry_service.load_config_registry_activation_history(
+                    unit_of_work=self._config_registry.unit_of_work
+                )
             )
 
     def get_active_config(self) -> ActiveConfigView:
@@ -162,10 +164,15 @@ class ConfigService:
                 entry = config_registry_service.load_active_config_registry_entry(
                     unit_of_work=services.config_registry
                 )
+                history = (
+                    config_registry_service.load_config_registry_activation_history(
+                        unit_of_work=services.config_registry
+                    )
+                )
                 return ConfigDefaultReceipt(
                     entry=entry,
                     active_state=state,
-                    activation=state.history[-1],
+                    activation=history[-1],
                 )
             reusable = next(
                 (
@@ -473,27 +480,13 @@ class ConfigService:
                     unit_of_work=services.config_registry
                 )
             )
-            candidate = CandidateConfig(
-                parameter_proposal=load_parameter_change_proposal(
-                    run_id=command.run_id,
-                    selector=command.proposal_id,
-                    services=services,
-                )
-            )
-            candidate_config = resolve_candidate_config_snapshot(
-                candidate,
-                services=services,
-            )
             entry, active_state, activation = (
                 config_registry_service.register_and_activate_candidate_config(
-                    config=candidate_config,
                     unit_of_work=services.config_registry,
-                    entry_id=command.entry_id
-                    or f"{candidate_config.id}-{candidate.source_run_id}",
+                    entry_id=command.entry_id,
                     registered_by=command.registered_by,
-                    run_id=candidate.source_run_id,
-                    proposal_id=candidate.proposal_id,
-                    base_config_content_hash=candidate.base_config_content_hash,
+                    run_id=command.run_id,
+                    proposal_id=command.proposal_id,
                     operator=command.operator,
                     expected_generation=command.expected_generation,
                     note=command.note,

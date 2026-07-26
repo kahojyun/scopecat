@@ -8,7 +8,6 @@ import pytest
 import scopecat as sc
 from scopecat import Quantity
 from scopecat.config.registry import CandidateConfigRegistrySource
-from scopecat.kernel.errors import Conflict
 from scopecat.records.parameter import TableParameterValue
 from scopecat.records.run import ConfigRegistryRunConfigSource
 from scopecat_quantum import authoring as quantum
@@ -298,7 +297,7 @@ def test_synthetic_joint_quadratic_recovers_beta_optimum() -> None:
         )
 
 
-def test_drag_beta_review_activate_active_replay_and_rollback(
+def test_drag_beta_approve_activate_active_replay_and_rollback(
     tmp_path: Path,
 ) -> None:
     lab = in_process_quantum_lab(project_root=tmp_path)
@@ -317,30 +316,9 @@ def test_drag_beta_review_activate_active_replay_and_rollback(
         entry_id="drag-beta-baseline",
         expected_generation=0,
     )
-    rejected = lab.review_parameter_proposal(
-        source_run,
-        result.proposal_id,
-        decision="rejected",
-        note="operator rejected the first review",
-    )
-
-    with pytest.raises(Conflict) as rejection:
-        lab.activate(
-            candidate,
-            entry_id="drag-beta-q0",
-            expected_generation=baseline.active_state.generation,
-        )
-
-    assert rejected.decision == "rejected"
-    assert rejection.value.problems[0].code == (
-        "config_registry.candidate_proposal_not_approved"
-    )
-    assert lab.resolve_config(config="active").id == source_run.config.id
-
     approved = lab.review_parameter_proposal(
         source_run,
         result.proposal_id,
-        decision="approved",
         note="fit evidence reviewed",
     )
     activated = lab.activate(
@@ -365,12 +343,12 @@ def test_drag_beta_review_activate_active_replay_and_rollback(
         }
     )
     fitted_beta = float(result.fit.beta_hat.to("ns").value)
-    assert approved.decision == "approved"
+    assert approved.actor == "operator"
     assert activated.active_state.generation == 2
     assert isinstance(activated.entry.source, CandidateConfigRegistrySource)
     proposal_evidence = activated.entry.source.proposal_evidence
     assert proposal_evidence.proposal_id == result.proposal_id
-    assert proposal_evidence.approval_event_id == approved.event_id
+    assert proposal_evidence.approval_record_id == f"{result.proposal_id}-approval"
     assert proposal_evidence.proposal_record_content_hash.startswith("sha256:")
     assert proposal_evidence.approval_record_content_hash.startswith("sha256:")
     assert activated.entry.source.proposal_evidence

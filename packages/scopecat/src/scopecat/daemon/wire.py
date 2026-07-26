@@ -40,8 +40,6 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetSeal,
 )
 from scopecat.records.parameter_change import (
-    ParameterChangeDecision,
-    ParameterChangeDecisionAuthority,
     ParameterChangeProposal,
     ParameterValueDelta,
 )
@@ -60,6 +58,18 @@ class _WireModel(BaseModel):
         frozen=True,
         revalidate_instances="always",
         allow_inf_nan=False,
+    )
+
+
+def _state_matches_activation(
+    state: ConfigRegistryActiveState,
+    activation: ConfigRegistryActivationRecord,
+) -> bool:
+    return (
+        state.generation == activation.generation
+        and state.active_entry_id == activation.entry_id
+        and state.active_entry_content_hash == activation.entry_content_hash
+        and state.updated_at == activation.recorded_at
     )
 
 
@@ -93,7 +103,7 @@ class ConfigDefaultReceipt(_WireModel):
         if (
             self.entry.id != self.activation.entry_id
             or self.entry.content_hash != self.activation.entry_content_hash
-            or self.active_state.history[-1] != self.activation
+            or not _state_matches_activation(self.active_state, self.activation)
         ):
             raise ValueError("config default receipt identity is inconsistent")
         return self
@@ -146,7 +156,7 @@ class ConfigDraftDefaultReceipt(_WireModel):
             self.entry.content_hash != self.result_content_hash
             or self.entry.id != self.activation.entry_id
             or self.entry.content_hash != self.activation.entry_content_hash
-            or self.active_state.history[-1] != self.activation
+            or not _state_matches_activation(self.active_state, self.activation)
         ):
             raise ValueError("config draft default receipt identity is inconsistent")
         return self
@@ -175,8 +185,8 @@ class ConfigActivationReceipt(_WireModel):
 
     @model_validator(mode="after")
     def validate_activation(self) -> ConfigActivationReceipt:
-        if self.active_state.history[-1] != self.activation:
-            raise ValueError("config activation receipt must contain the history head")
+        if not _state_matches_activation(self.active_state, self.activation):
+            raise ValueError("config activation receipt identity is inconsistent")
         return self
 
 
@@ -299,9 +309,8 @@ class RunAttachmentCommand(_WireModel):
         return self
 
 
-class ParameterProposalDecisionCommand(_WireModel):
-    decision: ParameterChangeDecision
-    authority: ParameterChangeDecisionAuthority
+class ParameterProposalApprovalCommand(_WireModel):
+    actor: NonEmptyText
     note: str = ""
 
 
@@ -328,7 +337,7 @@ class CandidateConfigActivationReceipt(_WireModel):
         if (
             self.entry.id != self.activation.entry_id
             or self.entry.content_hash != self.activation.entry_content_hash
-            or self.active_state.history[-1] != self.activation
+            or not _state_matches_activation(self.active_state, self.activation)
         ):
             raise ValueError("candidate activation receipt identity is inconsistent")
         return self
@@ -480,7 +489,7 @@ __all__ = [
     "ExecutorStartRequest",
     "MeasurementAppendCommand",
     "MeasurementSealCommand",
-    "ParameterProposalDecisionCommand",
+    "ParameterProposalApprovalCommand",
     "RunAdmission",
     "RunAttachmentCommand",
     "RunSubmission",

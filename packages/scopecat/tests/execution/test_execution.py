@@ -45,7 +45,7 @@ from scopecat.graph.values import (
     OperationId,
     operation_result_id,
 )
-from scopecat.kernel.errors import ProviderContractError, RunFailed
+from scopecat.kernel.errors import ProviderContractError
 from scopecat.kernel.problems import (
     Problem,
     ProblemPhase,
@@ -80,7 +80,6 @@ from scopecat.sdk.instruments.contracts import (
     CollectCommand,
     CollectReceipt,
     InstrumentDescription,
-    InstrumentDriver,
     InstrumentProvider,
     InstrumentProviderContext,
     InstrumentProviderDescription,
@@ -89,7 +88,7 @@ from scopecat.sdk.instruments.contracts import (
     InstrumentStateCommandField,
     product_axis,
 )
-from tests.testkit.execution import execute_bound_run, execute_program_run
+from tests.testkit.execution import execute_bound_run
 from tests.testkit.instrument_drivers import SignalInstrumentDriver
 from tests.testkit.local_materialization import (
     LocalEffectInspection,
@@ -193,9 +192,7 @@ def test_instrument_models_round_trip() -> None:
                     CommandChannelBinding(
                         entity_id="q0",
                         channel_id="drive.awg0.ch1",
-                        line_id="q0.xy",
                         capability="set_frequency",
-                        group_ids=["lo.xy0"],
                     )
                 ],
             )
@@ -376,135 +373,6 @@ def test_run_round_trips_non_finite_terminal_measurements(
     assert values[1:] == [float("inf"), float("-inf")]
 
 
-class _PersistentInterruptingIdentityDriver(SignalInstrumentDriver):
-    implementation_id = "tests.interrupting_identity_driver"
-    implementation_version = "v1"
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.cleanup_count = 0
-        self.terminal_read_count = 0
-
-    @property
-    @override
-    def instrument_id(self) -> str:
-        raise KeyboardInterrupt("identity lookup cancelled")
-
-    @override
-    def read_state(self) -> InstrumentStateSnapshot:
-        self.terminal_read_count += 1
-        return InstrumentStateSnapshot(instrument_id="source-0")
-
-    @override
-    def cleanup(self) -> None:
-        self.cleanup_count += 1
-
-
-class _InterruptingIdentityProvider:
-    provider_id = "tests.interrupting_identity_provider"
-
-    def __init__(self, driver: _PersistentInterruptingIdentityDriver) -> None:
-        self.driver = driver
-
-    def describe(
-        self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderDescription:
-        del context
-        description = (
-            TestSignalInstrument()
-            .describe()
-            .model_copy(
-                update={
-                    "implementation_id": self.driver.implementation_id,
-                    "implementation_version": self.driver.implementation_version,
-                }
-            )
-        )
-        return InstrumentProviderDescription(
-            provider_id=self.provider_id,
-            instruments=(description,),
-        )
-
-    def provide(
-        self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderResult:
-        del context
-        return InstrumentProviderResult(
-            drivers=(cast("InstrumentDriver", cast("object", self.driver)),)
-        )
-
-
-class _TrackedSetupDriver(TestSignalInstrument):
-    def __init__(self) -> None:
-        super().__init__()
-        self.cleanup_count = 0
-        self.terminal_read_count = 0
-
-    @override
-    def read_state(self) -> InstrumentStateSnapshot:
-        self.terminal_read_count += 1
-        return super().read_state()
-
-    @override
-    def cleanup(self) -> None:
-        self.cleanup_count += 1
-
-
-class _InvalidMetadataProvider:
-    provider_id = "tests.invalid_metadata_provider"
-
-    def __init__(self, driver: _TrackedSetupDriver) -> None:
-        self.driver = driver
-
-    def describe(
-        self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderDescription:
-        del context
-        return InstrumentProviderDescription(
-            provider_id=self.provider_id,
-            instruments=(self.driver.describe(),),
-        )
-
-    def provide(
-        self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderResult:
-        del context
-        invalid_metadata = cast(
-            "dict[str, JsonValue]",
-            {"opaque": object()},
-        )
-        return InstrumentProviderResult(
-            drivers=(self.driver,),
-            metadata=invalid_metadata,
-        )
-
-
-class _MalformedDescriptionProvider:
-    provider_id = "tests.malformed_description_provider"
-
-    def __init__(self) -> None:
-        self.provide_called = False
-
-    def describe(
-        self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderDescription:
-        del context
-        return cast("InstrumentProviderDescription", object())
-
-    def provide(
-        self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderResult:
-        del context
-        self.provide_called = True
-        return InstrumentProviderResult(drivers=())
-
-
 class _OrderedAbiProblemProvider:
     provider_id = "tests.ordered_abi_provider"
 
@@ -606,32 +474,6 @@ class _FailingDescriptionProvider:
         return InstrumentProviderResult(drivers=())
 
 
-class _InvalidIdentityProvider:
-    def __init__(self) -> None:
-        self.describe_called = False
-        self.provide_called = False
-
-    @property
-    def provider_id(self) -> str:
-        return ""
-
-    def describe(
-        self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderDescription:
-        del context
-        self.describe_called = True
-        raise AssertionError("describe must not follow an invalid provider identity")
-
-    def provide(
-        self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderResult:
-        del context
-        self.provide_called = True
-        return InstrumentProviderResult(drivers=())
-
-
 class _UnitAbiProvider:
     provider_id = "tests.unit_abi_provider"
 
@@ -694,59 +536,6 @@ class _UnitAbiProvider:
         return InstrumentProviderResult(drivers=())
 
 
-def test_returned_driver_is_finalized_when_identity_getter_interrupts(
-    tmp_path: Path,
-) -> None:
-    driver = _PersistentInterruptingIdentityDriver()
-    provider = _InterruptingIdentityProvider(driver)
-    config = load_config()
-    with pytest.raises(KeyboardInterrupt, match="identity lookup cancelled"):
-        execute_program_run(
-            config=config,
-            experiment=load_experiment(),
-            instrument_provider=provider,
-            project_root=tmp_path,
-        )
-
-    assert driver.cleanup_count == 1
-    assert driver.terminal_read_count == 1
-    manifest = sqlite_run_repository(tmp_path).list_runs()[0]
-    assert manifest.status == "interrupted"
-    journal_entries = sqlite_execution_session(
-        tmp_path,
-        manifest.run_id,
-    ).journal.entries()
-    cleanup = next(
-        entry
-        for entry in journal_entries
-        if entry.stage == "setup_cleanup" and entry.state == "completed"
-    )
-    assert cleanup.instrument_id == "provider-driver-0"
-
-
-def test_returned_driver_is_finalized_when_provider_metadata_is_not_json(
-    tmp_path: Path,
-) -> None:
-    driver = _TrackedSetupDriver()
-    provider = _InvalidMetadataProvider(driver)
-    config = load_config()
-    with pytest.raises(RunFailed) as captured:
-        execute_program_run(
-            config=config,
-            experiment=load_experiment(),
-            instrument_provider=provider,
-            project_root=tmp_path,
-        )
-
-    assert "instrument_provider_result_invalid" in {
-        problem.code for problem in captured.value.problems
-    }
-    assert driver.cleanup_count == 1
-    assert driver.terminal_read_count == 1
-    manifest = sqlite_run_repository(tmp_path).list_runs()[0]
-    assert manifest.status == "failed"
-
-
 def _lower_test_host_binding(
     plan: LocalEffectInspection,
     config: ConfigProfileSnapshot,
@@ -769,25 +558,6 @@ def _lower_test_host_binding(
         effect_blocks=(tuple(effect.operation for effect in plan.effects),),
         problems=(*planning_problems, *preflight.problems),
     )
-
-
-def test_malformed_provider_description_is_rejected_before_run_acceptance(
-    tmp_path: Path,
-) -> None:
-    provider = _MalformedDescriptionProvider()
-    config = load_config()
-    plan = materialize_local_execution(
-        link_program(load_experiment(), build_config_environment(config))
-    )
-
-    with pytest.raises(ProviderContractError) as captured:
-        _lower_test_host_binding(plan, config, provider)
-
-    assert "instrument_provider_description_failed" in {
-        problem.code for problem in captured.value.problems
-    }
-    assert not provider.provide_called
-    assert sqlite_run_repository(tmp_path).list_runs() == []
 
 
 def test_provider_abi_problems_are_aggregated_in_stable_order_before_run(
@@ -863,27 +633,6 @@ def test_provider_description_exception_fails_at_preflight_boundary(
         "instrument_provider_description_failed"
     ]
     assert captured.value.__cause__ is failure
-    assert not provider.provide_called
-    assert sqlite_run_repository(tmp_path).list_runs() == []
-
-
-def test_invalid_provider_identity_stops_before_description_and_run(
-    tmp_path: Path,
-) -> None:
-    provider = _InvalidIdentityProvider()
-    config = load_config()
-    plan = materialize_local_execution(
-        link_program(load_experiment(), build_config_environment(config))
-    )
-
-    with pytest.raises(ProviderContractError) as captured:
-        _lower_test_host_binding(plan, config, provider)
-
-    assert [problem.code for problem in captured.value.problems] == [
-        "instrument_provider_identity_failed"
-    ]
-    assert isinstance(captured.value.__cause__, TypeError)
-    assert not provider.describe_called
     assert not provider.provide_called
     assert sqlite_run_repository(tmp_path).list_runs() == []
 

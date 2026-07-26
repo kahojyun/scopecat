@@ -337,7 +337,7 @@
     justify-items: start;
   }
 
-  .proposal-decisions {
+  .proposal-approval {
     grid-template-columns: minmax(0, 1fr);
   }
 

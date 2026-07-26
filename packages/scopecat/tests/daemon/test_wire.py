@@ -29,7 +29,7 @@ from scopecat.daemon.wire import (
     ExecutionTransitionAppend,
     ExecutorLease,
     MeasurementAppendCommand,
-    ParameterProposalDecisionCommand,
+    ParameterProposalApprovalCommand,
     RunSubmission,
     TerminalRunCommitCommand,
 )
@@ -39,7 +39,6 @@ from scopecat.records.config import config_content_hash
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.measurement_recording import MeasurementDatasetAppend
-from scopecat.records.parameter_change import AutomaticPolicyDecisionAuthority
 from scopecat.records.run import ConfigRegistryRunConfigSource
 from scopecat.records.run_request import RunRequest
 from tests.testkit.workflow_fixtures import load_config
@@ -88,7 +87,7 @@ def test_config_registry_commands_are_closed_typed_json() -> None:
         generation=1,
         active_entry_id=entry.id,
         active_entry_content_hash=entry.content_hash,
-        history=(activation,),
+        updated_at=activation.recorded_at,
     )
     activated = ConfigActivationReceipt(
         active_state=state,
@@ -201,14 +200,9 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
         operator="operator",
         expected_generation=1,
     )
-    decision = ParameterProposalDecisionCommand(
-        decision="approved",
-        authority=AutomaticPolicyDecisionAuthority(
-            actor="nightly-calibration",
-            policy_id="fit-confidence",
-            policy_version="2",
-        ),
-        note="fit passed policy",
+    approval = ParameterProposalApprovalCommand(
+        actor="nightly-calibration",
+        note="fit reviewed",
     )
 
     assert AnalysisSaveCommand.model_validate_json(command.model_dump_json()) == command
@@ -219,8 +213,10 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
         == activation
     )
     assert (
-        ParameterProposalDecisionCommand.model_validate_json(decision.model_dump_json())
-        == decision
+        ParameterProposalApprovalCommand.model_validate_json(
+            approval.model_dump_json()
+        )
+        == approval
     )
     with pytest.raises(ValidationError, match="identify the command analysis"):
         AnalysisSaveCommand(

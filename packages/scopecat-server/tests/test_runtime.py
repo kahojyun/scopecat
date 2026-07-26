@@ -26,6 +26,7 @@ from scopecat.control.models import (
 )
 from scopecat.daemon.views import (
     ActiveConfigView,
+    ConfigActivationHistoryView,
     ConfigDraftPreview,
     ConfigRegistryView,
     ParameterProposalListView,
@@ -56,7 +57,7 @@ from scopecat.daemon.wire import (
     ExecutorLease,
     ExecutorStartRequest,
     MeasurementAppendCommand,
-    ParameterProposalDecisionCommand,
+    ParameterProposalApprovalCommand,
     RunAdmission,
     RunAttachmentCommand,
     RunSubmission,
@@ -70,8 +71,7 @@ from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.measurement_recording import MeasurementDatasetAppend
 from scopecat.records.parameter import ScalarParameterValue
 from scopecat.records.parameter_change import (
-    AutomaticPolicyDecisionAuthority,
-    ParameterChangeDecisionRecord,
+    ParameterChangeApprovalRecord,
     ParameterChangeProposal,
 )
 from scopecat.records.run import RunManifest
@@ -428,6 +428,9 @@ def test_config_registry_http_workflow_persists_and_publishes_events(
         registry = ConfigRegistryView.model_validate(
             client.get("/api/v1/config-registry").json()
         )
+        activation_history = ConfigActivationHistoryView.model_validate(
+            client.get("/api/v1/config-registry/activations").json()
+        )
         active = ActiveConfigView.model_validate(
             client.get("/api/v1/config-registry/active").json()
         )
@@ -459,7 +462,7 @@ def test_config_registry_http_workflow_persists_and_publishes_events(
         assert rollback.active_state.active_entry_id == "baseline"
         assert [entry.id for entry in registry.entries] == ["baseline", "updated"]
         assert registry.active_state is not None
-        assert [record.action for record in registry.active_state.history] == [
+        assert [record.action for record in activation_history.items] == [
             "activation",
             "activation",
             "rollback",
@@ -785,21 +788,16 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
         proposals = ParameterProposalListView.model_validate(
             client.get(f"/api/v1/runs/{admission.run_id}/parameter-proposals").json()
         )
-        decision_command = ParameterProposalDecisionCommand(
-            decision="approved",
-            authority=AutomaticPolicyDecisionAuthority(
-                actor="nightly-calibration",
-                policy_id="fit-confidence",
-                policy_version="2",
-            ),
-            note="fit evidence accepted",
+        approval_command = ParameterProposalApprovalCommand(
+            actor="nightly-calibration",
+            note="fit evidence reviewed",
         )
-        decided = client.post(
+        approved = client.post(
             f"/api/v1/runs/{admission.run_id}/parameter-proposals/"
-            f"{proposal.id}/decision",
-            json=decision_command.model_dump(mode="json"),
+            f"{proposal.id}/approval",
+            json=approval_command.model_dump(mode="json"),
         )
-        decided_proposals = ParameterProposalListView.model_validate(
+        approved_proposals = ParameterProposalListView.model_validate(
             client.get(f"/api/v1/runs/{admission.run_id}/parameter-proposals").json()
         )
         activated = client.post(
@@ -816,7 +814,7 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
 
         saved = AnalysisSaveReceipt.model_validate(first_save.json())
         retry = AnalysisSaveReceipt.model_validate(retry_save.json())
-        decision = ParameterChangeDecisionRecord.model_validate(decided.json())
+        approval = ParameterChangeApprovalRecord.model_validate(approved.json())
         activation = CandidateConfigActivationReceipt.model_validate(activated.json())
         events = _events(runtime, run_id=admission.run_id).items
 
@@ -839,10 +837,9 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
         assert attachment_text.json()["content"] == "operator notes\n"
         assert config.config == _config()
         assert proposals.items[0].proposal == proposal
-        assert proposals.items[0].decisions == ()
-        assert decision.decision == "approved"
-        assert decision.authority == decision_command.authority
-        assert decided_proposals.items[0].decisions == (decision,)
+        assert proposals.items[0].approval is None
+        assert approval.actor == approval_command.actor
+        assert approved_proposals.items[0].approval == approval
         assert activation.entry.id == "candidate-fit"
         assert activation.active_state.generation == 2
         assert [
@@ -851,12 +848,12 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
             if event.kind
             in {
                 "analysis_saved",
-                "parameter_proposal_decided",
+                "parameter_proposal_approved",
                 "config_activated",
             }
         ] == [
             "analysis_saved",
-            "parameter_proposal_decided",
+            "parameter_proposal_approved",
             "config_activated",
         ]
 
@@ -933,7 +930,7 @@ def test_analysis_publication_rolls_back_refs_manifest_and_event_together(
         ] == ["analysis_saved"]
 
 
-def test_parameter_decision_publication_rolls_back_with_event(
+def test_parameter_approval_publication_rolls_back_with_event(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -944,13 +941,8 @@ def test_parameter_decision_publication_rolls_back_with_event(
             admission.run_id,
             _analysis_command(proposal),
         )
-        command = ParameterProposalDecisionCommand(
-            decision="approved",
-            authority=AutomaticPolicyDecisionAuthority(
-                actor="nightly-calibration",
-                policy_id="fit-confidence",
-                policy_version="2",
-            ),
+        command = ParameterProposalApprovalCommand(
+            actor="nightly-calibration",
         )
         before = _manifest(runtime, admission.run_id)
         append_event = SQLiteControlPlane.append_event_in_transaction
@@ -960,8 +952,8 @@ def test_parameter_decision_publication_rolls_back_with_event(
             connection: sqlite3.Connection,
             event: DurableEventInput,
         ) -> DurableEvent:
-            if event.kind == "parameter_proposal_decided":
-                raise RuntimeError("decision event publication failed")
+            if event.kind == "parameter_proposal_approved":
+                raise RuntimeError("approval event publication failed")
             return append_event(control, connection, event)
 
         with monkeypatch.context() as patch:
@@ -972,9 +964,9 @@ def test_parameter_decision_publication_rolls_back_with_event(
             )
             with pytest.raises(
                 RuntimeError,
-                match="decision event publication failed",
+                match="approval event publication failed",
             ):
-                runtime.application.runs.decide_parameter_proposal(
+                runtime.application.runs.approve_parameter_proposal(
                     admission.run_id,
                     proposal.id,
                     command,
@@ -982,26 +974,26 @@ def test_parameter_decision_publication_rolls_back_with_event(
 
         proposals = runtime.application.runs.list_parameter_proposals(admission.run_id)
         assert _manifest(runtime, admission.run_id) == before
-        assert proposals.items[0].decisions == ()
+        assert proposals.items[0].approval is None
         assert [
             event.kind
             for event in _events(runtime, run_id=admission.run_id).items
-            if event.kind == "parameter_proposal_decided"
+            if event.kind == "parameter_proposal_approved"
         ] == []
 
-        receipt = runtime.application.runs.decide_parameter_proposal(
+        receipt = runtime.application.runs.approve_parameter_proposal(
             admission.run_id,
             proposal.id,
             command,
         )
         proposals = runtime.application.runs.list_parameter_proposals(admission.run_id)
 
-        assert proposals.items[0].decisions == (receipt,)
+        assert proposals.items[0].approval == receipt
         assert [
             event.kind
             for event in _events(runtime, run_id=admission.run_id).items
-            if event.kind == "parameter_proposal_decided"
-        ] == ["parameter_proposal_decided"]
+            if event.kind == "parameter_proposal_approved"
+        ] == ["parameter_proposal_approved"]
 
 
 def test_executor_start_is_atomic_idempotent_and_quiet_when_resources_busy(

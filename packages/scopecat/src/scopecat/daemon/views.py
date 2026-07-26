@@ -10,6 +10,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from scopecat.config.registry.records import (
+    ConfigRegistryActivationRecord,
     ConfigRegistryActiveState,
     ConfigRegistryEntry,
 )
@@ -24,7 +25,7 @@ from scopecat.records.config import (
 )
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.parameter_change import (
-    ParameterChangeDecisionRecord,
+    ParameterChangeApprovalRecord,
     ParameterChangeProposal,
     ParameterValueDelta,
 )
@@ -50,10 +51,14 @@ class DaemonHealth(_ViewModel):
 
 
 class ConfigRegistryView(_ViewModel):
-    """Registered entries and the authoritative activation history."""
+    """Registered entries and the current activation head."""
 
     entries: tuple[ConfigRegistryEntry, ...] = ()
     active_state: ConfigRegistryActiveState | None = None
+
+
+class ConfigActivationHistoryView(_ViewModel):
+    items: tuple[ConfigRegistryActivationRecord, ...] = ()
 
 
 class ActiveConfigView(_ViewModel):
@@ -216,19 +221,18 @@ class RunArtifactBytesView(_ViewModel):
 
 
 class ParameterProposalView(_ViewModel):
-    """One proposal and its append-only operator review history."""
+    """One proposal and its optional immutable operator approval."""
 
     proposal: ParameterChangeProposal
-    decisions: tuple[ParameterChangeDecisionRecord, ...] = ()
+    approval: ParameterChangeApprovalRecord | None = None
 
     @model_validator(mode="after")
     def validate_identity(self) -> ParameterProposalView:
-        if any(
-            decision.run_id != self.proposal.source_run_id
-            or decision.proposal_id != self.proposal.id
-            for decision in self.decisions
+        if self.approval is not None and (
+            self.approval.run_id != self.proposal.source_run_id
+            or self.approval.proposal_id != self.proposal.id
         ):
-            raise ValueError("parameter proposal decision identity is inconsistent")
+            raise ValueError("parameter proposal approval identity is inconsistent")
         return self
 
 
@@ -267,6 +271,7 @@ def _validate_base64(value: str) -> None:
 
 __all__ = [
     "ActiveConfigView",
+    "ConfigActivationHistoryView",
     "ConfigDraftPreview",
     "ConfigEntryView",
     "ConfigRegistryView",

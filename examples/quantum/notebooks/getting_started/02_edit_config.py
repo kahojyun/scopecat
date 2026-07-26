@@ -44,6 +44,6 @@ summary = {
         restored.active_state.active_entry_content_hash
         == changed.activation.previous_entry_content_hash
     ),
-    "history_events": len(restored.active_state.history),
+    "history_events": len(lab.config.history().items),
 }
 print(summary)

@@ -12,6 +12,7 @@ OUTPUT = Path(__file__).parent.parent / ".generated" / "ui-api.openapi.json"
 
 _OPERATIONS = {
     ("/api/v1/config-registry", "get"),
+    ("/api/v1/config-registry/activations", "get"),
     ("/api/v1/config-registry/active", "post"),
     ("/api/v1/config-registry/candidates/activate", "post"),
     ("/api/v1/config-registry/drafts/preview", "post"),
@@ -32,7 +33,7 @@ _OPERATIONS = {
     ("/api/v1/runs/{run_id}/measurements", "get"),
     ("/api/v1/runs/{run_id}/parameter-proposals", "get"),
     (
-        "/api/v1/runs/{run_id}/parameter-proposals/{proposal_id}/decision",
+        "/api/v1/runs/{run_id}/parameter-proposals/{proposal_id}/approval",
         "post",
     ),
     ("/api/v1/runs/{run_id}/records/{selector}/json", "get"),

@@ -1,5 +1,4 @@
 import { useState, type ReactNode } from "react";
-import { Menu } from "@base-ui/react/menu";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import {
   ArrowRight,
@@ -14,17 +13,15 @@ import {
 import { getConfigRegistry } from "../config/config-api";
 import {
   activateProposalCandidate,
-  decideParameterProposal,
+  approveParameterProposal,
   getRunParameterProposals,
-  latestProposalDecision,
 } from "../../data/parameter-proposals/api";
-import type { ParameterProposal, ProposalDecision } from "../../data/parameter-proposals/types";
-import { errorMessage, formatDateTime, shorten, titleCase } from "../../lib/presentation";
+import type { ParameterProposal } from "../../data/parameter-proposals/types";
+import { errorMessage, formatDateTime, shorten } from "../../lib/presentation";
 import { useConfirmationDialog } from "../../ui/ConfirmationDialog";
 
-interface DecisionInput {
+interface ApprovalInput {
   proposalId: string;
-  decision: ProposalDecision;
   note: string;
 }
 
@@ -46,12 +43,11 @@ export function RunProposals({ runId }: { runId: string }) {
   });
   const generation = configQuery.data?.active_state?.generation ?? 0;
 
-  const decisionMutation = useMutation({
-    mutationFn: (input: DecisionInput) =>
-      decideParameterProposal(runId, input.proposalId, {
+  const approvalMutation = useMutation({
+    mutationFn: (input: ApprovalInput) =>
+      approveParameterProposal(runId, input.proposalId, {
         reviewer: reviewer.trim(),
         note: input.note,
-        decision: input.decision,
       }),
     onSuccess: async (_, input) => {
       setNotes((current) => ({ ...current, [input.proposalId]: "" }));
@@ -60,11 +56,10 @@ export function RunProposals({ runId }: { runId: string }) {
   });
   const acceptMutation = useMutation({
     mutationFn: async ({ proposal, note }: { proposal: ParameterProposal; note: string }) => {
-      if (latestProposalDecision(proposal)?.decision !== "approved") {
-        await decideParameterProposal(runId, proposal.id, {
+      if (!proposal.approval) {
+        await approveParameterProposal(runId, proposal.id, {
           reviewer: reviewer.trim(),
           note,
-          decision: "approved",
         });
       }
       try {
@@ -95,17 +90,14 @@ export function RunProposals({ runId }: { runId: string }) {
     },
   });
 
-  const decide = (proposalId: string, decision: ProposalDecision) => {
-    const label = decision === "approved" ? "Approve" : "Reject";
+  const approve = (proposalId: string) => {
     requestConfirmation({
-      title: `${label} this proposal?`,
-      description: `${label} parameter proposal ${proposalId}. This appends a durable review decision.`,
-      confirmLabel: `${label} proposal`,
-      intent: decision === "rejected" ? "danger" : "default",
+      title: "Approve this proposal?",
+      description: `Record the immutable operator approval for parameter proposal ${proposalId}.`,
+      confirmLabel: "Approve proposal",
       onConfirm: () =>
-        decisionMutation.mutate({
+        approvalMutation.mutate({
           proposalId,
-          decision,
           note: notes[proposalId]?.trim() ?? "",
         }),
     });
@@ -148,7 +140,7 @@ export function RunProposals({ runId }: { runId: string }) {
         <ProposalMessage
           icon={<LoaderCircle className="spin" />}
           title="Reading proposals"
-          detail="Loading parameter changes and durable review decisions."
+          detail="Loading parameter changes and their operator approvals."
         />
       ) : proposalsQuery.isError ? (
         <ProposalMessage
@@ -166,26 +158,25 @@ export function RunProposals({ runId }: { runId: string }) {
       ) : (
         <div className="proposal-list">
           {proposalsQuery.data.items.map((proposal) => {
-            const latest = latestProposalDecision(proposal);
             const note = notes[proposal.id] ?? "";
-            const deciding =
-              decisionMutation.isPending && decisionMutation.variables?.proposalId === proposal.id;
+            const approving =
+              approvalMutation.isPending && approvalMutation.variables?.proposalId === proposal.id;
             const activating =
               acceptMutation.isPending && acceptMutation.variables?.proposal.id === proposal.id;
-            const canSetDefault =
-              latest?.decision !== "rejected" && !configQuery.isPending && !configQuery.isError;
+            const canSetDefault = !configQuery.isPending && !configQuery.isError;
             const proposalError =
               acceptMutation.error && acceptMutation.variables?.proposal.id === proposal.id
                 ? acceptMutation.error
-                : decisionMutation.error && decisionMutation.variables?.proposalId === proposal.id
-                  ? decisionMutation.error
+                : approvalMutation.error &&
+                    approvalMutation.variables?.proposalId === proposal.id
+                  ? approvalMutation.error
                   : undefined;
             return (
               <section className="proposal" key={proposal.id}>
                 <header>
                   <div>
-                    <span className={`proposal-state ${latest?.decision ?? "pending"}`}>
-                      {latest ? titleCase(latest.decision) : "Awaiting review"}
+                    <span className={`proposal-state ${proposal.approval ? "approved" : "pending"}`}>
+                      {proposal.approval ? "Approved" : "Awaiting approval"}
                     </span>
                     <h4>{proposal.id}</h4>
                     <p>{proposal.reason}</p>
@@ -201,7 +192,7 @@ export function RunProposals({ runId }: { runId: string }) {
                 </header>
 
                 <ProposalDiff proposal={proposal} />
-                <ProposalDecisions proposal={proposal} />
+                <ProposalApproval proposal={proposal} />
 
                 <div className="proposal-actions">
                   <label>
@@ -218,74 +209,42 @@ export function RunProposals({ runId }: { runId: string }) {
                     />
                   </label>
                   <button
-                    className="proposal-reject"
+                    className="proposal-activate"
                     type="button"
-                    disabled={deciding || !reviewer.trim() || latest?.decision === "rejected"}
-                    onClick={() => decide(proposal.id, "rejected")}
+                    disabled={
+                      !canSetDefault ||
+                      activating ||
+                      !reviewer.trim() ||
+                      defaultedProposalId === proposal.id
+                    }
+                    title={
+                      configQuery.isError ? "The default configuration is unavailable." : undefined
+                    }
+                    onClick={() => setDefault(proposal)}
                   >
-                    {deciding && decisionMutation.variables?.decision === "rejected" ? (
+                    {activating ? (
                       <LoaderCircle className="spin" size={14} />
+                    ) : defaultedProposalId === proposal.id ? (
+                      <CheckCircle2 size={14} />
                     ) : (
-                      <XCircle size={14} />
+                      <Settings2 size={14} />
                     )}
-                    Reject
+                    {defaultedProposalId === proposal.id ? "Default set" : "Accept as default"}
                   </button>
-                  {latest?.decision !== "rejected" && (
+                  {!proposal.approval && (
                     <button
-                      className="proposal-activate"
+                      className="secondary-button"
                       type="button"
-                      disabled={
-                        !canSetDefault ||
-                        activating ||
-                        !reviewer.trim() ||
-                        defaultedProposalId === proposal.id
-                      }
-                      title={
-                        configQuery.isError
-                          ? "The default configuration is unavailable."
-                          : undefined
-                      }
-                      onClick={() => setDefault(proposal)}
+                      disabled={approving || !reviewer.trim()}
+                      onClick={() => approve(proposal.id)}
                     >
-                      {activating ? (
+                      {approving ? (
                         <LoaderCircle className="spin" size={14} />
-                      ) : defaultedProposalId === proposal.id ? (
-                        <CheckCircle2 size={14} />
                       ) : (
-                        <Settings2 size={14} />
+                        <CheckCircle2 size={14} />
                       )}
-                      {defaultedProposalId === proposal.id ? "Default set" : "Accept as default"}
+                      Approve only
                     </button>
-                  )}
-                  {latest?.decision !== "approved" && (
-                    <Menu.Root>
-                      <Menu.Trigger className="action-menu-trigger compact">Advanced</Menu.Trigger>
-                      <Menu.Portal>
-                        <Menu.Positioner
-                          className="action-menu-positioner"
-                          sideOffset={6}
-                          align="end"
-                        >
-                          <Menu.Popup className="action-menu-popup">
-                            <Menu.Item
-                              className="action-menu-item"
-                              disabled={deciding || !reviewer.trim()}
-                              onClick={() => decide(proposal.id, "approved")}
-                            >
-                              {deciding && decisionMutation.variables?.decision === "approved" ? (
-                                <LoaderCircle className="spin" size={14} />
-                              ) : (
-                                <CheckCircle2 size={14} />
-                              )}
-                              <span>
-                                <strong>Approve only</strong>
-                                <small>Record approval without changing the default.</small>
-                              </span>
-                            </Menu.Item>
-                          </Menu.Popup>
-                        </Menu.Positioner>
-                      </Menu.Portal>
-                    </Menu.Root>
                   )}
                 </div>
                 {proposalError ? (
@@ -328,32 +287,25 @@ function ProposalDiff({ proposal }: { proposal: ParameterProposal }) {
   );
 }
 
-function ProposalDecisions({ proposal }: { proposal: ParameterProposal }) {
-  if (proposal.decisions.length === 0) return null;
+function ProposalApproval({ proposal }: { proposal: ParameterProposal }) {
+  const approval = proposal.approval;
+  if (!approval) return null;
   return (
-    <div className="proposal-decisions">
+    <div className="proposal-approval">
       <div>
         <History size={14} aria-hidden="true" />
-        <span>Review history</span>
+        <span>Operator approval</span>
       </div>
       <ol>
-        {proposal.decisions.map((decision) => (
-          <li key={decision.eventId}>
-            <span className={`decision-dot ${decision.decision}`} />
-            <strong>{titleCase(decision.decision)}</strong>
-            <span>by {decision.actor}</span>
-            {decision.authorityKind === "automatic_policy" && (
-              <span>
-                via policy {decision.policyId ?? "unknown"}
-                {decision.policyVersion ? `@${decision.policyVersion}` : ""}
-              </span>
-            )}
-            {decision.note && <p>{decision.note}</p>}
-            {decision.decidedAt && (
-              <time dateTime={decision.decidedAt}>{formatDateTime(decision.decidedAt)}</time>
-            )}
-          </li>
-        ))}
+        <li>
+          <span className="approval-dot" />
+          <strong>Approved</strong>
+          <span>by {approval.actor}</span>
+          {approval.note && <p>{approval.note}</p>}
+          {approval.approvedAt && (
+            <time dateTime={approval.approvedAt}>{formatDateTime(approval.approvedAt)}</time>
+          )}
+        </li>
       </ol>
     </div>
   );

@@ -166,7 +166,7 @@ export function ConfigWorkspace({
         overview={overview}
         rollbackDisabled={
           commandDisabled ||
-          (overview.active_state?.history?.length ?? 0) < 2 ||
+          overview.activation_history.length < 2 ||
           overview.active_state === undefined
         }
         rollbackPending={
@@ -176,7 +176,7 @@ export function ConfigWorkspace({
           workflow.runAction(
             { kind: "rollback" },
             `Restore ${
-              overview.active_state?.history?.[1]?.entry_id ?? "the previous version"
+              overview.activation_history[1]?.entry_id ?? "the previous version"
             } as the default configuration?`,
           )
         }
@@ -248,7 +248,7 @@ export function ConfigWorkspace({
         />
       )}
 
-      <ActivationHistory history={overview.active_state?.history ?? []} />
+      <ActivationHistory history={overview.activation_history} />
 
       {workflow.importDraft && (
         <ConfigImportDialog

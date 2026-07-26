@@ -2,16 +2,16 @@ import { request } from "../../api";
 import type { DaemonUiApi } from "../../api-contract";
 import type {
   ActivateProposalCandidateCommand,
-  DecideProposalCommand,
+  ApproveProposalCommand,
   ParameterProposal,
-  ParameterProposalDecision,
+  ParameterProposalApproval,
   ParameterProposalDelta,
   RunParameterProposals,
 } from "./types";
 
 type WireProposalView = NonNullable<DaemonUiApi["parameterProposals"]["items"]>[number];
 type WireProposalDelta = WireProposalView["proposal"]["deltas"][number];
-type WireProposalDecision = NonNullable<WireProposalView["decisions"]>[number];
+type WireProposalApproval = NonNullable<WireProposalView["approval"]>;
 
 export async function getRunParameterProposals(
   runId: string,
@@ -27,21 +27,17 @@ export async function getRunParameterProposals(
   };
 }
 
-export async function decideParameterProposal(
+export async function approveParameterProposal(
   runId: string,
   proposalId: string,
-  command: DecideProposalCommand,
+  command: ApproveProposalCommand,
 ): Promise<void> {
-  const payload: DaemonUiApi["parameterProposalDecisionCommand"] = {
-    decision: command.decision,
-    authority: {
-      kind: "human",
-      actor: command.reviewer,
-    },
+  const payload: DaemonUiApi["parameterProposalApprovalCommand"] = {
+    actor: command.reviewer,
     note: command.note ?? "",
   };
-  await request<DaemonUiApi["parameterProposalDecision"]>(
-    `/api/v1/runs/${encodeURIComponent(runId)}/parameter-proposals/${encodeURIComponent(proposalId)}/decision`,
+  await request<DaemonUiApi["parameterProposalApproval"]>(
+    `/api/v1/runs/${encodeURIComponent(runId)}/parameter-proposals/${encodeURIComponent(proposalId)}/approval`,
     undefined,
     jsonRequest(payload),
   );
@@ -65,12 +61,6 @@ export async function activateProposalCandidate(
   );
 }
 
-export function latestProposalDecision(
-  proposal: ParameterProposal,
-): ParameterProposalDecision | undefined {
-  return proposal.decisions.at(-1);
-}
-
 function normalizeProposalView(source: WireProposalView): ParameterProposal {
   return {
     id: source.proposal.id,
@@ -82,7 +72,7 @@ function normalizeProposalView(source: WireProposalView): ParameterProposal {
     confidence: source.proposal.confidence ?? undefined,
     proposedAt: source.proposal.proposed_at,
     deltas: source.proposal.deltas.map(normalizeDelta),
-    decisions: (source.decisions ?? []).map(normalizeDecision),
+    approval: source.approval ? normalizeApproval(source.approval) : undefined,
   };
 }
 
@@ -94,17 +84,11 @@ function normalizeDelta(source: WireProposalDelta): ParameterProposalDelta {
   };
 }
 
-function normalizeDecision(source: WireProposalDecision): ParameterProposalDecision {
+function normalizeApproval(source: WireProposalApproval): ParameterProposalApproval {
   return {
-    eventId: source.event_id,
-    decision: source.decision,
-    actor: source.authority.actor,
-    authorityKind: source.authority.kind ?? "human",
-    policyId: source.authority.kind === "automatic_policy" ? source.authority.policy_id : undefined,
-    policyVersion:
-      source.authority.kind === "automatic_policy" ? source.authority.policy_version : undefined,
+    actor: source.actor,
     note: source.note || undefined,
-    decidedAt: source.decided_at,
+    approvedAt: source.approved_at,
   };
 }
 

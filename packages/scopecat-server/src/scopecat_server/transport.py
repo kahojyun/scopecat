@@ -17,6 +17,7 @@ from scopecat.control.models import (
 )
 from scopecat.daemon.views import (
     ActiveConfigView,
+    ConfigActivationHistoryView,
     ConfigDraftPreview,
     ConfigEntryView,
     ConfigRegistryView,
@@ -54,7 +55,7 @@ from scopecat.daemon.wire import (
     ExecutorStartRequest,
     MeasurementAppendCommand,
     MeasurementSealCommand,
-    ParameterProposalDecisionCommand,
+    ParameterProposalApprovalCommand,
     RunAdmission,
     RunAttachmentCommand,
     RunSubmission,
@@ -63,7 +64,7 @@ from scopecat.daemon.wire import (
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.measurement_recording import MeasurementDatasetReceipt
-from scopecat.records.parameter_change import ParameterChangeDecisionRecord
+from scopecat.records.parameter_change import ParameterChangeApprovalRecord
 from scopecat.records.run import RunManifest
 from scopecat.runs.data import (
     RunArtifactJsonResult,
@@ -85,6 +86,7 @@ _SSE_POLL_SECONDS = 0.5
 
 class ConfigOperations(Protocol):
     def get_config_registry(self) -> ConfigRegistryView: ...
+    def get_config_activation_history(self) -> ConfigActivationHistoryView: ...
     def get_active_config(self) -> ActiveConfigView: ...
     def get_config_entry(self, entry_id: str) -> ConfigEntryView: ...
     def import_direct_config(
@@ -183,12 +185,12 @@ class RunOperations(Protocol):
         self,
         run_id: str,
     ) -> ParameterProposalListView: ...
-    def decide_parameter_proposal(
+    def approve_parameter_proposal(
         self,
         run_id: str,
         proposal_id: str,
-        command: ParameterProposalDecisionCommand,
-    ) -> ParameterChangeDecisionRecord: ...
+        command: ParameterProposalApprovalCommand,
+    ) -> ParameterChangeApprovalRecord: ...
     def measurements(
         self,
         run_id: str,
@@ -281,6 +283,10 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     @app.get(f"{_API_PREFIX}/config-registry")
     def get_config_registry() -> ConfigRegistryView:
         return application.config.get_config_registry()
+
+    @app.get(f"{_API_PREFIX}/config-registry/activations")
+    def get_config_activation_history() -> ConfigActivationHistoryView:
+        return application.config.get_config_activation_history()
 
     @app.get(f"{_API_PREFIX}/config-registry/active")
     def get_active_config() -> ActiveConfigView:
@@ -462,14 +468,14 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         return application.runs.list_parameter_proposals(run_id)
 
     @app.post(
-        f"{_API_PREFIX}/runs/{{run_id}}/parameter-proposals/{{proposal_id}}/decision"
+        f"{_API_PREFIX}/runs/{{run_id}}/parameter-proposals/{{proposal_id}}/approval"
     )
-    def decide_parameter_proposal(
+    def approve_parameter_proposal(
         run_id: str,
         proposal_id: str,
-        command: ParameterProposalDecisionCommand,
-    ) -> ParameterChangeDecisionRecord:
-        return application.runs.decide_parameter_proposal(
+        command: ParameterProposalApprovalCommand,
+    ) -> ParameterChangeApprovalRecord:
+        return application.runs.approve_parameter_proposal(
             run_id,
             proposal_id,
             command,

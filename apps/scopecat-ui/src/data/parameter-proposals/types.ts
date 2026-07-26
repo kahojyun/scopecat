@@ -1,20 +1,13 @@
-export type ProposalDecision = "approved" | "rejected";
-
 export interface ParameterProposalDelta {
   parameterId: string;
   before: unknown;
   after: unknown;
 }
 
-export interface ParameterProposalDecision {
-  eventId: string;
-  decision: ProposalDecision;
+export interface ParameterProposalApproval {
   actor: string;
-  authorityKind: "human" | "automatic_policy";
-  policyId?: string;
-  policyVersion?: string;
   note?: string;
-  decidedAt?: string;
+  approvedAt?: string;
 }
 
 export interface ParameterProposal {
@@ -27,7 +20,7 @@ export interface ParameterProposal {
   confidence?: number;
   proposedAt?: string;
   deltas: ParameterProposalDelta[];
-  decisions: ParameterProposalDecision[];
+  approval?: ParameterProposalApproval;
 }
 
 export interface RunParameterProposals {
@@ -35,10 +28,9 @@ export interface RunParameterProposals {
   items: ParameterProposal[];
 }
 
-export interface DecideProposalCommand {
+export interface ApproveProposalCommand {
   reviewer: string;
   note?: string;
-  decision: ProposalDecision;
 }
 
 export interface ActivateProposalCandidateCommand {

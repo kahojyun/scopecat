@@ -1,4 +1,4 @@
-"""Accept a high-confidence DRAG fit with an automatic policy."""
+"""Accept a high-confidence DRAG fit."""
 
 from __future__ import annotations
 
@@ -43,15 +43,10 @@ if result.proposal_id is None:
     raise RuntimeError(msg)
 
 # %%
-policy = sc.AutomaticPolicyDecisionAuthority(
-    actor="nightly-calibration",
-    policy_id="quantum_lab_demo.drag_beta.fit_quality",
-    policy_version="1",
-)
 accepted = lab.config.accept(
     result.analysis,
-    authority=policy,
-    note="fit passed the versioned DRAG quality policy",
+    operator="nightly-calibration",
+    note="fit passed the DRAG quality checks",
 )
 
 # A later production experiment naturally exercises the accepted parameter,
@@ -62,7 +57,7 @@ production_run = lab.prepare(production_drag_template()).run(
 )
 
 # %%
-# Undo restores the previous default while retaining the fit, policy decision,
+# Undo restores the previous default while retaining the fit, approval,
 # immutable revision, production run, and activation history.
 restored = lab.config.undo(
     note="restore the previous default after the calibration example",
@@ -76,8 +71,7 @@ drag_beta_summary = {
     "fit_rmse": result.fit.rmse,
     "quality_score": result.assessment.quality_score,
     "proposal_id": result.proposal_id,
-    "acceptance_authority": policy.kind,
-    "policy": f"{policy.policy_id}@{policy.policy_version}",
+    "approved_by": "nightly-calibration",
     "production_run": production_run.id,
     "accepted_as_default": (
         production_source is not None

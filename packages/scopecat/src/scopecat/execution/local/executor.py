@@ -7,7 +7,7 @@ from dataclasses import replace
 from itertools import chain
 from typing import cast
 
-from pydantic import JsonValue, TypeAdapter
+from pydantic import JsonValue
 
 from scopecat.execution.effect_interpreter import RunEffectInterpreter
 from scopecat.execution.effect_result import (
@@ -45,8 +45,6 @@ from scopecat.sdk.runtime_problems import (
     problem_from_exception,
     runtime_problem,
 )
-
-_PROVIDER_METADATA_ADAPTER = TypeAdapter(dict[str, JsonValue])
 
 
 def execute_run_operations(
@@ -237,17 +235,12 @@ def _execute_provider_result(
     host = program.host
     if host is None:
         raise AssertionError("provided drivers require a host binding")
-    instruments: list[InstrumentDriver] = []
+    instruments = list(provider_result.drivers)
     provider_transition_attempted = False
     engine: RunEffectInterpreter | None = None
     indeterminate = False
     interruption: BaseException | None = None
     try:
-        # Ownership is acquired one driver at a time before touching any driver
-        # property or provider completion metadata.  A non-conforming iterable
-        # that fails part-way through cannot orphan already yielded drivers.
-        for instrument in provider_result.drivers:
-            instruments.append(instrument)  # noqa: PERF402
         provider_problems = list(
             contextualize_problems(
                 provider_result.problems,
@@ -497,21 +490,11 @@ def _provider_result_evidence(
     problems: list[Problem],
 ) -> dict[str, JsonValue]:
     instrument_ids = sorted(instrument.instrument_id for instrument in instruments)
-    validated_metadata = _PROVIDER_METADATA_ADAPTER.validate_python(
-        provider_result.metadata
-    )
-    metadata = cast(
-        "dict[str, JsonValue]",
-        _PROVIDER_METADATA_ADAPTER.dump_python(
-            validated_metadata,
-            mode="json",
-        ),
-    )
     receipt = {
         "provider_id": provider_id,
         "instrument_ids": instrument_ids,
         "problems": [item.model_dump(mode="json") for item in problems],
-        "metadata": metadata,
+        "metadata": provider_result.metadata,
     }
     evidence = {
         "instrument_ids": instrument_ids,

@@ -1,4 +1,4 @@
-"""Parameter change proposal inspection and append-only decisions."""
+"""Parameter change proposals and their optional operator approval."""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import PurePosixPath
-from uuid import uuid4
 
 from scopecat.config.parameter_resolution import validate_parameter_snapshot
 from scopecat.config.parameter_updates import (
@@ -28,9 +27,7 @@ from scopecat.project_state import ProjectStateServices
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.parameter_change import (
-    ParameterChangeDecision,
-    ParameterChangeDecisionAuthority,
-    ParameterChangeDecisionRecord,
+    ParameterChangeApprovalRecord,
     ParameterChangeProposal,
 )
 from scopecat.records.run import RunManifest
@@ -52,9 +49,9 @@ class PreparedParameterChangeProposals:
 
 
 @dataclass(frozen=True, slots=True)
-class PreparedParameterChangeDecision:
-    decision: ParameterChangeDecisionRecord
-    publication: RunContentPublication
+class PreparedParameterChangeApproval:
+    approval: ParameterChangeApprovalRecord
+    publication: RunContentPublication | None
 
 
 def is_safe_parameter_change_id(value: str) -> bool:
@@ -142,16 +139,15 @@ def list_parameter_change_proposals(
     )
 
 
-def prepare_parameter_change_decision(
+def prepare_parameter_change_approval(
     *,
     run_id: str,
     selector: str,
     services: ProjectStateServices,
-    decision: ParameterChangeDecision,
-    authority: ParameterChangeDecisionAuthority,
+    actor: str,
     note: str = "",
-) -> PreparedParameterChangeDecision:
-    """Prepare one append-only decision for caller-owned publication."""
+) -> PreparedParameterChangeApproval:
+    """Prepare the proposal's one immutable approval."""
 
     storage = services.runs
     proposal, _proposal_record = _resolve_proposal_ref(
@@ -159,29 +155,54 @@ def prepare_parameter_change_decision(
         run_id=run_id,
         selector=selector,
     )
-    event_id = uuid4().hex
-    record = ParameterChangeDecisionRecord(
-        event_id=event_id,
+    approval = ParameterChangeApprovalRecord(
         run_id=run_id,
         proposal_id=proposal.id,
-        decision=decision,
-        authority=authority,
+        actor=actor,
         note=note,
     )
-    decision_entry = _parameter_change_decision_record_entry(record)
-    decision_ref = record_content_ref(
-        record_id=decision_entry.id,
-        kind=decision_entry.kind,
+    existing = load_parameter_change_approval(
+        run_id=run_id,
+        selector=proposal.id,
+        storage=storage,
     )
-    return PreparedParameterChangeDecision(
-        decision=record,
+    if existing is not None:
+        if existing.actor != approval.actor or existing.note != approval.note:
+            raise Conflict(
+                [
+                    _parameter_problem(
+                        "parameter_change_approval_conflict",
+                        "parameter change proposal already has a different approval",
+                        phase=ProblemPhase.PERSISTENCE,
+                        location=StorageLocation(
+                            run_id=run_id,
+                            ref=record_content_ref(
+                                record_id=f"{proposal.id}-approval",
+                                kind="parameter_change_approval_record",
+                            ),
+                        ),
+                        details={"proposal_id": proposal.id},
+                    )
+                ]
+            )
+        return PreparedParameterChangeApproval(
+            approval=existing,
+            publication=None,
+        )
+    approval_entry = _parameter_change_approval_record_entry(approval)
+    approval_ref = record_content_ref(
+        record_id=approval_entry.id,
+        kind=approval_entry.kind,
+    )
+    return PreparedParameterChangeApproval(
+        approval=approval,
         publication=RunContentPublication(
             run_id=run_id,
-            entries=(decision_entry,),
+            entries=(approval_entry,),
             models=(
                 RunModelWrite(
-                    ref=decision_ref,
-                    value=record,
+                    ref=approval_ref,
+                    value=approval,
                     replace=False,
                 ),
             ),
@@ -189,34 +210,34 @@ def prepare_parameter_change_decision(
     )
 
 
-def list_parameter_change_decisions(
+def load_parameter_change_approval(
     *,
     run_id: str,
     selector: str,
     storage: RunRepository,
-) -> list[ParameterChangeDecisionRecord]:
+) -> ParameterChangeApprovalRecord | None:
     proposal, _record = _resolve_proposal_ref(
         storage=storage,
         run_id=run_id,
         selector=selector,
     )
-    selected: list[ParameterChangeDecisionRecord] = []
+    selected: list[ParameterChangeApprovalRecord] = []
     for entry in list_records(
         storage.read_manifest(run_id),
-        kind="parameter_change_decision_record",
+        kind="parameter_change_approval_record",
     ):
         try:
-            decision = storage.read_model(
+            approval = storage.read_model(
                 run_id,
                 record_content_ref(record_id=entry.id, kind=entry.kind),
-                ParameterChangeDecisionRecord,
+                ParameterChangeApprovalRecord,
             )
         except DataIntegrityError as error:
             raise DataIntegrityError(
                 [
                     _parameter_problem(
-                        "invalid_parameter_change_decision",
-                        "parameter change decision record is invalid",
+                        "invalid_parameter_change_approval",
+                        "parameter change approval record is invalid",
                         phase=ProblemPhase.PERSISTENCE,
                         location=StorageLocation(
                             run_id=run_id,
@@ -229,13 +250,13 @@ def list_parameter_change_decisions(
                     )
                 ]
             ) from error
-        expected_entry_id = f"{decision.proposal_id}-decision-{decision.event_id}"
-        if decision.run_id != run_id or entry.id != expected_entry_id:
+        expected_entry_id = f"{approval.proposal_id}-approval"
+        if approval.run_id != run_id or entry.id != expected_entry_id:
             raise DataIntegrityError(
                 [
                     _parameter_problem(
-                        "invalid_parameter_change_decision_identity",
-                        "parameter change decision identity does not match its "
+                        "invalid_parameter_change_approval_identity",
+                        "parameter change approval identity does not match its "
                         "run record",
                         phase=ProblemPhase.PERSISTENCE,
                         location=StorageLocation(
@@ -247,15 +268,27 @@ def list_parameter_change_decisions(
                         ),
                         details={
                             "record_id": entry.id,
-                            "decision_run_id": decision.run_id,
+                            "approval_run_id": approval.run_id,
                             "expected_record_id": expected_entry_id,
                         },
                     )
                 ]
             )
-        if decision.proposal_id == proposal.id:
-            selected.append(decision)
-    return selected
+        if approval.proposal_id == proposal.id:
+            selected.append(approval)
+    if len(selected) > 1:
+        raise DataIntegrityError(
+            [
+                _parameter_problem(
+                    "multiple_parameter_change_approvals",
+                    "parameter change proposal has multiple approvals",
+                    phase=ProblemPhase.PERSISTENCE,
+                    location=StorageLocation(run_id=run_id),
+                    details={"proposal_id": proposal.id},
+                )
+            ]
+        )
+    return selected[0] if selected else None
 
 
 def parameter_change_proposal_record_ref(proposal_id: str) -> str:
@@ -277,13 +310,13 @@ def _parameter_change_proposal_record(
     )
 
 
-def _parameter_change_decision_record_entry(
-    record: ParameterChangeDecisionRecord,
+def _parameter_change_approval_record_entry(
+    record: ParameterChangeApprovalRecord,
 ) -> RunContentEntry:
     return RunContentEntry(
         role="record",
-        id=f"{record.proposal_id}-decision-{record.event_id}",
-        kind="parameter_change_decision_record",
+        id=f"{record.proposal_id}-approval",
+        kind="parameter_change_approval_record",
         media_type="application/json",
         content_hash=model_wire_content_hash(record),
     )

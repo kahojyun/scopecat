@@ -16,6 +16,7 @@ from scopecat.control.models import (
 )
 from scopecat.daemon.views import (
     ActiveConfigView,
+    ConfigActivationHistoryView,
     ConfigDraftPreview,
     ConfigEntryView,
     ConfigRegistryView,
@@ -53,7 +54,7 @@ from scopecat.daemon.wire import (
     ExecutorStartRequest,
     MeasurementAppendCommand,
     MeasurementSealCommand,
-    ParameterProposalDecisionCommand,
+    ParameterProposalApprovalCommand,
     RunAdmission,
     RunAttachmentCommand,
     RunSubmission,
@@ -62,7 +63,7 @@ from scopecat.daemon.wire import (
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.measurement_recording import MeasurementDatasetReceipt
-from scopecat.records.parameter_change import ParameterChangeDecisionRecord
+from scopecat.records.parameter_change import ParameterChangeApprovalRecord
 from scopecat.records.run import RunManifest
 from scopecat.runs.data import (
     RunArtifactJsonResult,
@@ -128,6 +129,12 @@ class DaemonClient:
         return self._get_model(
             f"{_API_PREFIX}/config-registry",
             ConfigRegistryView,
+        )
+
+    def config_activation_history(self) -> ConfigActivationHistoryView:
+        return self._get_model(
+            f"{_API_PREFIX}/config-registry/activations",
+            ConfigActivationHistoryView,
         )
 
     def active_config(self) -> ActiveConfigView:
@@ -397,21 +404,21 @@ class DaemonClient:
             ParameterProposalListView,
         )
 
-    def decide_parameter_proposal(
+    def approve_parameter_proposal(
         self,
         run_id: str,
         proposal_id: str,
-        command: ParameterProposalDecisionCommand,
-    ) -> ParameterChangeDecisionRecord:
+        command: ParameterProposalApprovalCommand,
+    ) -> ParameterChangeApprovalRecord:
         selected_run = quote(run_id, safe="")
         selected_proposal = quote(proposal_id, safe="")
         return self._post_model(
             (
                 f"{_API_PREFIX}/runs/{selected_run}/parameter-proposals/"
-                f"{selected_proposal}/decision"
+                f"{selected_proposal}/approval"
             ),
             command,
-            ParameterChangeDecisionRecord,
+            ParameterChangeApprovalRecord,
         )
 
     def resolve_attention(

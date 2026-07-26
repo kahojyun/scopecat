@@ -12,7 +12,7 @@ from scopecat.config.candidates import (
     resolve_candidate_config_from_snapshot,
 )
 from scopecat.config.changes import (
-    list_parameter_change_decisions,
+    load_parameter_change_approval,
     load_parameter_change_proposal,
 )
 from scopecat.config.parameter_updates import ParameterUpdate
@@ -49,14 +49,14 @@ def test_candidate_config_resolves_proposal_and_runs_follow_up(
     candidate = analysis.candidate_config()
 
     follow_up = lab.prepare(load_invocation(), config=candidate).run()
-    decision = lab.review_parameter_proposal(
+    approval = lab.review_parameter_proposal(
         run,
         "drive_frequency",
         note="checked parameter proposal",
     )
 
-    assert decision.decision == "approved"
-    assert decision.proposal_id == "drive_frequency"
+    assert approval.actor == "operator"
+    assert approval.proposal_id == "drive_frequency"
     assert candidate.proposal_id == "drive_frequency"
     updated = follow_up.config.parameter_snapshot.get("drive_frequency")
     assert isinstance(updated, ScalarParameterValue)
@@ -296,11 +296,10 @@ def test_proposal_records_are_immutable_but_idempotent(tmp_path: Path) -> None:
     first.save()
     first.save()
     first_proposal = first.parameter_proposals[0]
-    decision = lab.review_parameter_proposal(
+    approval = lab.review_parameter_proposal(
         run,
         first_proposal.id,
-        decision="rejected",
-        note="review history must survive an idempotent analysis-cell retry",
+        note="approval must survive an idempotent analysis-cell retry",
     )
     rebuilt = run.analysis("first fit").propose(
         "drive-frequency",
@@ -339,13 +338,12 @@ def test_proposal_records_are_immutable_but_idempotent(tmp_path: Path) -> None:
         for record in manifest.records
         if record.kind == "parameter_change_proposal"
     ] == [first_proposal.id]
-    decisions = list_parameter_change_decisions(
+    persisted_approval = load_parameter_change_approval(
         run_id=run.id,
         selector=first_proposal.id,
         storage=sqlite_run_repository(tmp_path),
     )
-    assert [event.decision for event in decisions] == [decision.decision]
-    assert [event.event_id for event in decisions] == [decision.event_id]
+    assert persisted_approval == approval
 
 
 def _lab(tmp_path: Path) -> InProcessLab:

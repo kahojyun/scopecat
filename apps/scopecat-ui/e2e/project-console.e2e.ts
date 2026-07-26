@@ -18,8 +18,11 @@ interface ConfigRegistryView {
   active_state: {
     active_entry_id: string;
     generation: number;
-    history: unknown[];
   };
+}
+
+interface ConfigActivationHistoryView {
+  items: unknown[];
 }
 
 interface ProcessCompletion {
@@ -221,6 +224,7 @@ test("starter project closes the notebook, run, and config loop", async ({ daemo
   await expect(page.getByRole("heading", { name: "Default configuration" })).toBeVisible();
 
   const initialRegistry = await readRegistry(page, daemon.baseUrl);
+  const initialHistory = await readActivationHistory(page, daemon.baseUrl);
   const initialEntryId = initialRegistry.active_state.active_entry_id;
   await expect(page.getByTestId("active-config-entry")).toHaveText(initialEntryId);
   await expect(page.getByRole("button", { name: "Undo" })).toBeDisabled();
@@ -241,11 +245,10 @@ test("starter project closes the notebook, run, and config loop", async ({ daemo
   await expect(page.getByText("Runtime-derived default")).toBeVisible();
   await expect(page.locator(".parameter-atom")).toHaveText("256");
   const editedRegistry = await readRegistry(page, daemon.baseUrl);
+  const editedHistory = await readActivationHistory(page, daemon.baseUrl);
   expect(editedRegistry.active_state.active_entry_id).not.toBe(initialEntryId);
   expect(editedRegistry.active_state.generation).toBe(initialRegistry.active_state.generation + 1);
-  expect(editedRegistry.active_state.history).toHaveLength(
-    initialRegistry.active_state.history.length + 1,
-  );
+  expect(editedHistory.items).toHaveLength(initialHistory.items.length + 1);
 
   const rollbackResponse = page.waitForResponse(
     (response) =>
@@ -262,13 +265,12 @@ test("starter project closes the notebook, run, and config loop", async ({ daemo
   await expect(page.getByTestId("active-config-entry")).toHaveText(initialEntryId);
   await expect(page.getByText("Runtime-derived default")).toHaveCount(0);
   const rolledBackRegistry = await readRegistry(page, daemon.baseUrl);
+  const rolledBackHistory = await readActivationHistory(page, daemon.baseUrl);
   expect(rolledBackRegistry.active_state.active_entry_id).toBe(initialEntryId);
   expect(rolledBackRegistry.active_state.generation).toBe(
     editedRegistry.active_state.generation + 1,
   );
-  expect(rolledBackRegistry.active_state.history).toHaveLength(
-    editedRegistry.active_state.history.length + 1,
-  );
+  expect(rolledBackHistory.items).toHaveLength(editedHistory.items.length + 1);
 });
 
 test("accepts a notebook candidate in the GUI and preserves its provenance", async ({
@@ -403,6 +405,15 @@ async function readRegistry(page: Page, baseUrl: string): Promise<ConfigRegistry
   const response = await page.request.get(`${baseUrl}/api/v1/config-registry`);
   await expectResponseOk(response, "GET");
   return (await response.json()) as ConfigRegistryView;
+}
+
+async function readActivationHistory(
+  page: Page,
+  baseUrl: string,
+): Promise<ConfigActivationHistoryView> {
+  const response = await page.request.get(`${baseUrl}/api/v1/config-registry/activations`);
+  await expectResponseOk(response, "GET");
+  return (await response.json()) as ConfigActivationHistoryView;
 }
 
 async function createCandidateAnalysis(projectRoot: string): Promise<CandidateAnalysis> {

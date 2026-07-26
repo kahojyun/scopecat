@@ -19,6 +19,7 @@ from scopecat.config.resolution import config_revision_entry_id
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.views import (
     ActiveConfigView,
+    ConfigActivationHistoryView,
     ConfigDraftPreview,
     ConfigEntryView,
     ConfigRegistryView,
@@ -38,14 +39,11 @@ from scopecat.daemon.wire import (
     ConfigRollbackCommand,
     DirectConfigDefaultCommand,
     DirectConfigImportCommand,
-    ParameterProposalDecisionCommand,
+    ParameterProposalApprovalCommand,
 )
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.parameter_change import (
-    HumanDecisionAuthority,
-    ParameterChangeDecision,
-    ParameterChangeDecisionAuthority,
-    ParameterChangeDecisionRecord,
+    ParameterChangeApprovalRecord,
 )
 from scopecat.records.run import (
     AnalysisCandidateRunConfigSource,
@@ -67,6 +65,9 @@ class LabConfigOperations:
 
     def registry(self) -> ConfigRegistryView:
         return self.client.config_registry()
+
+    def history(self) -> ConfigActivationHistoryView:
+        return self.client.config_activation_history()
 
     def active(self) -> ActiveConfigView:
         return self.client.active_config()
@@ -331,23 +332,21 @@ class LabConfigOperations:
     ) -> ParameterProposalListView:
         return self.client.parameter_proposals(run_handle_id(run))
 
-    def review(
+    def approve(
         self,
         run: RunSelector | RunHandle,
         selector: str,
         *,
         reviewer: str | None = None,
-        decision: ParameterChangeDecision = "approved",
         note: str = "",
-    ) -> ParameterChangeDecisionRecord:
-        """Append one human decision through the shared decision protocol."""
+    ) -> ParameterChangeApprovalRecord:
+        """Record the proposal's immutable operator approval."""
 
-        return self.client.decide_parameter_proposal(
+        return self.client.approve_parameter_proposal(
             run_handle_id(run),
             selector,
-            ParameterProposalDecisionCommand(
-                decision=decision,
-                authority=HumanDecisionAuthority(actor=reviewer or self.reviewer),
+            ParameterProposalApprovalCommand(
+                actor=reviewer or self.reviewer,
                 note=note,
             ),
         )
@@ -357,7 +356,6 @@ class LabConfigOperations:
         candidate: CandidateConfig | Analysis,
         *,
         selection: CandidateSelection = None,
-        authority: ParameterChangeDecisionAuthority | None = None,
         entry_id: str | None = None,
         registered_by: str | None = None,
         operator: str | None = None,
@@ -372,30 +370,15 @@ class LabConfigOperations:
             if selection is not None:
                 raise ValueError("proposal selection belongs on an Analysis")
             selected = candidate
-        self.resolve(selected)
-        selected_authority = authority or HumanDecisionAuthority(
-            actor=operator or self.operator
-        )
-        proposal_views = {
-            item.proposal.id: item
-            for item in self.client.parameter_proposals(selected.source_run_id).items
-        }
         proposal_id = selected.proposal_id
-        decisions = proposal_views[proposal_id].decisions
-        if not (
-            decisions
-            and decisions[-1].decision == "approved"
-            and (authority is None or decisions[-1].authority == selected_authority)
-        ):
-            self.client.decide_parameter_proposal(
-                selected.source_run_id,
-                proposal_id,
-                ParameterProposalDecisionCommand(
-                    decision="approved",
-                    authority=selected_authority,
-                    note=note,
-                ),
-            )
+        self.client.approve_parameter_proposal(
+            selected.source_run_id,
+            proposal_id,
+            ParameterProposalApprovalCommand(
+                actor=operator or self.operator,
+                note=note,
+            ),
+        )
         return self.activate_candidate(
             selected,
             entry_id=entry_id,

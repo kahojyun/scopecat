@@ -247,7 +247,7 @@ def test_execute_fences_effects_after_heartbeat_loses_lease(
 def test_config_operations_reject_a_draft_from_a_different_active_snapshot() -> None:
     active_config = load_config()
     stale_config = active_config.model_copy(update={"id": "stale-config"})
-    entry, state = _config_registry_records(active_config)
+    entry, state, _activation = _config_registry_records(active_config)
     requests: list[httpx2.Request] = []
 
     def handler(request: httpx2.Request) -> httpx2.Response:
@@ -274,7 +274,7 @@ def test_config_operations_reject_a_draft_from_a_different_active_snapshot() -> 
 
 def test_lab_client_owns_local_config_draft_workflow() -> None:
     config = load_config()
-    entry, state = _config_registry_records(config)
+    entry, state, _activation = _config_registry_records(config)
     preview = _config_draft_preview(
         config=config,
         entry=entry,
@@ -323,7 +323,7 @@ def test_lab_client_owns_local_config_draft_workflow() -> None:
 
 def test_lab_config_intents_hide_registry_coordination() -> None:
     config = load_config()
-    entry, state = _config_registry_records(config)
+    entry, state, activation = _config_registry_records(config)
     seen: list[DirectConfigDefaultCommand | ConfigRollbackCommand] = []
 
     def handler(request: httpx2.Request) -> httpx2.Response:
@@ -341,7 +341,7 @@ def test_lab_config_intents_hide_registry_coordination() -> None:
                 ConfigDefaultReceipt(
                     entry=entry,
                     active_state=state,
-                    activation=state.history[-1],
+                    activation=activation,
                 )
             )
         if path == "/api/v1/config-registry/rollback":
@@ -350,7 +350,7 @@ def test_lab_config_intents_hide_registry_coordination() -> None:
             return _model(
                 ConfigActivationReceipt(
                     active_state=state,
-                    activation=state.history[-1],
+                    activation=activation,
                 )
             )
         raise AssertionError(f"unexpected request: {request.method} {path}")
@@ -531,7 +531,7 @@ def test_run_scratch_uses_active_config_and_bound_system(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config = load_config()
-    entry, state = _config_registry_records(config)
+    entry, state, _activation = _config_registry_records(config)
     provider = TestSignalInstrumentProvider()
     system = ExperimentSystem(provider=provider)
     captured: dict[str, object] = {}
@@ -595,7 +595,7 @@ def test_run_scratch_requires_an_explicit_or_bound_system() -> None:
 
 def test_preview_scratch_uses_active_config_without_admission() -> None:
     config = load_config()
-    entry, state = _config_registry_records(config)
+    entry, state, _activation = _config_registry_records(config)
     requests: list[httpx2.Request] = []
 
     def handler(request: httpx2.Request) -> httpx2.Response:
@@ -634,7 +634,11 @@ def _client(
 
 def _config_registry_records(
     config: ConfigProfileSnapshot,
-) -> tuple[ConfigRegistryEntry, ConfigRegistryActiveState]:
+) -> tuple[
+    ConfigRegistryEntry,
+    ConfigRegistryActiveState,
+    ConfigRegistryActivationRecord,
+]:
     entry = ConfigRegistryEntry(
         id="baseline",
         config_ref="config-registry/entries/baseline/config.json",
@@ -656,10 +660,9 @@ def _config_registry_records(
         generation=1,
         active_entry_id=entry.id,
         active_entry_content_hash=entry.content_hash,
-        history=(activation,),
         updated_at=_NOW,
     )
-    return entry, state
+    return entry, state, activation
 
 
 def _config_draft_preview(
@@ -738,7 +741,6 @@ def _config_draft_default_receipt(
         generation=activation.generation,
         active_entry_id=activation.entry_id,
         active_entry_content_hash=activation.entry_content_hash,
-        history=(*previous_state.history, activation),
         updated_at=activation.recorded_at,
     )
     return ConfigDraftDefaultReceipt(

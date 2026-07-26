@@ -33,7 +33,7 @@ from scopecat.config.candidates import (
     CandidateConfig,
     resolve_candidate_config_snapshot,
 )
-from scopecat.config.changes import prepare_parameter_change_decision
+from scopecat.config.changes import prepare_parameter_change_approval
 from scopecat.config.environment import build_config_environment
 from scopecat.config.registry import service as config_registry_service
 from scopecat.config.registry.records import (
@@ -64,11 +64,7 @@ from scopecat.planning.preview_models import ExperimentPreview
 from scopecat.planning.system import ExperimentSystem
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.config import ConfigProfileSnapshot
-from scopecat.records.parameter_change import (
-    HumanDecisionAuthority,
-    ParameterChangeDecision,
-    ParameterChangeDecisionRecord,
-)
+from scopecat.records.parameter_change import ParameterChangeApprovalRecord
 from scopecat.runs.selectors import RunSelector
 from tests.testkit.runtime import (
     ServiceRunOperations,
@@ -81,7 +77,7 @@ from tests.testkit.runtime import (
     sqlite_project_services,
 )
 
-from quantum_lab_demo.compiler import QuantumLabCompiler, QuantumRealtimeLabCompiler
+from quantum_lab_demo.compiler import QuantumLabCompiler
 from quantum_lab_demo.configuration import quantum_lab_bootstrap_config
 from quantum_lab_demo.lab import quantum_lab_config_profile, quantum_lab_system
 
@@ -246,19 +242,18 @@ class InProcessQuantumLab:
         selector: str,
         *,
         reviewer: str | None = None,
-        decision: ParameterChangeDecision = "approved",
         note: str = "",
-    ) -> ParameterChangeDecisionRecord:
-        prepared = prepare_parameter_change_decision(
+    ) -> ParameterChangeApprovalRecord:
+        prepared = prepare_parameter_change_approval(
             run_id=run_handle_id(run),
             selector=selector,
             services=self.services,
-            decision=decision,
-            authority=HumanDecisionAuthority(actor=reviewer or self.reviewer),
+            actor=reviewer or self.reviewer,
             note=note,
         )
-        self.services.runs.publish_content(prepared.publication)
-        return prepared.decision
+        if prepared.publication is not None:
+            self.services.runs.publish_content(prepared.publication)
+        return prepared.approval
 
     def activate(
         self,
@@ -360,7 +355,7 @@ def in_process_quantum_lab(
     project_root: PathInput,
     config_profile: ConfigProfileSnapshot | None = None,
     virtual_lab_profile: PathInput = TEST_VIRTUAL_LAB_PROFILE,
-    compiler: QuantumLabCompiler | QuantumRealtimeLabCompiler | None = None,
+    compiler: QuantumLabCompiler | None = None,
 ) -> InProcessQuantumLab:
     """Compose isolated storage for unit tests that do not exercise the daemon."""
 

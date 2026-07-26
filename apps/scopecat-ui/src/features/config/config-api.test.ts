@@ -25,17 +25,20 @@ afterEach(() => {
 
 describe("config registry reads", () => {
   it("keeps the generated wire model and only sorts registry projections", async () => {
-    const fetchMock = vi.fn((_input: string | URL | Request) =>
+    const fetchMock = vi.fn((input: string | URL | Request) =>
       Promise.resolve(
-        jsonResponse({
-          entries: [registryEntry("config-a", HASH_A), registryEntry("config-b", HASH_B)],
-          active_state: {
-            generation: 2,
-            active_entry_id: "config-b",
-            active_entry_content_hash: HASH_B,
-            history: [activation(1, "config-a", HASH_A), activation(2, "config-b", HASH_B)],
-          },
-        }),
+        String(input).endsWith("/activations")
+          ? jsonResponse({
+              items: [activation(1, "config-a", HASH_A), activation(2, "config-b", HASH_B)],
+            })
+          : jsonResponse({
+              entries: [registryEntry("config-a", HASH_A), registryEntry("config-b", HASH_B)],
+              active_state: {
+                generation: 2,
+                active_entry_id: "config-b",
+                active_entry_content_hash: HASH_B,
+              },
+            }),
       ),
     );
     vi.stubGlobal("fetch", fetchMock);
@@ -43,24 +46,32 @@ describe("config registry reads", () => {
     const overview = await getConfigRegistry();
 
     expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/v1/config-registry");
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/v1/config-registry/activations");
     expect(overview.entries.map((entry) => entry.id)).toEqual(["config-b", "config-a"]);
     expect(overview.active_state).toMatchObject({
       active_entry_id: "config-b",
       active_entry_content_hash: HASH_B,
       generation: 2,
     });
-    expect(overview.active_state?.history?.map((item) => item.generation)).toEqual([2, 1]);
+    expect(overview.activation_history.map((item) => item.generation)).toEqual([2, 1]);
   });
 
   it("returns null active state without inventing a second projection", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(() => Promise.resolve(jsonResponse({ entries: [], active_state: null }))),
+      vi.fn((input: string | URL | Request) =>
+        Promise.resolve(
+          String(input).endsWith("/activations")
+            ? jsonResponse({ items: [] })
+            : jsonResponse({ entries: [], active_state: null }),
+        ),
+      ),
     );
 
     await expect(getConfigRegistry()).resolves.toEqual({
       entries: [],
       active_state: null,
+      activation_history: [],
     });
   });
 
@@ -196,7 +207,6 @@ describe("typed config drafts", () => {
         generation: 4,
         active_entry_id: "config-a-edit",
         active_entry_content_hash: HASH_B,
-        history: [activationRecord],
       },
       activation: activationRecord,
     };

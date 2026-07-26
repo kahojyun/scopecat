@@ -15,7 +15,7 @@ export function ConfigSummary({
   onRollback: () => void;
 }) {
   const active = overview.active_state;
-  const history = active?.history ?? [];
+  const history = overview.activation_history;
   const defaultEntry = overview.entries.find((entry) => entry.id === active?.active_entry_id);
   const runtimeDerived =
     defaultEntry?.source.kind === "manual_parameter_updates" ||
