@@ -40,7 +40,8 @@ from tests.testkit.runtime import (
 )
 
 from quantum_lab_demo.compiler import QuantumLabCompiler
-from quantum_lab_demo.lab import quantum_lab_config_profile, quantum_lab_system
+from quantum_lab_demo.configuration import quantum_lab_bootstrap_config
+from quantum_lab_demo.lab import quantum_lab_system
 
 from .demo_lab_test_paths import (
     EXPERIMENT_VIRTUAL_LAB_PROFILE as TEST_VIRTUAL_LAB_PROFILE,
@@ -289,7 +290,9 @@ def in_process_quantum_lab(
 ) -> InProcessQuantumLab:
     """Compose isolated storage for unit tests that do not exercise the daemon."""
 
-    config = quantum_lab_config_profile(config_profile)
+    config = (
+        quantum_lab_bootstrap_config() if config_profile is None else config_profile
+    )
     return InProcessQuantumLab(
         project_root=Path(project_root),
         services=sqlite_project_services(project_root),
