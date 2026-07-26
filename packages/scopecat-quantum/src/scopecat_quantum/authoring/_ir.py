@@ -166,23 +166,6 @@ class MeasurementResult:
 type ProgramResult = MeasurementResult
 
 
-@dataclass(frozen=True, slots=True, repr=False, eq=False)
-class RealtimeBit:
-    """One explicitly requested target-local discriminator output."""
-
-    _id: str
-
-    def __post_init__(self) -> None:
-        if not self._id.strip():
-            raise ValueError("measurement bit id must be a non-empty string")
-
-    @property
-    def id(self) -> str:
-        """Return the authored local value name used in diagnostics."""
-
-        return self._id
-
-
 @dataclass(frozen=True, slots=True, repr=False)
 class ProgramResults(Sequence[ProgramResult]):
     """Source-ordered quantum results with stable name lookup."""
@@ -337,23 +320,6 @@ class Measurement(CircuitFragment):
     """A measurement statement and its first-class acquisition result."""
 
     result: MeasurementResult
-    _bit: RealtimeBit | None = None
-
-    @property
-    def bit(self) -> RealtimeBit:
-        """Return the explicitly requested realtime discriminator output."""
-
-        if self._bit is None:
-            raise ValueError(
-                "measurement has no realtime bit; pass bit= when authoring it"
-            )
-        return self._bit
-
-    @property
-    def realtime_bit(self) -> RealtimeBit | None:
-        """Return the optional realtime output without requiring one."""
-
-        return self._bit
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -449,14 +415,6 @@ class _QuantumRepeatFragment(QuantumFragment):
     operation: QuantumFragment
     count: RepeatCount
     result_axis: QuantumResultAxis | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class _QuantumConditionalFragment(QuantumFragment):
-    condition: RealtimeBit
-    equals: int
-    when_true: QuantumFragment
-    when_false: QuantumFragment
 
 
 @dataclass(frozen=True, slots=True)

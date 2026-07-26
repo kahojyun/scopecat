@@ -15,19 +15,15 @@ from scopecat_quantum._ids import (
     PulseImplementationId,
     PulseProgramId,
     QubitId,
-    RealtimeValueId,
 )
 from scopecat_quantum.circuits import Measure
 from scopecat_quantum.gates import GateCall, GateParameterKind
 from scopecat_quantum.programs import (
     AuthoredPulseAcquisitionProvenance,
     AuthoredPulseEventProvenance,
-    Conditional,
     ImplementedGate,
     ImplementedGatePulseEventProvenance,
     PulseBlock,
-    QuantumProgramVerificationError,
-    RealtimeBitRef,
     Repeat,
     lower_quantum_program_to_pulses,
 )
@@ -172,64 +168,6 @@ def test_repeat_preserves_one_candidate_call_until_pulse_lowering() -> None:
     assert isinstance(pulse, Play)
     assert isinstance(pulse.envelope, DRAG)
     assert pulse.envelope.beta == Quantity(0.75, "ns")
-
-
-def test_measurement_condition_is_retained_inside_a_bounded_round_loop() -> None:
-    q0 = authoring.qubit("q0")
-    x = authoring.single_qubit_gate("x")
-    measured = authoring.measure(q0, result="reset_iq", bit="reset_bit")
-    declaration = authoring._close_program(
-        "bounded-active-reset",
-        authoring.repeat(
-            authoring.sequence(
-                measured,
-                authoring.when(measured.bit, x(q0)),
-            ),
-            2,
-            axis="round",
-        ),
-    )
-
-    bound = authoring.bind(declaration)
-
-    assert isinstance(bound.program.body, Repeat)
-    assert bound.program.body.axis_id == "round"
-    assert isinstance(bound.program.body.operation, QuantumSequence)
-    condition = bound.program.body.operation.operations[1]
-    assert isinstance(condition, Conditional)
-    assert condition.condition == RealtimeBitRef(
-        RealtimeValueId(
-            "reset_bit",
-            scope=("body", "repeat-body", "sequence[0]"),
-        )
-    )
-    assert [type(operation) for operation in bound.verified.operations] == [
-        Measure,
-        GateCall,
-    ]
-
-
-def test_measurement_condition_must_follow_its_acquisition() -> None:
-    q0 = authoring.qubit("q0")
-    x = authoring.single_qubit_gate("x")
-    measured = authoring.measure(q0, result="reset_iq", bit="reset_bit")
-    declaration = authoring._close_program(
-        "invalid-active-reset",
-        authoring.sequence(
-            authoring.when(measured.bit, x(q0)),
-            measured,
-        ),
-    )
-
-    with pytest.raises(QuantumProgramVerificationError, match="preceding control path"):
-        authoring.bind(declaration)
-
-
-def test_measurement_bit_must_be_requested_explicitly() -> None:
-    measured = authoring.measure(authoring.qubit("q0"), result="readout_iq")
-
-    with pytest.raises(ValueError, match="pass bit="):
-        _ = measured.bit
 
 
 def test_gate_and_pulse_can_bind_in_parallel_before_final_signal_check() -> None:

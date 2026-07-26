@@ -4,13 +4,11 @@ The objects in this module describe the boundary between the reusable quantum
 package and a laboratory-owned target adapter.  They intentionally say
 nothing about physical instruments, transport, wiring, or artifact layout.
 
-A target compiler is pure, but its closed input representation is target-owned:
-simple list-mode adapters can consume canonical scheduled programs while a
-realtime adapter can retain loops and feedback. Concrete payloads remain opaque
-and laboratory-owned; stable target, compiler, capability, artifact, entry, and
-acquisition identities provide correlation without defining a universal
-hardware schema. Adapter fingerprints must cover opaque artifact content because
-core cannot interpret that content itself.
+A target compiler is pure and consumes canonical scheduled programs. Concrete
+payloads remain opaque and laboratory-owned; stable target, compiler, capability,
+artifact, entry, and acquisition identities provide correlation without defining
+a universal hardware schema. Adapter fingerprints must cover opaque artifact
+content because core cannot interpret that content itself.
 """
 
 from __future__ import annotations
@@ -56,69 +54,6 @@ class TargetAcquisitionAddress:
 type TargetResultAddress = (
     TargetAcquisitionAddress | ResultCollection[TargetAcquisitionAddress]
 )
-
-
-@dataclass(frozen=True, slots=True)
-class TargetResultAxisLayout:
-    """One finite logical axis emitted by a target acquisition."""
-
-    id: str
-    size: int
-
-    def __post_init__(self) -> None:
-        _require_text(self.id, field="target result axis id")
-        if isinstance(self.size, bool) or self.size <= 0:
-            raise ValueError("target result axis size must be a positive integer")
-
-
-@dataclass(frozen=True, slots=True)
-class TargetAcquisitionLayout:
-    """Symbolically expand one target acquisition into logical result addresses.
-
-    Realtime targets can retain a bounded loop in their executable while this
-    layout describes the finite records it emits. Axis indices become structural
-    slot scopes only at the result boundary, so executable duplication is not
-    required to obtain stable leaf identities.
-    """
-
-    entry_id: TargetCompileEntryId
-    slot_id: AcquisitionSlotId
-    axes: tuple[TargetResultAxisLayout, ...] = ()
-
-    def __post_init__(self) -> None:
-        axis_ids = tuple(axis.id for axis in self.axes)
-        if len(set(axis_ids)) != len(axis_ids):
-            raise ValueError("target result layout axis ids must be unique")
-
-    @property
-    def address(self) -> TargetResultAddress:
-        """Return the rectangular logical result tree for this acquisition."""
-
-        def collect(
-            axis_index: int,
-            scope: tuple[str, ...],
-        ) -> TargetResultAddress:
-            if axis_index == len(self.axes):
-                return TargetAcquisitionAddress(
-                    self.entry_id,
-                    self.slot_id.prefixed(*scope),
-                )
-            axis = self.axes[axis_index]
-            return ResultCollection(
-                axis.id,
-                tuple(
-                    collect(axis_index + 1, (*scope, f"{axis.id}[{index}]"))
-                    for index in range(axis.size)
-                ),
-            )
-
-        return collect(0, ())
-
-    @property
-    def acquisition_addresses(self) -> tuple[TargetAcquisitionAddress, ...]:
-        """Return materialized leaf addresses in recursive axis order."""
-
-        return target_result_acquisition_addresses(self.address)
 
 
 def target_result_entry_id(address: TargetResultAddress) -> TargetCompileEntryId:

@@ -26,22 +26,6 @@ from scopecat_quantum.pulses import (
 
 
 @dataclass(frozen=True, slots=True)
-class MeasurementDiscriminator:
-    """Point-effective classifier that produces one realtime bit from a capture."""
-
-    id: str
-    input_kind: AcquisitionKind
-    parameters: tuple[tuple[str, object], ...] = ()
-
-    def __post_init__(self) -> None:
-        if not self.id.strip():
-            raise ValueError("measurement discriminator id must be non-empty")
-        parameter_ids = tuple(name for name, _value in self.parameters)
-        if len(set(parameter_ids)) != len(parameter_ids):
-            raise ValueError("measurement discriminator parameter ids must be unique")
-
-
-@dataclass(frozen=True, slots=True)
 class MeasurementPulseImplementationKey:
     """Reusable logical identity of one single-qubit measurement shape."""
 
@@ -127,7 +111,6 @@ class MeasurementPulseImplementation:
     id: PulseImplementationId
     key: MeasurementPulseImplementationKey
     pulse_template: PulseProgram
-    discriminator: MeasurementDiscriminator | None = None
 
     def __post_init__(self) -> None:
         _measurement_template_leaves(
@@ -135,13 +118,6 @@ class MeasurementPulseImplementation:
             self.key,
             subject="measurement implementation",
         )
-        if (
-            self.discriminator is not None
-            and self.discriminator.input_kind is not self.key.acquisition_kind
-        ):
-            raise ValueError(
-                "measurement discriminator input kind must match its implementation"
-            )
 
     @property
     def fingerprint(self) -> str:
@@ -159,4 +135,3 @@ class MeasurementPulseImplementationBinding:
     implementation_id: PulseImplementationId
     implementation_fingerprint: str
     pulse_template: PulseProgram
-    discriminator: MeasurementDiscriminator | None = None

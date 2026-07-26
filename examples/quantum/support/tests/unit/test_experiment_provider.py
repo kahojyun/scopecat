@@ -17,7 +17,6 @@ from quantum_lab_demo.workflows.interaction_tomography import (
     PREPARATION,
     interaction_tomography_template,
 )
-from quantum_lab_demo.workflows.qnd import qnd_repeated_measurement_template
 from quantum_lab_demo.workflows.readout_frequency import readout_frequency_template
 from quantum_lab_demo.workflows.single_qubit_rb import (
     CLIFFORD_LENGTH,
@@ -82,30 +81,6 @@ def test_experiment_system_run_provider_python_api(
         expected_coordinate_ids
     )
     assert len(measurements.dataset.records) == expected_measurements
-
-
-def test_qnd_array_record_runs_provider_python_api(tmp_path: Path) -> None:
-    run = (
-        _lab(tmp_path)
-        .prepare(
-            qnd_repeated_measurement_template.bind(
-                qubit="q0",
-                rounds=2,
-                shots=3,
-            )
-        )
-        .run()
-    )
-    measurements = run.data().measurements()
-    observable = next(
-        variable
-        for variable in measurements.dataset.dataset_schema.variables
-        if variable.id == "qnd_iq"
-    )
-
-    assert run.manifest.status == "completed"
-    assert len(measurements.dataset.records) == 1
-    assert observable.shape == [1, 3, 2]
 
 
 def _lab(tmp_path: Path):

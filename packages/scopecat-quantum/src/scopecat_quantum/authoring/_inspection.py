@@ -54,7 +54,6 @@ from ._ir import (
     _ParallelFragment,
     _PlayFragment,
     _PulseTemplateCallFragment,
-    _QuantumConditionalFragment,
     _QuantumParallelFragment,
     _QuantumRepeatFragment,
     _QuantumSequenceFragment,
@@ -210,14 +209,6 @@ def _inspection_node(fragment: QuantumFragment) -> _InspectionNode:
             f"repeat {_inspection_value(fragment.count)}"
             f"{_inspection_axis(fragment.result_axis)}",
             (_inspection_node(fragment.operation),),
-        )
-    if isinstance(fragment, _QuantumConditionalFragment):
-        return _InspectionNode(
-            f"when {fragment.condition.id} == {fragment.equals}",
-            (
-                _InspectionNode("true", (_inspection_node(fragment.when_true),)),
-                _InspectionNode("false", (_inspection_node(fragment.when_false),)),
-            ),
         )
     raise AssertionError(f"unsupported quantum fragment {type(fragment).__name__}")
 

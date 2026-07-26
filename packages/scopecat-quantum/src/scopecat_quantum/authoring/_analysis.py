@@ -79,7 +79,6 @@ from ._ir import (
     _ParallelFragment,
     _PlayFragment,
     _PulseTemplateCallFragment,
-    _QuantumConditionalFragment,
     _QuantumParallelFragment,
     _QuantumRepeatFragment,
     _QuantumSequenceFragment,
@@ -537,14 +536,6 @@ def _summarize_fragment(fragment: QuantumFragment) -> _FragmentFacts:
             repeat_inputs=(*count_inputs, *operation.repeat_inputs),
             results=operation.results,
             gate_definitions=operation.gate_definitions,
-        )
-    if isinstance(fragment, _QuantumConditionalFragment):
-        return _merge_fragment_facts(
-            (
-                _summarize_fragment(fragment.when_true),
-                _summarize_fragment(fragment.when_false),
-            ),
-            carries_pulse_structure=False,
         )
     if isinstance(fragment, _SequenceFragment | _QuantumSequenceFragment):
         children = fragment.operations

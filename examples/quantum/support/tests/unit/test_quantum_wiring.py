@@ -41,9 +41,6 @@ from quantum_lab_demo.scenarios.opaque_collection import (
     parallel_gate_set_template,
 )
 from quantum_lab_demo.targets.fake_list_mode import configured_fake_list_target
-from quantum_lab_demo.targets.fake_realtime.defaults import (
-    configured_fake_realtime_target,
-)
 from quantum_lab_demo.virtual_lab.provider import QuantumLabVirtualProvider
 from quantum_lab_demo.virtual_lab.wiring import (
     compile_quantum_wiring_system,
@@ -190,21 +187,6 @@ def test_target_signal_bindings_are_derived_from_accepted_routing() -> None:
     assert list_target.id.value == list_domain_target.id
     assert drive_channel.value == "drive-stack:drive.awg0.ch1:q0"
     assert acquisition_channel.value == "readout-stack:readout.mux0:q0"
-
-    realtime_config = quantum_wiring_config_profile(target="fake-realtime")
-    realtime_target = configured_fake_realtime_target(realtime_config)
-    realtime_domain_target = realtime_config.domain_target
-    output = realtime_target.output_for(DriveSignal(q0))
-    input_lane = realtime_target.input_for(AcquireSignal(q0))
-
-    assert output is not None
-    assert input_lane is not None
-    assert realtime_domain_target is not None
-    assert realtime_target.id.value == realtime_domain_target.id
-    assert output.value == "drive-stack:drive.awg0.ch1:q0"
-    assert input_lane.value == "readout-stack:readout.mux0:q0"
-    assert realtime_target.feedback_latency(input_lane, output) == 12
-
 
 def test_virtual_provider_description_declares_full_instrument_schemas() -> None:
     config = quantum_wiring_config_profile()

@@ -14,30 +14,20 @@ from scopecat_quantum._ids import (
     PulseProgramId,
     QuantumProgramId,
     QubitId,
-    RealtimeValueId,
 )
 from scopecat_quantum.acquisitions import AcquisitionKind
 from scopecat_quantum.circuits import Measure
 from scopecat_quantum.gates import GateCall, GateDefinition
-from scopecat_quantum.measurement_implementations import MeasurementDiscriminator
 from scopecat_quantum.programs import (
     AuthoredPulseAcquisitionProvenance,
     AuthoredPulseEventProvenance,
-    Conditional,
     ImplementedGate,
     ImplementedGatePulseEventProvenance,
     PulseBlock,
     QuantumProgramIR,
     QuantumProgramVerificationError,
-    RealtimeBitRef,
-    Repeat,
     Sequence,
-    StructuredPulseBlock,
-    StructuredPulseConditional,
-    StructuredPulseRepeat,
-    StructuredPulseSequence,
     lower_quantum_program_to_pulses,
-    lower_quantum_program_to_structured_pulses,
     verify_quantum_program,
 )
 from scopecat_quantum.pulse_implementations import (
@@ -104,15 +94,12 @@ def _drag_template(program_id: str = "x90-drag-candidate") -> PulseProgram:
 
 def _measurement(
     operation_id: str = "measure",
-    *,
-    realtime_bit_id: RealtimeValueId | None = None,
 ) -> Measure:
     return Measure(
         id=CircuitOperationId(operation_id),
         qubit=Q0,
         acquisition_slot_id=AcquisitionSlotId("result"),
         acquisition_kind=AcquisitionKind.INTEGRATED_IQ,
-        realtime_bit_id=realtime_bit_id,
     )
 
 
@@ -163,10 +150,6 @@ def _implementations(
                 id=PulseImplementationId("readout-q0"),
                 key=MeasurementPulseImplementationKey.from_measurement(measurement),
                 pulse_template=_measurement_template(),
-                discriminator=MeasurementDiscriminator(
-                    "binary-iq-threshold",
-                    AcquisitionKind.INTEGRATED_IQ,
-                ),
             ),
         ),
     )
@@ -238,79 +221,6 @@ def test_mixed_program_refines_only_unimplemented_operations() -> None:
         lowered.acquisition_provenance_for(origin.acquisition_slot_id) is origin
         for origin in lowered.acquisition_provenance
     )
-
-
-def test_structured_pulse_refinement_retains_repeat_and_feedback() -> None:
-    gate = _gate_call("conditional-x90")
-    value_id = RealtimeValueId("result", scope=("measure",))
-    measurement = _measurement(
-        "reset-measurement",
-        realtime_bit_id=value_id,
-    )
-    source = QuantumProgramIR(
-        id=QuantumProgramId("bounded-active-reset"),
-        body=Repeat(
-            Sequence(
-                (
-                    measurement,
-                    Conditional(
-                        RealtimeBitRef(value_id),
-                        equals=1,
-                        when_true=gate,
-                        when_false=Sequence(()),
-                    ),
-                )
-            ),
-            count=2,
-            axis_id="round",
-        ),
-    )
-    verified = verify_quantum_program(source, (X90,))
-
-    refined = lower_quantum_program_to_structured_pulses(
-        verified,
-        _implementations(gate, measurement),
-        output_id=PulseProgramId("bounded-active-reset-pulses"),
-    )
-
-    assert isinstance(refined.body, StructuredPulseRepeat)
-    assert refined.body.count == 2
-    assert refined.body.axis_id == "round"
-    assert isinstance(refined.body.operation, StructuredPulseSequence)
-    measured, branch = refined.body.operation.operations
-    assert isinstance(measured, StructuredPulseBlock)
-    assert isinstance(branch, StructuredPulseConditional)
-    assert branch.condition == RealtimeBitRef(value_id)
-    assert isinstance(branch.when_true, StructuredPulseBlock)
-    assert isinstance(branch.when_false, StructuredPulseSequence)
-    assert len(refined.event_provenance) == 3
-    assert len(refined.acquisition_provenance) == 1
-
-
-def test_realtime_condition_uses_exact_structural_value_identity() -> None:
-    defined = RealtimeValueId("result", scope=("producer",))
-    same_name_elsewhere = RealtimeValueId("result", scope=("other",))
-    source = QuantumProgramIR(
-        id=QuantumProgramId("scoped-feedback"),
-        body=Sequence(
-            (
-                _measurement(realtime_bit_id=defined),
-                Conditional(
-                    RealtimeBitRef(same_name_elsewhere),
-                    equals=1,
-                    when_true=Sequence(()),
-                    when_false=Sequence(()),
-                ),
-            )
-        ),
-    )
-
-    with pytest.raises(QuantumProgramVerificationError) as caught:
-        verify_quantum_program(source, ())
-
-    assert [issue.code for issue in caught.value.issues] == [
-        "quantum_realtime_condition_not_dominated"
-    ]
 
 
 def test_authored_pulse_block_can_own_an_acquisition() -> None:

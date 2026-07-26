@@ -24,7 +24,6 @@ from scopecat_quantum.authoring import (
 from scopecat_quantum.circuits import Measure, VerifiedCircuitProgram
 from scopecat_quantum.gates import GateCall, GateDefinition
 from scopecat_quantum.measurement_implementations import (
-    MeasurementDiscriminator,
     MeasurementPulseImplementation,
     MeasurementPulseImplementationKey,
 )
@@ -36,9 +35,6 @@ from scopecat_quantum.pulse_implementations import (
 )
 
 type _GateRecipeTarget = GateDefinition | Gate
-type _MeasurementDiscriminatorProvider[RowT] = (
-    MeasurementDiscriminator | Callable[[RowT, Qubit], MeasurementDiscriminator] | None
-)
 
 
 def _gate_definition(target: _GateRecipeTarget) -> GateDefinition:
@@ -212,11 +208,6 @@ class MeasurementPulseRecipe[RowT]:
         repr=False,
         compare=False,
     )
-    discriminator: _MeasurementDiscriminatorProvider[RowT] = field(
-        default=None,
-        repr=False,
-        compare=False,
-    )
 
     def __post_init__(self) -> None:
         if not self.id.strip():
@@ -240,9 +231,6 @@ class MeasurementPulseRecipe[RowT]:
         implementation_id = self.implementation_id(measurement.qubit)
         target = qubit(measurement.qubit.value)
         body = self.build(row, target)
-        discriminator = self.discriminator
-        if callable(discriminator):
-            discriminator = discriminator(row, target)
         return MeasurementPulseImplementation(
             id=implementation_id,
             key=MeasurementPulseImplementationKey.from_measurement(measurement),
@@ -251,7 +239,6 @@ class MeasurementPulseRecipe[RowT]:
                 body,
                 measurement=(measurement.qubit, self.acquisition_kind),
             ),
-            discriminator=discriminator,
         )
 
 
@@ -285,9 +272,6 @@ def gate_pulse_recipe(
 class _MeasurementPulseRecipeDecorator:
     id: str
     acquisition_kind: AcquisitionKind
-    discriminator: (
-        MeasurementDiscriminator | Callable[..., MeasurementDiscriminator] | None
-    )
 
     def __call__[RowT](
         self,
@@ -297,10 +281,6 @@ class _MeasurementPulseRecipeDecorator:
             id=self.id,
             acquisition_kind=self.acquisition_kind,
             build=build,
-            discriminator=cast(
-                "_MeasurementDiscriminatorProvider[RowT]",
-                self.discriminator,
-            ),
         )
 
 
@@ -308,16 +288,12 @@ def measurement_pulse_recipe(
     *,
     kind: AcquisitionKind,
     id: str,
-    discriminator: (
-        MeasurementDiscriminator | Callable[..., MeasurementDiscriminator] | None
-    ) = None,
 ) -> _MeasurementPulseRecipeDecorator:
     """Declare a compiler-owned measurement recipe without global registration."""
 
     return _MeasurementPulseRecipeDecorator(
         id=id,
         acquisition_kind=kind,
-        discriminator=discriminator,
     )
 
 

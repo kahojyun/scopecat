@@ -15,7 +15,6 @@ from scopecat_quantum.pulses import (
 )
 
 FAKE_LIST_TARGET_KIND = "quantum_lab_demo.fake-list-mode"
-FAKE_REALTIME_TARGET_KIND = "quantum_lab_demo.fake-realtime"
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,7 +105,6 @@ def configured_acquisition_signal(
 
 __all__ = [
     "FAKE_LIST_TARGET_KIND",
-    "FAKE_REALTIME_TARGET_KIND",
     "ConfiguredQuantumRoute",
     "configured_acquisition_signal",
     "configured_output_signal",

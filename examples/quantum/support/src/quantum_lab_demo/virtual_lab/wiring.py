@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Literal, Self
+from typing import Self
 
 from scopecat.kernel.entity import EntityRef
 from scopecat.records.config import (
@@ -16,23 +16,6 @@ from scopecat.records.config import (
 )
 
 from quantum_lab_demo.configuration import quantum_lab_bootstrap_config
-from quantum_lab_demo.targets.configuration import (
-    FAKE_LIST_TARGET_KIND,
-    FAKE_REALTIME_TARGET_KIND,
-)
-
-type QuantumDemoTarget = Literal["fake-list", "fake-realtime"]
-
-_TARGET_BINDINGS: dict[QuantumDemoTarget, tuple[str, str]] = {
-    "fake-list": (
-        "quantum-lab-demo.fake-list-mode.v1",
-        FAKE_LIST_TARGET_KIND,
-    ),
-    "fake-realtime": (
-        "quantum-lab-demo.fake-realtime.v1",
-        FAKE_REALTIME_TARGET_KIND,
-    ),
-}
 
 
 @dataclass(frozen=True)
@@ -193,27 +176,14 @@ def quantum_wiring() -> QuantumWiringBuilder:
     return QuantumWiringBuilder()
 
 
-def quantum_wiring_config_profile(
-    *,
-    target: QuantumDemoTarget = "fake-list",
-) -> ConfigProfileSnapshot:
-    """Build one accepted wiring snapshot with an explicit target family."""
+def quantum_wiring_config_profile() -> ConfigProfileSnapshot:
+    """Build the accepted list-mode wiring snapshot."""
 
     base = quantum_lab_bootstrap_config()
-    domain_target = base.system.domain_target
-    if domain_target is None:
-        raise ValueError("quantum demo configuration requires a domain target")
-    target_id, target_kind = _TARGET_BINDINGS[target]
     return base.model_copy(
         update={
             "system": compile_quantum_wiring_system(
-                base.system.model_copy(
-                    update={
-                        "domain_target": domain_target.model_copy(
-                            update={"id": target_id, "kind": target_kind}
-                        )
-                    }
-                ),
+                base.system,
                 default_quantum_wiring(),
             )
         }
@@ -411,7 +381,6 @@ def _require_line(
 __all__ = [
     "CouplerWiring",
     "LineWiring",
-    "QuantumDemoTarget",
     "QuantumWiring",
     "QuantumWiringBuilder",
     "QubitWiring",

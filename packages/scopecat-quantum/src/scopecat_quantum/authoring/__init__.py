@@ -41,7 +41,6 @@ from ._construction import (
     shift_phase,
     single_qubit_gate,
     two_qubit_gate,
-    when,
 )
 from ._definitions import (
     FragmentDefinition,
@@ -83,7 +82,6 @@ from ._ir import (
     QuantumResultContract,
     Qubit,
     QubitInput,
-    RealtimeBit,
     RepeatCount,
 )
 from ._programs import (
@@ -131,7 +129,6 @@ __all__ = [
     "QuantumResultContract",
     "Qubit",
     "QubitInput",
-    "RealtimeBit",
     "RepeatCount",
     "SingleQubitGate",
     "TwoQubitGate",
@@ -165,5 +162,4 @@ __all__ = [
     "shift_phase",
     "single_qubit_gate",
     "two_qubit_gate",
-    "when",
 ]

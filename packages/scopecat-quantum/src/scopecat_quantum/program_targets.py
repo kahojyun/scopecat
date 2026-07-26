@@ -6,9 +6,7 @@ module is entered.  Preparation therefore has one source-neutral job: schedule
 the canonical pulse program, qualify every event and acquisition with a target
 entry identity, and retain the exact mixed-source provenance for correlation.
 
-This module is the straight-line scheduled-target preparation path. Realtime
-targets instead retain control flow through ``StructuredQuantumPulseProgram``
-and close their own request type at the same generic target boundary.
+This module is the scheduled-target preparation path.
 """
 
 from __future__ import annotations

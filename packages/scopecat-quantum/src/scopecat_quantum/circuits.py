@@ -23,7 +23,6 @@ from scopecat_quantum._ids import (
     CircuitOperationId,
     GateId,
     QubitId,
-    RealtimeValueId,
 )
 from scopecat_quantum.acquisitions import AcquisitionKind
 from scopecat_quantum.gates import (
@@ -38,13 +37,12 @@ from scopecat_quantum.gates import (
 
 @dataclass(frozen=True, slots=True)
 class Measure:
-    """A logical measurement with an optional target-local bit output."""
+    """A logical measurement and its acquisition result."""
 
     id: CircuitOperationId
     qubit: QubitId
     acquisition_slot_id: AcquisitionSlotId
     acquisition_kind: AcquisitionKind
-    realtime_bit_id: RealtimeValueId | None = None
 
 
 @dataclass(frozen=True, slots=True)

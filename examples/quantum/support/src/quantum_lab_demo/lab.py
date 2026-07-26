@@ -8,36 +8,24 @@ from scopecat.planning.system import ExperimentSystem
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat_quantum.pulse_recipes import PulseRecipeProfile
 
-from quantum_lab_demo.compiler import QuantumLabCompiler, QuantumRealtimeLabCompiler
+from quantum_lab_demo.compiler import QuantumLabCompiler
 from quantum_lab_demo.configuration import DEMO_VIRTUAL_LAB_PROFILE
 from quantum_lab_demo.response_registry import QuantumLabResponseRegistry
 from quantum_lab_demo.targets.configuration import (
     FAKE_LIST_TARGET_KIND,
-    FAKE_REALTIME_TARGET_KIND,
 )
 from quantum_lab_demo.targets.fake_list_mode import (
     FakeListDomainRuntime,
     FakeListTarget,
     configured_fake_list_target,
 )
-from quantum_lab_demo.targets.fake_realtime.defaults import (
-    configured_fake_realtime_target,
-)
-from quantum_lab_demo.targets.fake_realtime.domain_runtime import (
-    FakeRealtimeDomainRuntime,
-)
-from quantum_lab_demo.targets.fake_realtime.model import FakeRealtimeTarget
-from quantum_lab_demo.targets.fake_realtime.runtime import FakeRealtimeRuntime
 from quantum_lab_demo.virtual_lab.compiler_parameters import QuantumCompilerParameters
 from quantum_lab_demo.virtual_lab.provider import QuantumLabVirtualProvider
 from quantum_lab_demo.virtual_lab.pulse_profile import QUANTUM_PULSE_PROFILE
 from quantum_lab_demo.virtual_lab.quantum_responses import (
     quantum_lab_response_registry,
 )
-from quantum_lab_demo.virtual_lab.wiring import (
-    QuantumDemoTarget,
-    quantum_wiring_config_profile,
-)
+from quantum_lab_demo.virtual_lab.wiring import quantum_wiring_config_profile
 
 PathInput = str | Path
 
@@ -52,7 +40,7 @@ def quantum_lab_compiler(
 ) -> QuantumLabCompiler:
     """Compose list-mode compilation from one accepted configuration."""
 
-    config = _config_snapshot(config_profile, default_target="fake-list")
+    config = _config_snapshot(config_profile)
     selected_target = configured_fake_list_target(config) if target is None else target
     _validate_target_selection(
         config,
@@ -74,52 +62,19 @@ def quantum_lab_compiler(
     )
 
 
-def quantum_realtime_lab_compiler(
-    *,
-    config_profile: ConfigProfileSnapshot | None = None,
-    target: FakeRealtimeTarget | None = None,
-    runtime: FakeRealtimeDomainRuntime | None = None,
-    pulse_profile: PulseRecipeProfile[QuantumCompilerParameters] | None = None,
-    measurement_bits: dict[str, tuple[int, ...]] | None = None,
-) -> QuantumRealtimeLabCompiler:
-    """Compose realtime compilation from one accepted configuration."""
-
-    config = _config_snapshot(config_profile, default_target="fake-realtime")
-    selected_target = (
-        configured_fake_realtime_target(config) if target is None else target
-    )
-    _validate_target_selection(
-        config,
-        target_id=selected_target.id.value,
-        target_kind=FAKE_REALTIME_TARGET_KIND,
-    )
-    return QuantumRealtimeLabCompiler(
-        target=selected_target,
-        runtime=(
-            FakeRealtimeDomainRuntime(FakeRealtimeRuntime(selected_target))
-            if runtime is None
-            else runtime
-        ),
-        pulse_profile=(
-            QUANTUM_PULSE_PROFILE if pulse_profile is None else pulse_profile
-        ),
-        measurement_bits=measurement_bits,
-    )
-
-
 def quantum_lab_config_profile(
     config_profile: ConfigProfileSnapshot | None = None,
 ) -> ConfigProfileSnapshot:
     """Resolve the demo's explicit configuration snapshot."""
 
-    return _config_snapshot(config_profile, default_target="fake-list")
+    return _config_snapshot(config_profile)
 
 
 def quantum_lab_system(
     *,
     config: ConfigProfileSnapshot,
     virtual_lab_profile: PathInput = DEMO_VIRTUAL_LAB_PROFILE,
-    compiler: QuantumLabCompiler | QuantumRealtimeLabCompiler | None = None,
+    compiler: QuantumLabCompiler | None = None,
 ) -> ExperimentSystem:
     """Compose one process-local system for notebook execution.
 
@@ -129,7 +84,9 @@ def quantum_lab_system(
     """
 
     provider = QuantumLabVirtualProvider(profile=virtual_lab_profile)
-    selected_compiler = _compiler_for_config(config) if compiler is None else compiler
+    selected_compiler = (
+        quantum_lab_compiler(config_profile=config) if compiler is None else compiler
+    )
     _validate_target_selection(
         config,
         target_id=selected_compiler.target_id,
@@ -141,26 +98,11 @@ def quantum_lab_system(
     )
 
 
-def _compiler_for_config(
-    config: ConfigProfileSnapshot,
-) -> QuantumLabCompiler | QuantumRealtimeLabCompiler:
-    target = config.domain_target
-    if target is None:
-        raise ValueError("quantum demo configuration requires a domain target")
-    if target.kind == FAKE_LIST_TARGET_KIND:
-        return quantum_lab_compiler(config_profile=config)
-    if target.kind == FAKE_REALTIME_TARGET_KIND:
-        return quantum_realtime_lab_compiler(config_profile=config)
-    raise ValueError(f"unsupported quantum demo target kind {target.kind!r}")
-
-
 def _config_snapshot(
     config_profile: ConfigProfileSnapshot | None,
-    *,
-    default_target: QuantumDemoTarget,
 ) -> ConfigProfileSnapshot:
     if config_profile is None:
-        return quantum_wiring_config_profile(target=default_target)
+        return quantum_wiring_config_profile()
     return config_profile
 
 
@@ -184,5 +126,4 @@ __all__ = [
     "quantum_lab_compiler",
     "quantum_lab_config_profile",
     "quantum_lab_system",
-    "quantum_realtime_lab_compiler",
 ]

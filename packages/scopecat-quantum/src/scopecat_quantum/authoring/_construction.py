@@ -88,14 +88,12 @@ from ._ir import (
     QuantumResultAxis,
     QuantumResultContract,
     Qubit,
-    RealtimeBit,
     RepeatCount,
     _BarrierFragment,
     _DelayFragment,
     _ExpandedFragment,
     _ParallelFragment,
     _PlayFragment,
-    _QuantumConditionalFragment,
     _QuantumParallelFragment,
     _QuantumRepeatFragment,
     _QuantumSequenceFragment,
@@ -215,26 +213,19 @@ def measure(
     /,
     *,
     result: str,
-    bit: str | None = None,
     contract: QuantumResultContract = INTEGRATED_IQ_RESULT,
 ) -> Measurement:
-    """Author one measurement and optionally request a realtime bit output."""
+    """Author one measurement and its acquisition result."""
 
     if not result.strip():
         msg = "measurement result id must be a non-empty string"
-        raise ValueError(msg)
-    if bit is not None and not bit.strip():
-        msg = "measurement bit id must be a non-empty string"
         raise ValueError(msg)
     result_handle = MeasurementResult(
         _id=result,
         _qubit=qubit,
         contract=contract,
     )
-    return Measurement(
-        result=result_handle,
-        _bit=None if bit is None else RealtimeBit(bit),
-    )
+    return Measurement(result=result_handle)
 
 
 def acquire(
@@ -579,12 +570,6 @@ def _prepend_result_axis(
             fragment,
             operation=_prepend_result_axis(fragment.operation, axis),
         )
-    if isinstance(fragment, _QuantumConditionalFragment):
-        return replace(
-            fragment,
-            when_true=_prepend_result_axis(fragment.when_true, axis),
-            when_false=_prepend_result_axis(fragment.when_false, axis),
-        )
     return fragment
 
 
@@ -657,33 +642,6 @@ def repeat(
         operation=selected,
         count=count,
         result_axis=result_axis,
-    )
-
-
-def when(
-    condition: RealtimeBit,
-    when_true: QuantumFragment,
-    /,
-    *,
-    otherwise: QuantumFragment | None = None,
-    equals: Literal[0, 1] = 1,
-) -> QuantumFragment:
-    """Execute one result-free branch from a preceding discriminated result."""
-
-    when_false = _QuantumSequenceFragment(()) if otherwise is None else otherwise
-    for branch_name, branch in (
-        ("when_true", when_true),
-        ("otherwise", when_false),
-    ):
-        if _summarize_fragment(branch).results:
-            raise ValueError(
-                f"realtime {branch_name} branches cannot produce host results"
-            )
-    return _QuantumConditionalFragment(
-        condition=condition,
-        equals=equals,
-        when_true=when_true,
-        when_false=when_false,
     )
 
 
