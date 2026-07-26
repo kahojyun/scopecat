@@ -7,7 +7,6 @@ from typing import overload
 
 from scopecat.compiler.relations.context import EvalContext, ParameterRelationData
 from scopecat.compiler.relations.specialization import (
-    BindingTime,
     KnownScalar,
     ParameterCellBinding,
     residual_scalar_expression,
@@ -42,7 +41,6 @@ from scopecat.compiler.typed.program import (
     ValueInput,
 )
 from scopecat.compiler.typed.state import SetStateSpec
-from scopecat.graph.relations.analysis import PlanReferenceKind
 from scopecat.graph.relations.model import (
     LiteralRowsRelationExpr,
     ValuesSeriesExpr,
@@ -140,7 +138,7 @@ def _specialize_point_domain(
         center: RelationUse[ScalarValueExpr],
         _path: tuple[str | int, ...],
     ) -> RelationUse[ScalarValueExpr]:
-        value, _binding_time = specialize_value_expression(
+        value = specialize_value_expression(
             center.value,
             known=known,
             parameter_cells=(),
@@ -186,7 +184,7 @@ def specialize_value_input(
     known: EvalContext,
     parameter_cells: tuple[ParameterCellBinding, ...],
 ) -> ValueInput:
-    expression, _binding_time = specialize_value_expression(
+    expression = specialize_value_expression(
         value.value,
         known=known,
         parameter_cells=parameter_cells,
@@ -200,7 +198,7 @@ def specialize_value_expression(
     *,
     known: EvalContext,
     parameter_cells: tuple[ParameterCellBinding, ...],
-) -> tuple[ScalarValueExpr, BindingTime]: ...
+) -> ScalarValueExpr: ...
 
 
 @overload
@@ -209,7 +207,7 @@ def specialize_value_expression(
     *,
     known: EvalContext,
     parameter_cells: tuple[ParameterCellBinding, ...],
-) -> tuple[SeriesValueExpr, BindingTime]: ...
+) -> SeriesValueExpr: ...
 
 
 @overload
@@ -218,7 +216,7 @@ def specialize_value_expression(
     *,
     known: EvalContext,
     parameter_cells: tuple[ParameterCellBinding, ...],
-) -> tuple[TableValueExpr, BindingTime]: ...
+) -> TableValueExpr: ...
 
 
 @overload
@@ -227,7 +225,7 @@ def specialize_value_expression(
     *,
     known: EvalContext,
     parameter_cells: tuple[ParameterCellBinding, ...],
-) -> tuple[ValueExpr, BindingTime]: ...
+) -> ValueExpr: ...
 
 
 def specialize_value_expression(
@@ -235,10 +233,9 @@ def specialize_value_expression(
     *,
     known: EvalContext,
     parameter_cells: tuple[ParameterCellBinding, ...],
-) -> tuple[ValueExpr, BindingTime]:
-    """Specialize one typed value while retaining its latest binding time."""
+) -> ValueExpr:
+    """Specialize one typed value."""
 
-    original_binding_time = value_binding_time(value)
     if isinstance(value, ScalarValueExpr):
         result = specialize_scalar(
             value.plan.root,
@@ -254,12 +251,7 @@ def specialize_value_expression(
             bindings=value.plan.bindings,
             expected_type=value.value_type,
         )
-        return (
-            expression,
-            original_binding_time
-            if isinstance(result, KnownScalar)
-            else result.binding_time,
-        )
+        return expression
     if isinstance(value, SeriesValueExpr):
         residual = specialize_series(
             value.plan.root,
@@ -279,12 +271,7 @@ def specialize_value_expression(
                 else value.value_type
             ),
         )
-        return (
-            expression,
-            original_binding_time
-            if isinstance(residual, ValuesSeriesExpr)
-            else value_binding_time(expression),
-        )
+        return expression
     residual = specialize_relation(
         value.plan.root,
         known=known,
@@ -303,31 +290,7 @@ def specialize_value_expression(
             else value.value_type
         ),
     )
-    return (
-        expression,
-        original_binding_time
-        if isinstance(residual, LiteralRowsRelationExpr)
-        else value_binding_time(expression),
-    )
-
-
-def value_binding_time(value: ValueExpr) -> BindingTime:
-    external_row_kinds = {
-        reference.kind for reference in value.plan.free_row_references.references
-    }
-    if external_row_kinds & {
-        PlanReferenceKind.ROW_COLUMN,
-        PlanReferenceKind.POINT_COLUMN,
-    }:
-        return BindingTime.POINT
-    kinds = {reference.kind for reference in value.plan.references.references}
-    if kinds & {
-        PlanReferenceKind.PARAMETER_SCALAR,
-        PlanReferenceKind.PARAMETER_SERIES,
-        PlanReferenceKind.PARAMETER_TABLE,
-    }:
-        return BindingTime.CONFIGURATION_STATIC
-    return BindingTime.REQUEST_STATIC
+    return expression
 
 
 def _specialize_compute(
@@ -449,7 +412,7 @@ def _specialize_relation_use[ValueT: ValueExpr](
     known: EvalContext,
     parameter_cells: tuple[ParameterCellBinding, ...],
 ) -> RelationUse[ValueT]:
-    value, _binding_time = specialize_value_expression(
+    value = specialize_value_expression(
         use.value,
         known=known,
         parameter_cells=parameter_cells,

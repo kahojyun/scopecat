@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from scopecat.compiler.relations.context import EvalContext, ParameterRelationData
-from scopecat.compiler.relations.specialization import BindingTime
 from scopecat.compiler.relations.uses import RelationUse, relation_use
 from scopecat.compiler.relations.verification import RelationTypeBindings, RowType
 from scopecat.compiler.semantic.model import (
@@ -144,7 +143,7 @@ def test_value_specialization_folds_series_and_table_parameters() -> None:
         series={"values": [1, 2]},
         tables={"rows": [{"x": 3}, {"x": 4}]},
     )
-    specialized_series, series_binding_time = specialize_value_expression(
+    specialized_series = specialize_value_expression(
         series_value_expr(
             parameter_series("values"),
             bindings=bindings,
@@ -153,7 +152,7 @@ def test_value_specialization_folds_series_and_table_parameters() -> None:
         known=EvalContext(params=parameters),
         parameter_cells=(),
     )
-    specialized_table, table_binding_time = specialize_value_expression(
+    specialized_table = specialize_value_expression(
         table_value_expr(
             table("rows").select("x"),
             bindings=bindings,
@@ -168,13 +167,11 @@ def test_value_specialization_folds_series_and_table_parameters() -> None:
     assert specialized_series.plan.root.items == [1, 2]
     assert specialized_series.value_type.min_length == 2
     assert specialized_series.value_type.max_length == 2
-    assert series_binding_time is BindingTime.CONFIGURATION_STATIC
     assert isinstance(specialized_table, TableValueExpr)
     assert isinstance(specialized_table.plan.root, LiteralRowsRelationExpr)
     assert specialized_table.plan.root.rows == [{"x": 3}, {"x": 4}]
     assert specialized_table.value_type.min_rows == 2
     assert specialized_table.value_type.max_rows == 2
-    assert table_binding_time is BindingTime.CONFIGURATION_STATIC
 
 
 def test_core_specialization_folds_series_target_entities() -> None:

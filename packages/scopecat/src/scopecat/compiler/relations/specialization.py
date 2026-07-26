@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
-from enum import StrEnum
 from typing import cast
 
 from scopecat.compiler.relations.context import EvalContext
@@ -16,7 +15,6 @@ from scopecat.compiler.relations.evaluator import (
 from scopecat.compiler.relations.scalar_eval import eval_binary, read_path
 from scopecat.graph.relations.analysis import (
     PlanReferenceKind,
-    PlanReferences,
     plan_references,
     rewrite_plan,
 )
@@ -44,14 +42,6 @@ from scopecat.graph.relations.operators import runtime_values_equal
 _KNOWN_EVALUATION_ERRORS = (ArithmeticError, KeyError, TypeError, ValueError)
 
 
-class BindingTime(StrEnum):
-    """Latest phase required to resolve a residual pure value."""
-
-    REQUEST_STATIC = "request_static"
-    CONFIGURATION_STATIC = "configuration_static"
-    POINT = "point"
-
-
 @dataclass(frozen=True, slots=True)
 class KnownScalar:
     """A scalar value completely determined by the supplied bindings."""
@@ -64,17 +54,6 @@ class ResidualScalar:
     """A pure scalar expression retained with its remaining dependencies."""
 
     expression: ScalarExpression
-    references: PlanReferences
-    binding_time: BindingTime
-
-    @classmethod
-    def from_expression(cls, expression: ScalarExpression) -> ResidualScalar:
-        references = plan_references(expression)
-        return cls(
-            expression=expression,
-            references=references,
-            binding_time=_binding_time(references),
-        )
 
 
 type ScalarSpecialization = KnownScalar | ResidualScalar
@@ -320,23 +299,7 @@ _expression = residual_scalar_expression
 
 
 def _residual(expression: ScalarExpression) -> ResidualScalar:
-    return ResidualScalar.from_expression(expression)
-
-
-def _binding_time(references: PlanReferences) -> BindingTime:
-    kinds = {reference.kind for reference in references}
-    if kinds & {
-        PlanReferenceKind.ROW_COLUMN,
-        PlanReferenceKind.POINT_COLUMN,
-    }:
-        return BindingTime.POINT
-    if kinds & {
-        PlanReferenceKind.PARAMETER_SCALAR,
-        PlanReferenceKind.PARAMETER_SERIES,
-        PlanReferenceKind.PARAMETER_TABLE,
-    }:
-        return BindingTime.CONFIGURATION_STATIC
-    return BindingTime.REQUEST_STATIC
+    return ResidualScalar(expression)
 
 
 def _matching_parameter_cell(
@@ -368,7 +331,6 @@ def _keys_equal(
 
 
 __all__ = [
-    "BindingTime",
     "KnownScalar",
     "ParameterCellBinding",
     "ResidualScalar",

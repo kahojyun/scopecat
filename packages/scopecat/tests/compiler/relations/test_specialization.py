@@ -6,7 +6,6 @@ from scopecat.compiler.relations.context import (
 )
 from scopecat.compiler.relations.evaluator import evaluate_scalar_expression
 from scopecat.compiler.relations.specialization import (
-    BindingTime,
     KnownScalar,
     ParameterCellBinding,
     ResidualScalar,
@@ -106,8 +105,6 @@ def test_specialization_retains_point_expression_and_folds_static_branch() -> No
     result = specialize_scalar(expression, known=EvalContext(params=_parameters()))
 
     assert isinstance(result, ResidualScalar)
-    assert result.binding_time is BindingTime.POINT
-    assert {reference.id for reference in result.references} == {"frequency"}
     assert (
         evaluate_scalar_expression(
             result.expression,
@@ -134,11 +131,6 @@ def test_specialization_retains_lookup_with_point_varying_key() -> None:
     result = specialize_scalar(expression, known=EvalContext(params=_parameters()))
 
     assert isinstance(result, ResidualScalar)
-    assert result.binding_time is BindingTime.POINT
-    assert {reference.id for reference in result.references} == {
-        "devices",
-        "device",
-    }
     assert (
         evaluate_scalar_expression(
             result.expression,
@@ -168,7 +160,6 @@ def test_specialization_substitutes_scanned_parameter_cell() -> None:
 
     assert isinstance(result, ResidualScalar)
     assert result.expression == point_col("frequency")
-    assert result.binding_time is BindingTime.POINT
 
 
 def test_specialized_residual_is_equivalent_for_remaining_point_bindings() -> None:
