@@ -68,28 +68,12 @@ class ActiveConfigView(_ViewModel):
     active_state: ConfigRegistryActiveState
     config: ConfigProfileSnapshot
 
-    @model_validator(mode="after")
-    def validate_identity(self) -> ActiveConfigView:
-        if (
-            self.active_state.active_entry_id != self.entry.id
-            or self.active_state.active_entry_content_hash != self.entry.content_hash
-            or config_content_hash(self.config) != self.entry.content_hash
-        ):
-            raise ValueError("active config view identity is inconsistent")
-        return self
-
 
 class ConfigEntryView(_ViewModel):
     """One registry identity paired with its immutable configuration."""
 
     entry: ConfigRegistryEntry
     config: ConfigProfileSnapshot
-
-    @model_validator(mode="after")
-    def validate_identity(self) -> ConfigEntryView:
-        if config_content_hash(self.config) != self.entry.content_hash:
-            raise ValueError("config entry view identity is inconsistent")
-        return self
 
 
 class ConfigDraftPreview(_ViewModel):
@@ -103,23 +87,6 @@ class ConfigDraftPreview(_ViewModel):
     result_content_hash: ConfigContentHash | None = None
     deltas: tuple[ParameterValueDelta, ...] = ()
     problems: tuple[Problem, ...] = ()
-
-    @model_validator(mode="after")
-    def validate_result(self) -> ConfigDraftPreview:
-        if self.base_entry.content_hash != self.base_content_hash:
-            raise ValueError("config draft preview base identity is inconsistent")
-        if self.valid:
-            if (
-                self.config is None
-                or self.result_content_hash is None
-                or not self.deltas
-                or config_content_hash(self.config) != self.result_content_hash
-                or bool(self.problems)
-            ):
-                raise ValueError("valid config draft preview is incomplete")
-        elif self.config is not None or self.result_content_hash is not None:
-            raise ValueError("invalid config draft preview cannot expose a candidate")
-        return self
 
 
 class RunResourceView(_ViewModel):

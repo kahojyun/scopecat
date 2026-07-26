@@ -749,7 +749,6 @@ def _activate_config_registry_entry_locked(
     )
     entry = loaded.entry
     _validate_derived_entry_base(current_state, entry, work)
-    _validate_loaded_config(loaded.config)
     previous_entry_id = (
         current_state.active_entry_id if current_state is not None else None
     )
@@ -818,7 +817,6 @@ def rollback_config_registry(
             work=work,
         )
         entry = loaded.entry
-        _validate_loaded_config(loaded.config)
         if entry.content_hash != rollback_target.entry_content_hash:
             raise _registry_failure(
                 DataIntegrityError,
@@ -1004,6 +1002,7 @@ def _commit_registration_locked(
     requested_entry: ConfigRegistryEntry,
     config: ConfigProfileSnapshot,
 ) -> ConfigRegistryEntry:
+    _require_valid_config(config)
     existing = _find_existing_entry_locked(
         repository=repository,
         entry_id=requested_entry.id,
@@ -1189,7 +1188,7 @@ def _validate_derived_entry_base(
     )
 
 
-def _validate_loaded_config(config: ConfigProfileSnapshot) -> None:
+def _require_valid_config(config: ConfigProfileSnapshot) -> None:
     problems = validate_config_profile(config)
     if bool(problems):
         raise CheckFailed(problems)

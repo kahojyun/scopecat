@@ -29,7 +29,7 @@ rows = [
 analysis = (
     baseline.analysis("manual notebook review")
     .table(rows, title="raw measurement index")
-    .input("raw-measurements", expected_kind="measurement_dataset")
+    .input("raw-measurements")
     .propose(
         "readout_frequency",
         sc.update_parameter_rows(

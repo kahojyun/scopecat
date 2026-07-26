@@ -24,6 +24,11 @@ from scopecat.execution.services import ExecutionSession
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.execution_journal import ExecutionTransition
+from scopecat.records.measurement_recording import (
+    MeasurementDatasetAppend,
+    MeasurementDatasetReceipt,
+    MeasurementDatasetSeal,
+)
 from scopecat.records.run import RunConfigSource, RunManifest
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.admission import RunSkeleton, build_run_admission
@@ -80,7 +85,12 @@ class SQLiteTestRunRepository(SQLiteRunRepository):
 
 
 class SQLiteTestExecutionJournal(SQLiteExecutionJournal):
-    """Read back durable ledger entries for assertions."""
+    """Own test transactions and expose durable entries for assertions."""
+
+    def append(self, entry: ExecutionTransition) -> ExecutionTransition:
+        with SQLiteControlPlane(self._runs.database).transaction() as connection:
+            committed, _created = self.append_in_transaction(connection, entry)
+            return committed
 
     def entries(self) -> tuple[ExecutionTransition, ...]:
         with sqlite3.connect(self._runs.database) as connection:
@@ -110,12 +120,34 @@ class SQLiteTestExecutionJournal(SQLiteExecutionJournal):
         )
 
 
+class SQLiteTestMeasurementDatasetRepository(SQLiteMeasurementDatasetRepository):
+    """Own transactions for in-process execution tests."""
+
+    def append(self, append: MeasurementDatasetAppend) -> MeasurementDatasetReceipt:
+        prepared = self.prepare_append(append)
+        with SQLiteControlPlane(self._runs.database).transaction() as connection:
+            receipt, _created = self.append_prepared_in_transaction(
+                connection,
+                prepared,
+            )
+            return receipt
+
+    def seal(self, seal: MeasurementDatasetSeal) -> MeasurementDatasetReceipt:
+        prepared = self.prepare_seal(seal)
+        with SQLiteControlPlane(self._runs.database).transaction() as connection:
+            receipt, _created = self.seal_prepared_in_transaction(
+                connection,
+                prepared,
+            )
+            return receipt
+
+
 @dataclass(frozen=True, slots=True)
 class SQLiteExecutionSession(ExecutionSession):
     """Concrete SQLite session exposing read models to test assertions."""
 
     journal: SQLiteTestExecutionJournal
-    measurements: SQLiteMeasurementDatasetRepository
+    measurements: SQLiteTestMeasurementDatasetRepository
 
 
 def admit_test_run(
@@ -202,7 +234,7 @@ def sqlite_execution_session(
         begin=lambda: None,
         commit_terminal=selected_runs.commit_terminal,
         journal=SQLiteTestExecutionJournal(selected_runs, run_id=run_id),
-        measurements=SQLiteMeasurementDatasetRepository(
+        measurements=SQLiteTestMeasurementDatasetRepository(
             selected_runs,
             run_id=run_id,
         ),

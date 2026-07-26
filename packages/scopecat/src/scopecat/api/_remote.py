@@ -6,12 +6,10 @@ from base64 import b64encode
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, cast
 
 from pydantic import JsonValue, RootModel, TypeAdapter
 
 from scopecat.analysis.service import (
-    AnalysisArtifactSpec,
     AnalysisInput,
     AnalysisOutput,
     SavedAnalysis,
@@ -19,10 +17,8 @@ from scopecat.analysis.service import (
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.views import RunAnalysisListView, RunAnalysisView
 from scopecat.daemon.wire import (
-    AnalysisArtifactOutputPayload,
     AnalysisInputPayload,
     AnalysisJsonOutputPayload,
-    AnalysisNoteOutputPayload,
     AnalysisOutputPayload,
     AnalysisParameterProposalOutputPayload,
     AnalysisSaveCommand,
@@ -100,7 +96,6 @@ class RemoteRunOperations:
             record=receipt.record,
             analysis_key=receipt.analysis_key,
             inputs=tuple(inputs),
-            output_artifacts=receipt.output_artifacts,
         )
 
     def analyses(self, run_id: str) -> RunAnalysisListView:
@@ -219,48 +214,20 @@ def _analysis_input_payload(value: AnalysisInput) -> AnalysisInputPayload:
 
 def _analysis_output_payload(value: AnalysisOutput) -> AnalysisOutputPayload:
     metadata = _JSON_MAPPING.validate_python(value.metadata)
-    if value.kind == "note":
-        if not isinstance(value.content, str):
-            raise ValueError("remote analysis note content must be text")
-        return AnalysisNoteOutputPayload(
-            kind=value.kind,
-            title=value.title,
-            content=value.content,
-            metadata=metadata,
-        )
-    if value.kind in {"table", "array", "figure"}:
+    if value.kind == "table" or value.kind == "figure":
         return AnalysisJsonOutputPayload(
-            kind=cast("Literal['table', 'array', 'figure']", value.kind),
+            kind=value.kind,
             title=value.title,
             content=_JsonValue.model_validate(value.content).root,
             metadata=metadata,
         )
-    if value.kind == "artifact":
-        if not isinstance(value.content, AnalysisArtifactSpec):
-            raise ValueError("remote analysis artifact output has invalid content")
-        return AnalysisArtifactOutputPayload(
-            kind=value.kind,
-            title=value.title,
-            artifact_kind=value.content.kind,
-            content_base64=b64encode(value.content.content).decode("ascii"),
-            artifact_id=value.content.artifact_id,
-            filename=value.content.filename,
-            media_type=value.content.media_type,
-            artifact_metadata=_JSON_MAPPING.validate_python(value.content.metadata),
-            metadata=metadata,
-        )
-    if value.kind == "parameter_change_proposal":
-        if not isinstance(value.content, ParameterChangeProposal):
-            raise ValueError("remote analysis proposal output has invalid content")
-        return AnalysisParameterProposalOutputPayload(
-            kind=value.kind,
-            title=value.title,
-            content=value.content,
-            metadata=metadata,
-        )
-    raise ValueError(
-        "remote analysis supports note, table, array, figure, artifact, "
-        "and parameter change proposal outputs"
+    if not isinstance(value.content, ParameterChangeProposal):
+        raise ValueError("remote analysis proposal output has invalid content")
+    return AnalysisParameterProposalOutputPayload(
+        kind=value.kind,
+        title=value.title,
+        content=value.content,
+        metadata=metadata,
     )
 
 

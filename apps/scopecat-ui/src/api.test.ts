@@ -204,9 +204,9 @@ describe("project daemon reads", () => {
                   key: "fit",
                   outputs: [
                     {
-                      kind: "note",
-                      title: "Conclusion",
-                      content: "Converged",
+                      kind: "table",
+                      title: "Fit parameters",
+                      content: [{ converged: true }],
                     },
                   ],
                 },
@@ -260,7 +260,13 @@ describe("project daemon reads", () => {
       id: "analysis-fit",
       title: "Fit review",
       key: "fit",
-      outputs: [{ kind: "note", title: "Conclusion", content: "Converged" }],
+      outputs: [
+        {
+          kind: "table",
+          title: "Fit parameters",
+          content: [{ converged: true }],
+        },
+      ],
     });
     expect(text).toMatchObject({ format: "text", content: "Converged\n" });
     expect(json).toMatchObject({

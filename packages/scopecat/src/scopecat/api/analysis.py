@@ -5,7 +5,6 @@ from __future__ import annotations
 import inspect
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from pathlib import Path
 from typing import (
     Concatenate,
     NoReturn,
@@ -15,14 +14,11 @@ from typing import (
     overload,
 )
 
-from pydantic import BaseModel
-
 from scopecat.analysis.service import (
     AnalysisInput,
     AnalysisOutput,
     AnalysisOutputKind,
     SavedAnalysis,
-    prepare_analysis_artifact,
 )
 from scopecat.api.data import Data
 from scopecat.config.candidates import (
@@ -88,21 +84,6 @@ class Analysis:
     outputs: tuple[AnalysisOutput, ...] = ()
     parameter_proposals: tuple[ParameterChangeProposal, ...] = ()
 
-    def note(
-        self,
-        content: str,
-        *,
-        title: str = "note",
-        metadata: Mapping[str, object] | None = None,
-    ) -> Analysis:
-        if not content.strip():
-            _raise_analysis_problem(
-                "analysis_note_invalid",
-                "analysis note content must be a non-empty string",
-                "content",
-            )
-        return self._with_output("note", title, content, metadata)
-
     def table(
         self,
         content: object,
@@ -111,15 +92,6 @@ class Analysis:
         metadata: Mapping[str, object] | None = None,
     ) -> Analysis:
         return self._with_output("table", title, content, metadata)
-
-    def array(
-        self,
-        content: object,
-        *,
-        title: str = "array",
-        metadata: Mapping[str, object] | None = None,
-    ) -> Analysis:
-        return self._with_output("array", title, content, metadata)
 
     def figure(
         self,
@@ -136,12 +108,10 @@ class Analysis:
 
     def input(
         self,
-        selector: str | None = None,
+        selector: str,
         *,
-        uri: str | None = None,
         role: str = "data",
         title: str | None = None,
-        expected_kind: str | None = None,
         metadata: Mapping[str, object] | None = None,
     ) -> Analysis:
         if not role.strip():
@@ -150,78 +120,18 @@ class Analysis:
                 "analysis input role must be a non-empty string",
                 "role",
             )
-        selected_sources = [selector is not None, uri is not None].count(True)
-        if selected_sources != 1:
-            _raise_analysis_problem(
-                "analysis_input_source_invalid",
-                "analysis input requires exactly one of selector or uri",
-                "input",
-            )
-        if uri is not None:
-            if not uri.strip():
-                _raise_analysis_problem(
-                    "analysis_input_uri_invalid",
-                    "analysis input URI must be non-empty",
-                    "uri",
-                )
-            analysis_input = AnalysisInput(
-                target=uri,
-                kind="uri",
-                role=role,
-                title=title,
-                metadata=metadata,
-            )
-            return replace(self, inputs=(*self.inputs, analysis_input))
-        assert selector is not None
-        if expected_kind == "measurement_dataset":
-            dataset = self.run.data().dataset(selector, expected_kind=expected_kind)
-            analysis_input = AnalysisInput(
-                target=dataset.id,
-                kind="dataset",
-                role=role,
-                title=title or dataset.id,
-                metadata=metadata,
-            )
-        else:
-            artifact = self.run.data().artifact(selector, expected_kind=expected_kind)
-            analysis_input = AnalysisInput(
-                target=artifact.id,
-                kind="artifact",
-                role=role,
-                title=title or artifact.id,
-                metadata=metadata,
-            )
-        return replace(self, inputs=(*self.inputs, analysis_input))
-
-    def artifact(
-        self,
-        *,
-        title: str,
-        kind: str,
-        artifact_id: str | None = None,
-        filename: str | None = None,
-        model: BaseModel | None = None,
-        json_content: object | None = None,
-        text: str | None = None,
-        content: bytes | None = None,
-        path: str | Path | None = None,
-        media_type: str | None = None,
-        metadata: Mapping[str, object] | None = None,
-    ) -> Analysis:
-        artifact_spec = prepare_analysis_artifact(
-            title=title,
-            kind=kind,
-            artifact_id=artifact_id,
-            filename=filename,
-            model=model,
-            json_content=json_content,
-            text=text,
-            content=content,
-            path=path,
-            media_type=media_type,
+        dataset = self.run.data().dataset(
+            selector,
+            expected_kind="measurement_dataset",
+        )
+        analysis_input = AnalysisInput(
+            target=dataset.id,
+            kind="measurement_dataset",
+            role=role,
+            title=title or dataset.id,
             metadata=metadata,
         )
-        return self._with_output("artifact", title, artifact_spec, {})
+        return replace(self, inputs=(*self.inputs, analysis_input))
 
     def propose(
         self,

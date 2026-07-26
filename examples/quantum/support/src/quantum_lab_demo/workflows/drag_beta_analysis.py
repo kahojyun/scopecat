@@ -386,7 +386,6 @@ def analyze_drag_beta_run(run: sc.RunHandle) -> DragBetaRunAnalysis:
             measurements.dataset_entry.id,
             role="fit-input",
             title="DRAG beta measurements",
-            expected_kind="measurement_dataset",
         )
         .table(
             [

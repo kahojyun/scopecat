@@ -224,7 +224,6 @@ def analyze_cz_phase_run(run: sc.RunHandle) -> CzPhaseRunAnalysis:
             measurements.dataset_entry.id,
             role="fit-input",
             title="CZ conditional-phase measurements",
-            expected_kind="measurement_dataset",
         )
         .table(
             [

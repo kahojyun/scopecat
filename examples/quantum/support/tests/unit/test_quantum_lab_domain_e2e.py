@@ -481,12 +481,16 @@ def test_uncertain_measurement_write_retains_durable_correlation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fail_record_write(_committer: object, _chunk: object) -> object:
+    def fail_record_write(
+        _repository: object,
+        _connection: object,
+        _prepared: object,
+    ) -> object:
         raise RuntimeError("record store returned no receipt")
 
     monkeypatch.setattr(
         SQLiteMeasurementDatasetRepository,
-        "append",
+        "append_prepared_in_transaction",
         fail_record_write,
     )
     compiler = quantum_lab_compiler()

@@ -16,7 +16,6 @@ from scopecat.config.registry.records import (
 from scopecat.control.models import ResourceKey, RunPlanSummary
 from scopecat.daemon.wire import (
     AnalysisJsonOutputPayload,
-    AnalysisNoteOutputPayload,
     AnalysisParameterProposalOutputPayload,
     AnalysisSaveCommand,
     CandidateConfigActivationCommand,
@@ -170,11 +169,6 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
         title="fit",
         analysis_key="fit",
         outputs=(
-            AnalysisNoteOutputPayload(
-                kind="note",
-                title="summary",
-                content="fit converged",
-            ),
             AnalysisJsonOutputPayload(
                 kind="figure",
                 title="fit curve",

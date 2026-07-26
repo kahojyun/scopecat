@@ -61,18 +61,6 @@ class _WireModel(BaseModel):
     )
 
 
-def _state_matches_activation(
-    state: ConfigRegistryActiveState,
-    activation: ConfigRegistryActivationRecord,
-) -> bool:
-    return (
-        state.generation == activation.generation
-        and state.active_entry_id == activation.entry_id
-        and state.active_entry_content_hash == activation.entry_content_hash
-        and state.updated_at == activation.recorded_at
-    )
-
-
 class DirectConfigImportCommand(_WireModel):
     """Import one direct configuration snapshot into the daemon registry."""
 
@@ -97,16 +85,6 @@ class ConfigDefaultReceipt(_WireModel):
     entry: ConfigRegistryEntry
     active_state: ConfigRegistryActiveState
     activation: ConfigRegistryActivationRecord
-
-    @model_validator(mode="after")
-    def validate_activation(self) -> ConfigDefaultReceipt:
-        if (
-            self.entry.id != self.activation.entry_id
-            or self.entry.content_hash != self.activation.entry_content_hash
-            or not _state_matches_activation(self.active_state, self.activation)
-        ):
-            raise ValueError("config default receipt identity is inconsistent")
-        return self
 
 
 class ConfigDraftCommand(_WireModel):
@@ -150,17 +128,6 @@ class ConfigDraftDefaultReceipt(_WireModel):
     active_state: ConfigRegistryActiveState
     activation: ConfigRegistryActivationRecord
 
-    @model_validator(mode="after")
-    def validate_activation(self) -> ConfigDraftDefaultReceipt:
-        if (
-            self.entry.content_hash != self.result_content_hash
-            or self.entry.id != self.activation.entry_id
-            or self.entry.content_hash != self.activation.entry_content_hash
-            or not _state_matches_activation(self.active_state, self.activation)
-        ):
-            raise ValueError("config draft default receipt identity is inconsistent")
-        return self
-
 
 class ConfigEntryActivationCommand(_WireModel):
     """Select a registered entry with generation compare-and-swap."""
@@ -183,54 +150,22 @@ class ConfigActivationReceipt(_WireModel):
     active_state: ConfigRegistryActiveState
     activation: ConfigRegistryActivationRecord
 
-    @model_validator(mode="after")
-    def validate_activation(self) -> ConfigActivationReceipt:
-        if not _state_matches_activation(self.active_state, self.activation):
-            raise ValueError("config activation receipt identity is inconsistent")
-        return self
-
 
 class AnalysisInputPayload(_WireModel):
     """JSON-safe reference consumed by a durable analysis record."""
 
     target: NonEmptyText
-    kind: Literal["artifact", "dataset", "uri"]
+    kind: Literal["measurement_dataset"]
     role: NonEmptyText
     title: str | None = None
     metadata: dict[str, JsonValue] | None = None
 
 
-class AnalysisNoteOutputPayload(_WireModel):
-    kind: Literal["note"]
-    title: NonEmptyText
-    content: NonEmptyText
-    metadata: dict[str, JsonValue] = Field(default_factory=dict)
-
-
 class AnalysisJsonOutputPayload(_WireModel):
-    kind: Literal["table", "array", "figure"]
+    kind: Literal["table", "figure"]
     title: NonEmptyText
     content: JsonValue
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
-
-
-class AnalysisArtifactOutputPayload(_WireModel):
-    """One binary analysis artifact encoded for JSON transport."""
-
-    kind: Literal["artifact"]
-    title: NonEmptyText
-    artifact_kind: NonEmptyText
-    content_base64: str
-    artifact_id: NonEmptyText | None = None
-    filename: NonEmptyText
-    media_type: NonEmptyText
-    artifact_metadata: dict[str, JsonValue] = Field(default_factory=dict)
-    metadata: dict[str, JsonValue] = Field(default_factory=dict)
-
-    @field_validator("content_base64")
-    @classmethod
-    def validate_content_base64(cls, value: str) -> str:
-        return _validated_base64(value)
 
 
 class AnalysisParameterProposalOutputPayload(_WireModel):
@@ -241,10 +176,7 @@ class AnalysisParameterProposalOutputPayload(_WireModel):
 
 
 type AnalysisOutputPayload = Annotated[
-    AnalysisArtifactOutputPayload
-    | AnalysisNoteOutputPayload
-    | AnalysisJsonOutputPayload
-    | AnalysisParameterProposalOutputPayload,
+    AnalysisJsonOutputPayload | AnalysisParameterProposalOutputPayload,
     Field(discriminator="kind"),
 ]
 
@@ -281,7 +213,6 @@ class AnalysisSaveReceipt(_WireModel):
     record: RunContentEntry
     analysis_key: NonEmptyText
     inputs: tuple[AnalysisInputPayload, ...] = ()
-    output_artifacts: tuple[RunContentEntry, ...] = ()
 
 
 class RunAttachmentCommand(_WireModel):
@@ -331,16 +262,6 @@ class CandidateConfigActivationReceipt(_WireModel):
     entry: ConfigRegistryEntry
     active_state: ConfigRegistryActiveState
     activation: ConfigRegistryActivationRecord
-
-    @model_validator(mode="after")
-    def validate_activation(self) -> CandidateConfigActivationReceipt:
-        if (
-            self.entry.id != self.activation.entry_id
-            or self.entry.content_hash != self.activation.entry_content_hash
-            or not _state_matches_activation(self.active_state, self.activation)
-        ):
-            raise ValueError("candidate activation receipt identity is inconsistent")
-        return self
 
 
 class RunSubmission(_WireModel):
@@ -461,10 +382,8 @@ def _validated_base64(value: str) -> str:
 
 
 __all__ = [
-    "AnalysisArtifactOutputPayload",
     "AnalysisInputPayload",
     "AnalysisJsonOutputPayload",
-    "AnalysisNoteOutputPayload",
     "AnalysisOutputPayload",
     "AnalysisParameterProposalOutputPayload",
     "AnalysisSaveCommand",

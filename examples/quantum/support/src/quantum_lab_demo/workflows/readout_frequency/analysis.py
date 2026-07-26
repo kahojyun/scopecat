@@ -95,7 +95,6 @@ def readout_frequency_analysis(
         .input(
             raw.dataset_entry.id,
             title="raw measurements",
-            expected_kind="measurement_dataset",
         )
         .table(
             [

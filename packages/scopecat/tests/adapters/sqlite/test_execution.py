@@ -29,13 +29,10 @@ from scopecat.records.execution_journal import (
 )
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.measurement_recording import (
-    CANONICAL_MEASUREMENT_DATASET_REF,
     MeasurementDatasetAppend,
-    MeasurementDatasetReceipt,
     MeasurementDatasetSeal,
     measurement_dataset_content_hash,
 )
-from scopecat.sdk.journal import ExecutionJournalError
 from tests.testkit.runtime import SQLiteTestExecutionJournal as SQLiteExecutionJournal
 
 
@@ -108,6 +105,26 @@ def _seal(append: MeasurementDatasetAppend) -> MeasurementDatasetSeal:
     )
 
 
+def _commit_append(
+    runs: SQLiteRunRepository,
+    repository: SQLiteMeasurementDatasetRepository,
+    append: MeasurementDatasetAppend,
+) -> None:
+    prepared = repository.prepare_append(append)
+    with _sqlite_transaction(runs) as connection:
+        repository.append_prepared_in_transaction(connection, prepared)
+
+
+def _commit_seal(
+    runs: SQLiteRunRepository,
+    repository: SQLiteMeasurementDatasetRepository,
+    seal: MeasurementDatasetSeal,
+) -> None:
+    prepared = repository.prepare_seal(seal)
+    with _sqlite_transaction(runs) as connection:
+        repository.seal_prepared_in_transaction(connection, prepared)
+
+
 def _transitions(run_id: str) -> tuple[ExecutionTransition, ...]:
     return (
         ExecutionTransition(
@@ -125,141 +142,6 @@ def _transitions(run_id: str) -> tuple[ExecutionTransition, ...]:
             state="completed",
         ),
     )
-
-
-def _transition(run_id: str, ordinal: int) -> ExecutionTransition:
-    return ExecutionTransition(
-        run_id=run_id,
-        operation_id=f"contract.operation.{ordinal}",
-        stage="apply_state",
-        effect="state_write",
-        state="completed",
-        evidence={"ordinal": ordinal},
-    )
-
-
-def _transition_body(transition: ExecutionTransition) -> dict[str, object]:
-    return transition.model_dump(
-        mode="python",
-        exclude={"sequence", "timestamp"},
-    )
-
-
-def test_append_assigns_sequence_and_preserves_transition(tmp_path: Path) -> None:
-    run_id = "run-journal-contract"
-    journal = SQLiteExecutionJournal(_runs(tmp_path), run_id=run_id)
-    first_input = _transition(run_id, 0)
-    second_input = _transition(run_id, 1)
-
-    first = journal.append(first_input)
-    second = journal.append(second_input)
-
-    assert first_input.sequence is None
-    assert second_input.sequence is None
-    assert first.sequence == 0
-    assert second.sequence == 1
-    assert _transition_body(first) == _transition_body(first_input)
-    assert _transition_body(second) == _transition_body(second_input)
-    assert journal.entries() == (first, second)
-
-
-def test_concurrent_append_assigns_each_sequence_once(tmp_path: Path) -> None:
-    run_id = "run-journal-concurrency-contract"
-    journal = SQLiteExecutionJournal(_runs(tmp_path), run_id=run_id)
-
-    def append_transition(ordinal: int) -> ExecutionTransition:
-        return journal.append(_transition(run_id, ordinal))
-
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        committed = tuple(executor.map(append_transition, range(12)))
-
-    committed_sequences: list[int] = []
-    for entry in committed:
-        assert entry.sequence is not None
-        committed_sequences.append(entry.sequence)
-    assert sorted(committed_sequences) == list(range(12))
-
-    stored = journal.entries()
-    stored_sequences: list[int] = []
-    for entry in stored:
-        assert entry.sequence is not None
-        stored_sequences.append(entry.sequence)
-    assert stored_sequences == list(range(12))
-    assert {entry.operation_id for entry in stored} == {
-        f"contract.operation.{ordinal}" for ordinal in range(12)
-    }
-
-
-def test_replay_returns_the_same_exact_receipt(tmp_path: Path) -> None:
-    run_id = "run-measurement-committer-contract"
-    committer = SQLiteMeasurementDatasetRepository(_runs(tmp_path), run_id=run_id)
-    append = _append(run_id)
-
-    first = committer.append(append)
-    repeated = committer.append(append.model_copy(deep=True))
-
-    assert repeated == first
-    assert first == MeasurementDatasetReceipt(
-        operation_id=append.operation_id,
-        dataset_content_hash=append.content_hash,
-    )
-    assert first.dataset_ref == CANONICAL_MEASUREMENT_DATASET_REF
-
-
-def test_same_operation_rejects_different_content(tmp_path: Path) -> None:
-    run_id = "run-measurement-conflict-contract"
-    committer = SQLiteMeasurementDatasetRepository(_runs(tmp_path), run_id=run_id)
-    append = _append(run_id)
-    changed_record = append.records[0].model_copy(
-        update={
-            "observables": {"signal": Quantity(value=2.0, unit="ratio")},
-        }
-    )
-    conflicting = append.model_copy(update={"records": (changed_record,)})
-    assert conflicting.operation_id == append.operation_id
-    assert conflicting.content_hash != append.content_hash
-
-    committer.append(append)
-
-    with pytest.raises(ExecutionJournalError):
-        committer.append(conflicting)
-
-
-def test_concurrent_replay_is_idempotent(tmp_path: Path) -> None:
-    run_id = "run-measurement-concurrency-contract"
-    committer = SQLiteMeasurementDatasetRepository(_runs(tmp_path), run_id=run_id)
-    append = _append(run_id)
-
-    def replay_append(_ordinal: int) -> MeasurementDatasetReceipt:
-        return committer.append(append.model_copy(deep=True))
-
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        receipts = tuple(executor.map(replay_append, range(8)))
-
-    assert len({receipt.model_dump_json() for receipt in receipts}) == 1
-
-
-def test_seal_is_idempotent_and_rejects_later_appends(tmp_path: Path) -> None:
-    run_id = "run-measurement-seal-contract"
-    committer = SQLiteMeasurementDatasetRepository(_runs(tmp_path), run_id=run_id)
-    append = _append(run_id)
-    committer.append(append)
-    seal = MeasurementDatasetSeal(
-        run_id=run_id,
-        recording_contract_fingerprint=append.recording_contract_fingerprint,
-        point_count=1,
-        dataset_content_hash=measurement_dataset_content_hash(
-            recording_contract_fingerprint=append.recording_contract_fingerprint,
-            append_content_hashes=(append.content_hash,),
-        ),
-    )
-
-    first = committer.seal(seal)
-    repeated = committer.seal(seal.model_copy(deep=True))
-
-    assert repeated == first
-    with pytest.raises(ExecutionJournalError):
-        committer.append(_append(run_id, point_index=1))
 
 
 def test_execution_transitions_are_canonical_durable_events(tmp_path: Path) -> None:
@@ -500,7 +382,11 @@ def test_two_measurement_connections_replay_and_conflict_by_canonical_slot(
     assert sorted(created for _receipt, created in receipts) == [False, True]
     assert len(first.measurements()) == 1
     with pytest.raises(ExecutionJournalConflict):
-        second.append(_append("run-measurement", value=2))
+        _commit_append(
+            runs,
+            second,
+            _append("run-measurement", value=2),
+        )
 
 
 def test_measurement_replay_rejects_mismatched_durable_operation_identity(
@@ -512,15 +398,15 @@ def test_measurement_replay_rejects_mismatched_durable_operation_identity(
         run_id="run-append-identity",
     )
     append = _append("run-append-identity")
-    append_repository.append(append)
+    _commit_append(runs, append_repository, append)
     seal_repository = SQLiteMeasurementDatasetRepository(
         runs,
         run_id="run-seal-identity",
     )
     seal_append = _append("run-seal-identity")
     seal = _seal(seal_append)
-    seal_repository.append(seal_append)
-    seal_repository.seal(seal)
+    _commit_append(runs, seal_repository, seal_append)
+    _commit_seal(runs, seal_repository, seal)
     with sqlite3.connect(runs.database) as connection:
         connection.execute(
             """
@@ -540,6 +426,6 @@ def test_measurement_replay_rejects_mismatched_durable_operation_identity(
         )
 
     with pytest.raises(ExecutionJournalConflict, match="different content"):
-        append_repository.append(append)
+        _commit_append(runs, append_repository, append)
     with pytest.raises(ExecutionJournalConflict, match="different content"):
-        seal_repository.seal(seal)
+        _commit_seal(runs, seal_repository, seal)

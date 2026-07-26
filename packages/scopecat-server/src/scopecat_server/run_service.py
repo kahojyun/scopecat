@@ -16,7 +16,6 @@ from scopecat.analysis.service import (
     AnalysisInput,
     AnalysisOutput,
     prepare_analysis,
-    prepare_analysis_artifact,
 )
 from scopecat.config.changes import (
     list_parameter_change_proposals,
@@ -43,7 +42,6 @@ from scopecat.daemon.views import (
     RunSummaryPage,
 )
 from scopecat.daemon.wire import (
-    AnalysisArtifactOutputPayload,
     AnalysisOutputPayload,
     AnalysisParameterProposalOutputPayload,
     AnalysisSaveCommand,
@@ -82,26 +80,10 @@ from .errors import BackendConflict, BackendNotFound
 
 
 def _analysis_output(item: AnalysisOutputPayload) -> AnalysisOutput:
-    if isinstance(item, AnalysisArtifactOutputPayload):
-        content = prepare_analysis_artifact(
-            title=item.title,
-            kind=item.artifact_kind,
-            artifact_id=item.artifact_id,
-            filename=item.filename,
-            model=None,
-            json_content=None,
-            text=None,
-            content=b64decode(item.content_base64, validate=True),
-            path=None,
-            media_type=item.media_type,
-            metadata=item.artifact_metadata,
-        )
-    else:
-        content = item.content
     return AnalysisOutput(
         kind=item.kind,
         title=item.title,
-        content=content,
+        content=item.content,
         metadata=item.metadata,
     )
 
@@ -293,7 +275,6 @@ class RunService:
             record=prepared.saved.record,
             analysis_key=prepared.saved.analysis_key,
             inputs=command.inputs,
-            output_artifacts=prepared.saved.output_artifacts,
         )
 
     def get_run_artifact_bytes(

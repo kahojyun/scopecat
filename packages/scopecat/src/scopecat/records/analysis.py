@@ -9,11 +9,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from scopecat.records._metadata import JsonMetadata
 
 AnalysisRecordOutputKind = Literal[
-    "note",
     "table",
-    "array",
     "figure",
-    "artifact",
     "parameter_change_proposal",
 ]
 
@@ -22,7 +19,7 @@ class AnalysisRecordInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     target: str
-    kind: Literal["artifact", "dataset", "uri"]
+    kind: Literal["measurement_dataset"]
     role: str
     title: str | None = None
     metadata: JsonMetadata | None = None

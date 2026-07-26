@@ -96,7 +96,7 @@ def test_in_process_lab_closed_loop_uses_notebook_first_candidate_config(
     raw = baseline.measurements()
     analysis = (
         baseline.analysis("manual best signal")
-        .input("raw-measurements", expected_kind="measurement_dataset")
+        .input("raw-measurements")
         .propose(
             "drive_frequency",
             sc.replace_scalar_parameter(

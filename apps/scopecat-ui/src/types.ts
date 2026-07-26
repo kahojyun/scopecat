@@ -73,7 +73,7 @@ export interface MeasurementPreview {
 }
 
 export interface RunAnalysisOutput {
-  kind: string;
+  kind: "table" | "figure" | "parameter_change_proposal";
   title: string;
   content: unknown;
 }

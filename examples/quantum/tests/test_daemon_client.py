@@ -68,11 +68,9 @@ def test_demo_execution_round_trips_through_shared_daemon(
         )
         saved = (
             run.analysis("fit review")
-            .artifact(
+            .table(
+                [{"accepted": True}],
                 title="fit result",
-                kind="fit_result",
-                artifact_id="fit-result",
-                json_content={"accepted": True},
             )
             .save()
         )
@@ -81,7 +79,6 @@ def test_demo_execution_round_trips_through_shared_daemon(
         assert run.request.metadata["name"] == "daemon client round trip"
         assert attachment.filename == "review.md"
         assert run.data().text("notebook-note").content == "reviewed in notebook\n"
-        assert run.data().json("fit-result").content == {"accepted": True}
         assert (
             lab.run_operations.analysis(run.id, saved.record.id).analysis.title
             == "fit review"

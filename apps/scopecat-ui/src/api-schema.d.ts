@@ -438,9 +438,9 @@ export interface components {
         AnalysisRecordInput: {
             /**
              * Kind
-             * @enum {string}
+             * @constant
              */
-            kind: "artifact" | "dataset" | "uri";
+            kind: "measurement_dataset";
             metadata?: components["schemas"]["JsonMetadata-Output"] | null;
             /** Role */
             role: string;
@@ -457,7 +457,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "note" | "table" | "array" | "figure" | "artifact" | "parameter_change_proposal";
+            kind: "table" | "figure" | "parameter_change_proposal";
             metadata?: components["schemas"]["JsonMetadata-Output"];
             /** Title */
             title: string;

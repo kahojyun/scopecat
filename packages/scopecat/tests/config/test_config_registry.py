@@ -598,7 +598,7 @@ def test_activation_generation_is_append_only_and_rejects_stale_writes(
     ] == [1, 2, 3]
 
 
-def test_activation_runs_full_config_semantic_validation(tmp_path: Path) -> None:
+def test_registration_runs_full_config_semantic_validation(tmp_path: Path) -> None:
     config = load_config()
     invalid_binding = config.routing.bindings[0].model_copy(
         update={"instrument_id": "missing-source"}
@@ -614,29 +614,22 @@ def test_activation_runs_full_config_semantic_validation(tmp_path: Path) -> None
             )
         }
     )
-    entry = register_config_profile(
-        config=invalid_config,
-        unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
-        entry_id="invalid",
-        registered_by="operator",
-    )
-
     with pytest.raises(CheckFailed) as error:
-        activate_config_registry_entry(
-            entry_id=entry.id,
+        register_config_profile(
+            config=invalid_config,
             unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
-            operator="operator",
-            expected_generation=0,
+            entry_id="invalid",
+            registered_by="operator",
         )
 
     assert error.value.problems[0].code == (
         "configuration.unknown_routing_binding_instrument"
     )
     assert (
-        current_config_registry_generation(
+        list_config_registry_entries(
             unit_of_work=sqlite_config_registry_unit_of_work(tmp_path)
         )
-        == 0
+        == []
     )
 
 

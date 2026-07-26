@@ -37,15 +37,10 @@ from tests.testkit.execution import execute_invocation_run
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 
 SUMMARY_STATS_STEP = "summary-stats"
-SUMMARY_STATS_RESULT_REF = "artifacts/test_summary_stats_result/summary-stats-result"
-SUMMARY_STATS_SUMMARY_REF = "artifacts/summary/summary-stats-summary"
 BEST_SIGNAL_ANALYSIS_STEP = "best-signal-analysis"
 BEST_SIGNAL_INPUT_REF = "data/measurement_dataset/raw-measurements"
 BEST_SIGNAL_SCHEMA_REF = "data/measurement_dataset/raw-measurements.schema"
-BEST_SIGNAL_ANALYSIS_RESULT_ARTIFACT_ID = "best-signal-analysis-result"
-BEST_SIGNAL_ANALYSIS_SUMMARY_ARTIFACT_ID = "best-signal-analysis-summary"
 RAW_MEASUREMENTS_DATASET_ID = "raw-measurements"
-MEASUREMENT_DATASET_KIND = "measurement_dataset"
 TEST_STEP_METADATA = {"scope": "test"}
 
 
@@ -133,24 +128,10 @@ class SummaryStatsAnalysisStep:
             .input(
                 raw.dataset_entry.id,
                 title="raw measurements",
-                expected_kind=MEASUREMENT_DATASET_KIND,
             )
-            .artifact(
+            .table(
+                [result.model_dump(mode="json")],
                 title="summary stats result",
-                kind="test_summary_stats_result",
-                artifact_id="summary-stats-result",
-                filename="summary-stats.json",
-                model=result,
-                media_type="application/json",
-                metadata=TEST_STEP_METADATA,
-            )
-            .artifact(
-                title="summary stats markdown",
-                kind="summary",
-                artifact_id="summary-stats-summary",
-                filename="summary-stats.md",
-                text=render_summary_stats_summary(result),
-                media_type="text/markdown",
                 metadata=TEST_STEP_METADATA,
             )
         )
@@ -188,24 +169,10 @@ class BestSignalAnalysisStep:
             .input(
                 raw.dataset_entry.id,
                 title="raw measurements",
-                expected_kind=MEASUREMENT_DATASET_KIND,
             )
-            .artifact(
+            .table(
+                [result.model_dump(mode="json")],
                 title="best signal analysis result",
-                kind="test_best_signal_analysis_result",
-                artifact_id=BEST_SIGNAL_ANALYSIS_RESULT_ARTIFACT_ID,
-                filename="best-signal-analysis.json",
-                model=result,
-                media_type="application/json",
-                metadata=TEST_STEP_METADATA,
-            )
-            .artifact(
-                title="best signal analysis markdown",
-                kind="summary",
-                artifact_id=BEST_SIGNAL_ANALYSIS_SUMMARY_ARTIFACT_ID,
-                filename="best-signal-analysis.md",
-                text=render_best_signal_summary(result=result, reason=reason),
-                media_type="text/markdown",
                 metadata=TEST_STEP_METADATA,
             )
             .propose(
@@ -230,56 +197,6 @@ def execute_signal_run(
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
         project_root=project_root,
         config_source=config_source,
-    )
-
-
-def render_summary_stats_summary(result: SummaryStatsResult) -> str:
-    lines = [
-        "# Scopecat Summary Stats",
-        "",
-        f"- Run ID: {result.run_id}",
-        f"- Step: {result.step}",
-        f"- Input: {result.input_ref}",
-        f"- Measurements: {result.measurement_count}",
-        "",
-        "## Observables",
-        "",
-    ]
-    for name in sorted(result.observables):
-        observable = result.observables[name]
-        lines.extend(
-            [
-                f"### {name}",
-                "",
-                f"- Count: {observable.count}",
-                f"- Min: {observable.min} {observable.unit}",
-                f"- Max: {observable.max} {observable.unit}",
-                f"- Mean: {observable.mean} {observable.unit}",
-                "",
-            ]
-        )
-    return "\n".join(lines)
-
-
-def render_best_signal_summary(*, result: BestSignalAnalysisResult, reason: str) -> str:
-    return "\n".join(
-        [
-            "# Scopecat Best Signal Analysis",
-            "",
-            f"- Run ID: {result.run_id}",
-            f"- Step: {result.step}",
-            f"- Input: {result.input_ref}",
-            f"- Parameter: {result.parameter_id}",
-            f"- Best point: {result.best_point_index}",
-            f"- Best signal: {result.best_signal.value} {result.best_signal.unit}",
-            f"- Old value: {result.old_value.value} {result.old_value.unit}",
-            (
-                f"- Proposed value: {result.proposed_value.value} "
-                f"{result.proposed_value.unit}"
-            ),
-            f"- Reason: {reason}",
-            "",
-        ]
     )
 
 

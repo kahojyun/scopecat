@@ -147,11 +147,18 @@ export async function getRunAnalyses(runId: string, signal?: AbortSignal): Promi
     key: analysis.key ?? undefined,
     stepId: analysis.step_id ?? undefined,
     outputs: analysis.outputs.map((output) => ({
-      kind: output.kind,
+      kind: analysisOutputKind(output.kind),
       title: output.title,
       content: output.content,
     })),
   }));
+}
+
+function analysisOutputKind(kind: string): RunAnalysis["outputs"][number]["kind"] {
+  if (kind === "table" || kind === "figure" || kind === "parameter_change_proposal") {
+    return kind;
+  }
+  throw new ApiError(`The daemon returned an unsupported analysis output kind: ${kind}.`);
 }
 
 export function canPreviewRunContent(entry: ContentEntry): boolean {

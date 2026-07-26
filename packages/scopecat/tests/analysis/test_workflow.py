@@ -7,7 +7,6 @@ import pytest
 
 from scopecat.adapters.sqlite import SQLiteRunRepository
 from scopecat.adapters.sqlite.run_repository import PreparedContentPublication
-from scopecat.analysis.service import prepare_analysis_artifact
 from scopecat.config.registry import service as config_registry_service
 from scopecat.records.run import RunManifest
 from scopecat.runs.refs import record_content_ref
@@ -17,39 +16,11 @@ from tests.testkit.runtime import (
     sqlite_project_services,
 )
 from tests.testkit.signal_testkit import (
-    SUMMARY_STATS_RESULT_REF,
-    SUMMARY_STATS_SUMMARY_REF,
     BestSignalAnalysisStep,
     SummaryStatsAnalysisStep,
     execute_signal_run,
 )
 from tests.testkit.workflow_fixtures import load_config, load_invocation
-
-
-def test_analysis_artifact_path_is_snapshotted(tmp_path: Path) -> None:
-    source = tmp_path / "report.txt"
-    source.write_bytes(b"first")
-
-    spec = prepare_analysis_artifact(
-        title="report",
-        kind="report",
-        artifact_id="report",
-        filename=None,
-        model=None,
-        json_content=None,
-        text=None,
-        content=None,
-        path=source,
-        media_type=None,
-        metadata=None,
-    )
-    source.write_bytes(b"second")
-
-    assert (spec.content, spec.filename, spec.media_type) == (
-        b"first",
-        "report.txt",
-        "text/plain",
-    )
 
 
 def test_workflow_analysis_review_activate_and_rerun_active_config(
@@ -90,7 +61,7 @@ def test_workflow_analysis_review_activate_and_rerun_active_config(
         config_source=active_source,
     )
 
-    assert summary.outputs[1].kind == "artifact"
+    assert summary.outputs[0].kind == "table"
     assert candidate.parameter_proposal.deltas[0].parameter_id == "drive_frequency"
     assert activation.entry.id == "candidate-best-signal"
     assert next_run.status == "completed"
@@ -145,19 +116,11 @@ def test_analysis_save_rolls_back_refs_after_manifest_failure(
         kind="analysis",
     )
     assert not storage.exists(run.run_id, analysis_ref)
-    assert not storage.exists(run.run_id, SUMMARY_STATS_RESULT_REF)
-    assert not storage.exists(run.run_id, SUMMARY_STATS_SUMMARY_REF)
     failed_manifest = storage.read_manifest(run.run_id)
     assert all(record.id != analysis_record_id for record in failed_manifest.records)
-    assert all(
-        artifact.id not in {"summary-stats-result", "summary-stats-summary"}
-        for artifact in failed_manifest.artifacts
-    )
 
     saved = analysis.save()
 
     recovered_manifest = storage.read_manifest(run.run_id)
     assert any(record.id == analysis_record_id for record in recovered_manifest.records)
-    assert {artifact.id for artifact in saved.output_artifacts} <= {
-        artifact.id for artifact in recovered_manifest.artifacts
-    }
+    assert saved.record.id == analysis_record_id

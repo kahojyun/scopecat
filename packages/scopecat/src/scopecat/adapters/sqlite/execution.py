@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Generator
-from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import cast
@@ -13,7 +11,6 @@ from typing import cast
 from pydantic import BaseModel
 from pydantic_core import PydanticSerializationError
 
-from scopecat.adapters.sqlite.connection import immediate_transaction
 from scopecat.adapters.sqlite.object_store import ObjectStoreError, StoredObject
 from scopecat.adapters.sqlite.run_repository import SQLiteRunRepository
 from scopecat.records.execution_journal import (
@@ -52,18 +49,6 @@ class SQLiteExecutionJournal:
     def __init__(self, runs: SQLiteRunRepository, *, run_id: str) -> None:
         self._runs = runs
         self._run_id = run_id
-
-    def append(self, entry: ExecutionTransition) -> ExecutionTransition:
-        try:
-            with _transaction(self._runs) as connection:
-                committed, _created = self.append_in_transaction(connection, entry)
-                return committed
-        except ExecutionJournalError:
-            raise
-        except Exception as error:
-            raise ExecutionJournalError(
-                f"failed to commit execution journal entry: {error}"
-            ) from error
 
     def append_in_transaction(
         self,
@@ -173,22 +158,6 @@ class SQLiteMeasurementDatasetRepository:
         self._runs = runs
         self._run_id = run_id
 
-    def append(self, append: MeasurementDatasetAppend) -> MeasurementDatasetReceipt:
-        prepared = self.prepare_append(append)
-        try:
-            with _transaction(self._runs) as connection:
-                receipt, _created = self.append_prepared_in_transaction(
-                    connection,
-                    prepared,
-                )
-                return receipt
-        except ExecutionJournalError:
-            raise
-        except Exception as error:
-            raise ExecutionJournalError(
-                f"failed to append measurement dataset: {error}"
-            ) from error
-
     def prepare_append(
         self,
         append: MeasurementDatasetAppend,
@@ -293,22 +262,6 @@ class SQLiteMeasurementDatasetRepository:
         except Exception as error:
             raise ExecutionJournalError(
                 f"failed to append measurement dataset: {error}"
-            ) from error
-
-    def seal(self, seal: MeasurementDatasetSeal) -> MeasurementDatasetReceipt:
-        prepared = self.prepare_seal(seal)
-        try:
-            with _transaction(self._runs) as connection:
-                receipt, _created = self.seal_prepared_in_transaction(
-                    connection,
-                    prepared,
-                )
-                return receipt
-        except ExecutionJournalError:
-            raise
-        except Exception as error:
-            raise ExecutionJournalError(
-                f"failed to seal measurement dataset: {error}"
             ) from error
 
     def prepare_seal(
@@ -544,17 +497,6 @@ def _publish_ref(
         """,
         (run_id, ref, stored.digest),
     )
-
-
-@contextmanager
-def _transaction(
-    runs: SQLiteRunRepository,
-) -> Generator[sqlite3.Connection]:
-    with immediate_transaction(
-        runs.database,
-        busy_timeout_seconds=runs.busy_timeout_seconds,
-    ) as connection:
-        yield connection
 
 
 def _one(cursor: sqlite3.Cursor) -> sqlite3.Row | None:

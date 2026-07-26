@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import time
-from base64 import b64decode
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -13,8 +12,6 @@ import pytest
 from pydantic import BaseModel
 
 import scopecat.api._runner as runner_module
-from scopecat.analysis.service import AnalysisOutput, prepare_analysis_artifact
-from scopecat.api._remote import RemoteRunOperations
 from scopecat.api._runner import _DaemonRunner
 from scopecat.api.lab import LabClient
 from scopecat.config.drafts import ConfigDraft
@@ -35,9 +32,6 @@ from scopecat.daemon.views import (
     ConfigRegistryView,
 )
 from scopecat.daemon.wire import (
-    AnalysisArtifactOutputPayload,
-    AnalysisSaveCommand,
-    AnalysisSaveReceipt,
     ConfigActivationReceipt,
     ConfigDefaultReceipt,
     ConfigDraftDefaultCommand,
@@ -57,7 +51,6 @@ from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.planning.preview import build_run_program_preview
 from scopecat.planning.service import PlannedRun
 from scopecat.planning.system import ExperimentSystem
-from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.run import (
     ConfigRegistryRunConfigSource,
@@ -377,91 +370,6 @@ def test_lab_config_intents_hide_registry_coordination() -> None:
             note="restore prior values",
         ),
     ]
-
-
-def test_remote_analysis_artifacts_send_prepared_snapshots() -> None:
-    commands: list[AnalysisSaveCommand] = []
-
-    def handler(request: httpx2.Request) -> httpx2.Response:
-        command = AnalysisSaveCommand.model_validate_json(request.content)
-        commands.append(command)
-        return _model(
-            AnalysisSaveReceipt(
-                record=RunContentEntry(
-                    role="record",
-                    id="analysis-fit",
-                    kind="analysis",
-                    content_hash="sha256:analysis",
-                ),
-                analysis_key=command.analysis_key,
-            ),
-            status_code=201,
-        )
-
-    json_spec = prepare_analysis_artifact(
-        title="JSON result",
-        kind="fit_json",
-        artifact_id="fit-json",
-        filename=None,
-        model=None,
-        json_content={"ok": True},
-        text=None,
-        content=None,
-        path=None,
-        media_type=None,
-        metadata=None,
-    )
-    text_spec = prepare_analysis_artifact(
-        title="Text result",
-        kind="fit_text",
-        artifact_id="fit-text",
-        filename=None,
-        model=None,
-        json_content=None,
-        text="fit converged",
-        content=None,
-        path=None,
-        media_type=None,
-        metadata=None,
-    )
-
-    RemoteRunOperations(_client(handler)).save_analysis(
-        run_id="run-1",
-        title="fit",
-        analysis_key="fit",
-        step_id=None,
-        inputs=(),
-        outputs=(
-            AnalysisOutput(
-                kind="artifact",
-                title=json_spec.title,
-                content=json_spec,
-                metadata={},
-            ),
-            AnalysisOutput(
-                kind="artifact",
-                title=text_spec.title,
-                content=text_spec,
-                metadata={},
-            ),
-        ),
-        parameter_proposals=(),
-    )
-
-    [command] = commands
-    json_output, text_output = command.outputs
-    assert isinstance(json_output, AnalysisArtifactOutputPayload)
-    assert isinstance(text_output, AnalysisArtifactOutputPayload)
-    assert (
-        json_output.filename,
-        json_output.media_type,
-        b64decode(json_output.content_base64),
-    ) == ("fit-json.json", "application/json", b'{\n  "ok": true\n}\n')
-    assert (
-        text_output.filename,
-        text_output.media_type,
-        b64decode(text_output.content_base64),
-    ) == ("fit-text.txt", "text/plain", b"fit converged\n")
 
 
 def test_run_scratch_plans_against_explicit_snapshot_without_local_storage(

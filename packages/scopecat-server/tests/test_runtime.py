@@ -34,9 +34,7 @@ from scopecat.daemon.views import (
     RunDetail,
 )
 from scopecat.daemon.wire import (
-    AnalysisArtifactOutputPayload,
     AnalysisJsonOutputPayload,
-    AnalysisNoteOutputPayload,
     AnalysisParameterProposalOutputPayload,
     AnalysisSaveCommand,
     AnalysisSaveReceipt,
@@ -76,7 +74,7 @@ from scopecat.records.parameter_change import (
 )
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
-from scopecat.runs.refs import artifact_content_ref, record_content_ref
+from scopecat.runs.refs import record_content_ref
 from tests.testkit.runtime import list_test_runs
 
 import scopecat_server.lease_supervisor as lease_supervisor_services
@@ -170,11 +168,6 @@ def _analysis_command(proposal: ParameterChangeProposal) -> AnalysisSaveCommand:
         title="fit",
         analysis_key="fit",
         outputs=(
-            AnalysisNoteOutputPayload(
-                kind="note",
-                title="summary",
-                content="fit converged",
-            ),
             AnalysisJsonOutputPayload(
                 kind="table",
                 title="fit parameters",
@@ -189,24 +182,6 @@ def _analysis_command(proposal: ParameterChangeProposal) -> AnalysisSaveCommand:
                 kind="parameter_change_proposal",
                 title=proposal.id,
                 content=proposal,
-            ),
-            AnalysisArtifactOutputPayload(
-                kind="artifact",
-                title="fit report",
-                artifact_kind="fit_report",
-                artifact_id="fit-report",
-                content_base64="eyJvayI6IHRydWV9Cg==",
-                filename="fit-report.json",
-                media_type="application/json",
-            ),
-            AnalysisArtifactOutputPayload(
-                kind="artifact",
-                title="fit summary",
-                artifact_kind="fit_summary",
-                artifact_id="fit-summary",
-                content_base64="Zml0IGNvbnZlcmdlZAo=",
-                filename="fit-summary.txt",
-                media_type="text/plain",
             ),
         ),
     )
@@ -760,14 +735,6 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
             f"analysis-{analysis_command.analysis_key}/json",
             params={"expected_kind": "analysis"},
         )
-        analysis_artifact = client.get(
-            f"/api/v1/runs/{admission.run_id}/artifacts/fit-report/json",
-            params={"expected_kind": "fit_report"},
-        )
-        analysis_summary = client.get(
-            f"/api/v1/runs/{admission.run_id}/artifacts/fit-summary/text",
-            params={"expected_kind": "fit_summary"},
-        )
         attachment_command = RunAttachmentCommand(
             key="notebook-notes",
             text="operator notes",
@@ -823,16 +790,6 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
         assert analyses.json()["items"][0]["analysis"]["key"] == "fit"
         assert analysis_detail.json()["entry"]["id"] == "analysis-fit"
         assert analysis_record.json()["content"]["title"] == "fit"
-        assert analysis_artifact.json()["content"] == {"ok": True}
-        assert [artifact.filename for artifact in saved.output_artifacts] == [
-            "fit-report.json",
-            "fit-summary.txt",
-        ]
-        assert [artifact.media_type for artifact in saved.output_artifacts] == [
-            "application/json",
-            "text/plain",
-        ]
-        assert analysis_summary.json()["content"] == "fit converged\n"
         assert attachment.json()["filename"] == "notes.md"
         assert attachment_text.json()["content"] == "operator notes\n"
         assert config.config == _config()
@@ -903,10 +860,6 @@ def test_analysis_publication_rolls_back_refs_manifest_and_event_together(
         assert not repository.exists(
             admission.run_id,
             record_content_ref(record_id="analysis-fit", kind="analysis"),
-        )
-        assert not repository.exists(
-            admission.run_id,
-            artifact_content_ref(artifact_id="fit-report", kind="fit_report"),
         )
         assert [
             event.kind
