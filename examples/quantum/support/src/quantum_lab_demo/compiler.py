@@ -5,19 +5,13 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import cast, override
 
 from scopecat.sdk.domain import (
     CorrelatedDomainFetch,
-    DomainBatchContext,
+    DomainBatchInputs,
+    DomainBatchRequest,
     DomainCallView,
-    DomainCompilation,
-    DomainCompiledInputs,
-    DomainCompiledJob,
-    DomainCompileRequest,
-    DomainExecutionView,
     PreparedDomainExecution,
-    compiled_jobs,
 )
 from scopecat_quantum import authoring as quantum
 from scopecat_quantum._ids import (
@@ -99,48 +93,12 @@ class _CompiledQuantumPoint:
     implementations: ResolvedPulseImplementations = field(repr=False)
 
 
-class _QuantumLabCompilerBase:
-    def __init__(
-        self,
-        *,
-        max_points: int,
-        pulse_profile: PulseRecipeProfile[QuantumCompilerParameters],
-    ) -> None:
-        self._max_points = max_points
-        self._pulse_profile = pulse_profile
-
-    def compile(self, request: DomainCompileRequest) -> DomainCompilation:
-        program = _quantum_program(request.call)
-        _validate_call(request.call, program)
-        shots = _shot_count(request.call)
-        return compiled_jobs(
-            request,
-            max_points=self._max_points,
-            artifact_input_ids=tuple(port.id for port in program.ports),
-            compile_artifact=lambda inputs: self._compile_target_artifact(
-                program,
-                inputs,
-                shots=shots,
-            ),
-        )
-
-    def _compile_target_artifact(
-        self,
-        program: quantum.Program,
-        inputs: DomainCompiledInputs,
-        *,
-        shots: int,
-    ) -> _QuantumLabArtifact:
-        raise NotImplementedError
-
-
-class QuantumLabCompiler(_QuantumLabCompilerBase):
+class QuantumLabCompiler:
     """Own the demo lab's single domain-compilation boundary.
 
-    Program and compiler input binders reflect the accepted snapshot and
-    point-local overlays. ``compile`` resolves them into immutable artifact
-    values through an injected static pulse recipe profile, so this
-    implementation never reaches into mutable parameter state.
+    Every bounded request contains the accepted point-local program and
+    calibration inputs. Compilation closes the target artifact, result
+    mapping, and runtime invocation without reaching into mutable state.
     """
 
     def __init__(
@@ -151,13 +109,10 @@ class QuantumLabCompiler(_QuantumLabCompilerBase):
         response_registry: QuantumLabResponseRegistry,
         pulse_profile: PulseRecipeProfile[QuantumCompilerParameters],
     ) -> None:
-        super().__init__(
-            max_points=target.max_list_entries,
-            pulse_profile=pulse_profile,
-        )
         self._target = target
         self._runtime = runtime
         self._response_registry = response_registry
+        self._pulse_profile = pulse_profile
         self._target_compiler = FakeListTargetCompiler(
             _QUANTUM_LAB_TARGET_COMPILER_ID,
             self._target,
@@ -171,11 +126,14 @@ class QuantumLabCompiler(_QuantumLabCompilerBase):
     def target_kind(self) -> str:
         return FAKE_LIST_TARGET_KIND
 
-    @override
+    @property
+    def max_points_per_batch(self) -> int:
+        return self._target.max_list_entries
+
     def _compile_target_artifact(
         self,
         program: quantum.Program,
-        inputs: DomainCompiledInputs,
+        inputs: DomainBatchInputs,
         *,
         shots: int,
     ) -> _ListQuantumLabArtifact:
@@ -208,25 +166,26 @@ class QuantumLabCompiler(_QuantumLabCompilerBase):
             compiled=compile_target(self._target_compiler, batch.request),
         )
 
-    def prepare(
+    def compile_batch(
         self,
-        job: DomainCompiledJob,
-        context: DomainBatchContext,
+        request: DomainBatchRequest,
     ) -> PreparedDomainExecution:
-        artifact = cast("_ListQuantumLabArtifact", job.artifact)
-        execution = context.execution
-        _validate_execution(execution, artifact)
-        preparation = context.new_preparation()
+        program = _quantum_program(request.call)
+        _validate_call(request.call, program)
+        artifact = self._compile_target_artifact(
+            program,
+            request.inputs,
+            shots=_shot_count(request.call),
+        )
+        preparation = request.new_preparation()
         entries = artifact.entries
         batch = artifact.batch
-        if _shot_count(execution) != batch.repetitions:
-            raise ValueError("prepared quantum shots changed after compilation")
         mapping = seal_quantum_target_result_mapping(
             preparation,
             batch,
             tuple(
                 QuantumTargetEntryPointBinding(entry.id, point)
-                for entry, point in zip(entries, context.points, strict=True)
+                for entry, point in zip(entries, request.points, strict=True)
             ),
             tuple(
                 QuantumTargetResultUseBinding(
@@ -239,7 +198,7 @@ class QuantumLabCompiler(_QuantumLabCompilerBase):
                     strict=True,
                 )
                 for result in _measurement_results(artifact.program)
-                for product_use in execution.result(result.id).product_uses
+                for product_use in request.call.result(result.id).product_uses
             ),
         )
         compiled_target = CompiledQuantumTarget(
@@ -262,7 +221,7 @@ class QuantumLabCompiler(_QuantumLabCompilerBase):
         invocation = fake_measurement_invocation_spec(
             realization,
             invocation_id=(
-                f"{artifact.program.id}.batch-{context.batch_ordinal}."
+                f"{artifact.program.id}.batch-{request.batch_ordinal}."
                 f"point-{artifact.points[0].ordinal}"
             ),
             response_intent=(
@@ -315,20 +274,7 @@ def _validate_call(
     _shot_count(call)
 
 
-def _validate_execution(
-    execution: DomainExecutionView,
-    artifact: _QuantumLabArtifact,
-) -> None:
-    body = execution.program.body
-    if not isinstance(body, quantum.Program) or body.id != artifact.program.id:
-        raise ValueError("prepared quantum Program does not match its compiled job")
-    if tuple(point.ref.ordinal for point in execution.points) != tuple(
-        point.ordinal for point in artifact.points
-    ):
-        raise ValueError("prepared quantum points do not match their compiled job")
-
-
-def _shot_count(call: DomainCallView | DomainExecutionView) -> int:
+def _shot_count(call: DomainCallView) -> int:
     counts: list[int] = []
     for result in call.results:
         axes = result.product.axes
@@ -342,7 +288,7 @@ def _shot_count(call: DomainCallView | DomainExecutionView) -> int:
 
 def _compile_points(
     program: quantum.Program,
-    inputs: DomainCompiledInputs,
+    inputs: DomainBatchInputs,
     pulse_profile: PulseRecipeProfile[QuantumCompilerParameters],
 ) -> tuple[_CompiledQuantumPoint, ...]:
     program_inputs = inputs.program

@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 import scopecat as sc
 from scopecat.compiler.linking.linked import (
     MaterializedLinkedPoints,
@@ -14,14 +12,14 @@ from scopecat.compiler.typed.program import core_domain_executions
 from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.results import MeasurementValue
 from scopecat.sdk.domain import (
-    DomainBatchContext,
+    DomainBatchRequest,
     DomainPointRef,
     DomainPreparationBuilder,
     DomainProductUseRef,
 )
 from scopecat.sdk.domain._bridge import (
-    make_domain_batch_context,
-    make_domain_compile_template,
+    make_domain_batch_request,
+    make_domain_call_view,
 )
 from tests.testkit.authoring import link_invocation, load_config
 
@@ -44,6 +42,7 @@ def _domain_scenario(
             "raw": ("raw", "v1"),
         },
     )
+
     def summarize(_value: MeasurementValue) -> dict[str, MeasurementValue]:
         return {"summary": Quantity(0, "count")}
 
@@ -86,37 +85,19 @@ def _batch_context(
     point_ordinals: tuple[int, ...],
     *,
     batch_ordinal: int = 0,
-    absorbed_input_ids: tuple[str, ...] = (),
-) -> DomainBatchContext:
+) -> DomainBatchRequest:
     program = linked_points.linked_plan.program
     execution = core_domain_executions(program)[0]
-    request = make_domain_compile_template(
+    call = make_domain_call_view(
         linked_points.linked_plan,
         execution.id,
         domain_result_closure(program, execution.id),
-    ).bind_points(
-        tuple(range(len(linked_points.point_domain.points))),
-        lambda input_ids, ordinals, max_points: linked_points.bind_domain_inputs(
-            execution.id,
-            "program",
-            input_ids,
-            ordinals,
-            max_points=max_points,
-        ),
-        lambda input_ids, ordinals, max_points: linked_points.bind_domain_inputs(
-            execution.id,
-            "compiler",
-            input_ids,
-            ordinals,
-            max_points=max_points,
-        ),
     )
-    return make_domain_batch_context(
-        request,
+    return make_domain_batch_request(
+        call,
         linked_points,
         point_ordinals,
         batch_ordinal=batch_ordinal,
-        absorbed_input_ids=absorbed_input_ids,
     )
 
 
@@ -150,7 +131,7 @@ def test_postprocessor_input_remains_a_direct_domain_result_when_not_recorded(
     )
 
 
-def test_domain_batch_context_scopes_offer_points_and_product_uses(
+def test_domain_batch_request_scopes_points_inputs_and_product_uses(
     tmp_path: Path,
 ) -> None:
     linked_points = _domain_scenario(
@@ -161,17 +142,16 @@ def test_domain_batch_context_scopes_offer_points_and_product_uses(
         linked_points,
         (0, 1, 2),
     )
-    execution = full.execution
-    raw_uses = execution.result("raw").product_uses
+    raw_uses = full.call.result("raw").product_uses
     context = _batch_context(
         linked_points,
         (1, 2),
         batch_ordinal=4,
     )
 
-    assert isinstance(context, DomainBatchContext)
+    assert isinstance(context, DomainBatchRequest)
     assert context.batch_ordinal == 4
-    assert context.execution.input_values("count") == (3, 5)
+    assert context.inputs.program.input("count") == (3, 5)
     assert tuple(use.id for use in context.product_uses) == tuple(
         use.id for use in full.product_uses
     )
@@ -188,10 +168,6 @@ def test_domain_batch_context_scopes_offer_points_and_product_uses(
         )
     )
     assert all(
-        point.ref is ref
-        for point, ref in zip(context.execution.points, context.points, strict=True)
-    )
-    assert all(
         isinstance(product_use, DomainProductUseRef)
         for product_use in context.product_uses
     )
@@ -201,26 +177,7 @@ def test_domain_batch_context_scopes_offer_points_and_product_uses(
     assert preparation.context is context
 
 
-def test_absorbed_inputs_are_not_reexposed_during_preparation(
-    tmp_path: Path,
-) -> None:
-    linked_points = _domain_scenario(
-        tmp_path,
-        namespace="absorbed-input",
-    )
-    context = _batch_context(
-        linked_points,
-        (0, 1, 2),
-        absorbed_input_ids=("count",),
-    )
-
-    assert context.execution.program.inputs == ()
-    assert all(point.inputs == () for point in context.execution.points)
-    with pytest.raises(KeyError):
-        context.execution.input_values("count")
-
-
-def test_domain_batch_context_owns_fresh_sdk_refs(
+def test_domain_batch_request_owns_fresh_sdk_refs(
     tmp_path: Path,
 ) -> None:
     linked_points = _domain_scenario(

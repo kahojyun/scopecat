@@ -13,13 +13,13 @@ from scopecat.compiler.typed.program import core_domain_executions
 from scopecat.kernel.errors import ProviderContractError
 from scopecat.kernel.quantity import Quantity
 from scopecat.sdk.domain import (
-    DomainBatchContext,
+    DomainBatchRequest,
     DomainResultBinding,
     DomainResultMapping,
 )
 from scopecat.sdk.domain._bridge import (
-    make_domain_batch_context,
-    make_domain_compile_template,
+    make_domain_batch_request,
+    make_domain_call_view,
 )
 from scopecat.sdk.domain.execution import PreparedDomainExecution
 from scopecat.sdk.domain.invocation import DomainOutputValue, seal_domain_output_values
@@ -61,7 +61,7 @@ def _preparation_context(
     *,
     namespace: str,
     shared_product_uses: bool = False,
-) -> DomainBatchContext:
+) -> DomainBatchRequest:
     count_type = sc.ScalarType(sc.IntType(minimum=0))
     count = sc.coordinate(f"{namespace}_count", count_type)
     program = sc.domain_program(
@@ -111,29 +111,13 @@ def _preparation_context(
     linked_points = materialize_linked_points(linked)
     execution_id = core_domain_executions(linked.program)[0].id
     closure = domain_result_closure(linked.program, execution_id)
-    request = make_domain_compile_template(
+    call = make_domain_call_view(
         linked,
         execution_id,
         closure,
-    ).bind_points(
-        (0, 1),
-        lambda input_ids, ordinals, max_points: linked_points.bind_domain_inputs(
-            execution_id,
-            "program",
-            input_ids,
-            ordinals,
-            max_points=max_points,
-        ),
-        lambda input_ids, ordinals, max_points: linked_points.bind_domain_inputs(
-            execution_id,
-            "compiler",
-            input_ids,
-            ordinals,
-            max_points=max_points,
-        ),
     )
-    return make_domain_batch_context(
-        request,
+    return make_domain_batch_request(
+        call,
         linked_points,
         (0, 1),
         batch_ordinal=0,
@@ -141,7 +125,7 @@ def _preparation_context(
 
 
 def _valid_mapping_inputs(
-    context: DomainBatchContext,
+    context: DomainBatchRequest,
 ) -> tuple[_ResultBinding, ...]:
     return tuple(
         DomainResultBinding(
@@ -182,6 +166,7 @@ def test_map_measurements_closes_exact_product_cover(
                 strict=True,
             )
         )
+
 
 def test_result_values_project_directly_to_canonical_candidates(tmp_path: Path) -> None:
     context = _preparation_context(tmp_path, namespace="values")
@@ -270,9 +255,7 @@ def test_map_measurements_fans_one_physical_result_out_to_two_uses_of_product(
 
     assert len(context.product_uses) == 2
     assert context.product_uses[0].id != context.product_uses[1].id
-    assert (
-        context.product_uses[0].product is context.product_uses[1].product
-    )
+    assert context.product_uses[0].product is context.product_uses[1].product
     assert len(results) == 2 * len(context.points)
     for point in context.points:
         selected = tuple(binding for binding in results if binding.point is point)
@@ -291,9 +274,7 @@ def test_map_measurements_fans_one_physical_result_out_to_two_uses_of_product(
         preparation.map_measurements(results=split_results)
 
     incomplete_results = tuple(
-        binding
-        for binding in results
-        if binding.product_use is context.product_uses[0]
+        binding for binding in results if binding.product_use is context.product_uses[0]
     )
     with pytest.raises(ValueError, match="exactly cover every logical"):
         preparation.map_measurements(results=incomplete_results)

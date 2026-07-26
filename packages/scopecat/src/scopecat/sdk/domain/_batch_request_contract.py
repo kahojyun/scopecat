@@ -1,4 +1,4 @@
-"""Structural context contract shared by domain preparation internals."""
+"""Import-cycle-free batch request contract for preparation internals."""
 
 from __future__ import annotations
 
@@ -7,20 +7,18 @@ from typing import Protocol
 from scopecat.measurements.points import RunPoint
 from scopecat.measurements.values import MeasurementValueCatalog
 from scopecat.sdk.domain.view import (
-    DomainExecutionView,
+    DomainCallView,
     DomainPointRef,
     DomainProductUseRef,
 )
 
 
-class DomainBatchContextView(Protocol):
-    """Read-only batch data needed below the public context facade."""
-
+class DomainBatchRequestView(Protocol):
     @property
     def batch_ordinal(self) -> int: ...
 
     @property
-    def execution(self) -> DomainExecutionView: ...
+    def call(self) -> DomainCallView: ...
 
     @property
     def product_uses(self) -> tuple[DomainProductUseRef, ...]: ...

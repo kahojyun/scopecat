@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 from scopecat import Quantity
-from scopecat.sdk.domain import DomainCompilation, DomainCompileRequest
+from scopecat.sdk.domain import DomainBatchInputs
+from scopecat_quantum import authoring as quantum
 from scopecat_quantum._ids import QubitId
 from scopecat_quantum.programs import (
     AuthoredPulseEventProvenance,
@@ -38,7 +39,7 @@ def _compile_point(
     analysis_basis: str,
 ):
     compiler = quantum_lab_compiler()
-    compilations = _capture_compilations(compiler, monkeypatch)
+    artifacts = _capture_artifacts(compiler, monkeypatch)
     run = (
         in_process_quantum_lab(project_root=tmp_path, compiler=compiler)
         .prepare(interaction_tomography_template.bind(shots=2))
@@ -47,10 +48,7 @@ def _compile_point(
         .scan(INTERACTION_AMPLITUDE, (Quantity(0.03, "arb"),))
         .run()
     )
-    [compilation] = compilations
-    [job] = compilation.jobs
-    artifact = job.artifact
-    assert isinstance(artifact, _ListQuantumLabArtifact)
+    [artifact] = artifacts
     assert artifact.program.id == interaction_tomography_program.id
     [prepared] = artifact.entries
     [artifact_entry] = artifact.compiled.artifact.entries
@@ -124,17 +122,22 @@ def test_standard_gates_and_direct_pulses_keep_distinct_provenance(
     }
 
 
-def _capture_compilations(
+def _capture_artifacts(
     compiler: QuantumLabCompiler,
     monkeypatch: pytest.MonkeyPatch,
-) -> list[DomainCompilation]:
-    compilations: list[DomainCompilation] = []
-    compile_domain = compiler.compile
+) -> list[_ListQuantumLabArtifact]:
+    artifacts: list[_ListQuantumLabArtifact] = []
+    compile_target = compiler._compile_target_artifact
 
-    def compile_and_capture(request: DomainCompileRequest) -> DomainCompilation:
-        compilation = compile_domain(request)
-        compilations.append(compilation)
-        return compilation
+    def compile_and_capture(
+        program: quantum.Program,
+        inputs: DomainBatchInputs,
+        *,
+        shots: int,
+    ) -> _ListQuantumLabArtifact:
+        artifact = compile_target(program, inputs, shots=shots)
+        artifacts.append(artifact)
+        return artifact
 
-    monkeypatch.setattr(compiler, "compile", compile_and_capture)
-    return compilations
+    monkeypatch.setattr(compiler, "_compile_target_artifact", compile_and_capture)
+    return artifacts

@@ -7,7 +7,8 @@ from pathlib import Path
 import pytest
 import scopecat as sc
 from scopecat import IntType, Quantity, QuantityType, ScalarType
-from scopecat.sdk.domain import DomainCompilation, DomainCompileRequest
+from scopecat.sdk.domain import DomainBatchInputs
+from scopecat_quantum import authoring as quantum
 from scopecat_quantum._ids import QubitId
 from scopecat_quantum.authoring import program_port_type
 from scopecat_quantum.programs import (
@@ -47,7 +48,7 @@ from .demo_lab_experiment_testkit import in_process_quantum_lab
 
 def _golden_point(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     compiler = quantum_lab_compiler()
-    compilations = _capture_compilations(compiler, monkeypatch)
+    artifacts = _capture_artifacts(compiler, monkeypatch)
     lab = in_process_quantum_lab(project_root=tmp_path, compiler=compiler)
     scan = sc.cartesian(
         sc.param_axis(
@@ -58,10 +59,7 @@ def _golden_point(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         sc.axis(AMPLIFICATION, (3,)),
     )
     lab.prepare(drag_beta_template).scan(scan).run()
-    [compilation] = compilations
-    [job] = compilation.jobs
-    artifact = job.artifact
-    assert isinstance(artifact, _ListQuantumLabArtifact)
+    [artifact] = artifacts
     assert artifact.program.id == drag_beta_program.id
     [prepared] = artifact.entries
     return drag_beta_program, prepared, artifact.compiled.artifact
@@ -236,17 +234,22 @@ def test_n3_point_compiles_to_complex_drag_samples(
     assert positive[0].imag == pytest.approx(-positive[-1].imag)
 
 
-def _capture_compilations(
+def _capture_artifacts(
     compiler: QuantumLabCompiler,
     monkeypatch: pytest.MonkeyPatch,
-) -> list[DomainCompilation]:
-    compilations: list[DomainCompilation] = []
-    compile_domain = compiler.compile
+) -> list[_ListQuantumLabArtifact]:
+    artifacts: list[_ListQuantumLabArtifact] = []
+    compile_target = compiler._compile_target_artifact
 
-    def compile_and_capture(request: DomainCompileRequest) -> DomainCompilation:
-        compilation = compile_domain(request)
-        compilations.append(compilation)
-        return compilation
+    def compile_and_capture(
+        program: quantum.Program,
+        inputs: DomainBatchInputs,
+        *,
+        shots: int,
+    ) -> _ListQuantumLabArtifact:
+        artifact = compile_target(program, inputs, shots=shots)
+        artifacts.append(artifact)
+        return artifact
 
-    monkeypatch.setattr(compiler, "compile", compile_and_capture)
-    return compilations
+    monkeypatch.setattr(compiler, "_compile_target_artifact", compile_and_capture)
+    return artifacts

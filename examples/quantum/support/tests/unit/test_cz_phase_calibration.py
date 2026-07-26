@@ -8,7 +8,7 @@ import scopecat as sc
 from scopecat import Quantity
 from scopecat.authoring._value_refs import internal_lower_scalar_value_ref
 from scopecat.records.parameter import TableParameterValue
-from scopecat.sdk.domain import DomainCompilation, DomainCompileRequest
+from scopecat.sdk.domain import DomainBatchInputs
 from scopecat_quantum import authoring as quantum
 from scopecat_quantum._ids import QubitId
 from scopecat_quantum.programs import (
@@ -63,7 +63,7 @@ def _compiled_cz_point(
     analyzer_phase: Quantity,
 ):
     compiler = quantum_lab_compiler()
-    compilations = _capture_compilations(compiler, monkeypatch)
+    artifacts = _capture_artifacts(compiler, monkeypatch)
     lab = in_process_quantum_lab(project_root=tmp_path, compiler=compiler)
     scan = sc.cartesian(
         sc.param_axis(
@@ -75,10 +75,7 @@ def _compiled_cz_point(
         sc.axis(ANALYZER_PHASE, (analyzer_phase,)),
     )
     lab.prepare(cz_phase_template).scan(scan).run()
-    [compilation] = compilations
-    [job] = compilation.jobs
-    artifact = job.artifact
-    assert isinstance(artifact, _ListQuantumLabArtifact)
+    [artifact] = artifacts
     assert artifact.program.id == cz_conditional_phase.id
     [prepared] = artifact.entries
     [artifact_entry] = artifact.compiled.artifact.entries
@@ -229,17 +226,22 @@ def test_cz_phase_capture_uses_one_quantum_program_without_payload_compute() -> 
     assert body.operations == ()
 
 
-def _capture_compilations(
+def _capture_artifacts(
     compiler: QuantumLabCompiler,
     monkeypatch: pytest.MonkeyPatch,
-) -> list[DomainCompilation]:
-    compilations: list[DomainCompilation] = []
-    compile_domain = compiler.compile
+) -> list[_ListQuantumLabArtifact]:
+    artifacts: list[_ListQuantumLabArtifact] = []
+    compile_target = compiler._compile_target_artifact
 
-    def compile_and_capture(request: DomainCompileRequest) -> DomainCompilation:
-        compilation = compile_domain(request)
-        compilations.append(compilation)
-        return compilation
+    def compile_and_capture(
+        program: quantum.Program,
+        inputs: DomainBatchInputs,
+        *,
+        shots: int,
+    ) -> _ListQuantumLabArtifact:
+        artifact = compile_target(program, inputs, shots=shots)
+        artifacts.append(artifact)
+        return artifact
 
-    monkeypatch.setattr(compiler, "compile", compile_and_capture)
-    return compilations
+    monkeypatch.setattr(compiler, "_compile_target_artifact", compile_and_capture)
+    return artifacts

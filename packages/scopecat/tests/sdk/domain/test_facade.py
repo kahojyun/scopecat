@@ -6,8 +6,9 @@ import scopecat as sc
 import scopecat.sdk.domain as domain
 
 _NEW_ADAPTER_VALUES = {
+    "DomainBatchInputs",
+    "DomainBatchRequest",
     "DomainFetchRequest",
-    "DomainCompiledInputs",
     "DomainInvocationSpec",
     "DomainMappedResult",
     "DomainResultValue",

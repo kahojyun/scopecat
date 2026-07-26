@@ -15,8 +15,7 @@ from scopecat.kernel.problems import (
     problem,
 )
 from scopecat.planning import system as systems
-from scopecat.sdk.domain.compiler import DomainCompiledJob, DomainCompiler
-from scopecat.sdk.domain.context import DomainBatchContext
+from scopecat.sdk.domain.compiler import DomainBatchRequest, DomainCompiler
 from scopecat.sdk.domain.execution import (
     PreparedDomainExecution,
 )
@@ -108,23 +107,21 @@ class _ConfiguredTestCompiler(QuantumLabCompiler):
 
 class _RaisingCompiler(_ConfiguredTestCompiler):
     @override
-    def prepare(
+    def compile_batch(
         self,
-        job: DomainCompiledJob,
-        context: DomainBatchContext,
+        request: DomainBatchRequest,
     ) -> PreparedDomainExecution:
-        del job, context
+        del request
         raise RuntimeError("compiler implementation defect")
 
 
 class _WrongResultCompiler(_ConfiguredTestCompiler):
     @override
-    def prepare(
+    def compile_batch(
         self,
-        job: DomainCompiledJob,
-        context: DomainBatchContext,
+        request: DomainBatchRequest,
     ) -> PreparedDomainExecution:
-        del job, context
+        del request
         return cast("PreparedDomainExecution", object())
 
 
@@ -372,11 +369,11 @@ def test_two_ordered_domain_calls_share_target_and_produce_canonical_results(
         (
             _WrongResultCompiler(),
             TypeError,
-            "domain compiler prepare must return PreparedDomainExecution",
+            "domain compiler compile_batch must return PreparedDomainExecution",
         ),
     ],
 )
-def test_check_exposes_domain_prepare_contract_defects(
+def test_check_exposes_domain_compile_batch_contract_defects(
     compiler: object,
     error_type: type[Exception],
     message: str,

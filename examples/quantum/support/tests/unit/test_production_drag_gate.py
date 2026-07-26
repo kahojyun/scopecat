@@ -11,7 +11,7 @@ from scopecat.kernel.entity import EntityRef
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter import TableParameterValue
 from scopecat.records.run import ConfigRegistryRunConfigSource
-from scopecat.sdk.domain import DomainCompilation, DomainCompileRequest
+from scopecat.sdk.domain import DomainBatchInputs
 from scopecat_quantum import authoring as quantum
 from scopecat_quantum._ids import GateId, PulseEventId, QubitId
 from scopecat_quantum.program_targets import PreparedQuantumTargetEntry
@@ -77,7 +77,7 @@ def test_active_drag_beta_changes_program_and_compiler_segments(
     active_config = _with_q0_drag_beta(baseline_config, active_beta)
     target = configured_fake_list_target(baseline_config)
     compiler = quantum_lab_compiler(config_profile=baseline_config, target=target)
-    compilations = _capture_compilations(compiler, monkeypatch)
+    artifacts = _capture_artifacts(compiler, monkeypatch)
     lab = in_process_quantum_lab(
         project_root=tmp_path,
         config_profile=baseline_config,
@@ -112,9 +112,7 @@ def test_active_drag_beta_changes_program_and_compiler_segments(
         config="active",
     ).run()
 
-    baseline, active, restored = tuple(
-        _list_artifact(compilation) for compilation in compilations
-    )
+    baseline, active, restored = artifacts
     assert all(
         artifact.program.id == production_drag_program.id
         for artifact in (baseline, active, restored)
@@ -225,27 +223,25 @@ def test_active_drag_beta_changes_program_and_compiler_segments(
     )
 
 
-def _capture_compilations(
+def _capture_artifacts(
     compiler: QuantumLabCompiler,
     monkeypatch: pytest.MonkeyPatch,
-) -> list[DomainCompilation]:
-    compilations: list[DomainCompilation] = []
-    compile_domain = compiler.compile
+) -> list[_ListQuantumLabArtifact]:
+    artifacts: list[_ListQuantumLabArtifact] = []
+    compile_target = compiler._compile_target_artifact
 
-    def compile_and_capture(request: DomainCompileRequest) -> DomainCompilation:
-        compilation = compile_domain(request)
-        compilations.append(compilation)
-        return compilation
+    def compile_and_capture(
+        program: quantum.Program,
+        inputs: DomainBatchInputs,
+        *,
+        shots: int,
+    ) -> _ListQuantumLabArtifact:
+        artifact = compile_target(program, inputs, shots=shots)
+        artifacts.append(artifact)
+        return artifact
 
-    monkeypatch.setattr(compiler, "compile", compile_and_capture)
-    return compilations
-
-
-def _list_artifact(compilation: DomainCompilation) -> _ListQuantumLabArtifact:
-    [job] = compilation.jobs
-    artifact = job.artifact
-    assert isinstance(artifact, _ListQuantumLabArtifact)
-    return artifact
+    monkeypatch.setattr(compiler, "_compile_target_artifact", compile_and_capture)
+    return artifacts
 
 
 def _event_samples(

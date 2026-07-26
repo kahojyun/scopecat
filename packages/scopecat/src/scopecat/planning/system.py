@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Literal, cast
+from typing import cast
 
 from scopecat.compiler.linking.linked import (
     LinkedPlan,
@@ -66,18 +66,14 @@ from scopecat.records.config import (
     config_content_hash,
 )
 from scopecat.sdk.domain._bridge import (
-    make_domain_batch_context,
-    make_domain_compile_template,
+    make_domain_batch_request,
+    make_domain_call_view,
 )
 from scopecat.sdk.domain.compiler import (
-    DomainCompilation,
     DomainCompiler,
-    DomainCompileRequest,
-    DomainCompileTemplate,
-    DomainInputBinder,
-    validate_domain_compilation,
 )
 from scopecat.sdk.domain.execution import PreparedDomainExecution
+from scopecat.sdk.domain.view import DomainCallView
 from scopecat.sdk.instruments.contracts import InstrumentProvider
 
 
@@ -135,8 +131,8 @@ def _compile_system_program(
         execution.id: domain_result_closure(linked.program, execution.id)
         for execution in core_domain_executions(linked.program)
     }
-    domain_templates = {
-        execution_id: make_domain_compile_template(
+    domain_calls = {
+        execution_id: make_domain_call_view(
             linked,
             execution_id,
             result_closure,
@@ -146,7 +142,7 @@ def _compile_system_program(
     domain_footprint = _domain_target_footprint(
         system,
         config=config,
-        has_domain_calls=bool(domain_templates),
+        has_domain_calls=bool(domain_calls),
     )
     domain_owned_product_use_ids = frozenset(
         use_id
@@ -232,7 +228,7 @@ def _compile_system_program(
         linked_points=linked_points,
         point_catalog=point_catalog,
         point_count=point_count,
-        domain_templates=domain_templates,
+        domain_calls=domain_calls,
         local_effects=local_effects,
     )
     resource_claims = _sorted_claims((*local_claims, *domain_footprint))
@@ -361,11 +357,7 @@ def _local_resource_claims(
             claim
             for effect in (
                 *local_effects.compute_operations,
-                *(
-                    item
-                    for group in local_effects.effect_operations
-                    for item in group
-                ),
+                *(item for group in local_effects.effect_operations for item in group),
             )
             for claim in local_operation_resource_claims(effect.operation)
         )
@@ -406,67 +398,24 @@ def _compile_coverage(
     linked_points: MaterializedLinkedPoints,
     point_catalog: RunPointCatalog,
     point_count: int,
-    domain_templates: dict[str, DomainCompileTemplate],
+    domain_calls: dict[str, DomainCallView],
     local_effects: MaterializedLocalEffects | None,
 ) -> tuple[RunCoverageBlock, ...]:
     region = tuple(range(point_count))
     if not region:
         return ()
-    input_cache: dict[
-        tuple[str, str, tuple[str, ...], tuple[int, ...]],
-        tuple[tuple[str, tuple[object, ...]], ...],
-    ] = {}
-
-    def bind_domain_inputs(
-        execution_id: str,
-        input_kind: Literal["program", "compiler"],
-        input_ids: Sequence[str],
-        ordinals: Sequence[int],
-        max_points: int,
-    ) -> tuple[tuple[str, tuple[object, ...]], ...]:
-        selected_ordinals = tuple(ordinals)
-        key = (execution_id, input_kind, tuple(input_ids), selected_ordinals)
-        cached = input_cache.get(key)
-        if cached is not None:
-            return cached
-        bound = linked_points.bind_domain_inputs(
-            execution_id,
-            input_kind,
-            input_ids,
-            selected_ordinals,
-            max_points=max_points,
-        )
-        input_cache[key] = bound
-        return bound
-
-    def input_binder(
-        execution_id: str,
-        input_kind: Literal["program", "compiler"],
-    ) -> DomainInputBinder:
-        return lambda input_ids, ordinals, max_points: bind_domain_inputs(
-            execution_id,
-            input_kind,
-            input_ids,
-            ordinals,
-            max_points,
-        )
-
-    compiled_domains: list[_CompiledDomainExecution] = []
+    compiler = cast("DomainCompiler", system.domain_compiler)
+    jobs_by_execution: dict[str, list[RunDomainJob]] = {}
     for execution in linked.program.effects:
         if not isinstance(execution, TypedDomainExecution):
             continue
-        compiled = _compile_domain_execution(
-            cast("DomainCompiler", system.domain_compiler),
-            domain_templates[execution.id],
-            region,
-            bind_program_inputs=input_binder(execution.id, "program"),
-            bind_compiler_inputs=input_binder(execution.id, "compiler"),
-        )
-        compiled_domains.append(compiled)
-    jobs_by_execution: dict[str, list[RunDomainJob]] = {}
-    for compiled in compiled_domains:
-        jobs_by_execution.setdefault(compiled.request.call.id, []).extend(
-            _prepare_domain_jobs(compiled, linked_points)
+        jobs_by_execution[execution.id] = list(
+            _compile_domain_batches(
+                compiler,
+                domain_calls[execution.id],
+                linked_points,
+                region,
+            )
         )
     return _coverage_blocks(
         effects=linked.program.effects,
@@ -487,12 +436,8 @@ def _coverage_blocks(
 ) -> tuple[RunCoverageBlock, ...]:
     run_point_by_ordinal = {point.ordinal: point for point in run_points}
     jobs = tuple(job for selected in jobs_by_execution.values() for job in selected)
-    selected_compute = (
-        () if local_effects is None else local_effects.compute_operations
-    )
-    selected_effects = (
-        () if local_effects is None else local_effects.effect_operations
-    )
+    selected_compute = () if local_effects is None else local_effects.compute_operations
+    selected_effects = () if local_effects is None else local_effects.effect_operations
     local_regions = _local_schedule_regions(
         region,
         (
@@ -550,65 +495,37 @@ def _local_schedule_regions(
     return tuple(selected)
 
 
-@dataclass(frozen=True, slots=True)
-class _CompiledDomainExecution:
-    request: DomainCompileRequest = field(repr=False)
-    compiler: DomainCompiler = field(repr=False, compare=False)
-    compilation: DomainCompilation = field(repr=False)
-
-
-def _compile_domain_execution(
+def _compile_domain_batches(
     compiler: DomainCompiler,
-    template: DomainCompileTemplate,
-    point_ordinals: tuple[int, ...],
-    *,
-    bind_program_inputs: DomainInputBinder,
-    bind_compiler_inputs: DomainInputBinder,
-) -> _CompiledDomainExecution:
-    request = template.bind_points(
-        point_ordinals,
-        bind_program_inputs,
-        bind_compiler_inputs,
-    )
-    compilation = compiler.compile(request)
-    validate_domain_compilation(request, compilation)
-    return _CompiledDomainExecution(
-        request=request,
-        compiler=compiler,
-        compilation=compilation,
-    )
-
-
-def _prepare_domain_jobs(
-    domain: _CompiledDomainExecution,
+    call: DomainCallView,
     linked_points: MaterializedLinkedPoints,
+    point_ordinals: tuple[int, ...],
 ) -> tuple[RunDomainJob, ...]:
+    max_points = compiler.max_points_per_batch
+    if type(max_points) is not int or max_points <= 0:
+        raise ValueError("domain batch capacity must be a positive integer")
     jobs: list[RunDomainJob] = []
-    execution_id = domain.request.call.id
-    for batch_ordinal, compiled in enumerate(domain.compilation.jobs):
-        context = make_domain_batch_context(
-            domain.request,
+    for batch_ordinal, offset in enumerate(range(0, len(point_ordinals), max_points)):
+        batch_points = point_ordinals[offset : offset + max_points]
+        request = make_domain_batch_request(
+            call,
             linked_points,
-            compiled.point_ordinals,
+            batch_points,
             batch_ordinal=batch_ordinal,
-            absorbed_input_ids=domain.compilation.absorbed_input_ids,
         )
         execution_candidate = cast(
             "object",
-            domain.compiler.prepare(compiled, context),
+            compiler.compile_batch(request),
         )
         if not isinstance(execution_candidate, PreparedDomainExecution):
             raise TypeError(
-                "domain compiler prepare must return PreparedDomainExecution"
+                "domain compiler compile_batch must return PreparedDomainExecution"
             )
 
         jobs.append(
             RunDomainJob(
-                id=(
-                    f"{execution_id}:coverage-{compiled.point_ordinals[0]}:"
-                    f"{compiled.id}"
-                ),
-                point_ordinals=compiled.point_ordinals,
+                id=f"{call.id}:batch-{batch_ordinal}",
+                point_ordinals=batch_points,
                 execution=execution_candidate,
             )
         )

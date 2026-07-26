@@ -73,13 +73,7 @@ from scopecat.records.config import (
     DomainTargetBinding,
 )
 from scopecat.sdk.domain.compiler import (
-    DomainCompilation,
-    DomainCompiledJob,
-    DomainCompileRequest,
-    compiled_jobs,
-)
-from scopecat.sdk.domain.context import (
-    DomainBatchContext,
+    DomainBatchRequest,
 )
 from scopecat.sdk.domain.execution import (
     PreparedDomainExecution,
@@ -147,11 +141,10 @@ class _EffectProbeRuntime:
 @dataclass
 class _DomainCompiler:
     compiler_id: str
-    max_points_per_job: int = 100
+    max_points_per_batch: int = 100
     runtime: _EffectProbeRuntime = field(default_factory=_EffectProbeRuntime)
     compile_calls: int = 0
-    compile_requests: list[DomainCompileRequest] = field(default_factory=list)
-    prepare_calls: int = 0
+    compile_requests: list[DomainBatchRequest] = field(default_factory=list)
     prepared_inputs: list[tuple[object, ...]] = field(default_factory=list)
     events: list[str] | None = None
 
@@ -163,40 +156,26 @@ class _DomainCompiler:
     def target_kind(self) -> str:
         return "tests.domain"
 
-    def compile(
+    def compile_batch(
         self,
-        request: DomainCompileRequest,
-    ) -> DomainCompilation:
+        request: DomainBatchRequest,
+    ) -> PreparedDomainExecution:
         self.compile_calls += 1
         self.compile_requests.append(request)
         if self.events is not None:
             self.events.append("compile")
-        return compiled_jobs(
-            request,
-            max_points=self.max_points_per_job,
-        )
-
-    def prepare(
-        self,
-        job: DomainCompiledJob,
-        context: DomainBatchContext,
-    ) -> PreparedDomainExecution:
-        _ = job
-        self.prepare_calls += 1
-        if context.execution.program.inputs:
+        if request.inputs.program.columns:
             self.prepared_inputs.append(
-                context.execution.input_values(
-                    context.execution.program.inputs[0].id,
-                )
+                request.inputs.program.columns[0][1],
             )
-        preparation = context.new_preparation()
-        product_uses = context.product_uses
+        preparation = request.new_preparation()
+        product_uses = request.product_uses
         result_addresses = tuple(
             tuple(
                 f"{self.compiler_id}.result.{point.ordinal}.{use_index}"
                 for use_index in range(len(product_uses))
             )
-            for point in context.points
+            for point in request.points
         )
         mapping = preparation.map_measurements(
             results=tuple(
@@ -206,31 +185,31 @@ class _DomainCompiler:
                     product_uses[use_index],
                 )
                 for point, addresses in zip(
-                    context.points, result_addresses, strict=True
+                    request.points, result_addresses, strict=True
                 )
                 for use_index, result_address in enumerate(addresses)
             ),
         )
         invocation = DomainInvocationSpec(
             invocation_id=(
-                f"{self.compiler_id}.invocation.batch-{context.batch_ordinal}"
+                f"{self.compiler_id}.invocation.batch-{request.batch_ordinal}"
             ),
             target=DomainTargetArtifactIdentity(
                 target_id=self.target_id,
                 compiler_id=self.compiler_id,
                 capability_fingerprint=f"{self.compiler_id}.capabilities",
                 artifact_id=(
-                    f"{self.compiler_id}.artifact.batch-{context.batch_ordinal}"
+                    f"{self.compiler_id}.artifact.batch-{request.batch_ordinal}"
                 ),
                 artifact_fingerprint=f"{self.compiler_id}.artifact-fingerprint",
             ),
             target_intent={
                 "compiler_id": self.compiler_id,
-                "batch_ordinal": str(context.batch_ordinal),
+                "batch_ordinal": str(request.batch_ordinal),
             },
             payload={
                 "compiler_id": self.compiler_id,
-                "batch_ordinal": str(context.batch_ordinal),
+                "batch_ordinal": str(request.batch_ordinal),
             },
         )
         return preparation.build(
@@ -316,8 +295,6 @@ def _linked_program(
                 Scalar(QuantityType(unit="GHz")),
             ),
         ),
-        min_rows=point_count,
-        max_rows=point_count,
     )
     points = PointDomain(
         root=point_axis_values(
@@ -505,8 +482,6 @@ def _point_frequency_domain_input() -> ValueInput:
     frequency_type = Scalar(QuantityType(unit="GHz"))
     point_type = Table(
         columns=(TableColumn("frequency", frequency_type),),
-        min_rows=0,
-        max_rows=None,
     )
     return ValueInput(
         value=scalar_value_expr(
@@ -631,7 +606,6 @@ def test_unified_planning_rejects_missing_local_provider_before_effects() -> Non
         problem.phase is ProblemPhase.PLANNING for problem in captured.value.problems
     )
     assert compiler.compile_calls == 0
-    assert compiler.prepare_calls == 0
     _assert_no_domain_effects(compiler)
 
 
@@ -649,7 +623,7 @@ def test_domain_target_partitions_complete_point_space_by_capacity() -> None:
     linked = _linked_program(point_count=2)
     compiler = _DomainCompiler(
         "tests.target-capacity",
-        max_points_per_job=1,
+        max_points_per_batch=1,
     )
 
     plan = ExperimentSystem(domain_compiler=compiler).compile(linked)
@@ -662,8 +636,11 @@ def test_domain_target_partitions_complete_point_space_by_capacity() -> None:
         for operation in block.operations
         if isinstance(operation, RunDomainJob)
     ] == [(0,), (1,)]
-    assert compiler.compile_calls == 1
-    assert compiler.compile_requests[0].point_ordinals == (0, 1)
+    assert compiler.compile_calls == 2
+    assert [request.point_ordinals for request in compiler.compile_requests] == [
+        (0,),
+        (1,),
+    ]
 
 
 def test_local_resource_manifest_is_selected_once_for_complete_point_space(
@@ -750,8 +727,6 @@ def test_parameter_scan_binding_is_shared_with_domain_inputs() -> None:
     frequency_type = Scalar(QuantityType(unit="GHz"))
     point_type = Table(
         columns=(TableColumn("frequency", frequency_type),),
-        min_rows=2,
-        max_rows=2,
     )
     bindings = RelationTypeBindings(
         parameters=PARAMETER_TYPES,
@@ -835,7 +810,6 @@ def test_unclaimed_local_state_does_not_fragment_domain_jobs() -> None:
     assert provider.describe_calls == 1
     assert provider.provide_calls == 0
     assert compiler.compile_calls == 1
-    assert compiler.prepare_calls == 1
     _assert_no_domain_effects(compiler)
 
 
@@ -876,14 +850,9 @@ def test_planning_rejects_local_and_domain_target_instrument_overlap() -> None:
             domain_compiler=compiler,
         ).compile(linked)
 
-    assert _problem_codes(captured.value) == {
-        "domain_target_local_instrument_overlap"
-    }
-    assert captured.value.problems[0].details == {
-        "instrument_ids": ("source-0",)
-    }
+    assert _problem_codes(captured.value) == {"domain_target_local_instrument_overlap"}
+    assert captured.value.problems[0].details == {"instrument_ids": ("source-0",)}
     assert compiler.compile_calls == 0
-    assert compiler.prepare_calls == 0
 
 
 def test_unused_local_acquisition_does_not_fragment_domain_coverage() -> None:
@@ -904,9 +873,7 @@ def test_unused_local_acquisition_does_not_fragment_domain_coverage() -> None:
 
     assert block.point_indices == (0, 1)
     assert domain.point_ordinals == (0, 1)
-    assert [request.point_ordinals for request in compiler.compile_requests] == [
-        (0, 1)
-    ]
+    assert [request.point_ordinals for request in compiler.compile_requests] == [(0, 1)]
 
 
 def test_equal_materialized_state_values_share_one_domain_region() -> None:
@@ -926,7 +893,7 @@ def test_equal_materialized_state_values_share_one_domain_region() -> None:
         if isinstance(operation, RunDomainJob)
     )
     assert tuple(job.point_ordinals for job in jobs) == ((0, 1),)
-    assert compiler.prepare_calls == 1
+    assert compiler.compile_calls == 1
 
 
 def test_domain_compiler_batches_one_state_stable_region() -> None:
@@ -962,8 +929,7 @@ def test_domain_compiler_batches_one_state_stable_region() -> None:
     assert provider.describe_calls == 1
     assert provider.provide_calls == 0
     assert compiler.compile_calls == 1
-    assert compiler.prepare_calls == 1
-    assert [job.id for job in domain_jobs] == ["domain:coverage-0:job-0"]
+    assert [job.id for job in domain_jobs] == ["domain:batch-0"]
     _assert_no_domain_effects(compiler)
 
 
@@ -987,7 +953,6 @@ def test_ordered_domain_calls_share_one_target_resource_and_keep_job_identity() 
     assert len({job.id for job in jobs}) == 2
     assert plan.resource_claims == (ResourceClaim("tests.domain.target", "target"),)
     assert compiler.compile_calls == 2
-    assert compiler.prepare_calls == 2
     _assert_no_domain_effects(compiler)
 
 
@@ -1121,5 +1086,4 @@ def test_zero_point_domain_plan_retains_direct_product_ownership() -> None:
         use.id for use in linked.program.product_uses
     )
     assert compiler.compile_calls == 0
-    assert compiler.prepare_calls == 0
     assert plan.points.points == ()

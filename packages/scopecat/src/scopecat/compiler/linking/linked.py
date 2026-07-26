@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 from typing import Literal, cast
 
@@ -108,8 +107,6 @@ class MaterializedLinkedPoints:
         input_kind: Literal["program", "compiler"],
         input_ids: Sequence[str],
         ordinals: Sequence[int],
-        *,
-        max_points: int,
     ) -> tuple[tuple[str, tuple[object, ...]], ...]:
         """Evaluate selected domain inputs for selected logical ordinals."""
 
@@ -123,11 +120,8 @@ class MaterializedLinkedPoints:
                 strict=True,
             )
         }
-        _validate_ordinal_selection(
-            selected,
-            known_ordinals=entries.keys(),
-            max_points=max_points,
-        )
+        if any(ordinal not in entries for ordinal in selected):
+            raise ValueError("point selection contains an unknown ordinal")
         execution = next(
             item
             for item in core_domain_executions(self.linked_plan.program)
@@ -139,7 +133,7 @@ class MaterializedLinkedPoints:
         known_input_ids = tuple(available_inputs)
         selected_input_set = set(selected_input_ids)
         if not selected_input_ids:
-            raise ValueError("domain input binding requires at least one input")
+            return ()
         if selected_input_ids != tuple(
             input_id for input_id in known_input_ids if input_id in selected_input_set
         ):
@@ -258,20 +252,6 @@ def _point_parameters(
     except CompilerProblemError as error:
         problems.append(error.problem)
         return ParameterRelationData()
-
-
-def _validate_ordinal_selection(
-    ordinals: tuple[int, ...],
-    *,
-    known_ordinals: AbstractSet[int],
-    max_points: int,
-) -> None:
-    if type(max_points) is not int or max_points <= 0:
-        raise ValueError("point selection budget must be positive")
-    if len(ordinals) > max_points:
-        raise ValueError("point selection exceeds the requested budget")
-    if any(ordinal not in known_ordinals for ordinal in ordinals):
-        raise ValueError("point selection contains an unknown ordinal")
 
 
 def _domain_inputs(

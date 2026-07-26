@@ -47,8 +47,8 @@ from scopecat.measurements.results import (
 from scopecat.measurements.values import seal_measurement_values
 from scopecat.sdk.domain import DomainPreparationBuilder
 from scopecat.sdk.domain._bridge import (
-    make_domain_batch_context,
-    make_domain_compile_template,
+    make_domain_batch_request,
+    make_domain_call_view,
 )
 from scopecat.sdk.domain.execution import PreparedDomainExecution
 from scopecat.sdk.domain.invocation import (
@@ -252,34 +252,18 @@ def _preparation_for_all_points(
     execution_id = typed_execution.id
     closure = domain_result_closure(linked_points.linked_plan.program, execution_id)
     point_ordinals = tuple(range(len(linked_points.point_domain.points)))
-    request = make_domain_compile_template(
+    call = make_domain_call_view(
         linked_points.linked_plan,
         execution_id,
         closure,
-    ).bind_points(
-        point_ordinals,
-        lambda input_ids, ordinals, max_points: linked_points.bind_domain_inputs(
-            execution_id,
-            "program",
-            input_ids,
-            ordinals,
-            max_points=max_points,
-        ),
-        lambda input_ids, ordinals, max_points: linked_points.bind_domain_inputs(
-            execution_id,
-            "compiler",
-            input_ids,
-            ordinals,
-            max_points=max_points,
-        ),
     )
-    context = make_domain_batch_context(
-        request,
+    request = make_domain_batch_request(
+        call,
         linked_points,
         point_ordinals,
         batch_ordinal=0,
     )
-    return context.new_preparation()
+    return request.new_preparation()
 
 
 def _linked_points(
@@ -645,7 +629,7 @@ def _scenario(
     )
     preparation = _preparation_for_all_points(linked_points)
     points = preparation.context.points
-    product_uses = preparation.context.execution.result(_SINGLE_RESULT_ID).product_uses
+    product_uses = preparation.context.call.result(_SINGLE_RESULT_ID).product_uses
     mapping = seal_quantum_target_result_mapping(
         preparation,
         batch,
@@ -722,10 +706,10 @@ def _mixed_scenario(
     )
     preparation = _preparation_for_all_points(linked_points)
     points = preparation.context.points
-    iq_use = preparation.context.execution.result(
+    iq_use = preparation.context.call.result(
         _MIXED_IQ_RESULT_ID
     ).require_one_product_use()
-    aux_use = preparation.context.execution.result(
+    aux_use = preparation.context.call.result(
         _MIXED_AUX_RESULT_ID
     ).require_one_product_use()
     mapping = seal_quantum_target_result_mapping(
@@ -812,7 +796,7 @@ def test_three_point_fake_quantum_run_correlates_target_and_logical_order() -> N
     )
 
     points = scenario.preparation.context.points
-    product_use = scenario.preparation.context.execution.result(
+    product_use = scenario.preparation.context.call.result(
         _SINGLE_RESULT_ID
     ).product_uses[0]
     assert tuple(
@@ -892,7 +876,7 @@ def test_mixed_quantum_program_reuses_fake_selection_and_correlation() -> None:
         repetitions=2,
     )
     points = preparation.context.points
-    product_use = preparation.context.execution.result(
+    product_use = preparation.context.call.result(
         _SINGLE_RESULT_ID
     ).require_one_product_use()
     mapping = seal_quantum_target_result_mapping(
@@ -976,7 +960,7 @@ def test_one_physical_fake_result_fans_out_to_every_product_use() -> None:
         product_axes=(shot_axis(2),),
     )
     points = scenario.preparation.context.points
-    uses = scenario.preparation.context.execution.result(_SINGLE_RESULT_ID).product_uses
+    uses = scenario.preparation.context.call.result(_SINGLE_RESULT_ID).product_uses
     correlated = correlate_fake_list_run(
         scenario.compiled_target,
         FakeListRuntime().execute(scenario.compiled_target.compiled),

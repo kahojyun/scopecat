@@ -1,18 +1,11 @@
 """Public contracts for execution-domain compilers and runtimes."""
 
 from scopecat.sdk.domain.compiler import (
-    DomainCompilation,
-    DomainCompiledInputs,
-    DomainCompiledJob,
+    DomainBatchInputs,
+    DomainBatchRequest,
     DomainCompiler,
-    DomainCompileRequest,
-    DomainInput,
-    DomainInputBinder,
     DomainResolvedInputs,
-    compiled_jobs,
-    validate_domain_compilation,
 )
-from scopecat.sdk.domain.context import DomainBatchContext
 from scopecat.sdk.domain.execution import PreparedDomainExecution
 from scopecat.sdk.domain.job import (
     DomainInvocationSpec,
@@ -37,8 +30,6 @@ from scopecat.sdk.domain.runtime import (
 )
 from scopecat.sdk.domain.view import (
     DomainCallView,
-    DomainExecutionPointView,
-    DomainExecutionView,
     DomainInputPortView,
     DomainPointRef,
     DomainProductAxisView,
@@ -51,20 +42,13 @@ from scopecat.sdk.domain.view import (
 
 __all__ = [
     "CorrelatedDomainFetch",
-    "DomainBatchContext",
+    "DomainBatchInputs",
+    "DomainBatchRequest",
     "DomainCallView",
-    "DomainCompilation",
-    "DomainCompileRequest",
-    "DomainCompiledInputs",
-    "DomainCompiledJob",
     "DomainCompiler",
-    "DomainExecutionPointView",
-    "DomainExecutionView",
     "DomainFetchCandidate",
     "DomainFetchReceipt",
     "DomainFetchRequest",
-    "DomainInput",
-    "DomainInputBinder",
     "DomainInputPortView",
     "DomainInvocationSpec",
     "DomainMappedResult",
@@ -86,6 +70,4 @@ __all__ = [
     "DomainSubmitRequest",
     "DomainTargetArtifactIdentity",
     "PreparedDomainExecution",
-    "compiled_jobs",
-    "validate_domain_compilation",
 ]

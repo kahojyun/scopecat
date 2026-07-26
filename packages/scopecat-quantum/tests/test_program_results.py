@@ -29,8 +29,8 @@ from scopecat.sdk.domain import (
     DomainResultMapping,
 )
 from scopecat.sdk.domain._bridge import (
-    make_domain_batch_context,
-    make_domain_compile_template,
+    make_domain_batch_request,
+    make_domain_call_view,
 )
 
 from scopecat_quantum._ids import (
@@ -138,34 +138,18 @@ def _preparation(
     linked_points = materialize_linked_points(link_program(program, environment))
     closure = domain_result_closure(linked_points.linked_plan.program, "domain")
     point_ordinals = (0, 1)
-    request = make_domain_compile_template(
+    call = make_domain_call_view(
         linked_points.linked_plan,
         "domain",
         closure,
-    ).bind_points(
-        point_ordinals,
-        lambda input_ids, ordinals, max_points: linked_points.bind_domain_inputs(
-            "domain",
-            "program",
-            input_ids,
-            ordinals,
-            max_points=max_points,
-        ),
-        lambda input_ids, ordinals, max_points: linked_points.bind_domain_inputs(
-            "domain",
-            "compiler",
-            input_ids,
-            ordinals,
-            max_points=max_points,
-        ),
     )
-    context = make_domain_batch_context(
-        request,
+    request = make_domain_batch_request(
+        call,
         linked_points,
         point_ordinals,
         batch_ordinal=0,
     )
-    return context.new_preparation()
+    return request.new_preparation()
 
 
 def _prepared(entry_id: str, source_program_id: str):

@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from scopecat.kernel.point_identity import LogicalPointId
 from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
 from scopecat.measurements.products import ProductDef
-from scopecat.sdk.domain._context_contract import DomainBatchContextView
+from scopecat.sdk.domain._batch_request_contract import DomainBatchRequestView
 from scopecat.sdk.domain._identities import point_id, product_use_id
 from scopecat.sdk.domain.view import DomainPointRef, DomainProductUseRef
 
@@ -48,7 +48,7 @@ class DomainMappedResult[ResultAddressT: Hashable]:
 class DomainResultMapping[ResultAddressT: Hashable]:
     """Exact inventory from opaque result locations to SDK-owned references."""
 
-    context: DomainBatchContextView
+    context: DomainBatchRequestView
     selected_product_uses: tuple[ProductUse, ...] = field(repr=False)
     results: tuple[DomainMappedResult[ResultAddressT], ...]
     product_by_use_id: Mapping[ProductUseId, ProductDef] = field(

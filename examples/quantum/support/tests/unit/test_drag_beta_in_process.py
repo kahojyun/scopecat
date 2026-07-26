@@ -404,7 +404,7 @@ def test_drag_beta_response_remains_batch_local(tmp_path: Path) -> None:
             entry.stage == "domain_submit" and entry.state == "started"
             for entry in journal.entries()
         )
-        == 5
+        == 4
     )
     assert float(analysis.fit.beta_hat.to("ns").value) == pytest.approx(0.765)
     assert analysis.assessment.eligible

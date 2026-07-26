@@ -1089,12 +1089,3 @@ def _scope_operation_input(
             origin=origin,
         )
     return value
-
-
-def _scoped_resource_id(
-    resource_id: LogicalResourcePortId | None,
-    resource_ids: Mapping[LogicalResourcePortId, LogicalResourcePortId],
-) -> LogicalResourcePortId | None:
-    if resource_id is None:
-        return None
-    return resource_ids.get(resource_id, resource_id)

@@ -2,8 +2,7 @@
 
 The values in this module are the complete compiler-facing inspection surface
 for a domain adapter. References are assembled while projecting one
-materialized plan; adapters can retain and pass them back to the prepare SDK
-without importing transient compiler identities.
+materialized plan without exposing transient compiler identities.
 """
 
 from __future__ import annotations
@@ -120,28 +119,6 @@ class DomainProductUseRef:
 
 
 @dataclass(frozen=True, slots=True)
-class DomainExecutionPointView:
-    """Concrete domain inputs for one canonical logical point."""
-
-    ref: DomainPointRef
-    inputs: tuple[tuple[str, object], ...]
-
-    @property
-    def logical_point_id(self) -> str:
-        return self.ref.id
-
-    @property
-    def logical_ordinal(self) -> int:
-        return self.ref.ordinal
-
-    def input(self, name: str) -> object:
-        for input_name, value in self.inputs:
-            if input_name == name:
-                return value
-        raise KeyError(name)
-
-
-@dataclass(frozen=True, slots=True)
 class DomainResultBindingView:
     """One authored result and every demanded logical product occurrence."""
 
@@ -172,26 +149,6 @@ class DomainCallView:
     program: DomainProgramView
     results: tuple[DomainResultBindingView, ...]
     product_uses: tuple[DomainProductUseRef, ...] = ()
-
-    def result(self, name: str) -> DomainResultBindingView:
-        for result in self.results:
-            if result.id == name:
-                return result
-        raise KeyError(name)
-
-@dataclass(frozen=True, slots=True)
-class DomainExecutionView:
-    """Concrete residual bindings for one compiled domain job."""
-
-    id: str
-    program: DomainProgramView
-    points: tuple[DomainExecutionPointView, ...]
-    results: tuple[DomainResultBindingView, ...]
-
-    def input_values(self, name: str) -> tuple[object, ...]:
-        if name not in {port.id for port in self.program.inputs}:
-            raise KeyError(name)
-        return tuple(point.input(name) for point in self.points)
 
     def result(self, name: str) -> DomainResultBindingView:
         for result in self.results:
