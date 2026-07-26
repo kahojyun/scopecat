@@ -178,7 +178,7 @@ def _arithmetic_result_type(
     operator: ArithmeticOperator,
 ) -> Scalar:
     if isinstance(left, Int) and isinstance(right, Int) and operator != "/":
-        return Scalar(Int())
+        return Scalar(_integer_arithmetic_result_type(left, right, operator))
     if isinstance(left, Int | Float) and isinstance(right, Int | Float):
         return Scalar(Float())
     quantity = left if isinstance(left, Quantity) else right
@@ -192,6 +192,65 @@ def _arithmetic_result_type(
         )
     msg = f"unsupported arithmetic result for {left!r} and {right!r}"
     raise TypeError(msg)
+
+
+def _integer_arithmetic_result_type(
+    left: Int,
+    right: Int,
+    operator: Literal["+", "-", "*"],
+) -> Int:
+    """Preserve bounds for affine integer expressions."""
+
+    if operator == "+":
+        return Int(
+            minimum=_combine_known_bounds(left.minimum, right.minimum, operator="+"),
+            maximum=_combine_known_bounds(left.maximum, right.maximum, operator="+"),
+        )
+    if operator == "-":
+        return Int(
+            minimum=_combine_known_bounds(left.minimum, right.maximum, operator="-"),
+            maximum=_combine_known_bounds(left.maximum, right.minimum, operator="-"),
+        )
+
+    left_constant = _exact_integer(left)
+    if left_constant is not None:
+        return _scale_integer_bounds(right, left_constant)
+    right_constant = _exact_integer(right)
+    if right_constant is not None:
+        return _scale_integer_bounds(left, right_constant)
+    return Int()
+
+
+def _combine_known_bounds(
+    left: int | None,
+    right: int | None,
+    *,
+    operator: Literal["+", "-"],
+) -> int | None:
+    if left is None or right is None:
+        return None
+    return left + right if operator == "+" else left - right
+
+
+def _exact_integer(value_type: Int) -> int | None:
+    if value_type.minimum is not None and value_type.minimum == value_type.maximum:
+        return value_type.minimum
+    return None
+
+
+def _scale_integer_bounds(value_type: Int, factor: int) -> Int:
+    if factor == 0:
+        return Int(minimum=0, maximum=0)
+    if factor > 0:
+        minimum = value_type.minimum
+        maximum = value_type.maximum
+    else:
+        minimum = value_type.maximum
+        maximum = value_type.minimum
+    return Int(
+        minimum=None if minimum is None else factor * minimum,
+        maximum=None if maximum is None else factor * maximum,
+    )
 
 
 def _quantity_types_are_compatible(left: Quantity, right: Quantity) -> bool:
