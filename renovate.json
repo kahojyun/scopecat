@@ -23,13 +23,6 @@
       "matchManagers": ["npm"],
       "matchUpdateTypes": ["major", "minor", "patch"],
       "minimumReleaseAge": "14 days"
-    },
-    {
-      "description": "Require approval for breaking updates except 0.x patch updates",
-      "matchJsonata": [
-        "isBreaking = true and (updateType != 'patch' or newMajor != 0)"
-      ],
-      "dependencyDashboardApproval": true
     }
   ]
 }
