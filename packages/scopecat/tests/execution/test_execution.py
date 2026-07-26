@@ -764,11 +764,9 @@ def test_run_shares_identical_residual_point_compute(tmp_path: Path) -> None:
     result_id = operation_result_id(operation_id)
     slow_axis_type = TableType(
         columns=(TableColumn("frequency", Scalar(QuantityType())),),
-        allow_extra_columns=True,
     )
     fast_axis_type = TableType(
         columns=(TableColumn("amplitude", Scalar(String())),),
-        allow_extra_columns=True,
     )
     point_type = TableType(
         columns=(*slow_axis_type.columns, *fast_axis_type.columns),

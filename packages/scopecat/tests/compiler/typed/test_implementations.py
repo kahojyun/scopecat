@@ -161,10 +161,10 @@ def test_compute_result_identity_is_preserved_in_bound_calls() -> None:
     assert second_call.result.id == second_output
 
 
-def test_compute_interface_accepts_payload_python_type() -> None:
+def test_compute_interface_accepts_payload_schema() -> None:
     program = _program(
         kernel=dict,
-        output_type=Scalar(Payload("program", python_type=dict)),
+        output_type=Scalar(Payload("program")),
     )
 
     materialize_local_execution(

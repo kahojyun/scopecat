@@ -110,10 +110,7 @@ def test_plan_walk_rewrite_and_references_cover_nested_scalars() -> None:
 
 def test_compute_dependencies_project_shared_plan_references() -> None:
     operation_id = OperationId(SymbolId(local_id="consume-plan"))
-    rows_type = Table(
-        columns=(TableColumn("value", _FLOAT),),
-        allow_extra_columns=True,
-    )
+    rows_type = Table(columns=(TableColumn("value", _FLOAT),))
     offsets_type = Series(_FLOAT)
     bindings = RelationTypeBindings(
         inputs={

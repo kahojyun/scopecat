@@ -65,7 +65,7 @@ def test_explicit_scan_lowers_to_a_structural_axis_with_normalized_values() -> N
             Quantity(value=5.1, unit="GHz"),
         )
     )
-    assert analyze_point_domain(axis).value_type.min_rows == 2
+    assert analyze_point_domain(axis).cardinality == 2
     assert (
         scan_parameter_contracts(
             _axis(sc.axis(_point("frequency"), [4.9, 5.1], unit="GHz"))

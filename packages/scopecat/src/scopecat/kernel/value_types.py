@@ -4,7 +4,7 @@ Shape and scalar content are deliberately independent:
 
 * :class:`Scalar`, :class:`Series`, and :class:`Table` describe shape.
 * :class:`Bool`, :class:`Int`, :class:`Float`, :class:`String`,
-  :class:`Quantity`, :class:`Entity`, :class:`Record`, and :class:`Payload`
+  :class:`Quantity`, :class:`Entity`, and :class:`Payload`
   describe scalar content.
 
 This module contains definitions only. Runtime literal coercion lives in
@@ -15,7 +15,6 @@ without depending on authoring or creating model import cycles.
 from __future__ import annotations
 
 import math
-import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 
@@ -52,27 +51,11 @@ class Float:
 
 @dataclass(frozen=True, slots=True)
 class String:
-    """String scalar content with length, pattern, or choice constraints."""
+    """String scalar content with optional closed choices."""
 
-    min_length: int = 0
-    max_length: int | None = None
-    pattern: str | None = None
     choices: tuple[str, ...] | None = None
 
     def __post_init__(self) -> None:
-        _validate_length_bounds(
-            self.min_length,
-            self.max_length,
-            minimum_name="min_length",
-            maximum_name="max_length",
-            label="String",
-        )
-        if self.pattern is not None:
-            try:
-                re.compile(self.pattern)
-            except re.error as error:
-                msg = f"String pattern is invalid: {error}"
-                raise ValueError(msg) from error
         if self.choices is not None:
             if not self.choices:
                 msg = "String choices must not be empty"
@@ -129,54 +112,23 @@ class Entity:
 
 
 @dataclass(frozen=True, slots=True)
-class RecordField:
-    """One structurally typed record field."""
-
-    id: str
-    value_type: ValueType
-    required: bool = True
-
-    def __post_init__(self) -> None:
-        _validate_id(self.id, label="record field")
-
-
-@dataclass(frozen=True, slots=True)
-class Record:
-    """Structured scalar content with recursively typed fields."""
-
-    fields: tuple[RecordField, ...]
-    allow_extra_fields: bool = False
-
-    def __post_init__(self) -> None:
-        _validate_unique_ids(
-            (field.id for field in self.fields),
-            label="record fields",
-        )
-
-
-@dataclass(frozen=True, slots=True)
 class Payload:
     """Opaque scalar content identified by a domain-owned schema id."""
 
     schema_id: str
-    python_type: type[object] | tuple[type[object], ...] | None = None
 
     def __post_init__(self) -> None:
         _validate_id(self.schema_id, label="payload schema")
-        if isinstance(self.python_type, tuple) and not self.python_type:
-            msg = "Payload python_type tuple must not be empty"
-            raise ValueError(msg)
 
 
-type AtomType = Bool | Int | Float | String | Quantity | Entity | Record | Payload
+type AtomType = Bool | Int | Float | String | Quantity | Entity | Payload
 
 
 @dataclass(frozen=True, slots=True)
 class Scalar:
-    """A single atom, optionally nullable."""
+    """A single atom."""
 
     atom: AtomType
-    nullable: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,17 +136,6 @@ class Series:
     """An ordered one-dimensional collection of scalar values."""
 
     item_type: Scalar
-    min_length: int = 0
-    max_length: int | None = None
-
-    def __post_init__(self) -> None:
-        _validate_length_bounds(
-            self.min_length,
-            self.max_length,
-            minimum_name="min_length",
-            maximum_name="max_length",
-            label="Series",
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,7 +144,6 @@ class TableColumn:
 
     id: str
     value_type: Scalar
-    required: bool = True
 
     def __post_init__(self) -> None:
         _validate_id(self.id, label="table column")
@@ -211,25 +151,15 @@ class TableColumn:
 
 @dataclass(frozen=True, slots=True)
 class Table:
-    """A row collection with structural columns and an optional primary key."""
+    """A row collection with exact columns and an optional primary key."""
 
     columns: tuple[TableColumn, ...]
     primary_key: tuple[str, ...] = ()
-    min_rows: int = 0
-    max_rows: int | None = None
-    allow_extra_columns: bool = False
 
     def __post_init__(self) -> None:
         _validate_unique_ids(
             (column.id for column in self.columns),
             label="table columns",
-        )
-        _validate_length_bounds(
-            self.min_rows,
-            self.max_rows,
-            minimum_name="min_rows",
-            maximum_name="max_rows",
-            label="Table",
         )
         if len(set(self.primary_key)) != len(self.primary_key):
             msg = "Table primary_key must not contain duplicates"
@@ -243,13 +173,7 @@ class Table:
             raise ValueError(msg)
         for column_id in self.primary_key:
             column = columns[column_id]
-            if not column.required or column.value_type.nullable:
-                msg = (
-                    f"Table primary key column {column_id!r} must be required "
-                    "and non-null"
-                )
-                raise ValueError(msg)
-            if isinstance(column.value_type.atom, Record | Payload):
+            if isinstance(column.value_type.atom, Payload):
                 msg = (
                     f"Table primary key column {column_id!r} must use a primitive, "
                     "quantity, or entity atom"
@@ -282,25 +206,6 @@ def _validate_bounds(
         raise ValueError(msg)
     if minimum is not None and maximum is not None and minimum > maximum:
         msg = f"{label} minimum must not exceed maximum"
-        raise ValueError(msg)
-
-
-def _validate_length_bounds(
-    minimum: int,
-    maximum: int | None,
-    *,
-    minimum_name: str,
-    maximum_name: str,
-    label: str,
-) -> None:
-    if minimum < 0:
-        msg = f"{label} {minimum_name} must be non-negative"
-        raise ValueError(msg)
-    if maximum is not None and maximum < 0:
-        msg = f"{label} {maximum_name} must be non-negative"
-        raise ValueError(msg)
-    if maximum is not None and minimum > maximum:
-        msg = f"{label} {minimum_name} must not exceed {maximum_name}"
         raise ValueError(msg)
 
 

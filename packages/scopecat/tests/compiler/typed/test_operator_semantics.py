@@ -83,16 +83,6 @@ def test_typed_arithmetic_rejects_non_finite_runtime_results() -> None:
         )
 
 
-def test_nullable_values_are_not_arithmetic_operands() -> None:
-    optional_count = sc.input(
-        "count",
-        sc.ScalarType(sc.IntType(), nullable=True),
-    )
-
-    with pytest.raises(TypeError, match="does not accept nullable operands"):
-        _ = optional_count + 1
-
-
 def test_runtime_key_equality_normalizes_quantity_units_symmetrically() -> None:
     tiny_ghz = sc.Quantity(1e-13, "GHz")
     tiny_hz = sc.Quantity(1e-4, "Hz")

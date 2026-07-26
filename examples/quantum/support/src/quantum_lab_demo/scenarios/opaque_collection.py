@@ -19,17 +19,16 @@ PARALLEL_GATE_SET_TEMPLATE_ID = "quantum_lab_demo.scenarios.parallel_gate_set"
 _QUBIT = sc.ScalarType(sc.EntityType(entity_kind="logical_qubit"))
 _COUPLER = sc.ScalarType(sc.EntityType(entity_kind="logical_coupler"))
 _QUANTITY = sc.ScalarType(sc.QuantityType())
-_NON_EMPTY_STRING = sc.ScalarType(sc.StringType(min_length=1))
+_STRING = sc.ScalarType(sc.StringType())
 _QUBIT_SERIES = sc.SeriesType(_QUBIT)
 _COUPLER_SERIES = sc.SeriesType(_COUPLER)
 PARALLEL_GATE_TABLE_TYPE = sc.TableType(
     columns=(
         sc.TableColumn("control_qubit", _QUBIT),
         sc.TableColumn("partner_qubit", _QUBIT),
-        sc.TableColumn("gate", _NON_EMPTY_STRING),
+        sc.TableColumn("gate", _STRING),
     ),
     primary_key=("control_qubit", "partner_qubit", "gate"),
-    min_rows=1,
 )
 GATE_DURATION = sc.coordinate("gate_duration", _QUANTITY)
 _DEFAULT_GATES = (

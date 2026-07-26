@@ -90,8 +90,6 @@ def _persistable_value_type_schema() -> dict[str, object]:
         "properties": {
             "shape": {"const": "series"},
             "item_type": scalar,
-            "min_length": {"type": "integer", "minimum": 0},
-            "max_length": {"type": ["integer", "null"], "minimum": 0},
         },
         "required": ["shape", "item_type"],
         "additionalProperties": False,
@@ -101,7 +99,6 @@ def _persistable_value_type_schema() -> dict[str, object]:
         "properties": {
             "id": {"type": "string", "minLength": 1},
             "value_type": scalar,
-            "required": {"type": "boolean"},
         },
         "required": ["id", "value_type"],
         "additionalProperties": False,
@@ -112,8 +109,6 @@ def _persistable_value_type_schema() -> dict[str, object]:
             "shape": {"const": "table"},
             "columns": {"type": "array", "items": table_column},
             "primary_key": {"type": "array", "items": {"type": "string"}},
-            "min_rows": {"type": "integer", "minimum": 0},
-            "max_rows": {"type": ["integer", "null"], "minimum": 0},
         },
         "required": ["shape", "columns"],
         "additionalProperties": False,
@@ -152,9 +147,6 @@ def _validate_persistable_value_type(value: ValueType) -> ValueType:
             path="persisted parameter series item",
         )
         return value
-    if value.allow_extra_columns:
-        msg = "persisted parameter tables cannot allow untyped extra columns"
-        raise ValueError(msg)
     for column in value.columns:
         _require_persistable_scalar_type(
             column.value_type,
@@ -183,18 +175,14 @@ def _persistable_value_type_from_wire(value: object) -> ValueType:
             _require_exact_fields(
                 data,
                 required={"item_type"},
-                optional={"min_length", "max_length"},
+                optional=set(),
             )
-            selected = Series(
-                item_type=scalar_type_from_wire(data["item_type"]),
-                min_length=_wire_int(data.get("min_length", 0), "min_length"),
-                max_length=_wire_optional_int(data.get("max_length"), "max_length"),
-            )
+            selected = Series(item_type=scalar_type_from_wire(data["item_type"]))
         elif shape == "table":
             _require_exact_fields(
                 data,
                 required={"columns"},
-                optional={"primary_key", "min_rows", "max_rows"},
+                optional={"primary_key"},
             )
             raw_columns = data["columns"]
             if not isinstance(raw_columns, list):
@@ -215,8 +203,6 @@ def _persistable_value_type_from_wire(value: object) -> ValueType:
             selected = Table(
                 columns=columns,
                 primary_key=tuple(cast("list[str]", raw_primary_key)),
-                min_rows=_wire_int(data.get("min_rows", 0), "min_rows"),
-                max_rows=_wire_optional_int(data.get("max_rows"), "max_rows"),
             )
         else:
             msg = f"unsupported persisted parameter shape: {shape!r}"
@@ -238,20 +224,15 @@ def _table_column_from_wire(value: object, *, index: int) -> TableColumn:
     _require_exact_fields(
         cast("dict[str, object]", data),
         required={"id", "value_type"},
-        optional={"required"},
+        optional=set(),
     )
     column_id = data["id"]
-    required = data.get("required", True)
     if not isinstance(column_id, str) or not column_id:
         msg = f"persisted parameter table column {index} id must be non-empty"
-        raise ValueError(msg)
-    if not isinstance(required, bool):
-        msg = f"persisted parameter table column {column_id!r} required must be bool"
         raise ValueError(msg)
     return TableColumn(
         id=column_id,
         value_type=scalar_type_from_wire(data["value_type"]),
-        required=required,
     )
 
 
@@ -271,50 +252,27 @@ def _require_exact_fields(
         raise ValueError(msg)
 
 
-def _wire_int(value: object, field_name: str) -> int:
-    if not isinstance(value, int) or isinstance(value, bool):
-        msg = f"{field_name} must be an integer"
-        raise ValueError(msg)
-    return value
-
-
-def _wire_optional_int(value: object, field_name: str) -> int | None:
-    if value is None:
-        return None
-    return _wire_int(value, field_name)
-
-
 def _persistable_value_type_to_wire(value: ValueType) -> dict[str, object]:
     selected = _validate_persistable_value_type(value)
     if isinstance(selected, Scalar):
         return {"shape": "scalar", "atom": scalar_type_to_wire(selected)}
     if isinstance(selected, Series):
-        data: dict[str, object] = {
+        return {
             "shape": "series",
             "item_type": scalar_type_to_wire(selected.item_type),
         }
-        if selected.min_length:
-            data["min_length"] = selected.min_length
-        if selected.max_length is not None:
-            data["max_length"] = selected.max_length
-        return data
-    data = {
+    data: dict[str, object] = {
         "shape": "table",
         "columns": [
             {
                 "id": column.id,
                 "value_type": scalar_type_to_wire(column.value_type),
-                **({} if column.required else {"required": False}),
             }
             for column in selected.columns
         ],
     }
     if selected.primary_key:
         data["primary_key"] = list(selected.primary_key)
-    if selected.min_rows:
-        data["min_rows"] = selected.min_rows
-    if selected.max_rows is not None:
-        data["max_rows"] = selected.max_rows
     return data
 
 
@@ -330,10 +288,7 @@ type PersistableValueType = Annotated[
 def _require_closed_parameter_atom_input(value: object) -> object:
     """Reject coercions from values outside the durable scalar domain."""
 
-    if value is None or isinstance(
-        value,
-        Quantity | EntityRef | str | bool | int | float,
-    ):
+    if isinstance(value, Quantity | EntityRef | str | bool | int | float):
         return value
     if isinstance(value, Mapping):
         # Raw JSON objects are retained for Pydantic to validate as Quantity or
@@ -345,13 +300,13 @@ def _require_closed_parameter_atom_input(value: object) -> object:
         )
     msg = (
         "persisted parameter scalar values must be quantity, entity, bool, int, "
-        "float, string, or null"
+        "float, or string"
     )
     raise ValueError(msg)
 
 
 type ParameterAtomValue = Annotated[
-    Quantity | EntityRef | bool | int | float | str | None,
+    Quantity | EntityRef | bool | int | float | str,
     BeforeValidator(_require_closed_parameter_atom_input),
 ]
 

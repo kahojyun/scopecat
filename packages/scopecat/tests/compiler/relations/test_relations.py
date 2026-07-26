@@ -10,7 +10,6 @@ from scopecat.graph.relations.input_binding import (
     bind_series_input_refs,
 )
 from scopecat.graph.relations.model import (
-    LiteralScalarExpr,
     TableRelationExpr,
     input_ref,
     input_series,
@@ -22,8 +21,6 @@ from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import (
     Entity,
-    Record,
-    RecordField,
     Scalar,
     Series,
     String,
@@ -183,60 +180,6 @@ def test_relation_variant_fields_preserve_empty_semantics() -> None:
     assert TableRelationExpr(table_id="").table_id == ""
 
 
-def test_record_with_entities_field_preserves_collection_shape() -> None:
-    expression = LiteralScalarExpr(
-        value={
-            "entities": [{"id": "q0"}, {"id": "q1"}],
-            "kind": "batch",
-        },
-    )
-
-    assert type(expression.value) is dict
-    assert expression.value == {
-        "entities": [{"id": "q0"}, {"id": "q1"}],
-        "kind": "batch",
-    }
-
-    table_rows = evaluate_relation(
-        input_table("rows"),
-        EvalContext(
-            inputs={
-                "rows": [
-                    {
-                        "payload": {
-                            "entities": [{"id": "q0"}, {"id": "q1"}],
-                            "kind": "batch",
-                        }
-                    }
-                ]
-            }
-        ),
-        bindings=RelationTypeBindings(
-            inputs={
-                "rows": _table_type(
-                    payload=Scalar(
-                        Record(
-                            fields=(
-                                RecordField(
-                                    "entities",
-                                    Series(
-                                        Scalar(
-                                            Record(fields=(RecordField("id", _STRING),))
-                                        )
-                                    ),
-                                ),
-                                RecordField("kind", _STRING),
-                            )
-                        )
-                    )
-                )
-            }
-        ),
-    )
-    assert type(table_rows[0]["payload"]) is dict
-    assert table_rows[0]["payload"] == expression.value
-
-
 def test_entity_series_preserves_series_shape() -> None:
     series = values(
         [
@@ -248,11 +191,7 @@ def test_entity_series_preserves_series_shape() -> None:
     assert evaluate_series(
         series,
         EvalContext(),
-        expected_type=Series(
-            Scalar(Entity("logical_device")),
-            min_length=2,
-            max_length=2,
-        ),
+        expected_type=Series(Scalar(Entity("logical_device"))),
     ) == [
         EntityRef(id="q0", kind="logical_device"),
         EntityRef(id="q1", kind="logical_device"),

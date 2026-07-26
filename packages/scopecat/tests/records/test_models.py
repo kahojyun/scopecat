@@ -336,7 +336,6 @@ def test_table_parameter_cells_are_closed_finite_and_round_trip_without_catalog(
                     "count": 2,
                     "gain": 0.5,
                     "label": "q0",
-                    "optional": None,
                     "frequency": {"value": 5.0, "unit": "GHz"},
                     "subject": {
                         "id": "q0",
@@ -474,7 +473,7 @@ def test_durable_parameter_schema_rejects_invalid_values() -> None:
         Scalar(Bool()),
         Scalar(Int(minimum=1, maximum=3)),
         Scalar(Float(minimum=0.0, maximum=1.0)),
-        Scalar(String(min_length=1, choices=("a", "b"))),
+        Scalar(String(choices=("a", "b"))),
         Scalar(Entity(entity_kind="qubit")),
         Scalar(
             QuantityType(
@@ -483,7 +482,6 @@ def test_durable_parameter_schema_rejects_invalid_values() -> None:
                 minimum=4.0,
                 maximum=6.0,
             ),
-            nullable=True,
         ),
     ],
 )
@@ -579,41 +577,14 @@ def test_persistable_value_type_wire_is_strict_and_schema_matches_it() -> None:
 
 
 def test_durable_scalar_models_reject_malformed_runtime_declarations() -> None:
-    invalid_nullable = Scalar(Float())
-    object.__setattr__(invalid_nullable, "nullable", "false")
     invalid_finite = Float()
     object.__setattr__(invalid_finite, "finite", "false")
-    invalid_length = String()
-    object.__setattr__(invalid_length, "min_length", False)
+    invalid_choices = String()
+    object.__setattr__(invalid_choices, "choices", ("valid", 1))
 
     for value_type in (
-        invalid_nullable,
         Scalar(invalid_finite),
-        Scalar(invalid_length),
+        Scalar(invalid_choices),
     ):
         with pytest.raises(ValidationError):
             ParameterDefinition(id="value", value_type=value_type)
-
-
-@pytest.mark.parametrize(
-    "column",
-    [
-        TableColumn(
-            id="id",
-            value_type=Scalar(String()),
-            required=False,
-        ),
-        TableColumn(
-            id="id",
-            value_type=Scalar(String(), nullable=True),
-        ),
-    ],
-)
-def test_parameter_table_primary_key_must_be_required_and_non_null(
-    column: TableColumn,
-) -> None:
-    with pytest.raises(ValueError, match="required and non-null"):
-        ParameterDefinition(
-            id="values",
-            value_type=Table(primary_key=("id",), columns=(column,)),
-        )

@@ -340,7 +340,7 @@ class _Verifier:
                         "literal series requires its consumer's declared Series type",
                     )
                 self.validate_literal(expected, items, path)
-                result = Series(expected.item_type, len(items), len(items))
+                result = Series(expected.item_type)
             case InputSeriesExpr():
                 result = self.import_type(
                     PlanImportNamespace.INPUT,
@@ -375,13 +375,7 @@ class _Verifier:
                         "literal table requires its consumer's declared Table type",
                     )
                 self.validate_literal(expected, literal_rows, path)
-                result = Table(
-                    expected.columns,
-                    expected.primary_key,
-                    len(literal_rows),
-                    len(literal_rows),
-                    expected.allow_extra_columns,
-                )
+                result = Table(expected.columns, expected.primary_key)
             case TableRelationExpr():
                 result = self.import_type(
                     PlanImportNamespace.PARAMETER,
@@ -487,9 +481,9 @@ class _Verifier:
             return expected
         if value is None:
             raise self.error(
-                "ambiguous_null",
+                "unsupported_null",
                 path,
-                "null literal needs an expected nullable Scalar type",
+                "null literals are not supported",
             )
         return literal_scalar_type(value)
 

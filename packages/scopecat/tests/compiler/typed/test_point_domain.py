@@ -146,7 +146,6 @@ def test_zero_length_explicit_axis_remains_an_empty_domain() -> None:
     materialized = materialize_point_domain(verified, ParameterRelationData())
 
     assert verified.cardinality == 0
-    assert verified.value_type.min_rows == verified.value_type.max_rows == 0
     assert materialized.points == ()
 
 

@@ -251,13 +251,9 @@ class PointDomainShape:
 
     @property
     def value_type(self) -> Table:
-        """Project the exact shape to the compiler's table type."""
+        """Project the columns to the compiler's table type."""
 
-        return Table(
-            columns=self.columns,
-            min_rows=self.cardinality,
-            max_rows=self.cardinality,
-        )
+        return Table(columns=self.columns)
 
 
 def analyze_point_domain[CenterT](

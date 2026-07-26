@@ -1095,8 +1095,8 @@ export interface components {
             root: string;
         };
         NonEmptyText: string;
-        "ParameterAtomValue-Input": components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Input"] | boolean | number | string | null;
-        "ParameterAtomValue-Output": components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Output"] | boolean | number | string | null;
+        "ParameterAtomValue-Input": components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Input"] | boolean | number | string;
+        "ParameterAtomValue-Output": components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["EntityRef-Output"] | boolean | number | string;
         /**
          * ParameterCatalog
          * @description Authored parameter schema in one shape-independent namespace.
@@ -1232,13 +1232,11 @@ export interface components {
         };
         PersistableValueType: {
             atom: {
-                nullable?: boolean;
                 /** @constant */
                 type: "bool";
             } | {
                 maximum?: number;
                 minimum?: number;
-                nullable?: boolean;
                 /** @constant */
                 type: "int";
             } | {
@@ -1246,7 +1244,6 @@ export interface components {
                 finite?: true;
                 maximum?: number;
                 minimum?: number;
-                nullable?: boolean;
                 /** @constant */
                 type: "float";
             } | {
@@ -1254,10 +1251,6 @@ export interface components {
                     string,
                     ...string[]
                 ];
-                max_length?: number;
-                min_length?: number;
-                nullable?: boolean;
-                pattern?: string;
                 /** @constant */
                 type: "string";
             } | {
@@ -1266,13 +1259,11 @@ export interface components {
                 finite?: true;
                 maximum?: number;
                 minimum?: number;
-                nullable?: boolean;
                 /** @constant */
                 type: "quantity";
                 unit?: string;
             } | {
                 entity_kind?: string;
-                nullable?: boolean;
                 /** @constant */
                 type: "entity";
             };
@@ -1280,13 +1271,11 @@ export interface components {
             shape: "scalar";
         } | {
             item_type: {
-                nullable?: boolean;
                 /** @constant */
                 type: "bool";
             } | {
                 maximum?: number;
                 minimum?: number;
-                nullable?: boolean;
                 /** @constant */
                 type: "int";
             } | {
@@ -1294,7 +1283,6 @@ export interface components {
                 finite?: true;
                 maximum?: number;
                 minimum?: number;
-                nullable?: boolean;
                 /** @constant */
                 type: "float";
             } | {
@@ -1302,10 +1290,6 @@ export interface components {
                     string,
                     ...string[]
                 ];
-                max_length?: number;
-                min_length?: number;
-                nullable?: boolean;
-                pattern?: string;
                 /** @constant */
                 type: "string";
             } | {
@@ -1314,32 +1298,25 @@ export interface components {
                 finite?: true;
                 maximum?: number;
                 minimum?: number;
-                nullable?: boolean;
                 /** @constant */
                 type: "quantity";
                 unit?: string;
             } | {
                 entity_kind?: string;
-                nullable?: boolean;
                 /** @constant */
                 type: "entity";
             };
-            max_length?: number | null;
-            min_length?: number;
             /** @constant */
             shape: "series";
         } | {
             columns: {
                 id: string;
-                required?: boolean;
                 value_type: {
-                    nullable?: boolean;
                     /** @constant */
                     type: "bool";
                 } | {
                     maximum?: number;
                     minimum?: number;
-                    nullable?: boolean;
                     /** @constant */
                     type: "int";
                 } | {
@@ -1347,7 +1324,6 @@ export interface components {
                     finite?: true;
                     maximum?: number;
                     minimum?: number;
-                    nullable?: boolean;
                     /** @constant */
                     type: "float";
                 } | {
@@ -1355,10 +1331,6 @@ export interface components {
                         string,
                         ...string[]
                     ];
-                    max_length?: number;
-                    min_length?: number;
-                    nullable?: boolean;
-                    pattern?: string;
                     /** @constant */
                     type: "string";
                 } | {
@@ -1367,19 +1339,15 @@ export interface components {
                     finite?: true;
                     maximum?: number;
                     minimum?: number;
-                    nullable?: boolean;
                     /** @constant */
                     type: "quantity";
                     unit?: string;
                 } | {
                     entity_kind?: string;
-                    nullable?: boolean;
                     /** @constant */
                     type: "entity";
                 };
             }[];
-            max_rows?: number | null;
-            min_rows?: number;
             primary_key?: string[];
             /** @constant */
             shape: "table";

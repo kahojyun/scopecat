@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
-import { defaultParameterAtom, defaultTableRow } from "./config-draft";
+import { defaultTableRow } from "./config-draft";
 import type {
   ParameterAtom,
   ParameterDefinition,
@@ -155,7 +155,7 @@ function TableEditor({
                       <AtomInput
                         label={`${parameterId} row ${rowIndex + 1} ${column.id}`}
                         type={column.value_type}
-                        value={row[column.id] ?? null}
+                        value={row[column.id]!}
                         entities={entities}
                         disabled={existing && primaryKey.includes(column.id)}
                         onValidityChange={onFieldValidityChange}
@@ -167,7 +167,6 @@ function TableEditor({
                     <button
                       className="icon-button"
                       type="button"
-                      disabled={rows.length <= (type.min_rows ?? 0)}
                       onClick={() => deleteRow(rowIndex)}
                       aria-label={`Delete ${parameterId} row ${rowIndex + 1}`}
                     >
@@ -180,12 +179,7 @@ function TableEditor({
           </tbody>
         </table>
       </div>
-      <button
-        className="secondary-button"
-        type="button"
-        disabled={type.max_rows != null && rows.length >= type.max_rows}
-        onClick={addRow}
-      >
+      <button className="secondary-button" type="button" onClick={addRow}>
         <Plus size={15} />
         Add row
       </button>
@@ -210,41 +204,17 @@ function AtomInput({
   onChange: (value: ParameterAtom) => void;
   onValidityChange: (field: string, valid: boolean) => void;
 }) {
-  const isNull = value === null;
-  const concrete = (
-    isNull ? defaultParameterAtom({ ...type, nullable: false }, entities) : value
-  ) as Exclude<ParameterAtom, null>;
   return (
     <div className="parameter-atom-input">
-      {type.nullable && (
-        <label className="parameter-null-toggle">
-          <input
-            type="checkbox"
-            checked={isNull}
-            disabled={disabled}
-            onChange={(event) => {
-              onValidityChange(type.type === "quantity" ? `${label} value` : label, true);
-              onChange(
-                event.target.checked
-                  ? null
-                  : defaultParameterAtom({ ...type, nullable: false }, entities),
-              );
-            }}
-          />
-          Null
-        </label>
-      )}
-      {!isNull && (
-        <ConcreteAtomInput
-          label={label}
-          type={type}
-          value={concrete}
-          entities={entities}
-          disabled={disabled}
-          onChange={onChange}
-          onValidityChange={onValidityChange}
-        />
-      )}
+      <ConcreteAtomInput
+        label={label}
+        type={type}
+        value={value}
+        entities={entities}
+        disabled={disabled}
+        onChange={onChange}
+        onValidityChange={onValidityChange}
+      />
     </div>
   );
 }
@@ -260,7 +230,7 @@ function ConcreteAtomInput({
 }: {
   label: string;
   type: ParameterScalarType;
-  value: Exclude<ParameterAtom, null>;
+  value: ParameterAtom;
   entities: ParameterEntity[];
   disabled: boolean;
   onChange: (value: ParameterAtom) => void;
@@ -315,9 +285,6 @@ function ConcreteAtomInput({
         aria-label={label}
         type="text"
         value={typeof value === "string" ? value : ""}
-        minLength={type.min_length}
-        maxLength={type.max_length}
-        pattern={type.pattern}
         disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
       />

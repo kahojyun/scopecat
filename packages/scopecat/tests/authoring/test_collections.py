@@ -24,7 +24,6 @@ from scopecat.compiler.typed.program import (
 )
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.local.program import CollectOperation
-from scopecat.graph.relations.model import LiteralScalarExpr
 from scopecat.graph.values import (
     OperationId,
 )
@@ -79,10 +78,6 @@ def _echo_values(*, values: object) -> dict[str, object]:
     return {"values": values}
 
 
-def _echo_label(*, label: object) -> dict[str, object]:
-    return {"label": label}
-
-
 def _empty_payload() -> dict[str, object]:
     return {}
 
@@ -114,11 +109,6 @@ def _state_rows_type() -> authoring.TableType:
             authoring.TableColumn(
                 "base",
                 authoring.ScalarType(authoring.FloatType()),
-            ),
-            authoring.TableColumn(
-                "adjusted",
-                authoring.ScalarType(authoring.FloatType()),
-                required=False,
             ),
         )
     )
@@ -296,21 +286,10 @@ def test_resource_entity_series_rejects_non_entity_members_during_authoring() ->
         )
 
 
-def test_declared_shapes_disambiguate_empty_table_and_series_of_records() -> None:
-    records = authoring.SeriesType(
-        authoring.ScalarType(
-            authoring.RecordType(
-                fields=(
-                    authoring.RecordField(
-                        "label",
-                        authoring.ScalarType(authoring.StringType()),
-                    ),
-                )
-            )
-        )
-    )
+def test_declared_shapes_disambiguate_empty_table_and_series() -> None:
+    labels = authoring.SeriesType(authoring.ScalarType(authoring.StringType()))
     rows = authoring.input("rows", _gate_table_type())
-    items = authoring.input("items", records)
+    items = authoring.input("items", labels)
     inspect = authoring.compute(
         "inspect",
         fn=_echo_rows_items,
@@ -329,7 +308,7 @@ def test_declared_shapes_disambiguate_empty_table_and_series_of_records() -> Non
             child.instantiate(
                 "literal-child",
                 rows=(),
-                items=({"label": "first"},),
+                items=("first",),
             )
         )
         .build()
@@ -363,7 +342,7 @@ def test_declared_shapes_disambiguate_empty_table_and_series_of_records() -> Non
     assert materialize_series_value(
         items.value,
         EvalContext(),
-    ) == [{"label": "first"}]
+    ) == ["first"]
 
 
 def test_same_name_inputs_pass_through_multiple_module_boundaries() -> None:
@@ -773,7 +752,7 @@ def test_series_compute_output_is_a_first_class_typed_value() -> None:
     assert values_edge.expected_type == produce.result.value_type
 
 
-def test_explicit_null_is_validated_as_a_value_not_treated_as_unbound() -> None:
+def test_explicit_null_is_rejected_as_a_bound_value() -> None:
     required_label = authoring.input(
         "label",
         authoring.ScalarType(authoring.StringType()),
@@ -791,36 +770,3 @@ def test_explicit_null_is_validated_as_a_value_not_treated_as_unbound() -> None:
         )
     assert error.value.problems[0].code == "module_input_type_mismatch"
     assert "value must not be null" in error.value.problems[0].message
-
-    label = authoring.input(
-        "label",
-        authoring.ScalarType(
-            authoring.StringType(),
-            nullable=True,
-        ),
-    )
-    inspect = authoring.compute(
-        "inspect",
-        fn=_echo_label,
-        inputs={"label": label},
-        output_type=authoring.ScalarType(authoring.PayloadType("inspection")),
-    )
-    nullable = template_fixture(
-        authoring.module_body(id="test.null.nullable")
-        .inputs(label)
-        .computes(inspect)
-        .build(),
-        id="test.null.nullable",
-        kind="null",
-    )
-    program = _bind_program(
-        nullable.bind(label=None),
-        load_config(),
-    )
-
-    value_input = program.compute_nodes[0].inputs["label"]
-    assert isinstance(value_input, ValueInput)
-    value = value_input.value
-    assert isinstance(value, ScalarValueExpr)
-    assert isinstance(value.plan.root, LiteralScalarExpr)
-    assert value.plan.root.value is None

@@ -183,7 +183,7 @@ def test_bound_state_preserves_primitive_field_types(
         kind="compiler_test",
         point_domain=_point_domain(
             ((),),
-            Table(columns=(), min_rows=1, max_rows=1),
+            Table(columns=()),
         ),
         resource_requirements=(
             LogicalResourceRequirement(
@@ -225,11 +225,7 @@ def test_effects_use_logical_point_and_content_addressed_payload_identity() -> N
     unused_id = _operation_id("a-unused-payload")
     producer_output_id = operation_result_id(producer_id)
     consumer_output_id = operation_result_id(consumer_id)
-    point_type = Table(
-        columns=(TableColumn("value", Scalar(Float())),),
-        min_rows=3,
-        max_rows=3,
-    )
+    point_type = Table(columns=(TableColumn("value", Scalar(Float())),))
     program = typed_program(
         id="bound-identity",
         kind="compiler_test",
@@ -356,10 +352,7 @@ def test_effects_use_logical_point_and_content_addressed_payload_identity() -> N
         ),
         (
             literal_rows([{"declared": "ok", "extra": "no"}]),
-            Table(
-                columns=(TableColumn("declared", Scalar(String())),),
-                allow_extra_columns=False,
-            ),
+            Table(columns=(TableColumn("declared", Scalar(String())),)),
         ),
         (
             literal_rows([{"id": "same"}, {"id": "same"}]),
@@ -368,7 +361,6 @@ def test_effects_use_logical_point_and_content_addressed_payload_identity() -> N
                 primary_key=("id",),
             ),
         ),
-        (literal_rows([]), Table(columns=(), min_rows=1)),
     ),
 )
 def test_point_domain_rejects_invalid_table_contract_before_binding(

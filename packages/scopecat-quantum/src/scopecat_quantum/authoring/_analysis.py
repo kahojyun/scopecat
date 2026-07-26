@@ -37,9 +37,6 @@ from scopecat.authoring.value_types import (
     Quantity as QuantityAtomType,
 )
 from scopecat.authoring.value_types import (
-    Record as RecordType,
-)
-from scopecat.authoring.value_types import (
     String as StringType,
 )
 from scopecat.kernel.entity import EntityRef
@@ -347,7 +344,6 @@ def _program_python_type_matches_scalar(
         IntType: (int,),
         PayloadType: (dict, Mapping),
         QuantityAtomType: (Quantity,),
-        RecordType: (dict, Mapping),
         StringType: (str,),
     }
     return annotation in expected[type(atom)]
@@ -363,7 +359,6 @@ def _is_quantum_scalar_type(value: object) -> bool:
         | IntType
         | PayloadType
         | QuantityAtomType
-        | RecordType
         | StringType,
     )
 
@@ -379,7 +374,6 @@ def _quantum_scalar_type(value: object) -> ScalarType:
         | IntType
         | PayloadType
         | QuantityAtomType
-        | RecordType
         | StringType,
     ):
         return ScalarType(value)

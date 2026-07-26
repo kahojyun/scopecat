@@ -32,7 +32,7 @@ _SCALAR_WIRE_FIELDS: dict[ScalarWireAtomName, frozenset[str]] = {
     "bool": frozenset(),
     "int": frozenset({"minimum", "maximum"}),
     "float": frozenset({"minimum", "maximum", "finite"}),
-    "string": frozenset({"min_length", "max_length", "pattern", "choices"}),
+    "string": frozenset({"choices"}),
     "quantity": frozenset({"dimension", "unit", "minimum", "maximum", "finite"}),
     "entity": frozenset({"entity_kind"}),
     "payload": frozenset({"schema_id"}),
@@ -43,25 +43,20 @@ def scalar_type_wire_schema(
     atom_names: tuple[ScalarWireAtomName, ...],
     *,
     finite_only: bool = False,
-    allow_nullable: bool = True,
 ) -> dict[str, object]:
     """Build the exact JSON schema for an allowed set of scalar atoms."""
 
     finite_schema: dict[str, object] = {"type": "boolean"}
     if finite_only:
         finite_schema["const"] = True
-    nullable_schema: dict[str, object] = {"type": "boolean"}
-    if not allow_nullable:
-        nullable_schema["const"] = False
     variants: dict[ScalarWireAtomName, dict[str, object]] = {
-        "bool": _scalar_wire_variant("bool", {}, nullable_schema=nullable_schema),
+        "bool": _scalar_wire_variant("bool", {}),
         "int": _scalar_wire_variant(
             "int",
             {
                 "minimum": {"type": "integer"},
                 "maximum": {"type": "integer"},
             },
-            nullable_schema=nullable_schema,
         ),
         "float": _scalar_wire_variant(
             "float",
@@ -70,14 +65,10 @@ def scalar_type_wire_schema(
                 "maximum": {"type": "number"},
                 "finite": finite_schema,
             },
-            nullable_schema=nullable_schema,
         ),
         "string": _scalar_wire_variant(
             "string",
             {
-                "min_length": {"type": "integer", "minimum": 0},
-                "max_length": {"type": "integer", "minimum": 0},
-                "pattern": {"type": "string"},
                 "choices": {
                     "type": "array",
                     "items": {"type": "string"},
@@ -85,7 +76,6 @@ def scalar_type_wire_schema(
                     "uniqueItems": True,
                 },
             },
-            nullable_schema=nullable_schema,
         ),
         "quantity": _scalar_wire_variant(
             "quantity",
@@ -96,7 +86,6 @@ def scalar_type_wire_schema(
                 "maximum": {"type": "number"},
                 "finite": finite_schema,
             },
-            nullable_schema=nullable_schema,
             dependent_required={
                 "minimum": ("unit",),
                 "maximum": ("unit",),
@@ -105,13 +94,11 @@ def scalar_type_wire_schema(
         "entity": _scalar_wire_variant(
             "entity",
             {"entity_kind": {"type": "string", "minLength": 1}},
-            nullable_schema=nullable_schema,
         ),
         "payload": _scalar_wire_variant(
             "payload",
             {"schema_id": {"type": "string", "minLength": 1}},
             required=("schema_id",),
-            nullable_schema=nullable_schema,
         ),
     }
     return {"oneOf": [variants[atom_name] for atom_name in atom_names]}
@@ -136,10 +123,6 @@ def scalar_type_from_wire(value: object) -> Scalar:
             raise ValueError(msg)
         data[field_name] = field_value
     atom_name = data.pop("type", None)
-    nullable = data.pop("nullable", False)
-    if not isinstance(nullable, bool):
-        msg = "scalar value_type nullable must be a bool"
-        raise ValueError(msg)
     if not _is_scalar_wire_atom_name(atom_name):
         msg = f"unsupported scalar type: {atom_name!r}"
         raise ValueError(msg)
@@ -172,7 +155,7 @@ def scalar_type_from_wire(value: object) -> Scalar:
     except (TypeError, ValueError) as error:
         msg = f"invalid {atom_name!r} scalar type: {error}"
         raise ValueError(msg) from error
-    return Scalar(atom=atom, nullable=nullable)
+    return Scalar(atom=atom)
 
 
 def _is_scalar_wire_atom_name(value: object) -> TypeGuard[ScalarWireAtomName]:
@@ -200,11 +183,6 @@ def scalar_type_to_wire(value: Scalar) -> dict[str, object]:
             data = _entity_type_to_wire(atom)
         case Payload():
             data = _payload_type_to_wire(atom)
-        case _:
-            msg = f"unsupported durable scalar type: {type(atom).__name__}"
-            raise TypeError(msg)
-    if value.nullable:
-        data["nullable"] = True
     return data
 
 
@@ -230,12 +208,6 @@ def _float_type_to_wire(value: Float) -> dict[str, object]:
 
 def _string_type_to_wire(value: String) -> dict[str, object]:
     data: dict[str, object] = {"type": "string"}
-    if value.min_length:
-        data["min_length"] = value.min_length
-    if value.max_length is not None:
-        data["max_length"] = value.max_length
-    if value.pattern is not None:
-        data["pattern"] = value.pattern
     if value.choices is not None:
         data["choices"] = list(value.choices)
     return data
@@ -264,9 +236,6 @@ def _entity_type_to_wire(value: Entity) -> dict[str, object]:
 
 
 def _payload_type_to_wire(value: Payload) -> dict[str, object]:
-    if value.python_type is not None:
-        msg = "payload scalar type python_type is runtime-only and cannot be serialized"
-        raise TypeError(msg)
     return {"type": "payload", "schema_id": value.schema_id}
 
 
@@ -288,9 +257,6 @@ def _validate_wire_field_types(
         integer_fields = ("minimum", "maximum")
     elif atom_name == "float":
         number_fields = ("minimum", "maximum")
-    elif atom_name == "string":
-        integer_fields = ("min_length", "max_length")
-        string_fields = ("pattern",)
     elif atom_name == "quantity":
         number_fields = ("minimum", "maximum")
         string_fields = ("dimension", "unit")
@@ -324,7 +290,6 @@ def _validate_wire_field_types(
 
 
 def _validate_scalar_type_declaration(value: Scalar) -> None:
-    _require_bool(value.nullable, label="scalar value_type nullable")
     atom = value.atom
     match atom:
         case Bool():
@@ -336,15 +301,7 @@ def _validate_scalar_type_declaration(value: Scalar) -> None:
             _require_optional_number(minimum, label="Float minimum")
             _require_optional_number(maximum, label="Float maximum")
             _require_bool(finite, label="Float finite")
-        case String(
-            min_length=min_length,
-            max_length=max_length,
-            pattern=pattern,
-            choices=choices,
-        ):
-            _require_int(min_length, label="String min_length")
-            _require_optional_int(max_length, label="String max_length")
-            _require_optional_string(pattern, label="String pattern")
+        case String(choices=choices):
             _require_optional_string_tuple(choices, label="String choices")
         case Quantity(
             dimension=dimension,
@@ -362,9 +319,6 @@ def _validate_scalar_type_declaration(value: Scalar) -> None:
             _require_optional_string(entity_kind, label="Entity entity_kind")
         case Payload(schema_id=schema_id):
             _require_string(schema_id, label="Payload schema_id")
-        case _:
-            msg = f"unsupported durable scalar type: {type(atom).__name__}"
-            raise TypeError(msg)
 
 
 def _require_bool(value: object, *, label: str) -> None:
@@ -445,7 +399,6 @@ def _scalar_wire_variant(
     atom_name: ScalarWireAtomName,
     properties: dict[str, object],
     *,
-    nullable_schema: dict[str, object],
     required: tuple[str, ...] = (),
     dependent_required: dict[str, tuple[str, ...]] | None = None,
 ) -> dict[str, object]:
@@ -455,7 +408,6 @@ def _scalar_wire_variant(
         "additionalProperties": False,
         "properties": {
             "type": {"type": "string", "const": atom_name},
-            "nullable": nullable_schema,
             **properties,
         },
     }

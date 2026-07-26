@@ -58,10 +58,7 @@ def _resolve_module(
     )
 
 
-def _config_with_parameter_table(
-    *,
-    frequency_required: bool = True,
-) -> ConfigProfileSnapshot:
+def _config_with_parameter_table() -> ConfigProfileSnapshot:
     config = load_config()
     definition = ParameterDefinition(
         id="device_parameters",
@@ -77,7 +74,6 @@ def _config_with_parameter_table(
                 sc.TableColumn(
                     id="frequency",
                     value_type=sc.ScalarType(sc.QuantityType(unit="GHz")),
-                    required=frequency_required,
                 ),
             ),
         ),
@@ -459,23 +455,6 @@ def test_parameter_lookup_checks_table_column_and_entity_type() -> None:
     )
 
 
-def test_parameter_lookup_rejects_an_optional_result_column() -> None:
-    with pytest.raises(CheckFailed) as caught:
-        _resolve_dependency(
-            sc.parameter_lookup(
-                "device_parameters",
-                key={"device": "q0"},
-                column="frequency",
-                value_type=sc.ScalarType(sc.QuantityType(unit="GHz")),
-            ),
-            _config_with_parameter_table(frequency_required=False),
-        )
-
-    assert caught.value.problems[0].code == (
-        "authoring_parameter_lookup_column_optional"
-    )
-
-
 def test_parameter_lookup_checks_primary_key_shape_and_typed_key_values() -> None:
     config = _config_with_parameter_table()
     typed_device = sc.input(
@@ -560,7 +539,6 @@ def test_parameter_lookup_checks_primary_key_shape_and_typed_key_values() -> Non
             sc.ScalarType(sc.StringType()),
             sc.Quantity(value=1.0, unit="GHz"),
         ),
-        (sc.ScalarType(sc.StringType()), None),
     ],
 )
 def test_parameter_lookup_checks_every_literal_key_type(
@@ -609,7 +587,6 @@ def test_parameter_table_declaration_is_checked_against_catalog_schema() -> None
                 sc.ScalarType(sc.StringType()),
             ),
         ),
-        allow_extra_columns=True,
     )
     with pytest.raises(CheckFailed) as error:
         _resolve_dependency(

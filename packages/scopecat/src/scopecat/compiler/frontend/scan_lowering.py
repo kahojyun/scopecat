@@ -166,10 +166,7 @@ def _scan_point_value_type(axis: AxisSpec) -> Scalar:
         and isinstance(value_type.atom, QuantityType)
         and value_type.atom.unit is None
     ):
-        return Scalar(
-            replace(value_type.atom, unit=unit),
-            nullable=value_type.nullable,
-        )
+        return Scalar(replace(value_type.atom, unit=unit))
     return value_type
 
 

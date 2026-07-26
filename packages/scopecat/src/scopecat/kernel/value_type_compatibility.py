@@ -14,7 +14,6 @@ from scopecat.kernel.value_types import (
     Int,
     Payload,
     Quantity,
-    Record,
     Scalar,
     Series,
     String,
@@ -47,14 +46,7 @@ def is_assignable(source: ValueType, target: ValueType) -> bool:
     if isinstance(source, Scalar) and isinstance(target, Scalar):
         return _scalar_assignable(source, target)
     if isinstance(source, Series) and isinstance(target, Series):
-        return _scalar_assignable(
-            source.item_type, target.item_type
-        ) and _range_is_subset(
-            source.min_length,
-            source.max_length,
-            target.min_length,
-            target.max_length,
-        )
+        return _scalar_assignable(source.item_type, target.item_type)
     if isinstance(source, Table) and isinstance(target, Table):
         return _table_assignable(source, target)
     return False
@@ -62,8 +54,7 @@ def is_assignable(source: ValueType, target: ValueType) -> bool:
 
 def describe_value_type(value_type: ValueType) -> str:
     if isinstance(value_type, Scalar):
-        nullable = "?" if value_type.nullable else ""
-        return f"Scalar[{_describe_atom(value_type.atom)}]{nullable}"
+        return f"Scalar[{_describe_atom(value_type.atom)}]"
     if isinstance(value_type, Series):
         return f"Series[{describe_value_type(value_type.item_type)}]"
     columns = ", ".join(
@@ -80,8 +71,6 @@ def literal_scalar_type(value: object) -> Scalar:
 
 
 def _scalar_assignable(source: Scalar, target: Scalar) -> bool:
-    if source.nullable and not target.nullable:
-        return False
     return _atom_assignable(source.atom, target.atom)
 
 
@@ -97,15 +86,6 @@ def _atom_assignable(source: AtomType, target: AtomType) -> bool:
             source, target
         )
     if isinstance(source, String) and isinstance(target, String):
-        if not _range_is_subset(
-            source.min_length,
-            source.max_length,
-            target.min_length,
-            target.max_length,
-        ):
-            return False
-        if target.pattern is not None and source.pattern != target.pattern:
-            return False
         if target.choices is not None:
             return source.choices is not None and set(source.choices) <= set(
                 target.choices
@@ -141,63 +121,25 @@ def _atom_assignable(source: AtomType, target: AtomType) -> bool:
     if isinstance(source, Entity) and isinstance(target, Entity):
         return target.entity_kind is None or source.entity_kind == target.entity_kind
     if isinstance(source, Payload) and isinstance(target, Payload):
-        return source.schema_id == target.schema_id and _python_type_assignable(
-            source.python_type,
-            target.python_type,
-        )
-    if isinstance(source, Record) and isinstance(target, Record):
-        return _record_assignable(source, target)
+        return source.schema_id == target.schema_id
     return False
 
 
 def _table_assignable(source: Table, target: Table) -> bool:
-    if not _range_is_subset(
-        source.min_rows,
-        source.max_rows,
-        target.min_rows,
-        target.max_rows,
-    ):
-        return False
     source_columns = {column.id: column for column in source.columns}
     target_columns = {column.id: column for column in target.columns}
+    if set(source_columns) != set(target_columns):
+        return False
     for target_column in target.columns:
-        source_column = source_columns.get(target_column.id)
-        if source_column is None:
-            if target_column.required:
-                return False
-            continue
-        if target_column.required and not source_column.required:
-            return False
+        source_column = source_columns[target_column.id]
         if not _scalar_assignable(source_column.value_type, target_column.value_type):
             return False
-    if not target.allow_extra_columns and (
-        source.allow_extra_columns or not set(source_columns) <= set(target_columns)
-    ):
-        return False
     if target.primary_key:
         if not source.primary_key:
             return False
         if not set(source.primary_key) <= set(target.primary_key):
             return False
     return True
-
-
-def _record_assignable(source: Record, target: Record) -> bool:
-    source_fields = {field.id: field for field in source.fields}
-    target_fields = {field.id: field for field in target.fields}
-    for target_field in target.fields:
-        source_field = source_fields.get(target_field.id)
-        if source_field is None:
-            if target_field.required:
-                return False
-            continue
-        if target_field.required and not source_field.required:
-            return False
-        if not is_assignable(source_field.value_type, target_field.value_type):
-            return False
-    return target.allow_extra_fields or (
-        not source.allow_extra_fields and set(source_fields) <= set(target_fields)
-    )
 
 
 def _numeric_constraints_are_subset(source: Int | Float, target: Int | Float) -> bool:
@@ -225,18 +167,6 @@ def _bounds_are_subset(
     )
 
 
-def _range_is_subset(
-    source_minimum: int,
-    source_maximum: int | None,
-    target_minimum: int,
-    target_maximum: int | None,
-) -> bool:
-    return source_minimum >= target_minimum and not (
-        target_maximum is not None
-        and (source_maximum is None or source_maximum > target_maximum)
-    )
-
-
 def _quantity_bounds_in_target_unit(
     source: Quantity,
     target: Quantity,
@@ -254,25 +184,10 @@ def _quantity_bounds_in_target_unit(
     return convert(source.minimum), convert(source.maximum)
 
 
-def _python_type_assignable(
-    source: type[object] | tuple[type[object], ...] | None,
-    target: type[object] | tuple[type[object], ...] | None,
-) -> bool:
-    if target is None:
-        return True
-    if source is None:
-        return False
-    source_types = source if isinstance(source, tuple) else (source,)
-    target_types = target if isinstance(target, tuple) else (target,)
-    return all(
-        any(issubclass(source_type, target_type) for target_type in target_types)
-        for source_type in source_types
-    )
-
-
 def _literal_scalar_type(value: object) -> Scalar:
     if value is None:
-        return Scalar(String(), nullable=True)
+        msg = "null literals are not supported"
+        raise TypeError(msg)
     if isinstance(value, bool):
         return Scalar(Bool())
     if isinstance(value, int):
@@ -280,7 +195,7 @@ def _literal_scalar_type(value: object) -> Scalar:
     if isinstance(value, float):
         return Scalar(Float(minimum=value, maximum=value))
     if isinstance(value, str):
-        return Scalar(String(min_length=len(value), max_length=len(value)))
+        return Scalar(String())
     if isinstance(value, QuantityValue):
         return Scalar(
             Quantity(unit=value.unit, minimum=value.value, maximum=value.value)
@@ -289,7 +204,7 @@ def _literal_scalar_type(value: object) -> Scalar:
         return Scalar(Entity(entity_kind=value.kind))
     if isinstance(value, PayloadValue):
         return Scalar(Payload(value.schema_id))
-    return Scalar(Payload(type(value).__qualname__, python_type=type(value)))
+    return Scalar(Payload(type(value).__qualname__))
 
 
 def _describe_atom(atom: AtomType) -> str:
@@ -302,6 +217,4 @@ def _describe_atom(atom: AtomType) -> str:
         )
     if isinstance(atom, Payload):
         return f"Payload[{atom.schema_id}]"
-    if isinstance(atom, Record):
-        return "Record"
     return type(atom).__name__

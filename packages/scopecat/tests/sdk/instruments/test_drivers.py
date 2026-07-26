@@ -10,7 +10,7 @@ from pydantic import ValidationError
 import scopecat.sdk.instruments as instrument_sdk
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import PayloadRef, StateValue
-from scopecat.kernel.value_types import Entity, Float, Payload, Scalar
+from scopecat.kernel.value_types import Entity, Float, Scalar
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.records.artifact import CommandPayload
 from scopecat.records.instrument import (
@@ -84,10 +84,10 @@ def test_instrument_records_are_public_from_the_sdk_facade() -> None:
         ),
         (float_field("gain"), {"id": "gain", "value_type": {"type": "float"}}),
         (
-            string_field("label", min_length=1),
+            string_field("label"),
             {
                 "id": "label",
-                "value_type": {"type": "string", "min_length": 1},
+                "value_type": {"type": "string"},
             },
         ),
         (
@@ -147,9 +147,6 @@ def test_capability_field_wire_schema_matches_supported_state_values() -> None:
         "payload",
     ]
     assert all(variant["additionalProperties"] is False for variant in variants)
-    assert all(
-        variant["properties"]["nullable"]["const"] is False for variant in variants
-    )
     assert variants[2]["properties"]["finite"]["const"] is True
     assert variants[4]["properties"]["finite"]["const"] is True
     assert variants[4]["dependentRequired"] == {
@@ -163,11 +160,8 @@ def test_capability_field_wire_schema_matches_supported_state_values() -> None:
     "value_type",
     [
         Scalar(Entity()),
-        Scalar(Float(), nullable=True),
         Scalar(Float(finite=False)),
-        Scalar(Payload("pulse_program", python_type=dict)),
         {"type": "float", "finite": "false"},
-        {"type": "payload", "schema_id": "pulse_program", "python_type": "dict"},
     ],
 )
 def test_capability_field_rejects_unsupported_or_transient_types(

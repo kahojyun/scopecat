@@ -130,12 +130,8 @@ def test_core_specialization_folds_scalar_inputs_across_effect_kinds() -> None:
 
 def test_value_specialization_folds_series_and_table_parameters() -> None:
     integer = Scalar(Int())
-    series_type = Series(integer, min_length=2, max_length=2)
-    table_type = Table(
-        (TableColumn("x", integer),),
-        min_rows=0,
-        max_rows=2,
-    )
+    series_type = Series(integer)
+    table_type = Table((TableColumn("x", integer),))
     bindings = RelationTypeBindings(
         parameters={"values": series_type, "rows": table_type}
     )
@@ -165,18 +161,16 @@ def test_value_specialization_folds_series_and_table_parameters() -> None:
     assert isinstance(specialized_series, SeriesValueExpr)
     assert isinstance(specialized_series.plan.root, ValuesSeriesExpr)
     assert specialized_series.plan.root.items == [1, 2]
-    assert specialized_series.value_type.min_length == 2
-    assert specialized_series.value_type.max_length == 2
+    assert specialized_series.value_type == series_type
     assert isinstance(specialized_table, TableValueExpr)
     assert isinstance(specialized_table.plan.root, LiteralRowsRelationExpr)
     assert specialized_table.plan.root.rows == [{"x": 3}, {"x": 4}]
-    assert specialized_table.value_type.min_rows == 2
-    assert specialized_table.value_type.max_rows == 2
+    assert specialized_table.value_type == table_type
 
 
 def test_core_specialization_folds_series_target_entities() -> None:
     integer = Scalar(Int())
-    series_type = Series(integer, min_length=2, max_length=2)
+    series_type = Series(integer)
     target_entities = series_value_expr(
         parameter_series("entities"),
         bindings=RelationTypeBindings(parameters={"entities": series_type}),
@@ -296,7 +290,6 @@ def test_core_specialization_preserves_exact_empty_point_composition() -> None:
         column.id for column in specialized.point_domain.value_type.columns
     )
     assert column_ids == ("x", "y")
-    assert specialized.point_domain.value_type.max_rows == 0
 
 
 def test_point_domain_center_reads_base_parameter_before_point_overlay() -> None:

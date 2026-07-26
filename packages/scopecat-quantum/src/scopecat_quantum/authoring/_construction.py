@@ -134,9 +134,6 @@ def input(id: str, value_type: ScalarType) -> ProgramInput:
     if not id.strip():
         msg = "quantum input id must be a non-empty string"
         raise ValueError(msg)
-    if value_type.nullable:
-        msg = "quantum program inputs cannot be nullable"
-        raise ValueError(msg)
     return ProgramInput(
         _id=id,
         value_type=value_type,

@@ -69,7 +69,6 @@ type _NonEmptyId = Annotated[str, Field(min_length=1)]
 _CAPABILITY_FIELD_SCALAR_WIRE_SCHEMA = scalar_type_wire_schema(
     ("bool", "int", "float", "string", "quantity", "payload"),
     finite_only=True,
-    allow_nullable=False,
 )
 
 type CapabilityFieldScalar = Annotated[
@@ -88,9 +87,6 @@ class CapabilityField(BaseModel):
     @field_validator("value_type")
     @classmethod
     def validate_value_type(cls, value: Scalar) -> Scalar:
-        if value.nullable:
-            msg = "instrument capability fields must be non-nullable"
-            raise ValueError(msg)
         if not isinstance(
             value.atom,
             BoolType | IntType | FloatType | StringType | QuantityType | PayloadType,
@@ -460,21 +456,11 @@ def float_field(
 def string_field(
     id: str,
     *,
-    min_length: int = 0,
-    max_length: int | None = None,
-    pattern: str | None = None,
     choices: tuple[str, ...] | None = None,
 ) -> CapabilityField:
     return CapabilityField(
         id=id,
-        value_type=Scalar(
-            StringType(
-                min_length=min_length,
-                max_length=max_length,
-                pattern=pattern,
-                choices=choices,
-            )
-        ),
+        value_type=Scalar(StringType(choices=choices)),
     )
 
 

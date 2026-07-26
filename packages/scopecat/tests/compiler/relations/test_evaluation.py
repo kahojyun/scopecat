@@ -12,7 +12,6 @@ from scopecat.graph.relations.model import (
     ParameterLookupUse,
     Row,
     input_ref,
-    input_table,
     param,
     parameter_lookup,
     point_col,
@@ -175,11 +174,7 @@ def test_evaluation_rejects_invalid_lookup_projection_without_linking() -> None:
 
 
 def test_evaluation_normalizes_a_used_parameter_table() -> None:
-    table_type = Table(
-        columns=(TableColumn("frequency", _FREQUENCY),),
-        min_rows=1,
-        max_rows=1,
-    )
+    table_type = Table(columns=(TableColumn("frequency", _FREQUENCY),))
     parameters = ParameterRelationData(
         tables={
             "devices": [
@@ -225,20 +220,24 @@ def test_evaluation_normalizes_used_context_values(
     )
 
 
-def test_evaluation_rejects_invalid_open_input_carrier() -> None:
-    open_rows = Table(
-        columns=(),
-        min_rows=1,
-        max_rows=1,
-        allow_extra_columns=True,
-    )
+def test_evaluation_normalizes_only_referenced_point_columns() -> None:
+    row: Row = {
+        "frequency": {"value": 5_000.0, "unit": "MHz"},
+        "unused": "not-an-int",
+    }
 
-    with pytest.raises(ValueValidationError, match="unsupported table runtime cell"):
-        evaluate_relation(
-            input_table("rows"),
-            EvalContext(inputs={"rows": [{"extra": object()}]}),
-            bindings=RelationTypeBindings(inputs={"rows": open_rows}),
-        )
+    assert evaluate_scalar(
+        point_col("frequency"),
+        EvalContext(point_row=row),
+        bindings=RelationTypeBindings(
+            point_row=RowType(
+                (
+                    TableColumn("frequency", _FREQUENCY),
+                    TableColumn("unused", _INT),
+                )
+            )
+        ),
+    ) == QuantityValue(value=5.0, unit="GHz")
 
 
 def test_evaluation_validates_used_point_values() -> None:

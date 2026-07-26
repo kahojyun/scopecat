@@ -360,7 +360,7 @@ function TableValueView({
                         cell && cell.status !== "unchanged" ? `cell-${cell.status}` : undefined
                       }
                     >
-                      <ParameterAtomView value={displayed ?? null} />
+                      <ParameterAtomView value={displayed!} />
                       {cell?.status === "changed" && (
                         <small className="previous-cell-value">
                           was {parameterAtomLabel(cell.before)}

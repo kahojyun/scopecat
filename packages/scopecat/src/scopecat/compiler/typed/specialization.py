@@ -41,11 +41,7 @@ from scopecat.compiler.typed.program import (
     ValueInput,
 )
 from scopecat.compiler.typed.state import SetStateSpec
-from scopecat.graph.relations.model import (
-    LiteralRowsRelationExpr,
-    ValuesSeriesExpr,
-    lit,
-)
+from scopecat.graph.relations.model import lit
 from scopecat.graph.relations.point_domain import (
     map_point_axis_centers,
 )
@@ -268,15 +264,7 @@ def specialize_value_expression(
         expression = verify_series_value_expr(
             residual,
             bindings=value.plan.bindings,
-            expected_type=(
-                replace(
-                    value.value_type,
-                    min_length=len(residual.items),
-                    max_length=len(residual.items),
-                )
-                if isinstance(residual, ValuesSeriesExpr)
-                else value.value_type
-            ),
+            expected_type=value.value_type,
         )
         return expression
     residual = specialize_relation(
@@ -287,15 +275,7 @@ def specialize_value_expression(
     expression = verify_table_value_expr(
         residual,
         bindings=value.plan.bindings,
-        expected_type=(
-            replace(
-                value.value_type,
-                min_rows=len(residual.rows),
-                max_rows=len(residual.rows),
-            )
-            if isinstance(residual, LiteralRowsRelationExpr)
-            else value.value_type
-        ),
+        expected_type=value.value_type,
     )
     return expression
 

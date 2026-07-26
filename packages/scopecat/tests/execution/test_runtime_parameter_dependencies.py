@@ -32,7 +32,14 @@ from scopecat.graph.values import (
 from scopecat.kernel.content_identity import content_fingerprint
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.symbols import SymbolId
-from scopecat.kernel.value_types import Bool, Float, Scalar, Series, Table
+from scopecat.kernel.value_types import (
+    Bool,
+    Float,
+    Scalar,
+    Series,
+    Table,
+    TableColumn,
+)
 from tests.testkit.authoring import load_config
 from tests.testkit.local_materialization import materialize_local_execution
 from tests.testkit.relation_plans import value_expr
@@ -43,7 +50,9 @@ def test_bound_compute_call_carries_dependency_provenance() -> None:
     operation_id = OperationId(SymbolId(local_id="consume-parameters"))
     gain_type = Scalar(Float())
     offsets_type = Series(Scalar(Float()))
-    calibrations_type = Table(columns=(), allow_extra_columns=True)
+    calibrations_type = Table(
+        columns=(TableColumn("gain", Scalar(Float())),)
+    )
     bindings = RelationTypeBindings(
         parameters={
             "gain": gain_type,

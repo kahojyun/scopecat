@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-import re
 from collections.abc import Mapping, Sequence
 from typing import cast
 
@@ -26,7 +25,6 @@ from scopecat.kernel.value_types import (
     Int,
     Payload,
     Quantity,
-    Record,
     Scalar,
     Series,
     String,
@@ -78,15 +76,13 @@ def coerce_literal(
 ) -> object:
     """Validate and normalize a Python literal for ``value_type``.
 
-    Collections normalize to tuples, records and rows normalize to dictionaries,
-    numeric float values normalize to ``float``, and entity strings normalize to
+    Collections normalize to tuples, rows normalize to dictionaries, numeric
+    float values normalize to ``float``, and entity strings normalize to
     :class:`~scopecat.kernel.entity.EntityRef` objects. Opaque payloads normalize
     to transient, schema-tagged runtime wrappers.
     """
 
     if value is None:
-        if isinstance(value_type, Scalar) and value_type.nullable:
-            return None
         raise ValueValidationError(path, "value must not be null")
     if isinstance(value_type, Scalar):
         return _coerce_atom(value_type.atom, value, path=path)
@@ -135,27 +131,12 @@ def _coerce_atom(atom: AtomType, value: object, *, path: ValuePath) -> object:
         return _coerce_quantity(atom, value, path=path)
     if isinstance(atom, Entity):
         return _coerce_entity(atom, value, path=path)
-    if isinstance(atom, Record):
-        return _coerce_record(atom, value, path=path)
     return _coerce_payload(atom, value, path=path)
 
 
 def _coerce_string(atom: String, value: object, *, path: ValuePath) -> str:
     if not isinstance(value, str):
         raise ValueValidationError(path, f"expected string, got {value!r}")
-    length = len(value)
-    _validate_collection_length(
-        length,
-        atom.min_length,
-        atom.max_length,
-        path=path,
-        label="string",
-    )
-    if atom.pattern is not None and re.fullmatch(atom.pattern, value) is None:
-        raise ValueValidationError(
-            path,
-            f"string does not match pattern {atom.pattern!r}",
-        )
     if atom.choices is not None and value not in atom.choices:
         raise ValueValidationError(
             path,
@@ -260,42 +241,6 @@ def _coerce_entity(atom: Entity, value: object, *, path: ValuePath) -> EntityRef
     return selected
 
 
-def _coerce_record(
-    atom: Record,
-    value: object,
-    *,
-    path: ValuePath,
-) -> dict[str, object]:
-    mapping = _string_mapping(value, path=path, label="record")
-    fields = {field.id: field for field in atom.fields}
-    missing = [
-        field.id for field in atom.fields if field.required and field.id not in mapping
-    ]
-    if missing:
-        raise ValueValidationError(
-            path,
-            "record is missing required fields: " + ", ".join(missing),
-        )
-    extra = sorted(set(mapping) - set(fields))
-    if extra and not atom.allow_extra_fields:
-        raise ValueValidationError(
-            path,
-            "record contains unknown fields: " + ", ".join(extra),
-        )
-    result = {
-        field_id: coerce_literal(
-            field.value_type,
-            mapping[field_id],
-            path=(*path, field_id),
-        )
-        for field_id, field in fields.items()
-        if field_id in mapping
-    }
-    if atom.allow_extra_fields:
-        result.update({field_id: mapping[field_id] for field_id in extra})
-    return result
-
-
 def _coerce_payload(atom: Payload, value: object, *, path: ValuePath) -> PayloadValue:
     if isinstance(value, PayloadValue):
         if value.schema_id != atom.schema_id:
@@ -306,16 +251,6 @@ def _coerce_payload(atom: Payload, value: object, *, path: ValuePath) -> Payload
         selected_payload = value.payload
     else:
         selected_payload = value
-    if atom.python_type is not None and not isinstance(
-        selected_payload,
-        atom.python_type,
-    ):
-        expected_name = _python_type_name(atom.python_type)
-        raise ValueValidationError(
-            path,
-            f"payload {atom.schema_id!r} expects {expected_name}, "
-            f"got {selected_payload!r}",
-        )
     return PayloadValue(schema_id=atom.schema_id, payload=selected_payload)
 
 
@@ -326,13 +261,6 @@ def _coerce_series(
     path: ValuePath,
 ) -> tuple[object, ...]:
     sequence = _sequence(value, path=path, label="series")
-    _validate_collection_length(
-        len(sequence),
-        value_type.min_length,
-        value_type.max_length,
-        path=path,
-        label="series",
-    )
     return tuple(
         coerce_literal(value_type.item_type, item, path=(*path, index))
         for index, item in enumerate(sequence)
@@ -346,31 +274,20 @@ def _coerce_table(
     path: ValuePath,
 ) -> tuple[dict[str, object], ...]:
     rows = _sequence(value, path=path, label="table")
-    _validate_collection_length(
-        len(rows),
-        value_type.min_rows,
-        value_type.max_rows,
-        path=path,
-        label="table",
-    )
     columns = {column.id: column for column in value_type.columns}
     result: list[dict[str, object]] = []
     primary_keys: dict[tuple[ScalarIdentity, ...], int] = {}
     for index, raw_row in enumerate(rows):
         row_path = (*path, index)
         row = _string_mapping(raw_row, path=row_path, label="table row")
-        missing = [
-            column.id
-            for column in value_type.columns
-            if column.required and column.id not in row
-        ]
+        missing = [column.id for column in value_type.columns if column.id not in row]
         if missing:
             raise ValueValidationError(
                 row_path,
                 "table row is missing required columns: " + ", ".join(missing),
             )
         extra = sorted(set(row) - set(columns))
-        if extra and not value_type.allow_extra_columns:
+        if extra:
             raise ValueValidationError(
                 row_path,
                 "table row contains unknown columns: " + ", ".join(extra),
@@ -382,10 +299,7 @@ def _coerce_table(
                 path=(*row_path, column_id),
             )
             for column_id, column in columns.items()
-            if column_id in row
         }
-        if value_type.allow_extra_columns:
-            selected.update({column_id: row[column_id] for column_id in extra})
         if value_type.primary_key:
             key = tuple(selected[column_id] for column_id in value_type.primary_key)
             identity = tuple(scalar_identity(value) for value in key)
@@ -413,26 +327,6 @@ def _validate_numeric_value(
         raise ValueValidationError(path, f"value must be at most {maximum}")
 
 
-def _validate_collection_length(
-    length: int,
-    minimum: int,
-    maximum: int | None,
-    *,
-    path: ValuePath,
-    label: str,
-) -> None:
-    if length < minimum:
-        raise ValueValidationError(
-            path,
-            f"{label} must contain at least {minimum} item(s)",
-        )
-    if maximum is not None and length > maximum:
-        raise ValueValidationError(
-            path,
-            f"{label} must contain at most {maximum} item(s)",
-        )
-
-
 def _string_mapping(
     value: object,
     *,
@@ -456,11 +350,3 @@ def _sequence(
     if not isinstance(value, Sequence) or isinstance(value, str | bytes | bytearray):
         raise ValueValidationError(path, f"expected {label} sequence, got {value!r}")
     return value
-
-
-def _python_type_name(
-    value: type[object] | tuple[type[object], ...],
-) -> str:
-    if isinstance(value, tuple):
-        return " or ".join(item.__name__ for item in value)
-    return value.__name__

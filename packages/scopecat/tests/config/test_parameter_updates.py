@@ -319,7 +319,7 @@ def _catalog() -> ParameterCatalog:
             ),
             ParameterDefinition(
                 id="thresholds",
-                value_type=Series(Scalar(Int()), min_length=1),
+                value_type=Series(Scalar(Int())),
             ),
             ParameterDefinition(
                 id="drive_channels",

@@ -28,8 +28,6 @@ from scopecat.kernel.value_types import (
     Float,
     Int,
     Quantity,
-    Record,
-    RecordField,
     Scalar,
     Series,
     String,
@@ -48,23 +46,13 @@ TABLE_PARAMETER = Table(
         TableColumn("gain", FLOAT),
     ),
     primary_key=("id",),
-    min_rows=0,
-    max_rows=3,
 )
-
-
-def test_context_supplies_null_literal_type_without_losing_nullability() -> None:
-    expected = Scalar(Quantity(dimension="frequency", unit="GHz"), nullable=True)
-
-    verified = verify_relation_plan(lit(None), expected_type=expected)
-
-    assert verified.certified_type == expected
 
 
 @pytest.mark.parametrize(
     ("root", "code"),
     [
-        (lit(None), "ambiguous_null"),
+        (lit(None), "unsupported_null"),
         (values([]), "missing_declared_type"),
         (literal_rows([]), "missing_declared_type"),
     ],
@@ -81,7 +69,7 @@ def test_context_dependent_literals_require_an_expected_type(
 
 
 def test_empty_series_uses_context_for_items() -> None:
-    expected = Series(STRING, min_length=0, max_length=10)
+    expected = Series(STRING)
 
     assert verify_relation_plan(values([]), expected_type=expected).certified_type == (
         expected
@@ -91,28 +79,10 @@ def test_empty_series_uses_context_for_items() -> None:
 def test_empty_relation_uses_context_for_schema() -> None:
     expected = Table(
         columns=(TableColumn("frequency", FREQUENCY),),
-        min_rows=0,
-        max_rows=10,
     )
 
     assert (
         verify_relation_plan(literal_rows([]), expected_type=expected).certified_type
-        == expected
-    )
-
-
-def test_all_null_literal_column_is_typed_from_expected_schema() -> None:
-    expected = Table(
-        columns=(TableColumn("frequency", Scalar(FREQUENCY.atom, nullable=True)),),
-        min_rows=1,
-        max_rows=1,
-    )
-
-    assert (
-        verify_relation_plan(
-            literal_rows([{"frequency": None}]),
-            expected_type=expected,
-        ).certified_type
         == expected
     )
 
@@ -194,7 +164,7 @@ def test_unknown_import_reports_a_stable_code() -> None:
 
 
 def test_point_interface_projects_only_referenced_columns() -> None:
-    device = Scalar(Record(fields=(RecordField("rank", INT),)))
+    device = INT
     point = RowType(
         (
             TableColumn("device", device),
@@ -213,14 +183,11 @@ def test_point_interface_projects_only_referenced_columns() -> None:
     )
 
 
-def test_exact_dotted_point_column_takes_precedence_over_record_traversal() -> None:
+def test_exact_dotted_point_column_is_selected() -> None:
     point = RowType(
         columns=(
             TableColumn("device.rank", INT),
-            TableColumn(
-                "device",
-                Scalar(Record(fields=(RecordField("rank", STRING),))),
-            ),
+            TableColumn("device", STRING),
         )
     )
 
@@ -255,32 +222,6 @@ def test_lookup_use_is_typed_without_importing_the_whole_table() -> None:
     assert verified.certified_type == FLOAT
     assert verified.imports[0].lookup == use
     assert verified.imports[0].value_type == FLOAT
-
-
-def test_lookup_occurrences_own_distinct_literal_key_input_types() -> None:
-    uses = (
-        ParameterLookupUse(
-            table_id="calibration",
-            key_input_types=(("device", Scalar(String(min_length=2, max_length=2))),),
-            literal_key_columns=frozenset({"device"}),
-            column_id="gain",
-            result_type=FLOAT,
-        ),
-        ParameterLookupUse(
-            table_id="calibration",
-            key_input_types=(("device", Scalar(String(min_length=9, max_length=9))),),
-            literal_key_columns=frozenset({"device"}),
-            column_id="gain",
-            result_type=FLOAT,
-        ),
-    )
-
-    verified = verify_relation_plan(
-        parameter_lookup(uses[0], key={"device": "q0"})
-        + parameter_lookup(uses[1], key={"device": "long-name"}),
-    )
-
-    assert {imported.lookup for imported in verified.imports} == set(uses)
 
 
 def test_lookup_use_preserves_key_expression_errors() -> None:

@@ -1516,14 +1516,6 @@
   opacity: 0.72;
 }
 
-.parameter-null-toggle {
-  display: inline-flex;
-  gap: 5px;
-  align-items: center;
-  color: var(--text-dim);
-  font-size: 0.52rem;
-}
-
 .quantity-input {
   display: grid;
   grid-template-columns: minmax(80px, 1fr) minmax(65px, 0.6fr);

@@ -82,14 +82,6 @@ def _validate_parameter_lookup(
             "parameters",
             path=column_path,
         )
-    if not column.required:
-        raise_frontend_problem(
-            "authoring_parameter_lookup_column_optional",
-            f"parameter table {contract.table_id} lookup result column "
-            f"{contract.column_id} is not guaranteed to be present",
-            "parameters",
-            path=column_path,
-        )
     _require_declared_type(
         actual=column.value_type,
         declared=contract.result_type,
@@ -135,7 +127,6 @@ def _validate_parameter_lookup_key(
         target_type = columns[column_id].value_type
         if is_assignable(source_type, target_type) or (
             column_id in contract.literal_key_columns
-            and not source_type.nullable
             and isinstance(source_type.atom, String)
             and isinstance(target_type.atom, Entity)
         ):

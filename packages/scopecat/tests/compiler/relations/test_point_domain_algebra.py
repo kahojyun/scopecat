@@ -110,12 +110,12 @@ def test_statically_empty_factor_annihilates_exact_product() -> None:
     assert _shape(root).cardinality == 0
 
 
-def test_shape_projects_only_columns_and_exact_cardinality() -> None:
-    value_type = _shape(point_product(_axis("left", 2), _axis("right", 2))).value_type
+def test_shape_projects_only_columns_and_tracks_cardinality() -> None:
+    shape = _shape(point_product(_axis("left", 2), _axis("right", 2)))
 
-    assert value_type.primary_key == ()
-    assert not value_type.allow_extra_columns
-    assert value_type.min_rows == value_type.max_rows == 4
+    assert tuple(column.id for column in shape.value_type.columns) == ("left", "right")
+    assert shape.value_type.primary_key == ()
+    assert shape.cardinality == 4
 
 
 def test_point_domain_shape_requires_nonnegative_cardinality() -> None:

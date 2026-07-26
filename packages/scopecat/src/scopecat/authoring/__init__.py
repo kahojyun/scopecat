@@ -60,15 +60,6 @@ from scopecat.authoring.value_types import (
     Quantity as QuantityType,
 )
 from scopecat.authoring.value_types import (
-    Record as RecordType,
-)
-from scopecat.authoring.value_types import (
-    RecordField,
-    TableColumn,
-    ValueType,
-    ValueValidationError,
-)
-from scopecat.authoring.value_types import (
     Scalar as ScalarType,
 )
 from scopecat.authoring.value_types import (
@@ -79,6 +70,11 @@ from scopecat.authoring.value_types import (
 )
 from scopecat.authoring.value_types import (
     Table as TableType,
+)
+from scopecat.authoring.value_types import (
+    TableColumn,
+    ValueType,
+    ValueValidationError,
 )
 from scopecat.authoring.values import (
     Compute,
@@ -129,9 +125,7 @@ __all__ = [
     "ProductOutputs",
     "ProductRef",
     "QuantityType",
-    "RecordField",
     "RecordSelection",
-    "RecordType",
     "RuntimeInput",
     "ScalarInput",
     "ScalarType",

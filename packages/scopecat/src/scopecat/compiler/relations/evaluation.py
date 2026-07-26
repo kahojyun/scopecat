@@ -24,7 +24,6 @@ from scopecat.graph.relations.model import (
     is_cell_value,
 )
 from scopecat.kernel.value_types import (
-    Record,
     Scalar,
     Series,
     Table,
@@ -344,17 +343,22 @@ def _normalize_row_role(
         return dict(row) if row is not None else None
     if row is None:
         raise ValueValidationError(path, "required row binding is missing")
-    contract = Table(
-        columns,
-        min_rows=1,
-        max_rows=1,
-        allow_extra_columns=True,
-    )
-    normalized = _restore_runtime_collection_carriers(
-        contract,
-        coerce_literal(contract, [row], path=path),
-    )
-    return cast("list[Row]", normalized)[0]
+    normalized = dict(row)
+    for column in columns:
+        if column.id not in row:
+            raise ValueValidationError(
+                path,
+                f"table row is missing required columns: {column.id}",
+            )
+        normalized[column.id] = cast(
+            "CellValue",
+            coerce_literal(
+                column.value_type,
+                row[column.id],
+                path=(*path, column.id),
+            ),
+        )
+    return normalized
 
 
 def _referenced_row_columns(
@@ -427,16 +431,7 @@ def _restore_runtime_collection_carriers(
     """Use mutable runtime collections while retaining normalized scalar atoms."""
 
     if isinstance(value_type, Scalar):
-        if not isinstance(value_type.atom, Record) or not isinstance(value, dict):
-            return value
-        selected = dict(cast("dict[str, object]", value))
-        for field in value_type.atom.fields:
-            if field.id in selected:
-                selected[field.id] = _restore_runtime_collection_carriers(
-                    field.value_type,
-                    selected[field.id],
-                )
-        return selected
+        return value
     if isinstance(value_type, Series):
         return [
             _restore_runtime_collection_carriers(value_type.item_type, item)

@@ -5,7 +5,7 @@ from __future__ import annotations
 import inspect
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from types import NoneType, UnionType
+from types import UnionType
 from typing import (
     Annotated,
     TypeAliasType,
@@ -40,7 +40,6 @@ from scopecat.authoring.value_types import (
     Int,
     Payload,
     Quantity,
-    Record,
     Scalar,
     Series,
     String,
@@ -511,7 +510,7 @@ def _is_value_type(value: object) -> bool:
         return True
     return isinstance(
         value,
-        Bool | Entity | Float | Int | Payload | Quantity | Record | String,
+        Bool | Entity | Float | Int | Payload | Quantity | String,
     )
 
 
@@ -520,7 +519,7 @@ def _as_value_type(value: object) -> ValueType:
         return value
     if isinstance(
         value,
-        Bool | Entity | Float | Int | Payload | Quantity | Record | String,
+        Bool | Entity | Float | Int | Payload | Quantity | String,
     ):
         return Scalar(value)
     raise AssertionError("value-type metadata was checked before normalization")
@@ -531,21 +530,15 @@ def _python_annotation_matches(annotation: object, value_type: ValueType) -> boo
         [annotation] = cast("tuple[object, ...]", get_args(annotation))
     origin = get_origin(annotation)
     if origin is UnionType:
-        options = cast("tuple[object, ...]", get_args(annotation))
         return all(
-            (
-                isinstance(value_type, Scalar)
-                and value_type.nullable
-                and option is NoneType
-            )
-            or _python_annotation_matches(option, value_type)
-            for option in options
+            _python_annotation_matches(option, value_type)
+            for option in cast("tuple[object, ...]", get_args(annotation))
         )
     if annotation is object:
         return True
     if isinstance(value_type, Scalar):
         atom = value_type.atom
-        if isinstance(atom, Payload | Record) and origin in (dict, Mapping):
+        if isinstance(atom, Payload) and origin in (dict, Mapping):
             return True
         expected: dict[type[object], tuple[object, ...]] = {
             Bool: (bool,),
@@ -554,7 +547,6 @@ def _python_annotation_matches(annotation: object, value_type: ValueType) -> boo
             Int: (int,),
             Payload: (dict, Mapping),
             Quantity: (QuantityValue,),
-            Record: (dict, Mapping),
             String: (str,),
         }
         return annotation in expected[type(atom)]

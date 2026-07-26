@@ -62,10 +62,6 @@ def scalar_operator_result_type(
 ) -> Scalar:
     """Validate one typed operator and return its semantic result type."""
 
-    if left.nullable or right.nullable:
-        msg = f"operator {operator!r} does not accept nullable operands"
-        raise TypeError(msg)
-
     left_category = _atom_arithmetic_category(left.atom)
     right_category = _atom_arithmetic_category(right.atom)
     if (left_category, right_category) not in _ARITHMETIC_OPERANDS[operator]:
@@ -287,8 +283,7 @@ def _quantity_comparison_values(
 
 
 def _describe_scalar(value_type: Scalar) -> str:
-    nullable = "?" if value_type.nullable else ""
-    return f"Scalar[{type(value_type.atom).__name__}]{nullable}"
+    return f"Scalar[{type(value_type.atom).__name__}]"
 
 
 def _unsupported_type_operator(

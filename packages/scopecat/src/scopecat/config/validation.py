@@ -118,30 +118,28 @@ def coerce_stored_parameter_value(
     if isinstance(value_type, Series):
         if not isinstance(stored, SeriesParameterValue):
             _raise_shape_mismatch(definition, stored, expected="series", path=path)
-        _validate_length(
-            len(stored.items),
-            minimum=value_type.min_length,
-            maximum=value_type.max_length,
+        items = _coerce_parameter_collection(
             parameter_id=definition.id,
-            shape="series",
+            value_type=value_type,
+            value=stored.items,
             path=(*path, "items"),
         )
         return stored.model_copy(
             update={
-                "items": tuple(
-                    coerce_parameter_atom(
-                        parameter_id=definition.id,
-                        value_type=value_type.item_type,
-                        value=item,
-                        path=(*path, "items", index),
-                    )
-                    for index, item in enumerate(stored.items)
-                )
+                "items": cast("tuple[ParameterAtomValue, ...]", items),
             }
         )
     if not isinstance(stored, TableParameterValue):
         _raise_shape_mismatch(definition, stored, expected="table", path=path)
-    return _coerce_table(definition, value_type, stored, path=path)
+    rows = _coerce_parameter_collection(
+        parameter_id=definition.id,
+        value_type=value_type,
+        value=stored.rows,
+        path=(*path, "rows"),
+    )
+    return stored.model_copy(
+        update={"rows": cast("tuple[dict[str, ParameterAtomValue], ...]", rows)}
+    )
 
 
 def coerce_parameter_table_cell(
@@ -161,75 +159,22 @@ def coerce_parameter_table_cell(
     )
 
 
-def _coerce_table(
-    definition: ParameterDefinition,
-    value_type: Table,
-    stored: TableParameterValue,
+def _coerce_parameter_collection(
     *,
+    parameter_id: str,
+    value_type: Series | Table,
+    value: object,
     path: ValuePath,
-) -> TableParameterValue:
-    _validate_length(
-        len(stored.rows),
-        minimum=value_type.min_rows,
-        maximum=value_type.max_rows,
-        parameter_id=definition.id,
-        shape="table",
-        path=(*path, "rows"),
-    )
-    columns = {column.id: column for column in value_type.columns}
-    required = {column.id for column in value_type.columns if column.required}
-    normalized_rows: list[dict[str, ParameterAtomValue]] = []
-    seen_keys: set[tuple[object, ...]] = set()
-    for row_index, row in enumerate(stored.rows):
-        row_path = (*path, "rows", row_index)
-        missing = sorted(required - row.keys())
-        if missing:
-            msg = (
-                f"parameter table {definition.id} row is missing columns: "
-                + ", ".join(missing)
-            )
-            raise ParameterValueValidationError(
-                "missing_parameter_table_columns",
-                msg,
-                path=row_path,
-            )
-        extra = sorted(row.keys() - columns.keys())
-        if extra:
-            msg = (
-                f"parameter table {definition.id} row contains unknown columns: "
-                + ", ".join(extra)
-            )
-            raise ParameterValueValidationError(
-                "unknown_parameter_table_columns",
-                msg,
-                path=row_path,
-            )
-        normalized = {
-            column_id: coerce_parameter_table_cell(
-                parameter_id=definition.id,
-                column=columns[column_id],
-                value=value,
-                path=(*row_path, column_id),
-            )
-            for column_id, value in row.items()
-        }
-        if value_type.primary_key:
-            key = tuple(
-                scalar_identity(normalized[column_id])
-                for column_id in value_type.primary_key
-            )
-            if key in seen_keys:
-                msg = (
-                    f"parameter table {definition.id} has duplicate primary key {key!r}"
-                )
-                raise ParameterValueValidationError(
-                    "duplicate_parameter_table_primary_key",
-                    msg,
-                    path=row_path,
-                )
-            seen_keys.add(key)
-        normalized_rows.append(normalized)
-    return stored.model_copy(update={"rows": normalized_rows})
+) -> object:
+    try:
+        return coerce_literal(value_type, value, path=path)
+    except ValueValidationError as error:
+        msg = f"parameter {parameter_id}: {error.reason}"
+        raise ParameterValueValidationError(
+            "invalid_parameter_value",
+            msg,
+            path=error.path,
+        ) from error
 
 
 def _raise_shape_mismatch(
@@ -245,35 +190,6 @@ def _raise_shape_mismatch(
         msg,
         path=path,
     )
-
-
-def _validate_length(
-    length: int,
-    *,
-    minimum: int,
-    maximum: int | None,
-    parameter_id: str,
-    shape: str,
-    path: ValuePath,
-) -> None:
-    if length < minimum:
-        msg = (
-            f"parameter {parameter_id} {shape} has {length} items; minimum is {minimum}"
-        )
-        raise ParameterValueValidationError(
-            "parameter_length_out_of_bounds",
-            msg,
-            path=path,
-        )
-    if maximum is not None and length > maximum:
-        msg = (
-            f"parameter {parameter_id} {shape} has {length} items; maximum is {maximum}"
-        )
-        raise ParameterValueValidationError(
-            "parameter_length_out_of_bounds",
-            msg,
-            path=path,
-        )
 
 
 def parameter_table_key_part(value: object) -> str:
