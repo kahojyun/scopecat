@@ -66,6 +66,7 @@ class JournaledEffectBoundary:
         unknown_message: str,
         unknown_evidence: Mapping[str, JsonValue] | None = None,
         after_intent: Callable[[], None] | None = None,
+        phase: ProblemPhase = ProblemPhase.EXECUTION,
     ) -> ReceiptT | None:
         """Persist an effect intent, invoke it once, and close unknown outcomes."""
 
@@ -83,6 +84,7 @@ class JournaledEffectBoundary:
                 operation_id=entry.operation_id,
                 point_index=entry.point_index,
                 instrument_id=entry.instrument_id,
+                phase=phase,
             )
             self.problems.append(problem)
         except BaseException as error:
@@ -92,6 +94,7 @@ class JournaledEffectBoundary:
                 operation_id=entry.operation_id,
                 point_index=entry.point_index,
                 instrument_id=entry.instrument_id,
+                phase=phase,
             )
         self.commit_best_effort(
             entry.model_copy(
@@ -174,6 +177,7 @@ class JournaledEffectBoundary:
         operation_id: str | None = None,
         point_index: int | None = None,
         instrument_id: str | None = None,
+        phase: ProblemPhase = ProblemPhase.EXECUTION,
     ) -> Problem:
         if self.interruption is None:
             self.interruption = error
@@ -183,6 +187,7 @@ class JournaledEffectBoundary:
             operation_id=operation_id,
             point_index=point_index,
             instrument_id=instrument_id,
+            phase=phase,
             details={
                 "exception_type": f"{type(error).__module__}.{type(error).__qualname__}"
             },
