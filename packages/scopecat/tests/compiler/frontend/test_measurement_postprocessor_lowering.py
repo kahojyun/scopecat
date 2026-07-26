@@ -83,9 +83,7 @@ def test_record_demand_retains_source_use_and_prunes_dead_postprocessor(
     assert postprocessor.kernel is _kernel
 
     linked = link_program(program, resolved.environment)
-    assert linked.program.measurement_postprocessors == (
-        postprocessor,
-    )
+    assert linked.program.measurement_postprocessors == (postprocessor,)
 
 
 def test_hidden_input_use_ids_are_stable_and_scoped(tmp_path: Path) -> None:
@@ -107,9 +105,7 @@ def test_hidden_input_use_ids_are_stable_and_scoped(tmp_path: Path) -> None:
     left = child.instantiate("left")
     right = child.instantiate("right")
     root = (
-        sc.module_body(id="test.postprocessor.hidden-id.root")
-        .use(left, right)
-        .build()
+        sc.module_body(id="test.postprocessor.hidden-id.root").use(left, right).build()
     )
     template = template_fixture(
         root,
@@ -127,16 +123,18 @@ def test_hidden_input_use_ids_are_stable_and_scoped(tmp_path: Path) -> None:
             config_profile=load_config(),
         ).program
         return {
-            postprocessor.id.qualified_name: (
-                postprocessor.input_product_use_id.value
-            )
+            postprocessor.id.qualified_name: (postprocessor.input_product_use_id.value)
             for postprocessor in program.measurement_postprocessors
         }
 
-    assert compile_input_use_ids() == compile_input_use_ids() == {
-        "left/derive": "scopecat.measurement-postprocessor/left/derive/input",
-        "right/derive": "scopecat.measurement-postprocessor/right/derive/input",
-    }
+    assert (
+        compile_input_use_ids()
+        == compile_input_use_ids()
+        == {
+            "left/derive": "scopecat.measurement-postprocessor/left/derive/input",
+            "right/derive": "scopecat.measurement-postprocessor/right/derive/input",
+        }
+    )
 
 
 def test_recorded_product_requires_a_producer() -> None:

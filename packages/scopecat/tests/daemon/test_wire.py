@@ -148,6 +148,8 @@ def test_config_registry_commands_are_closed_typed_json() -> None:
         )
         == default_command
     )
+
+
 def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
     proposal = parameter_change_proposal_from_updates(
         source_run_id="run-1",
@@ -206,9 +208,7 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
         == activation
     )
     assert (
-        ParameterProposalApprovalCommand.model_validate_json(
-            approval.model_dump_json()
-        )
+        ParameterProposalApprovalCommand.model_validate_json(approval.model_dump_json())
         == approval
     )
     with pytest.raises(ValidationError, match="identify the command analysis"):

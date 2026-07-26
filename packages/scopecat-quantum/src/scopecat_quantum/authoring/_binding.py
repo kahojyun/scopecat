@@ -719,6 +719,8 @@ def _bound_gate_definitions(
             for definition in _bound_gate_definitions(child, bindings)
         )
     )
+
+
 def _bound_qubit_id(qubit: Qubit, bindings: ElementBindings) -> QubitId:
     selected = bindings.get(qubit.ir_id, qubit.ir_id)
     if not isinstance(selected, QubitId):

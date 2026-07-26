@@ -95,11 +95,14 @@ def test_parameter_change_approval_is_single_and_idempotent(tmp_path: Path) -> N
             reviewer="reviewer-a",
             note="different evidence",
         )
-    assert load_parameter_change_approval(
-        run_id=run_id,
-        selector="best-signal",
-        storage=services.runs,
-    ) == first
+    assert (
+        load_parameter_change_approval(
+            run_id=run_id,
+            selector="best-signal",
+            storage=services.runs,
+        )
+        == first
+    )
     records = [
         entry
         for entry in services.runs.read_manifest(run_id).records

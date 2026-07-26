@@ -93,9 +93,7 @@ def test_postprocessor_reads_child_product_and_is_hygienically_scoped() -> None:
     child = sc.module_body(id="test.postprocessor.source").product("raw").build()
     nested = child.instantiate("nested")
     builder = (
-        sc.module_body(id="test.postprocessor.parent")
-        .use(nested)
-        .product("derived")
+        sc.module_body(id="test.postprocessor.parent").use(nested).product("derived")
     )
     postprocessor = sc.measurement_postprocessor(
         "derive",

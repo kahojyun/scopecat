@@ -248,8 +248,7 @@ def _verify_product_owners(
                 )
                 continue
             owners[product_id] = (
-                "measurement postprocessor "
-                f"{postprocessor.id.qualified_name!r}",
+                f"measurement postprocessor {postprocessor.id.qualified_name!r}",
                 role,
             )
 
@@ -279,9 +278,7 @@ def _verify_measurement_postprocessor_sources(
                 "input",
             )
         )
-    return tuple(
-        sorted(postprocessors, key=lambda item: item.id.qualified_name)
-    )
+    return tuple(sorted(postprocessors, key=lambda item: item.id.qualified_name))
 
 
 def _verify_domain_execution(

@@ -167,15 +167,16 @@ export function RunProposals({ runId }: { runId: string }) {
             const proposalError =
               acceptMutation.error && acceptMutation.variables?.proposal.id === proposal.id
                 ? acceptMutation.error
-                : approvalMutation.error &&
-                    approvalMutation.variables?.proposalId === proposal.id
+                : approvalMutation.error && approvalMutation.variables?.proposalId === proposal.id
                   ? approvalMutation.error
                   : undefined;
             return (
               <section className="proposal" key={proposal.id}>
                 <header>
                   <div>
-                    <span className={`proposal-state ${proposal.approval ? "approved" : "pending"}`}>
+                    <span
+                      className={`proposal-state ${proposal.approval ? "approved" : "pending"}`}
+                    >
                       {proposal.approval ? "Approved" : "Awaiting approval"}
                     </span>
                     <h4>{proposal.id}</h4>
