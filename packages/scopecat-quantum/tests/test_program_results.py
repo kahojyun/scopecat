@@ -75,13 +75,9 @@ from scopecat_quantum.pulses import (
     ReadoutSignal,
 )
 from scopecat_quantum.pulses import Parallel as PulseParallel
-from scopecat_quantum.pulses import Sequence as PulseSequence
-from scopecat_quantum.result_collections import ResultCollection
 from scopecat_quantum.targets import (
     TargetAcquisitionAddress,
     TargetCompileRequest,
-    target_result_acquisition_addresses,
-    target_result_entry_id,
 )
 
 Q0 = QubitId("q0")
@@ -204,59 +200,6 @@ def _batch() -> PreparedQuantumTargetBatch:
     )
 
 
-def _prepared_repeated(entry_id: str, source_program_id: str):
-    slots = tuple(
-        AcquisitionSlot(
-            id=AcquisitionSlotId(f"result-{index}"),
-            kind=AcquisitionKind.INTEGRATED_IQ,
-            signal=AcquireSignal(Q0),
-        )
-        for index in range(2)
-    )
-    duration = Quantity(4, "ns")
-    template = PulseProgram(
-        id=PulseProgramId(f"{source_program_id}-template"),
-        body=PulseSequence(
-            tuple(
-                PulseParallel(
-                    (
-                        Play(
-                            id=PulseEventId("readout", scope=(str(index),)),
-                            signal=ReadoutSignal(Q0),
-                            envelope=Constant(
-                                duration=duration,
-                                amplitude=Quantity(0.2, "arb"),
-                            ),
-                        ),
-                        Acquire(
-                            id=PulseEventId("acquire", scope=(str(index),)),
-                            signal=slot.signal,
-                            slot_id=slot.id,
-                            duration=duration,
-                        ),
-                    )
-                )
-                for index, slot in enumerate(slots)
-            )
-        ),
-        acquisition_slots=slots,
-    )
-    source = QuantumProgramIR(
-        id=QuantumProgramId(source_program_id),
-        body=PulseBlock(
-            id=CircuitOperationId("repeated-readout"),
-            pulse_template=template,
-            acquisition_slot_bindings=tuple((slot.id, slot.id) for slot in slots),
-        ),
-    )
-    lowered = lower_quantum_program_to_pulses(
-        verify_quantum_program(source, ()),
-        ResolvedPulseImplementations(),
-        output_id=PulseProgramId(f"{source_program_id}-pulses"),
-    )
-    return prepare_quantum_target_entry(TargetCompileEntryId(entry_id), lowered)
-
-
 def _valid_inputs():
     preparation = _preparation()
     batch = _batch()
@@ -325,9 +268,7 @@ def test_mapping_preserves_logical_order_while_batch_retains_origins() -> None:
 
     assert isinstance(mapping, DomainResultMapping)
     assert mapping.context is preparation.context
-    assert tuple(
-        target_result_entry_id(result.result_address) for result in mapping.results
-    ) == (
+    assert tuple(result.result_address.entry_id for result in mapping.results) == (
         batch.entries[1].id,
         batch.entries[0].id,
     )
@@ -340,7 +281,7 @@ def test_mapping_preserves_logical_order_while_batch_retains_origins() -> None:
     )
     entry_by_id = {entry.id: entry for entry in batch.entries}
     for result in mapping.results:
-        [address] = target_result_acquisition_addresses(result.result_address)
+        address = result.result_address
         origin = batch.acquisition_origin_for(address)
         assert isinstance(
             origin.provenance,
@@ -348,49 +289,8 @@ def test_mapping_preserves_logical_order_while_batch_retains_origins() -> None:
         )
         assert (
             origin.source_program_id
-            == entry_by_id[
-                target_result_entry_id(result.result_address)
-            ].source_program_id
+            == entry_by_id[result.result_address.entry_id].source_program_id
         )
-
-
-def test_mapping_groups_one_logical_result_over_a_recursive_physical_axis() -> None:
-    preparation = _preparation()
-    entries = (
-        _prepared_repeated("entry-b", "repeated-source-b"),
-        _prepared_repeated("entry-a", "repeated-source-a"),
-    )
-    batch = prepare_quantum_target_batch(
-        entries,
-        repetitions=3,
-    )
-    points = preparation.context.points
-    product_use = preparation.context.product_uses[0]
-
-    mapping = seal_quantum_target_result_mapping(
-        preparation,
-        batch,
-        (
-            QuantumTargetEntryPointBinding(entries[0].id, points[1]),
-            QuantumTargetEntryPointBinding(entries[1].id, points[0]),
-        ),
-        tuple(
-            QuantumTargetResultUseBinding(
-                ResultCollection("round", entry.acquisition_addresses),
-                product_use,
-            )
-            for entry in entries
-        ),
-    )
-
-    assert tuple(
-        target_result_entry_id(result.result_address) for result in mapping.results
-    ) == (entries[1].id, entries[0].id)
-    assert tuple(
-        address
-        for result in mapping.results
-        for address in target_result_acquisition_addresses(result.result_address)
-    ) == (*entries[1].acquisition_addresses, *entries[0].acquisition_addresses)
 
 
 @pytest.mark.parametrize("change", ("missing", "duplicate", "foreign"))

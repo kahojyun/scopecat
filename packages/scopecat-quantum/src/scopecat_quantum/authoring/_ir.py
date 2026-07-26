@@ -12,7 +12,6 @@ from scopecat.authoring import (
     Input as ExperimentInput,
 )
 from scopecat.authoring import (
-    IntType,
     ScalarType,
 )
 from scopecat.authoring.value_types import (
@@ -80,47 +79,12 @@ class ProgramInput:
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class QuantumResultAxis:
-    """One non-shot product axis declared by a quantum result contract."""
-
-    id: str
-    size: int | ProgramInput
-    kind: str
-    unit: str | None = "count"
-
-    def __post_init__(self) -> None:
-        if not self.id.strip() or not self.kind.strip():
-            raise ValueError("quantum result axis id and kind must be non-empty")
-        if self.id == "shot":
-            raise ValueError("quantum result contracts add the shot axis automatically")
-        if isinstance(self.size, int):
-            if isinstance(self.size, bool) or self.size <= 0:
-                raise ValueError("quantum result axis size must be a positive integer")
-        elif not isinstance(self.size.value_type.atom, IntType):
-            raise TypeError("quantum result axis inputs must be integers")
-
-
-@dataclass(frozen=True, slots=True, repr=False)
 class QuantumResultContract:
-    """Product schema for one integrated-IQ quantum result.
-
-    ``axes`` follow the automatic shot axis and index recursively repeated or
-    composite acquisition addresses.
-    """
+    """Product schema for one shot-indexed integrated-IQ result."""
 
     acquisition_kind: AcquisitionKind
     dtype: MeasurementDType
     unit: str | None
-    axes: tuple[QuantumResultAxis, ...] = ()
-
-    def __post_init__(self) -> None:
-        axis_ids = tuple(axis.id for axis in self.axes)
-        duplicates = tuple(
-            sorted(axis_id for axis_id in set(axis_ids) if axis_ids.count(axis_id) > 1)
-        )
-        if duplicates:
-            rendered = ", ".join(repr(item) for item in duplicates)
-            raise ValueError(f"quantum result has duplicate axes: {rendered}")
 
 
 INTEGRATED_IQ_RESULT = QuantumResultContract(
@@ -353,20 +317,17 @@ class _GateFragment(CircuitFragment):
 @dataclass(frozen=True, slots=True)
 class _SequenceFragment(CircuitFragment):
     operations: tuple[CircuitFragment, ...]
-    result_axis: QuantumResultAxis | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class _ParallelFragment(CircuitFragment):
     branches: tuple[CircuitFragment, ...]
-    result_axis: QuantumResultAxis | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class _RepeatFragment(CircuitFragment):
     operation: CircuitFragment
     count: int | ProgramInput
-    result_axis: QuantumResultAxis | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -396,20 +357,17 @@ class _PulseTemplateCallFragment(PulseFragment):
 @dataclass(frozen=True, slots=True)
 class _QuantumSequenceFragment(QuantumFragment):
     operations: tuple[QuantumFragment, ...]
-    result_axis: QuantumResultAxis | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class _QuantumParallelFragment(QuantumFragment):
     branches: tuple[QuantumFragment, ...]
-    result_axis: QuantumResultAxis | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class _QuantumRepeatFragment(QuantumFragment):
     operation: QuantumFragment
     count: RepeatCount
-    result_axis: QuantumResultAxis | None = None
 
 
 @dataclass(frozen=True, slots=True)

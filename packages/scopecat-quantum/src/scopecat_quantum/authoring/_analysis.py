@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import (
     Annotated,
     cast,
@@ -110,13 +110,9 @@ def _pulse_envelope_parts(
 
 def _core_input_type(
     kind: GateParameterKind,
-    *,
-    non_negative: bool = False,
-    positive: bool = False,
 ) -> ScalarType:
     if kind is GateParameterKind.INTEGER:
-        minimum = 1 if positive else 0 if non_negative else None
-        return ScalarType(IntType(minimum=minimum))
+        return ScalarType(IntType())
     if kind is GateParameterKind.NUMBER:
         return ScalarType(FloatType())
     if kind is GateParameterKind.ANGLE:
@@ -128,7 +124,6 @@ def program_port_type(
     value: ProgramPort,
     *,
     non_negative: bool = False,
-    positive: bool = False,
 ) -> ScalarType:
     """Return the core value contract for one quantum program port."""
 
@@ -139,7 +134,6 @@ def program_port_type(
     return _program_input_type(
         value,
         non_negative=non_negative,
-        positive=positive,
     )
 
 
@@ -243,31 +237,14 @@ def _program_input_type(
     value: ProgramInput,
     *,
     non_negative: bool,
-    positive: bool = False,
 ) -> ScalarType:
-    if not non_negative and not positive:
+    if not non_negative:
         return value.value_type
     atom = value.value_type.atom
     if not isinstance(atom, IntType):
-        raise AssertionError("repeat and result-axis inputs must have an integer type")
-    required_minimum = 1 if positive else 0
-    minimum = (
-        required_minimum
-        if atom.minimum is None
-        else max(required_minimum, atom.minimum)
-    )
+        raise AssertionError("repeat inputs must have an integer type")
+    minimum = 0 if atom.minimum is None else max(0, atom.minimum)
     return ScalarType(IntType(minimum=minimum, maximum=atom.maximum))
-
-
-def _result_axis_input_ids(
-    results: Iterable[ProgramResult],
-) -> set[str]:
-    return {
-        axis.size.id
-        for result in results
-        for axis in result.contract.axes
-        if isinstance(axis.size, ProgramInput)
-    }
 
 
 def _program_function_argument(
@@ -423,11 +400,6 @@ def _summarize_fragment(fragment: QuantumFragment) -> _FragmentFacts:
     if isinstance(fragment, Measurement):
         return _FragmentFacts(
             element_uses=(fragment.result.qubit,),
-            inputs=tuple(
-                axis.size
-                for axis in fragment.result.contract.axes
-                if isinstance(axis.size, ProgramInput)
-            ),
             results=(fragment.result,),
         )
     if isinstance(fragment, Acquisition):
@@ -436,16 +408,9 @@ def _summarize_fragment(fragment: QuantumFragment) -> _FragmentFacts:
             pulse_owners=(_signal_owner(fragment.signal),),
             element_uses=(fragment.result.qubit,),
             inputs=(
-                *(
-                    (fragment.duration,)
-                    if isinstance(fragment.duration, ProgramInput)
-                    else ()
-                ),
-                *(
-                    axis.size
-                    for axis in fragment.result.contract.axes
-                    if isinstance(axis.size, ProgramInput)
-                ),
+                (fragment.duration,)
+                if isinstance(fragment.duration, ProgramInput)
+                else ()
             ),
             results=(fragment.result,),
         )
@@ -531,16 +496,13 @@ def _summarize_fragment(fragment: QuantumFragment) -> _FragmentFacts:
     else:
         raise AssertionError(f"unsupported quantum fragment {type(fragment).__name__}")
     child_facts = tuple(_summarize_fragment(child) for child in children)
-    merged = _merge_fragment_facts(
+    return _merge_fragment_facts(
         child_facts,
         carries_pulse_structure=isinstance(
             fragment,
             _QuantumSequenceFragment | _QuantumParallelFragment,
         ),
     )
-    if fragment.result_axis is None:
-        return merged
-    return replace(merged, results=child_facts[0].results)
 
 
 def _merge_fragment_facts(

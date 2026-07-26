@@ -26,7 +26,6 @@ from scopecat_quantum._ids import (
     TargetId,
 )
 from scopecat_quantum.pulses import ScheduledPulseProgram
-from scopecat_quantum.result_collections import ResultCollection, iter_result_leaves
 
 
 def _require_text(value: str, *, field: str) -> None:
@@ -49,28 +48,6 @@ class TargetAcquisitionAddress:
 
     entry_id: TargetCompileEntryId
     slot_id: AcquisitionSlotId
-
-
-type TargetResultAddress = (
-    TargetAcquisitionAddress | ResultCollection[TargetAcquisitionAddress]
-)
-
-
-def target_result_entry_id(address: TargetResultAddress) -> TargetCompileEntryId:
-    """Return the one target entry owning every leaf of a result address."""
-
-    entry_ids = {leaf.entry_id for leaf in iter_result_leaves(address)}
-    if len(entry_ids) != 1:
-        raise ValueError("one target result address cannot span compile entries")
-    return next(iter(entry_ids))
-
-
-def target_result_acquisition_addresses(
-    address: TargetResultAddress,
-) -> tuple[TargetAcquisitionAddress, ...]:
-    """Flatten one logical result address in recursive axis order."""
-
-    return tuple(iter_result_leaves(address))
 
 
 @dataclass(frozen=True, slots=True)

@@ -51,13 +51,13 @@ from scopecat_quantum.pulses import (
 from scopecat_quantum.pulses import Parallel as PulseParallel
 from scopecat_quantum.targets import TargetCompileEntry, TargetCompileRequest
 
+from quantum_lab_demo.configuration import quantum_lab_bootstrap_config
 from quantum_lab_demo.targets.fake_list_mode import (
     FakeListRuntime,
     FakeListTarget,
     FakeListTargetCompiler,
     configured_fake_list_target,
 )
-from quantum_lab_demo.virtual_lab.wiring import quantum_wiring_config_profile
 
 Q0 = QubitId("q0")
 DRIVE_Q0 = DriveSignal(Q0)
@@ -66,7 +66,7 @@ READOUT_Q0 = ReadoutSignal(Q0)
 
 
 def _target() -> FakeListTarget:
-    return configured_fake_list_target(quantum_wiring_config_profile())
+    return configured_fake_list_target(quantum_lab_bootstrap_config())
 
 
 def _request(

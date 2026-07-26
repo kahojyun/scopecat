@@ -43,7 +43,6 @@ from ._ir import (
     PulseEnvelope,
     QuantumFragment,
     QuantumQuantity,
-    QuantumResultAxis,
     Qubit,
     _DelayFragment,
     _ExpandedFragment,
@@ -192,18 +191,17 @@ def _inspection_node(fragment: QuantumFragment) -> _InspectionNode:
         )
     if isinstance(fragment, _SequenceFragment | _QuantumSequenceFragment):
         return _InspectionNode(
-            f"sequence{_inspection_axis(fragment.result_axis)}",
+            "sequence",
             tuple(_inspection_node(item) for item in fragment.operations),
         )
     if isinstance(fragment, _ParallelFragment | _QuantumParallelFragment):
         return _InspectionNode(
-            f"parallel{_inspection_axis(fragment.result_axis)}",
+            "parallel",
             tuple(_inspection_node(item) for item in fragment.branches),
         )
     if isinstance(fragment, _RepeatFragment | _QuantumRepeatFragment):
         return _InspectionNode(
-            f"repeat {_inspection_value(fragment.count)}"
-            f"{_inspection_axis(fragment.result_axis)}",
+            f"repeat {_inspection_value(fragment.count)}",
             (_inspection_node(fragment.operation),),
         )
     raise AssertionError(f"unsupported quantum fragment {type(fragment).__name__}")
@@ -268,12 +266,6 @@ def _is_zero_phase(value: QuantumQuantity) -> bool:
     return isinstance(value, Quantity) and value.to("rad").value == 0
 
 
-def _inspection_axis(axis: QuantumResultAxis | None) -> str:
-    if axis is None:
-        return ""
-    return f" axis={axis.id}:{axis.kind}[{_inspection_value(axis.size)}]"
-
-
 def _inspection_value(value: object) -> str:
     if isinstance(value, Qubit | Coupler):
         return value.id
@@ -299,10 +291,8 @@ def _describe_program_input(value: ProgramInput) -> str:
 
 def _describe_result(result: ProgramResult) -> str:
     contract = result.contract
-    axes = ["shot"]
-    axes.extend(f"{axis.id}[{_inspection_value(axis.size)}]" for axis in contract.axes)
     unit = "" if contract.unit is None else f" {contract.unit}"
     return (
         f"{result.acquisition_kind.value} {contract.dtype}{unit} "
-        f"on {result.qubit.id}; axes={' x '.join(axes)}"
+        f"on {result.qubit.id}; axes=shot"
     )

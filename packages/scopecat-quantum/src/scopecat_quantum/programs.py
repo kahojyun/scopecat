@@ -102,13 +102,10 @@ class Repeat:
 
     operation: QuantumNode
     count: int
-    axis_id: str | None = None
 
     def __post_init__(self) -> None:
         if isinstance(self.count, bool) or self.count < 0:
             raise ValueError("quantum repeat count must be a non-negative integer")
-        if self.axis_id is not None and not self.axis_id.strip():
-            raise ValueError("quantum repeat axis id must be non-empty")
 
 
 type QuantumOperation = GateCall | Measure | PulseBlock | ImplementedGate

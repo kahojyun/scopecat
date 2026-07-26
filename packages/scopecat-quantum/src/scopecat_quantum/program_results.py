@@ -16,10 +16,8 @@ from scopecat.sdk.domain import (
 from scopecat_quantum._ids import TargetCompileEntryId
 from scopecat_quantum.program_targets import PreparedQuantumTargetBatch
 from scopecat_quantum.targets import (
+    TargetAcquisitionAddress,
     TargetArtifact,
-    TargetResultAddress,
-    target_result_acquisition_addresses,
-    target_result_entry_id,
 )
 
 
@@ -33,9 +31,9 @@ class QuantumTargetEntryPointBinding:
 
 @dataclass(frozen=True, slots=True)
 class QuantumTargetResultUseBinding:
-    """Adapter edge from one physical result tree to one logical product use."""
+    """Adapter edge from one acquisition to one logical product use."""
 
-    address: TargetResultAddress
+    address: TargetAcquisitionAddress
     product_use: DomainProductUseRef
 
 
@@ -44,7 +42,7 @@ class MappedQuantumTarget[ArtifactT: TargetArtifact]:
     """One opaque target artifact and its exact logical result mapping."""
 
     artifact: ArtifactT
-    mapping: DomainResultMapping[TargetResultAddress]
+    mapping: DomainResultMapping[TargetAcquisitionAddress]
 
 
 def seal_quantum_target_result_mapping(
@@ -52,7 +50,7 @@ def seal_quantum_target_result_mapping(
     batch: PreparedQuantumTargetBatch,
     entry_bindings: Sequence[QuantumTargetEntryPointBinding],
     result_bindings: Sequence[QuantumTargetResultUseBinding],
-) -> DomainResultMapping[TargetResultAddress]:
+) -> DomainResultMapping[TargetAcquisitionAddress]:
     """Close exact target entry/result coverage against logical outputs."""
 
     selected_entry_bindings = tuple(entry_bindings)
@@ -69,18 +67,14 @@ def seal_quantum_target_result_mapping(
         results=tuple(
             DomainResultBinding(
                 result_address=binding.address,
-                point=point_by_entry[target_result_entry_id(binding.address)],
+                point=point_by_entry[binding.address.entry_id],
                 product_use=binding.product_use,
             )
             for binding in selected_result_bindings
         )
     )
     expected_addresses = batch.request.acquisition_addresses
-    mapped_addresses = tuple(
-        address
-        for result in domain_mapping.results
-        for address in target_result_acquisition_addresses(result.result_address)
-    )
+    mapped_addresses = tuple(result.result_address for result in domain_mapping.results)
     if len(mapped_addresses) != len(expected_addresses) or set(mapped_addresses) != set(
         expected_addresses
     ):

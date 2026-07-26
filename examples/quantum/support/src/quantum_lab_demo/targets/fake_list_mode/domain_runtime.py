@@ -32,7 +32,6 @@ from scopecat.sdk.problems import (
 from scopecat_quantum.program_results import MappedQuantumTarget
 from scopecat_quantum.targets import (
     TargetAcquisitionAddress,
-    TargetResultAddress,
 )
 
 from quantum_lab_demo.targets.fake_list_mode.circuit_runtime import (
@@ -103,9 +102,7 @@ def fake_measurement_invocation_spec(
     )
 
 
-def _result_address_intent(address: TargetResultAddress) -> object:
-    if not isinstance(address, TargetAcquisitionAddress):
-        raise ValueError("fake list-mode results require one acquisition address")
+def _result_address_intent(address: TargetAcquisitionAddress) -> object:
     return {
         "entry_id": address.entry_id.value,
         "slot_id": acquisition_slot_identity_payload(address.slot_id),
@@ -264,7 +261,7 @@ class FakeListDomainRuntime:
 def realize_fetched_fake_measurements(
     mapped_target: MappedFakeListTarget,
     fetched: CorrelatedDomainFetch[FakeListRun],
-) -> tuple[DomainResultValue[TargetResultAddress], ...]:
+) -> tuple[DomainResultValue[TargetAcquisitionAddress], ...]:
     """Correlate and decode one fetched raw run under selected policies."""
 
     if fetched.receipt.result_fingerprint != fetched.result.fingerprint:

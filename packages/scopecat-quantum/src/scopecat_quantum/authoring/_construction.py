@@ -6,7 +6,6 @@ from __future__ import annotations
 import inspect
 from collections.abc import Callable, Mapping
 from collections.abc import Sequence as SequenceCollection
-from dataclasses import replace
 from typing import (
     Literal,
     cast,
@@ -50,7 +49,6 @@ from ._analysis import (
     _program_input_type,
     _pulse_envelope,
     _require_quantity_expression,
-    _result_axis_input_ids,
     _summarize_fragment,
     _unique_gate_definitions,
 )
@@ -77,7 +75,6 @@ from ._ir import (
     ProgramFunction,
     ProgramInput,
     ProgramPort,
-    ProgramResult,
     ProgramResults,
     PulseElement,
     PulseEnvelope,
@@ -85,12 +82,10 @@ from ._ir import (
     PulseTemplateFunction,
     QuantumFragment,
     QuantumQuantity,
-    QuantumResultAxis,
     QuantumResultContract,
     Qubit,
     RepeatCount,
     _DelayFragment,
-    _ExpandedFragment,
     _ParallelFragment,
     _PlayFragment,
     _QuantumParallelFragment,
@@ -428,157 +423,61 @@ def delay(signal: PlaySignal, duration: QuantumQuantity, /) -> PulseFragment:
 @overload
 def sequence(
     *operations: CircuitFragment,
-    axis: str | None = None,
-    axis_kind: str = "collection",
 ) -> CircuitFragment: ...
 
 
 @overload
 def sequence(
     *operations: QuantumFragment,
-    axis: str | None = None,
-    axis_kind: str = "collection",
 ) -> QuantumFragment: ...
 
 
 def sequence(
     *operations: QuantumFragment,
-    axis: str | None = None,
-    axis_kind: str = "collection",
 ) -> QuantumFragment:
     """Compose gate, measurement, and pulse fragments in order."""
 
     if not operations:
         msg = "sequence requires at least one quantum fragment"
         raise ValueError(msg)
-    selected, result_axis = _collect_result_axis(
-        operations,
-        axis=axis,
-        axis_kind=axis_kind,
-    )
-    if all(isinstance(operation, CircuitFragment) for operation in selected):
+    if all(isinstance(operation, CircuitFragment) for operation in operations):
         return _SequenceFragment(
-            operations=cast("tuple[CircuitFragment, ...]", selected),
-            result_axis=result_axis,
+            operations=cast("tuple[CircuitFragment, ...]", operations),
         )
-    return _QuantumSequenceFragment(operations=selected, result_axis=result_axis)
+    return _QuantumSequenceFragment(operations=operations)
 
 
 @overload
 def parallel(
     *branches: CircuitFragment,
-    axis: str | None = None,
-    axis_kind: str = "collection",
 ) -> CircuitFragment: ...
 
 
 @overload
 def parallel(
     *branches: QuantumFragment,
-    axis: str | None = None,
-    axis_kind: str = "collection",
 ) -> QuantumFragment: ...
 
 
 def parallel(
     *branches: QuantumFragment,
-    axis: str | None = None,
-    axis_kind: str = "collection",
 ) -> QuantumFragment:
     """Compose two or more gate, measurement, or pulse branches concurrently."""
 
     if len(branches) < 2:
         msg = "parallel requires at least two quantum branches"
         raise ValueError(msg)
-    selected, result_axis = _collect_result_axis(
-        branches,
-        axis=axis,
-        axis_kind=axis_kind,
-    )
-    if all(isinstance(branch, CircuitFragment) for branch in selected):
+    if all(isinstance(branch, CircuitFragment) for branch in branches):
         return _ParallelFragment(
-            branches=cast("tuple[CircuitFragment, ...]", selected),
-            result_axis=result_axis,
+            branches=cast("tuple[CircuitFragment, ...]", branches),
         )
-    return _QuantumParallelFragment(branches=selected, result_axis=result_axis)
-
-
-def _collect_result_axis(
-    children: tuple[QuantumFragment, ...],
-    *,
-    axis: str | None,
-    axis_kind: str,
-) -> tuple[tuple[QuantumFragment, ...], QuantumResultAxis | None]:
-    if axis is None:
-        return children, None
-    summaries = tuple(_summarize_fragment(child) for child in children)
-    signatures = tuple(
-        tuple((result.id, result.contract) for result in summary.results)
-        for summary in summaries
-    )
-    if not signatures[0] or any(signature != signatures[0] for signature in signatures):
-        raise ValueError(
-            "result-axis children must produce the same ordered result contracts"
-        )
-    result_axis = QuantumResultAxis(axis, len(children), axis_kind)
-    return (
-        tuple(_prepend_result_axis(child, result_axis) for child in children),
-        result_axis,
-    )
-
-
-def _prepend_result_axis(
-    fragment: QuantumFragment,
-    axis: QuantumResultAxis,
-) -> QuantumFragment:
-    if isinstance(fragment, Measurement):
-        return replace(fragment, result=_result_with_axis(fragment.result, axis))
-    if isinstance(fragment, Acquisition):
-        return replace(fragment, result=_result_with_axis(fragment.result, axis))
-    if isinstance(fragment, _ExpandedFragment):
-        return replace(fragment, body=_prepend_result_axis(fragment.body, axis))
-    if isinstance(fragment, _SequenceFragment | _QuantumSequenceFragment):
-        return replace(
-            fragment,
-            operations=tuple(
-                _prepend_result_axis(operation, axis)
-                for operation in fragment.operations
-            ),
-        )
-    if isinstance(fragment, _ParallelFragment | _QuantumParallelFragment):
-        return replace(
-            fragment,
-            branches=tuple(
-                _prepend_result_axis(branch, axis) for branch in fragment.branches
-            ),
-        )
-    if isinstance(fragment, _RepeatFragment | _QuantumRepeatFragment):
-        return replace(
-            fragment,
-            operation=_prepend_result_axis(fragment.operation, axis),
-        )
-    return fragment
-
-
-def _result_with_axis(
-    result: ProgramResult,
-    axis: QuantumResultAxis,
-) -> ProgramResult:
-    return replace(
-        result,
-        contract=replace(
-            result.contract,
-            axes=(axis, *result.contract.axes),
-        ),
-    )
+    return _QuantumParallelFragment(branches=branches)
 
 
 @overload
 def repeat(
     operation: CircuitFragment,
     count: int | ProgramInput,
-    *,
-    axis: str | None = None,
 ) -> CircuitFragment: ...
 
 
@@ -586,24 +485,18 @@ def repeat(
 def repeat(
     operation: QuantumFragment,
     count: RepeatCount,
-    *,
-    axis: str | None = None,
 ) -> QuantumFragment: ...
 
 
 def repeat(
     operation: QuantumFragment,
     count: RepeatCount,
-    *,
-    axis: str | None = None,
 ) -> QuantumFragment:
-    """Repeat a fragment, collecting repeated results along a named axis."""
+    """Repeat a result-free fragment."""
 
     results = _summarize_fragment(operation).results
-    if results and axis is None:
-        raise ValueError("result-producing repeats require an axis")
-    if not results and axis is not None:
-        raise ValueError("result-free repeats cannot declare a result axis")
+    if results:
+        raise ValueError("repeat requires a result-free fragment")
     if isinstance(count, ProgramInput):
         if not _is_integer_input(count):
             msg = "repeat count inputs must have integer kind"
@@ -611,24 +504,14 @@ def repeat(
     elif isinstance(count, bool) or count < 0:
         msg = "repeat count must be a non-negative integer or integer input"
         raise ValueError(msg)
-    if results and count == 0:
-        raise ValueError("result-producing repeat counts must be positive")
-    result_axis = None if axis is None else QuantumResultAxis(axis, count, "repeat")
-    selected = (
-        operation
-        if result_axis is None
-        else _prepend_result_axis(operation, result_axis)
-    )
     if isinstance(operation, CircuitFragment):
         return _RepeatFragment(
-            operation=cast("CircuitFragment", selected),
+            operation=operation,
             count=count,
-            result_axis=result_axis,
         )
     return _QuantumRepeatFragment(
-        operation=selected,
+        operation=operation,
         count=count,
-        result_axis=result_axis,
     )
 
 
@@ -804,7 +687,6 @@ def _close_program(
     inputs_by_id: dict[str, ProgramInput] = {}
     contracts_by_id: dict[str, ScalarType] = {}
     repeat_input_ids = {input_handle.id for input_handle in facts.repeat_inputs}
-    result_axis_input_ids = _result_axis_input_ids(facts.results)
     for input_handle in collected_inputs:
         existing_handle = inputs_by_id.get(input_handle.id)
         if existing_handle is not None and existing_handle is not input_handle:
@@ -816,7 +698,6 @@ def _close_program(
         contract = _program_input_type(
             input_handle,
             non_negative=input_handle.id in repeat_input_ids,
-            positive=input_handle.id in result_axis_input_ids,
         )
         existing_contract = contracts_by_id.get(input_handle.id)
         if existing_contract is not None and existing_contract != contract:

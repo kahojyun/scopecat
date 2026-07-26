@@ -310,8 +310,6 @@ def _result_address(
     entry: PreparedQuantumTargetEntry,
     result: quantum.MeasurementResult,
 ) -> TargetAcquisitionAddress:
-    if result.contract.axes:
-        raise ValueError("quantum lab results must have one acquisition address")
     addresses = tuple(
         address
         for address in entry.acquisition_addresses

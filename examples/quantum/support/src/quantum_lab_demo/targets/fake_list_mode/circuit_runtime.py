@@ -32,7 +32,6 @@ from scopecat_quantum.program_results import (
 )
 from scopecat_quantum.targets import (
     TargetAcquisitionAddress,
-    TargetResultAddress,
 )
 
 from quantum_lab_demo.targets.fake_list_mode.model import (
@@ -53,7 +52,7 @@ class CorrelatedFakeListFrame:
     """One raw fake frame related to exact quantum and SDK identities."""
 
     frame: FakeDigitizerFrame
-    mapped_result: DomainMappedResult[TargetResultAddress] = field(repr=False)
+    mapped_result: DomainMappedResult[TargetAcquisitionAddress] = field(repr=False)
 
     @property
     def address(self) -> TargetAcquisitionAddress:
@@ -104,7 +103,7 @@ def correlate_fake_list_run(
         msg = "fake-list run contains duplicate acquisition-address shots"
         raise ValueError(msg)
     expected_keys = {
-        (_single_acquisition_address(result.result_address), shot_index)
+        (result.result_address, shot_index)
         for result in mapping.results
         for shot_index in range(artifact.repetitions)
     }
@@ -119,7 +118,7 @@ def correlate_fake_list_run(
         CorrelatedFakeListFrame(
             frame=raw_by_address_shot[
                 (
-                    _single_acquisition_address(result.result_address),
+                    result.result_address,
                     shot_index,
                 )
             ],
@@ -137,10 +136,10 @@ def correlate_fake_list_run(
 
 def realize_fake_measurements(
     correlated_run: CorrelatedFakeListRun,
-) -> tuple[DomainResultValue[TargetResultAddress], ...]:
+) -> tuple[DomainResultValue[TargetAcquisitionAddress], ...]:
     """Project one correlated run to canonical integrated-IQ values."""
 
-    candidates: list[DomainResultValue[TargetResultAddress]] = []
+    candidates: list[DomainResultValue[TargetAcquisitionAddress]] = []
     problems: list[Problem] = []
     for result_index, result in enumerate(correlated_run.mapped_target.mapping.results):
         frames = _frames_for_result_address(correlated_run, result.result_address)
@@ -160,14 +159,15 @@ def realize_fake_measurements(
 
 def _frames_for_result_address(
     correlated_run: CorrelatedFakeListRun,
-    result_address: TargetResultAddress,
+    result_address: TargetAcquisitionAddress,
 ) -> tuple[CorrelatedFakeListFrame, ...]:
-    address = _single_acquisition_address(result_address)
-    return tuple(frame for frame in correlated_run.frames if frame.address == address)
+    return tuple(
+        frame for frame in correlated_run.frames if frame.address == result_address
+    )
 
 
 def _realize_integrated_iq_value(
-    result: DomainMappedResult[TargetResultAddress],
+    result: DomainMappedResult[TargetAcquisitionAddress],
     frames: tuple[CorrelatedFakeListFrame, ...],
     *,
     result_index: int,
@@ -176,7 +176,7 @@ def _realize_integrated_iq_value(
     initial_problem_count = len(problems)
     details = _realization_identity_details(result)
     path = ("results", result_index)
-    address = _single_acquisition_address(result.result_address)
+    address = result.result_address
     values_by_frame: dict[tuple[int, TargetAcquisitionAddress], ComplexQuantity] = {}
     for frame_index, frame in enumerate(frames):
         expected_shot = frame_index
@@ -233,7 +233,7 @@ def validate_fake_measurement_mapping(
 
 
 def _product_problems(
-    result: DomainMappedResult[TargetResultAddress],
+    result: DomainMappedResult[TargetAcquisitionAddress],
     *,
     repetitions: int,
     result_index: int,
@@ -262,7 +262,6 @@ def _product_problems(
             )
         )
 
-    _single_acquisition_address(result.result_address)
     expected_axis_count = 1
     if len(product.axes) != expected_axis_count:
         problems.append(
@@ -311,16 +310,8 @@ def _product_problems(
     return problems
 
 
-def _single_acquisition_address(
-    address: TargetResultAddress,
-) -> TargetAcquisitionAddress:
-    if not isinstance(address, TargetAcquisitionAddress):
-        raise ValueError("fake list-mode results require one acquisition address")
-    return address
-
-
 def _mapped_result_product(
-    result: DomainMappedResult[TargetResultAddress],
+    result: DomainMappedResult[TargetAcquisitionAddress],
 ) -> DomainProductContractView:
     product_uses = result.product_uses
     if not product_uses:
@@ -332,7 +323,7 @@ def _mapped_result_product(
 
 
 def _realization_identity_details(
-    result: DomainMappedResult[TargetResultAddress],
+    result: DomainMappedResult[TargetAcquisitionAddress],
 ) -> dict[str, object]:
     product = _mapped_result_product(result)
     return {

@@ -17,12 +17,12 @@ from scopecat_quantum.pulses import DriveSignal, Play
 
 from quantum_lab_demo import quantum_lab_compiler
 from quantum_lab_demo.compiler import QuantumLabCompiler, _ListQuantumLabArtifact
+from quantum_lab_demo.configuration import quantum_lab_bootstrap_config
 from quantum_lab_demo.targets.fake_list_mode import (
     FakeListArtifact,
     FakeListTarget,
     configured_fake_list_target,
 )
-from quantum_lab_demo.virtual_lab.wiring import quantum_wiring_config_profile
 from quantum_lab_demo.workflows.production_drag_gate import (
     production_drag_template,
     production_x90_event_id,
@@ -35,7 +35,7 @@ def test_active_drag_beta_changes_the_production_gate_and_rolls_back(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    baseline_config = quantum_wiring_config_profile()
+    baseline_config = quantum_lab_bootstrap_config()
     active_beta = Quantity(0.8, "ns")
     active_config = _with_q0_drag_beta(baseline_config, active_beta)
     target = configured_fake_list_target(baseline_config)

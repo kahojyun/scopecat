@@ -67,7 +67,6 @@ from ._analysis import (
     _operation_id,
     _program_input_type,
     _pulse_envelope_parts,
-    _result_axis_input_ids,
     _summarize_fragment,
     _unique_gate_definitions,
     program_port_type,
@@ -85,7 +84,6 @@ from ._ir import (
     Measurement,
     ProgramBindingError,
     ProgramInput,
-    ProgramResult,
     ProgramResults,
     PulseEnvelope,
     QuantumFragment,
@@ -217,7 +215,6 @@ def bind(
         input_handle.id
         for input_handle in _summarize_fragment(declaration.body).repeat_inputs
     }
-    result_axis_input_ids = _result_axis_input_ids(declaration.results)
     concrete_bindings: dict[str, object] = {}
     element_bindings: dict[QubitId | CouplerId, QubitId | CouplerId] = {}
     for element in declaration.elements:
@@ -242,7 +239,6 @@ def bind(
         value_type = _program_input_type(
             input_handle,
             non_negative=input_handle.id in repeat_input_ids,
-            positive=input_handle.id in result_axis_input_ids,
         )
         try:
             concrete_bindings[input_handle.id] = coerce_literal(
@@ -298,7 +294,7 @@ def _bind_fragment(
         return Measure(
             id=CircuitOperationId(_operation_id(path, "measure")),
             qubit=_bound_qubit_id(result.qubit, element_bindings),
-            acquisition_slot_id=_physical_result_slot_id(result, path),
+            acquisition_slot_id=result.acquisition_slot_id,
             acquisition_kind=result.acquisition_kind,
         )
     if isinstance(fragment, _SequenceFragment):
@@ -412,7 +408,7 @@ def _bind_quantum_fragment(
             candidate_id=fragment.candidate_id,
         )
     if isinstance(fragment, Acquisition):
-        slot_id = _physical_result_slot_id(fragment.result, path)
+        slot_id = fragment.result.acquisition_slot_id
         bound_acquire = _bind_pulse_fragment(
             fragment,
             bindings,
@@ -505,7 +501,6 @@ def _bind_quantum_fragment(
                 )
             ),
             count=count,
-            axis_id=(None if fragment.result_axis is None else fragment.result_axis.id),
         )
     msg = f"unsupported quantum fragment {type(fragment).__name__}"
     raise TypeError(msg)
@@ -616,15 +611,6 @@ def _bind_pulse_fragment(
         )
     msg = f"unsupported pulse fragment {type(fragment).__name__}"
     raise TypeError(msg)
-
-
-def _physical_result_slot_id(
-    result: ProgramResult,
-    path: tuple[str, ...],
-) -> AcquisitionSlotId:
-    if not result.contract.axes:
-        return result.acquisition_slot_id
-    return AcquisitionSlotId(result.id, scope=path)
 
 
 def _bind_envelope(
