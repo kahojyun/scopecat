@@ -21,8 +21,6 @@ from scopecat.kernel.content_identity import (
 from scopecat.kernel.problems import Problem
 
 type ExecutionEffect = Literal[
-    "pure",
-    "read",
     "state_write",
     "acquisition",
     "lifecycle",
@@ -33,7 +31,6 @@ type JournalEntryState = Literal[
     "completed",
     "failed",
     "unknown",
-    "skipped",
 ]
 type ExecutionStage = Literal[
     "provide_instruments",

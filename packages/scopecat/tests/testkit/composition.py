@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -84,19 +85,28 @@ class SQLiteTestExecutionJournal(SQLiteExecutionJournal):
     def entries(self) -> tuple[ExecutionTransition, ...]:
         with sqlite3.connect(self._runs.database) as connection:
             rows = cast(
-                "list[tuple[str]]",
+                "list[tuple[str, int, str]]",
                 connection.execute(
                     """
-                    SELECT digest FROM execution_journal_entries
+                    SELECT payload_json, run_sequence, occurred_at
+                    FROM durable_events
                     WHERE run_id = ?
-                    ORDER BY sequence
+                      AND kind = 'execution_transition_committed'
+                    ORDER BY run_sequence
                     """,
                     (self._run_id,),
                 ).fetchall(),
             )
         return tuple(
-            ExecutionTransition.model_validate_json(self._runs.objects.read(digest))
-            for (digest,) in rows
+            ExecutionTransition.model_validate(
+                {
+                    **json.loads(payload_json),
+                    "run_id": self._run_id,
+                    "sequence": sequence,
+                    "timestamp": occurred_at,
+                }
+            )
+            for payload_json, sequence, occurred_at in rows
         )
 
 

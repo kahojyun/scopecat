@@ -1,4 +1,4 @@
-"""SQLite execution persistence backed by the shared run object store."""
+"""SQLite execution persistence backed by the shared project store."""
 
 from __future__ import annotations
 
@@ -32,7 +32,6 @@ from scopecat.records.measurement_recording import (
     measurement_dataset_content_hash,
 )
 from scopecat.runs.refs import (
-    EXECUTION_JOURNAL_DIR,
     dataset_content_ref,
 )
 from scopecat.sdk.journal import ExecutionJournalError
@@ -52,7 +51,9 @@ class PreparedExecutionRecord[TModel: BaseModel]:
 
 
 class SQLiteExecutionJournal:
-    """Append transitions with a transactionally assigned per-run sequence."""
+    """Append effect transitions to the canonical durable-event stream."""
+
+    _EVENT_KIND = "execution_transition_committed"
 
     def __init__(self, runs: SQLiteRunRepository, *, run_id: str) -> None:
         self._runs = runs
@@ -86,29 +87,26 @@ class SQLiteExecutionJournal:
             existing = _one(
                 connection.execute(
                     """
-                    SELECT digest FROM execution_journal_entries
-                    WHERE run_id = ? AND content_hash = ?
+                    SELECT run_sequence, payload_json, occurred_at
+                    FROM durable_events
+                    WHERE run_id = ? AND kind = ? AND deduplication_key = ?
                     """,
-                    (self._run_id, content_hash),
+                    (self._run_id, self._EVENT_KIND, content_hash),
                 )
             )
             if existing is not None:
                 return (
-                    _read_stored_model(
-                        self._runs,
-                        _text(existing, "digest"),
-                        ExecutionTransition,
-                    ),
+                    _execution_transition(self._run_id, existing),
                     False,
                 )
             row = _one(
                 connection.execute(
                     """
-                    SELECT COALESCE(MAX(sequence), -1) + 1 AS sequence
-                    FROM execution_journal_entries
-                    WHERE run_id = ?
+                    SELECT COALESCE(MAX(run_sequence), -1) + 1 AS sequence
+                    FROM durable_events
+                    WHERE run_id = ? AND kind = ?
                     """,
-                    (self._run_id,),
+                    (self._run_id, self._EVENT_KIND),
                 )
             )
             assert row is not None
@@ -141,17 +139,35 @@ class SQLiteExecutionJournal:
                 "timestamp": datetime.now(tz=UTC),
             }
         )
-        ref = f"{EXECUTION_JOURNAL_DIR}/{sequence:08d}.json"
-        stored = _store_model(self._runs, committed)
-        _publish_ref(connection, self._run_id, ref, stored)
+        payload = committed.model_dump(
+            mode="json",
+            exclude={"run_id", "timestamp"},
+        )
         connection.execute(
             """
-            INSERT INTO execution_journal_entries(
-                run_id, sequence, content_hash, digest
+            INSERT INTO durable_events(
+                run_id,
+                kind,
+                payload_json,
+                occurred_at,
+                run_sequence,
+                deduplication_key
             )
-            VALUES (?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (self._run_id, sequence, content_hash, stored.digest),
+            (
+                self._run_id,
+                self._EVENT_KIND,
+                json.dumps(
+                    payload,
+                    allow_nan=True,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ),
+                committed.timestamp.isoformat(timespec="microseconds"),
+                sequence,
+                content_hash,
+            ),
         )
         return committed
 
@@ -510,12 +526,22 @@ def _store_model(runs: SQLiteRunRepository, model: BaseModel) -> StoredObject:
         ) from error
 
 
-def _read_stored_model[TModel: BaseModel](
-    runs: SQLiteRunRepository,
-    digest: str,
-    model_type: type[TModel],
-) -> TModel:
-    return model_type.model_validate_json(runs.objects.read(digest))
+def _execution_transition(
+    run_id: str,
+    row: sqlite3.Row,
+) -> ExecutionTransition:
+    payload = cast(
+        "dict[str, object]",
+        json.loads(_text(row, "payload_json")),
+    )
+    return ExecutionTransition.model_validate(
+        {
+            **payload,
+            "run_id": run_id,
+            "sequence": _integer(row, "run_sequence"),
+            "timestamp": _text(row, "occurred_at"),
+        }
+    )
 
 
 def _publish_ref(

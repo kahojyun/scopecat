@@ -1171,6 +1171,7 @@ def test_effect_is_fenced_and_terminal_updates_control(
             "state": "completed",
             "point_index": 0,
             "instrument_id": "scope-1",
+            "problems": [],
             "evidence": {"measurement_count": 1},
         }
 

@@ -1,15 +1,6 @@
 """SQLite execution-index tables."""
 
 EXECUTION_TABLES_SQL = """
-CREATE TABLE IF NOT EXISTS execution_journal_entries (
-    run_id TEXT NOT NULL,
-    sequence INTEGER NOT NULL CHECK (sequence >= 0),
-    content_hash TEXT NOT NULL,
-    digest TEXT NOT NULL,
-    PRIMARY KEY (run_id, sequence),
-    UNIQUE (run_id, content_hash)
-);
-
 CREATE TABLE IF NOT EXISTS execution_measurement_appends (
     run_id TEXT NOT NULL,
     start_index INTEGER NOT NULL CHECK (start_index >= 0),

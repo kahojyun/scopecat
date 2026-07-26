@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor
@@ -111,15 +112,15 @@ def _transitions(run_id: str) -> tuple[ExecutionTransition, ...]:
         ExecutionTransition(
             run_id=run_id,
             operation_id="operation-0",
-            stage="compute",
-            effect="pure",
+            stage="apply_state",
+            effect="state_write",
             state="started",
         ),
         ExecutionTransition(
             run_id=run_id,
             operation_id="operation-0",
-            stage="compute",
-            effect="pure",
+            stage="apply_state",
+            effect="state_write",
             state="completed",
         ),
     )
@@ -129,8 +130,8 @@ def _transition(run_id: str, ordinal: int) -> ExecutionTransition:
     return ExecutionTransition(
         run_id=run_id,
         operation_id=f"contract.operation.{ordinal}",
-        stage="compute",
-        effect="pure",
+        stage="apply_state",
+        effect="state_write",
         state="completed",
         evidence={"ordinal": ordinal},
     )
@@ -260,7 +261,7 @@ def test_seal_is_idempotent_and_rejects_later_appends(tmp_path: Path) -> None:
         committer.append(_append(run_id, point_index=1))
 
 
-def test_execution_and_control_indexes_share_run_database(tmp_path: Path) -> None:
+def test_execution_transitions_are_canonical_durable_events(tmp_path: Path) -> None:
     database = tmp_path / "control.sqlite3"
     SQLiteProjectStore(database, tmp_path / "objects").bootstrap()
     runs = SQLiteRunRepository(database, tmp_path / "objects")
@@ -270,21 +271,26 @@ def test_execution_and_control_indexes_share_run_database(tmp_path: Path) -> Non
         ExecutionTransition(
             run_id="run-shared",
             operation_id="operation-0",
-            stage="compute",
-            effect="pure",
+            stage="apply_state",
+            effect="state_write",
             state="completed",
         )
     )
 
     assert committed.sequence == 0
-    assert (
-        runs.read_model(
-            "run-shared",
-            "execution/journal/00000000.json",
-            ExecutionTransition,
-        )
-        == committed
-    )
+    with sqlite3.connect(database) as connection:
+        event = connection.execute(
+            """
+            SELECT kind, run_sequence, payload_json
+            FROM durable_events
+            WHERE run_id = ?
+            """,
+            ("run-shared",),
+        ).fetchone()
+    assert event is not None
+    assert event[0] == "execution_transition_committed"
+    assert event[1] == 0
+    assert json.loads(event[2])["operation_id"] == committed.operation_id
 
 
 def test_transition_retry_replays_the_original_commit(tmp_path: Path) -> None:

@@ -17,7 +17,7 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
     store.bootstrap()
     store.bootstrap()
 
-    assert store.schema_version() == 10
+    assert store.schema_version() == 11
     with sqlite3.connect(database) as connection:
         journal_mode = connection.execute("PRAGMA journal_mode").fetchone()
         tables = {
@@ -30,8 +30,8 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
             table: {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
             for table in (
                 "scheduler_runs",
+                "durable_events",
                 "run_repository_refs",
-                "execution_journal_entries",
                 "execution_measurement_appends",
                 "execution_measurement_seals",
             )
@@ -44,14 +44,13 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
         "run_repository_refs",
         "config_registry_entries",
         "config_registry_activations",
-        "execution_journal_entries",
     } <= tables
     assert "config_registry_active" not in tables
     assert "admitted_at" not in columns["scheduler_runs"]
     assert "size" not in columns["run_repository_refs"]
     assert "dataset_id" not in columns["execution_measurement_appends"]
     assert "digest" not in columns["execution_measurement_appends"]
-    assert "ref" not in columns["execution_journal_entries"]
+    assert {"run_sequence", "deduplication_key"} <= columns["durable_events"]
     assert {
         "contract_fingerprint",
         "dataset_id",
