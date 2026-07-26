@@ -10,7 +10,10 @@ import numpy as np
 import scopecat as sc
 from numpy.typing import NDArray
 
-from quantum_lab_demo.virtual_lab.parameters import TWO_QUBIT_GATE_PARAMETER_TABLE
+from quantum_lab_demo.virtual_lab.parameters import (
+    TWO_QUBIT_GATE_PARAMETER_TABLE,
+    two_qubit_gate_parameters,
+)
 
 PARALLEL_GATE_SET_TEMPLATE_ID = "quantum_lab_demo.scenarios.parallel_gate_set"
 _QUBIT = sc.ScalarType(sc.EntityType(entity_kind="logical_qubit"))
@@ -18,6 +21,7 @@ _COUPLER = sc.ScalarType(sc.EntityType(entity_kind="logical_coupler"))
 _QUANTITY = sc.ScalarType(sc.QuantityType())
 _NON_EMPTY_STRING = sc.ScalarType(sc.StringType(min_length=1))
 _QUBIT_SERIES = sc.SeriesType(_QUBIT)
+_COUPLER_SERIES = sc.SeriesType(_COUPLER)
 PARALLEL_GATE_TABLE_TYPE = sc.TableType(
     columns=(
         sc.TableColumn("control_qubit", _QUBIT),
@@ -27,14 +31,13 @@ PARALLEL_GATE_TABLE_TYPE = sc.TableType(
     primary_key=("control_qubit", "partner_qubit", "gate"),
     min_rows=1,
 )
-_PARALLEL_GATE_QUBITS = sc.input("gates", PARALLEL_GATE_TABLE_TYPE).entities(
-    "control_qubit", "partner_qubit"
-)
 GATE_DURATION = sc.coordinate("gate_duration", _QUANTITY)
 _DEFAULT_GATES = (
     {"control_qubit": "q0", "partner_qubit": "q1", "gate": "cz"},
     {"control_qubit": "q2", "partner_qubit": "q3", "gate": "cz"},
 )
+_DEFAULT_QUBITS = ("q0", "q1", "q2", "q3")
+_DEFAULT_COUPLERS = ("coupler-q0-q1", "coupler-q2-q3")
 
 
 @dataclass(frozen=True)
@@ -62,20 +65,30 @@ class ParallelGateSetProgram:
 
 
 def build_parallel_gate_set_program(
-    *, gates: Sequence[Mapping[str, object]], gate_duration: sc.Quantity
+    *,
+    gates: Sequence[Mapping[str, object]],
+    gate_parameters: Sequence[Mapping[str, object]],
+    gate_duration: sc.Quantity,
+    qubits: Sequence[object],
+    couplers: Sequence[object],
 ) -> ParallelGateSetProgram:
-    """Compile one table value when no domain compiler is available."""
+    """Resolve one opaque collection and verify its precomputed footprint."""
 
+    parameters_by_gate = {_gate_key(row): row for row in gate_parameters}
     selected = tuple(
         ParallelCzGate(
             control_qubit=_entity_id(row["control_qubit"]),
             partner_qubit=_entity_id(row["partner_qubit"]),
-            coupler=_entity_id(row["coupler"]),
+            coupler=_entity_id(parameters_by_gate[_gate_key(row)]["coupler"]),
             duration=gate_duration,
-            amplitude=cast("sc.Quantity", row["coupler_parking_flux"]),
+            amplitude=cast(
+                "sc.Quantity",
+                parameters_by_gate[_gate_key(row)]["coupler_parking_flux"],
+            ),
         )
         for row in gates
     )
+    _require_matching_footprint(selected, qubits=qubits, couplers=couplers)
     return ParallelGateSetProgram(
         gates=selected,
         compiler_id="quantum_lab_demo.scenarios.parallel_gate_set.v1",
@@ -130,6 +143,33 @@ def _entity_id(value: object) -> str:
     return value.id if isinstance(value, sc.EntityRef) else cast("str", value)
 
 
+def _gate_key(row: Mapping[str, object]) -> tuple[str, str, str]:
+    return (
+        _entity_id(row["control_qubit"]),
+        _entity_id(row["partner_qubit"]),
+        cast("str", row["gate"]),
+    )
+
+
+def _require_matching_footprint(
+    gates: Sequence[ParallelCzGate],
+    *,
+    qubits: Sequence[object],
+    couplers: Sequence[object],
+) -> None:
+    expected_qubits = {
+        qubit for gate in gates for qubit in (gate.control_qubit, gate.partner_qubit)
+    }
+    if {_entity_id(qubit) for qubit in qubits} != expected_qubits:
+        msg = "explicit qubit footprint does not match the compiled gate collection"
+        raise ValueError(msg)
+    if {_entity_id(coupler) for coupler in couplers} != {
+        gate.coupler for gate in gates
+    }:
+        msg = "explicit coupler footprint does not match the compiled gate collection"
+        raise ValueError(msg)
+
+
 def _render_drag_like_envelope(
     length: sc.Quantity, amplitude: sc.Quantity
 ) -> NDArray[np.complex128]:
@@ -142,47 +182,16 @@ def _render_drag_like_envelope(
     )
 
 
-def resolve_parallel_gate_collection(gates: sc.ValueRef) -> sc.ValueRef:
-    """Add table-backed coupler and qubit parameters without expanding rows."""
-
-    return gates.with_columns(
-        lambda row: {
-            "coupler": sc.parameter_lookup(
-                TWO_QUBIT_GATE_PARAMETER_TABLE,
-                key={
-                    "control_qubit": row["control_qubit"],
-                    "partner_qubit": row["partner_qubit"],
-                    "gate": row["gate"],
-                },
-                column="coupler",
-                value_type=_COUPLER,
-            ),
-            "coupler_parking_flux": sc.parameter_lookup(
-                TWO_QUBIT_GATE_PARAMETER_TABLE,
-                key={
-                    "control_qubit": row["control_qubit"],
-                    "partner_qubit": row["partner_qubit"],
-                    "gate": row["gate"],
-                },
-                column="coupler_parking_flux",
-                value_type=_QUANTITY,
-            ),
-        }
-    ).select(
-        "control_qubit",
-        "partner_qubit",
-        "coupler",
-        "coupler_parking_flux",
-    )
-
-
 @sc.module(id="quantum_lab_demo.scenarios.two_qubit.parallel_gate_set")
 def _parallel_gate_set_module(
     gates: Annotated[sc.Input[tuple[dict[str, str], ...]], PARALLEL_GATE_TABLE_TYPE],
+    qubits: Annotated[sc.Input[tuple[str, ...]], _QUBIT_SERIES],
+    couplers: Annotated[sc.Input[tuple[str, ...]], _COUPLER_SERIES],
 ):
     gates_ref = sc.input_ref(gates)
-    gate_collection = resolve_parallel_gate_collection(gates_ref)
-    qubits = gates_ref.entities("control_qubit", "partner_qubit")
+    # Routing precedes opaque compute, so its entity footprint stays explicit.
+    qubits_ref = sc.input_ref(qubits)
+    couplers_ref = sc.input_ref(couplers)
     build_program = sc.compute(
         "build-parallel-gate-set-program",
         fn=build_parallel_gate_set_program,
@@ -190,8 +199,11 @@ def _parallel_gate_set_module(
         inputs={
             # This is the escape hatch being demonstrated: the collection remains
             # one compute input instead of expanding into experiment points.
-            "gates": gate_collection,
+            "gates": gates_ref,
+            "gate_parameters": two_qubit_gate_parameters(),
             "gate_duration": GATE_DURATION,
+            "qubits": qubits_ref,
+            "couplers": couplers_ref,
         },
     )
     drive_waveforms = sc.compute(
@@ -211,12 +223,12 @@ def _parallel_gate_set_module(
         .resource(
             "drive",
             requires=("play_gate_sequence", "play_pulse_program"),
-            for_entities=(qubits,),
+            for_entities=(qubits_ref,),
         )
         .resource(
             "coupler",
             requires=("play_coupler_pulse",),
-            for_entities=(gate_collection.entities("coupler"),),
+            for_entities=(couplers_ref,),
         )
         .computes(build_program, drive_waveforms, coupler_waveforms)
         .bind_field(
@@ -277,10 +289,17 @@ def parallel_gate_set_template(
     gates: Annotated[
         sc.Input[tuple[dict[str, str], ...]], PARALLEL_GATE_TABLE_TYPE
     ] = _DEFAULT_GATES,
+    qubits: Annotated[sc.Input[tuple[str, ...]], _QUBIT_SERIES] = _DEFAULT_QUBITS,
+    couplers: Annotated[sc.Input[tuple[str, ...]], _COUPLER_SERIES] = _DEFAULT_COUPLERS,
 ) -> sc.ExperimentBody:
-    gate_set = _parallel_gate_set_module(gates=gates)
+    gate_set = _parallel_gate_set_module(
+        gates=gates,
+        qubits=qubits,
+        couplers=couplers,
+    )
     readout = _collection_readout_module.instantiate(
-        "parallel-readout", qubits=_PARALLEL_GATE_QUBITS
+        "parallel-readout",
+        qubits=qubits,
     )
     return (
         sc.experiment(gate_set, readout)
@@ -298,5 +317,4 @@ __all__ = [
     "RenderedWaveformBundle",
     "build_parallel_gate_set_program",
     "parallel_gate_set_template",
-    "resolve_parallel_gate_collection",
 ]

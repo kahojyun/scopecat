@@ -237,7 +237,9 @@ def test_default_quantum_wiring_runtime_commands_include_channel_bindings(
                     "partner_qubit": "q1",
                     "gate": "cz",
                 },
-            )
+            ),
+            qubits=("q0", "q1"),
+            couplers=("coupler-q0-q1",),
         ).scan(GATE_DURATION, [28], unit="ns")
     )
     linked = resolve_compiled_invocation(

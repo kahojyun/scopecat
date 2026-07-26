@@ -13,6 +13,7 @@ from quantum_lab_demo.virtual_lab.parameters import (
     q0_parameter_key,
     q0_q1_cz_amplitude_lookup,
     q0_q1_cz_parameter_key,
+    two_qubit_gate_parameters,
 )
 from quantum_lab_demo.virtual_lab.profiles import (
     VirtualLabProfileInput,
@@ -58,4 +59,5 @@ __all__ = [
     "q0_q1_cz_parameter_key",
     "quantum_wiring",
     "quantum_wiring_config_profile",
+    "two_qubit_gate_parameters",
 ]

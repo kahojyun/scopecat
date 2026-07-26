@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
+
 import pytest
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
 
 from quantum_lab_demo.scenarios.opaque_collection import (
     GATE_DURATION,
     PARALLEL_GATE_SET_TEMPLATE_ID,
+    ParallelGateSetProgram,
     build_parallel_gate_set_program,
     parallel_gate_set_template,
     render_parallel_gate_coupler_waveforms,
@@ -39,14 +43,13 @@ def test_opaque_collection_scenario_resolves_and_projects() -> None:
 
 
 def test_parallel_gate_set_renders_disjoint_pairs() -> None:
-    program = build_parallel_gate_set_program(
-        gates=_enriched_gate_rows(
-            (
-                {"control_qubit": "q0", "partner_qubit": "q1"},
-                {"control_qubit": "q2", "partner_qubit": "q3"},
-            )
-        ),
-        gate_duration=Quantity(28, "ns"),
+    gates = (
+        {"control_qubit": "q0", "partner_qubit": "q1", "gate": "cz"},
+        {"control_qubit": "q2", "partner_qubit": "q3", "gate": "cz"},
+    )
+    program = _build_test_program(
+        gates,
+        tuple(reversed(_gate_parameter_rows(gates))),
     )
 
     drive_payload = render_parallel_gate_drive_waveforms(program=program)
@@ -67,15 +70,24 @@ def test_parallel_gate_compute_accepts_arbitrary_table_cardinality(
         {
             "control_qubit": f"q{2 * index}",
             "partner_qubit": f"q{2 * index + 1}",
-            "coupler": f"coupler-{index}",
-            "coupler_parking_flux": Quantity(value=0.02 + index * 0.001, unit="arb"),
+            "gate": "cz",
         }
         for index in range(gate_count)
     ]
 
-    program = build_parallel_gate_set_program(
-        gates=rows,
-        gate_duration=Quantity(value=28.0, unit="ns"),
+    program = _build_test_program(
+        rows,
+        tuple(
+            {
+                **row,
+                "coupler": f"coupler-{index}",
+                "coupler_parking_flux": Quantity(
+                    value=0.02 + index * 0.001,
+                    unit="arb",
+                ),
+            }
+            for index, row in enumerate(rows)
+        ),
     )
 
     assert len(program.gates) == gate_count
@@ -106,9 +118,10 @@ def test_rendering_preserves_collection_cardinality_and_order(
     gates: tuple[dict[str, str], ...],
     expected_qubits: tuple[str, ...],
 ) -> None:
-    program = build_parallel_gate_set_program(
-        gates=_enriched_gate_rows(gates),
-        gate_duration=Quantity(28, "ns"),
+    gate_rows = tuple({**gate, "gate": "cz"} for gate in gates)
+    program = _build_test_program(
+        gate_rows,
+        _gate_parameter_rows(gate_rows),
     )
 
     drive_payload = render_parallel_gate_drive_waveforms(program=program)
@@ -127,13 +140,54 @@ def test_rendering_preserves_collection_cardinality_and_order(
     assert coupler_payload.samples.shape == (len(expected_qubits) // 2, 28)
 
 
-def _enriched_gate_rows(
+def test_parallel_gate_compute_rejects_a_divergent_routing_footprint() -> None:
+    gates = ({"control_qubit": "q0", "partner_qubit": "q1", "gate": "cz"},)
+
+    with pytest.raises(ValueError, match="coupler footprint"):
+        build_parallel_gate_set_program(
+            gates=gates,
+            gate_parameters=_gate_parameter_rows(gates),
+            gate_duration=Quantity(28, "ns"),
+            qubits=("q0", "q1"),
+            couplers=("coupler-q2-q3",),
+        )
+
+
+def _build_test_program(
+    gates: Sequence[Mapping[str, object]],
+    gate_parameters: Sequence[Mapping[str, object]],
+) -> ParallelGateSetProgram:
+    return build_parallel_gate_set_program(
+        gates=gates,
+        gate_parameters=gate_parameters,
+        gate_duration=Quantity(28, "ns"),
+        qubits=tuple(
+            row[column]
+            for row in gates
+            for column in ("control_qubit", "partner_qubit")
+        ),
+        couplers=tuple(row["coupler"] for row in gate_parameters),
+    )
+
+
+def _gate_parameter_rows(
     gates: tuple[dict[str, str], ...],
 ) -> tuple[dict[str, object], ...]:
     return tuple(
         {
             **gate,
-            "coupler": f"coupler-{gate['control_qubit']}-{gate['partner_qubit']}",
+            "control_qubit": EntityRef(
+                id=gate["control_qubit"],
+                kind="logical_qubit",
+            ),
+            "partner_qubit": EntityRef(
+                id=gate["partner_qubit"],
+                kind="logical_qubit",
+            ),
+            "coupler": EntityRef(
+                id=f"coupler-{gate['control_qubit']}-{gate['partner_qubit']}",
+                kind="logical_coupler",
+            ),
             "coupler_parking_flux": Quantity(0.02, "arb"),
         }
         for gate in gates

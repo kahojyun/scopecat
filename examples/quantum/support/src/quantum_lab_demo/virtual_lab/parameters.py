@@ -11,6 +11,7 @@ DRAG_BETA_PARAMETER_COLUMN = "drag_beta"
 CZ_AMPLITUDE_PARAMETER_COLUMN = "coupler_amplitude"
 
 _QUBIT_VALUE_TYPE = sc.ScalarType(sc.EntityType(entity_kind="logical_qubit"))
+_COUPLER_VALUE_TYPE = sc.ScalarType(sc.EntityType(entity_kind="logical_coupler"))
 _NS_VALUE_TYPE = sc.ScalarType(sc.QuantityType(unit="ns"))
 _ARB_VALUE_TYPE = sc.ScalarType(sc.QuantityType(unit="arb"))
 _QUBIT_PARAMETER_TABLE_TYPE = sc.TableType(
@@ -39,6 +40,25 @@ _QUBIT_PARAMETERS = sc.parameter(
     QUBIT_PARAMETER_TABLE,
     _QUBIT_PARAMETER_TABLE_TYPE,
 )
+_TWO_QUBIT_GATE_PARAMETER_TABLE_TYPE = sc.TableType(
+    columns=(
+        sc.TableColumn("control_qubit", _QUBIT_VALUE_TYPE),
+        sc.TableColumn("partner_qubit", _QUBIT_VALUE_TYPE),
+        sc.TableColumn("gate", sc.ScalarType(sc.StringType())),
+        sc.TableColumn("coupler", _COUPLER_VALUE_TYPE),
+        sc.TableColumn("control_echo_amplitude", _ARB_VALUE_TYPE),
+        sc.TableColumn("partner_echo_amplitude", _ARB_VALUE_TYPE),
+        sc.TableColumn("coupler_parking_flux", _ARB_VALUE_TYPE),
+        sc.TableColumn("coupler_amplitude", _ARB_VALUE_TYPE),
+        sc.TableColumn("duration", _NS_VALUE_TYPE),
+        sc.TableColumn("sample_rate_hz", sc.ScalarType(sc.FloatType())),
+    ),
+    primary_key=("control_qubit", "partner_qubit", "gate"),
+)
+_TWO_QUBIT_GATE_PARAMETERS = sc.parameter(
+    TWO_QUBIT_GATE_PARAMETER_TABLE,
+    _TWO_QUBIT_GATE_PARAMETER_TABLE_TYPE,
+)
 
 _Q0 = EntityRef(id="q0", kind="logical_qubit")
 _Q1 = EntityRef(id="q1", kind="logical_qubit")
@@ -50,6 +70,12 @@ def qubit_parameters() -> sc.ValueRef:
     """Expose the accepted qubit table as one compiler-only collection."""
 
     return _QUBIT_PARAMETERS
+
+
+def two_qubit_gate_parameters() -> sc.ValueRef:
+    """Expose the accepted gate table as one opaque compiler input."""
+
+    return _TWO_QUBIT_GATE_PARAMETERS
 
 
 def q0_parameter_key() -> dict[str, EntityRef]:
@@ -106,4 +132,5 @@ __all__ = [
     "q0_q1_cz_amplitude_lookup",
     "q0_q1_cz_parameter_key",
     "qubit_parameters",
+    "two_qubit_gate_parameters",
 ]
