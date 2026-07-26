@@ -21,6 +21,7 @@ from scopecat.kernel.content_identity import (
 from scopecat.kernel.problems import Problem
 
 type ExecutionEffect = Literal[
+    "read",
     "state_write",
     "acquisition",
     "lifecycle",
