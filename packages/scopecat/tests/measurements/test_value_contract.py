@@ -79,28 +79,6 @@ def test_contract_reports_typed_top_level_mismatches() -> None:
     assert (issues[2].expected, issues[2].actual) == ((3,), (2,))
 
 
-def test_contract_checks_actual_nested_array_structure() -> None:
-    value = MeasurementArray(
-        dtype="float64",
-        unit=None,
-        shape=[2, 1],
-        values=[[0.25], [0.75]],
-    )
-    value.values[1] = []
-
-    issues = measurement_value_contract_issues(
-        value,
-        expected_dtype="float64",
-        expected_unit=None,
-        expected_shape=(2, 1),
-    )
-
-    assert len(issues) == 1
-    assert issues[0].code is MeasurementValueContractIssueCode.ARRAY_STRUCTURE_MISMATCH
-    assert issues[0].path == ("values", 1)
-    assert (issues[0].expected, issues[0].actual) == (1, 0)
-
-
 def test_complex_array_tag_requires_complex_quantity_leaves() -> None:
     value = MeasurementArray(
         dtype="complex128",
@@ -127,38 +105,6 @@ def test_complex_array_tag_requires_complex_quantity_leaves() -> None:
     assert (issues[0].expected, issues[0].actual) == (
         "ComplexQuantity",
         "float",
-    )
-
-
-def test_contract_revalidates_mutated_complex_models() -> None:
-    scalar = ComplexQuantity(real=0.25, imag=-0.5, unit="ratio")
-    object.__setattr__(scalar, "real", "not-a-number")
-    array = MeasurementArray(
-        dtype="complex128",
-        unit="ratio",
-        shape=[1],
-        values=[ComplexQuantity(real=0.75, imag=0.125, unit="ratio")],
-    )
-    object.__setattr__(array.values[0], "imag", "not-a-number")
-
-    scalar_issues = measurement_value_contract_issues(
-        scalar,
-        expected_dtype="complex128",
-        expected_unit="ratio",
-        expected_shape=(),
-    )
-    array_issues = measurement_value_contract_issues(
-        array,
-        expected_dtype="complex128",
-        expected_unit="ratio",
-        expected_shape=(1,),
-    )
-
-    assert tuple(issue.code for issue in scalar_issues) == (
-        MeasurementValueContractIssueCode.VALUE_MODEL_INVALID,
-    )
-    assert tuple(issue.code for issue in array_issues) == (
-        MeasurementValueContractIssueCode.ARRAY_ELEMENT_TYPE_MISMATCH,
     )
 
 
@@ -413,29 +359,3 @@ def test_execution_readback_maps_leaf_issues_to_value_mismatch() -> None:
     assert isinstance(problems[0].location, ModelLocation)
     assert problems[0].location.path == ("values", "iq", "values", 1)
     assert "array_element_type_mismatch" in problems[0].message
-
-
-def test_execution_readback_maps_nested_structure_to_shape_mismatch() -> None:
-    operation = _collect_operation(
-        dtype="float64",
-        unit=None,
-        shape=(2, 1),
-    )
-    value = MeasurementArray(
-        dtype="float64",
-        unit=None,
-        shape=[2, 1],
-        values=[[0.25], [0.75]],
-    )
-    readback = InstrumentReadback(values={"iq": value})
-    retained = cast("MeasurementArray", readback.values["iq"])
-    retained.values[1] = []
-
-    problems = validate_readback(operation, readback)
-
-    assert tuple(problem.code for problem in problems) == (
-        "instrument_readback_shape_mismatch",
-    )
-    assert isinstance(problems[0].location, ModelLocation)
-    assert problems[0].location.path == ("values", "iq", "values", 1)
-    assert "structure" in problems[0].message

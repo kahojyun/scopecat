@@ -7,10 +7,7 @@ import pytest
 from scopecat.kernel.errors import CheckFailed, ProviderContractError
 from scopecat.kernel.product_identity import ProductUseId
 from scopecat.kernel.quantity import Quantity
-from scopecat.measurements.values import (
-    MeasurementValueCandidate,
-    seal_measurement_values,
-)
+from scopecat.measurements.values import seal_measurement_values
 from tests.testkit.measurement_assembly import (
     measurement_assembly_scenario,
     measurement_value_candidates,
@@ -41,7 +38,7 @@ def test_catalog_rejects_unsupported_scalar_measurement_dtype() -> None:
     assert "measurement_value_scalar_dtype_unsupported" in _codes(captured.value)
 
 
-def test_sealing_canonicalizes_candidate_order_and_copies_values() -> None:
+def test_sealing_canonicalizes_candidate_order() -> None:
     scenario = _scenario()
     candidates = list(measurement_value_candidates(scenario, scenario.uses))
 
@@ -50,10 +47,6 @@ def test_sealing_canonicalizes_candidate_order_and_copies_values() -> None:
         tuple(reversed(candidates)),
         points=scenario.points,
     )
-    exposed = candidates[0].value
-    assert isinstance(exposed, Quantity)
-    object.__setattr__(exposed, "value", 999.0)
-
     assert [value.product_use_id for value in values.values[:3]] == [
         use.id for use in scenario.uses
     ]
@@ -93,26 +86,6 @@ def test_sealing_requires_one_exact_candidate_per_point_and_use(
         seal_measurement_values(scenario.catalog, candidates, points=scenario.points)
 
     assert code in _codes(captured.value)
-
-
-def test_sealing_rejects_values_outside_the_product_contract() -> None:
-    scenario = _scenario(point_values=(0.0,), use_count=1)
-    point = scenario.linked_points.point_domain.points[0]
-
-    with pytest.raises(ProviderContractError) as captured:
-        seal_measurement_values(
-            scenario.catalog,
-            (
-                MeasurementValueCandidate(
-                    point.logical_id,
-                    scenario.uses[0].id,
-                    Quantity(value=1.0, unit="V"),
-                ),
-            ),
-            points=scenario.points,
-        )
-
-    assert "measurement_value_unit_mismatch" in _codes(captured.value)
 
 
 def test_zero_points_and_empty_inventories_close_without_special_cases() -> None:

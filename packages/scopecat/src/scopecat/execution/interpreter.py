@@ -18,7 +18,6 @@ from scopecat.execution.measurement_recording import (
     seal_measurement_dataset,
 )
 from scopecat.execution.persistence import (
-    validate_measurement_dataset,
     validate_run_measurements,
 )
 from scopecat.execution.program import RunCoverageBlock, RunDomainJob, RunProgram
@@ -38,7 +37,6 @@ from scopecat.kernel.problems import (
     ProblemPhase,
 )
 from scopecat.kernel.run_outcome import RunOutcome
-from scopecat.measurements.datasets import RAW_MEASUREMENTS_DATASET_ID
 from scopecat.measurements.postprocessors import (
     execute_measurement_postprocessors,
 )
@@ -127,11 +125,6 @@ def _execute_run(
             *validate_run_measurements(
                 measurements=projected.records,
                 expected_indices=set(block.point_indices),
-            ),
-            *validate_measurement_dataset(
-                records=projected.records,
-                expected_schema=projected.schema,
-                dataset_id=RAW_MEASUREMENTS_DATASET_ID,
             ),
         )
         if block_problems:

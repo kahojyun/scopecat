@@ -93,20 +93,6 @@ def validate_readback(
                         "shape",
                     )
                 )
-            elif (
-                issue.code is MeasurementValueContractIssueCode.ARRAY_STRUCTURE_MISMATCH
-            ):
-                value_path = ".".join(str(item) for item in issue.path)
-                problems.append(
-                    _readback_problem(
-                        "instrument_readback_shape_mismatch",
-                        f"instrument {operation.instrument_id} product {product_id} "
-                        f"array {value_path} has structure {issue.actual!r}, "
-                        f"expected {issue.expected!r}",
-                        product_id,
-                        *issue.path,
-                    )
-                )
             else:
                 value_path = ".".join(str(item) for item in issue.path)
                 problems.append(

@@ -45,8 +45,8 @@ def test_measurement_array_record_round_trip() -> None:
     i0 = restored.observables["i0"]
 
     assert isinstance(i0, MeasurementArray)
-    assert i0.shape == [3]
-    assert i0.values == [0.1, 0.2, 0.3]
+    assert i0.shape == (3,)
+    assert i0.values == (0.1, 0.2, 0.3)
 
 
 def test_typed_measurement_array_leaves_survive_record_round_trip() -> None:
@@ -86,7 +86,7 @@ def test_typed_measurement_array_leaves_survive_record_round_trip() -> None:
 
     assert isinstance(iq, MeasurementArray)
     assert isinstance(original_iq, MeasurementArray)
-    assert isinstance(cast("list[object]", iq.values[0])[0], ComplexQuantity)
+    assert isinstance(cast("tuple[object, ...]", iq.values[0])[0], ComplexQuantity)
     assert iq.values == original_iq.values
     assert isinstance(probability, MeasurementArray)
     assert isinstance(original_probability, MeasurementArray)

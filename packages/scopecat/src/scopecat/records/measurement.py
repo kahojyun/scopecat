@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Literal, cast
 
 from pydantic import (
@@ -29,7 +29,7 @@ MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v1"
 
 MeasurementVariableRole = Literal["coordinate", "observable"]
 MeasurementDType = Literal["float64", "int64", "complex128", "bool", "string"]
-MeasurementArrayData = list[object]
+MeasurementArrayData = Sequence[object]
 
 
 class MeasurementDimension(BaseModel):
@@ -137,7 +137,7 @@ class MeasurementDatasetSchema(BaseModel):
 
 
 class ComplexQuantity(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     real: float
     imag: float
@@ -156,11 +156,11 @@ def _restore_measurement_array_leaves(
     *,
     dtype: object,
 ) -> object:
-    if isinstance(value, list):
-        selected = cast("list[object]", value)
-        return [
+    if isinstance(value, list | tuple):
+        selected = cast("list[object] | tuple[object, ...]", value)
+        return tuple(
             _restore_measurement_array_leaves(item, dtype=dtype) for item in selected
-        ]
+        )
     if isinstance(value, Mapping):
         selected_mapping = cast("Mapping[str, object]", value)
         try:
@@ -177,11 +177,11 @@ def _restore_measurement_array_leaves(
 
 
 class MeasurementArray(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     dtype: MeasurementDType = "float64"
     unit: str | None = None
-    shape: list[int] = Field(min_length=1)
+    shape: Sequence[int] = Field(min_length=1)
     values: MeasurementArrayData
     metadata: JsonMetadata = Field(default_factory=dict)
 
@@ -193,6 +193,10 @@ class MeasurementArray(BaseModel):
         if not isinstance(data, Mapping):
             return data
         selected = dict(cast("Mapping[str, object]", data))
+        if "shape" in selected and isinstance(selected["shape"], list | tuple):
+            selected["shape"] = tuple(
+                cast("list[object] | tuple[object, ...]", selected["shape"])
+            )
         if "values" in selected:
             selected["values"] = _restore_measurement_array_leaves(
                 selected["values"],
@@ -238,15 +242,15 @@ class MeasurementDataset(BaseModel):
     metadata: JsonMetadata = Field(default_factory=dict)
 
 
-def _array_shape(values: object) -> list[int]:
-    if not isinstance(values, list):
-        return []
-    items = cast("list[object]", values)
+def _array_shape(values: object) -> tuple[int, ...]:
+    if not isinstance(values, tuple):
+        return ()
+    items = cast("tuple[object, ...]", values)
     if not items:
-        return [0]
+        return (0,)
     first_shape = _array_shape(items[0])
     for value in items[1:]:
         if _array_shape(value) != first_shape:
             msg = "measurement array values must be rectangular"
             raise ValueError(msg)
-    return [len(items), *first_shape]
+    return (len(items), *first_shape)
