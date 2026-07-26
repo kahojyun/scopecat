@@ -20,7 +20,6 @@ def test_measurement_dataset_schema_validates_references() -> None:
     with pytest.raises(ValidationError):
         MeasurementDatasetSchema(
             dataset_id="bad",
-            dataset_role="raw",
             dimensions=[
                 MeasurementDimension(id="point", kind="point"),
                 MeasurementDimension(id="point", kind="point"),
@@ -30,7 +29,6 @@ def test_measurement_dataset_schema_validates_references() -> None:
     with pytest.raises(ValidationError):
         MeasurementDatasetSchema(
             dataset_id="bad",
-            dataset_role="raw",
             variables=[
                 MeasurementVariable(
                     id="signal",
@@ -46,7 +44,6 @@ def test_measurement_dataset_schema_validates_references() -> None:
 def test_validate_measurement_records_against_schema_accepts_compatible_units() -> None:
     schema = MeasurementDatasetSchema(
         dataset_id="raw-measurements",
-        dataset_role="raw",
         dimensions=[MeasurementDimension(id="point", kind="point", size=1)],
         variables=[
             MeasurementVariable(
@@ -93,7 +90,6 @@ def test_validate_measurement_records_against_schema_accepts_compatible_units() 
         records,
         schema,
         "raw-measurements",
-        "raw",
     )
 
     assert problems == []
@@ -102,7 +98,6 @@ def test_validate_measurement_records_against_schema_accepts_compatible_units() 
 def test_validate_schema_accepts_point_local_arrays() -> None:
     schema = MeasurementDatasetSchema(
         dataset_id="raw-measurements",
-        dataset_role="raw",
         dimensions=[
             MeasurementDimension(id="point", kind="point", size=1),
             MeasurementDimension(id="shot", kind="shot", size=3, unit="count"),
@@ -146,7 +141,6 @@ def test_validate_schema_accepts_point_local_arrays() -> None:
         [record],
         schema,
         "raw-measurements",
-        "raw",
     )
 
     assert problems == []
@@ -155,7 +149,6 @@ def test_validate_schema_accepts_point_local_arrays() -> None:
 def test_validate_measurement_records_against_schema_reports_contract_errors() -> None:
     schema = MeasurementDatasetSchema(
         dataset_id="raw-measurements",
-        dataset_role="raw",
         dimensions=[MeasurementDimension(id="point", kind="point", size=2)],
         variables=[
             MeasurementVariable(
@@ -204,13 +197,11 @@ def test_validate_measurement_records_against_schema_reports_contract_errors() -
         records,
         schema,
         "other-id",
-        "derived",
     )
     codes = {problem.code for problem in problems}
 
     assert {
         "measurement_dataset_id_mismatch",
-        "measurement_dataset_role_mismatch",
         "measurement_dataset_record_count_mismatch",
         "measurement_dataset_variable_shape_mismatch",
         "measurement_record_missing_coordinate",
@@ -223,7 +214,6 @@ def test_validate_measurement_records_against_schema_reports_contract_errors() -
 def test_validate_measurement_records_against_schema_reports_unit_and_dtype() -> None:
     schema = MeasurementDatasetSchema(
         dataset_id="raw-measurements",
-        dataset_role="raw",
         dimensions=[MeasurementDimension(id="point", kind="point", size=1)],
         variables=[
             MeasurementVariable(
@@ -259,7 +249,6 @@ def test_validate_measurement_records_against_schema_reports_unit_and_dtype() ->
         records,
         schema,
         "raw-measurements",
-        "raw",
     )
     codes = {problem.code for problem in problems}
 
@@ -271,7 +260,6 @@ def test_validate_measurement_records_against_schema_reports_unit_and_dtype() ->
 def test_schema_validation_reports_non_finite_integer_values(value: float) -> None:
     schema = MeasurementDatasetSchema(
         dataset_id="raw-measurements",
-        dataset_role="raw",
         dimensions=[MeasurementDimension(id="point", kind="point", size=1)],
         variables=[
             MeasurementVariable(
@@ -296,7 +284,6 @@ def test_schema_validation_reports_non_finite_integer_values(value: float) -> No
         [record],
         schema,
         "raw-measurements",
-        "raw",
     )
 
     assert [item.code for item in problems] == ["measurement_record_dtype_mismatch"]

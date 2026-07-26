@@ -251,7 +251,6 @@ def expected_dataset_schema(
     ]
     return MeasurementDatasetSchema(
         dataset_id=dataset_id,
-        dataset_role="raw",
         dimensions=dimensions,
         variables=[*coordinates, *observables],
         primary_coordinates=[variable.id for variable in coordinates],

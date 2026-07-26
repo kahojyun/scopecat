@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from typing import Protocol
+from typing import Protocol, cast
 
 from pydantic import JsonValue
 
@@ -102,7 +102,7 @@ def _record_operation(
     expected_hash: str,
     stage: ExecutionStage,
     evidence: dict[str, JsonValue],
-    invoke: Callable[[], object],
+    invoke: Callable[[], MeasurementDatasetReceipt],
     journal: ExecutionJournal,
 ) -> MeasurementDatasetReceipt:
     boundary = JournaledEffectBoundary(run_id=operation.run_id, journal=journal)
@@ -115,19 +115,22 @@ def _record_operation(
     )
     invoked = False
 
-    def invoke_once() -> object:
+    def invoke_once() -> MeasurementDatasetReceipt:
         nonlocal invoked
         result = invoke()
         invoked = True
         return result
 
     try:
-        raw_receipt = boundary.invoke(
-            started,
-            invoke_once,
-            unknown_code="measurement_dataset_operation_raised",
-            unknown_message="measurement dataset writer raised",
-            phase=ProblemPhase.PERSISTENCE,
+        receipt = cast(
+            "MeasurementDatasetReceipt",
+            boundary.invoke(
+                started,
+                invoke_once,
+                unknown_code="measurement_dataset_operation_raised",
+                unknown_message="measurement dataset writer raised",
+                phase=ProblemPhase.PERSISTENCE,
+            ),
         )
     except Exception as error:
         raise _error(
@@ -153,37 +156,25 @@ def _record_operation(
             receipt=None,
             uncertain=True,
         )
-    receipt: MeasurementDatasetReceipt | None = None
-    try:
-        if not isinstance(raw_receipt, MeasurementDatasetReceipt):
-            raise TypeError("measurement writer must return MeasurementDatasetReceipt")
-        receipt = MeasurementDatasetReceipt.model_validate(
-            raw_receipt.model_dump(mode="json")
-        )
-        if (
-            receipt.operation_id != operation.operation_id
-            or receipt.dataset_content_hash != expected_hash
-        ):
-            raise ValueError("measurement dataset receipt does not correlate")
-    except Exception as error:
+    if (
+        receipt.operation_id != operation.operation_id
+        or receipt.dataset_content_hash != expected_hash
+    ):
         problem = boundary.problem(
             "measurement_dataset_receipt_invalid",
             "measurement dataset writer returned an invalid receipt",
             operation_id=operation.operation_id,
             phase=ProblemPhase.PERSISTENCE,
-            details={
-                "error_type": f"{type(error).__module__}.{type(error).__qualname__}"
-            },
         )
-        unknown_evidence = dict(evidence)
-        if receipt is not None:
-            unknown_evidence["receipt"] = receipt.model_dump(mode="json")
         boundary.commit_best_effort(
             started.model_copy(
                 update={
                     "state": "unknown",
                     "problems": (problem,),
-                    "evidence": unknown_evidence,
+                    "evidence": {
+                        **evidence,
+                        "receipt": receipt.model_dump(mode="json"),
+                    },
                 }
             )
         )
@@ -192,7 +183,7 @@ def _record_operation(
             problems=(problem,),
             receipt=receipt,
             uncertain=True,
-        ) from error
+        )
     completed = started.model_copy(
         update={
             "state": "completed",

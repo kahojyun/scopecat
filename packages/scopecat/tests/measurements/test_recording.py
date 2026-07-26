@@ -15,6 +15,7 @@ from scopecat.measurements.projection import (
     select_measurement_projection,
 )
 from scopecat.records.measurement_recording import (
+    CANONICAL_MEASUREMENT_DATASET_REF,
     MeasurementDatasetAppend,
     MeasurementDatasetReceipt,
 )
@@ -58,10 +59,12 @@ def test_recording_appends_and_seals_one_canonical_dataset() -> None:
 
     append_receipt = append_measurement_dataset(projected, writer, journal)
     assert append_receipt is not None
-    _seal(projected, writer, journal, append_receipt)
+    seal_receipt = _seal(projected, writer, journal, append_receipt)
 
     [append] = writer.appends
     assert append.records == projected.records
+    assert append_receipt.dataset_ref == CANONICAL_MEASUREMENT_DATASET_REF
+    assert seal_receipt.dataset_ref == CANONICAL_MEASUREMENT_DATASET_REF
     assert [(entry.stage, entry.state) for entry in journal.entries] == [
         ("append_measurement", "started"),
         ("append_measurement", "completed"),
@@ -97,7 +100,6 @@ class _InvalidReceiptWriter(FakeMeasurementDatasetRepository):
         return MeasurementDatasetReceipt(
             operation_id=append.operation_id,
             dataset_content_hash="sha256:wrong",
-            dataset_ref="memory/wrong.json",
         )
 
 

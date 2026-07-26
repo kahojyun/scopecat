@@ -129,7 +129,6 @@ def test_measurement_dataset_round_trip() -> None:
     dataset = MeasurementDataset(
         schema=schema,
         records=[record],
-        metadata={"dataset_role": "raw"},
     )
     restored = assert_model_round_trip(dataset)
 

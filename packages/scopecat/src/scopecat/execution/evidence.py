@@ -25,16 +25,6 @@ def instrument_state_evidence_ref() -> str:
     )
 
 
-def raw_measurement_schema(
-    expected_schema: MeasurementDatasetSchema | None,
-) -> MeasurementDatasetSchema | None:
-    if expected_schema is None:
-        return None
-    return expected_schema.model_copy(
-        update={"dataset_id": RAW_MEASUREMENTS_DATASET_ID}
-    )
-
-
 def build_terminal_contents(
     *,
     outcome: RunOutcome,
@@ -58,7 +48,6 @@ def build_terminal_contents(
                 id=RAW_MEASUREMENTS_DATASET_ID,
                 kind=MEASUREMENT_DATASET_KIND,
                 media_type="application/x-ndjson",
-                dataset_role="raw",
                 schema=dataset_schema.model_dump(mode="json"),
                 content_hash=dataset_content_hash,
                 metadata=(

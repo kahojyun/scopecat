@@ -1003,11 +1003,6 @@ export interface components {
         MeasurementDatasetSchema: {
             /** Dataset Id */
             dataset_id: string;
-            /**
-             * Dataset Role
-             * @enum {string}
-             */
-            dataset_role: "raw" | "derived";
             /** Dimensions */
             dimensions?: components["schemas"]["MeasurementDimension"][];
             /**
@@ -1533,8 +1528,6 @@ export interface components {
         "RunContentEntry-Output": {
             /** Content Hash */
             content_hash: string;
-            /** Dataset Role */
-            dataset_role?: string | null;
             /** Filename */
             filename?: string | null;
             /** Id */

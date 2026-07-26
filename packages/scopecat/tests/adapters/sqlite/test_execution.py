@@ -29,6 +29,7 @@ from scopecat.records.execution_journal import (
 )
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.measurement_recording import (
+    CANONICAL_MEASUREMENT_DATASET_REF,
     MeasurementDatasetAppend,
     MeasurementDatasetReceipt,
     MeasurementDatasetSeal,
@@ -201,8 +202,8 @@ def test_replay_returns_the_same_exact_receipt(tmp_path: Path) -> None:
     assert first == MeasurementDatasetReceipt(
         operation_id=append.operation_id,
         dataset_content_hash=append.content_hash,
-        dataset_ref=first.dataset_ref,
     )
+    assert first.dataset_ref == CANONICAL_MEASUREMENT_DATASET_REF
 
 
 def test_same_operation_rejects_different_content(tmp_path: Path) -> None:

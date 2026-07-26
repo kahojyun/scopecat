@@ -26,7 +26,6 @@ from scopecat.records._schema_utils import (
 
 MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v1"
 MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v1"
-MeasurementDatasetRole = Literal["raw", "derived"]
 
 MeasurementVariableRole = Literal["coordinate", "observable"]
 MeasurementDType = Literal["float64", "int64", "complex128", "bool", "string"]
@@ -84,7 +83,6 @@ class MeasurementDatasetSchema(BaseModel):
         MEASUREMENT_DATASET_FORMAT_VERSION
     )
     dataset_id: str
-    dataset_role: MeasurementDatasetRole
     record_schema: str = MEASUREMENT_RECORD_SCHEMA_VERSION
     dimensions: list[MeasurementDimension] = Field(default_factory=list)
     variables: list[MeasurementVariable] = Field(default_factory=list)

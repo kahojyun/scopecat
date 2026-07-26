@@ -16,23 +16,17 @@ from pydantic_core import PydanticSerializationError
 from scopecat.adapters.sqlite.connection import immediate_transaction
 from scopecat.adapters.sqlite.object_store import ObjectStoreError, StoredObject
 from scopecat.adapters.sqlite.run_repository import SQLiteRunRepository
-from scopecat.measurements.datasets import (
-    MEASUREMENT_DATASET_KIND,
-    RAW_MEASUREMENTS_DATASET_ID,
-)
 from scopecat.records.execution_journal import (
     ExecutionTransition,
     execution_transition_content_hash,
 )
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.measurement_recording import (
+    CANONICAL_MEASUREMENT_DATASET_REF,
     MeasurementDatasetAppend,
     MeasurementDatasetReceipt,
     MeasurementDatasetSeal,
     measurement_dataset_content_hash,
-)
-from scopecat.runs.refs import (
-    dataset_content_ref,
 )
 from scopecat.sdk.journal import ExecutionJournalError
 
@@ -208,7 +202,10 @@ class SQLiteMeasurementDatasetRepository:
             raise ExecutionJournalConflict(
                 "measurement run_id does not match its execution repository"
             )
-        ref = f"{_dataset_ref()}/chunks/{durable.start_index:020d}.json"
+        ref = (
+            f"{CANONICAL_MEASUREMENT_DATASET_REF}/chunks/"
+            f"{durable.start_index:020d}.json"
+        )
         return PreparedExecutionRecord(
             durable=durable,
             ref=ref,
@@ -247,7 +244,6 @@ class SQLiteMeasurementDatasetRepository:
                     MeasurementDatasetReceipt(
                         operation_id=_text(existing, "operation_id"),
                         dataset_content_hash=_text(existing, "content_hash"),
-                        dataset_ref=_text(existing, "ref"),
                     ),
                     False,
                 )
@@ -291,7 +287,7 @@ class SQLiteMeasurementDatasetRepository:
                     ref,
                 ),
             )
-            return _append_receipt(durable, ref), True
+            return _append_receipt(durable), True
         except ExecutionJournalError:
             raise
         except Exception as error:
@@ -367,7 +363,6 @@ class SQLiteMeasurementDatasetRepository:
                                 existing,
                                 "dataset_content_hash",
                             ),
-                            dataset_ref=_dataset_ref(),
                         ),
                         False,
                     )
@@ -433,7 +428,7 @@ class SQLiteMeasurementDatasetRepository:
             return tuple(
                 self._runs.read_measurement_records(
                     self._run_id,
-                    _dataset_ref(),
+                    CANONICAL_MEASUREMENT_DATASET_REF,
                 )
             )
         except Exception as error:
@@ -442,21 +437,12 @@ class SQLiteMeasurementDatasetRepository:
             ) from error
 
 
-def _dataset_ref() -> str:
-    return dataset_content_ref(
-        dataset_id=RAW_MEASUREMENTS_DATASET_ID,
-        kind=MEASUREMENT_DATASET_KIND,
-    )
-
-
 def _append_receipt(
     append: MeasurementDatasetAppend,
-    ref: str,
 ) -> MeasurementDatasetReceipt:
     return MeasurementDatasetReceipt(
         operation_id=append.operation_id,
         dataset_content_hash=append.content_hash,
-        dataset_ref=ref,
     )
 
 
@@ -466,7 +452,6 @@ def _seal_receipt(
     return MeasurementDatasetReceipt(
         operation_id=seal.operation_id,
         dataset_content_hash=seal.dataset_content_hash,
-        dataset_ref=_dataset_ref(),
     )
 
 

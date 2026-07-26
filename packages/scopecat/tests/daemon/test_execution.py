@@ -232,7 +232,6 @@ def _measurement_receipt(
     return MeasurementDatasetReceipt(
         operation_id=append.operation_id,
         dataset_content_hash=append.content_hash,
-        dataset_ref="datasets/raw/chunks/0.json",
     )
 
 
@@ -256,7 +255,6 @@ def _seal_receipt(
     return MeasurementDatasetReceipt(
         operation_id=seal.operation_id,
         dataset_content_hash=seal.dataset_content_hash,
-        dataset_ref="datasets/raw/seal.json",
     )
 
 

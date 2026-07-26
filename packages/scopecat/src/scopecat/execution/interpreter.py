@@ -11,7 +11,6 @@ from scopecat.execution.evidence import (
     build_instrument_state_evidence,
     build_terminal_contents,
     instrument_state_evidence_ref,
-    raw_measurement_schema,
 )
 from scopecat.execution.local.executor import execute_run_operations
 from scopecat.execution.measurement_recording import (
@@ -19,7 +18,7 @@ from scopecat.execution.measurement_recording import (
     seal_measurement_dataset,
 )
 from scopecat.execution.persistence import (
-    validate_raw_measurement_dataset,
+    validate_measurement_dataset,
     validate_run_measurements,
 )
 from scopecat.execution.program import RunCoverageBlock, RunDomainJob, RunProgram
@@ -120,9 +119,9 @@ def _execute_run(
                 measurements=projected.records,
                 expected_indices=set(block.point_indices),
             ),
-            *validate_raw_measurement_dataset(
+            *validate_measurement_dataset(
                 records=projected.records,
-                expected_schema=raw_measurement_schema(projected.schema),
+                expected_schema=projected.schema,
                 dataset_id=RAW_MEASUREMENTS_DATASET_ID,
             ),
         )
@@ -223,7 +222,7 @@ def _execute_run(
         )
 
     admitted_points = effect_result.admitted_points
-    dataset_schema = raw_measurement_schema(projection.schema_for(admitted_points))
+    dataset_schema = projection.schema_for(admitted_points)
 
     failed = bool(problems)
     outcome = RunOutcome(

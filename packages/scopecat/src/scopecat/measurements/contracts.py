@@ -23,7 +23,6 @@ from scopecat.records.measurement import (
     ComplexQuantity,
     CoordinateValue,
     MeasurementArray,
-    MeasurementDatasetRole,
     MeasurementDatasetSchema,
     MeasurementDType,
     MeasurementRecord,
@@ -423,7 +422,6 @@ def validate_measurement_records_against_schema(
     records: Sequence[MeasurementRecord],
     schema: MeasurementDatasetSchema,
     dataset_id: str,
-    dataset_role: MeasurementDatasetRole,
 ) -> list[Problem]:
     """Validate persisted records through the canonical value contract."""
 
@@ -435,15 +433,6 @@ def validate_measurement_records_against_schema(
                 f"measurement dataset schema id {schema.dataset_id} "
                 f"does not match artifact id {dataset_id}",
                 ("dataset_schema", "dataset_id"),
-            )
-        )
-    if schema.dataset_role != dataset_role:
-        problems.append(
-            _problem(
-                "measurement_dataset_role_mismatch",
-                f"measurement dataset schema role {schema.dataset_role} "
-                f"does not match artifact role {dataset_role}",
-                ("dataset_schema", "dataset_role"),
             )
         )
     if schema.record_schema != MEASUREMENT_RECORD_SCHEMA_VERSION:

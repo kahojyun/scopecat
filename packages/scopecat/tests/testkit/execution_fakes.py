@@ -71,7 +71,6 @@ class FakeMeasurementDatasetRepository:
             self._receipts[durable.operation_id] = MeasurementDatasetReceipt(
                 operation_id=durable.operation_id,
                 dataset_content_hash=durable.content_hash,
-                dataset_ref=f"fake/measurement/{durable.content_hash}.json",
             )
         return self._receipts[durable.operation_id]
 
@@ -87,6 +86,5 @@ class FakeMeasurementDatasetRepository:
             self._receipts[durable.operation_id] = MeasurementDatasetReceipt(
                 operation_id=durable.operation_id,
                 dataset_content_hash=durable.dataset_content_hash,
-                dataset_ref=f"fake/measurement/{durable.dataset_content_hash}.json",
             )
         return self._receipts[durable.operation_id]
