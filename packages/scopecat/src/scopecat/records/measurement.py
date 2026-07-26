@@ -10,6 +10,7 @@ from pydantic import (
     ConfigDict,
     Field,
     ValidationError,
+    ValidationInfo,
     field_validator,
     model_validator,
 )
@@ -185,29 +186,33 @@ class MeasurementArray(BaseModel):
     values: MeasurementArrayData
     metadata: JsonMetadata = Field(default_factory=dict)
 
-    @model_validator(mode="before")
-    @classmethod
-    def restore_typed_leaves(cls, data: object) -> object:
-        """Restore numeric leaf models lost by an ``Any``-typed wire decode."""
-
-        if not isinstance(data, Mapping):
-            return data
-        selected = dict(cast("Mapping[str, object]", data))
-        if "shape" in selected and isinstance(selected["shape"], list | tuple):
-            selected["shape"] = tuple(
-                cast("list[object] | tuple[object, ...]", selected["shape"])
-            )
-        if "values" in selected:
-            selected["values"] = _restore_measurement_array_leaves(
-                selected["values"],
-                dtype=selected.get("dtype", "float64"),
-            )
-        return selected
-
     @field_validator("unit")
     @classmethod
     def validate_unit(cls, value: str | None) -> str | None:
         return validate_supported_unit(value)
+
+    @field_validator("shape")
+    @classmethod
+    def freeze_shape(cls, value: Sequence[int]) -> Sequence[int]:
+        return tuple(value)
+
+    @field_validator("values")
+    @classmethod
+    def restore_and_freeze_values(
+        cls,
+        value: MeasurementArrayData,
+        info: ValidationInfo,
+    ) -> MeasurementArrayData:
+        """Restore typed leaves and freeze nested sequences in one pass."""
+
+        dtype = info.data.get("dtype")
+        return cast(
+            "MeasurementArrayData",
+            _restore_measurement_array_leaves(
+                value,
+                dtype=dtype if isinstance(dtype, str) else "float64",
+            ),
+        )
 
     @model_validator(mode="after")
     def validate_values_shape(self) -> MeasurementArray:
@@ -219,7 +224,7 @@ class MeasurementArray(BaseModel):
 
 
 type MeasurementValue = Quantity | ComplexQuantity | MeasurementArray
-type CoordinateValue = Quantity | EntityRef | str | int | float | bool | None
+type CoordinateValue = Quantity | EntityRef | str | int | float | bool
 
 
 class MeasurementRecord(BaseModel):

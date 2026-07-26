@@ -49,6 +49,18 @@ def test_measurement_array_record_round_trip() -> None:
     assert i0.values == (0.1, 0.2, 0.3)
 
 
+def test_measurement_array_json_round_trip_freezes_nested_sequences() -> None:
+    value = MeasurementArray(
+        shape=[2, 1],
+        values=[[0.1], [0.2]],
+    )
+
+    restored = MeasurementArray.model_validate_json(value.model_dump_json())
+
+    assert restored.shape == (2, 1)
+    assert restored.values == ((0.1,), (0.2,))
+
+
 def test_typed_measurement_array_leaves_survive_record_round_trip() -> None:
     measurement = MeasurementRecord(
         run_id="run-test",

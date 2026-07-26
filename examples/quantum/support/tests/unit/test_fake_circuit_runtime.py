@@ -1028,15 +1028,15 @@ def test_integrated_iq_shot_realization_accepts_exact_product_contract() -> None
         assert isinstance(value, MeasurementArray)
         assert value.dtype == "complex128"
         assert value.unit == "ratio"
-        assert value.shape == [2]
-        assert value.values == [
+        assert value.shape == (2,)
+        assert value.values == tuple(
             ComplexQuantity(
                 real=frame.frame.value.real,
                 imag=frame.frame.value.imag,
                 unit="ratio",
             )
             for frame in frames
-        ]
+        )
 
 
 @pytest.mark.parametrize(
@@ -1184,15 +1184,15 @@ def test_two_integrated_results_share_one_batch_execution() -> None:
         assert isinstance(value, MeasurementArray)
         assert value.dtype == "complex128"
         assert value.unit == "ratio"
-        assert value.shape == [repetitions]
-        assert value.values == [
+        assert value.shape == (repetitions,)
+        assert value.values == tuple(
             ComplexQuantity(
                 real=frame.frame.value.real,
                 imag=frame.frame.value.imag,
                 unit="ratio",
             )
             for frame in frames
-        ]
+        )
 
 
 def test_fake_measurement_invocation_closes_exact_intent() -> None:

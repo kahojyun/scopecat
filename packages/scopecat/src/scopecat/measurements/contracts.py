@@ -133,7 +133,7 @@ def _measurement_value_dtype(
         return "bool"
     if isinstance(value, int):
         return "int64"
-    if isinstance(value, str | EntityRef) or value is None:
+    if isinstance(value, str | EntityRef):
         return "string"
     return "float64"
 
