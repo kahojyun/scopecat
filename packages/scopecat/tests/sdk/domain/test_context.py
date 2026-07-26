@@ -94,8 +94,8 @@ def _batch_context(
         linked_points.linked_plan,
         execution.id,
         domain_result_closure(program, execution.id),
-    ).bind_coverage(
-        (tuple(range(len(linked_points.point_domain.points))),),
+    ).bind_points(
+        tuple(range(len(linked_points.point_domain.points))),
         lambda input_ids, ordinals, max_points: linked_points.bind_domain_inputs(
             execution.id,
             "program",

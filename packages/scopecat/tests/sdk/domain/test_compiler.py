@@ -13,7 +13,6 @@ from scopecat.sdk.domain.compiler import (
     DomainCompileRequest,
     DomainCompileTemplate,
     DomainInput,
-    DomainIterationLayout,
     DomainResolvedInputs,
     compiled_jobs,
     validate_domain_compilation,
@@ -38,8 +37,8 @@ def _request() -> DomainCompileRequest:
         call=DomainCallView(id="call", program=program, results=()),
         program_inputs=(DomainInput("x"),),
         compiler_inputs=(),
-    ).bind_coverage(
-        ((0, 1), (2,)),
+    ).bind_points(
+        (0, 1, 2),
         program_input_binder=lambda input_ids, ordinals, _max_points: tuple(
             (
                 input_id,
@@ -51,7 +50,7 @@ def _request() -> DomainCompileRequest:
     )
 
 
-def test_compiler_controls_partition_within_barrier_regions() -> None:
+def test_compiler_partitions_contiguous_points_by_capacity() -> None:
     request = _request()
     lowered: list[tuple[int, ...]] = []
 
@@ -73,30 +72,18 @@ def test_compiler_controls_partition_within_barrier_regions() -> None:
     assert lowered == [(0, 1), (2,)]
 
 
-def test_partition_preserves_complete_innermost_sweeps_when_capacity_allows() -> None:
-    layout = DomainIterationLayout(
-        preferred_tile_size=3,
-    )
+def test_partition_uses_only_the_bounded_capacity() -> None:
     request = replace(
         _request(),
-        barrier_regions=((0, 1, 2, 3, 4, 5),),
-        iteration_layout=layout,
+        point_ordinals=(0, 1, 2, 3, 4, 5),
     )
 
-    assert request.partition(max_points=4) == ((0, 1, 2), (3, 4, 5))
+    assert request.partition(max_points=4) == ((0, 1, 2, 3), (4, 5))
 
 
-def test_partition_respects_barrier_clipping_before_axis_alignment() -> None:
-    layout = DomainIterationLayout(
-        preferred_tile_size=3,
-    )
-    request = replace(
-        _request(),
-        barrier_regions=((1, 2, 3, 4, 5),),
-        iteration_layout=layout,
-    )
-
-    assert request.partition(max_points=4) == ((1, 2), (3, 4, 5))
+def test_compile_request_rejects_noncontiguous_points() -> None:
+    with pytest.raises(ValueError, match="contiguous"):
+        replace(_request(), point_ordinals=(0, 2))
 
 
 def test_resolved_inputs_decode_each_collection_into_a_typed_value() -> None:
@@ -111,13 +98,6 @@ def test_resolved_inputs_decode_each_collection_into_a_typed_value() -> None:
     decoded = inputs.decode_collection("rows", decode)
 
     assert decoded == ((1,), (2, 3))
-
-
-def test_iteration_layout_normalizes_empty_tile_size_and_rejects_negative() -> None:
-    assert DomainIterationLayout(preferred_tile_size=0).preferred_tile_size is None
-
-    with pytest.raises(ValueError, match="tile size must be nonnegative"):
-        DomainIterationLayout(preferred_tile_size=-1)
 
 
 def test_domain_compiler_resolves_only_selected_inputs_and_points() -> None:
@@ -313,16 +293,6 @@ def test_compiled_artifact_inputs_are_absorbed_implicitly() -> None:
     )
 
     assert compilation.absorbed_input_ids == ("x",)
-
-
-def test_compilation_rejects_job_crossing_effect_region() -> None:
-    request = _request()
-    compilation = DomainCompilation(
-        jobs=(DomainCompiledJob("job-0", (0, 1, 2), object()),),
-    )
-
-    with pytest.raises(ValueError, match="crosses a barrier region"):
-        validate_domain_compilation(request, compilation)
 
 
 def test_compilation_rejects_missing_logical_point() -> None:

@@ -19,7 +19,6 @@ _OWNER_ONLY_ROOT_NAMES = {
     "AnalysisStep",
     "DomainExecution",
     "DomainInputPort",
-    "DomainResourcePort",
     "DomainResultPort",
     "MetadataValue",
     "ModuleInput",

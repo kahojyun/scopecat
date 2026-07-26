@@ -251,7 +251,6 @@ class _SemanticGraphBuilder:
                 for name, value in execution.compiler_input_bindings
             ),
             results=execution.result_bindings,
-            resources=execution.resource_bindings,
         )
 
     def add_measurement_postprocessor(

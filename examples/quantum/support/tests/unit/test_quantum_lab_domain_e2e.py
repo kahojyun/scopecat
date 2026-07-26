@@ -107,11 +107,6 @@ class _ConfiguredTestCompiler(QuantumLabCompiler):
 
 
 class _RaisingCompiler(_ConfiguredTestCompiler):
-    @property
-    @override
-    def compiler_id(self) -> str:
-        return "tests.raising-domain-compiler"
-
     @override
     def prepare(
         self,
@@ -123,11 +118,6 @@ class _RaisingCompiler(_ConfiguredTestCompiler):
 
 
 class _WrongResultCompiler(_ConfiguredTestCompiler):
-    @property
-    @override
-    def compiler_id(self) -> str:
-        return "tests.wrong-result-domain-compiler"
-
     @override
     def prepare(
         self,

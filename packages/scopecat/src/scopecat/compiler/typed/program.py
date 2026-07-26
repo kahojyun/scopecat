@@ -93,10 +93,6 @@ def _empty_value_inputs() -> dict[str, ValueInput]:
     return {}
 
 
-def _empty_resource_inputs() -> dict[str, LogicalResourcePortId]:
-    return {}
-
-
 def _empty_compute_inputs() -> dict[str, ComputeInput]:
     return {}
 
@@ -126,9 +122,6 @@ class TypedDomainExecution:
         default_factory=_empty_value_inputs
     )
     results: tuple[TypedDomainResultBinding, ...] = ()
-    resources: Mapping[str, LogicalResourcePortId] = field(
-        default_factory=_empty_resource_inputs
-    )
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -136,7 +129,6 @@ class TypedDomainExecution:
         selected_inputs: dict[str, ValueInput] = dict(self.inputs)
         object.__setattr__(self, "inputs", selected_inputs)
         object.__setattr__(self, "compiler_inputs", dict(self.compiler_inputs))
-        object.__setattr__(self, "resources", dict(self.resources))
 
 
 type CoreEffect = SetStateSpec | TypedDomainExecution | AcquireEffect

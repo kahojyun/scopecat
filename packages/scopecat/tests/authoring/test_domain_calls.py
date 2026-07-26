@@ -12,7 +12,6 @@ from scopecat.compiler.typed.program import (
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
-from scopecat.kernel.resource_identity import logical_resource_port_id
 from tests.testkit.authoring import link_invocation, load_config, template_fixture
 
 
@@ -104,56 +103,6 @@ def test_domain_program_rejects_overlapping_input_namespaces() -> None:
             inputs={"value": value_type},
             compiler_inputs={"value": value_type},
         )
-
-
-def test_domain_execution_binds_declared_resource_roles_and_source_anchor() -> None:
-    program = sc.domain_program(
-        "controller-program",
-        dialect_id="test",
-        dialect_version="1",
-        body=object(),
-        results={"counts": None},
-        resources={"controller": ("run-program",)},
-    )
-    builder = (
-        sc.module_body(id="test.domain.resources")
-        .resource("controller", requires=("run-program",))
-        .product("counts", unit="count", dtype="int64")
-    )
-    execution = sc.domain_execution(
-        program,
-        id="run-controller",
-        results={"counts": builder.products.counts},
-        resources={"controller": "controller"},
-    )
-
-    assembly = elaborate_module(builder.domain(execution).build().ir)
-    semantic = assembly.domain_executions[0]
-
-    assert semantic.resources == (
-        ("controller", logical_resource_port_id("controller")),
-    )
-    assert semantic.program.resource_ports[0].capabilities == ("run-program",)
-
-
-def test_domain_resource_role_checks_module_capabilities() -> None:
-    program = sc.domain_program(
-        "controller-program",
-        dialect_id="test",
-        dialect_version="1",
-        body=object(),
-        resources={"controller": ("run-program",)},
-    )
-    builder = sc.module_body(id="test.domain.bad-resource").resource("controller")
-    execution = sc.domain_execution(
-        program,
-        resources={"controller": "controller"},
-    )
-
-    with pytest.raises(CheckFailed) as error:
-        builder.domain(execution).build()
-
-    assert error.value.problems[0].code == "domain_resource_capability_mismatch"
 
 
 def test_domain_execution_captures_literal_inputs_at_authoring_ingress() -> None:

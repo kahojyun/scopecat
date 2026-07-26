@@ -13,19 +13,6 @@ from scopecat.sdk.domain.view import DomainCallView
 
 
 @dataclass(frozen=True, slots=True)
-class DomainIterationLayout:
-    """Preferred capacity-alignment size derived from the point layout."""
-
-    preferred_tile_size: int | None = None
-
-    def __post_init__(self) -> None:
-        if self.preferred_tile_size is not None and self.preferred_tile_size < 0:
-            raise ValueError("domain preferred tile size must be nonnegative")
-        if self.preferred_tile_size == 0:
-            object.__setattr__(self, "preferred_tile_size", None)
-
-
-@dataclass(frozen=True, slots=True)
 class DomainInput:
     """One program or compiler input available through its binder."""
 
@@ -109,11 +96,10 @@ class DomainCompileTemplate:
     call: DomainCallView
     program_inputs: tuple[DomainInput, ...]
     compiler_inputs: tuple[DomainInput, ...]
-    iteration_layout: DomainIterationLayout | None = None
 
-    def bind_coverage(
+    def bind_points(
         self,
-        barrier_regions: Sequence[Sequence[int]],
+        point_ordinals: Sequence[int],
         program_input_binder: DomainInputBinder,
         compiler_input_binder: DomainInputBinder,
     ) -> DomainCompileRequest:
@@ -121,35 +107,32 @@ class DomainCompileTemplate:
             call=self.call,
             program_inputs=self.program_inputs,
             compiler_inputs=self.compiler_inputs,
-            barrier_regions=tuple(tuple(region) for region in barrier_regions),
+            point_ordinals=tuple(point_ordinals),
             program_input_binder=program_input_binder,
             compiler_input_binder=compiler_input_binder,
-            iteration_layout=self.iteration_layout,
         )
 
 
 @dataclass(frozen=True, slots=True)
 class DomainCompileRequest:
-    """One symbolic point space and its bounded domain-call coverage.
+    """One contiguous point space and its bounded domain-call coverage.
 
-    Barrier regions contain exact canonical ordinals and are authoritative:
-    target partitions may refine but never cross them. Program inputs may
-    remain residual at prepare time. Compiler inputs are always resolved into
-    target artifacts, so both use independent bounded binder namespaces.
+    Program inputs may remain residual at prepare time. Compiler inputs are
+    always resolved into target artifacts, so both use independent bounded
+    binder namespaces.
     """
 
     call: DomainCallView
     program_inputs: tuple[DomainInput, ...]
     compiler_inputs: tuple[DomainInput, ...]
-    barrier_regions: tuple[tuple[int, ...], ...]
+    point_ordinals: tuple[int, ...]
     program_input_binder: DomainInputBinder = field(repr=False, compare=False)
     compiler_input_binder: DomainInputBinder = field(repr=False, compare=False)
-    iteration_layout: DomainIterationLayout | None = None
 
     def __post_init__(self) -> None:
         program_inputs = tuple(self.program_inputs)
         compiler_inputs = tuple(self.compiler_inputs)
-        regions = tuple(tuple(region) for region in self.barrier_regions)
+        point_ordinals = tuple(self.point_ordinals)
         _validate_input_order(
             "program",
             program_inputs,
@@ -160,37 +143,24 @@ class DomainCompileRequest:
             compiler_inputs,
             tuple(port.id for port in self.call.program.compiler_inputs),
         )
-        selected_ordinals = tuple(ordinal for region in regions for ordinal in region)
         if any(
             following != preceding + 1
-            for preceding, following in pairwise(selected_ordinals)
+            for preceding, following in pairwise(point_ordinals)
         ):
-            msg = "domain barrier regions must select contiguous logical point ordinals"
+            msg = "domain compilation must select contiguous logical point ordinals"
             raise ValueError(msg)
-        if any(not region for region in regions):
-            raise ValueError("domain barrier regions must be non-empty")
         object.__setattr__(self, "program_inputs", program_inputs)
         object.__setattr__(self, "compiler_inputs", compiler_inputs)
-        object.__setattr__(self, "barrier_regions", regions)
+        object.__setattr__(self, "point_ordinals", point_ordinals)
 
     def partition(self, *, max_points: int) -> tuple[tuple[int, ...], ...]:
-        """Return a contiguous capacity-limited partition within barriers."""
+        """Return contiguous capacity-limited batches."""
 
         if type(max_points) is not int or max_points <= 0:
             raise ValueError("domain job capacity must be a positive integer")
-        preferred = (
-            None
-            if self.iteration_layout is None
-            else self.iteration_layout.preferred_tile_size
-        )
         return tuple(
-            block
-            for region in self.barrier_regions
-            for block in _partition_region(
-                region,
-                max_points=max_points,
-                preferred_tile_size=preferred,
-            )
+            tuple(self.point_ordinals[offset : offset + max_points])
+            for offset in range(0, len(self.point_ordinals), max_points)
         )
 
     def resolve_program_inputs(
@@ -249,9 +219,7 @@ class DomainCompileRequest:
             raise ValueError("domain input binding budget must be positive")
         if len(selected) > max_points:
             raise ValueError("domain input binding exceeds the requested budget")
-        known_ordinals = frozenset(
-            ordinal for region in self.barrier_regions for ordinal in region
-        )
+        known_ordinals = frozenset(self.point_ordinals)
         if any(ordinal not in known_ordinals for ordinal in selected):
             raise ValueError("domain input binding selects an unknown ordinal")
         bound = (
@@ -355,23 +323,15 @@ def validate_domain_compilation(
     request: DomainCompileRequest,
     compilation: DomainCompilation,
 ) -> None:
-    """Require exact point coverage without crossing a barrier region."""
+    """Require exact point coverage."""
 
-    expected = tuple(
-        ordinal for region in request.barrier_regions for ordinal in region
-    )
+    expected = request.point_ordinals
     selected = tuple(
         ordinal for job in compilation.jobs for ordinal in job.point_ordinals
     )
     if tuple(sorted(selected)) != expected or len(selected) != len(set(selected)):
         msg = "compiled domain jobs must cover every logical point exactly once"
         raise ValueError(msg)
-    regions = tuple(frozenset(region) for region in request.barrier_regions)
-    for job in compilation.jobs:
-        points = frozenset(job.point_ordinals)
-        if not any(points <= region for region in regions):
-            msg = f"compiled domain job {job.id!r} crosses a barrier region"
-            raise ValueError(msg)
     _validate_absorbed_ids(
         kind="input",
         canonical_ids=tuple(input_value.id for input_value in request.program_inputs),
@@ -403,38 +363,6 @@ def _canonical_absorbed_ids(
     if selected - set(canonical_ids):
         raise ValueError("domain compilation absorbed an unknown item")
     return tuple(item for item in canonical_ids if item in selected)
-
-
-def _partition_region(
-    region: tuple[int, ...],
-    *,
-    max_points: int,
-    preferred_tile_size: int | None,
-) -> tuple[tuple[int, ...], ...]:
-    if preferred_tile_size is None or preferred_tile_size > max_points:
-        return tuple(
-            tuple(region[offset : offset + max_points])
-            for offset in range(0, len(region), max_points)
-        )
-    blocks: list[tuple[int, ...]] = []
-    offset = 0
-    while offset < len(region):
-        remaining = len(region) - offset
-        if remaining <= max_points:
-            blocks.append(tuple(region[offset:]))
-            break
-        limit = offset + max_points
-        aligned_end = next(
-            (
-                end
-                for end in range(limit, offset, -1)
-                if (region[end - 1] + 1) % preferred_tile_size == 0
-            ),
-            limit,
-        )
-        blocks.append(tuple(region[offset:aligned_end]))
-        offset = aligned_end
-    return tuple(blocks)
 
 
 def compiled_jobs(
@@ -502,7 +430,6 @@ __all__ = [
     "DomainCompiler",
     "DomainInput",
     "DomainInputBinder",
-    "DomainIterationLayout",
     "DomainResolvedInputs",
     "compiled_jobs",
     "validate_domain_compilation",

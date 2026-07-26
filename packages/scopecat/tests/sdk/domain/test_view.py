@@ -66,8 +66,8 @@ def test_domain_batch_context_materializes_only_selected_residual_inputs(
         linked,
         execution_id,
         closure,
-    ).bind_coverage(
-        ((0, 1, 2),),
+    ).bind_points(
+        (0, 1, 2),
         lambda input_ids, ordinals, max_points: linked_points.bind_domain_inputs(
             execution_id,
             "program",
@@ -83,9 +83,6 @@ def test_domain_batch_context_materializes_only_selected_residual_inputs(
             max_points=max_points,
         ),
     )
-    layout = request.iteration_layout
-    assert layout is not None
-    assert layout.preferred_tile_size == 3
     full = make_domain_batch_context(
         request,
         linked_points,

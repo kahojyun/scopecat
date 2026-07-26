@@ -74,7 +74,6 @@ from quantum_lab_demo.targets.fake_list_mode import (
 from quantum_lab_demo.virtual_lab.compiler_parameters import QuantumCompilerParameters
 from quantum_lab_demo.virtual_lab.parameters import QUBIT_PARAMETER_TABLE
 
-_QUANTUM_LAB_COMPILER_ID = "quantum-lab-demo.compiler.v1"
 _QUANTUM_LAB_TARGET_COMPILER_ID = TargetCompilerId(
     "quantum-lab-demo.fake-list-target.v1"
 )
@@ -109,10 +108,6 @@ class _QuantumLabCompilerBase:
     ) -> None:
         self._max_points = max_points
         self._pulse_profile = pulse_profile
-
-    @property
-    def compiler_id(self) -> str:
-        raise NotImplementedError
 
     def compile(self, request: DomainCompileRequest) -> DomainCompilation:
         program = _quantum_program(request.call)
@@ -167,11 +162,6 @@ class QuantumLabCompiler(_QuantumLabCompilerBase):
             _QUANTUM_LAB_TARGET_COMPILER_ID,
             self._target,
         )
-
-    @property
-    @override
-    def compiler_id(self) -> str:
-        return _QUANTUM_LAB_COMPILER_ID
 
     @property
     def target_id(self) -> str:

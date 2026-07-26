@@ -104,5 +104,4 @@ def _validate_compiled_target_correlation[ArtifactT: TargetArtifact](
     validate_compiled_target_request(
         mapping.batch.request,
         compiled,
-        family="quantum",
     )

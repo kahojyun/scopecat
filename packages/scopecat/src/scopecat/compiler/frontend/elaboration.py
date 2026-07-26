@@ -860,7 +860,6 @@ def _scope_fragment_effect(
             inputs,
             scope=scope,
             origin=origin,
-            resource_ids=resource_ids,
         )
     return replace(
         effect,
@@ -885,7 +884,6 @@ def _scope_domain_execution(
     *,
     scope: tuple[str, ...],
     origin: tuple[object, ...],
-    resource_ids: Mapping[LogicalResourcePortId, LogicalResourcePortId],
 ) -> LoweredDomainExecution:
     return replace(
         execution,
@@ -911,10 +909,6 @@ def _scope_domain_execution(
         result_bindings=tuple(
             (name, product_id.prefixed(*scope))
             for name, product_id in execution.result_bindings
-        ),
-        resource_bindings=tuple(
-            (role, _scoped_resource_id(resource_id, resource_ids))
-            for role, resource_id in execution.resource_bindings
         ),
     )
 

@@ -49,10 +49,10 @@ Products created by domain execution or pure transforms retain those explicit
 producers and do not create instrument acquisitions. Provider product lookup
 never searches globally for a unique capability or product key.
 
-A domain program owns opaque dialect data with typed inputs, result products,
-and logical resource roles. Scopecat owns the surrounding identities, typed
-bindings, capability requirements, effect order, resource correlation, and
-result correlation. Templates own invocation policy: defaults, scans, durable
+A domain program owns opaque dialect data with typed inputs and result products.
+Scopecat owns the surrounding identities, typed bindings, effect order, and
+result correlation; the accepted system configuration owns the domain target's
+physical footprint. Templates own invocation policy: defaults, scans, durable
 record selection, labels, and metadata.
 
 ## Semantic Invariants

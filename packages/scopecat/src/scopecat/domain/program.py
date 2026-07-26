@@ -33,19 +33,6 @@ class DomainResultPort:
 
 
 @dataclass(frozen=True, slots=True)
-class DomainResourcePort:
-    """One logical resource role required by a domain program."""
-
-    id: str
-    capabilities: tuple[str, ...] = ()
-
-    def __post_init__(self) -> None:
-        if not self.id or any(not item for item in self.capabilities):
-            raise ValueError("domain resource ids and capabilities must be non-empty")
-        _require_unique("domain resource capability", self.capabilities)
-
-
-@dataclass(frozen=True, slots=True)
 class DomainProgramDef:
     """Opaque domain program declaration retained through target linking.
 
@@ -61,7 +48,6 @@ class DomainProgramDef:
     input_ports: tuple[DomainInputPort, ...] = ()
     compiler_input_ports: tuple[DomainInputPort, ...] = ()
     result_ports: tuple[DomainResultPort, ...] = ()
-    resource_ports: tuple[DomainResourcePort, ...] = ()
 
     def __post_init__(self) -> None:
         if not all((self.id, self.dialect_id, self.dialect_version)):
@@ -78,9 +64,6 @@ class DomainProgramDef:
             tuple(p.id for p in (*self.input_ports, *self.compiler_input_ports)),
         )
         _require_unique("domain result port", tuple(p.id for p in self.result_ports))
-        _require_unique(
-            "domain resource port", tuple(p.id for p in self.resource_ports)
-        )
 
     @property
     def symbol_id(self) -> SymbolId:

@@ -256,8 +256,8 @@ def _preparation_for_all_points(
         linked_points.linked_plan,
         execution_id,
         closure,
-    ).bind_coverage(
-        (point_ordinals,),
+    ).bind_points(
+        point_ordinals,
         lambda input_ids, ordinals, max_points: linked_points.bind_domain_inputs(
             execution_id,
             "program",

@@ -98,7 +98,6 @@ from scopecat.authoring.values import input as input
 from scopecat.domain.program import (
     DomainInputPort,
     DomainProgramDef,
-    DomainResourcePort,
     DomainResultPort,
 )
 
@@ -109,7 +108,6 @@ __all__ = [
     "DomainExecution",
     "DomainInputPort",
     "DomainProgramDef",
-    "DomainResourcePort",
     "DomainResultPort",
     "EntityType",
     "ExperimentBody",

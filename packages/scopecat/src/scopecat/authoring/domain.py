@@ -18,15 +18,10 @@ from scopecat.authoring.value_types import ValueType
 from scopecat.domain.program import (
     DomainInputPort,
     DomainProgramDef,
-    DomainResourcePort,
     DomainResultPort,
 )
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.product_identity import ProductId
-from scopecat.kernel.resource_identity import (
-    LogicalResourcePortId,
-    logical_resource_port_id,
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,7 +33,6 @@ class DomainExecution:
     input_bindings: tuple[tuple[str, ComputeNodeInputValue], ...] = ()
     compiler_input_bindings: tuple[tuple[str, ComputeNodeInputValue], ...] = ()
     result_bindings: tuple[tuple[str, ProductRef], ...] = ()
-    resource_bindings: tuple[tuple[str, LogicalResourcePortId], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,7 +44,6 @@ class LoweredDomainExecution:
     input_bindings: tuple[tuple[str, ComputeNodeInputValue], ...] = ()
     compiler_input_bindings: tuple[tuple[str, ComputeNodeInputValue], ...] = ()
     result_bindings: tuple[tuple[str, ProductId], ...] = ()
-    resource_bindings: tuple[tuple[str, LogicalResourcePortId], ...] = ()
 
 
 def lower_domain_execution(execution: DomainExecution) -> LoweredDomainExecution:
@@ -65,7 +58,6 @@ def lower_domain_execution(execution: DomainExecution) -> LoweredDomainExecution
             (result_id, product.product_id)
             for result_id, product in execution.result_bindings
         ),
-        resource_bindings=execution.resource_bindings,
     )
 
 
@@ -78,7 +70,6 @@ def domain_program(
     inputs: Mapping[str, ValueType] | None = None,
     compiler_inputs: Mapping[str, ValueType] | None = None,
     results: Mapping[str, object | None] | None = None,
-    resources: Mapping[str, tuple[str, ...]] | None = None,
 ) -> DomainProgramDef:
     """Declare an opaque program with ordered typed input and result ports."""
 
@@ -99,10 +90,6 @@ def domain_program(
             DomainResultPort(port_id, contract)
             for port_id, contract in (results or {}).items()
         ),
-        resource_ports=tuple(
-            DomainResourcePort(port_id, tuple(capabilities))
-            for port_id, capabilities in (resources or {}).items()
-        ),
     )
 
 
@@ -113,7 +100,6 @@ def domain_execution(
     inputs: Mapping[str, ComputeNodeInputValue] | None = None,
     compiler_inputs: Mapping[str, ComputeNodeInputValue] | None = None,
     results: Mapping[str, ProductRef] | None = None,
-    resources: Mapping[str, str] | None = None,
 ) -> DomainExecution:
     """Bind one module call to typed values and composed products."""
 
@@ -123,7 +109,6 @@ def domain_execution(
     selected_inputs = inputs or {}
     selected_compiler_inputs = compiler_inputs or {}
     selected_results = results or {}
-    selected_resources = resources or {}
     _require_exact_keys(
         "domain execution inputs",
         selected_inputs,
@@ -133,11 +118,6 @@ def domain_execution(
         "domain execution compiler inputs",
         selected_compiler_inputs,
         tuple(port.id for port in program.compiler_input_ports),
-    )
-    _require_exact_keys(
-        "domain execution resources",
-        selected_resources,
-        tuple(port.id for port in program.resource_ports),
     )
     _require_exact_keys(
         "domain execution results",
@@ -161,10 +141,6 @@ def domain_execution(
                 selected_results[port.id],
             )
             for port in program.result_ports
-        ),
-        resource_bindings=tuple(
-            (port.id, logical_resource_port_id(selected_resources[port.id]))
-            for port in program.resource_ports
         ),
     )
 

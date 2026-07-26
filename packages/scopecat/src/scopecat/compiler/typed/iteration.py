@@ -54,7 +54,6 @@ class PointIterationAxis:
 @dataclass(frozen=True, slots=True)
 class PointIterationLayout:
     axes: tuple[PointIterationAxis, ...] = ()
-    preferred_tile_size: int | None = None
 
     def axis(self, axis_id: str) -> PointIterationAxis | None:
         return next((axis for axis in self.axes if axis.id == axis_id), None)
@@ -119,7 +118,7 @@ def analyze_point_iteration_layout(
     coordinate_ids = {column.id for column in point_domain.coordinate_columns}
     root = point_domain.root
     if isinstance(root, PointUnit):
-        return PointIterationLayout(preferred_tile_size=1)
+        return PointIterationLayout()
     axes = root.factors if isinstance(root, PointProduct) else (root,)
     projected = tuple(
         projected_axis
@@ -135,10 +134,7 @@ def analyze_point_iteration_layout(
             ),
         )
     )
-    return PointIterationLayout(
-        axes=projected,
-        preferred_tile_size=_axis_count(axes[-1]) or None,
-    )
+    return PointIterationLayout(axes=projected)
 
 
 def _axis_count(axis: PointAxis[RelationUse[ScalarValueExpr]]) -> int:

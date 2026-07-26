@@ -196,7 +196,6 @@ class SemanticDomainExecution:
     inputs: tuple[tuple[str, ValueUse], ...] = ()
     compiler_inputs: tuple[tuple[str, ValueUse], ...] = ()
     results: tuple[tuple[str, ProductId], ...] = ()
-    resources: tuple[tuple[str, LogicalResourcePortId], ...] = ()
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -204,7 +203,6 @@ class SemanticDomainExecution:
         _require_unique_names("domain execution input", self.inputs)
         _require_unique_names("domain execution compiler input", self.compiler_inputs)
         _require_unique_names("domain execution result", self.results)
-        _require_unique_names("domain execution resource", self.resources)
 
 
 @dataclass(frozen=True, slots=True)

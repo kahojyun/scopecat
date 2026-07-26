@@ -91,7 +91,6 @@ def test_explicit_axes_project_exact_product_strides_and_partitions() -> None:
 
     layout = analyze_point_iteration_layout(verified)
 
-    assert layout.preferred_tile_size == 3
     assert tuple(axis.id for axis in layout.axes) == ("slow", "fast")
     slow = layout.axis("slow")
     fast = layout.axis("fast")
@@ -118,7 +117,6 @@ def test_literal_center_linear_axis_has_lazy_known_exact_values() -> None:
 
     layout = analyze_point_iteration_layout(verified)
 
-    assert layout.preferred_tile_size == 3
     assert tuple(axis.id for axis in layout.axes) == ("frequency",)
     frequency = layout.axis("frequency")
     assert frequency is not None
@@ -146,7 +144,6 @@ def test_parameter_center_linear_axis_uses_materialized_partition_fallback() -> 
     )
     layout = analyze_point_iteration_layout(verified)
 
-    assert layout.preferred_tile_size == 3
     assert layout.axes == ()
     assert layout.axis("frequency") is None
     with pytest.raises(KeyError, match="materialized axis value"):

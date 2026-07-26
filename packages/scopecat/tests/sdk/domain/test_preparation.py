@@ -115,8 +115,8 @@ def _preparation_context(
         linked,
         execution_id,
         closure,
-    ).bind_coverage(
-        ((0, 1),),
+    ).bind_points(
+        (0, 1),
         lambda input_ids, ordinals, max_points: linked_points.bind_domain_inputs(
             execution_id,
             "program",

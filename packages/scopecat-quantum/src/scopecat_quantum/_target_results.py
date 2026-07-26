@@ -1,16 +1,8 @@
-"""Private result-mapping kernel shared by quantum authoring surfaces.
-
-Circuit and mixed-program batches retain distinct public proof types, while
-both lower to the same target request and SDK result-address vocabulary.  This
-module owns that common algorithm.  Callers validate their public ingress
-types once, then pass the already sealed request and normalized binding edges
-here.
-"""
+"""Private result-mapping kernel for quantum target batches."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Literal
 
 from scopecat.sdk.domain import (
     DomainPointRef,
@@ -30,7 +22,6 @@ from scopecat_quantum.targets import (
     target_result_entry_id,
 )
 
-type TargetResultFamily = Literal["circuit", "quantum"]
 type TargetEntryPoint = tuple[TargetCompileEntryId, DomainPointRef]
 type TargetResultUse = tuple[TargetResultAddress, DomainProductUseRef]
 
@@ -83,8 +74,6 @@ def validate_target_result_mapping(
 def validate_compiled_target_request[ArtifactT: TargetArtifact](
     request: TargetCompileRequest,
     compiled: CompiledTargetArtifact[ArtifactT],
-    *,
-    family: TargetResultFamily,
 ) -> None:
     """Bind a checked compiled artifact to its exact retained request.
 
@@ -95,5 +84,5 @@ def validate_compiled_target_request[ArtifactT: TargetArtifact](
     """
 
     if compiled.request != request:
-        msg = f"compiled target request must exactly match the mapped {family} batch"
+        msg = "compiled target request must exactly match the mapped quantum batch"
         raise ValueError(msg)

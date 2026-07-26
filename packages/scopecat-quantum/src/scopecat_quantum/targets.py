@@ -153,26 +153,6 @@ class TargetCompileRequest:
         return tuple(entry.id for entry in self.entries)
 
 
-@runtime_checkable
-class TargetCompileRequestLike(Protocol):
-    """Common dispatch and provenance carried by every target-owned request."""
-
-    @property
-    def target_id(self) -> TargetId: ...
-
-    @property
-    def compiler_id(self) -> TargetCompilerId: ...
-
-    @property
-    def capability_fingerprint(self) -> str: ...
-
-    @property
-    def source_entry_ids(self) -> tuple[TargetCompileEntryId, ...]: ...
-
-    @property
-    def repetitions(self) -> int: ...
-
-
 class TargetCompilationIssueDimension(StrEnum):
     """Hardware-neutral part of target compilation that rejected input."""
 
@@ -251,15 +231,13 @@ class TargetArtifact(Protocol):
 
 @runtime_checkable
 class TargetCompiler[
-    RequestT: TargetCompileRequestLike,
     ArtifactT: TargetArtifact,
 ](Protocol):
     """Lower one closed target-owned request into one target artifact.
 
     This protocol does not own domain routing or input resolution. When used in
     an ``ExperimentSystem`` integration, it is an internal stage invoked by the
-    domain compiler rather than a second system compiler. The request type is an
-    associated adapter contract: no universal instruction shape is imposed here.
+    domain compiler rather than a second system compiler.
     """
 
     @property
@@ -271,7 +249,7 @@ class TargetCompiler[
     @property
     def capability_fingerprint(self) -> str: ...
 
-    def compile(self, request: RequestT) -> ArtifactT: ...
+    def compile(self, request: TargetCompileRequest) -> ArtifactT: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -283,7 +261,7 @@ class CompiledTargetArtifact[ArtifactT: TargetArtifact]:
     inspect or prove the meaning of a target-owned opaque payload.
     """
 
-    request: TargetCompileRequestLike
+    request: TargetCompileRequest
     artifact: ArtifactT
     _artifact_id: TargetArtifactId = field(init=False)
     _artifact_fingerprint: str = field(init=False)
@@ -329,7 +307,7 @@ class CompiledTargetArtifact[ArtifactT: TargetArtifact]:
 
 
 def _target_artifact_issues(
-    request: TargetCompileRequestLike,
+    request: TargetCompileRequest,
     artifact: TargetArtifact,
 ) -> tuple[TargetCompilationIssue, ...]:
     expected_entry_ids = request.source_entry_ids
@@ -386,11 +364,10 @@ def _target_artifact_issues(
 
 
 def compile_target[
-    RequestT: TargetCompileRequestLike,
     ArtifactT: TargetArtifact,
 ](
-    compiler: TargetCompiler[RequestT, ArtifactT],
-    request: RequestT,
+    compiler: TargetCompiler[ArtifactT],
+    request: TargetCompileRequest,
 ) -> CompiledTargetArtifact[ArtifactT]:
     """Check dispatch and return-time provenance around one compiler call.
 

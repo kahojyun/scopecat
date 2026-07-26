@@ -28,7 +28,6 @@ from scopecat.sdk.domain.compiler import (
     DomainCompileRequest,
     DomainCompileTemplate,
     DomainInput,
-    DomainIterationLayout,
 )
 from scopecat.sdk.domain.context import DomainBatchContext
 from scopecat.sdk.domain.view import (
@@ -41,7 +40,6 @@ from scopecat.sdk.domain.view import (
     DomainProductContractView,
     DomainProductUseRef,
     DomainProgramView,
-    DomainResourceBindingView,
     DomainResultBindingView,
     DomainResultPortView,
 )
@@ -85,29 +83,9 @@ def make_domain_compile_template(
                 for product_use in product_use_refs
                 if product_use_id(product_use) in owned_use_ids
             ),
-            resources=tuple(
-                DomainResourceBindingView(
-                    role=role,
-                    resource_port_id=resource_id.qualified_name,
-                    capabilities=next(
-                        port.capabilities
-                        for port in typed_execution.program.resource_ports
-                        if port.id == role
-                    ),
-                )
-                for role, resource_id in typed_execution.resources.items()
-            ),
         ),
         program_inputs=program_inputs,
         compiler_inputs=compiler_inputs,
-        iteration_layout=_iteration_layout(linked),
-    )
-
-
-def _iteration_layout(linked: LinkedPlan) -> DomainIterationLayout:
-    source = linked.verified_program.iteration_layout
-    return DomainIterationLayout(
-        preferred_tile_size=source.preferred_tile_size,
     )
 
 

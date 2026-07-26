@@ -154,7 +154,7 @@ class _Compiler:
 
 
 def test_structural_target_protocols_admit_a_laboratory_adapter() -> None:
-    compiler: TargetCompiler[TargetCompileRequest, _Artifact] = _Compiler(
+    compiler: TargetCompiler[_Artifact] = _Compiler(
         id=TargetCompilerId("reference-compiler"),
         target_id=TargetId("reference-target"),
         capability_fingerprint="capabilities:v1",

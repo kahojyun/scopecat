@@ -258,7 +258,6 @@ def lower_semantic_domain_graph(
                 inputs=lowered_inputs,
                 compiler_inputs=lowered_compiler_inputs,
                 results=tuple(result_bindings),
-                resources=dict(execution.resources),
             )
         )
     return tuple(typed_executions)

@@ -38,10 +38,9 @@ from scopecat.config.environment import build_config_environment
 from scopecat.domain.program import (
     DomainInputPort,
     DomainProgramDef,
-    DomainResourcePort,
     DomainResultPort,
 )
-from scopecat.execution.local.program import ApplyStateOperation, CollectOperation
+from scopecat.execution.local.program import ApplyStateOperation
 from scopecat.execution.program import (
     RunCoverageBlock,
     RunCoverageCheckpoint,
@@ -306,7 +305,6 @@ def _linked_program(
     point_count: Literal[0, 2] = 2,
     equal_point_values: bool = False,
     domain_input: ValueInput | None = None,
-    domain_resource: bool = False,
     parameter_overlays: Sequence[PointParameterOverlay] = (),
     parameter_data: ParameterRelationData | None = None,
     config: ConfigProfileSnapshot | None = None,
@@ -411,11 +409,6 @@ def _linked_program(
                     result_ports=tuple(
                         DomainResultPort(binding.id) for binding in bindings
                     ),
-                    resource_ports=(
-                        (DomainResourcePort("drive", ("domain.drive",)),)
-                        if domain_resource
-                        else ()
-                    ),
                 ),
                 inputs=(
                     {"drive_frequency": domain_input}
@@ -423,11 +416,6 @@ def _linked_program(
                     else {}
                 ),
                 results=bindings,
-                resources=(
-                    {"drive": logical_resource_port_id("domain-drive")}
-                    if domain_resource
-                    else {}
-                ),
             )
             for call_index, (execution_id, bindings) in enumerate(
                 zip(execution_ids, result_groups, strict=True)
@@ -486,16 +474,6 @@ def _linked_program(
         kind="compiler_test",
         point_domain=points,
         resource_requirements=(
-            *(
-                (
-                    LogicalResourceRequirement(
-                        port_id=logical_resource_port_id("domain-drive"),
-                        capabilities=("domain.drive",),
-                    ),
-                )
-                if domain_resource
-                else ()
-            ),
             *(
                 (
                     LogicalResourceRequirement(
@@ -685,7 +663,7 @@ def test_domain_target_partitions_complete_point_space_by_capacity() -> None:
         if isinstance(operation, RunDomainJob)
     ] == [(0,), (1,)]
     assert compiler.compile_calls == 1
-    assert compiler.compile_requests[0].barrier_regions == ((0, 1),)
+    assert compiler.compile_requests[0].point_ordinals == (0, 1)
 
 
 def test_local_resource_manifest_is_selected_once_for_complete_point_space(
@@ -730,11 +708,11 @@ def test_run_claims_and_host_order_include_only_used_local_instruments() -> None
     assert set(plan.host.advertised_descriptions) == {"source-0", "unused-0"}
 
 
-def test_domain_only_resource_does_not_require_a_local_manifest(
+def test_domain_target_instrument_does_not_require_a_local_manifest(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    linked = _linked_program(domain_resource=True)
-    compiler = _DomainCompiler("tests.domain-only-resource")
+    linked = _linked_program(config=_config_with_domain_resources("source-0"))
+    compiler = _DomainCompiler("tests.domain-target-instrument")
     calls = _track_bound_resource_ports(monkeypatch)
 
     plan = ExperimentSystem(domain_compiler=compiler).compile(linked)
@@ -743,17 +721,16 @@ def test_domain_only_resource_does_not_require_a_local_manifest(
     assert block.point_indices == (0, 1)
     assert calls == []
     assert compiler.compile_calls == 1
-    resource = compiler.compile_requests[0].call.resource("drive")
-    assert resource.resource_port_id == "domain-drive"
-    assert resource.capabilities == ("domain.drive",)
-    assert plan.resource_claims == (ResourceClaim("tests.domain.target", "target"),)
+    assert set(plan.resource_claims) == {
+        ResourceClaim("source-0"),
+        ResourceClaim("tests.domain.target", "target"),
+    }
 
 
 def test_mixed_target_builds_manifests_only_for_local_resources(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     linked = _linked_program(
-        domain_resource=True,
         state_mode="constant",
     )
     compiler = _DomainCompiler("tests.mixed-resource-target")
@@ -884,68 +861,29 @@ def test_domain_and_local_state_retain_declared_effect_order() -> None:
     assert isinstance(consequential[1].operation, ApplyStateOperation)
 
 
-def test_local_acquisition_before_domain_is_ordered_per_point() -> None:
-    config = _config_with_domain_resources("source-0")
-    linked = _linked_program(
-        product_count=2,
-        domain_product_count=1,
-        acquisition_before_domain=True,
-        config=config,
-    )
-    compiler = _DomainCompiler("tests.acquisition-before-domain")
-    plan = ExperimentSystem(
-        provider=_TrackingProvider(),
-        domain_compiler=compiler,
-    ).compile(linked)
-
-    [block] = plan.coverage
-
-    assert block.point_indices == (0, 1)
-    for ordinal in range(2):
-        offset = ordinal * 3
-        acquisition, domain, checkpoint = block.operations[offset : offset + 3]
-        assert isinstance(acquisition, RunCoverageEffect)
-        assert acquisition.point_indices == (ordinal,)
-        assert isinstance(acquisition.operation, CollectOperation)
-        assert isinstance(domain, RunDomainJob)
-        assert domain.point_ordinals == (ordinal,)
-        assert isinstance(checkpoint, RunCoverageCheckpoint)
-        assert checkpoint.point_index == ordinal
-    assert [request.barrier_regions for request in compiler.compile_requests] == [
-        ((0,), (1,)),
-    ]
-
-
-def test_domain_before_local_acquisition_is_ordered_per_point() -> None:
+def test_planning_rejects_local_and_domain_target_instrument_overlap() -> None:
     config = _config_with_domain_resources("source-0")
     linked = _linked_program(
         product_count=2,
         domain_product_count=1,
         config=config,
     )
-    compiler = _DomainCompiler("tests.domain-before-acquisition")
-    plan = ExperimentSystem(
-        provider=_TrackingProvider(),
-        domain_compiler=compiler,
-    ).compile(linked)
+    compiler = _DomainCompiler("tests.instrument-overlap")
 
-    [block] = plan.coverage
+    with pytest.raises(CheckFailed) as captured:
+        ExperimentSystem(
+            provider=_TrackingProvider(),
+            domain_compiler=compiler,
+        ).compile(linked)
 
-    assert block.point_indices == (0, 1)
-    domain, acquisition_0, checkpoint_0, acquisition_1, checkpoint_1 = block.operations
-    assert isinstance(domain, RunDomainJob)
-    assert domain.point_ordinals == (0, 1)
-    for ordinal, (acquisition, checkpoint) in enumerate(
-        ((acquisition_0, checkpoint_0), (acquisition_1, checkpoint_1))
-    ):
-        assert isinstance(acquisition, RunCoverageEffect)
-        assert acquisition.point_indices == (ordinal,)
-        assert isinstance(acquisition.operation, CollectOperation)
-        assert isinstance(checkpoint, RunCoverageCheckpoint)
-        assert checkpoint.point_index == ordinal
-    assert [request.barrier_regions for request in compiler.compile_requests] == [
-        ((0, 1),),
-    ]
+    assert _problem_codes(captured.value) == {
+        "domain_target_local_instrument_overlap"
+    }
+    assert captured.value.problems[0].details == {
+        "instrument_ids": ("source-0",)
+    }
+    assert compiler.compile_calls == 0
+    assert compiler.prepare_calls == 0
 
 
 def test_unused_local_acquisition_does_not_fragment_domain_coverage() -> None:
@@ -966,31 +904,8 @@ def test_unused_local_acquisition_does_not_fragment_domain_coverage() -> None:
 
     assert block.point_indices == (0, 1)
     assert domain.point_ordinals == (0, 1)
-    assert [request.barrier_regions for request in compiler.compile_requests] == [
-        ((0, 1),)
-    ]
-
-
-def test_conflicting_local_state_refines_domain_jobs_by_exact_coverage() -> None:
-    config = _config_with_domain_resources("source-0")
-    linked = _linked_program(state_mode="varying", config=config)
-    compiler = _DomainCompiler("tests.state-conflict")
-
-    plan = ExperimentSystem(
-        provider=_TrackingProvider(),
-        domain_compiler=compiler,
-    ).compile(linked)
-
-    [block] = plan.coverage
-    assert block.point_indices == (0, 1)
-    assert [
-        operation.point_ordinals
-        for operation in block.operations
-        if isinstance(operation, RunDomainJob)
-    ] == [(0,), (1,)]
-    assert compiler.compile_calls == 1
-    assert [request.barrier_regions for request in compiler.compile_requests] == [
-        ((0,), (1,)),
+    assert [request.point_ordinals for request in compiler.compile_requests] == [
+        (0, 1)
     ]
 
 

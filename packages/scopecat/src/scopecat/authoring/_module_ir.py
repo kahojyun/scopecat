@@ -587,7 +587,6 @@ def _check_module_products(
     module: ModuleIR,
     add_problem: _ModuleProblemAdder,
 ) -> None:
-    resource_ports = {port.symbol_id: port for port in module.interface.resources}
     expected_products = {export.symbol_id: export for export in module.products}
     product_origins = {
         product_id: export.target_origin
@@ -607,26 +606,6 @@ def _check_module_products(
                     ),
                 )
     for execution in module.body.domain_executions:
-        required_resources = {
-            port.id: port for port in execution.program.resource_ports
-        }
-        for role, resource_id in execution.resource_bindings:
-            port = resource_ports.get(resource_id)
-            if port is None:
-                continue
-            missing_capabilities = sorted(
-                set(required_resources[role].capabilities)
-                - set(port.selector.capabilities)
-            )
-            if missing_capabilities:
-                add_problem(
-                    "domain_resource_capability_mismatch",
-                    f"{execution.id}/{role}",
-                    message=(
-                        f"domain resource role {role!r} requires capabilities: "
-                        + ", ".join(missing_capabilities)
-                    ),
-                )
         for result_id, product in execution.result_bindings:
             expected_origin = product_origins.get(product.product_id)
             if expected_origin is None:
@@ -718,11 +697,6 @@ def _module_resource_uses(module: ModuleIR) -> tuple[LogicalResourcePortId, ...]
     selected: list[LogicalResourcePortId] = []
     selected.extend(binding.port_id for binding in module.body.bindings)
     selected.extend(acquire.resource_port_id for acquire in module.body.acquisitions)
-    selected.extend(
-        resource_id
-        for execution in module.body.domain_executions
-        for _role, resource_id in execution.resource_bindings
-    )
     return tuple(selected)
 
 
