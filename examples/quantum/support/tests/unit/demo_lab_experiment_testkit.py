@@ -31,7 +31,6 @@ from scopecat.compiler.measurement_projection import (
 from scopecat.compiler.typed.program import CoreProgram
 from scopecat.config.candidates import (
     CandidateConfig,
-    resolve_candidate_config_snapshot,
 )
 from scopecat.config.changes import prepare_parameter_change_approval
 from scopecat.config.environment import build_config_environment
@@ -273,16 +272,13 @@ class InProcessQuantumLab:
             if expected_generation is None
             else expected_generation
         )
-        config = resolve_candidate_config_snapshot(candidate, services=self.services)
         entry, active_state, activation = (
             config_registry_service.register_and_activate_candidate_config(
-                config=config,
                 unit_of_work=self.services.config_registry,
-                entry_id=entry_id or f"{config.id}-{candidate.source_run_id}",
+                entry_id=entry_id,
                 registered_by=registered_by or self.operator,
                 run_id=candidate.source_run_id,
                 proposal_id=candidate.proposal_id,
-                base_config_content_hash=candidate.base_config_content_hash,
                 operator=operator or self.operator,
                 expected_generation=selected_generation,
                 note=note,

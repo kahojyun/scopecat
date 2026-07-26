@@ -69,7 +69,7 @@ def test_daemon_client_closes_config_provenance_loop(
     assert isinstance(default_source, ConfigRegistryRunConfigSource)
     assert default_source.entry_id == accepted.entry.id
     assert proposals.items[0].approval is not None
-    assert proposals.items[0].approval.actor == "local-operator"
+    assert proposals.items[0].approval.actor == "operator"
     assert registry.active_state is not None
     assert registry.active_state == restored.active_state
     assert registry.active_state.active_entry_id != accepted.entry.id
