@@ -240,7 +240,7 @@ class ModuleBuilder:
 
     def resource(
         self,
-        id: str,  # noqa: A002
+        id: str,
         *,
         requires: tuple[str, ...] = (),
         for_entities: Sequence[ValueRef] = (),
@@ -303,7 +303,7 @@ class ModuleBuilder:
 
     def acquire(
         self,
-        id: str,  # noqa: A002
+        id: str,
         *products: str | ProductRef,
         resource: str,
         capability: str,
@@ -457,7 +457,7 @@ class ModuleBuilder:
     def build(
         self,
         *,
-        id: str | None = None,  # noqa: A002
+        id: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
     ) -> ExperimentModule[...]:
         return build_module_from_builder(
@@ -846,7 +846,7 @@ def _capture_state_literal(value: object) -> object:
 
 def build_module_ir(
     builder: ModuleBuilder,
-    id: str | None = None,  # noqa: A002
+    id: str | None = None,
     *,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> ModuleIR:
@@ -901,7 +901,7 @@ def _module_instance_ir(invocation: ModuleInvocation) -> ModuleInstanceIR:
 
 def build_module_from_builder(
     builder: ModuleBuilder,
-    id: str | None = None,  # noqa: A002
+    id: str | None = None,
     *,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> ExperimentModule[...]:

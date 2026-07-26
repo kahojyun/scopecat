@@ -1,42 +1,57 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 from scopecat.analysis.service import AnalysisOutput, save_analysis
+from scopecat.config.candidates import (
+    CandidateConfig,
+    resolve_candidate_config_snapshot,
+)
 from scopecat.config.changes import (
-    _prepare_parameter_change_decision,
     parameter_change_proposal_from_updates,
     prepare_parameter_change_decision,
-    prepare_parameter_change_review,
 )
 from scopecat.config.parameters import replace_scalar_parameter
-from scopecat.config.profiles import load_config_profile
 from scopecat.config.registry.ports import ConfigRegistryUnitOfWorkFactory
-from scopecat.config.registry.records import ConfigRegistryEntry
+from scopecat.config.registry.records import (
+    ConfigRegistryActivationRecord,
+    ConfigRegistryActiveState,
+    ConfigRegistryEntry,
+)
 from scopecat.config.registry.service import (
     _register_candidate_config_locked,
     _validate_entry_id,
     _validate_required_text,
+    current_config_registry_generation,
     load_config_registry_entry_snapshot,
+    register_and_activate_candidate_config,
 )
 from scopecat.kernel.quantity import Quantity
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.config import ConfigContentHash, ConfigProfileSnapshot
 from scopecat.records.parameter_change import (
     HumanDecisionAuthority,
+    ParameterChangeDecision,
     ParameterChangeDecisionAuthority,
     ParameterChangeDecisionRecord,
-    ParameterChangeReviewState,
 )
-from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 from tests.testkit.runtime import sqlite_project_services
 from tests.testkit.signal_testkit import execute_signal_run
 from tests.testkit.workflow_fixtures import load_invocation
 
 
+@dataclass(frozen=True, slots=True)
+class CandidateActivation:
+    entry: ConfigRegistryEntry
+    active_state: ConfigRegistryActiveState
+    activation: ConfigRegistryActivationRecord
+
+
 def load_config() -> ConfigProfileSnapshot:
-    return load_config_profile(EXAMPLE_DIR / "config-profile.json")
+    from tests.testkit.workflow_fixtures import load_config as load_workflow_config
+
+    return load_workflow_config()
 
 
 def load_config_registry_entry(
@@ -68,7 +83,7 @@ def register_candidate_config(
     entry_id: str,
     registered_by: str,
     run_id: str,
-    proposal_ids: Sequence[str],
+    proposal_id: str,
     base_config_content_hash: ConfigContentHash,
     note: str = "",
 ) -> ConfigRegistryEntry:
@@ -77,8 +92,7 @@ def register_candidate_config(
     _validate_entry_id(entry_id)
     _validate_required_text(registered_by, field="registered_by")
     _validate_required_text(run_id, field="run_id")
-    for proposal_id in proposal_ids:
-        _validate_required_text(proposal_id, field="proposal_ids")
+    _validate_required_text(proposal_id, field="proposal_id")
     with unit_of_work() as work:
         return _register_candidate_config_locked(
             config=config,
@@ -86,10 +100,47 @@ def register_candidate_config(
             entry_id=entry_id,
             registered_by=registered_by,
             run_id=run_id,
-            proposal_ids=proposal_ids,
+            proposal_id=proposal_id,
             base_config_content_hash=base_config_content_hash,
             note=note,
         )
+
+
+def activate_candidate_config(
+    *,
+    candidate: CandidateConfig,
+    services: ProjectStateServices,
+    entry_id: str | None = None,
+    registered_by: str,
+    operator: str,
+    note: str = "",
+    activation_note: str | None = None,
+    expected_generation: int | None = None,
+) -> CandidateActivation:
+    config = resolve_candidate_config_snapshot(candidate, services=services)
+    generation = (
+        current_config_registry_generation(unit_of_work=services.config_registry)
+        if expected_generation is None
+        else expected_generation
+    )
+    entry, active_state, activation = register_and_activate_candidate_config(
+        config=config,
+        unit_of_work=services.config_registry,
+        entry_id=entry_id or f"{config.id}-{candidate.source_run_id}",
+        registered_by=registered_by,
+        run_id=candidate.source_run_id,
+        proposal_id=candidate.proposal_id,
+        base_config_content_hash=candidate.base_config_content_hash,
+        operator=operator,
+        expected_generation=generation,
+        note=note,
+        activation_note=activation_note,
+    )
+    return CandidateActivation(
+        entry=entry,
+        active_state=active_state,
+        activation=activation,
+    )
 
 
 def review_parameter_change_proposal(
@@ -97,16 +148,16 @@ def review_parameter_change_proposal(
     run_id: str,
     selector: str,
     services: ProjectStateServices,
-    state: ParameterChangeReviewState,
+    state: ParameterChangeDecision,
     reviewer: str,
     note: str = "",
 ) -> ParameterChangeDecisionRecord:
-    prepared = prepare_parameter_change_review(
+    prepared = prepare_parameter_change_decision(
         run_id=run_id,
         selector=selector,
         services=services,
-        state=state,
-        reviewer=reviewer,
+        decision=state,
+        authority=HumanDecisionAuthority(actor=reviewer),
         note=note,
     )
     services.runs.publish_content(prepared.publication)
@@ -118,7 +169,7 @@ def decide_parameter_change_proposal(
     run_id: str,
     selector: str,
     services: ProjectStateServices,
-    decision: ParameterChangeReviewState,
+    decision: ParameterChangeDecision,
     authority: ParameterChangeDecisionAuthority,
     note: str = "",
 ) -> ParameterChangeDecisionRecord:
@@ -129,28 +180,6 @@ def decide_parameter_change_proposal(
         decision=decision,
         authority=authority,
         note=note,
-    )
-    services.runs.publish_content(prepared.publication)
-    return prepared.decision
-
-
-def invalidate_parameter_change_proposal(
-    *,
-    run_id: str,
-    selector: str,
-    services: ProjectStateServices,
-    reason: str,
-    invalidated_by: str,
-    invalidated_by_refs: list[str] | None = None,
-) -> ParameterChangeDecisionRecord:
-    prepared = _prepare_parameter_change_decision(
-        run_id=run_id,
-        selector=selector,
-        services=services,
-        decision="invalidated",
-        authority=HumanDecisionAuthority(actor=invalidated_by),
-        note=reason,
-        related_refs=list(invalidated_by_refs or ()),
     )
     services.runs.publish_content(prepared.publication)
     return prepared.decision

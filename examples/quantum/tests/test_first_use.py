@@ -59,12 +59,12 @@ def test_daemon_client_closes_config_provenance_loop(
     assert detail.manifest.status == "completed"
     assert request.metadata["name"] == "first-use smoke"
     assert request.metadata["tags"] == ["first-use"]
-    assert saved.record.id == candidate.analysis_record_ids[0]
+    assert saved.record.id == candidate.analysis_record_id
     candidate_source = candidate_detail.manifest.config_source
     assert isinstance(candidate_source, AnalysisCandidateRunConfigSource)
     assert candidate_source.source_run_id == baseline.id
-    assert candidate_source.analysis_record_ids == candidate.analysis_record_ids
-    assert candidate_source.proposal_ids == candidate.proposal_ids
+    assert candidate_source.analysis_record_id == candidate.analysis_record_id
+    assert candidate_source.proposal_id == candidate.proposal_id
     default_source = default_detail.manifest.config_source
     assert isinstance(default_source, ConfigRegistryRunConfigSource)
     assert default_source.entry_id == accepted.entry.id

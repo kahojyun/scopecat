@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from scopecat.config.profiles import load_config_profile
 from scopecat.planning.system import ExperimentSystem
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat_quantum.pulse_recipes import PulseRecipeProfile
@@ -41,12 +40,11 @@ from quantum_lab_demo.virtual_lab.wiring import (
 )
 
 PathInput = str | Path
-ConfigProfileInput = PathInput | ConfigProfileSnapshot
 
 
 def quantum_lab_compiler(
     *,
-    config_profile: ConfigProfileInput | None = None,
+    config_profile: ConfigProfileSnapshot | None = None,
     target: FakeListTarget | None = None,
     runtime: FakeListDomainRuntime | None = None,
     response_registry: QuantumLabResponseRegistry | None = None,
@@ -78,7 +76,7 @@ def quantum_lab_compiler(
 
 def quantum_realtime_lab_compiler(
     *,
-    config_profile: ConfigProfileInput | None = None,
+    config_profile: ConfigProfileSnapshot | None = None,
     target: FakeRealtimeTarget | None = None,
     runtime: FakeRealtimeDomainRuntime | None = None,
     pulse_profile: PulseRecipeProfile[QuantumCompilerParameters] | None = None,
@@ -110,7 +108,7 @@ def quantum_realtime_lab_compiler(
 
 
 def quantum_lab_config_profile(
-    config_profile: ConfigProfileInput | None = None,
+    config_profile: ConfigProfileSnapshot | None = None,
 ) -> ConfigProfileSnapshot:
     """Resolve the demo's explicit configuration snapshot."""
 
@@ -157,15 +155,13 @@ def _compiler_for_config(
 
 
 def _config_snapshot(
-    config_profile: ConfigProfileInput | None,
+    config_profile: ConfigProfileSnapshot | None,
     *,
     default_target: QuantumDemoTarget,
 ) -> ConfigProfileSnapshot:
     if config_profile is None:
         return quantum_wiring_config_profile(target=default_target)
-    if isinstance(config_profile, ConfigProfileSnapshot):
-        return config_profile
-    return load_config_profile(config_profile)
+    return config_profile
 
 
 def _validate_target_selection(
@@ -184,7 +180,6 @@ def _validate_target_selection(
 
 
 __all__ = [
-    "ConfigProfileInput",
     "PathInput",
     "quantum_lab_compiler",
     "quantum_lab_config_profile",

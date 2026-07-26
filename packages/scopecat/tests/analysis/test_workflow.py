@@ -9,9 +9,9 @@ from scopecat.adapters.sqlite import SQLiteRunRepository
 from scopecat.adapters.sqlite.run_repository import PreparedContentPublication
 from scopecat.analysis.service import prepare_analysis_artifact
 from scopecat.config.registry import service as config_registry_service
-from scopecat.config.resolution import register_and_activate_candidate_config
 from scopecat.records.run import RunManifest
 from scopecat.runs.refs import record_content_ref
+from tests.testkit.config_registry import activate_candidate_config
 from tests.testkit.in_process_lab import in_process_lab
 from tests.testkit.runtime import (
     sqlite_project_services,
@@ -69,8 +69,8 @@ def test_workflow_analysis_review_activate_and_rerun_active_config(
     analysis = run_handle.analyze(BestSignalAnalysisStep())
     analysis.save()
     candidate = analysis.candidate_config()
-    lab.review_parameter_proposal(run_handle, candidate.proposal_ids[0])
-    activation = register_and_activate_candidate_config(
+    lab.review_parameter_proposal(run_handle, candidate.proposal_id)
+    activation = activate_candidate_config(
         candidate=candidate,
         services=services,
         entry_id="candidate-best-signal",
@@ -91,7 +91,7 @@ def test_workflow_analysis_review_activate_and_rerun_active_config(
     )
 
     assert summary.outputs[1].kind == "artifact"
-    assert candidate.parameter_proposals[0].deltas[0].parameter_id == "drive_frequency"
+    assert candidate.parameter_proposal.deltas[0].parameter_id == "drive_frequency"
     assert activation.entry.id == "candidate-best-signal"
     assert next_run.status == "completed"
     assert next_run.config_source == active_source

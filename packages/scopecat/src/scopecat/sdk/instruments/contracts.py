@@ -374,7 +374,7 @@ class InstrumentProvider(Protocol):
 
 
 def capability(
-    id: str,  # noqa: A002
+    id: str,
     *,
     fields: list[CapabilityField] | tuple[CapabilityField, ...] = (),
     products: list[ProductDescription] | tuple[ProductDescription, ...] = (),
@@ -387,7 +387,7 @@ def capability(
 
 
 def product_axis(
-    id: str,  # noqa: A002
+    id: str,
     *,
     size: int | None = None,
     kind: str | None = None,
@@ -417,7 +417,7 @@ def product(
 
 
 def quantity_field(
-    id: str,  # noqa: A002
+    id: str,
     *,
     unit: str,
 ) -> CapabilityField:
@@ -428,7 +428,7 @@ def quantity_field(
 
 
 def bool_field(
-    id: str,  # noqa: A002
+    id: str,
 ) -> CapabilityField:
     return CapabilityField(
         id=id,
@@ -437,7 +437,7 @@ def bool_field(
 
 
 def int_field(
-    id: str,  # noqa: A002
+    id: str,
     *,
     minimum: int | None = None,
     maximum: int | None = None,
@@ -449,7 +449,7 @@ def int_field(
 
 
 def float_field(
-    id: str,  # noqa: A002
+    id: str,
 ) -> CapabilityField:
     return CapabilityField(
         id=id,
@@ -458,7 +458,7 @@ def float_field(
 
 
 def string_field(
-    id: str,  # noqa: A002
+    id: str,
     *,
     min_length: int = 0,
     max_length: int | None = None,
@@ -479,7 +479,7 @@ def string_field(
 
 
 def enum_field(
-    id: str,  # noqa: A002
+    id: str,
     *,
     choices: tuple[str, ...],
 ) -> CapabilityField:
@@ -487,7 +487,7 @@ def enum_field(
 
 
 def payload_field(
-    id: str,  # noqa: A002
+    id: str,
     *,
     schema_id: str,
 ) -> CapabilityField:

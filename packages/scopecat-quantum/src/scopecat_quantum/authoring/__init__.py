@@ -27,7 +27,7 @@ from ._construction import (
     gate,
     gaussian,
     implementation,
-    input,  # noqa: A004
+    input,
     measure,
     parallel,
     play,

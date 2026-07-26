@@ -12,8 +12,8 @@ from fastapi.testclient import TestClient
 from scopecat.adapters.sqlite import SQLiteControlPlane, SQLiteRunRepository
 from scopecat.application import LabApplication
 from scopecat.config.changes import parameter_change_proposal_from_updates
+from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.parameters import ReplaceParameter, replace_scalar_parameter
-from scopecat.config.profiles import load_config_profile
 from scopecat.config.registry.records import ConfigRegistryEntry
 from scopecat.control.models import (
     ControlRun,
@@ -88,12 +88,12 @@ _FIXTURE = (
     / "fixtures"
     / "core"
     / "simple_scan"
-    / "config-profile.json"
+    / "config-snapshot.json"
 )
 
 
 def _config() -> ConfigProfileSnapshot:
-    return load_config_profile(_FIXTURE)
+    return load_config_snapshot_document(_FIXTURE)
 
 
 def _run_detail(runtime: LocalDaemonRuntime, run_id: str) -> RunDetail:
@@ -806,7 +806,7 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
             "/api/v1/config-registry/candidates/activate",
             json=CandidateConfigActivationCommand(
                 run_id=admission.run_id,
-                proposal_ids=(proposal.id,),
+                proposal_id=proposal.id,
                 entry_id="candidate-fit",
                 registered_by="notebook",
                 operator="operator",

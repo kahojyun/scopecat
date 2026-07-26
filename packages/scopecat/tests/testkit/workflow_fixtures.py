@@ -11,7 +11,7 @@ from scopecat.authoring import (
 )
 from scopecat.authoring.scans import axis
 from scopecat.compiler.typed.program import CoreProgram
-from scopecat.config.profiles import load_config_profile
+from scopecat.config.documents import load_config_snapshot_document
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
@@ -29,7 +29,7 @@ from tests.testkit.runtime import sqlite_run_repository
 
 
 def load_config() -> ConfigProfileSnapshot:
-    return load_config_profile(WORKFLOW_FIXTURE_DIR / "config-profile.json")
+    return load_config_snapshot_document(WORKFLOW_FIXTURE_DIR / "config-snapshot.json")
 
 
 def load_experiment() -> CoreProgram:

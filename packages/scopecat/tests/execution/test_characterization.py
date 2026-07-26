@@ -5,7 +5,6 @@ from typing import override
 
 import scopecat as sc
 from scopecat.execution.effect_interpreter import RunEffectInterpreter
-from scopecat.execution.events import TransitionRecorder
 from scopecat.execution.local.program import (
     ApplyStateOperation,
     BoundInput,
@@ -85,7 +84,7 @@ def test_coverage_iterator_is_consumed_after_each_block_is_delivered() -> None:
         coordinate_ids=(),
         resource_order=(),
         drivers={},
-        recorder=TransitionRecorder(FakeExecutionJournal()),
+        journal=FakeExecutionJournal(),
         coverage_observer=lambda block, _candidates: delivered.append(
             block.point_indices
         ),
@@ -247,7 +246,7 @@ def test_compute_output_is_normalized_before_downstream_use() -> None:
         coordinate_ids=tuple(program.points[0].coordinates),
         resource_order=program.resource_order,
         drivers={},
-        recorder=TransitionRecorder(FakeExecutionJournal()),
+        journal=FakeExecutionJournal(),
     ).run(complete_coverage_operations(program))
 
     assert not result.problems and not result.indeterminate
@@ -321,7 +320,7 @@ def test_run_compute_is_shared_by_every_point_frame() -> None:
         coordinate_ids=tuple(program.points[0].coordinates),
         resource_order=program.resource_order,
         drivers={},
-        recorder=TransitionRecorder(FakeExecutionJournal()),
+        journal=FakeExecutionJournal(),
     ).run(
         (
             run_compute,
@@ -398,7 +397,7 @@ def test_multi_point_compute_coverage_evaluates_once_and_seeds_every_point() -> 
         coordinate_ids=(),
         resource_order=(),
         drivers={},
-        recorder=TransitionRecorder(FakeExecutionJournal()),
+        journal=FakeExecutionJournal(),
     ).run(
         (
             RunCoverageBlock(
@@ -461,7 +460,7 @@ def test_distinct_compute_operations_are_each_evaluated() -> None:
         coordinate_ids=tuple(program.points[0].coordinates),
         resource_order=program.resource_order,
         drivers={},
-        recorder=TransitionRecorder(FakeExecutionJournal()),
+        journal=FakeExecutionJournal(),
     ).run(complete_coverage_operations(program))
 
     assert not result.problems and not result.indeterminate
@@ -599,7 +598,7 @@ def test_one_provider_readback_fans_out_to_every_logical_product_use() -> None:
         coordinate_ids=tuple(point.coordinates),
         resource_order=program.resource_order,
         drivers={driver.instrument_id: driver},
-        recorder=TransitionRecorder(FakeExecutionJournal()),
+        journal=FakeExecutionJournal(),
         coverage_observer=lambda _block, candidates: observed_candidates.append(
             candidates
         ),
@@ -638,7 +637,7 @@ def test_finalization_journal_failure_cannot_block_abort_or_terminal_read() -> N
         coordinate_ids=tuple(program.points[0].coordinates),
         resource_order=program.resource_order,
         drivers={"source-a": first, "source-b": second},
-        recorder=TransitionRecorder(_BrokenFinalizationJournal()),
+        journal=_BrokenFinalizationJournal(),
     ).run(complete_coverage_operations(program))
 
     assert result.indeterminate
@@ -683,7 +682,7 @@ def test_apply_journal_persists_full_receipt_evidence() -> None:
         coordinate_ids=tuple(program.points[0].coordinates),
         resource_order=program.resource_order,
         drivers={driver.instrument_id: driver},
-        recorder=TransitionRecorder(journal),
+        journal=journal,
     ).run(complete_coverage_operations(program))
 
     assert not result.problems and not result.indeterminate
@@ -722,7 +721,7 @@ def test_state_apply_stops_on_blocking_result_without_committing_state() -> None
             first.instrument_id: first,
             second.instrument_id: second,
         },
-        recorder=TransitionRecorder(journal),
+        journal=journal,
     )
 
     result = engine.run(complete_coverage_operations(program))
@@ -795,7 +794,7 @@ def test_unexpected_product_stops_later_collection_and_fails_journal_entry() -> 
             first.instrument_id: first,
             second.instrument_id: second,
         },
-        recorder=TransitionRecorder(journal),
+        journal=journal,
     ).run(complete_coverage_operations(program))
 
     assert result.problems and not result.indeterminate
@@ -855,7 +854,7 @@ def test_unknown_receipt_with_problem_does_not_advance_state() -> None:
             first.instrument_id: first,
             second.instrument_id: second,
         },
-        recorder=TransitionRecorder(journal),
+        journal=journal,
     )
 
     result = engine.run(complete_coverage_operations(program))

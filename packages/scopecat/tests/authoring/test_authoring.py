@@ -117,7 +117,7 @@ def _collect_values(**values: object) -> dict[str, object]:
 
 def _table_definition(
     *,
-    id: str,  # noqa: A002
+    id: str,
     primary_key: list[str],
     columns: list[sc.TableColumn],
 ) -> ParameterDefinition:
@@ -154,7 +154,7 @@ def _around_parameter_points(
 
 def _module_fixture(
     *,
-    id: str,  # noqa: A002
+    id: str,
     entity_inputs: Sequence[str] = (),
     resources: Sequence[ResourcePort] = (),
     bindings: Sequence[ExperimentBindingIntent] = (),
@@ -199,7 +199,7 @@ def _module_fixture(
 
 
 def _observable_product(
-    id: str,  # noqa: A002
+    id: str,
     *,
     unit: str | None = "ratio",
     axes: Sequence[authoring.ProductAxis] = (),
@@ -213,7 +213,7 @@ def _observable_product(
 
 def _template_invocation(
     *modules: ExperimentModule[...],
-    id: str,  # noqa: A002
+    id: str,
     kind: str,
     inputs: Mapping[str, authoring.RuntimeInput] | None = None,
     metadata: Mapping[str, authoring.MetadataValue] | None = None,

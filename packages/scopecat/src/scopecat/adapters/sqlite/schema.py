@@ -85,7 +85,7 @@ CREATE TABLE IF NOT EXISTS resource_leases (
 );
 
 CREATE INDEX IF NOT EXISTS resource_leases_run_id ON resource_leases(run_id);
-"""  # noqa: S608 - interpolates an internal integer constant.
+"""  # noqa: S608 - interpolates an internal integer constant
 
 PROJECT_SCHEMA_SQL = "\n".join(
     (

@@ -138,11 +138,6 @@ export function parseConfigProfileJson(textValue: string): ConfigProfileSnapshot
   }
   const profile = object(parsed, "selected config snapshot");
   const formatVersion = optionalText(profile.format_version);
-  if (formatVersion === "scopecat.config_profile_manifest.v1") {
-    throw new Error(
-      "This split config profile manifest must be loaded by Python before importing its config snapshot.",
-    );
-  }
   if (formatVersion !== "scopecat.config_snapshot.v1") {
     throw new Error(
       `Unsupported config snapshot format: ${formatVersion ?? "missing format_version"}.`,

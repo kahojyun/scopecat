@@ -129,7 +129,7 @@ _CLIFFORDS = tuple(_CLIFFORD_DECOMPOSITIONS.items())
 
 
 def _rb_gate_ids(length: int, seed: int) -> tuple[str, ...]:
-    rng = random.Random(seed)  # noqa: S311 - reproducibility is the RB contract.
+    rng = random.Random(seed)  # noqa: S311 - reproducibility is the RB contract
     accumulated = _IDENTITY
     gate_ids: list[str] = []
     for _ in range(length):

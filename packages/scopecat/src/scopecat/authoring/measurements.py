@@ -60,7 +60,7 @@ class MeasurementTransform:
 
 
 def measurement_transform(
-    id: str,  # noqa: A002
+    id: str,
     *,
     semantic: MeasurementTransformSemanticContract,
     inputs: Mapping[str, str | ProductRef] | None = None,

@@ -712,15 +712,15 @@ def _substitute_signal(
 ) -> LogicalSignal:
     if isinstance(signal, DriveSignal):
         owner = bindings.get(signal.qubit, signal.qubit)
-        assert isinstance(owner, QubitId)  # noqa: S101
+        assert isinstance(owner, QubitId)
         return DriveSignal(owner)
     if isinstance(signal, ReadoutSignal):
         owner = bindings.get(signal.qubit, signal.qubit)
-        assert isinstance(owner, QubitId)  # noqa: S101
+        assert isinstance(owner, QubitId)
         return ReadoutSignal(owner)
     if isinstance(signal, AcquireSignal):
         owner = bindings.get(signal.qubit, signal.qubit)
-        assert isinstance(owner, QubitId)  # noqa: S101
+        assert isinstance(owner, QubitId)
         return AcquireSignal(owner)
     owner = signal.owner
     return FluxSignal(bindings.get(owner, owner))

@@ -34,12 +34,6 @@ from scopecat.execution.evidence import (
     instrument_state_evidence_ref,
 )
 from scopecat.execution.local.program import CollectOperation
-from scopecat.execution.observation import (
-    RunFinishedEvent,
-    RuntimeEvent,
-    RuntimePayloadObservation,
-    RuntimeTransitionEvent,
-)
 from scopecat.execution.program import RunHostBinding
 from scopecat.graph.relations.model import (
     lit,
@@ -1009,98 +1003,6 @@ def test_provider_description_interruption_precedes_run_acceptance(
     assert sqlite_run_repository(tmp_path).list_runs() == []
 
 
-def test_run_emits_transient_runtime_events(tmp_path: Path) -> None:
-    events: list[RuntimeEvent] = []
-
-    manifest = execute_bound_run(
-        config=load_config(),
-        experiment=load_experiment(),
-        instruments=[TestSignalInstrument()],
-        project_root=tmp_path,
-        event_sink=events.append,
-    )
-
-    assert manifest.status == "completed"
-    lifecycle_events = [
-        event.kind for event in events if event.kind in {"run_started", "run_finished"}
-    ]
-    assert lifecycle_events == [
-        "run_started",
-        "run_finished",
-    ]
-    transitions = [
-        event for event in events if isinstance(event, RuntimeTransitionEvent)
-    ]
-    point_finished = [
-        event
-        for event in transitions
-        if event.stage == "point" and event.state == "completed"
-    ]
-    committed_records = [
-        event
-        for event in transitions
-        if event.stage == "seal_measurement" and event.state == "completed"
-    ]
-    assert [event.point_indices for event in point_finished] == [(0,), (1,), (2,)]
-    assert [event.progress.completed_points for event in point_finished] == [1, 2, 3]
-    assert len(committed_records) == 1
-    assert all(event.sequence is None for event in point_finished)
-    durable_transitions = sqlite_execution_session(
-        tmp_path,
-        manifest.run_id,
-    ).journal.entries()
-    assert not {
-        "point",
-        "compute",
-        "initial_readback",
-        "terminal_readback",
-        "setup_terminal_readback",
-    } & {transition.stage for transition in durable_transitions}
-    assert all(event.sequence is not None for event in committed_records)
-    assert all(event.metrics == {} for event in point_finished)
-    assert all(event.state == "completed" for event in point_finished)
-    finished = events[-1]
-    assert isinstance(finished, RunFinishedEvent)
-    assert finished.result == "succeeded"
-    assert finished.certainty == "known"
-    assert finished.progress.completed_points == 3
-    assert finished.progress.total_points == 3
-
-
-def test_runtime_event_sink_failure_does_not_change_durable_execution(
-    tmp_path: Path,
-) -> None:
-    def reject_event(_event: RuntimeEvent) -> None:
-        raise RuntimeError("observer unavailable")
-
-    manifest = execute_bound_run(
-        config=load_config(),
-        experiment=load_experiment(),
-        instruments=[TestSignalInstrument()],
-        project_root=tmp_path,
-        event_sink=reject_event,
-    )
-
-    assert manifest.status == "completed"
-    durable_transitions = sqlite_execution_session(
-        tmp_path,
-        manifest.run_id,
-    ).journal.entries()
-    assert any(
-        transition.stage == "collect" and transition.state == "completed"
-        for transition in durable_transitions
-    )
-    assert any(
-        transition.stage == "seal_measurement" and transition.state == "completed"
-        for transition in durable_transitions
-    )
-    assert manifest.outcome is not None
-    assert all(
-        problem.code != "execution_journal_commit_failed"
-        for problem in manifest.outcome.problems
-    )
-
-
 def test_run_shares_identical_residual_point_compute(tmp_path: Path) -> None:
     calls: list[Quantity] = []
 
@@ -1193,47 +1095,23 @@ def test_run_shares_identical_residual_point_compute(tmp_path: Path) -> None:
             )
         ],
     )
-    events: list[RuntimeEvent] = []
-    payload_observations: list[RuntimePayloadObservation] = []
-
     config = config_with_physical_resources(
         {"source-0": ("play_program", "scalar_signal")}
     )
+    instrument = SignalInstrumentDriver()
     manifest = execute_bound_run(
         config=config,
         experiment=spec,
-        instruments=[SignalInstrumentDriver()],
+        instruments=[instrument],
         project_root=tmp_path,
-        event_sink=events.append,
-        payload_observer=payload_observations.append,
     )
-
-    transitions = [
-        event for event in events if isinstance(event, RuntimeTransitionEvent)
-    ]
-    compute_events = [
-        event
-        for event in transitions
-        if event.stage == "compute" and event.state == "completed"
-    ]
-    state_events = [
-        event
-        for event in transitions
-        if event.stage == "apply_state" and event.state == "completed"
-    ]
-    state_reconciled = [
-        event
-        for event in transitions
-        if event.stage == "apply_state" and event.state == "skipped"
-    ]
 
     assert manifest.status == "completed"
     assert calls == [
         Quantity(value=4.9, unit="GHz"),
         Quantity(value=5.1, unit="GHz"),
     ]
-    assert len(compute_events) == 2
-    assert all(event.sequence is None for event in compute_events)
+    assert len(instrument.applied) == 2
     assert all(
         transition.stage != "compute"
         for transition in sqlite_execution_session(
@@ -1241,37 +1119,21 @@ def test_run_shares_identical_residual_point_compute(tmp_path: Path) -> None:
             manifest.run_id,
         ).journal.entries()
     )
-    payload_ids = cast(
-        "list[str]",
-        [event.metrics["payload_id"] for event in compute_events],
-    )
+    payloads = [next(iter(command.payloads.values())) for command in instrument.applied]
+    payload_ids = [payload.id for payload in payloads]
     assert payload_ids[1] != payload_ids[0]
     assert all(
         payload_id.startswith(f"{result_id.qualified_name}.payload.")
         for payload_id in payload_ids
     )
-    assert [
-        observation.payload_id for observation in payload_observations
-    ] == payload_ids
-    assert {
-        observation.semantic_operation_id for observation in payload_observations
-    } == {"build-program"}
-    assert [
-        observation.summary["implementation_id"] for observation in payload_observations
-    ] == ["python.build-program.v1"] * 2
-    assert [observation.payload.payload for observation in payload_observations] == [
+    assert {payload.semantic_operation_id for payload in payloads} == {"build-program"}
+    assert [payload.implementation_id for payload in payloads] == [
+        "python.build-program.v1"
+    ] * 2
+    assert [payload.payload for payload in payloads] == [
         {"value": Quantity(value=4.9, unit="GHz")},
         {"value": Quantity(value=5.1, unit="GHz")},
     ]
-    assert payload_observations[0].summary["payload_id"] == payload_ids[0]
-    assert [
-        event.metrics["compute_evaluated_node_count"] for event in state_events
-    ] == [1, 1]
-    assert state_reconciled == []
-    finished = events[-1]
-    assert isinstance(finished, RunFinishedEvent)
-    assert finished.compute_evaluated_node_count == 2
-    assert finished.compute_payload_count == 2
 
 
 def test_run_skips_unchanged_state_fields(tmp_path: Path) -> None:
@@ -1292,31 +1154,12 @@ def test_run_skips_unchanged_state_fields(tmp_path: Path) -> None:
             *core_acquisitions(base_experiment),
         ),
     )
-    events: list[RuntimeEvent] = []
-
     manifest = execute_bound_run(
         config=load_config(),
         experiment=experiment,
         instruments=[instrument],
         project_root=tmp_path,
-        event_sink=events.append,
     )
 
     assert manifest.status == "completed"
     assert len(instrument.applied_commands) == 1
-    transitions = [
-        event for event in events if isinstance(event, RuntimeTransitionEvent)
-    ]
-    state_events = [
-        event
-        for event in transitions
-        if event.stage == "apply_state" and event.state == "completed"
-    ]
-    reconciled_events = [
-        event
-        for event in transitions
-        if event.stage == "apply_state" and event.state == "skipped"
-    ]
-    assert [event.metrics["changed_field_count"] for event in state_events] == [1]
-    assert [event.metrics["skipped_field_count"] for event in state_events] == [0]
-    assert reconciled_events == []

@@ -155,7 +155,7 @@ class RecordSelection:
 
 
 def product_axis(
-    id: str,  # noqa: A002
+    id: str,
     *,
     size: ValueRef | Quantity | float | Sequence[EntityRef | str],
     kind: str | None = None,
@@ -171,7 +171,7 @@ def product_axis(
 
 
 def entity_axis(
-    id: str,  # noqa: A002
+    id: str,
     entities: ValueRef | Sequence[EntityRef | str],
 ) -> ProductAxis:
     selected_entities = (

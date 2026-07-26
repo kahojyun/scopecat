@@ -25,7 +25,7 @@ saved_analysis = analysis.save()
 candidate = analysis.candidate_config()
 
 # %%
-delta = candidate.parameter_proposals[0].deltas[0]
+delta = candidate.parameter_proposal.deltas[0]
 summary = {
     "run": completed_run.id,
     "analysis": saved_analysis.record.id,

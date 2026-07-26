@@ -30,8 +30,8 @@ class AnalysisCandidateRunConfigSource(BaseModel):
 
     kind: Literal["analysis_candidate"] = "analysis_candidate"
     source_run_id: str
-    analysis_record_ids: tuple[str, ...] = Field(min_length=1)
-    proposal_ids: tuple[str, ...] = Field(min_length=1)
+    analysis_record_id: str
+    proposal_id: str
     base_config_content_hash: ConfigContentHash
     content_hash: ConfigContentHash
 
@@ -39,14 +39,10 @@ class AnalysisCandidateRunConfigSource(BaseModel):
     def validate_identity(self) -> AnalysisCandidateRunConfigSource:
         if (
             not self.source_run_id
-            or any(not record_id for record_id in self.analysis_record_ids)
-            or any(not proposal_id for proposal_id in self.proposal_ids)
+            or not self.analysis_record_id
+            or not self.proposal_id
         ):
             raise ValueError("analysis candidate run source identity must be non-empty")
-        if len(self.analysis_record_ids) != len(set(self.analysis_record_ids)):
-            raise ValueError("analysis candidate run source analyses must be unique")
-        if len(self.proposal_ids) != len(set(self.proposal_ids)):
-            raise ValueError("analysis candidate run source proposals must be unique")
         return self
 
 

@@ -172,7 +172,7 @@ class Analysis:
                 metadata=metadata,
             )
             return replace(self, inputs=(*self.inputs, analysis_input))
-        assert selector is not None  # noqa: S101
+        assert selector is not None
         if expected_kind == "measurement_dataset":
             dataset = self.run.data().dataset(selector, expected_kind=expected_kind)
             analysis_input = AnalysisInput(
@@ -288,12 +288,12 @@ class Analysis:
         self,
         selection: CandidateSelection = None,
     ) -> CandidateConfig:
-        proposals = _select_candidate_proposals(
+        proposal = _select_candidate_proposal(
             self.parameter_proposals,
             selection=selection,
         )
         return CandidateConfig(
-            parameter_proposals=proposals,
+            parameter_proposal=proposal,
         )
 
     def save(self) -> SavedAnalysis:
@@ -426,7 +426,7 @@ def analysis_step[**P](
     definition: Callable[Concatenate[AnalysisContext, P], Analysis] | None = None,
     /,
     *,
-    id: str | None = None,  # noqa: A002
+    id: str | None = None,
 ) -> (
     AnalysisDefinition[P]
     | Callable[
@@ -447,7 +447,7 @@ def analysis_step[**P](
 def _analysis_definition[**P](
     fn: Callable[Concatenate[AnalysisContext, P], Analysis],
     *,
-    id: str | None,  # noqa: A002
+    id: str | None,
 ) -> AnalysisDefinition[P]:
     signature = inspect.signature(fn)
     parameters = tuple(signature.parameters.values())
@@ -489,11 +489,11 @@ def _analysis_definition[**P](
     )
 
 
-def _select_candidate_proposals(
+def _select_candidate_proposal(
     proposals: Sequence[ParameterChangeProposal],
     *,
     selection: CandidateSelection,
-) -> tuple[ParameterChangeProposal, ...]:
+) -> ParameterChangeProposal:
     if not proposals:
         _raise_analysis_problem(
             "candidate_config_no_parameter_proposals",
@@ -502,7 +502,7 @@ def _select_candidate_proposals(
         )
     if selection is None:
         if len(proposals) == 1:
-            return (proposals[0],)
+            return proposals[0]
         _raise_analysis_problem(
             "candidate_config_selection_required",
             (
@@ -511,34 +511,16 @@ def _select_candidate_proposals(
             ),
             "selection",
         )
-    selected_ids = (selection,) if isinstance(selection, str) else tuple(selection)
-    if not selected_ids:
+    by_id = {proposal.id: proposal for proposal in proposals}
+    proposal_id = artifact_slug(selection, fallback="analysis")
+    try:
+        return by_id[proposal_id]
+    except KeyError:
         _raise_analysis_problem(
-            "candidate_config_selection_empty",
-            "candidate config selection must include at least one parameter proposal",
+            "candidate_config_selection_not_found",
+            f"candidate config selection was not found: {proposal_id}",
             "selection",
         )
-    by_id = {proposal.id: proposal for proposal in proposals}
-    selected: list[ParameterChangeProposal] = []
-    seen: set[str] = set()
-    for selected_id in selected_ids:
-        proposal_id = artifact_slug(selected_id, fallback="analysis")
-        if proposal_id in seen:
-            _raise_analysis_problem(
-                "candidate_config_selection_duplicated",
-                f"candidate config selection is duplicated: {proposal_id}",
-                "selection",
-            )
-        try:
-            selected.append(by_id[proposal_id])
-        except KeyError:
-            _raise_analysis_problem(
-                "candidate_config_selection_not_found",
-                f"candidate config selection was not found: {proposal_id}",
-                "selection",
-            )
-        seen.add(proposal_id)
-    return tuple(selected)
 
 
 def _analysis_key(key: str | None, title: str) -> str:

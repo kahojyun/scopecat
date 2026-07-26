@@ -40,9 +40,9 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetSeal,
 )
 from scopecat.records.parameter_change import (
+    ParameterChangeDecision,
     ParameterChangeDecisionAuthority,
     ParameterChangeProposal,
-    ParameterChangeReviewState,
     ParameterValueDelta,
 )
 from scopecat.records.run import (
@@ -299,36 +299,23 @@ class RunAttachmentCommand(_WireModel):
         return self
 
 
-class ParameterProposalReviewCommand(_WireModel):
-    decision: ParameterChangeReviewState
-    reviewer: NonEmptyText
-    note: str = ""
-
-
 class ParameterProposalDecisionCommand(_WireModel):
-    decision: ParameterChangeReviewState
+    decision: ParameterChangeDecision
     authority: ParameterChangeDecisionAuthority
     note: str = ""
 
 
 class CandidateConfigActivationCommand(_WireModel):
-    """Build, register, and activate config from durable approved proposals."""
+    """Build, register, and activate config from one durable approved proposal."""
 
     run_id: NonEmptyText
-    proposal_ids: tuple[NonEmptyText, ...] = Field(min_length=1)
+    proposal_id: NonEmptyText
     entry_id: NonEmptyText | None = None
     registered_by: NonEmptyText
     operator: NonEmptyText
     expected_generation: int = Field(ge=0)
     note: str = ""
     activation_note: str | None = None
-
-    @field_validator("proposal_ids")
-    @classmethod
-    def validate_proposal_ids(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        if len(value) != len(set(value)):
-            raise ValueError("candidate proposal ids must be unique")
-        return value
 
 
 class CandidateConfigActivationReceipt(_WireModel):
@@ -494,7 +481,6 @@ __all__ = [
     "MeasurementAppendCommand",
     "MeasurementSealCommand",
     "ParameterProposalDecisionCommand",
-    "ParameterProposalReviewCommand",
     "RunAdmission",
     "RunAttachmentCommand",
     "RunSubmission",

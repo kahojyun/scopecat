@@ -1,13 +1,12 @@
-"""Candidate configuration resolution from parameter proposals."""
+"""Candidate configuration resolution from one parameter proposal."""
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from dataclasses import dataclass
 
 from scopecat.config.changes import is_safe_parameter_change_id
 from scopecat.config.parameter_resolution import validate_parameter_snapshot
-from scopecat.config.parameter_updates import merge_parameter_change_deltas
+from scopecat.config.parameter_updates import apply_parameter_change_deltas
 from scopecat.kernel.errors import CheckFailed, Conflict
 from scopecat.kernel.ids import artifact_slug
 from scopecat.kernel.problems import (
@@ -21,42 +20,28 @@ from scopecat.project_state import ProjectStateServices
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.parameter_change import ParameterChangeProposal
 
-type CandidateSelection = str | Sequence[str] | None
+type CandidateSelection = str | None
 
 
 @dataclass(frozen=True)
 class CandidateConfig:
-    parameter_proposals: tuple[ParameterChangeProposal, ...]
+    parameter_proposal: ParameterChangeProposal
 
     @property
     def source_run_id(self) -> str:
-        run_ids = {proposal.source_run_id for proposal in self.parameter_proposals}
-        if len(run_ids) != 1:
-            msg = "candidate config proposals must all come from one source run"
-            raise ValueError(msg)
-        return next(iter(run_ids))
+        return self.parameter_proposal.source_run_id
 
     @property
     def base_config_content_hash(self) -> str:
-        hashes = {
-            proposal.base_config_content_hash for proposal in self.parameter_proposals
-        }
-        if len(hashes) != 1:
-            msg = "candidate config proposals must share one base config"
-            raise ValueError(msg)
-        return next(iter(hashes))
+        return self.parameter_proposal.base_config_content_hash
 
     @property
-    def proposal_ids(self) -> tuple[str, ...]:
-        return tuple(proposal.id for proposal in self.parameter_proposals)
+    def proposal_id(self) -> str:
+        return self.parameter_proposal.id
 
     @property
-    def analysis_record_ids(self) -> tuple[str, ...]:
-        return tuple(
-            dict.fromkeys(
-                proposal.analysis_record_id for proposal in self.parameter_proposals
-            )
-        )
+    def analysis_record_id(self) -> str:
+        return self.parameter_proposal.analysis_record_id
 
 
 def resolve_candidate_config_snapshot(
@@ -103,7 +88,7 @@ def _build_candidate_config_snapshot(
                     "parameter_change_proposal_base_mismatch",
                     "parameter change proposal was derived from a different "
                     "source config snapshot",
-                    location=model_location("candidate_config", "parameter_proposals"),
+                    location=model_location("candidate_config", "parameter_proposal"),
                     details={
                         "expected_content_hash": candidate.base_config_content_hash,
                         "actual_content_hash": actual_hash,
@@ -111,36 +96,34 @@ def _build_candidate_config_snapshot(
                 )
             ]
         )
-    base_ids = {proposal.base_config_id for proposal in candidate.parameter_proposals}
-    if base_ids != {config.id}:
+    proposal = candidate.parameter_proposal
+    if proposal.base_config_id != config.id:
         raise Conflict(
             [
                 _candidate_problem(
                     "parameter_change_proposal_base_id_mismatch",
                     "parameter change proposal base config id is stale",
-                    location=model_location("candidate_config", "parameter_proposals"),
+                    location=model_location("candidate_config", "parameter_proposal"),
                     details={
                         "expected_config_id": config.id,
-                        "proposal_config_ids": sorted(base_ids),
+                        "proposal_config_id": proposal.base_config_id,
                     },
                 )
             ]
         )
     try:
-        parameter_snapshot = merge_parameter_change_deltas(
+        parameter_snapshot = apply_parameter_change_deltas(
             base=config.parameter_snapshot,
-            proposals=tuple(
-                proposal.deltas for proposal in candidate.parameter_proposals
-            ),
+            deltas=proposal.deltas,
             candidate_id=f"{candidate_id}.parameters",
         )
     except ValueError as error:
         raise CheckFailed(
             [
                 _candidate_problem(
-                    "parameter_change_proposal_merge_invalid",
-                    f"parameter change proposals cannot be merged: {error}",
-                    location=model_location("candidate_config", "parameter_proposals"),
+                    "parameter_change_proposal_invalid",
+                    f"parameter change proposal cannot be applied: {error}",
+                    location=model_location("candidate_config", "parameter_proposal"),
                 )
             ]
         ) from error
@@ -160,76 +143,22 @@ def _build_candidate_config_snapshot(
 
 
 def _validate_candidate(candidate: CandidateConfig) -> None:
-    if not candidate.parameter_proposals:
+    proposal = candidate.parameter_proposal
+    if not is_safe_parameter_change_id(proposal.id):
         raise CheckFailed(
             [
                 _candidate_problem(
-                    "candidate_config_empty",
-                    "candidate config requires at least one proposal",
-                    location=model_location("candidate_config"),
+                    "parameter_change_invalid_id",
+                    "parameter change proposal id is not safe for record paths",
+                    location=model_location("parameter_change_proposal", "id"),
+                    details={"proposal_id": proposal.id},
                 )
             ]
         )
-    run_ids = {proposal.source_run_id for proposal in candidate.parameter_proposals}
-    if len(run_ids) != 1:
-        raise CheckFailed(
-            [
-                _candidate_problem(
-                    "candidate_config_source_run_mismatch",
-                    "candidate config proposals must come from one source run",
-                    location=model_location("candidate_config", "parameter_proposals"),
-                    details={"source_run_ids": sorted(run_ids)},
-                )
-            ]
-        )
-    hashes = {
-        proposal.base_config_content_hash for proposal in candidate.parameter_proposals
-    }
-    if len(hashes) != 1:
-        raise CheckFailed(
-            [
-                _candidate_problem(
-                    "candidate_config_base_mismatch",
-                    "candidate config proposals must share one base config",
-                    location=model_location("candidate_config", "parameter_proposals"),
-                    details={"base_content_hashes": sorted(hashes)},
-                )
-            ]
-        )
-    seen: set[str] = set()
-    for proposal in candidate.parameter_proposals:
-        if not is_safe_parameter_change_id(proposal.id):
-            raise CheckFailed(
-                [
-                    _candidate_problem(
-                        "parameter_change_invalid_id",
-                        "parameter change proposal id is not safe for record paths",
-                        location=model_location("parameter_change_proposal", "id"),
-                        details={"proposal_id": proposal.id},
-                    )
-                ]
-            )
-        if proposal.id in seen:
-            raise CheckFailed(
-                [
-                    _candidate_problem(
-                        "candidate_config_duplicate_proposal",
-                        "candidate config contains a duplicate parameter proposal",
-                        location=model_location(
-                            "candidate_config", "parameter_proposals"
-                        ),
-                        details={"proposal_id": proposal.id},
-                    )
-                ]
-            )
-        seen.add(proposal.id)
 
 
 def _candidate_config_id(candidate: CandidateConfig) -> str:
-    selected = "-".join(
-        artifact_slug(proposal.id) for proposal in candidate.parameter_proposals
-    )
-    return f"candidate-{selected}"
+    return f"candidate-{artifact_slug(candidate.parameter_proposal.id)}"
 
 
 def _candidate_problem(

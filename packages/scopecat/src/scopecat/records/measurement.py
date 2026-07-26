@@ -149,7 +149,7 @@ class ComplexQuantity(BaseModel):
     @classmethod
     def validate_unit(cls, value: str) -> str:
         validated = validate_supported_unit(value)
-        assert validated is not None  # noqa: S101
+        assert validated is not None
         return validated
 
 

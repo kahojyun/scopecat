@@ -14,20 +14,17 @@ import {
 import { getConfigRegistry } from "../config/config-api";
 import {
   activateProposalCandidate,
+  decideParameterProposal,
   getRunParameterProposals,
   latestProposalDecision,
-  reviewParameterProposal,
 } from "../../data/parameter-proposals/api";
-import type {
-  ParameterProposal,
-  ProposalReviewDecision,
-} from "../../data/parameter-proposals/types";
+import type { ParameterProposal, ProposalDecision } from "../../data/parameter-proposals/types";
 import { errorMessage, formatDateTime, shorten, titleCase } from "../../lib/presentation";
 import { useConfirmationDialog } from "../../ui/ConfirmationDialog";
 
-interface ReviewInput {
+interface DecisionInput {
   proposalId: string;
-  decision: ProposalReviewDecision;
+  decision: ProposalDecision;
   note: string;
 }
 
@@ -49,9 +46,9 @@ export function RunProposals({ runId }: { runId: string }) {
   });
   const generation = configQuery.data?.active_state?.generation ?? 0;
 
-  const reviewMutation = useMutation({
-    mutationFn: (input: ReviewInput) =>
-      reviewParameterProposal(runId, input.proposalId, {
+  const decisionMutation = useMutation({
+    mutationFn: (input: DecisionInput) =>
+      decideParameterProposal(runId, input.proposalId, {
         reviewer: reviewer.trim(),
         note: input.note,
         decision: input.decision,
@@ -64,7 +61,7 @@ export function RunProposals({ runId }: { runId: string }) {
   const acceptMutation = useMutation({
     mutationFn: async ({ proposal, note }: { proposal: ParameterProposal; note: string }) => {
       if (latestProposalDecision(proposal)?.decision !== "approved") {
-        await reviewParameterProposal(runId, proposal.id, {
+        await decideParameterProposal(runId, proposal.id, {
           reviewer: reviewer.trim(),
           note,
           decision: "approved",
@@ -73,7 +70,7 @@ export function RunProposals({ runId }: { runId: string }) {
       try {
         await activateProposalCandidate({
           runId,
-          proposalIds: [proposal.id],
+          proposalId: proposal.id,
           registeredBy: reviewer.trim(),
           operator: reviewer.trim(),
           expectedGeneration: generation,
@@ -98,7 +95,7 @@ export function RunProposals({ runId }: { runId: string }) {
     },
   });
 
-  const review = (proposalId: string, decision: ProposalReviewDecision) => {
+  const decide = (proposalId: string, decision: ProposalDecision) => {
     const label = decision === "approved" ? "Approve" : "Reject";
     requestConfirmation({
       title: `${label} this proposal?`,
@@ -106,7 +103,7 @@ export function RunProposals({ runId }: { runId: string }) {
       confirmLabel: `${label} proposal`,
       intent: decision === "rejected" ? "danger" : "default",
       onConfirm: () =>
-        reviewMutation.mutate({
+        decisionMutation.mutate({
           proposalId,
           decision,
           note: notes[proposalId]?.trim() ?? "",
@@ -171,20 +168,17 @@ export function RunProposals({ runId }: { runId: string }) {
           {proposalsQuery.data.items.map((proposal) => {
             const latest = latestProposalDecision(proposal);
             const note = notes[proposal.id] ?? "";
-            const reviewing =
-              reviewMutation.isPending && reviewMutation.variables?.proposalId === proposal.id;
+            const deciding =
+              decisionMutation.isPending && decisionMutation.variables?.proposalId === proposal.id;
             const activating =
               acceptMutation.isPending && acceptMutation.variables?.proposal.id === proposal.id;
             const canSetDefault =
-              latest?.decision !== "rejected" &&
-              latest?.decision !== "invalidated" &&
-              !configQuery.isPending &&
-              !configQuery.isError;
+              latest?.decision !== "rejected" && !configQuery.isPending && !configQuery.isError;
             const proposalError =
               acceptMutation.error && acceptMutation.variables?.proposal.id === proposal.id
                 ? acceptMutation.error
-                : reviewMutation.error && reviewMutation.variables?.proposalId === proposal.id
-                  ? reviewMutation.error
+                : decisionMutation.error && decisionMutation.variables?.proposalId === proposal.id
+                  ? decisionMutation.error
                   : undefined;
             return (
               <section className="proposal" key={proposal.id}>
@@ -226,22 +220,17 @@ export function RunProposals({ runId }: { runId: string }) {
                   <button
                     className="proposal-reject"
                     type="button"
-                    disabled={
-                      reviewing ||
-                      !reviewer.trim() ||
-                      latest?.decision === "rejected" ||
-                      latest?.decision === "invalidated"
-                    }
-                    onClick={() => review(proposal.id, "rejected")}
+                    disabled={deciding || !reviewer.trim() || latest?.decision === "rejected"}
+                    onClick={() => decide(proposal.id, "rejected")}
                   >
-                    {reviewing && reviewMutation.variables?.decision === "rejected" ? (
+                    {deciding && decisionMutation.variables?.decision === "rejected" ? (
                       <LoaderCircle className="spin" size={14} />
                     ) : (
                       <XCircle size={14} />
                     )}
                     Reject
                   </button>
-                  {latest?.decision !== "rejected" && latest?.decision !== "invalidated" && (
+                  {latest?.decision !== "rejected" && (
                     <button
                       className="proposal-activate"
                       type="button"
@@ -268,7 +257,7 @@ export function RunProposals({ runId }: { runId: string }) {
                       {defaultedProposalId === proposal.id ? "Default set" : "Accept as default"}
                     </button>
                   )}
-                  {latest?.decision !== "approved" && latest?.decision !== "invalidated" && (
+                  {latest?.decision !== "approved" && (
                     <Menu.Root>
                       <Menu.Trigger className="action-menu-trigger compact">Advanced</Menu.Trigger>
                       <Menu.Portal>
@@ -280,10 +269,10 @@ export function RunProposals({ runId }: { runId: string }) {
                           <Menu.Popup className="action-menu-popup">
                             <Menu.Item
                               className="action-menu-item"
-                              disabled={reviewing || !reviewer.trim()}
-                              onClick={() => review(proposal.id, "approved")}
+                              disabled={deciding || !reviewer.trim()}
+                              onClick={() => decide(proposal.id, "approved")}
                             >
-                              {reviewing && reviewMutation.variables?.decision === "approved" ? (
+                              {deciding && decisionMutation.variables?.decision === "approved" ? (
                                 <LoaderCircle className="spin" size={14} />
                               ) : (
                                 <CheckCircle2 size={14} />

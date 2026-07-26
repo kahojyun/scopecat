@@ -39,14 +39,13 @@ from scopecat.daemon.wire import (
     DirectConfigDefaultCommand,
     DirectConfigImportCommand,
     ParameterProposalDecisionCommand,
-    ParameterProposalReviewCommand,
 )
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.parameter_change import (
     HumanDecisionAuthority,
+    ParameterChangeDecision,
     ParameterChangeDecisionAuthority,
     ParameterChangeDecisionRecord,
-    ParameterChangeReviewState,
 )
 from scopecat.records.run import (
     AnalysisCandidateRunConfigSource,
@@ -113,32 +112,24 @@ class LabConfigOperations:
                     selected.source_run_id
                 ).items
             }
-            if any(
-                proposals.get(proposal.id) != proposal
-                for proposal in selected.parameter_proposals
-            ):
+            proposal = selected.parameter_proposal
+            if proposals.get(proposal.id) != proposal:
                 raise ValueError(
                     "save the producing analysis before using its candidate config"
                 )
-            analyses = {
-                analysis_record_id: self.runs.analysis(
-                    selected.source_run_id,
-                    analysis_record_id,
-                )
-                for analysis_record_id in selected.analysis_record_ids
-            }
-            if any(
-                not any(
-                    output.kind == "parameter_change_proposal"
-                    and isinstance(output.content, dict)
-                    and cast("dict[str, object]", output.content).get("proposal_id")
-                    == proposal.id
-                    for output in analyses[proposal.analysis_record_id].analysis.outputs
-                )
-                for proposal in selected.parameter_proposals
+            analysis = self.runs.analysis(
+                selected.source_run_id,
+                selected.analysis_record_id,
+            )
+            if not any(
+                output.kind == "parameter_change_proposal"
+                and isinstance(output.content, dict)
+                and cast("dict[str, object]", output.content).get("proposal_id")
+                == proposal.id
+                for output in analysis.analysis.outputs
             ):
                 raise ValueError(
-                    "candidate proposals do not belong to their producing analyses"
+                    "candidate proposal does not belong to its producing analysis"
                 )
             resolved = resolve_candidate_config_from_snapshot(
                 selected,
@@ -148,8 +139,8 @@ class LabConfigOperations:
                 resolved,
                 AnalysisCandidateRunConfigSource(
                     source_run_id=selected.source_run_id,
-                    analysis_record_ids=selected.analysis_record_ids,
-                    proposal_ids=selected.proposal_ids,
+                    analysis_record_id=selected.analysis_record_id,
+                    proposal_id=selected.proposal_id,
                     base_config_content_hash=selected.base_config_content_hash,
                     content_hash=config_content_hash(resolved),
                 ),
@@ -320,7 +311,7 @@ class LabConfigOperations:
         return self.client.activate_candidate_config(
             CandidateConfigActivationCommand(
                 run_id=candidate.source_run_id,
-                proposal_ids=candidate.proposal_ids,
+                proposal_id=candidate.proposal_id,
                 entry_id=entry_id,
                 registered_by=registered_by or self.operator,
                 operator=operator or self.operator,
@@ -346,15 +337,17 @@ class LabConfigOperations:
         selector: str,
         *,
         reviewer: str | None = None,
-        decision: ParameterChangeReviewState = "approved",
+        decision: ParameterChangeDecision = "approved",
         note: str = "",
     ) -> ParameterChangeDecisionRecord:
-        return self.client.review_parameter_proposal(
+        """Append one human decision through the shared decision protocol."""
+
+        return self.client.decide_parameter_proposal(
             run_handle_id(run),
             selector,
-            ParameterProposalReviewCommand(
+            ParameterProposalDecisionCommand(
                 decision=decision,
-                reviewer=reviewer or self.reviewer,
+                authority=HumanDecisionAuthority(actor=reviewer or self.reviewer),
                 note=note,
             ),
         )
@@ -370,7 +363,7 @@ class LabConfigOperations:
         operator: str | None = None,
         note: str = "",
     ) -> CandidateConfigActivationReceipt:
-        """Persist an analysis if supplied, accept its proposals, and publish."""
+        """Persist an analysis if supplied, accept its proposal, and publish."""
 
         if isinstance(candidate, Analysis):
             candidate.save()
@@ -387,14 +380,13 @@ class LabConfigOperations:
             item.proposal.id: item
             for item in self.client.parameter_proposals(selected.source_run_id).items
         }
-        for proposal_id in selected.proposal_ids:
-            decisions = proposal_views[proposal_id].decisions
-            if (
-                decisions
-                and decisions[-1].decision == "approved"
-                and (authority is None or decisions[-1].authority == selected_authority)
-            ):
-                continue
+        proposal_id = selected.proposal_id
+        decisions = proposal_views[proposal_id].decisions
+        if not (
+            decisions
+            and decisions[-1].decision == "approved"
+            and (authority is None or decisions[-1].authority == selected_authority)
+        ):
             self.client.decide_parameter_proposal(
                 selected.source_run_id,
                 proposal_id,

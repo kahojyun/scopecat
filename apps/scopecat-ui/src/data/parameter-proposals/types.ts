@@ -1,5 +1,4 @@
-export type ProposalReviewDecision = "approved" | "rejected";
-export type ProposalDecision = ProposalReviewDecision | "invalidated";
+export type ProposalDecision = "approved" | "rejected";
 
 export interface ParameterProposalDelta {
   parameterId: string;
@@ -36,15 +35,15 @@ export interface RunParameterProposals {
   items: ParameterProposal[];
 }
 
-export interface ReviewProposalCommand {
+export interface DecideProposalCommand {
   reviewer: string;
   note?: string;
-  decision: ProposalReviewDecision;
+  decision: ProposalDecision;
 }
 
 export interface ActivateProposalCandidateCommand {
   runId: string;
-  proposalIds: string[];
+  proposalId: string;
   registeredBy: string;
   operator: string;
   expectedGeneration: number;

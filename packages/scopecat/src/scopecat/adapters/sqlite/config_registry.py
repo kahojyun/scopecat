@@ -412,7 +412,7 @@ def _current_generation(connection: sqlite3.Connection) -> int:
             """
         )
     )
-    assert row is not None  # noqa: S101
+    assert row is not None
     return _integer(row, "generation")
 
 

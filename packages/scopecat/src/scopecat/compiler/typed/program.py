@@ -281,7 +281,7 @@ def set_state_field(
 
 
 def product_axis(
-    id: str,  # noqa: A002
+    id: str,
     *,
     size: int,
     kind: str | None = None,

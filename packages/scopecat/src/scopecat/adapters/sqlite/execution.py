@@ -111,7 +111,7 @@ class SQLiteExecutionJournal:
                     (self._run_id,),
                 )
             )
-            assert row is not None  # noqa: S101
+            assert row is not None
             committed = self._commit_transition(
                 connection,
                 entry,

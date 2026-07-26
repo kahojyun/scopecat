@@ -2,10 +2,10 @@ import { request } from "../../api";
 import type { DaemonUiApi } from "../../api-contract";
 import type {
   ActivateProposalCandidateCommand,
+  DecideProposalCommand,
   ParameterProposal,
   ParameterProposalDecision,
   ParameterProposalDelta,
-  ReviewProposalCommand,
   RunParameterProposals,
 } from "./types";
 
@@ -27,18 +27,21 @@ export async function getRunParameterProposals(
   };
 }
 
-export async function reviewParameterProposal(
+export async function decideParameterProposal(
   runId: string,
   proposalId: string,
-  command: ReviewProposalCommand,
+  command: DecideProposalCommand,
 ): Promise<void> {
-  const payload: DaemonUiApi["parameterProposalReviewCommand"] = {
+  const payload: DaemonUiApi["parameterProposalDecisionCommand"] = {
     decision: command.decision,
-    reviewer: command.reviewer,
+    authority: {
+      kind: "human",
+      actor: command.reviewer,
+    },
     note: command.note ?? "",
   };
   await request<DaemonUiApi["parameterProposalDecision"]>(
-    `/api/v1/runs/${encodeURIComponent(runId)}/parameter-proposals/${encodeURIComponent(proposalId)}/review`,
+    `/api/v1/runs/${encodeURIComponent(runId)}/parameter-proposals/${encodeURIComponent(proposalId)}/decision`,
     undefined,
     jsonRequest(payload),
   );
@@ -49,8 +52,7 @@ export async function activateProposalCandidate(
 ): Promise<void> {
   const payload: DaemonUiApi["candidateConfigActivationCommand"] = {
     run_id: command.runId,
-    proposal_ids:
-      command.proposalIds as DaemonUiApi["candidateConfigActivationCommand"]["proposal_ids"],
+    proposal_id: command.proposalId,
     registered_by: command.registeredBy,
     operator: command.operator,
     expected_generation: command.expectedGeneration,

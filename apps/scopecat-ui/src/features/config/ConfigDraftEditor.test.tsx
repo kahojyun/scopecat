@@ -235,7 +235,6 @@ function draftSeed(): ConfigDraftSeed {
       registered_at: "2026-07-24T08:00:00Z",
       source: { kind: "direct_config_profile" },
       note: "",
-      status: "registered",
     },
     active: {
       generation: 3,
@@ -286,7 +285,6 @@ function registrationReceipt(): ConfigDraftRegistrationReceipt {
         base_registry_generation: 3,
       },
       note: "",
-      status: "registered",
     },
     result_content_hash: HASH_B,
     deltas: [],

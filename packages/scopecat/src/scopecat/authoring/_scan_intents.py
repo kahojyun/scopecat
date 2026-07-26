@@ -101,7 +101,7 @@ def iter_scan_leaves(scan: Scan) -> tuple[ScanLeafIntent, ...]:
 
 def scan_point_id(scan: ScanLeafIntent) -> str:
     point_id = internal_value_ref_point_id(scan.target)
-    assert point_id is not None  # noqa: S101
+    assert point_id is not None
     return point_id
 
 
@@ -112,7 +112,7 @@ def parameter_scan_lookup(
     tuple[tuple[str, ScalarOperationOperand], ...],
 ]:
     lookup = internal_value_ref_parameter_lookup(scan.lookup)
-    assert lookup is not None  # noqa: S101
+    assert lookup is not None
     return lookup
 
 

@@ -195,7 +195,7 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
     )
     activation = CandidateConfigActivationCommand(
         run_id="run-1",
-        proposal_ids=(proposal.id,),
+        proposal_id=proposal.id,
         entry_id="candidate-fit",
         registered_by="notebook",
         operator="operator",
@@ -234,11 +234,6 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
                     ),
                 ),
             ),
-        )
-    with pytest.raises(ValidationError, match="unique"):
-        CandidateConfigActivationCommand(
-            **activation.model_dump(exclude={"proposal_ids"}),
-            proposal_ids=(proposal.id, proposal.id),
         )
 
 

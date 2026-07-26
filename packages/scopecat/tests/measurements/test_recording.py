@@ -4,7 +4,6 @@ from typing import override
 
 import pytest
 
-from scopecat.execution.events import TransitionRecorder
 from scopecat.execution.measurement_recording import (
     append_measurement_dataset,
     seal_measurement_dataset,
@@ -19,6 +18,7 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
     MeasurementDatasetReceipt,
 )
+from scopecat.sdk.journal import ExecutionJournal
 from tests.testkit.measurement_assembly import assembled_measurement_values_for_all_uses
 from tests.testkit.runtime import (
     FakeExecutionJournal,
@@ -37,7 +37,7 @@ def _projected(*, run_id: str = "recording-run") -> ProjectedMeasurementDataset:
 def _seal(
     projected: ProjectedMeasurementDataset,
     writer: FakeMeasurementDatasetRepository,
-    recorder: TransitionRecorder,
+    journal: ExecutionJournal,
     append_receipt: MeasurementDatasetReceipt,
 ) -> MeasurementDatasetReceipt:
     assert projected.schema is not None
@@ -47,7 +47,7 @@ def _seal(
         point_count=len(projected.records),
         append_content_hashes=(append_receipt.dataset_content_hash,),
         writer=writer,
-        recorder=recorder,
+        journal=journal,
     )
 
 
@@ -55,11 +55,10 @@ def test_recording_appends_and_seals_one_canonical_dataset() -> None:
     projected = _projected()
     writer = FakeMeasurementDatasetRepository()
     journal = FakeExecutionJournal()
-    recorder = TransitionRecorder(journal)
 
-    append_receipt = append_measurement_dataset(projected, writer, recorder)
+    append_receipt = append_measurement_dataset(projected, writer, journal)
     assert append_receipt is not None
-    _seal(projected, writer, recorder, append_receipt)
+    _seal(projected, writer, journal, append_receipt)
 
     [append] = writer.appends
     assert append.records == projected.records
@@ -107,7 +106,7 @@ def test_invalid_append_receipt_terminalizes_uncertain_operation() -> None:
         append_measurement_dataset(
             _projected(),
             _InvalidReceiptWriter(),
-            TransitionRecorder(FakeExecutionJournal()),
+            FakeExecutionJournal(),
         )
     assert caught.value.write_may_have_completed
     assert caught.value.receipt is not None
@@ -119,16 +118,16 @@ def test_append_and_seal_replay_are_idempotent() -> None:
     receipt = append_measurement_dataset(
         projected,
         writer,
-        TransitionRecorder(FakeExecutionJournal()),
+        FakeExecutionJournal(),
     )
     assert receipt is not None
     repeated = append_measurement_dataset(
         projected,
         writer,
-        TransitionRecorder(FakeExecutionJournal()),
+        FakeExecutionJournal(),
     )
     assert repeated == receipt
-    _seal(projected, writer, TransitionRecorder(FakeExecutionJournal()), receipt)
-    _seal(projected, writer, TransitionRecorder(FakeExecutionJournal()), receipt)
+    _seal(projected, writer, FakeExecutionJournal(), receipt)
+    _seal(projected, writer, FakeExecutionJournal(), receipt)
     assert len(writer.appends) == 1
     assert writer.measurements() == projected.records

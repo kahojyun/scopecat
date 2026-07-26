@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from scopecat.config.profiles import load_config_profile
+from scopecat.config.documents import load_config_snapshot_document
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
     logical_resource_port_id,
@@ -18,7 +18,7 @@ from tests.testkit.paths import CORE_FIXTURE_DIR
 
 
 def load_config() -> ConfigProfileSnapshot:
-    return load_config_profile(CORE_FIXTURE_DIR / "config-profile.json")
+    return load_config_snapshot_document(CORE_FIXTURE_DIR / "config-snapshot.json")
 
 
 def _port(value: str) -> LogicalResourcePortId:

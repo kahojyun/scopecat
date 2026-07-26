@@ -99,7 +99,7 @@ class MeasurementEffectExecutor:
         )
         if not accepted:
             return False
-        assert receipt.readback is not None  # noqa: S101
+        assert receipt.readback is not None
         readback = receipt.readback
         validation_problems = contextualize_problems(
             validate_readback(operation, readback),

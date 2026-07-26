@@ -70,7 +70,7 @@ def lower_domain_execution(execution: DomainExecution) -> LoweredDomainExecution
 
 
 def domain_program(
-    id: str,  # noqa: A002
+    id: str,
     *,
     dialect_id: str,
     dialect_version: str,
@@ -109,7 +109,7 @@ def domain_program(
 def domain_execution(
     program: DomainProgramDef,
     *,
-    id: str | None = None,  # noqa: A002
+    id: str | None = None,
     inputs: Mapping[str, ComputeNodeInputValue] | None = None,
     compiler_inputs: Mapping[str, ComputeNodeInputValue] | None = None,
     results: Mapping[str, ProductRef] | None = None,

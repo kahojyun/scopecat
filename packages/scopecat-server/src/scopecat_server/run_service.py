@@ -22,7 +22,6 @@ from scopecat.config.changes import (
     list_parameter_change_decisions,
     list_parameter_change_proposals,
     prepare_parameter_change_decision,
-    prepare_parameter_change_review,
 )
 from scopecat.control.models import (
     ControlRunState,
@@ -50,7 +49,6 @@ from scopecat.daemon.wire import (
     AnalysisSaveCommand,
     AnalysisSaveReceipt,
     ParameterProposalDecisionCommand,
-    ParameterProposalReviewCommand,
     RunAttachmentCommand,
 )
 from scopecat.kernel.errors import (
@@ -421,42 +419,6 @@ class RunService:
                     for proposal in proposals
                 ),
             )
-
-    def review_parameter_proposal(
-        self,
-        run_id: str,
-        proposal_id: str,
-        command: ParameterProposalReviewCommand,
-    ) -> ParameterChangeDecisionRecord:
-        with self._config_errors():
-            prepared = prepare_parameter_change_review(
-                run_id=run_id,
-                selector=proposal_id,
-                services=self._services,
-                state=command.decision,
-                reviewer=command.reviewer,
-                note=command.note,
-            )
-            publication = self._runs.prepare_content_publication(prepared.publication)
-            with self._control.transaction() as connection:
-                self._runs.publish_prepared_content_in_transaction(
-                    connection,
-                    publication,
-                )
-                self._control.append_event_in_transaction(
-                    connection,
-                    DurableEventInput(
-                        run_id=run_id,
-                        kind="parameter_proposal_reviewed",
-                        payload={
-                            "proposal_id": prepared.decision.proposal_id,
-                            "decision": prepared.decision.decision,
-                            "event_id": prepared.decision.event_id,
-                        },
-                        occurred_at=prepared.decision.decided_at,
-                    ),
-                )
-        return prepared.decision
 
     def decide_parameter_proposal(
         self,

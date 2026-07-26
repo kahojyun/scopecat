@@ -9,7 +9,7 @@ import pytest
 
 from scopecat.adapters.sqlite import SQLiteProjectStore
 from scopecat.adapters.sqlite.config_registry import SQLiteConfigRegistryStore
-from scopecat.config.profiles import load_config_profile
+from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.registry.service import (
     activate_config_registry_entry,
     current_config_registry_generation,
@@ -39,7 +39,7 @@ def _store(tmp_path: Path) -> SQLiteConfigRegistryStore:
 
 def test_registration_is_idempotent_and_round_trips(tmp_path: Path) -> None:
     unit_of_work = _store(tmp_path).unit_of_work
-    config = load_config_profile(CORE_FIXTURE_DIR / "config-profile.json")
+    config = load_config_snapshot_document(CORE_FIXTURE_DIR / "config-snapshot.json")
 
     first = register_config_profile(
         config=config,
@@ -69,7 +69,7 @@ def test_registration_is_idempotent_and_round_trips(tmp_path: Path) -> None:
 
 def test_duplicate_identity_rejects_different_request(tmp_path: Path) -> None:
     unit_of_work = _store(tmp_path).unit_of_work
-    config = load_config_profile(CORE_FIXTURE_DIR / "config-profile.json")
+    config = load_config_snapshot_document(CORE_FIXTURE_DIR / "config-snapshot.json")
     register_config_profile(
         config=config,
         unit_of_work=unit_of_work,
@@ -91,7 +91,7 @@ def test_activation_uses_generation_cas_and_resolves_source(
     tmp_path: Path,
 ) -> None:
     unit_of_work = _store(tmp_path).unit_of_work
-    config = load_config_profile(CORE_FIXTURE_DIR / "config-profile.json")
+    config = load_config_snapshot_document(CORE_FIXTURE_DIR / "config-snapshot.json")
     entry, state, _activation = register_and_activate_config_profile(
         config=config,
         unit_of_work=unit_of_work,
@@ -140,7 +140,7 @@ def test_registry_and_run_reads_share_one_database(tmp_path: Path) -> None:
         "records/value.txt",
         "value",
     )
-    config = load_config_profile(CORE_FIXTURE_DIR / "config-profile.json")
+    config = load_config_snapshot_document(CORE_FIXTURE_DIR / "config-snapshot.json")
 
     register_config_profile(
         config=config,
@@ -158,7 +158,7 @@ def test_listing_reads_entry_metadata_without_loading_each_config(
     tmp_path: Path,
 ) -> None:
     store = _store(tmp_path)
-    config = load_config_profile(CORE_FIXTURE_DIR / "config-profile.json")
+    config = load_config_snapshot_document(CORE_FIXTURE_DIR / "config-snapshot.json")
     register_config_profile(
         config=config,
         unit_of_work=store.unit_of_work,
@@ -194,7 +194,7 @@ def test_listing_reads_entry_metadata_without_loading_each_config(
 
 def test_aggregate_reads_open_one_unit_of_work(tmp_path: Path) -> None:
     store = _store(tmp_path)
-    config = load_config_profile(CORE_FIXTURE_DIR / "config-profile.json")
+    config = load_config_snapshot_document(CORE_FIXTURE_DIR / "config-snapshot.json")
     register_and_activate_config_profile(
         config=config,
         unit_of_work=store.unit_of_work,
@@ -228,7 +228,7 @@ def test_aggregate_reads_open_one_unit_of_work(tmp_path: Path) -> None:
 
 def test_registration_and_activation_roll_back_together(tmp_path: Path) -> None:
     store = _store(tmp_path)
-    config = load_config_profile(CORE_FIXTURE_DIR / "config-profile.json")
+    config = load_config_snapshot_document(CORE_FIXTURE_DIR / "config-snapshot.json")
     with sqlite3.connect(store.database) as connection:
         connection.execute(
             """
@@ -257,7 +257,7 @@ def test_borrowed_unit_of_work_leaves_transaction_and_connection_owned_by_caller
     tmp_path: Path,
 ) -> None:
     store = _store(tmp_path)
-    config = load_config_profile(CORE_FIXTURE_DIR / "config-profile.json")
+    config = load_config_snapshot_document(CORE_FIXTURE_DIR / "config-snapshot.json")
     connection = sqlite3.connect(store.database, isolation_level=None)
     connection.row_factory = sqlite3.Row
     with store.borrowed_unit_of_work(connection) as work:
@@ -308,7 +308,7 @@ def test_rollback_persists_contiguous_activation_generations(
     tmp_path: Path,
 ) -> None:
     store = _store(tmp_path)
-    config = load_config_profile(CORE_FIXTURE_DIR / "config-profile.json")
+    config = load_config_snapshot_document(CORE_FIXTURE_DIR / "config-snapshot.json")
     first, _, _ = register_and_activate_config_profile(
         config=config,
         unit_of_work=store.unit_of_work,
@@ -352,7 +352,7 @@ def test_rollback_persists_contiguous_activation_generations(
 def test_generation_cas_is_shared_across_store_instances(tmp_path: Path) -> None:
     store = _store(tmp_path)
     peer = SQLiteConfigRegistryStore(store.database, runs=store.runs)
-    config = load_config_profile(CORE_FIXTURE_DIR / "config-profile.json")
+    config = load_config_snapshot_document(CORE_FIXTURE_DIR / "config-snapshot.json")
     register_config_profile(
         config=config,
         unit_of_work=store.unit_of_work,

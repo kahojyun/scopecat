@@ -156,7 +156,7 @@ class ExperimentInvocation:
 
 def create_experiment_definition_internal(
     *,
-    id: str,  # noqa: A002
+    id: str,
     kind: str,
     module: ModuleIR,
     record_selections: Sequence[RecordSelection] = (),

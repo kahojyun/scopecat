@@ -60,25 +60,19 @@ class CandidateProposalRegistryEvidence(_FrozenRegistryModel):
 class CandidateConfigRegistrySource(_FrozenRegistryModel):
     kind: Literal["candidate_config"] = "candidate_config"
     run_id: str
-    proposal_evidence: tuple[CandidateProposalRegistryEvidence, ...] = Field(
-        min_length=1
-    )
+    proposal_evidence: CandidateProposalRegistryEvidence
     base_config_content_hash: ConfigContentHash
 
     @model_validator(mode="after")
     def validate_evidence(self) -> CandidateConfigRegistrySource:
-        proposal_ids = [evidence.proposal_id for evidence in self.proposal_evidence]
-        if len(set(proposal_ids)) != len(proposal_ids):
-            msg = "candidate registry source proposal evidence must be unique"
-            raise ValueError(msg)
         if not self.run_id:
             msg = "candidate registry source identity fields must be non-empty"
             raise ValueError(msg)
         return self
 
     @property
-    def proposal_ids(self) -> list[str]:
-        return [evidence.proposal_id for evidence in self.proposal_evidence]
+    def proposal_id(self) -> str:
+        return self.proposal_evidence.proposal_id
 
 
 ConfigRegistryEntrySource = Annotated[
@@ -93,7 +87,6 @@ class ConfigRegistryEntry(_FrozenRegistryModel):
     id: str
     config_ref: str
     content_hash: ConfigContentHash
-    status: Literal["registered"] = "registered"
     source: ConfigRegistryEntrySource
     registered_by: str
     note: str = ""

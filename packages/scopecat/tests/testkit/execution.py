@@ -10,7 +10,6 @@ from scopecat.authoring.templates import ExperimentInvocation
 from scopecat.compiler.typed.program import CoreProgram
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.interpreter import execute_admitted_run
-from scopecat.execution.observation import RuntimeEventSink, RuntimePayloadObserver
 from scopecat.planning.service import plan_scratch_experiment
 from scopecat.planning.system import ExperimentSystem
 from scopecat.records.config import ConfigProfileSnapshot
@@ -63,8 +62,6 @@ def execute_bound_run(
     experiment: CoreProgram,
     instruments: Sequence[InstrumentDriver],
     project_root: str | Path,
-    event_sink: RuntimeEventSink | None = None,
-    payload_observer: RuntimePayloadObserver | None = None,
 ) -> RunManifest:
     """Bind a typed test program, then exercise the production executor boundary."""
 
@@ -74,8 +71,6 @@ def execute_bound_run(
         experiment=experiment,
         instrument_provider=provider,
         project_root=project_root,
-        event_sink=event_sink,
-        payload_observer=payload_observer,
     )
 
 
@@ -88,8 +83,6 @@ def execute_invocation_run(
     config_source: RunConfigSource | None = None,
     metadata: Mapping[str, object] | None = None,
     operator: str | None = None,
-    event_sink: RuntimeEventSink | None = None,
-    payload_observer: RuntimePayloadObserver | None = None,
 ) -> RunManifest:
     """Execute an authored invocation through test-local SQLite ports."""
 
@@ -118,8 +111,6 @@ def execute_invocation_run(
         instrument_provider=(
             planned.system.provider if planned.system is not None else None
         ),
-        event_sink=event_sink,
-        payload_observer=payload_observer,
     )
 
 
@@ -131,8 +122,6 @@ def execute_program_run(
     project_root: str | Path,
     request: RunRequest | None = None,
     config_source: RunConfigSource | None = None,
-    event_sink: RuntimeEventSink | None = None,
-    payload_observer: RuntimePayloadObserver | None = None,
 ) -> RunManifest:
     """Execute a typed test program through the unified production boundary."""
 
@@ -154,8 +143,6 @@ def execute_program_run(
             runs=repository,
         ),
         instrument_provider=instrument_provider,
-        event_sink=event_sink,
-        payload_observer=payload_observer,
     )
     return manifest
 

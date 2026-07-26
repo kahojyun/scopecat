@@ -344,7 +344,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/runs/{run_id}/parameter-proposals/{proposal_id}/review": {
+    "/api/v1/runs/{run_id}/parameter-proposals/{proposal_id}/decision": {
         parameters: {
             query?: never;
             header?: never;
@@ -353,8 +353,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Review Parameter Proposal */
-        post: operations["review_parameter_proposal_api_v1_runs__run_id__parameter_proposals__proposal_id__review_post"];
+        /** Decide Parameter Proposal */
+        post: operations["decide_parameter_proposal_api_v1_runs__run_id__parameter_proposals__proposal_id__decision_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -388,11 +388,8 @@ export interface components {
          * @description Analysis candidate resolved for one run without becoming the default.
          */
         AnalysisCandidateRunConfigSource: {
-            /** Analysis Record Ids */
-            analysis_record_ids: [
-                string,
-                ...string[]
-            ];
+            /** Analysis Record Id */
+            analysis_record_id: string;
             base_config_content_hash: components["schemas"]["ConfigContentHash"];
             content_hash: components["schemas"]["ConfigContentHash"];
             /**
@@ -400,11 +397,8 @@ export interface components {
              * @enum {string}
              */
             kind: "analysis_candidate";
-            /** Proposal Ids */
-            proposal_ids: [
-                string,
-                ...string[]
-            ];
+            /** Proposal Id */
+            proposal_id: string;
             /** Source Run Id */
             source_run_id: string;
         };
@@ -478,7 +472,7 @@ export interface components {
         };
         /**
          * CandidateConfigActivationCommand
-         * @description Build, register, and activate config from durable approved proposals.
+         * @description Build, register, and activate config from one durable approved proposal.
          */
         CandidateConfigActivationCommand: {
             /** Activation Note */
@@ -492,11 +486,7 @@ export interface components {
              */
             note: string;
             operator: components["schemas"]["NonEmptyText"];
-            /** Proposal Ids */
-            proposal_ids: [
-                components["schemas"]["NonEmptyText"],
-                ...components["schemas"]["NonEmptyText"][]
-            ];
+            proposal_id: components["schemas"]["NonEmptyText"];
             registered_by: components["schemas"]["NonEmptyText"];
             run_id: components["schemas"]["NonEmptyText"];
         };
@@ -514,11 +504,7 @@ export interface components {
              * @enum {string}
              */
             kind: "candidate_config";
-            /** Proposal Evidence */
-            proposal_evidence: [
-                components["schemas"]["CandidateProposalRegistryEvidence"],
-                ...components["schemas"]["CandidateProposalRegistryEvidence"][]
-            ];
+            proposal_evidence: components["schemas"]["CandidateProposalRegistryEvidence"];
             /** Run Id */
             run_id: string;
         };
@@ -733,12 +719,6 @@ export interface components {
             registered_by: string;
             /** Source */
             source: components["schemas"]["DirectConfigRegistrySource"] | components["schemas"]["ManualConfigDraftRegistrySource"] | components["schemas"]["CandidateConfigRegistrySource"];
-            /**
-             * Status
-             * @default registered
-             * @constant
-             */
-            status: "registered";
         };
         /** ConfigRegistryRunConfigSource */
         ConfigRegistryRunConfigSource: {
@@ -1140,7 +1120,7 @@ export interface components {
         ParameterChangeDecisionAuthority: components["schemas"]["HumanDecisionAuthority"] | components["schemas"]["AutomaticPolicyDecisionAuthority"];
         /**
          * ParameterChangeDecisionRecord
-         * @description One immutable event in a parameter proposal's review history.
+         * @description One immutable decision in a parameter proposal's history.
          */
         ParameterChangeDecisionRecord: {
             authority: components["schemas"]["ParameterChangeDecisionAuthority"];
@@ -1153,7 +1133,7 @@ export interface components {
              * Decision
              * @enum {string}
              */
-            decision: "approved" | "rejected" | "invalidated";
+            decision: "approved" | "rejected";
             /** Event Id */
             event_id: string;
             /**
@@ -1163,8 +1143,6 @@ export interface components {
             note: string;
             /** Proposal Id */
             proposal_id: string;
-            /** Related Refs */
-            related_refs?: string[];
             /** Run Id */
             run_id: string;
         };
@@ -1208,18 +1186,9 @@ export interface components {
             id: string;
             value_type: components["schemas"]["PersistableValueType"];
         };
-        /** ParameterProposalListView */
-        ParameterProposalListView: {
-            /**
-             * Items
-             * @default []
-             */
-            items: components["schemas"]["ParameterProposalView"][];
-            /** Run Id */
-            run_id: string;
-        };
-        /** ParameterProposalReviewCommand */
-        ParameterProposalReviewCommand: {
+        /** ParameterProposalDecisionCommand */
+        ParameterProposalDecisionCommand: {
+            authority: components["schemas"]["ParameterChangeDecisionAuthority"];
             /**
              * Decision
              * @enum {string}
@@ -1230,7 +1199,16 @@ export interface components {
              * @default
              */
             note: string;
-            reviewer: components["schemas"]["NonEmptyText"];
+        };
+        /** ParameterProposalListView */
+        ParameterProposalListView: {
+            /**
+             * Items
+             * @default []
+             */
+            items: components["schemas"]["ParameterProposalView"][];
+            /** Run Id */
+            run_id: string;
         };
         /**
          * ParameterProposalView
@@ -2636,7 +2614,7 @@ export interface operations {
             };
         };
     };
-    review_parameter_proposal_api_v1_runs__run_id__parameter_proposals__proposal_id__review_post: {
+    decide_parameter_proposal_api_v1_runs__run_id__parameter_proposals__proposal_id__decision_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -2648,7 +2626,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ParameterProposalReviewCommand"];
+                "application/json": components["schemas"]["ParameterProposalDecisionCommand"];
             };
         };
         responses: {

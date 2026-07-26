@@ -28,12 +28,10 @@ from scopecat.project_state import ProjectStateServices
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.parameter_change import (
-    HumanDecisionAuthority,
     ParameterChangeDecision,
     ParameterChangeDecisionAuthority,
     ParameterChangeDecisionRecord,
     ParameterChangeProposal,
-    ParameterChangeReviewState,
 )
 from scopecat.records.run import RunManifest
 from scopecat.runs.access import list_records
@@ -144,47 +142,7 @@ def list_parameter_change_proposals(
     )
 
 
-def prepare_parameter_change_review(
-    *,
-    run_id: str,
-    selector: str,
-    services: ProjectStateServices,
-    state: ParameterChangeReviewState,
-    reviewer: str,
-    note: str = "",
-) -> PreparedParameterChangeDecision:
-    return _prepare_parameter_change_decision(
-        run_id=run_id,
-        selector=selector,
-        services=services,
-        decision=state,
-        authority=HumanDecisionAuthority(actor=reviewer),
-        note=note,
-    )
-
-
 def prepare_parameter_change_decision(
-    *,
-    run_id: str,
-    selector: str,
-    services: ProjectStateServices,
-    decision: ParameterChangeReviewState,
-    authority: ParameterChangeDecisionAuthority,
-    note: str = "",
-) -> PreparedParameterChangeDecision:
-    """Prepare one append-only decision for caller-owned publication."""
-
-    return _prepare_parameter_change_decision(
-        run_id=run_id,
-        selector=selector,
-        services=services,
-        decision=decision,
-        authority=authority,
-        note=note,
-    )
-
-
-def _prepare_parameter_change_decision(
     *,
     run_id: str,
     selector: str,
@@ -192,16 +150,15 @@ def _prepare_parameter_change_decision(
     decision: ParameterChangeDecision,
     authority: ParameterChangeDecisionAuthority,
     note: str = "",
-    related_refs: list[str] | None = None,
 ) -> PreparedParameterChangeDecision:
+    """Prepare one append-only decision for caller-owned publication."""
+
     storage = services.runs
     proposal, _proposal_record = _resolve_proposal_ref(
         storage=storage,
         run_id=run_id,
         selector=selector,
     )
-    for ref in related_refs or ():
-        _validate_selector_path(ref)
     event_id = uuid4().hex
     record = ParameterChangeDecisionRecord(
         event_id=event_id,
@@ -210,7 +167,6 @@ def _prepare_parameter_change_decision(
         decision=decision,
         authority=authority,
         note=note,
-        related_refs=tuple(related_refs or ()),
     )
     decision_entry = _parameter_change_decision_record_entry(record)
     decision_ref = record_content_ref(

@@ -256,7 +256,7 @@ def _domain_program(
 def _domain_execution(
     program: DomainProgramDef,
     *,
-    id: str | None = None,  # noqa: A002
+    id: str | None = None,
     inputs: Mapping[ProgramPort, ComputeInput] | None = None,
     compiler_inputs: Mapping[str, ComputeInput] | None = None,
     results: Mapping[ProgramResult, ProductRef] | None = None,

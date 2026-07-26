@@ -17,7 +17,6 @@ from scopecat.records.parameter_change import AutomaticPolicyDecisionAuthority
 from scopecat.runs.refs import record_content_ref
 from tests.testkit.config_registry import (
     decide_parameter_change_proposal,
-    invalidate_parameter_change_proposal,
     review_parameter_change_proposal,
     signal_run_with_parameter_change,
 )
@@ -65,96 +64,6 @@ def test_same_proposal_intent_retry_reuses_durable_entry_hash(
         )
 
 
-def test_invalidate_parameter_change_records_decision_without_mutating_proposal(
-    tmp_path: Path,
-) -> None:
-    run_id = signal_run_with_parameter_change(tmp_path)
-    before = load_parameter_change_proposal(
-        run_id=run_id,
-        selector="best-signal",
-        services=sqlite_project_services(tmp_path),
-    )
-
-    record = invalidate_parameter_change_proposal(
-        run_id=run_id,
-        selector="best-signal",
-        services=sqlite_project_services(tmp_path),
-        reason="active config changed before review",
-        invalidated_by="operator",
-        invalidated_by_refs=["config-profile.snapshot.json"],
-    )
-
-    assert record.proposal_id == "best-signal"
-    assert record.decision == "invalidated"
-    assert record.note == "active config changed before review"
-    assert record.actor == "operator"
-    assert record.authority.kind == "human"
-    assert record.related_refs == ("config-profile.snapshot.json",)
-    assert (
-        load_parameter_change_proposal(
-            run_id=run_id,
-            selector="best-signal",
-            services=sqlite_project_services(tmp_path),
-        )
-        == before
-    )
-    manifest = sqlite_run_repository(tmp_path).read_manifest(run_id)
-    decision_record = next(
-        record
-        for record in manifest.records
-        if record.kind == "parameter_change_decision_record"
-    )
-    assert decision_record.id.startswith("best-signal-decision-")
-    assert decision_record.kind == "parameter_change_decision_record"
-
-
-def test_parameter_change_decisions_append_invalidation_after_approval(
-    tmp_path: Path,
-) -> None:
-    run_id = signal_run_with_parameter_change(tmp_path)
-    approval = review_parameter_change_proposal(
-        run_id=run_id,
-        selector="best-signal",
-        services=sqlite_project_services(tmp_path),
-        state="approved",
-        reviewer="operator",
-        note="manual approval",
-    )
-    invalidation = invalidate_parameter_change_proposal(
-        run_id=run_id,
-        selector="best-signal",
-        services=sqlite_project_services(tmp_path),
-        reason="active config changed after review",
-        invalidated_by="operator",
-    )
-
-    decisions = list_parameter_change_decisions(
-        run_id=run_id,
-        selector="best-signal",
-        storage=sqlite_run_repository(tmp_path),
-    )
-    assert decisions == [approval, invalidation]
-    assert [decision.decision for decision in decisions] == [
-        "approved",
-        "invalidated",
-    ]
-    manifest = sqlite_run_repository(tmp_path).read_manifest(run_id)
-    decision_records = [
-        record
-        for record in manifest.records
-        if record.kind == "parameter_change_decision_record"
-    ]
-    assert len(decision_records) == 2
-    assert decision_records[0].id != decision_records[1].id
-    assert decisions[-1].decision == "invalidated"
-    assert [event.decision for event in decisions] == [
-        "approved",
-        "invalidated",
-    ]
-    assert approval.authority.kind == "human"
-    assert approval.actor == "operator"
-
-
 def test_automatic_policy_decision_authority_round_trips_without_verification(
     tmp_path: Path,
 ) -> None:
@@ -174,7 +83,6 @@ def test_automatic_policy_decision_authority_round_trips_without_verification(
         note="fit confidence exceeded the automatic acceptance threshold",
     )
 
-    assert decision.related_refs == ()
     assert list_parameter_change_decisions(
         run_id=run_id,
         selector="best-signal",

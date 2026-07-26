@@ -29,7 +29,6 @@ export default function App() {
   const eventsQuery = useQuery({
     queryKey: ["events"],
     queryFn: ({ signal }) => getEvents(signal),
-    refetchInterval: 2_500,
   });
 
   useEffect(() => {
@@ -40,10 +39,25 @@ export default function App() {
   }, [eventsQuery.data]);
 
   useEffect(() => {
-    if (!eventsQuery.isSuccess) return;
+    if (!healthQuery.isSuccess) return;
     const events = new EventSource(`/api/v1/events/stream?after=${eventCursor.current}`);
     let refreshTimer: number | undefined;
     const measurementRunsToReset = new Set<string>();
+    const invalidateCanonicalQueries = () => {
+      void queryClient.invalidateQueries({ queryKey: ["runs"] });
+      void queryClient.invalidateQueries({ queryKey: ["events"] });
+      void queryClient.invalidateQueries({ queryKey: ["run"] });
+      void queryClient.invalidateQueries({ queryKey: ["analyses"] });
+      void queryClient.invalidateQueries({ queryKey: ["run-content"] });
+      void queryClient.invalidateQueries({ queryKey: ["config"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["parameter-proposals"],
+      });
+    };
+    const refreshAfterConnection = () => {
+      invalidateCanonicalQueries();
+      void queryClient.resetQueries({ queryKey: ["measurements"] });
+    };
     const refresh = (event: Event) => {
       const measurementRunId = measurementEventRunId(event);
       if (measurementRunId !== undefined) {
@@ -54,30 +68,24 @@ export default function App() {
         refreshTimer = undefined;
         const resetMeasurementRuns = [...measurementRunsToReset];
         measurementRunsToReset.clear();
-        void queryClient.invalidateQueries({ queryKey: ["runs"] });
-        void queryClient.invalidateQueries({ queryKey: ["events"] });
-        void queryClient.invalidateQueries({ queryKey: ["run"] });
+        invalidateCanonicalQueries();
         for (const runId of resetMeasurementRuns) {
           void queryClient.resetQueries({
             queryKey: ["measurements", runId],
             exact: true,
           });
         }
-        void queryClient.invalidateQueries({ queryKey: ["analyses"] });
-        void queryClient.invalidateQueries({ queryKey: ["run-content"] });
-        void queryClient.invalidateQueries({ queryKey: ["config"] });
-        void queryClient.invalidateQueries({
-          queryKey: ["parameter-proposals"],
-        });
       }, 100);
     };
+    events.addEventListener("open", refreshAfterConnection);
     events.addEventListener("project", refresh);
     return () => {
       if (refreshTimer !== undefined) window.clearTimeout(refreshTimer);
+      events.removeEventListener("open", refreshAfterConnection);
       events.removeEventListener("project", refresh);
       events.close();
     };
-  }, [eventsQuery.isSuccess, queryClient]);
+  }, [healthQuery.isSuccess, queryClient]);
 
   const daemonReachable = healthQuery.isSuccess;
   const daemonUnavailable = healthQuery.isError;

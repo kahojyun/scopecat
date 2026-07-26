@@ -95,7 +95,7 @@ from scopecat.authoring.values import (
     parameter,
     parameter_lookup,
 )
-from scopecat.authoring.values import input as input  # noqa: A004
+from scopecat.authoring.values import input as input
 from scopecat.domain.program import (
     DomainInputPort,
     DomainProgramDef,

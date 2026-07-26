@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import replace
 from pathlib import Path
 from typing import cast, override
 
@@ -10,7 +9,6 @@ from scopecat import Quantity
 from scopecat.adapters.sqlite import (
     SQLiteMeasurementDatasetRepository,
 )
-from scopecat.execution.observation import RuntimeEvent, RuntimeTransitionEvent
 from scopecat.kernel.errors import RunIndeterminate
 from scopecat.kernel.problems import (
     ProblemPhase,
@@ -96,22 +94,6 @@ class _IndeterminateFakeListDomainRuntime(FakeListDomainRuntime):
     ) -> DomainSubmitReceipt:
         _ = request
         raise RuntimeError("target did not return submit evidence")
-
-
-class _SecondSubmitIndeterminateFakeListDomainRuntime(FakeListDomainRuntime):
-    def __init__(self) -> None:
-        super().__init__()
-        self.submit_count = 0
-
-    @override
-    def submit(
-        self,
-        request: DomainSubmitRequest[SelectedFakeMeasurementRealization],
-    ) -> DomainSubmitReceipt:
-        self.submit_count += 1
-        if self.submit_count == 2:
-            raise RuntimeError("second target submission returned no evidence")
-        return super().submit(request)
 
 
 class _ConfiguredTestCompiler(QuantumLabCompiler):
@@ -443,9 +425,8 @@ def test_indeterminate_submit_retains_durable_target_correlation_context(
         system=_domain_only(compiler),
     )
 
-    events: list[RuntimeEvent] = []
     with pytest.raises(RunIndeterminate) as caught:
-        experiment.run(event_sink=events.append)
+        experiment.run()
 
     recovery = next(
         problem
@@ -478,63 +459,6 @@ def test_indeterminate_submit_retains_durable_target_correlation_context(
         entry.stage == "domain_submit" and entry.state == "unknown"
         for entry in journal.entries()
     )
-    failed_points = [
-        event
-        for event in events
-        if isinstance(event, RuntimeTransitionEvent)
-        and event.stage == "point"
-        and event.state == "failed"
-        and event.point_indices
-    ]
-    assert [event.point_indices for event in failed_points] == [(0, 1, 2, 3)]
-    assert not any(
-        isinstance(event, RuntimeTransitionEvent)
-        and event.stage == "point"
-        and event.state == "started"
-        for event in events
-    )
-
-
-def test_later_domain_job_failure_preserves_points_from_earlier_jobs(
-    tmp_path: Path,
-) -> None:
-    target = replace(
-        configured_fake_list_target(quantum_wiring_config_profile()),
-        max_list_entries=2,
-    )
-    runtime = _SecondSubmitIndeterminateFakeListDomainRuntime()
-    compiler = quantum_lab_compiler(
-        target=target,
-        runtime=runtime,
-    )
-    lab = in_process_quantum_lab(project_root=tmp_path)
-    events: list[RuntimeEvent] = []
-
-    with pytest.raises(RunIndeterminate):
-        lab.prepare(
-            fake_x_count_template,
-            system=_domain_only(compiler),
-        ).run(event_sink=events.append)
-
-    failed_points = [
-        event.point_indices
-        for event in events
-        if isinstance(event, RuntimeTransitionEvent)
-        and event.stage == "point"
-        and event.state == "failed"
-        and event.point_indices
-    ]
-    completed_points = [
-        event.point_indices
-        for event in events
-        if isinstance(event, RuntimeTransitionEvent)
-        and event.stage == "point"
-        and event.state == "completed"
-        and event.point_indices
-    ]
-    assert runtime.submit_count == 2
-    assert completed_points == [(0,), (1,)]
-    assert failed_points == [(2, 3)]
 
 
 def test_unknown_fetch_terminalizes_as_indeterminate_with_known_job_context(

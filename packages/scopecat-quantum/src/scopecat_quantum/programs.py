@@ -935,10 +935,8 @@ def lower_quantum_program_to_structured_pulses(
         realtime_bit_outputs: tuple[RealtimeBitOutput, ...] = ()
         if isinstance(node, Measure) and node.realtime_bit_id is not None:
             binding = bindings.binding_for(node.id)
-            assert isinstance(  # noqa: S101
-                binding, MeasurementPulseImplementationBinding
-            )
-            assert binding.discriminator is not None  # noqa: S101
+            assert isinstance(binding, MeasurementPulseImplementationBinding)
+            assert binding.discriminator is not None
             [output_slot] = acquisition_slots
             realtime_bit_outputs = (
                 RealtimeBitOutput(
@@ -1154,7 +1152,7 @@ def _lower_leaf(
 
     binding = bindings.binding_for(node.id)
     if isinstance(node, GateCall):
-        assert isinstance(binding, GatePulseImplementationBinding)  # noqa: S101
+        assert isinstance(binding, GatePulseImplementationBinding)
         instantiated = _instantiate_template(binding.pulse_template, prefix=prefix)
         event_provenance.extend(
             CircuitPulseEventProvenance(
@@ -1170,8 +1168,8 @@ def _lower_leaf(
         )
         return instantiated.body
 
-    assert isinstance(node, Measure)  # noqa: S101
-    assert isinstance(binding, MeasurementPulseImplementationBinding)  # noqa: S101
+    assert isinstance(node, Measure)
+    assert isinstance(binding, MeasurementPulseImplementationBinding)
     template_slot = binding.pulse_template.acquisition_slots[0]
     output_slot_id = (
         node.acquisition_slot_id.prefixed(*occurrence_scope)

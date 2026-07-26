@@ -21,7 +21,6 @@ from tests.testkit.authoring import (
     simple_template,
     template_fixture,
 )
-from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 from tests.testkit.runtime import check_experiment, sqlite_project_services
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 
@@ -154,20 +153,6 @@ def test_authoring_compile_precedes_config_linking(tmp_path: Path) -> None:
     assert error.value.problems[0].code == "experiment_missing_input"
 
 
-def test_check_experiment_resolves_template_invocation_with_config_profile(
-    tmp_path: Path,
-) -> None:
-    result = check_experiment(
-        simple_template().bind(subject="q0"),
-        system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
-        services=sqlite_project_services(tmp_path),
-        config_profile=EXAMPLE_DIR / "config-profile.json",
-    )
-
-    assert result.preview is not None
-    assert result.preview.experiment_id == simple_template().definition.id
-
-
 def test_check_experiment_resolves_template_invocation_with_config_snapshot(
     tmp_path: Path,
 ) -> None:
@@ -175,7 +160,7 @@ def test_check_experiment_resolves_template_invocation_with_config_snapshot(
         simple_template().bind(subject="q0"),
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
         services=sqlite_project_services(tmp_path),
-        config_profile=load_config(),
+        config=load_config(),
     )
 
     assert result.preview is not None

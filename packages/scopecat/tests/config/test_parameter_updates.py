@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 
 from scopecat.config.parameter_updates import (
+    apply_parameter_change_deltas,
     materialize_parameter_updates,
-    merge_parameter_change_deltas,
 )
 from scopecat.config.parameters import (
     delete_parameter_rows,
@@ -166,9 +166,9 @@ def test_deltas_are_authoritative_candidate_input() -> None:
             ),
         ),
     )
-    merged = merge_parameter_change_deltas(
+    merged = apply_parameter_change_deltas(
         base=source,
-        proposals=(deltas,),
+        deltas=deltas,
         candidate_id="merged",
     )
     assert merged == candidate.model_copy(update={"id": "merged"})
@@ -183,9 +183,9 @@ def test_deltas_are_authoritative_candidate_input() -> None:
         },
     )
     with pytest.raises(ValueError, match="before value does not match"):
-        merge_parameter_change_deltas(
+        apply_parameter_change_deltas(
             base=source,
-            proposals=((invalid,),),
+            deltas=(invalid,),
             candidate_id="merged",
         )
 

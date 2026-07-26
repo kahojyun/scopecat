@@ -274,7 +274,7 @@ class _GatePulseRecipeDecorator:
 def gate_pulse_recipe(
     *,
     of: _GateRecipeTarget,
-    id: str,  # noqa: A002
+    id: str,
 ) -> _GatePulseRecipeDecorator:
     """Declare a compiler-owned gate recipe without global registration."""
 
@@ -307,7 +307,7 @@ class _MeasurementPulseRecipeDecorator:
 def measurement_pulse_recipe(
     *,
     kind: AcquisitionKind,
-    id: str,  # noqa: A002
+    id: str,
     discriminator: (
         MeasurementDiscriminator | Callable[..., MeasurementDiscriminator] | None
     ) = None,

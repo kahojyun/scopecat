@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from scopecat.config.profiles import load_config_profile
+from scopecat.config.documents import load_config_snapshot_document
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import (
@@ -67,7 +67,7 @@ def test_durable_metadata_boundaries_reject_non_json_values(
 
 
 def test_config_profile_snapshot_round_trip() -> None:
-    snapshot = load_config_profile(EXAMPLE_DIR / "config-profile.json")
+    snapshot = load_config_snapshot_document(EXAMPLE_DIR / "config-snapshot.json")
     restored = assert_model_round_trip(snapshot)
 
     assert restored.parameter_snapshot.get("drive_frequency") is not None

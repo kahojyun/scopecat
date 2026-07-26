@@ -45,7 +45,7 @@ export interface DaemonUiApi {
   runAnalyses: JsonResponse<paths["/api/v1/runs/{run_id}/analyses"]["get"], 200>;
   parameterProposals: JsonResponse<paths["/api/v1/runs/{run_id}/parameter-proposals"]["get"], 200>;
   parameterProposalDecision: JsonResponse<
-    paths["/api/v1/runs/{run_id}/parameter-proposals/{proposal_id}/review"]["post"],
+    paths["/api/v1/runs/{run_id}/parameter-proposals/{proposal_id}/decision"]["post"],
     200
   >;
   artifactText: JsonResponse<paths["/api/v1/runs/{run_id}/artifacts/{selector}/text"]["get"], 200>;
@@ -67,8 +67,8 @@ export interface DaemonUiApi {
   candidateConfigActivationCommand: JsonRequest<
     paths["/api/v1/config-registry/candidates/activate"]["post"]
   >;
-  parameterProposalReviewCommand: JsonRequest<
-    paths["/api/v1/runs/{run_id}/parameter-proposals/{proposal_id}/review"]["post"]
+  parameterProposalDecisionCommand: JsonRequest<
+    paths["/api/v1/runs/{run_id}/parameter-proposals/{proposal_id}/decision"]["post"]
   >;
 }
 

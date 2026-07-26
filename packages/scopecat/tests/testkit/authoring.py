@@ -15,9 +15,9 @@ from scopecat.compiler.frontend.resolution import (
     resolve_compiled_invocation,
 )
 from scopecat.compiler.linking.linked import LinkedPlan
+from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.environment import build_config_environment
 from scopecat.config.parameter_resolution import resolve_config_parameters
-from scopecat.config.profiles import load_config_profile
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.config import ConfigProfileSnapshot
@@ -25,7 +25,7 @@ from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 
 
 def load_config() -> ConfigProfileSnapshot:
-    return load_config_profile(EXAMPLE_DIR / "config-profile.json")
+    return load_config_snapshot_document(EXAMPLE_DIR / "config-snapshot.json")
 
 
 def parameters():
@@ -48,7 +48,7 @@ def link_invocation(
 def template_fixture(
     module: authoring.ExperimentModule[...],
     *,
-    id: str,  # noqa: A002
+    id: str,
     kind: str,
     required_inputs: Sequence[str] = (),
     defaults: Mapping[str, authoring.RuntimeInput] | None = None,

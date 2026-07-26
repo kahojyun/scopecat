@@ -110,7 +110,7 @@ def compute_result(value: ValueId | OperationId | str) -> ComputeResultRef:
 
 
 def observable_product(
-    id: str | ProductId,  # noqa: A002
+    id: str | ProductId,
     *,
     unit: str | None = None,
     dtype: MeasurementDType = "float64",
@@ -129,7 +129,7 @@ def observable_product(
 def instrument_acquisition(
     product: ProductDef | ProductId,
     *,
-    id: AcquireId | str | None = None,  # noqa: A002
+    id: AcquireId | str | None = None,
     resource_port_id: LogicalResourcePortId | str = "source",
     capability: str,
     provider_key: str | None = None,
@@ -187,7 +187,7 @@ def instrument_acquisitions(
 
 def typed_program(
     *,
-    id: str,  # noqa: A002
+    id: str,
     kind: str,
     point_domain: PointDomain,
     resource_requirements: Sequence[LogicalResourceRequirement] = (),

@@ -213,7 +213,7 @@ def seal_typed_program(
 
 
 def _consumer(
-    id: RelationUseId,  # noqa: A002
+    id: RelationUseId,
     kind: ProgramRelationConsumerKind,
     value: ValueExpr,
     location: ModelLocation,

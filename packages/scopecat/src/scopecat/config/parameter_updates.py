@@ -290,7 +290,7 @@ def materialize_parameter_updates(
 
     for parameter_id in touched:
         definition = catalog.get(parameter_id)
-        assert definition is not None  # noqa: S101
+        assert definition is not None
         selected[parameter_id] = coerce_stored_parameter_value(
             definition,
             selected[parameter_id],
@@ -315,46 +315,37 @@ def materialize_parameter_updates(
     return candidate, deltas
 
 
-def merge_parameter_change_deltas(
+def apply_parameter_change_deltas(
     *,
     base: ParameterSnapshot,
-    proposals: Sequence[Sequence[ParameterValueDelta]],
+    deltas: Sequence[ParameterValueDelta],
     candidate_id: str,
 ) -> ParameterSnapshot:
-    """Resolve non-overlapping proposed deltas against one base snapshot."""
+    """Apply one proposal's durable deltas against its base snapshot."""
 
     base_values = {value.id: value for value in base.values}
     selected = dict(base_values)
     order = [value.id for value in base.values]
-    touched: set[str] = set()
-    for deltas in proposals:
-        delta_by_id = {delta.parameter_id: delta for delta in deltas}
-        if len(delta_by_id) != len(deltas):
-            msg = "candidate proposal contains duplicate parameter deltas"
-            raise ValueError(msg)
-        changed = set(delta_by_id)
-        unknown = changed - set(base_values)
-        if unknown:
-            msg = "candidate proposal references unknown parameters: " + ", ".join(
-                sorted(unknown)
+    delta_by_id = {delta.parameter_id: delta for delta in deltas}
+    if len(delta_by_id) != len(deltas):
+        msg = "candidate proposal contains duplicate parameter deltas"
+        raise ValueError(msg)
+    changed = set(delta_by_id)
+    unknown = changed - set(base_values)
+    if unknown:
+        msg = "candidate proposal references unknown parameters: " + ", ".join(
+            sorted(unknown)
+        )
+        raise ValueError(msg)
+    for parameter_id in changed:
+        delta = delta_by_id[parameter_id]
+        if delta.before != base_values[parameter_id]:
+            msg = (
+                "candidate proposal delta before value does not match source "
+                f"snapshot: {parameter_id}"
             )
             raise ValueError(msg)
-        overlap = touched & changed
-        if overlap:
-            msg = "candidate config proposals overlap on parameters: " + ", ".join(
-                sorted(overlap)
-            )
-            raise ValueError(msg)
-        for parameter_id in changed:
-            delta = delta_by_id[parameter_id]
-            if delta.before != base_values[parameter_id]:
-                msg = (
-                    "candidate proposal delta before value does not match source "
-                    f"snapshot: {parameter_id}"
-                )
-                raise ValueError(msg)
-            selected[parameter_id] = delta.after
-        touched.update(changed)
+        selected[parameter_id] = delta.after
     return ParameterSnapshot(
         id=candidate_id,
         values=tuple(selected[value_id] for value_id in order),

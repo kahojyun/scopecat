@@ -54,7 +54,6 @@ from scopecat.daemon.wire import (
     MeasurementAppendCommand,
     MeasurementSealCommand,
     ParameterProposalDecisionCommand,
-    ParameterProposalReviewCommand,
     RunAdmission,
     RunAttachmentCommand,
     RunSubmission,
@@ -396,23 +395,6 @@ class DaemonClient:
         return self._get_model(
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/parameter-proposals",
             ParameterProposalListView,
-        )
-
-    def review_parameter_proposal(
-        self,
-        run_id: str,
-        proposal_id: str,
-        command: ParameterProposalReviewCommand,
-    ) -> ParameterChangeDecisionRecord:
-        selected_run = quote(run_id, safe="")
-        selected_proposal = quote(proposal_id, safe="")
-        return self._post_model(
-            (
-                f"{_API_PREFIX}/runs/{selected_run}/parameter-proposals/"
-                f"{selected_proposal}/review"
-            ),
-            command,
-            ParameterChangeDecisionRecord,
         )
 
     def decide_parameter_proposal(

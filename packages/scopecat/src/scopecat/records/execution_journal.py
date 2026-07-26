@@ -55,7 +55,7 @@ type ExecutionStage = Literal[
 
 
 class ExecutionTransition(BaseModel):
-    """Immutable carrier shared by effect evidence and live observation."""
+    """Immutable transition committed to the execution journal."""
 
     model_config = ConfigDict(
         extra="forbid",

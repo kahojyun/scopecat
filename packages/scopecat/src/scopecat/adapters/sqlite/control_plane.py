@@ -116,7 +116,7 @@ class SQLiteControlPlane:
                 (cast("int", cursor.lastrowid),),
             )
         )
-        assert row is not None  # noqa: S101
+        assert row is not None
         return _run(row)
 
     def get_run(self, run_id: str) -> ControlRun:
@@ -576,7 +576,7 @@ class SQLiteControlPlane:
                     "SELECT * FROM executor_leases WHERE token = ?", (lease.token,)
                 )
             )
-            assert row is not None  # noqa: S101
+            assert row is not None
             return _executor(row)
 
     def validate_executor_lease(

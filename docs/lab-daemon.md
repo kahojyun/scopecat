@@ -39,6 +39,11 @@ SQLite transaction. Heartbeats update lease and resource deadlines in place;
 they do not append project timeline events. Lease grant, loss, and resource
 quarantine remain durable state-change events.
 
+The executor does not publish a second, process-local observation stream.
+Run and event views refresh from replayable project SSE; each initial
+connection or reconnection refreshes canonical queries to recover missed
+changes. The separate health poll is only a reachability signal.
+
 Each admission carries one flat set of target and instrument claims closed by
 planning from the complete run program. The executor validates or acquires that
 set once and holds it across provider provisioning and all coverage blocks;
@@ -133,12 +138,12 @@ belong to the daemon.
 
 | Owner | Contents |
 |---|---|
-| User project and Git | Python experiment/system code, `scopecat.toml`, editable split config inputs, and exported snapshots |
+| User project and Git | Python experiment/system/config code, `scopecat.toml`, and exported complete snapshots |
 | Lab daemon | Run requests and manifests, execution events, measurements, analysis, proposals, immutable config entries, and activation history |
 | GUI and notebooks | Views and commands against the daemon; transient scratch computation may remain in the notebook process |
 
-Editing a Git-owned config file does not mutate the active registry entry.
-Use `scopecat config diff` to freshly evaluate that source and compare it with
+Editing Git-owned Python config code does not mutate the active registry entry.
+Use `scopecat config diff` to freshly evaluate that bootstrap source and compare it with
 the daemon default, then `scopecat config apply` to validate it, save an
 immutable revision, and atomically move the default. Notebook code can express
 the same intent with `lab.config.set_default(snapshot)`. This keeps

@@ -208,7 +208,7 @@ def module[**P](
     definition: Callable[P, ModuleBuilder] | None = None,
     /,
     *,
-    id: str | None = None,  # noqa: A002
+    id: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> ExperimentModule[P] | Callable[[Callable[P, ModuleBuilder]], ExperimentModule[P]]:
     """Define a closed module from a Python function."""
@@ -220,7 +220,7 @@ def module[**P](
 
 def module_body(
     *,
-    id: str | None = None,  # noqa: A002
+    id: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> ModuleBuilder:
     """Start a low-level module body or an ``@module`` return value."""
@@ -267,7 +267,7 @@ def template[**P](
     definition: Callable[P, ExperimentBody] | None = None,
     /,
     *,
-    id: str | None = None,  # noqa: A002
+    id: str | None = None,
     kind: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> (
@@ -313,7 +313,7 @@ def scratch[**P](
     definition: Callable[P, ExperimentBody] | None = None,
     /,
     *,
-    id: str | None = None,  # noqa: A002
+    id: str | None = None,
     kind: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> (
@@ -338,7 +338,7 @@ def scratch[**P](
 def _module_from_function[**P](
     fn: Callable[P, ModuleBuilder],
     *,
-    id: str | None,  # noqa: A002
+    id: str | None,
     metadata: Mapping[str, MetadataValue] | None,
 ) -> ExperimentModule[P]:
     source = cast("DefinitionFunction", fn)
@@ -369,7 +369,7 @@ def _module_from_function[**P](
 def _template_from_function[**P](
     fn: Callable[P, ExperimentBody],
     *,
-    id: str | None,  # noqa: A002
+    id: str | None,
     kind: str | None,
     metadata: Mapping[str, MetadataValue] | None,
 ) -> ExperimentTemplate[P]:
@@ -423,7 +423,7 @@ def _template_from_function[**P](
 def _close_experiment_body(
     body: ExperimentBody,
     *,
-    id: str,  # noqa: A002
+    id: str,
     kind: str,
     metadata: Mapping[str, MetadataValue] | None,
     input_defaults: Mapping[str, RuntimeInput],

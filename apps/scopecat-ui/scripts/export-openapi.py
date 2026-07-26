@@ -32,7 +32,7 @@ _OPERATIONS = {
     ("/api/v1/runs/{run_id}/measurements", "get"),
     ("/api/v1/runs/{run_id}/parameter-proposals", "get"),
     (
-        "/api/v1/runs/{run_id}/parameter-proposals/{proposal_id}/review",
+        "/api/v1/runs/{run_id}/parameter-proposals/{proposal_id}/decision",
         "post",
     ),
     ("/api/v1/runs/{run_id}/records/{selector}/json", "get"),

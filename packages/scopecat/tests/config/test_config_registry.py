@@ -8,7 +8,6 @@ from typing import Literal
 
 import pytest
 
-import scopecat.config.resolution as config_workflow
 from scopecat.config.candidates import (
     CandidateConfig,
     resolve_candidate_config_snapshot,
@@ -40,15 +39,12 @@ from scopecat.config.registry import (
     resolve_config_registry_config_source,
     rollback_config_registry,
 )
-from scopecat.config.resolution import register_and_activate_candidate_config
 from scopecat.kernel.errors import (
     CheckFailed,
     Conflict,
     DataIntegrityError,
-    NotFound,
 )
 from scopecat.kernel.quantity import Quantity
-from scopecat.project_state import ProjectStateServices
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.parameter import ScalarParameterValue
 from scopecat.records.parameter_change import (
@@ -58,8 +54,8 @@ from scopecat.records.parameter_change import (
 from scopecat.records.run import ConfigRegistryRunConfigSource
 from scopecat.runs.refs import record_content_ref
 from tests.testkit.config_registry import (
+    activate_candidate_config,
     decide_parameter_change_proposal,
-    invalidate_parameter_change_proposal,
     load_config,
     load_config_registry_config,
     load_config_registry_entry,
@@ -407,7 +403,7 @@ def test_candidate_config_registers_and_activates_parameter_proposal(
         services=sqlite_project_services(tmp_path),
     )
     candidate = CandidateConfig(
-        parameter_proposals=(proposal,),
+        parameter_proposal=proposal,
     )
     decision = review_parameter_change_proposal(
         run_id=run_id,
@@ -418,7 +414,7 @@ def test_candidate_config_registers_and_activates_parameter_proposal(
         note="looks good",
     )
 
-    activation_result = register_and_activate_candidate_config(
+    activation_result = activate_candidate_config(
         candidate=candidate,
         services=sqlite_project_services(tmp_path),
         entry_id="candidate-best-signal",
@@ -433,8 +429,8 @@ def test_candidate_config_registers_and_activates_parameter_proposal(
     activation = activation_result.activation
     assert isinstance(entry.source, CandidateConfigRegistrySource)
     assert entry.source.run_id == run_id
-    assert entry.source.proposal_ids == ["best-signal"]
-    evidence = entry.source.proposal_evidence[0]
+    assert entry.source.proposal_id == "best-signal"
+    evidence = entry.source.proposal_evidence
     assert evidence.proposal_id == proposal.id
     assert evidence.approval_event_id == decision.event_id
     assert evidence.proposal_record_content_hash.startswith("sha256:")
@@ -472,7 +468,7 @@ def test_automatic_policy_approval_can_activate_candidate_without_verification(
         selector="best-signal",
         services=sqlite_project_services(tmp_path),
     )
-    candidate = CandidateConfig(parameter_proposals=(proposal,))
+    candidate = CandidateConfig(parameter_proposal=proposal)
     authority = AutomaticPolicyDecisionAuthority(
         actor="calibration-scheduler",
         policy_id="accept-high-confidence-fit",
@@ -486,7 +482,7 @@ def test_automatic_policy_approval_can_activate_candidate_without_verification(
         authority=authority,
     )
 
-    result = register_and_activate_candidate_config(
+    result = activate_candidate_config(
         candidate=candidate,
         services=sqlite_project_services(tmp_path),
         entry_id="automatic-policy-candidate",
@@ -496,7 +492,7 @@ def test_automatic_policy_approval_can_activate_candidate_without_verification(
 
     assert result.active_state.active_entry_id == result.entry.id
     assert isinstance(result.entry.source, CandidateConfigRegistrySource)
-    assert result.entry.source.proposal_evidence[0].approval_event_id == (
+    assert result.entry.source.proposal_evidence.approval_event_id == (
         decision.event_id
     )
     assert list_parameter_change_decisions(
@@ -505,7 +501,6 @@ def test_automatic_policy_approval_can_activate_candidate_without_verification(
         storage=sqlite_run_repository(tmp_path),
     ) == [decision]
     assert decision.authority == authority
-    assert decision.related_refs == ()
 
 
 def test_later_approval_preserves_registered_candidate_evidence(
@@ -518,11 +513,11 @@ def test_later_approval_preserves_registered_candidate_evidence(
         entry_id="candidate-original-approval",
         registered_by="operator",
         run_id=run_id,
-        proposal_ids=resolved.candidate.proposal_ids,
+        proposal_id=resolved.candidate.proposal_id,
         base_config_content_hash=resolved.candidate.base_config_content_hash,
     )
     assert isinstance(entry.source, CandidateConfigRegistrySource)
-    original_event_id = entry.source.proposal_evidence[0].approval_event_id
+    original_event_id = entry.source.proposal_evidence.approval_event_id
     later = review_parameter_change_proposal(
         run_id=run_id,
         selector=proposal.id,
@@ -538,7 +533,7 @@ def test_later_approval_preserves_registered_candidate_evidence(
 
     assert loaded == entry
     assert isinstance(loaded.source, CandidateConfigRegistrySource)
-    assert loaded.source.proposal_evidence[0].approval_event_id == original_event_id
+    assert loaded.source.proposal_evidence.approval_event_id == original_event_id
     assert later.event_id != original_event_id
 
 
@@ -550,7 +545,7 @@ def test_candidate_activation_rejects_a_stale_base_config(tmp_path: Path) -> Non
         services=sqlite_project_services(tmp_path),
     )
     candidate = CandidateConfig(
-        parameter_proposals=(proposal,),
+        parameter_proposal=proposal,
     )
     review_parameter_change_proposal(
         run_id=run_id,
@@ -569,7 +564,7 @@ def test_candidate_activation_rejects_a_stale_base_config(tmp_path: Path) -> Non
     )
 
     with pytest.raises(Conflict) as error:
-        register_and_activate_candidate_config(
+        activate_candidate_config(
             candidate=candidate,
             services=sqlite_project_services(tmp_path),
             entry_id="stale-candidate",
@@ -586,7 +581,7 @@ def test_candidate_activation_rejects_a_stale_base_config(tmp_path: Path) -> Non
     )
 
 
-@pytest.mark.parametrize("decision", (None, "rejected", "invalidated"))
+@pytest.mark.parametrize("decision", (None, "rejected"))
 def test_candidate_registration_requires_latest_approval(
     tmp_path: Path,
     decision: str | None,
@@ -598,7 +593,7 @@ def test_candidate_registration_requires_latest_approval(
         services=sqlite_project_services(tmp_path),
     )
     candidate = CandidateConfig(
-        parameter_proposals=(proposal,),
+        parameter_proposal=proposal,
     )
     config = resolve_candidate_config_snapshot(
         candidate, services=sqlite_project_services(tmp_path)
@@ -611,22 +606,6 @@ def test_candidate_registration_requires_latest_approval(
             state="rejected",
             reviewer="reviewer",
         )
-    elif decision == "invalidated":
-        review_parameter_change_proposal(
-            run_id=run_id,
-            selector=proposal.id,
-            services=sqlite_project_services(tmp_path),
-            state="approved",
-            reviewer="reviewer",
-        )
-        invalidate_parameter_change_proposal(
-            run_id=run_id,
-            selector=proposal.id,
-            services=sqlite_project_services(tmp_path),
-            reason="superseded",
-            invalidated_by="reviewer",
-        )
-
     with pytest.raises(Conflict) as error:
         register_candidate_config(
             config=config,
@@ -634,7 +613,7 @@ def test_candidate_registration_requires_latest_approval(
             entry_id=f"not-approved-{decision or 'missing'}",
             registered_by="operator",
             run_id=run_id,
-            proposal_ids=candidate.proposal_ids,
+            proposal_id=candidate.proposal_id,
             base_config_content_hash=candidate.base_config_content_hash,
         )
 
@@ -643,7 +622,7 @@ def test_candidate_registration_requires_latest_approval(
     )
 
 
-def test_later_invalidation_does_not_revoke_registered_candidate(
+def test_later_rejection_does_not_revoke_registered_candidate(
     tmp_path: Path,
 ) -> None:
     _base, active_state, _activation = register_and_activate_config_profile(
@@ -660,15 +639,15 @@ def test_later_invalidation_does_not_revoke_registered_candidate(
         entry_id="candidate",
         registered_by="operator",
         run_id=run_id,
-        proposal_ids=resolved.candidate.proposal_ids,
+        proposal_id=resolved.candidate.proposal_id,
         base_config_content_hash=resolved.candidate.base_config_content_hash,
     )
-    invalidate_parameter_change_proposal(
+    review_parameter_change_proposal(
         run_id=run_id,
         selector=proposal.id,
         services=sqlite_project_services(tmp_path),
-        reason="new evidence",
-        invalidated_by="reviewer",
+        state="rejected",
+        reviewer="reviewer",
     )
 
     loaded = load_config_registry_entry(
@@ -697,10 +676,8 @@ def test_later_invalidation_does_not_revoke_registered_candidate(
     assert activated.active_entry_id == entry.id
 
 
-@pytest.mark.parametrize("later_decision", ("rejected", "invalidated"))
-def test_later_decision_does_not_break_active_candidate_rollback(
+def test_later_rejection_does_not_break_active_candidate_rollback(
     tmp_path: Path,
-    later_decision: Literal["rejected", "invalidated"],
 ) -> None:
     base, base_state, _activation = register_and_activate_config_profile(
         config=load_config(),
@@ -710,7 +687,7 @@ def test_later_decision_does_not_break_active_candidate_rollback(
         operator="operator",
     )
     run_id, proposal, resolved = _resolved_candidate(tmp_path)
-    candidate = register_and_activate_candidate_config(
+    candidate = activate_candidate_config(
         candidate=resolved.candidate,
         services=sqlite_project_services(tmp_path),
         entry_id="active-candidate",
@@ -718,22 +695,13 @@ def test_later_decision_does_not_break_active_candidate_rollback(
         operator="operator",
         expected_generation=base_state.generation,
     )
-    if later_decision == "rejected":
-        review_parameter_change_proposal(
-            run_id=run_id,
-            selector=proposal.id,
-            services=sqlite_project_services(tmp_path),
-            state="rejected",
-            reviewer="reviewer",
-        )
-    else:
-        invalidate_parameter_change_proposal(
-            run_id=run_id,
-            selector=proposal.id,
-            services=sqlite_project_services(tmp_path),
-            reason="new evidence",
-            invalidated_by="reviewer",
-        )
+    review_parameter_change_proposal(
+        run_id=run_id,
+        selector=proposal.id,
+        services=sqlite_project_services(tmp_path),
+        state="rejected",
+        reviewer="reviewer",
+    )
 
     assert (
         load_active_config_registry_entry(
@@ -754,7 +722,7 @@ def test_later_decision_does_not_break_active_candidate_rollback(
     assert record.previous_entry_id == candidate.entry.id
 
 
-def test_rollback_can_restore_candidate_after_later_invalidation(
+def test_rollback_can_restore_candidate_after_later_rejection(
     tmp_path: Path,
 ) -> None:
     _base, base_state, _activation = register_and_activate_config_profile(
@@ -765,7 +733,7 @@ def test_rollback_can_restore_candidate_after_later_invalidation(
         operator="operator",
     )
     run_id, proposal, resolved = _resolved_candidate(tmp_path)
-    candidate = register_and_activate_candidate_config(
+    candidate = activate_candidate_config(
         candidate=resolved.candidate,
         services=sqlite_project_services(tmp_path),
         entry_id="rollback-target-candidate",
@@ -781,12 +749,12 @@ def test_rollback_can_restore_candidate_after_later_invalidation(
         operator="operator",
         expected_generation=candidate.active_state.generation,
     )
-    invalidate_parameter_change_proposal(
+    review_parameter_change_proposal(
         run_id=run_id,
         selector=proposal.id,
         services=sqlite_project_services(tmp_path),
-        reason="new evidence",
-        invalidated_by="reviewer",
+        state="rejected",
+        reviewer="reviewer",
     )
 
     restored, record = rollback_config_registry(
@@ -992,7 +960,7 @@ def test_candidate_registration_rejects_changes_not_derived_from_proposals(
             entry_id="forged-candidate",
             registered_by="operator",
             run_id=run_id,
-            proposal_ids=resolved.candidate.proposal_ids,
+            proposal_id=resolved.candidate.proposal_id,
             base_config_content_hash=resolved.candidate.base_config_content_hash,
         )
 
@@ -1036,7 +1004,7 @@ def test_candidate_registration_validates_durable_proposal_source(
             entry_id="invalid-proposal-source",
             registered_by="operator",
             run_id=run_id,
-            proposal_ids=resolved.candidate.proposal_ids,
+            proposal_id=resolved.candidate.proposal_id,
             base_config_content_hash=resolved.candidate.base_config_content_hash,
         )
 
@@ -1056,7 +1024,7 @@ def test_candidate_registration_does_not_ignore_operator_metadata(
         registered_by="operator-a",
         note="first review",
         run_id=run_id,
-        proposal_ids=resolved.candidate.proposal_ids,
+        proposal_id=resolved.candidate.proposal_id,
         base_config_content_hash=resolved.candidate.base_config_content_hash,
     )
 
@@ -1068,72 +1036,11 @@ def test_candidate_registration_does_not_ignore_operator_metadata(
             registered_by="operator-b",
             note="different review",
             run_id=run_id,
-            proposal_ids=resolved.candidate.proposal_ids,
+            proposal_id=resolved.candidate.proposal_id,
             base_config_content_hash=resolved.candidate.base_config_content_hash,
         )
 
     assert error.value.problems[0].code == "config_registry.duplicate_entry"
-
-
-def test_candidate_workflow_captures_generation_before_resolution(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    run_id = signal_run_with_parameter_change(tmp_path)
-    proposal = load_parameter_change_proposal(
-        run_id=run_id,
-        selector="best-signal",
-        services=sqlite_project_services(tmp_path),
-    )
-    candidate = CandidateConfig(
-        parameter_proposals=(proposal,),
-    )
-    register_and_activate_config_profile(
-        config=load_config(),
-        unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
-        entry_id="seed",
-        registered_by="operator",
-        operator="operator",
-    )
-    original_resolve = resolve_candidate_config_snapshot
-
-    def resolve_with_intervening_activation(
-        selected: CandidateConfig,
-        *,
-        services: ProjectStateServices,
-    ) -> ConfigProfileSnapshot:
-        resolved = original_resolve(selected, services=services)
-        register_and_activate_config_profile(
-            config=load_config(),
-            unit_of_work=services.config_registry,
-            entry_id="intervening",
-            registered_by="operator",
-            operator="operator",
-        )
-        return resolved
-
-    monkeypatch.setattr(
-        config_workflow,
-        "resolve_candidate_config_snapshot",
-        resolve_with_intervening_activation,
-    )
-
-    with pytest.raises(Conflict) as error:
-        register_and_activate_candidate_config(
-            candidate=candidate,
-            services=sqlite_project_services(tmp_path),
-            entry_id="candidate-after-race",
-            registered_by="operator",
-            operator="operator",
-        )
-
-    assert error.value.problems[0].code == "config_registry.conflict"
-    with pytest.raises(NotFound) as missing:
-        load_config_registry_entry(
-            entry_id="candidate-after-race",
-            unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
-        )
-    assert missing.value.problems[0].code == "config_registry.not_found"
 
 
 def _resolved_candidate(
@@ -1146,7 +1053,7 @@ def _resolved_candidate(
         services=sqlite_project_services(project_root),
     )
     candidate = CandidateConfig(
-        parameter_proposals=(proposal,),
+        parameter_proposal=proposal,
     )
     review_parameter_change_proposal(
         run_id=run_id,

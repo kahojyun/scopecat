@@ -103,7 +103,7 @@ class SimpleCapability:
 
 
 def simple_capability(
-    id: str,  # noqa: A002
+    id: str,
     *,
     fields: Sequence[SimpleStateField] = (),
     products: Sequence[SimpleProduct] = (),

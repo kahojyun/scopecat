@@ -180,7 +180,7 @@ describe("ConfigWorkspace", () => {
   });
 
   it("joins candidate proposals, analyses, and the latest decision", async () => {
-    const entry = runtimeDerivedEntry("candidate_config", ["gain-result", "fit-result"]);
+    const entry = runtimeDerivedEntry("candidate_config");
     vi.mocked(getConfigRegistry).mockResolvedValue({
       active_state: {
         generation: 3,
@@ -235,43 +235,9 @@ describe("ConfigWorkspace", () => {
           deltas: [],
           decisions: [],
         },
-        {
-          id: "gain-result",
-          sourceRunId: "run-calibration",
-          analysisRecordId: "analysis-gain",
-          baseConfigId: "baseline",
-          baseContentHash: "sha256:baseline",
-          reason: "Gain moved",
-          confidence: 0.97,
-          deltas: [],
-          decisions: [
-            {
-              eventId: "gain-decision-old",
-              decision: "rejected",
-              actor: "Ada",
-              authorityKind: "human",
-              note: "Stale gain review",
-              decidedAt: "2026-07-24T06:00:00Z",
-            },
-            {
-              eventId: "gain-decision-latest",
-              decision: "approved",
-              actor: "Grace",
-              authorityKind: "human",
-              note: "Gain checked",
-              decidedAt: "2026-07-24T09:00:00Z",
-            },
-          ],
-        },
       ],
     });
     vi.mocked(getRunAnalyses).mockResolvedValue([
-      {
-        id: "analysis-gain",
-        title: "Gain fit",
-        key: "gain-fit",
-        outputs: [],
-      },
       {
         id: "analysis-fit",
         title: "Frequency fit",
@@ -288,24 +254,15 @@ describe("ConfigWorkspace", () => {
     const evidence = await screen.findAllByRole("article", {
       name: /^Proposal /,
     });
-    expect(evidence).toHaveLength(2);
+    expect(evidence).toHaveLength(1);
     expect(evidence.map((item) => item.getAttribute("aria-label"))).toEqual([
-      "Proposal gain-result",
       "Proposal fit-result",
     ]);
-    const gainEvidence = screen.getByRole("article", {
-      name: "Proposal gain-result",
-    });
     expect(
       screen.queryByRole("article", {
         name: "Proposal endpoint-only-result",
       }),
     ).not.toBeInTheDocument();
-    expect(within(gainEvidence).getByText("analysis-gain")).toBeInTheDocument();
-    expect(within(gainEvidence).getByText("Gain fit")).toBeInTheDocument();
-    expect(within(gainEvidence).getByText("Approved · Human · Grace")).toBeInTheDocument();
-    expect(within(gainEvidence).getByText("Gain checked")).toBeInTheDocument();
-    expect(screen.queryByText("Stale gain review")).not.toBeInTheDocument();
     expect(await screen.findByText("analysis-fit")).toBeInTheDocument();
     expect(screen.getByText("Frequency fit")).toBeInTheDocument();
     expect(
@@ -398,13 +355,12 @@ function configEntry(id: string, contentHash: string): ConfigRegistryEntry {
     registered_at: "2026-07-24T08:00:00Z",
     source: { kind: "direct_config_profile" },
     note: "",
-    status: "registered",
   };
 }
 
 function runtimeDerivedEntry(
   kind: "manual_parameter_updates" | "candidate_config",
-  proposalIds: [string, ...string[]] = ["fit-result"],
+  proposalId = "fit-result",
 ): ConfigRegistryEntry {
   const entry = configEntry("runtime-default", "sha256:runtime-default");
   return {
@@ -419,25 +375,12 @@ function runtimeDerivedEntry(
           }
         : {
             kind,
-            proposal_evidence: proposalIds.map((proposalId) => ({
+            proposal_evidence: {
               proposal_id: proposalId,
               proposal_record_content_hash: `sha256:${proposalId}`,
               approval_event_id: `approval-${proposalId}`,
               approval_record_content_hash: `sha256:approval-${proposalId}`,
-            })) as [
-              {
-                proposal_id: string;
-                proposal_record_content_hash: string;
-                approval_event_id: string;
-                approval_record_content_hash: string;
-              },
-              ...Array<{
-                proposal_id: string;
-                proposal_record_content_hash: string;
-                approval_event_id: string;
-                approval_record_content_hash: string;
-              }>,
-            ],
+            },
             run_id: "run-calibration",
             base_config_content_hash: "sha256:baseline",
           },

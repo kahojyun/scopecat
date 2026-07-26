@@ -14,7 +14,11 @@ from tests.testkit.execution_fakes import (
     FakeExecutionJournal,
     FakeMeasurementDatasetRepository,
 )
-from tests.testkit.planning import check_experiment, plan_experiment
+from tests.testkit.planning import (
+    check_experiment,
+    plan_experiment,
+    resolve_test_config,
+)
 from tests.testkit.service_run_operations import ServiceRunOperations
 
 __all__ = [
@@ -27,6 +31,7 @@ __all__ = [
     "check_experiment",
     "list_test_runs",
     "plan_experiment",
+    "resolve_test_config",
     "sqlite_config_registry_unit_of_work",
     "sqlite_execution_session",
     "sqlite_project_services",

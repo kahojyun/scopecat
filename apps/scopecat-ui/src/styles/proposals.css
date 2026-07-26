@@ -119,12 +119,6 @@
   background: var(--red-soft);
 }
 
-.proposal-state.invalidated {
-  color: var(--purple);
-  border-color: rgb(182 156 255 / 25%);
-  background: rgb(182 156 255 / 10%);
-}
-
 .proposal h4 {
   overflow: hidden;
   font-family: "SFMono-Regular", Consolas, monospace;
@@ -286,10 +280,6 @@
 
 .decision-dot.rejected {
   background: var(--red);
-}
-
-.decision-dot.invalidated {
-  background: var(--purple);
 }
 
 .proposal-actions {

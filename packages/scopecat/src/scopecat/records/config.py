@@ -248,7 +248,7 @@ def snapshot_config_profile(
     system: SystemSpec,
     parameter_snapshot: ParameterSnapshot,
 ) -> ConfigProfileSnapshot:
-    """Freeze split config content as an immutable runtime snapshot."""
+    """Build one immutable runtime configuration snapshot."""
 
     return ConfigProfileSnapshot(
         id=profile_id,

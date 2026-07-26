@@ -109,19 +109,19 @@ from ._programs import (
 )
 
 
-def qubit(id: str) -> Qubit:  # noqa: A002
+def qubit(id: str) -> Qubit:
     """Declare one logical qubit handle."""
 
     return Qubit(ir_id=QubitId(id))
 
 
-def coupler(id: str) -> Coupler:  # noqa: A002
+def coupler(id: str) -> Coupler:
     """Declare one logical coupler handle."""
 
     return Coupler(ir_id=CouplerId(id))
 
 
-def scalar_input(id: str, kind: GateParameterKind) -> ProgramInput:  # noqa: A002
+def scalar_input(id: str, kind: GateParameterKind) -> ProgramInput:
     """Declare one typed scalar input port for a symbolic circuit."""
 
     if not id.strip():
@@ -130,7 +130,7 @@ def scalar_input(id: str, kind: GateParameterKind) -> ProgramInput:  # noqa: A00
     return ProgramInput(_id=id, value_type=_core_input_type(kind))
 
 
-def input(id: str, value_type: ScalarType) -> ProgramInput:  # noqa: A001, A002
+def input(id: str, value_type: ScalarType) -> ProgramInput:
     """Declare one core-typed scalar input for gate-and-pulse authoring."""
 
     if not id.strip():
@@ -146,26 +146,26 @@ def input(id: str, value_type: ScalarType) -> ProgramInput:  # noqa: A001, A002
 
 
 def single_qubit_gate(
-    id: str,  # noqa: A002
+    id: str,
     *,
     parameters: Mapping[str, GateParameterKind] | None = None,
 ) -> SingleQubitGate:
     """Declare one hardware-independent single-qubit gate semantic."""
 
     selected = gate(id, arity=1, parameters=parameters)
-    assert isinstance(selected, SingleQubitGate)  # noqa: S101
+    assert isinstance(selected, SingleQubitGate)
     return selected
 
 
 def two_qubit_gate(
-    id: str,  # noqa: A002
+    id: str,
     *,
     parameters: Mapping[str, GateParameterKind] | None = None,
 ) -> TwoQubitGate:
     """Declare one hardware-independent two-qubit gate semantic."""
 
     selected = gate(id, arity=2, parameters=parameters)
-    assert isinstance(selected, TwoQubitGate)  # noqa: S101
+    assert isinstance(selected, TwoQubitGate)
     return selected
 
 
@@ -188,7 +188,7 @@ def gate(
 
 
 def gate(
-    id: str,  # noqa: A002
+    id: str,
     *,
     arity: Literal[1, 2],
     parameters: Mapping[str, GateParameterKind] | None = None,
@@ -292,7 +292,7 @@ def shift_phase(signal: FrameSignal, phase: QuantumQuantity, /) -> PulseFragment
 
 
 def _close_pulse_template(
-    id: str,  # noqa: A002
+    id: str,
     body: QuantumFragment,
     /,
     *,
@@ -709,7 +709,7 @@ def fragment[**P](
     definition: Callable[P, QuantumFragment] | None = None,
     /,
     *,
-    id: str | None = None,  # noqa: A002
+    id: str | None = None,
 ) -> (
     FragmentDefinition[P]
     | Callable[[Callable[P, QuantumFragment]], FragmentDefinition[P]]
@@ -744,7 +744,7 @@ def pulse_template[**P](
     definition: Callable[P, QuantumFragment] | None = None,
     /,
     *,
-    id: str | None = None,  # noqa: A002
+    id: str | None = None,
 ) -> (
     PulseTemplateDefinition[P]
     | Callable[[Callable[P, QuantumFragment]], PulseTemplateDefinition[P]]
@@ -761,7 +761,7 @@ def implementation[**P](
     *,
     of: Gate,
     candidate: str | None = None,
-    id: str | None = None,  # noqa: A002
+    id: str | None = None,
 ) -> Callable[
     [Callable[P, QuantumFragment]],
     GateImplementationDefinition[P],
@@ -803,7 +803,7 @@ def program(
     definition: ProgramFunction | None = None,
     /,
     *,
-    id: str | None = None,  # noqa: A002
+    id: str | None = None,
 ) -> ProgramDefinition | Callable[[ProgramFunction], ProgramDefinition]:
     """Define a quantum program from a symbolic Python function."""
 
@@ -814,7 +814,7 @@ def program(
 
 
 def _close_program(
-    id: str,  # noqa: A002
+    id: str,
     body: QuantumFragment,
     *,
     elements: SequenceCollection[PulseElement] = (),
@@ -966,7 +966,7 @@ def _quantum_function_contract(
 def _fragment_from_function[**P](
     fn: Callable[P, QuantumFragment],
     *,
-    id: str | None,  # noqa: A002
+    id: str | None,
 ) -> FragmentDefinition[P]:
     contract = _quantum_function_contract(fn, kind="quantum fragment")
     selected_id = id or f"{fn.__module__}.{fn.__qualname__}"
@@ -982,7 +982,7 @@ def _fragment_from_function[**P](
 def _pulse_template_from_function[**P](
     fn: Callable[P, QuantumFragment],
     *,
-    id: str | None,  # noqa: A002
+    id: str | None,
 ) -> PulseTemplateDefinition[P]:
     contract = _quantum_function_contract(fn, kind="pulse template")
     arguments = contract.arguments
@@ -1006,7 +1006,7 @@ def _gate_implementation_from_function[**P](
     *,
     gate: Gate,
     candidate: str | None,
-    id: str | None,  # noqa: A002
+    id: str | None,
 ) -> GateImplementationDefinition[P]:
     if candidate is not None and not candidate.strip():
         raise ValueError("implementation candidate must be a non-empty string")
@@ -1071,7 +1071,7 @@ def _gate_implementation_contract[**P](
 def _program_from_function(
     fn: ProgramFunction,
     *,
-    id: str | None,  # noqa: A002
+    id: str | None,
 ) -> ProgramDefinition:
     contract = _quantum_function_contract(fn, kind="quantum program")
     arguments = contract.arguments

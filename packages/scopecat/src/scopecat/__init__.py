@@ -72,7 +72,7 @@ if TYPE_CHECKING:
         template,
     )
     from scopecat.authoring import (
-        input as input,  # noqa: A004
+        input as input,
     )
     from scopecat.authoring.scans import (
         Scan,
@@ -98,7 +98,9 @@ if TYPE_CHECKING:
     from scopecat.planning.preview_models import ExperimentPreview
     from scopecat.planning.system import ExperimentSystem
     from scopecat.project import Project, open_project
-    from scopecat.records.parameter_change import AutomaticPolicyDecisionAuthority
+    from scopecat.records.parameter_change import (
+        AutomaticPolicyDecisionAuthority,
+    )
 
 _EXPORTS: dict[str, tuple[str, str]] = {
     "AutomaticPolicyDecisionAuthority": (

@@ -18,7 +18,7 @@ def _semantic(name: str = "test.scale") -> MeasurementTransformSemanticContract:
 
 
 def _transform(
-    id: str,  # noqa: A002
+    id: str,
     *,
     source: str,
     output: str,

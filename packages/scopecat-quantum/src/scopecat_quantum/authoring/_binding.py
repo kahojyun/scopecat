@@ -148,7 +148,7 @@ class BoundProgram:
 
 
 def materialize_pulse_recipe_body(
-    id: str,  # noqa: A002
+    id: str,
     body: QuantumFragment,
     /,
     *,

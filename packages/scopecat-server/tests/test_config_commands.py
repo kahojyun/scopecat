@@ -13,9 +13,9 @@ from scopecat.api.lab import LabClient
 from scopecat.application import LabApplication
 from scopecat.config.documents import (
     CONFIG_SNAPSHOT_FORMAT_VERSION,
+    load_config_snapshot_document,
     parse_config_snapshot_document,
 )
-from scopecat.config.profiles import load_config_profile
 from scopecat.daemon.endpoint import DAEMON_URL_ENV, DaemonEndpointRecord
 from scopecat.daemon.wire import ConfigDefaultReceipt
 from scopecat.kernel.errors import CheckFailed
@@ -35,7 +35,7 @@ _CONFIG_FIXTURE = (
     / "fixtures"
     / "core"
     / "simple_scan"
-    / "config-profile.json"
+    / "config-snapshot.json"
 )
 
 
@@ -44,7 +44,7 @@ def test_source_config_is_freshly_built_and_validated(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     project = _project(tmp_path)
-    baseline = load_config_profile(_CONFIG_FIXTURE)
+    baseline = load_config_snapshot_document(_CONFIG_FIXTURE)
     calls = 0
 
     def bootstrap_config() -> ConfigProfileSnapshot:
@@ -83,7 +83,7 @@ def test_source_config_rejects_missing_or_invalid_bootstrap(
     ):
         load_source_config(project)
 
-    config = load_config_profile(_CONFIG_FIXTURE)
+    config = load_config_snapshot_document(_CONFIG_FIXTURE)
     invalid_binding = config.routing.bindings[0].model_copy(
         update={"instrument_id": "missing-source"}
     )
@@ -116,7 +116,9 @@ def test_diff_compares_content_hash_and_only_renders_drift(
     drift: bool,
 ) -> None:
     project = _project(tmp_path)
-    active = load_config_profile(_CONFIG_FIXTURE).model_copy(update={"id": "active"})
+    active = load_config_snapshot_document(_CONFIG_FIXTURE).model_copy(
+        update={"id": "active"}
+    )
     source = active.model_copy(update={"id": "project-source"}) if drift else active
     lab = _FakeLab(active)
     _patch_project(monkeypatch, source=source, lab=lab)
@@ -142,7 +144,7 @@ def test_diff_uses_selected_project_record_instead_of_environment_override(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     project = _project(tmp_path)
-    config = load_config_profile(_CONFIG_FIXTURE)
+    config = load_config_snapshot_document(_CONFIG_FIXTURE)
     lab = _FakeLab(config)
     write_daemon_endpoint_record(
         DaemonEndpointRecord(
@@ -181,7 +183,9 @@ def test_apply_uses_config_intent_even_when_content_is_unchanged(
     changed: bool,
 ) -> None:
     project = _project(tmp_path)
-    active = load_config_profile(_CONFIG_FIXTURE).model_copy(update={"id": "active"})
+    active = load_config_snapshot_document(_CONFIG_FIXTURE).model_copy(
+        update={"id": "active"}
+    )
     source = active.model_copy(update={"id": "project-source"}) if changed else active
     lab = _FakeLab(active)
     _patch_project(monkeypatch, source=source, lab=lab)
@@ -212,7 +216,9 @@ def test_export_writes_complete_active_snapshot_via_atomic_replace(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     project = _project(tmp_path)
-    active = load_config_profile(_CONFIG_FIXTURE).model_copy(update={"id": "active"})
+    active = load_config_snapshot_document(_CONFIG_FIXTURE).model_copy(
+        update={"id": "active"}
+    )
     lab = _FakeLab(active)
     _patch_project(monkeypatch, source=active, lab=lab)
     destination = tmp_path / "review" / "active-config.json"
@@ -250,7 +256,7 @@ def test_export_refuses_overwrite_by_default_and_can_replace_explicitly(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     project = _project(tmp_path)
-    active = load_config_profile(_CONFIG_FIXTURE)
+    active = load_config_snapshot_document(_CONFIG_FIXTURE)
     lab = _FakeLab(active)
     _patch_project(monkeypatch, source=active, lab=lab)
     destination = tmp_path / "active-config.json"

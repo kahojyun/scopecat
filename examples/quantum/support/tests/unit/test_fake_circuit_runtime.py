@@ -22,11 +22,10 @@ from scopecat.compiler.typed.program import (
     record_product,
     shot_axis,
 )
+from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.environment import build_config_environment
-from scopecat.config.profiles import load_config_profile
 from scopecat.domain.program import DomainProgramDef, DomainResultPort
 from scopecat.execution.effects.domain import execute_domain_job_values
-from scopecat.execution.events import TransitionRecorder
 from scopecat.execution.measurement_recording import (
     append_measurement_dataset,
     seal_measurement_dataset,
@@ -335,8 +334,8 @@ def _linked_points(
         record_uses=tuple(record for _use, record in selections),
     )
     environment = build_config_environment(
-        load_config_profile(
-            _REPO_ROOT / "fixtures/core/simple_scan/config-profile.json"
+        load_config_snapshot_document(
+            _REPO_ROOT / "fixtures/core/simple_scan/config-snapshot.json"
         )
     )
     return materialize_linked_points(link_program(program, environment))
@@ -408,8 +407,8 @@ def _mixed_linked_points(
         ),
     )
     environment = build_config_environment(
-        load_config_profile(
-            _REPO_ROOT / "fixtures/core/simple_scan/config-profile.json"
+        load_config_snapshot_document(
+            _REPO_ROOT / "fixtures/core/simple_scan/config-snapshot.json"
         )
     )
     return materialize_linked_points(link_program(program, environment))
@@ -1301,7 +1300,6 @@ def test_fake_domain_values_reach_receipt_bearing_host_recording() -> None:
     runtime = FakeListDomainRuntime()
     prepared = _prepared_mixed_execution(scenario, runtime)
     journal = FakeExecutionJournal()
-    recorder = TransitionRecorder(journal)
     record_committer = FakeMeasurementDatasetRepository()
     run_id = "fake-host-recording-run"
 
@@ -1329,7 +1327,7 @@ def test_fake_domain_values_reach_receipt_bearing_host_recording() -> None:
     committed = append_measurement_dataset(
         projected,
         record_committer,
-        recorder,
+        journal,
     )
     assert committed is not None
     assert projected.schema is not None
@@ -1339,7 +1337,7 @@ def test_fake_domain_values_reach_receipt_bearing_host_recording() -> None:
         point_count=len(projected.records),
         append_content_hashes=(committed.dataset_content_hash,),
         writer=record_committer,
-        recorder=recorder,
+        journal=journal,
     )
 
     record_ids = {

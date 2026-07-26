@@ -7,7 +7,7 @@ This module retains only exact-order coverage and point-lifecycle sequencing.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 
 import scopecat.execution.effect_result as effect_result
 from scopecat.execution.effects.compute import (
@@ -21,7 +21,6 @@ from scopecat.execution.effects.journaled import JournaledEffectBoundary
 from scopecat.execution.effects.lifecycle import DriverLifecycle
 from scopecat.execution.effects.measurement import MeasurementEffectExecutor
 from scopecat.execution.effects.state import StateEffectExecutor
-from scopecat.execution.events import TransitionRecorder
 from scopecat.execution.local.program import (
     ApplyStateOperation,
     ComputeOperation,
@@ -41,7 +40,7 @@ from scopecat.kernel.problems import ProblemPhase
 from scopecat.records.artifact import CommandPayload
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.instruments.contracts import InstrumentDriver
-from scopecat.sdk.journal import ExecutionJournalError
+from scopecat.sdk.journal import ExecutionJournal, ExecutionJournalError
 
 
 class _CapturedDomainEffectFailure(Exception):
@@ -67,8 +66,7 @@ class RunEffectInterpreter:
         coordinate_ids: Sequence[str],
         resource_order: Sequence[str],
         drivers: Mapping[str, InstrumentDriver],
-        recorder: TransitionRecorder,
-        payload_observer: Callable[[CommandPayload], None] | None = None,
+        journal: ExecutionJournal,
         coverage_observer: effect_result.CoverageMeasurementObserver | None = None,
     ) -> None:
         self.run_id = run_id
@@ -87,11 +85,8 @@ class RunEffectInterpreter:
         self._terminal_point_indices: set[int] = set()
 
         driver_map = dict(drivers)
-        self._journal = JournaledEffectBoundary(run_id=run_id, recorder=recorder)
-        self._compute = ComputeEffectExecutor(
-            journal=self._journal,
-            payload_observer=payload_observer,
-        )
+        self._journal = JournaledEffectBoundary(run_id=run_id, journal=journal)
+        self._compute = ComputeEffectExecutor(journal=self._journal)
         self._state = StateEffectExecutor(
             drivers=driver_map,
             journal=self._journal,
@@ -173,7 +168,6 @@ class RunEffectInterpreter:
             if self._active_point_indices:
                 self._complete_coverage(
                     tuple(sorted(self._active_point_indices)),
-                    failed=True,
                 )
             self._lifecycle.finalize()
             self.final_state = self._lifecycle.read_states(phase="terminal")
@@ -209,7 +203,7 @@ class RunEffectInterpreter:
         block: RunCoverageBlock,
         point_indices: tuple[int, ...],
     ) -> None:
-        self._complete_coverage(point_indices, failed=False)
+        self._complete_coverage(point_indices)
         try:
             self._measurements.commit_coverage(block, point_indices)
         except BaseException as error:
@@ -270,7 +264,7 @@ class RunEffectInterpreter:
             self.domain_failure = (job, error)
             pending = tuple(sorted(self._active_point_indices))
             if pending:
-                self._complete_coverage(pending, failed=True)
+                self._complete_coverage(pending)
             raise _CapturedDomainEffectFailure(job.id) from error
         self._measurements.values.extend(values)
 
@@ -296,7 +290,6 @@ class RunEffectInterpreter:
         state = PointEffectState(
             point_index=point_index,
             logical_id=logical_id,
-            event_point_index=point_index,
             compute_results=dict(self.run_compute_results),
             payloads=dict(self.run_payloads),
         )
@@ -307,8 +300,6 @@ class RunEffectInterpreter:
     def _complete_coverage(
         self,
         point_indices: tuple[int, ...],
-        *,
-        failed: bool,
     ) -> None:
         if not point_indices or len(point_indices) != len(set(point_indices)):
             raise AssertionError("point coverage must be non-empty and unique")
@@ -322,15 +313,6 @@ class RunEffectInterpreter:
             self._point_states.pop(point_index, None)
             self._active_point_indices.discard(point_index)
         self._terminal_point_indices.update(point_indices)
-        self._journal.observe(
-            self._journal.entry(
-                operation_id=f"coverage.{point_indices[0]}-{point_indices[-1]}",
-                stage="point",
-                effect="pure",
-                state="failed" if failed else "completed",
-                evidence={"point_indices": list(point_indices)},
-            )
-        )
 
     def _result(self) -> effect_result.RunEffectResult:
         return effect_result.RunEffectResult(

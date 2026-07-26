@@ -55,7 +55,7 @@ summary = {
     "measurements": len(raw.dataset.records),
     "saved_analysis": saved_analysis.record.id,
     "durable_proposals": len(durable_proposals.items),
-    "candidate_proposals": candidate.proposal_ids,
+    "candidate_proposal": candidate.proposal_id,
     "parameter_change": f"{delta.parameter_id} = {delta.after}",
 }
 print(summary)

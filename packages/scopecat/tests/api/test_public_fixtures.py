@@ -4,8 +4,8 @@ from typing import Annotated
 
 import scopecat as sc
 from scopecat.compiler.frontend.resolution import compile_invocation
+from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.parameter_resolution import resolve_config_parameters
-from scopecat.config.profiles import load_config_profile
 from scopecat.records.run_request import (
     AroundScanRecord,
     ParameterAroundScanRecord,
@@ -37,7 +37,7 @@ def test_cartesian_scan_request_contains_only_flat_axis_records() -> None:
 
 
 def test_simple_scan_dsl_produces_durable_request_and_user_plan() -> None:
-    config = load_config_profile(SIMPLE_SCAN_FIXTURE / "config-profile.json")
+    config = load_config_snapshot_document(SIMPLE_SCAN_FIXTURE / "config-snapshot.json")
     program = load_experiment()
     request = compile_invocation(load_invocation()).request
 

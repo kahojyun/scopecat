@@ -28,7 +28,7 @@ from pydantic_core import PydanticSerializationError
 from scopecat.config.drafts import ConfigDraft, ConfigDraftCheckResult
 from scopecat.config.parameter_updates import (
     ParameterUpdate,
-    merge_parameter_change_deltas,
+    apply_parameter_change_deltas,
 )
 from scopecat.config.profile_validation import validate_config_profile
 from scopecat.config.registry.ports import (
@@ -245,7 +245,7 @@ def _register_manual_config_draft_locked(
     if not result.check.ok:
         raise CheckFailed(result.check.problems)
     candidate = result.check.candidate
-    assert candidate is not None  # noqa: S101
+    assert candidate is not None
     result_content_hash = config_content_hash(candidate)
     if result_content_hash != expected_result_content_hash:
         raise _registry_failure(
@@ -420,7 +420,7 @@ def register_and_activate_candidate_config(
     entry_id: str,
     registered_by: str,
     run_id: str,
-    proposal_ids: Sequence[str],
+    proposal_id: str,
     base_config_content_hash: ConfigContentHash,
     operator: str,
     expected_generation: int,
@@ -435,8 +435,7 @@ def register_and_activate_candidate_config(
     _validate_required_text(registered_by, field="registered_by")
     _validate_required_text(operator, field="operator")
     _validate_required_text(run_id, field="run_id")
-    for proposal_id in proposal_ids:
-        _validate_required_text(proposal_id, field="proposal_ids")
+    _validate_required_text(proposal_id, field="proposal_id")
     selected_activation_note = note if activation_note is None else activation_note
     with unit_of_work() as work:
         current_state = _read_active_state_optional(work.registry)
@@ -451,7 +450,7 @@ def register_and_activate_candidate_config(
             entry_id=entry_id,
             registered_by=registered_by,
             run_id=run_id,
-            proposal_ids=proposal_ids,
+            proposal_id=proposal_id,
             base_config_content_hash=base_config_content_hash,
             note=note,
         )
@@ -472,21 +471,14 @@ def _register_candidate_config_locked(
     entry_id: str,
     registered_by: str,
     run_id: str,
-    proposal_ids: Sequence[str],
+    proposal_id: str,
     base_config_content_hash: ConfigContentHash,
     note: str,
 ) -> ConfigRegistryEntry:
-    if not proposal_ids:
-        raise _registry_failure(
-            CheckFailed,
-            code="config_registry.candidate_config_missing_proposals",
-            message="candidate config registration requires parameter proposals",
-            location=_registry_model_location("proposal_ids"),
-        )
     validated = _validate_candidate_source_records(
         storage=work.runs,
         run_id=run_id,
-        proposal_ids=proposal_ids,
+        proposal_id=proposal_id,
         base_config_content_hash=base_config_content_hash,
         requested_config=config,
     )
@@ -510,7 +502,7 @@ def _validate_candidate_source_records(
     *,
     storage: RunRepository,
     run_id: str,
-    proposal_ids: Sequence[str],
+    proposal_id: str,
     base_config_content_hash: ConfigContentHash,
     requested_config: ConfigProfileSnapshot,
 ) -> _ValidatedCandidateSource:
@@ -536,96 +528,80 @@ def _validate_candidate_source_records(
                 "actual_content_hash": source_config_hash,
             },
         )
-    if len(set(proposal_ids)) != len(proposal_ids):
+    proposal_record = _require_run_record(
+        source_manifest=source_manifest,
+        record_id=proposal_id,
+        kind="parameter_change_proposal",
+    )
+    proposal_ref = record_content_ref(
+        record_id=proposal_record.id,
+        kind=proposal_record.kind,
+    )
+    proposal = storage.read_model(
+        run_id,
+        proposal_ref,
+        ParameterChangeProposal,
+    )
+    if (
+        proposal.id != proposal_id
+        or proposal.source_run_id != run_id
+        or proposal.base_config_id != source_config.id
+        or proposal.base_config_content_hash != base_config_content_hash
+    ):
         raise _registry_failure(
-            CheckFailed,
-            code="config_registry.candidate_duplicate_proposal",
-            message="candidate config proposal ids must be unique",
-            location=_registry_model_location("proposal_ids"),
+            DataIntegrityError,
+            code="config_registry.candidate_proposal_mismatch",
+            message="candidate proposal does not match its source config",
+            location=_registry_storage_location(proposal_ref, run_id=run_id),
+            related_locations=(_registry_model_location("proposal_id"),),
+            details={"proposal_id": proposal_id},
         )
-    proposals: list[ParameterChangeProposal] = []
-    proposal_hashes: dict[str, EvidenceContentHash] = {}
-    for proposal_id in proposal_ids:
-        proposal_record = _require_run_record(
-            source_manifest=source_manifest,
-            record_id=proposal_id,
-            kind="parameter_change_proposal",
+    analysis_record = _require_run_record(
+        source_manifest=source_manifest,
+        record_id=proposal.analysis_record_id,
+        kind="analysis",
+    )
+    analysis_ref = record_content_ref(
+        record_id=analysis_record.id,
+        kind=analysis_record.kind,
+    )
+    analysis = storage.read_model(run_id, analysis_ref, AnalysisRecord)
+    owns_proposal = any(
+        output.kind == "parameter_change_proposal"
+        and isinstance(output.content, dict)
+        and cast("dict[str, object]", output.content).get("proposal_id") == proposal.id
+        for output in analysis.outputs
+    )
+    if not owns_proposal:
+        raise _registry_failure(
+            DataIntegrityError,
+            code="config_registry.candidate_analysis_mismatch",
+            message="candidate proposal is not owned by its producing analysis",
+            location=_registry_storage_location(analysis_ref, run_id=run_id),
+            related_locations=(
+                _registry_storage_location(proposal_ref, run_id=run_id),
+            ),
+            details={"proposal_id": proposal_id},
         )
-        proposal_ref = record_content_ref(
-            record_id=proposal_record.id,
-            kind=proposal_record.kind,
-        )
-        proposal = storage.read_model(
-            run_id,
-            proposal_ref,
-            ParameterChangeProposal,
-        )
-        if (
-            proposal.id != proposal_id
-            or proposal.source_run_id != run_id
-            or proposal.base_config_id != source_config.id
-            or proposal.base_config_content_hash != base_config_content_hash
-        ):
-            raise _registry_failure(
-                DataIntegrityError,
-                code="config_registry.candidate_proposal_mismatch",
-                message="candidate proposal does not match its source config",
-                location=_registry_storage_location(proposal_ref, run_id=run_id),
-                related_locations=(_registry_model_location("proposal_ids"),),
-                details={"proposal_id": proposal_id},
-            )
-        analysis_record = _require_run_record(
-            source_manifest=source_manifest,
-            record_id=proposal.analysis_record_id,
-            kind="analysis",
-        )
-        analysis_ref = record_content_ref(
-            record_id=analysis_record.id,
-            kind=analysis_record.kind,
-        )
-        analysis = storage.read_model(run_id, analysis_ref, AnalysisRecord)
-        owns_proposal = False
-        for output in analysis.outputs:
-            if (
-                output.kind == "parameter_change_proposal"
-                and isinstance(output.content, dict)
-                and cast("dict[str, object]", output.content).get("proposal_id")
-                == proposal.id
-            ):
-                owns_proposal = True
-                break
-        if not owns_proposal:
-            raise _registry_failure(
-                DataIntegrityError,
-                code="config_registry.candidate_analysis_mismatch",
-                message="candidate proposal is not owned by its producing analysis",
-                location=_registry_storage_location(analysis_ref, run_id=run_id),
-                related_locations=(
-                    _registry_storage_location(proposal_ref, run_id=run_id),
-                ),
-                details={"proposal_id": proposal_id},
-            )
-        proposals.append(proposal)
-        proposal_hashes[proposal_id] = _record_content_hash(proposal)
     approval_evidence = _candidate_approval_evidence(
         storage=storage,
         source_manifest=source_manifest,
         run_id=run_id,
-        proposal_ids=proposal_ids,
-        proposal_hashes=proposal_hashes,
+        proposal_id=proposal_id,
+        proposal_hash=_record_content_hash(proposal),
     )
     try:
-        expected_parameters = merge_parameter_change_deltas(
+        expected_parameters = apply_parameter_change_deltas(
             base=source_config.parameter_snapshot,
-            proposals=tuple(proposal.deltas for proposal in proposals),
+            deltas=proposal.deltas,
             candidate_id=requested_config.parameter_snapshot.id,
         )
     except ValueError as error:
         raise _registry_failure(
             DataIntegrityError,
             code="config_registry.candidate_derivation_mismatch",
-            message="candidate config cannot be derived from its durable proposals",
-            location=_registry_model_location("proposal_ids"),
+            message="candidate config cannot be derived from its durable proposal",
+            location=_registry_model_location("proposal_id"),
         ) from error
     expected_config = source_config.model_copy(
         update={
@@ -638,8 +614,8 @@ def _validate_candidate_source_records(
         raise _registry_failure(
             Conflict,
             code="config_registry.candidate_derivation_mismatch",
-            message="candidate config is not derived from its durable proposals",
-            location=_registry_model_location("proposal_ids"),
+            message="candidate config is not derived from its durable proposal",
+            location=_registry_model_location("proposal_id"),
         )
     source = CandidateConfigRegistrySource(
         run_id=run_id,
@@ -654,13 +630,10 @@ def _candidate_approval_evidence(
     storage: RunRepository,
     source_manifest: RunManifest,
     run_id: str,
-    proposal_ids: Sequence[str],
-    proposal_hashes: Mapping[str, EvidenceContentHash],
-) -> tuple[CandidateProposalRegistryEvidence, ...]:
-    histories: dict[
-        str,
-        list[tuple[RunContentEntry, ParameterChangeDecisionRecord]],
-    ] = {proposal_id: [] for proposal_id in proposal_ids}
+    proposal_id: str,
+    proposal_hash: EvidenceContentHash,
+) -> CandidateProposalRegistryEvidence:
+    history: list[tuple[RunContentEntry, ParameterChangeDecisionRecord]] = []
     for entry in source_manifest.records:
         if entry.kind != "parameter_change_decision_record":
             continue
@@ -677,34 +650,28 @@ def _candidate_approval_evidence(
                 code="config_registry.candidate_approval_identity_mismatch",
                 message="candidate approval identity does not match its run record",
                 location=_registry_storage_location(decision_ref, run_id=run_id),
-                related_locations=(_registry_model_location("proposal_ids"),),
+                related_locations=(_registry_model_location("proposal_id"),),
                 details={"record_id": entry.id},
             )
-        if decision.proposal_id in histories:
-            histories[decision.proposal_id].append((entry, decision))
+        if decision.proposal_id == proposal_id:
+            history.append((entry, decision))
 
-    evidence: list[CandidateProposalRegistryEvidence] = []
-    for proposal_id in proposal_ids:
-        history = histories[proposal_id]
-        if not history or history[-1][1].decision != "approved":
-            latest = "not reviewed" if not history else history[-1][1].decision
-            raise _registry_failure(
-                Conflict,
-                code="config_registry.candidate_proposal_not_approved",
-                message="candidate proposal latest decision is not approved",
-                location=_registry_model_location("proposal_ids"),
-                details={"proposal_id": proposal_id, "latest_decision": latest},
-            )
-        _entry, approval = history[-1]
-        evidence.append(
-            CandidateProposalRegistryEvidence(
-                proposal_id=proposal_id,
-                proposal_record_content_hash=proposal_hashes[proposal_id],
-                approval_event_id=approval.event_id,
-                approval_record_content_hash=_record_content_hash(approval),
-            )
+    if not history or history[-1][1].decision != "approved":
+        latest = "not reviewed" if not history else history[-1][1].decision
+        raise _registry_failure(
+            Conflict,
+            code="config_registry.candidate_proposal_not_approved",
+            message="candidate proposal latest decision is not approved",
+            location=_registry_model_location("proposal_id"),
+            details={"proposal_id": proposal_id, "latest_decision": latest},
         )
-    return tuple(evidence)
+    _entry, approval = history[-1]
+    return CandidateProposalRegistryEvidence(
+        proposal_id=proposal_id,
+        proposal_record_content_hash=proposal_hash,
+        approval_event_id=approval.event_id,
+        approval_record_content_hash=_record_content_hash(approval),
+    )
 
 
 def _record_content_hash(model: BaseModel) -> EvidenceContentHash:

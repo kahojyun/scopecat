@@ -316,7 +316,7 @@ def bind_pulse_implementations(
                 GatePulseImplementation | MeasurementPulseImplementation | None
             ) = gates_by_key.get(key)
         else:
-            assert isinstance(operation, Measure)  # noqa: S101
+            assert isinstance(operation, Measure)
             key = MeasurementPulseImplementationKey.from_measurement(operation)
             selected = measurements_by_key.get(key)
         if selected is not None:
@@ -341,8 +341,8 @@ def bind_pulse_implementations(
                 )
                 continue
             if isinstance(operation, GateCall):
-                assert isinstance(key, GatePulseImplementationKey)  # noqa: S101
-                assert isinstance(selected, GatePulseImplementation)  # noqa: S101
+                assert isinstance(key, GatePulseImplementationKey)
+                assert isinstance(selected, GatePulseImplementation)
                 bindings.append(
                     GatePulseImplementationBinding(
                         call_id=operation.id,
@@ -353,8 +353,8 @@ def bind_pulse_implementations(
                     )
                 )
             else:
-                assert isinstance(key, MeasurementPulseImplementationKey)  # noqa: S101
-                assert isinstance(selected, MeasurementPulseImplementation)  # noqa: S101
+                assert isinstance(key, MeasurementPulseImplementationKey)
+                assert isinstance(selected, MeasurementPulseImplementation)
                 bindings.append(
                     MeasurementPulseImplementationBinding(
                         measurement_id=operation.id,

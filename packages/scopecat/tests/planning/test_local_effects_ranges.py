@@ -11,8 +11,8 @@ from scopecat.compiler.typed.program import (
     LogicalResourceRequirement,
     record_product,
 )
+from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.environment import build_config_environment
-from scopecat.config.profiles import load_config_profile
 from scopecat.graph.relations.model import (
     param,
     point_col,
@@ -63,7 +63,7 @@ def _point_domain(
 
 
 def test_materialized_effects_experiment_builds_expected_plan() -> None:
-    config = load_config_profile(EXAMPLE_DIR / "config-profile.json")
+    config = load_config_snapshot_document(EXAMPLE_DIR / "config-snapshot.json")
     spec = load_experiment()
 
     preview = _materialized_effects_spec(spec, config)
@@ -77,7 +77,7 @@ def test_materialized_effects_experiment_builds_expected_plan() -> None:
 
 
 def test_materialized_effects_materializes_explicit_float_points() -> None:
-    config = load_config_profile(EXAMPLE_DIR / "config-profile.json")
+    config = load_config_snapshot_document(EXAMPLE_DIR / "config-snapshot.json")
     points = _point_domain(
         tuple(
             Quantity(value=value, unit="GHz")
@@ -135,7 +135,7 @@ def test_materialized_effects_materializes_explicit_float_points() -> None:
 
 
 def test_duplicate_coordinate_rows_have_distinct_point_uids() -> None:
-    config = load_config_profile(EXAMPLE_DIR / "config-profile.json")
+    config = load_config_snapshot_document(EXAMPLE_DIR / "config-snapshot.json")
     value = Quantity(value=5.0, unit="GHz")
     spec = typed_program(
         id="duplicate-coordinate-scan",
@@ -149,7 +149,7 @@ def test_duplicate_coordinate_rows_have_distinct_point_uids() -> None:
 
 
 def test_materialized_effects_rejects_link_problems_without_duplicates() -> None:
-    config = load_config_profile(EXAMPLE_DIR / "config-profile.json")
+    config = load_config_snapshot_document(EXAMPLE_DIR / "config-snapshot.json")
     center_type = Scalar(QuantityType(unit="GHz"))
     center = relation_use(
         scalar_value_expr(

@@ -17,8 +17,8 @@ from scopecat.compiler.typed.program import (
     TypedDomainResultBinding,
     record_product,
 )
+from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.environment import build_config_environment
-from scopecat.config.profiles import load_config_profile
 from scopecat.domain.program import DomainProgramDef, DomainResultPort
 from scopecat.graph.relations.point_domain import point_axis_values
 from scopecat.kernel.product_identity import product_id
@@ -131,8 +131,8 @@ def _preparation(
         record_uses=(record_use,),
     )
     environment = build_config_environment(
-        load_config_profile(
-            _REPO_ROOT / "fixtures" / "core" / "simple_scan" / "config-profile.json"
+        load_config_snapshot_document(
+            _REPO_ROOT / "fixtures" / "core" / "simple_scan" / "config-snapshot.json"
         )
     )
     linked_points = materialize_linked_points(link_program(program, environment))

@@ -11,16 +11,16 @@ from scopecat.adapters.sqlite import (
     SQLiteConfigRegistryStore,
     SQLiteControlPlane,
 )
-from scopecat.config.candidates import CandidateConfig
+from scopecat.config.candidates import (
+    CandidateConfig,
+    resolve_candidate_config_snapshot,
+)
 from scopecat.config.changes import (
     load_parameter_change_proposal,
 )
 from scopecat.config.registry import service as config_registry_service
 from scopecat.config.registry.records import ConfigRegistryEntry
-from scopecat.config.resolution import (
-    register_and_activate_candidate_config,
-    validate_config_profile,
-)
+from scopecat.config.resolution import validate_config_profile
 from scopecat.control.models import (
     DurableEventInput,
 )
@@ -474,44 +474,51 @@ class ConfigService:
                 )
             )
             candidate = CandidateConfig(
-                parameter_proposals=tuple(
-                    load_parameter_change_proposal(
-                        run_id=command.run_id,
-                        selector=proposal_id,
-                        services=services,
-                    )
-                    for proposal_id in command.proposal_ids
+                parameter_proposal=load_parameter_change_proposal(
+                    run_id=command.run_id,
+                    selector=command.proposal_id,
+                    services=services,
                 )
             )
-            result = register_and_activate_candidate_config(
-                candidate=candidate,
+            candidate_config = resolve_candidate_config_snapshot(
+                candidate,
                 services=services,
-                entry_id=command.entry_id,
-                registered_by=command.registered_by,
-                operator=command.operator,
-                note=command.note,
-                activation_note=command.activation_note,
-                expected_generation=command.expected_generation,
             )
-            if result.active_state.generation != previous_generation:
+            entry, active_state, activation = (
+                config_registry_service.register_and_activate_candidate_config(
+                    config=candidate_config,
+                    unit_of_work=services.config_registry,
+                    entry_id=command.entry_id
+                    or f"{candidate_config.id}-{candidate.source_run_id}",
+                    registered_by=command.registered_by,
+                    run_id=candidate.source_run_id,
+                    proposal_id=candidate.proposal_id,
+                    base_config_content_hash=candidate.base_config_content_hash,
+                    operator=command.operator,
+                    expected_generation=command.expected_generation,
+                    note=command.note,
+                    activation_note=command.activation_note,
+                )
+            )
+            if active_state.generation != previous_generation:
                 self._control.append_event_in_transaction(
                     connection,
                     DurableEventInput(
                         run_id=command.run_id,
                         kind="config_activated",
                         payload={
-                            "entry_id": result.entry.id,
-                            "generation": result.active_state.generation,
+                            "entry_id": entry.id,
+                            "generation": active_state.generation,
                             "source_run_id": command.run_id,
-                            "proposal_ids": list(command.proposal_ids),
+                            "proposal_id": command.proposal_id,
                         },
-                        occurred_at=result.activation.recorded_at,
+                        occurred_at=activation.recorded_at,
                     ),
                 )
             return CandidateConfigActivationReceipt(
-                entry=result.entry,
-                active_state=result.active_state,
-                activation=result.activation,
+                entry=entry,
+                active_state=active_state,
+                activation=activation,
             )
 
     @contextmanager

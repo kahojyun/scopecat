@@ -106,15 +106,13 @@ the existing run, proposal, analysis, and latest-decision records.
 
 The file picker is deliberately named **Import snapshot**: it accepts the
 self-contained `scopecat.config_snapshot.v1` document registered by the daemon.
-A split `scopecat.config_profile_manifest.v1` document must first be loaded by
-Python, which resolves its references and produces the snapshot to import.
 
 Parameter proposal lifecycle belongs to the run detail:
 
 - `GET /api/v1/runs/{run_id}/parameter-proposals` returns proposal deltas and
-  durable review decisions.
-- `POST /api/v1/runs/{run_id}/parameter-proposals/{proposal_id}/review`
-  appends an `approved` or `rejected` decision with reviewer and note.
+  durable decisions.
+- `POST /api/v1/runs/{run_id}/parameter-proposals/{proposal_id}/decision`
+  appends an `approved` or `rejected` decision with authority and note.
 - `POST /api/v1/config-registry/candidates/activate` resolves and activates the
   selected proposal when its latest decision is approved, with a generation
   check, then refreshes the run, event, proposal, and registry projections.

@@ -234,14 +234,6 @@ describe("config snapshot import boundary", () => {
         }),
       ),
     ).toThrow("Unsupported config snapshot format");
-    expect(() =>
-      parseConfigProfileJson(
-        JSON.stringify({
-          format_version: "scopecat.config_profile_manifest.v1",
-          id: "split-profile",
-        }),
-      ),
-    ).toThrow("must be loaded by Python");
   });
 });
 
@@ -250,7 +242,6 @@ function registryEntry(id: string, contentHash: string): ConfigRegistryEntry {
     id,
     config_ref: `entries/${id}.json`,
     content_hash: contentHash,
-    status: "registered",
     source: { kind: "direct_config_profile" },
     registered_by: "scopecat",
     note: "",

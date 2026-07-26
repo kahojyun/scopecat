@@ -25,11 +25,10 @@ from scopecat.compiler.typed.program import (
     record_product,
     shot_axis,
 )
+from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.environment import build_config_environment
-from scopecat.config.profiles import load_config_profile
 from scopecat.domain.program import DomainProgramDef, DomainResultPort
 from scopecat.execution.effects.domain import execute_domain_job_values
-from scopecat.execution.events import TransitionRecorder
 from scopecat.execution.measurement_recording import (
     append_measurement_dataset,
     seal_measurement_dataset,
@@ -242,8 +241,8 @@ def _linked_points() -> MaterializedLinkedPoints:
         ),
     )
     environment = build_config_environment(
-        load_config_profile(
-            _REPO_ROOT / "fixtures/core/simple_scan/config-profile.json"
+        load_config_snapshot_document(
+            _REPO_ROOT / "fixtures/core/simple_scan/config-snapshot.json"
         )
     )
     return materialize_linked_points(link_program(program, environment))
@@ -454,7 +453,6 @@ def test_fake_domain_iq_reaches_host_probabilities_and_durable_records() -> None
         scenario.linked_points.linked_plan.program.record_uses,
     )
     journal = FakeExecutionJournal()
-    recorder = TransitionRecorder(journal)
     committer = FakeMeasurementDatasetRepository()
     run_id = "fake-host-transform-run"
     executed = seal_measurement_values(
@@ -476,7 +474,7 @@ def test_fake_domain_iq_reaches_host_probabilities_and_durable_records() -> None
     committed = append_measurement_dataset(
         projected,
         committer,
-        recorder,
+        journal,
     )
     assert committed is not None
     assert projected.schema is not None
@@ -486,7 +484,7 @@ def test_fake_domain_iq_reaches_host_probabilities_and_durable_records() -> None
         point_count=len(projected.records),
         append_content_hashes=(committed.dataset_content_hash,),
         writer=committer,
-        recorder=recorder,
+        journal=journal,
     )
 
     assert scenario.context.direct_product_uses == (scenario.iq_use,)

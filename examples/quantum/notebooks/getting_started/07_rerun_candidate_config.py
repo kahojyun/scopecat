@@ -53,7 +53,7 @@ summary = {
     "baseline": baseline.id,
     "parameter_change": proposal.id,
     "saved_analysis": saved_analysis.record.id,
-    "candidate_proposals": candidate.proposal_ids,
+    "candidate_proposal": candidate.proposal_id,
     "follow_up": follow_up.id,
     "candidate_source": (
         candidate_source.kind if candidate_source is not None else None

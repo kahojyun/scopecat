@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from pathlib import PurePosixPath
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -12,8 +11,7 @@ from scopecat.kernel.run_outcome import utc_now
 from scopecat.records.config import ConfigContentHash
 from scopecat.records.parameter import StoredParameterValue
 
-ParameterChangeReviewState = Literal["approved", "rejected"]
-ParameterChangeDecision = Literal["approved", "rejected", "invalidated"]
+ParameterChangeDecision = Literal["approved", "rejected"]
 
 
 class HumanDecisionAuthority(BaseModel):
@@ -53,7 +51,7 @@ type ParameterChangeDecisionAuthority = Annotated[
 
 
 class ParameterChangeDecisionRecord(BaseModel):
-    """One immutable event in a parameter proposal's review history."""
+    """One immutable decision in a parameter proposal's history."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -63,7 +61,6 @@ class ParameterChangeDecisionRecord(BaseModel):
     decision: ParameterChangeDecision
     authority: ParameterChangeDecisionAuthority
     note: str = ""
-    related_refs: tuple[str, ...] = Field(default_factory=tuple)
     decided_at: datetime = Field(default_factory=utc_now)
 
     @property
@@ -76,19 +73,6 @@ class ParameterChangeDecisionRecord(BaseModel):
         if not value.strip():
             msg = "parameter change decision identity fields must be non-empty"
             raise ValueError(msg)
-        return value
-
-    @field_validator("related_refs")
-    @classmethod
-    def validate_related_refs(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        for ref in value:
-            if not ref:
-                msg = "parameter change decision refs must be non-empty"
-                raise ValueError(msg)
-            path = PurePosixPath(ref)
-            if path.is_absolute() or ".." in path.parts:
-                msg = f"parameter change decision ref escapes run directory: {ref}"
-                raise ValueError(msg)
         return value
 
 

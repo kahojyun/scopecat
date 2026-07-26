@@ -55,7 +55,6 @@ from scopecat.daemon.wire import (
     MeasurementAppendCommand,
     MeasurementSealCommand,
     ParameterProposalDecisionCommand,
-    ParameterProposalReviewCommand,
     RunAdmission,
     RunAttachmentCommand,
     RunSubmission,
@@ -184,12 +183,6 @@ class RunOperations(Protocol):
         self,
         run_id: str,
     ) -> ParameterProposalListView: ...
-    def review_parameter_proposal(
-        self,
-        run_id: str,
-        proposal_id: str,
-        command: ParameterProposalReviewCommand,
-    ) -> ParameterChangeDecisionRecord: ...
     def decide_parameter_proposal(
         self,
         run_id: str,
@@ -467,20 +460,6 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/parameter-proposals")
     def list_parameter_proposals(run_id: str) -> ParameterProposalListView:
         return application.runs.list_parameter_proposals(run_id)
-
-    @app.post(
-        f"{_API_PREFIX}/runs/{{run_id}}/parameter-proposals/{{proposal_id}}/review"
-    )
-    def review_parameter_proposal(
-        run_id: str,
-        proposal_id: str,
-        command: ParameterProposalReviewCommand,
-    ) -> ParameterChangeDecisionRecord:
-        return application.runs.review_parameter_proposal(
-            run_id,
-            proposal_id,
-            command,
-        )
 
     @app.post(
         f"{_API_PREFIX}/runs/{{run_id}}/parameter-proposals/{{proposal_id}}/decision"

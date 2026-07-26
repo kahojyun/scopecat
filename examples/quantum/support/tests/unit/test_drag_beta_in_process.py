@@ -368,7 +368,7 @@ def test_drag_beta_review_activate_active_replay_and_rollback(
     assert approved.decision == "approved"
     assert activated.active_state.generation == 2
     assert isinstance(activated.entry.source, CandidateConfigRegistrySource)
-    [proposal_evidence] = activated.entry.source.proposal_evidence
+    proposal_evidence = activated.entry.source.proposal_evidence
     assert proposal_evidence.proposal_id == result.proposal_id
     assert proposal_evidence.approval_event_id == approved.event_id
     assert proposal_evidence.proposal_record_content_hash.startswith("sha256:")

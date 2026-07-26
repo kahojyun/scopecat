@@ -64,7 +64,6 @@ export function RunsWorkspace({
   const runsQuery = useQuery({
     queryKey: ["runs"],
     queryFn: ({ signal }) => getRuns(signal),
-    refetchInterval: 2_500,
   });
   const runHeadCursor = runsQuery.data?.previousCursor;
   latestRunHeadCursor.current = runHeadCursor;

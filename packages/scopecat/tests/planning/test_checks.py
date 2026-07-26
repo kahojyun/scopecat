@@ -6,9 +6,10 @@ from typing import Literal, Never
 import pytest
 
 import scopecat as sc
-import scopecat.config.resolution as config_resolution
 import scopecat.planning.system as planning_system
+import tests.testkit.planning as test_planning
 from scopecat.config.candidates import CandidateConfig
+from scopecat.config.changes import parameter_change_proposal_from_updates
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
     Problem,
@@ -254,14 +255,29 @@ def test_session_candidate_config_is_not_read_before_authoring(
         raise AssertionError("candidate config must not be read for invalid authoring")
 
     monkeypatch.setattr(
-        config_resolution,
+        test_planning,
         "resolve_candidate_config_snapshot",
         unexpected_candidate_read,
     )
+    config = load_config()
     candidate = CandidateConfig(
-        parameter_proposals=(),
+        parameter_proposal=parameter_change_proposal_from_updates(
+            source_run_id="not-read",
+            source_config=config,
+            analysis_title="not read",
+            analysis_record_id="analysis-not-read",
+            proposal_id="not-read",
+            updates=(
+                sc.replace_scalar_parameter(
+                    "drive_frequency",
+                    sc.Quantity(5.1, "GHz"),
+                ),
+            ),
+            reason="must not be resolved",
+            confidence=None,
+        ),
     )
-    lab = _lab(tmp_path)
+    lab = _lab(tmp_path, config=config)
     prepared = lab.prepare(simple_template().bind(), config=candidate)
 
     if terminal == "check":

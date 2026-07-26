@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   activateProposalCandidate,
+  decideParameterProposal,
   getRunParameterProposals,
   latestProposalDecision,
-  reviewParameterProposal,
 } from "./api";
 
 afterEach(() => {
@@ -103,19 +103,22 @@ describe("parameter proposal reads", () => {
 });
 
 describe("parameter proposal commands", () => {
-  it("uses the path as review identity", async () => {
+  it("uses the path as decision identity and records the human authority", async () => {
     const fetchMock = vi.fn((_input: string | URL | Request) => Promise.resolve(jsonResponse({})));
     vi.stubGlobal("fetch", fetchMock);
 
-    await reviewParameterProposal("run/a", "proposal b", {
+    await decideParameterProposal("run/a", "proposal b", {
       decision: "rejected",
       reviewer: "Grace",
       note: "Needs another sweep",
     });
 
-    expectRequest(fetchMock, "/api/v1/runs/run%2Fa/parameter-proposals/proposal%20b/review", {
+    expectRequest(fetchMock, "/api/v1/runs/run%2Fa/parameter-proposals/proposal%20b/decision", {
       decision: "rejected",
-      reviewer: "Grace",
+      authority: {
+        kind: "human",
+        actor: "Grace",
+      },
       note: "Needs another sweep",
     });
   });
@@ -126,7 +129,7 @@ describe("parameter proposal commands", () => {
 
     await activateProposalCandidate({
       runId: "run-a",
-      proposalIds: ["drive-frequency"],
+      proposalId: "drive-frequency",
       registeredBy: "Ada",
       operator: "Ada",
       expectedGeneration: 4,
@@ -135,7 +138,7 @@ describe("parameter proposal commands", () => {
 
     expectRequest(fetchMock, "/api/v1/config-registry/candidates/activate", {
       run_id: "run-a",
-      proposal_ids: ["drive-frequency"],
+      proposal_id: "drive-frequency",
       registered_by: "Ada",
       operator: "Ada",
       expected_generation: 4,
@@ -152,7 +155,7 @@ describe("parameter proposal commands", () => {
     await expect(
       activateProposalCandidate({
         runId: "run-a",
-        proposalIds: ["drive-frequency"],
+        proposalId: "drive-frequency",
         registeredBy: "Ada",
         operator: "Ada",
         expectedGeneration: 4,

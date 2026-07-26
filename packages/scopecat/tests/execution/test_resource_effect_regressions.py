@@ -19,7 +19,6 @@ from scopecat.compiler.typed.program import (
 from scopecat.compiler.typed.state import SetStateSpec
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.effect_interpreter import RunEffectInterpreter
-from scopecat.execution.events import TransitionRecorder
 from scopecat.execution.local.program import (
     ApplyStateOperation,
     CollectOperation,
@@ -471,7 +470,7 @@ def test_scoped_same_field_targets_survive_snapshot_reconciliation() -> None:
         coordinate_ids=tuple(program.points[0].coordinates),
         resource_order=program.resource_order,
         drivers={driver.instrument_id: driver},
-        recorder=TransitionRecorder(FakeExecutionJournal()),
+        journal=FakeExecutionJournal(),
     ).run(complete_coverage_operations(program))
 
     assert not result.problems and not result.indeterminate

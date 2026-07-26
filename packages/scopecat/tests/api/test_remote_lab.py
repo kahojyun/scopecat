@@ -18,16 +18,6 @@ from scopecat.api._remote import RemoteRunOperations
 from scopecat.api._runner import _DaemonRunner
 from scopecat.api.lab import LabClient
 from scopecat.config.drafts import ConfigDraft
-from scopecat.config.parameters import (
-    DeleteParameterRows,
-    InsertParameterRows,
-    ReplaceParameter,
-    UpdateParameterRows,
-    delete_parameter_rows,
-    insert_parameter_rows,
-    replace_scalar_parameter,
-    update_parameter_rows,
-)
 from scopecat.config.registry.records import (
     ConfigRegistryActivationRecord,
     ConfigRegistryActiveState,
@@ -42,7 +32,6 @@ from scopecat.daemon.execution import ExecutorLeaseLostError
 from scopecat.daemon.views import (
     ActiveConfigView,
     ConfigDraftPreview,
-    ConfigEntryView,
     ConfigRegistryView,
 )
 from scopecat.daemon.wire import (
@@ -51,24 +40,15 @@ from scopecat.daemon.wire import (
     AnalysisSaveReceipt,
     ConfigActivationReceipt,
     ConfigDefaultReceipt,
-    ConfigDraftCommand,
     ConfigDraftDefaultCommand,
     ConfigDraftDefaultReceipt,
     ConfigDraftRegistrationCommand,
     ConfigDraftRegistrationReceipt,
-    ConfigEntryActivationCommand,
     ConfigRollbackCommand,
     DirectConfigDefaultCommand,
-    DirectConfigImportCommand,
     ExecutorLease,
     RunAdmission,
     RunSubmission,
-)
-from scopecat.execution.observation import (
-    RuntimeEvent,
-    RuntimePayloadObservation,
-    RuntimeProgress,
-    RuntimeTransitionEvent,
 )
 from scopecat.execution.program import RunProgram
 from scopecat.execution.services import ExecutionSession
@@ -123,25 +103,7 @@ def test_execute_submits_complete_plan_and_heartbeats(
     heartbeat_seen = Event()
     heartbeat_count = 0
     submissions: list[RunSubmission] = []
-    local_events: list[RuntimeEvent] = []
     forwarded: dict[str, object] = {}
-    transition_event = RuntimeTransitionEvent(
-        run_id="run-1",
-        experiment_id=preview.experiment_id,
-        observed_at=_NOW,
-        occurred_at=_NOW,
-        operation_id="point-0",
-        stage="point",
-        effect="pure",
-        state="completed",
-        progress=RuntimeProgress(completed_points=1, total_points=1),
-        point_index=0,
-    )
-    compute_event = replace(
-        transition_event,
-        operation_id="compute-0",
-        stage="compute",
-    )
 
     def handler(http_request: httpx2.Request) -> httpx2.Response:
         nonlocal heartbeat_count
@@ -163,38 +125,23 @@ def test_execute_submits_complete_plan_and_heartbeats(
         program: RunProgram,
         session: ExecutionSession,
         instrument_provider: InstrumentProvider | None,
-        event_sink: Callable[[RuntimeEvent], None] | None,
-        payload_observer: Callable[[RuntimePayloadObservation], None] | None,
     ) -> RunManifest:
         forwarded.update(
             program=program,
             instrument_provider=instrument_provider,
-            event_sink=event_sink,
-            payload_observer=payload_observer,
         )
         accepted = session.accepted
         assert session.config == planned.config
         session.begin()
         assert heartbeat_seen.wait(timeout=1)
-        assert event_sink is not None
-        event_sink(compute_event)
-        event_sink(transition_event)
         return _terminal_manifest(accepted)
 
     monkeypatch.setattr(runner_module, "execute_admitted_run", execute)
-
-    def event_sink(event: RuntimeEvent) -> None:
-        local_events.append(event)
-
-    def payload_observer(_event: RuntimePayloadObservation) -> None:
-        pass
 
     result = _DaemonRunner(_client(handler), None).execute(
         planned,
         executor_id="notebook-1",
         submission_id="submission-1",
-        event_sink=event_sink,
-        payload_observer=payload_observer,
     )
     completed_heartbeats = heartbeat_count
     time.sleep(0.03)
@@ -217,9 +164,6 @@ def test_execute_submits_complete_plan_and_heartbeats(
     assert forwarded["instrument_provider"] == (
         None if planned.system is None else planned.system.provider
     )
-    assert forwarded["event_sink"] is event_sink
-    assert forwarded["payload_observer"] is payload_observer
-    assert local_events == [compute_event, transition_event]
     assert result.status == "completed"
     assert completed_heartbeats >= 1
     assert heartbeat_count == completed_heartbeats
@@ -264,10 +208,8 @@ def test_execute_fences_effects_after_heartbeat_loses_lease(
         program: RunProgram,
         session: ExecutionSession,
         instrument_provider: InstrumentProvider | None,
-        event_sink: Callable[[RuntimeEvent], None] | None,
-        payload_observer: Callable[[RuntimePayloadObservation], None] | None,
     ) -> RunManifest:
-        del program, instrument_provider, event_sink, payload_observer
+        del program, instrument_provider
         session.begin()
         assert heartbeat_attempted.wait(timeout=1)
         terminal = TerminalRunCommit(
@@ -300,211 +242,6 @@ def test_execute_fences_effects_after_heartbeat_loses_lease(
         )
 
     assert isinstance(error.value.cause, DaemonConflictError)
-
-
-def test_config_operations_compose_registry_commands() -> None:
-    config = load_config()
-    entry, state = _config_registry_records(config)
-    seen: list[object] = []
-    scalar_update = replace_scalar_parameter(
-        "drive_frequency",
-        Quantity(value=5.1, unit="GHz"),
-    )
-    draft = ConfigDraft(config).apply(scalar_update)
-    draft_preview = _config_draft_preview(
-        config=config,
-        entry=entry,
-        state=state,
-        candidate_id="manual-tuning",
-    )
-    assert draft_preview.result_content_hash is not None
-
-    def handler(http_request: httpx2.Request) -> httpx2.Response:
-        path = http_request.url.path
-        if path == "/api/v1/config-registry":
-            return _model(ConfigRegistryView(entries=(entry,), active_state=state))
-        if path == "/api/v1/config-registry/active" and http_request.method == "GET":
-            return _model(
-                ActiveConfigView(entry=entry, active_state=state, config=config)
-            )
-        if path == "/api/v1/config-registry/entries/baseline":
-            return _model(ConfigEntryView(entry=entry, config=config))
-        if path == "/api/v1/config-registry/entries":
-            command = DirectConfigImportCommand.model_validate_json(
-                http_request.content
-            )
-            seen.append(command)
-            return _model(entry, status_code=201)
-        if path == "/api/v1/config-registry/drafts/preview":
-            command = ConfigDraftCommand.model_validate_json(http_request.content)
-            seen.append(command)
-            return _model(draft_preview)
-        if path == "/api/v1/config-registry/drafts/register":
-            command = ConfigDraftRegistrationCommand.model_validate_json(
-                http_request.content
-            )
-            seen.append(command)
-            return _model(
-                _config_draft_registration_receipt(command, draft_preview),
-                status_code=201,
-            )
-        if path == "/api/v1/config-registry/active":
-            command = ConfigEntryActivationCommand.model_validate_json(
-                http_request.content
-            )
-            seen.append(command)
-            return _model(
-                ConfigActivationReceipt(
-                    active_state=state,
-                    activation=state.history[-1],
-                )
-            )
-        if path == "/api/v1/config-registry/rollback":
-            command = ConfigRollbackCommand.model_validate_json(http_request.content)
-            seen.append(command)
-            return _model(
-                ConfigActivationReceipt(
-                    active_state=state,
-                    activation=state.history[-1],
-                )
-            )
-        raise AssertionError(f"unexpected request: {http_request.method} {path}")
-
-    config_ops = LabClient(_client(handler)).config
-
-    assert config_ops.registry().active_state == state
-    assert config_ops.active().config == config
-    assert config_ops.entry("baseline").config == config
-    assert (
-        config_ops.import_snapshot(
-            config,
-            entry_id="baseline",
-            registered_by="notebook",
-        )
-        == entry
-    )
-    previewed = config_ops.preview(
-        draft,
-        candidate_id="manual-tuning",
-    )
-    registered = config_ops.register(
-        draft,
-        preview=previewed,
-        entry_id="manual-tuning",
-        registered_by="notebook",
-    )
-    assert registered.entry.id == "manual-tuning"
-    assert (
-        config_ops.activate_entry(
-            "baseline",
-            operator="operator",
-        ).active_state
-        == state
-    )
-    assert (
-        config_ops.rollback(
-            operator="operator",
-            expected_generation=1,
-        ).active_state
-        == state
-    )
-
-    assert seen == [
-        DirectConfigImportCommand(
-            entry_id="baseline",
-            config=config,
-            registered_by="notebook",
-        ),
-        ConfigDraftCommand(
-            base_entry_id=entry.id,
-            base_content_hash=entry.content_hash,
-            base_generation=state.generation,
-            candidate_id="manual-tuning",
-            updates=(
-                ReplaceParameter(
-                    value=scalar_update.value,
-                ),
-            ),
-        ),
-        ConfigDraftRegistrationCommand(
-            draft=ConfigDraftCommand(
-                base_entry_id=entry.id,
-                base_content_hash=entry.content_hash,
-                base_generation=state.generation,
-                candidate_id="manual-tuning",
-                updates=(
-                    ReplaceParameter(
-                        value=scalar_update.value,
-                    ),
-                ),
-            ),
-            expected_result_content_hash=draft_preview.result_content_hash,
-            entry_id="manual-tuning",
-            registered_by="notebook",
-        ),
-        ConfigEntryActivationCommand(
-            entry_id="baseline",
-            operator="operator",
-            expected_generation=1,
-        ),
-        ConfigRollbackCommand(
-            operator="operator",
-            expected_generation=1,
-        ),
-    ]
-
-
-def test_config_operations_serialize_each_draft_update_shape() -> None:
-    config = load_config()
-    entry, state = _config_registry_records(config)
-    seen: list[ConfigDraftCommand] = []
-    preview = _config_draft_preview(
-        config=config,
-        entry=entry,
-        state=state,
-        candidate_id="all-update-shapes",
-    )
-
-    def handler(request: httpx2.Request) -> httpx2.Response:
-        if (
-            request.url.path == "/api/v1/config-registry/active"
-            and request.method == "GET"
-        ):
-            return _model(
-                ActiveConfigView(entry=entry, active_state=state, config=config)
-            )
-        command = ConfigDraftCommand.model_validate_json(request.content)
-        seen.append(command)
-        return _model(preview)
-
-    draft = ConfigDraft(config).apply(
-        replace_scalar_parameter(
-            "drive_frequency",
-            Quantity(value=5.1, unit="GHz"),
-        ),
-        update_parameter_rows(
-            "channels",
-            key={"id": "q0"},
-            values={"gain": 0.75},
-        ),
-        insert_parameter_rows(
-            "channels",
-            rows=[{"id": "q1", "gain": 0.25}],
-        ),
-        delete_parameter_rows("channels", key={"id": "q2"}),
-    )
-
-    LabClient(_client(handler)).config.preview(
-        draft,
-        candidate_id="all-update-shapes",
-    )
-
-    assert [type(update) for update in seen[0].updates] == [
-        ReplaceParameter,
-        UpdateParameterRows,
-        InsertParameterRows,
-        DeleteParameterRows,
-    ]
 
 
 def test_config_operations_reject_a_draft_from_a_different_active_snapshot() -> None:
@@ -741,10 +478,8 @@ def test_run_scratch_plans_against_explicit_snapshot_without_local_storage(
         *,
         executor_id: str,
         submission_id: str | None = None,
-        event_sink: Callable[[RuntimeEvent], None] | None = None,
-        payload_observer: Callable[[RuntimePayloadObservation], None] | None = None,
     ) -> RunManifest:
-        del self, event_sink, payload_observer
+        del self
         captured.update(
             planned=planned,
             executor_id=executor_id,
@@ -812,10 +547,8 @@ def test_run_scratch_uses_active_config_and_bound_system(
         *,
         executor_id: str,
         submission_id: str | None = None,
-        event_sink: Callable[[RuntimeEvent], None] | None = None,
-        payload_observer: Callable[[RuntimePayloadObservation], None] | None = None,
     ) -> RunManifest:
-        del self, executor_id, submission_id, event_sink, payload_observer
+        del self, executor_id, submission_id
         captured["planned"] = planned
         return _terminal_manifest(
             RunManifest(

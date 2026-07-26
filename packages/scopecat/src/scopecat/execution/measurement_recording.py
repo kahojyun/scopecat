@@ -7,7 +7,6 @@ from typing import Literal, Protocol
 
 from pydantic import JsonValue
 
-from scopecat.execution.events import TransitionRecorder
 from scopecat.execution.ports.measurement import MeasurementDatasetWriter
 from scopecat.kernel.errors import MeasurementRecordingError
 from scopecat.kernel.problems import Problem, ProblemPhase
@@ -20,7 +19,7 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetSeal,
     measurement_dataset_content_hash,
 )
-from scopecat.sdk.journal import commit_transition as _commit_transition
+from scopecat.sdk.journal import ExecutionJournal, commit_transition
 from scopecat.sdk.runtime_problems import problem_from_exception, runtime_problem
 
 
@@ -35,7 +34,7 @@ class _DatasetOperation(Protocol):
 def append_measurement_dataset(
     dataset: ProjectedMeasurementDataset,
     writer: MeasurementDatasetWriter,
-    recorder: TransitionRecorder,
+    journal: ExecutionJournal,
 ) -> MeasurementDatasetReceipt | None:
     """Append one contiguous projected point range."""
 
@@ -60,7 +59,7 @@ def append_measurement_dataset(
             "append_content_hash": append.content_hash,
         },
         invoke=lambda: writer.append(append),
-        recorder=recorder,
+        journal=journal,
     )
 
 
@@ -71,7 +70,7 @@ def seal_measurement_dataset(
     point_count: int,
     append_content_hashes: tuple[str, ...],
     writer: MeasurementDatasetWriter,
-    recorder: TransitionRecorder,
+    journal: ExecutionJournal,
 ) -> MeasurementDatasetReceipt:
     """Seal the dataset after all admitted point ranges have been appended."""
 
@@ -93,7 +92,7 @@ def seal_measurement_dataset(
             "dataset_content_hash": seal.dataset_content_hash,
         },
         invoke=lambda: writer.seal(seal),
-        recorder=recorder,
+        journal=journal,
     )
 
 
@@ -104,7 +103,7 @@ def _record_operation(
     stage: ExecutionStage,
     evidence: dict[str, JsonValue],
     invoke: Callable[[], object],
-    recorder: TransitionRecorder,
+    journal: ExecutionJournal,
 ) -> MeasurementDatasetReceipt:
     started = _transition(
         operation,
@@ -113,7 +112,7 @@ def _record_operation(
         evidence=evidence,
     )
     try:
-        recorder.commit(started)
+        commit_transition(journal, started)
     except Exception as error:
         raise _error(
             operation,
@@ -137,7 +136,7 @@ def _record_operation(
             "measurement dataset writer raised",
             error,
         )
-        _append_unknown(recorder, started, operation, stage, (problem,), None)
+        _append_unknown(journal, started, operation, stage, (problem,), None)
         raise _error(
             operation,
             problems=(problem,),
@@ -152,7 +151,7 @@ def _record_operation(
             operation_id=operation.operation_id,
             phase=ProblemPhase.PERSISTENCE,
         )
-        _append_unknown(recorder, started, operation, stage, (problem,), None)
+        _append_unknown(journal, started, operation, stage, (problem,), None)
         raise
     receipt: MeasurementDatasetReceipt | None = None
     try:
@@ -177,7 +176,7 @@ def _record_operation(
                 "error_type": f"{type(error).__module__}.{type(error).__qualname__}"
             },
         )
-        _append_unknown(recorder, started, operation, stage, (problem,), receipt)
+        _append_unknown(journal, started, operation, stage, (problem,), receipt)
         raise _error(
             operation,
             problems=(problem,),
@@ -194,7 +193,7 @@ def _record_operation(
         },
     )
     try:
-        recorder.commit(completed)
+        commit_transition(journal, completed)
     except Exception as error:
         raise _error(
             operation,
@@ -233,7 +232,7 @@ def _transition(
 
 
 def _append_unknown(
-    recorder: TransitionRecorder,
+    journal: ExecutionJournal,
     started: ExecutionTransition,
     operation: _DatasetOperation,
     stage: ExecutionStage,
@@ -246,8 +245,8 @@ def _append_unknown(
     if receipt is not None:
         evidence["receipt"] = receipt.model_dump(mode="json")
     try:
-        _commit_transition(
-            recorder.journal,
+        commit_transition(
+            journal,
             _transition(
                 operation,
                 stage=stage,

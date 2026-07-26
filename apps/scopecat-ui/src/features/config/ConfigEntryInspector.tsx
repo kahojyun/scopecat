@@ -199,13 +199,16 @@ function EntryProvenance({
   }
 
   const runId = source.run_id;
-  const proposalIds = source.proposal_evidence.map((evidence) => evidence.proposal_id);
+  const proposalId = source.proposal_evidence.proposal_id;
   const proposalsById = new Map(
     (candidateProposals ?? []).map((proposal) => [proposal.id, proposal]),
   );
   const analysesById = new Map(
     (candidateAnalyses ?? []).map((analysis) => [analysis.id, analysis]),
   );
+  const proposal = proposalsById.get(proposalId);
+  const analysis = proposal ? analysesById.get(proposal.analysisRecordId) : undefined;
+  const decision = proposal ? latestProposalDecision(proposal) : undefined;
   return (
     <div className="config-provenance candidate-provenance">
       <GitCompareArrows size={16} aria-hidden="true" />
@@ -236,78 +239,64 @@ function EntryProvenance({
         )}
 
         <div className="candidate-evidence-list">
-          {proposalIds.length === 0 && (
-            <p className="candidate-evidence-status">
-              No proposal evidence is recorded for this candidate.
-            </p>
-          )}
-          {proposalIds.map((proposalId) => {
-            const proposal = proposalsById.get(proposalId);
-            const analysis = proposal ? analysesById.get(proposal.analysisRecordId) : undefined;
-            const decision = proposal ? latestProposalDecision(proposal) : undefined;
-            return (
-              <article key={proposalId} aria-label={`Proposal ${proposalId}`}>
-                <dl>
+          <article aria-label={`Proposal ${proposalId}`}>
+            <dl>
+              <div>
+                <dt>Proposal</dt>
+                <dd>
+                  <code>{proposalId}</code>
+                </dd>
+              </div>
+              <div>
+                <dt>Analysis</dt>
+                <dd>
+                  {proposal ? (
+                    <>
+                      <code>{proposal.analysisRecordId}</code>
+                      {analysis && <span>{analysis.title}</span>}
+                      {!analysis && candidateAnalysesPending && " · Loading details"}
+                    </>
+                  ) : candidateProposalsPending ? (
+                    "Loading proposal"
+                  ) : (
+                    "Proposal details unavailable"
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt>
+                  {decision?.decision === "approved" ? "Latest acceptance" : "Latest decision"}
+                </dt>
+                <dd>
+                  {decision
+                    ? `${displayDecision(decision.decision)} · ${decisionAuthorityLabel(decision)}`
+                    : candidateProposalsPending
+                      ? "Loading decision"
+                      : "Decision unavailable"}
+                </dd>
+              </div>
+              {decision && (
+                <>
                   <div>
-                    <dt>Proposal</dt>
-                    <dd>
-                      <code>{proposalId}</code>
-                    </dd>
+                    <dt>Note</dt>
+                    <dd>{decision.note || "No decision note"}</dd>
                   </div>
                   <div>
-                    <dt>Analysis</dt>
+                    <dt>Decided</dt>
                     <dd>
-                      {proposal ? (
-                        <>
-                          <code>{proposal.analysisRecordId}</code>
-                          {analysis && <span>{analysis.title}</span>}
-                          {!analysis && candidateAnalysesPending && " · Loading details"}
-                        </>
-                      ) : candidateProposalsPending ? (
-                        "Loading proposal"
+                      {decision.decidedAt ? (
+                        <time dateTime={decision.decidedAt}>
+                          {formatDateTime(decision.decidedAt)}
+                        </time>
                       ) : (
-                        "Proposal details unavailable"
+                        "Decision time unavailable"
                       )}
                     </dd>
                   </div>
-                  <div>
-                    <dt>
-                      {decision?.decision === "approved" ? "Latest acceptance" : "Latest decision"}
-                    </dt>
-                    <dd>
-                      {decision
-                        ? `${displayDecision(decision.decision)} · ${decisionAuthorityLabel(
-                            decision,
-                          )}`
-                        : candidateProposalsPending
-                          ? "Loading decision"
-                          : "Decision unavailable"}
-                    </dd>
-                  </div>
-                  {decision && (
-                    <>
-                      <div>
-                        <dt>Note</dt>
-                        <dd>{decision.note || "No decision note"}</dd>
-                      </div>
-                      <div>
-                        <dt>Decided</dt>
-                        <dd>
-                          {decision.decidedAt ? (
-                            <time dateTime={decision.decidedAt}>
-                              {formatDateTime(decision.decidedAt)}
-                            </time>
-                          ) : (
-                            "Decision time unavailable"
-                          )}
-                        </dd>
-                      </div>
-                    </>
-                  )}
-                </dl>
-              </article>
-            );
-          })}
+                </>
+              )}
+            </dl>
+          </article>
         </div>
       </div>
     </div>

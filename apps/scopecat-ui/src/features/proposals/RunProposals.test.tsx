@@ -7,8 +7,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { getConfigRegistry } from "../config/config-api";
 import {
   activateProposalCandidate,
+  decideParameterProposal,
   getRunParameterProposals,
-  reviewParameterProposal,
 } from "../../data/parameter-proposals/api";
 import type {
   ParameterProposal,
@@ -25,8 +25,8 @@ vi.mock("../../data/parameter-proposals/api", async (importOriginal) => {
   return {
     ...original,
     activateProposalCandidate: vi.fn(),
+    decideParameterProposal: vi.fn(),
     getRunParameterProposals: vi.fn(),
-    reviewParameterProposal: vi.fn(),
   };
 });
 
@@ -39,7 +39,7 @@ afterEach(() => {
 describe("RunProposals", () => {
   it("keeps approve-only as an advanced action", async () => {
     vi.mocked(getRunParameterProposals).mockResolvedValue(proposalList(pendingProposal()));
-    vi.mocked(reviewParameterProposal).mockResolvedValue();
+    vi.mocked(decideParameterProposal).mockResolvedValue();
     renderProposals();
 
     expect(await screen.findByText("q0.drive.frequency")).toBeInTheDocument();
@@ -55,7 +55,7 @@ describe("RunProposals", () => {
     fireEvent.click(within(approvalDialog).getByRole("button", { name: "Approve proposal" }));
 
     await waitFor(() =>
-      expect(reviewParameterProposal).toHaveBeenCalledWith("run-1", "drive-frequency", {
+      expect(decideParameterProposal).toHaveBeenCalledWith("run-1", "drive-frequency", {
         reviewer: "local-operator",
         note: "Peak is clean",
         decision: "approved",
@@ -100,7 +100,7 @@ describe("RunProposals", () => {
     await waitFor(() =>
       expect(activateProposalCandidate).toHaveBeenCalledWith({
         runId: "run-1",
-        proposalIds: ["latest-proposal"],
+        proposalId: "latest-proposal",
         registeredBy: "local-operator",
         operator: "local-operator",
         expectedGeneration: 3,
@@ -111,7 +111,7 @@ describe("RunProposals", () => {
 
   it("accepts a pending proposal in one action and reports publish failure", async () => {
     vi.mocked(getRunParameterProposals).mockResolvedValue(proposalList(pendingProposal()));
-    vi.mocked(reviewParameterProposal).mockResolvedValue();
+    vi.mocked(decideParameterProposal).mockResolvedValue();
     vi.mocked(getConfigRegistry).mockResolvedValue({
       active_state: {
         generation: 3,
@@ -136,7 +136,7 @@ describe("RunProposals", () => {
         "The proposal is accepted, but the default was not changed: generation conflict",
       ),
     ).toBeInTheDocument();
-    expect(reviewParameterProposal).toHaveBeenCalledWith("run-1", "drive-frequency", {
+    expect(decideParameterProposal).toHaveBeenCalledWith("run-1", "drive-frequency", {
       reviewer: "local-operator",
       note: "",
       decision: "approved",

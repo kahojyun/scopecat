@@ -141,8 +141,7 @@ def test_different_target_partitions_preserve_the_logical_dataset(
         lab = InProcessQuantumLab(
             project_root=tmp_path / f"capacity-{max_list_entries}",
             services=sqlite_project_services(tmp_path / f"capacity-{max_list_entries}"),
-            config="active",
-            config_profile=fake_x_count_bias_config(),
+            config=fake_x_count_bias_config(),
             system=sc.ExperimentSystem(
                 provider=FakeBiasVoltageProvider(),
                 domain_compiler=compiler,
@@ -190,8 +189,7 @@ def test_later_batch_failure_has_one_domain_problem_and_partial_dataset(
     lab = InProcessQuantumLab(
         project_root=tmp_path,
         services=sqlite_project_services(tmp_path),
-        config="active",
-        config_profile=fake_x_count_bias_config(),
+        config=fake_x_count_bias_config(),
         system=sc.ExperimentSystem(
             provider=source,
             domain_compiler=compiler,
@@ -227,8 +225,7 @@ def _run_mixed_experiment(
     lab = InProcessQuantumLab(
         project_root=project_root,
         services=sqlite_project_services(project_root),
-        config="active",
-        config_profile=fake_x_count_bias_config(),
+        config=fake_x_count_bias_config(),
         system=sc.ExperimentSystem(
             provider=source,
             domain_compiler=compiler,

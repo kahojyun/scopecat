@@ -108,8 +108,8 @@ class Compute:
         )
 
 
-def input(  # noqa: A001
-    id: str,  # noqa: A002
+def input(
+    id: str,
     value_type: ValueType,
 ) -> ValueRef:
     """Declare one typed module input value.
@@ -122,7 +122,7 @@ def input(  # noqa: A001
     return internal_input_value_ref(id, value_type)
 
 
-def coordinate(id: str, value_type: Scalar) -> ValueRef:  # noqa: A002
+def coordinate(id: str, value_type: Scalar) -> ValueRef:
     """Declare a typed scalar coordinate supplied by each experiment point.
 
     Pass the same value to module bindings and scan factories. This keeps the
@@ -132,7 +132,7 @@ def coordinate(id: str, value_type: Scalar) -> ValueRef:  # noqa: A002
     return internal_point_value_ref(id, value_type)
 
 
-def parameter(id: str, value_type: ValueType) -> ValueRef:  # noqa: A002
+def parameter(id: str, value_type: ValueType) -> ValueRef:
     """Declare a typed scalar, series, or table parameter dependency."""
 
     return internal_value_ref_from_expression(
@@ -196,7 +196,7 @@ def parameter_lookup(
 
 
 def compute(
-    id: str,  # noqa: A002
+    id: str,
     *,
     fn: ComputeFunction,
     inputs: Mapping[str, ComputeInput] | None = None,
