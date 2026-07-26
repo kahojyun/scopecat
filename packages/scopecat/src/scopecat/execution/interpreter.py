@@ -39,6 +39,9 @@ from scopecat.kernel.problems import (
 )
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.measurements.datasets import RAW_MEASUREMENTS_DATASET_ID
+from scopecat.measurements.postprocessors import (
+    execute_measurement_postprocessors,
+)
 from scopecat.measurements.projection import project_measurement_records
 from scopecat.measurements.values import (
     MeasurementValueCandidate,
@@ -103,9 +106,15 @@ def _execute_run(
         candidates: tuple[MeasurementValueCandidate, ...],
     ) -> None:
         nonlocal committed_measurement_count
+        completed_candidates = execute_measurement_postprocessors(
+            program.measurement_postprocessors,
+            candidates,
+            points=block.points,
+            catalog=program.measurements.catalog,
+        )
         values = seal_measurement_values(
             program.measurements.catalog,
-            candidates,
+            completed_candidates,
             points=block.points,
         )
         projected = project_measurement_records(

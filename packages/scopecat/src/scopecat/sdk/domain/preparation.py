@@ -8,16 +8,11 @@ from typing import cast
 
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.product_identity import ProductId, ProductUseId
-from scopecat.measurements.host_transforms import (
-    HostMeasurementTransformPlan,
-    bind_host_measurement_transforms,
-)
 from scopecat.measurements.values import (
     MeasurementValueCandidate,
 )
 from scopecat.sdk.domain._context_contract import DomainBatchContextView
 from scopecat.sdk.domain._identities import product_use_id
-from scopecat.sdk.domain._measurement_bridge import lower_domain_host_transform_binding
 from scopecat.sdk.domain.execution import (
     ErasedDomainInvocation,
     ErasedDomainRealizer,
@@ -33,7 +28,6 @@ from scopecat.sdk.domain.job import (
     DomainInvocationSpec,
     DomainResultValue,
 )
-from scopecat.sdk.domain.measurements import DomainHostTransformBinding
 from scopecat.sdk.domain.result_mapping import (
     DomainMappedResult,
     DomainResultBinding,
@@ -45,9 +39,9 @@ from scopecat.sdk.domain.runtime import CorrelatedDomainFetch, DomainRuntime
 class DomainPreparationBuilder:
     """Context-bound constructor for one complete prepared execution proof.
 
-    Result mapping, value ownership, host transforms, invocation identity, and
-    result decoding are all lowered behind this facade. Laboratory adapters
-    provide only SDK references and target-owned payloads.
+    Result mapping, value ownership, invocation identity, and result decoding
+    are lowered behind this facade. Laboratory adapters provide only SDK
+    references and target-owned payloads.
     """
 
     __slots__ = ("_context",)
@@ -75,14 +69,12 @@ class DomainPreparationBuilder:
         if any(id(binding.point) not in point_ids for binding in selected_results):
             msg = "domain result binding references a point outside this batch context"
             raise ValueError(msg)
-        direct_use_ids = {
-            id(product_use) for product_use in context.direct_product_uses
-        }
+        direct_use_ids = {id(product_use) for product_use in context.product_uses}
         if any(
             id(binding.product_use) not in direct_use_ids
             for binding in selected_results
         ):
-            msg = "domain result binding references a non-direct or foreign product use"
+            msg = "domain result binding references a foreign product use"
             raise ValueError(msg)
 
         return _close_result_mapping(
@@ -98,7 +90,6 @@ class DomainPreparationBuilder:
         self,
         *,
         mapping: DomainResultMapping[ResultAddressT],
-        host_transforms: Sequence[DomainHostTransformBinding] = (),
         invocation: DomainInvocationSpec[PayloadT],
         runtime: DomainRuntime[PayloadT, ResultT],
         realize: Callable[
@@ -140,44 +131,7 @@ class DomainPreparationBuilder:
             invocation=cast("ErasedDomainInvocation", native_invocation),
             runtime=cast("ErasedDomainRuntime", runtime),
             realize=cast("ErasedDomainRealizer", close_realized_values),
-            points=self._context.run_points,
-            transforms=_bind_host_transforms(
-                self._context,
-                tuple(host_transforms),
-            ),
         )
-
-
-def _bind_host_transforms(
-    context: DomainBatchContextView,
-    supplied_bindings: tuple[DomainHostTransformBinding, ...],
-) -> HostMeasurementTransformPlan | None:
-    authored = {
-        id(transform): transform for transform in context.measurement_transforms
-    }
-    if any(id(binding.transform) not in authored for binding in supplied_bindings):
-        raise ValueError("domain host binding references a foreign transform")
-    binding_by_transform = {
-        id(binding.transform): binding for binding in supplied_bindings
-    }
-    if len(binding_by_transform) != len(supplied_bindings):
-        raise ValueError("domain host transform bindings must be unique")
-    if set(binding_by_transform) != set(authored):
-        raise ValueError("domain host bindings must exactly cover residual transforms")
-    # The context preserves compiler topology; adapter submission order is irrelevant.
-    selected = tuple(
-        binding_by_transform[id(transform)]
-        for transform in context.measurement_transforms
-    )
-    native_pairs = tuple(
-        lower_domain_host_transform_binding(context, binding) for binding in selected
-    )
-    if not native_pairs:
-        return None
-    return bind_host_measurement_transforms(
-        native_pairs,
-        tuple(product_use_id(use) for use in context.direct_product_uses),
-    )
 
 
 def _close_result_mapping[
@@ -186,7 +140,7 @@ def _close_result_mapping[
     context: DomainBatchContextView,
     result_bindings: tuple[DomainResultBinding[ResultAddressT], ...],
 ) -> DomainResultMapping[ResultAddressT]:
-    use_refs = context.direct_product_uses
+    use_refs = context.product_uses
     use_ref_by_id = {product_use_id(use): use for use in use_refs}
     use_order = {use_id: index for index, use_id in enumerate(use_ref_by_id)}
     point_order = {id(point): index for index, point in enumerate(context.points)}

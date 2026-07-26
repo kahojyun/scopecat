@@ -14,10 +14,10 @@ from types import MappingProxyType
 
 from scopecat.compiler.semantic.model import (
     AcquireEffect,
-    MeasurementTransformId,
+    MeasurementPostprocessorId,
     SemanticDomainExecution,
     SemanticGraphIR,
-    SemanticMeasurementTransform,
+    SemanticMeasurementPostprocessor,
     SemanticOperation,
     ValueDef,
 )
@@ -95,8 +95,8 @@ def verify_semantic_graph(
     )
     problems: list[Problem] = []
     definitions = {definition.id: definition for definition in graph.value_defs}
-    ambiguous_measurement_transform_ids = _measurement_transforms_by_id(
-        graph.measurement_transforms,
+    ambiguous_measurement_postprocessor_ids = _measurement_postprocessors_by_id(
+        graph.measurement_postprocessors,
         problems,
     )
     operation_results = {
@@ -119,19 +119,19 @@ def verify_semantic_graph(
             problems,
             execution_index=execution_index,
         )
-    unambiguous_measurement_transforms = tuple(
-        transform
-        for transform in graph.measurement_transforms
-        if transform.id not in ambiguous_measurement_transform_ids
+    unambiguous_measurement_postprocessors = tuple(
+        postprocessor
+        for postprocessor in graph.measurement_postprocessors
+        if postprocessor.id not in ambiguous_measurement_postprocessor_ids
     )
     _verify_product_owners(
         acquisitions,
         domain_executions,
-        unambiguous_measurement_transforms,
+        unambiguous_measurement_postprocessors,
         problems,
     )
-    ordered_measurement_transforms = _topological_measurement_transforms(
-        unambiguous_measurement_transforms,
+    ordered_measurement_postprocessors = _verify_measurement_postprocessor_sources(
+        unambiguous_measurement_postprocessors,
         problems,
     )
     ordered_operations = _topological_operations(
@@ -147,18 +147,21 @@ def verify_semantic_graph(
     normalized = SemanticGraphIR(
         value_defs=ordered_defs,
         operations=ordered_operations,
-        measurement_transforms=ordered_measurement_transforms,
+        measurement_postprocessors=ordered_measurement_postprocessors,
     )
     return VerifiedSemanticGraph(normalized)
 
 
-def _measurement_transforms_by_id(
-    transforms: tuple[SemanticMeasurementTransform, ...],
+def _measurement_postprocessors_by_id(
+    postprocessors: tuple[SemanticMeasurementPostprocessor, ...],
     problems: list[Problem],
-) -> frozenset[MeasurementTransformId]:
-    grouped: dict[MeasurementTransformId, list[SemanticMeasurementTransform]] = {}
-    for transform in transforms:
-        grouped.setdefault(transform.id, []).append(transform)
+) -> frozenset[MeasurementPostprocessorId]:
+    grouped: dict[
+        MeasurementPostprocessorId,
+        list[SemanticMeasurementPostprocessor],
+    ] = {}
+    for postprocessor in postprocessors:
+        grouped.setdefault(postprocessor.id, []).append(postprocessor)
     ambiguous = frozenset(
         transform_id
         for transform_id, declarations in grouped.items()
@@ -167,10 +170,10 @@ def _measurement_transforms_by_id(
     for transform_id in sorted(ambiguous, key=lambda item: item.qualified_name):
         problems.append(
             _problem(
-                "semantic_measurement_transform_duplicate",
-                "measurement transform "
+                "semantic_measurement_postprocessor_duplicate",
+                "measurement postprocessor "
                 f"{transform_id.qualified_name!r} is declared more than once",
-                "measurement_transforms",
+                "measurement_postprocessors",
                 transform_id.qualified_name,
             )
         )
@@ -180,7 +183,7 @@ def _measurement_transforms_by_id(
 def _verify_product_owners(
     acquisitions: tuple[AcquireEffect, ...],
     executions: tuple[SemanticDomainExecution, ...],
-    transforms: tuple[SemanticMeasurementTransform, ...],
+    postprocessors: tuple[SemanticMeasurementPostprocessor, ...],
     problems: list[Problem],
 ) -> None:
     owners: dict[object, tuple[str, str]] = {}
@@ -225,8 +228,8 @@ def _verify_product_owners(
                 )
                 continue
             owners[product_id] = (f"domain execution {execution.id!r}", result_id)
-    for transform in transforms:
-        for role, product_id in transform.outputs:
+    for postprocessor in postprocessors:
+        for role, product_id in postprocessor.outputs:
             existing = owners.get(product_id)
             if existing is not None:
                 owner, owner_port = existing
@@ -235,82 +238,50 @@ def _verify_product_owners(
                         "semantic_product_producer_duplicate",
                         f"logical product {product_id.qualified_name!r} is "
                         f"produced by both {owner}/{owner_port!r} and measurement "
-                        f"transform {transform.id.qualified_name!r}/{role!r}",
-                        "measurement_transforms",
-                        transform.id.qualified_name,
+                        "postprocessor "
+                        f"{postprocessor.id.qualified_name!r}/{role!r}",
+                        "measurement_postprocessors",
+                        postprocessor.id.qualified_name,
                         "outputs",
                         role,
                     )
                 )
                 continue
             owners[product_id] = (
-                f"measurement transform {transform.id.qualified_name!r}",
+                "measurement postprocessor "
+                f"{postprocessor.id.qualified_name!r}",
                 role,
             )
 
 
-def _topological_measurement_transforms(
-    transforms: tuple[SemanticMeasurementTransform, ...],
+def _verify_measurement_postprocessor_sources(
+    postprocessors: tuple[SemanticMeasurementPostprocessor, ...],
     problems: list[Problem],
-) -> tuple[SemanticMeasurementTransform, ...]:
-    by_id = {transform.id: transform for transform in transforms}
+) -> tuple[SemanticMeasurementPostprocessor, ...]:
     owner_by_output = {
-        product_id: transform.id
-        for transform in transforms
-        for _role, product_id in transform.outputs
+        product_id: postprocessor.id
+        for postprocessor in postprocessors
+        for _role, product_id in postprocessor.outputs
     }
-    dependencies: dict[MeasurementTransformId, set[MeasurementTransformId]] = {
-        transform.id: set() for transform in transforms
-    }
-    dependants: dict[MeasurementTransformId, set[MeasurementTransformId]] = {
-        transform.id: set() for transform in transforms
-    }
-    for transform in transforms:
-        for _role, product_id in transform.inputs:
-            owner = owner_by_output.get(product_id)
-            if owner is None:
-                continue
-            dependencies[transform.id].add(owner)
-            dependants[owner].add(transform.id)
-    ready = [
-        (transform_id.qualified_name, transform_id)
-        for transform_id, owners in dependencies.items()
-        if not owners
-    ]
-    heapq.heapify(ready)
-    ordered: list[SemanticMeasurementTransform] = []
-    while ready:
-        _name, transform_id = heapq.heappop(ready)
-        ordered.append(by_id[transform_id])
-        for dependant in sorted(
-            dependants[transform_id],
-            key=lambda item: item.qualified_name,
-        ):
-            dependencies[dependant].discard(transform_id)
-            if not dependencies[dependant]:
-                heapq.heappush(
-                    ready,
-                    (dependant.qualified_name, dependant),
-                )
-    if len(ordered) == len(transforms):
-        return tuple(ordered)
-    cycle_ids = tuple(
-        sorted(
-            (transform_id for transform_id, owners in dependencies.items() if owners),
-            key=lambda item: item.qualified_name,
+    for postprocessor in postprocessors:
+        source_owner = owner_by_output.get(postprocessor.input)
+        if source_owner is None:
+            continue
+        problems.append(
+            _problem(
+                "semantic_measurement_postprocessor_chaining_unsupported",
+                f"measurement postprocessor "
+                f"{postprocessor.id.qualified_name!r} consumes output from "
+                f"{source_owner.qualified_name!r}; postprocessor chaining is "
+                "not supported",
+                "measurement_postprocessors",
+                postprocessor.id.qualified_name,
+                "input",
+            )
         )
+    return tuple(
+        sorted(postprocessors, key=lambda item: item.id.qualified_name)
     )
-    first = cycle_ids[0]
-    problems.append(
-        _problem(
-            "semantic_measurement_transform_cycle",
-            "measurement transform graph contains a dependency cycle: "
-            + ", ".join(item.qualified_name for item in cycle_ids),
-            "measurement_transforms",
-            first.qualified_name,
-        )
-    )
-    return transforms
 
 
 def _verify_domain_execution(

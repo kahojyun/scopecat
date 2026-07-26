@@ -33,8 +33,8 @@ from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import ValueType
-from scopecat.measurements.semantics import (
-    MeasurementTransformSemanticContract,
+from scopecat.measurements.postprocessor_contract import (
+    MeasurementPostprocessorKernel,
 )
 
 type PlanExpression = ScalarExpr | SeriesExpr | RelationExpr
@@ -61,8 +61,8 @@ class AcquireId:
 
 
 @dataclass(frozen=True, slots=True)
-class MeasurementTransformId:
-    """Nominal identity in the authored measurement-transform symbol space."""
+class MeasurementPostprocessorId:
+    """Nominal identity in the authored measurement-postprocessor symbol space."""
 
     symbol: SymbolId
 
@@ -78,8 +78,8 @@ class MeasurementTransformId:
     def local_id(self) -> str:
         return self.symbol.local_id
 
-    def prefixed(self, *scope: str) -> MeasurementTransformId:
-        return MeasurementTransformId(self.symbol.prefixed(*scope))
+    def prefixed(self, *scope: str) -> MeasurementPostprocessorId:
+        return MeasurementPostprocessorId(self.symbol.prefixed(*scope))
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -208,19 +208,18 @@ class SemanticDomainExecution:
 
 
 @dataclass(frozen=True, slots=True)
-class SemanticMeasurementTransform:
-    """One pure authored transform with explicit logical-product edges."""
+class SemanticMeasurementPostprocessor:
+    """One point-local Python calculation with explicit product edges."""
 
-    id: MeasurementTransformId
-    semantic: MeasurementTransformSemanticContract
-    inputs: tuple[tuple[str, ProductId], ...] = ()
-    outputs: tuple[tuple[str, ProductId], ...] = ()
+    id: MeasurementPostprocessorId
+    input: ProductId
+    outputs: tuple[tuple[str, ProductId], ...]
+    kernel: MeasurementPostprocessorKernel = field(repr=False, compare=False)
 
     def __post_init__(self) -> None:
-        _require_unique_names("measurement transform input", self.inputs)
-        _require_unique_names("measurement transform output", self.outputs)
+        _require_unique_names("measurement postprocessor output", self.outputs)
         if not self.outputs:
-            msg = "semantic measurement transforms require at least one output"
+            msg = "semantic measurement postprocessors require at least one output"
             raise ValueError(msg)
 
 
@@ -274,7 +273,7 @@ class AcquireEffect:
 class SemanticGraphIR:
     value_defs: tuple[ValueDef, ...] = ()
     operations: tuple[SemanticOperation, ...] = ()
-    measurement_transforms: tuple[SemanticMeasurementTransform, ...] = ()
+    measurement_postprocessors: tuple[SemanticMeasurementPostprocessor, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

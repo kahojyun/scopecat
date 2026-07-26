@@ -27,7 +27,6 @@ from scopecat.compiler.typed.domain_results import (
 from scopecat.compiler.typed.program import (
     CoreEffect,
     TypedDomainExecution,
-    TypedMeasurementTransform,
     core_domain_executions,
     core_state,
 )
@@ -159,23 +158,22 @@ def _compile_system_program(
         for result_closure in domain_result_closures.values()
         for use_id in result_closure.product_use_ids
     )
+    postprocessor_output_use_ids = frozenset(
+        use_id
+        for postprocessor in linked.program.measurement_postprocessors
+        for output in postprocessor.outputs
+        for use_id in output.product_use_ids
+    )
     local_product_use_ids = tuple(
         use.id
         for use in linked.program.product_uses
         if use.id not in domain_owned_product_use_ids
+        and use.id not in postprocessor_output_use_ids
     )
     local_required = bool(
         local_product_use_ids
         or linked.program.compute_nodes
         or core_state(linked.program)
-    )
-    unimplemented_transforms = tuple(
-        transform
-        for transform in linked.program.measurement_transforms
-        if all(
-            transform not in result_closure.transforms
-            for result_closure in domain_result_closures.values()
-        )
     )
     implementation_problems = list(
         _implementation_problems(
@@ -183,7 +181,6 @@ def _compile_system_program(
             has_domain_compiler=system.domain_compiler is not None,
             local_required=local_required,
             has_local_provider=system.provider is not None,
-            unimplemented_transforms=unimplemented_transforms,
         )
     )
     if implementation_problems:
@@ -280,6 +277,7 @@ def _compile_system_program(
         coverage=coverage,
         points=point_catalog,
         measurements=measurements,
+        measurement_postprocessors=linked.program.measurement_postprocessors,
         resource_claims=resource_claims,
     )
 
@@ -713,7 +711,6 @@ def _implementation_problems(
     has_domain_compiler: bool,
     local_required: bool,
     has_local_provider: bool,
-    unimplemented_transforms: tuple[TypedMeasurementTransform, ...],
 ) -> tuple[Problem, ...]:
     """Report missing effect/dataflow implementations directly from typed edges."""
 
@@ -732,26 +729,6 @@ def _implementation_problems(
                 "local effects or products require an instrument provider",
             )
         )
-    problems.extend(
-        _planning_problem(
-            "measurement_transform_implementation_missing",
-            f"measurement transform {transform.id.qualified_name!r} has no "
-            "execution implementation; a transform must belong to a supported "
-            "domain-call closure",
-            details={
-                "transform_id": transform.id.qualified_name,
-                "input_product_ids": [
-                    port.product_id.qualified_name for port in transform.inputs
-                ],
-                "output_product_use_ids": [
-                    use_id.value
-                    for output in transform.outputs
-                    for use_id in output.product_use_ids
-                ],
-            },
-        )
-        for transform in unimplemented_transforms
-    )
     return tuple(problems)
 
 

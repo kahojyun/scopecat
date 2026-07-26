@@ -13,9 +13,6 @@ from scopecat.compiler.measurement_projection import (
     project_measurement_catalog,
     project_run_point_catalog,
 )
-from scopecat.compiler.semantic.model import (
-    MeasurementTransformId,
-)
 from scopecat.compiler.typed.domain_results import (
     DomainResultClosure,
 )
@@ -39,7 +36,6 @@ from scopecat.sdk.domain.view import (
     DomainExecutionPointView,
     DomainExecutionView,
     DomainInputPortView,
-    DomainMeasurementTransform,
     DomainPointRef,
     DomainProductAxisView,
     DomainProductContractView,
@@ -48,8 +44,6 @@ from scopecat.sdk.domain.view import (
     DomainResourceBindingView,
     DomainResultBindingView,
     DomainResultPortView,
-    DomainTransformInputPort,
-    DomainTransformOutputPort,
 )
 
 
@@ -69,7 +63,6 @@ def make_domain_compile_template(
         product_contracts,
         product_use_refs,
         product_use_refs_by_id,
-        transform_refs,
     ) = _project_domain_assets(linked)
     program_inputs = tuple(
         DomainInput(port.id) for port in typed_execution.program.input_ports
@@ -86,9 +79,6 @@ def make_domain_compile_template(
                 typed_execution,
                 product_contracts,
                 product_use_refs_by_id,
-            ),
-            measurement_transforms=tuple(
-                transform_refs[transform.id] for transform in result_closure.transforms
             ),
             product_uses=tuple(
                 product_use
@@ -172,35 +162,11 @@ def make_domain_batch_context(
             for index, point in enumerate(point_refs)
         ),
         results=call.results,
-        measurement_transforms=call.measurement_transforms,
-    )
-    derived_ids = {
-        product_use_id(product_use)
-        for transform in call.measurement_transforms
-        for output in transform.outputs
-        for product_use in output.product_uses
-    }
-    direct_ids = {
-        product_use_id(product_use)
-        for result in call.results
-        for product_use in result.product_uses
-    }
-    owned = call.product_uses
-    direct = tuple(
-        product_use
-        for product_use in owned
-        if product_use_id(product_use) in direct_ids
-    )
-    derived = tuple(
-        product_use
-        for product_use in owned
-        if product_use_id(product_use) in derived_ids
     )
     return DomainBatchContext(
         batch_ordinal=batch_ordinal,
         execution=execution,
-        direct_product_uses=direct,
-        derived_product_uses=derived,
+        product_uses=call.product_uses,
         measurement_catalog=project_measurement_catalog(
             linked_points,
             point_ordinals,
@@ -280,7 +246,6 @@ def _project_domain_assets(
     dict[ProductId, DomainProductContractView],
     tuple[DomainProductUseRef, ...],
     dict[ProductUseId, DomainProductUseRef],
-    dict[MeasurementTransformId, DomainMeasurementTransform],
 ]:
     product_contracts = {
         product.id: _product_contract_view(product)
@@ -297,35 +262,8 @@ def _project_domain_assets(
     product_use_refs_by_id = {
         cast("ProductUseId", ref.native): ref for ref in product_use_refs
     }
-    transform_refs = {
-        transform.id: DomainMeasurementTransform(
-            id=transform.id.qualified_name,
-            semantic=transform.semantic,
-            inputs=tuple(
-                DomainTransformInputPort(
-                    id=port.id,
-                    product_use=product_use_refs_by_id[port.product_use_id],
-                    product=product_contracts[port.product_id],
-                )
-                for port in transform.inputs
-            ),
-            outputs=tuple(
-                DomainTransformOutputPort(
-                    id=port.id,
-                    product=product_contracts[port.product_id],
-                    product_uses=tuple(
-                        product_use_refs_by_id[use_id]
-                        for use_id in port.product_use_ids
-                    ),
-                )
-                for port in transform.outputs
-            ),
-        )
-        for transform in linked.program.measurement_transforms
-    }
     return (
         product_contracts,
         product_use_refs,
         product_use_refs_by_id,
-        transform_refs,
     )

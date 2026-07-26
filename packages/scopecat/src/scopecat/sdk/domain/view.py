@@ -14,7 +14,6 @@ from dataclasses import dataclass, field
 from scopecat.kernel.frozen import freeze_json_mapping
 from scopecat.kernel.value_types import ValueType
 from scopecat.measurements.results import MeasurementDType
-from scopecat.measurements.semantics import MeasurementTransformSemanticContract
 
 _MEASUREMENT_DTYPES = frozenset({"float64", "int64", "complex128", "bool", "string"})
 
@@ -121,46 +120,6 @@ class DomainProductUseRef:
 
 
 @dataclass(frozen=True, slots=True)
-class DomainTransformInputPort:
-    """One authored transform input wired to its exact consumer occurrence."""
-
-    id: str
-    product_use: DomainProductUseRef
-    product: DomainProductContractView = field(repr=False)
-
-
-@dataclass(frozen=True, slots=True)
-class DomainTransformOutputPort:
-    """One authored output product and every demanded downstream occurrence."""
-
-    id: str
-    product: DomainProductContractView = field(repr=False)
-    product_uses: tuple[DomainProductUseRef, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class DomainMeasurementTransform:
-    """Projection of one authored point-local pure transform."""
-
-    id: str
-    semantic: MeasurementTransformSemanticContract
-    inputs: tuple[DomainTransformInputPort, ...]
-    outputs: tuple[DomainTransformOutputPort, ...]
-
-    def input(self, name: str) -> DomainTransformInputPort:
-        for port in self.inputs:
-            if port.id == name:
-                return port
-        raise KeyError(name)
-
-    def output(self, name: str) -> DomainTransformOutputPort:
-        for port in self.outputs:
-            if port.id == name:
-                return port
-        raise KeyError(name)
-
-
-@dataclass(frozen=True, slots=True)
 class DomainExecutionPointView:
     """Concrete domain inputs for one canonical logical point."""
 
@@ -221,7 +180,6 @@ class DomainCallView:
     id: str
     program: DomainProgramView
     results: tuple[DomainResultBindingView, ...]
-    measurement_transforms: tuple[DomainMeasurementTransform, ...] = ()
     product_uses: tuple[DomainProductUseRef, ...] = ()
     resources: tuple[DomainResourceBindingView, ...] = ()
 
@@ -237,13 +195,6 @@ class DomainCallView:
                 return result
         raise KeyError(name)
 
-    def measurement_transform(self, name: str) -> DomainMeasurementTransform:
-        for transform in self.measurement_transforms:
-            if transform.id == name:
-                return transform
-        raise KeyError(name)
-
-
 @dataclass(frozen=True, slots=True)
 class DomainExecutionView:
     """Concrete residual bindings for one compiled domain job."""
@@ -252,7 +203,6 @@ class DomainExecutionView:
     program: DomainProgramView
     points: tuple[DomainExecutionPointView, ...]
     results: tuple[DomainResultBindingView, ...]
-    measurement_transforms: tuple[DomainMeasurementTransform, ...] = ()
 
     def input_values(self, name: str) -> tuple[object, ...]:
         if name not in {port.id for port in self.program.inputs}:
@@ -263,10 +213,4 @@ class DomainExecutionView:
         for result in self.results:
             if result.id == name:
                 return result
-        raise KeyError(name)
-
-    def measurement_transform(self, name: str) -> DomainMeasurementTransform:
-        for transform in self.measurement_transforms:
-            if transform.id == name:
-                return transform
         raise KeyError(name)

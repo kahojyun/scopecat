@@ -11,12 +11,13 @@ from scopecat.compiler.linking.linked import (
 )
 from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.program import core_domain_executions
+from scopecat.kernel.quantity import Quantity
+from scopecat.measurements.results import MeasurementValue
 from scopecat.sdk.domain import (
     DomainBatchContext,
     DomainPointRef,
     DomainPreparationBuilder,
     DomainProductUseRef,
-    MeasurementTransformSemanticContract,
 )
 from scopecat.sdk.domain._bridge import (
     make_domain_batch_context,
@@ -43,19 +44,19 @@ def _domain_scenario(
             "raw": ("raw", "v1"),
         },
     )
-    transform = sc.measurement_transform(
+    def summarize(_value: MeasurementValue) -> dict[str, MeasurementValue]:
+        return {"summary": Quantity(0, "count")}
+
+    postprocessor = sc.measurement_postprocessor(
         "summarize",
-        semantic=MeasurementTransformSemanticContract(
-            id="test.context.summarize",
-            version="1",
-        ),
-        inputs={"raw": "raw"},
+        input="raw",
         outputs={"summary": "summary"},
+        kernel=summarize,
     )
     module = (
         sc.module_body(id=f"test.sdk.context.{namespace}")
         .product("raw", "summary", unit="count", dtype="int64")
-        .measurement_transforms(transform)
+        .measurement_postprocessors(postprocessor)
     )
     execution = sc.domain_execution(
         program,
@@ -119,7 +120,7 @@ def _batch_context(
     )
 
 
-def test_transform_input_remains_demanded_when_direct_product_is_not_recorded(
+def test_postprocessor_input_remains_a_direct_domain_result_when_not_recorded(
     tmp_path: Path,
 ) -> None:
     linked_points = _domain_scenario(
@@ -129,25 +130,24 @@ def test_transform_input_remains_demanded_when_direct_product_is_not_recorded(
     )
     program = linked_points.linked_plan.program
     call = core_domain_executions(program)[0]
-    [transform] = program.measurement_transforms
+    [postprocessor] = program.measurement_postprocessors
     [direct_result] = call.results
-    [transform_input] = transform.inputs
-    [transform_output] = transform.outputs
+    [postprocessor_output] = postprocessor.outputs
 
-    assert direct_result.product_use_ids == (transform_input.product_use_id,)
-    assert transform_output.product_use_ids
+    assert direct_result.product_use_ids == (postprocessor.input_product_use_id,)
+    assert postprocessor_output.product_use_ids
     recorded_use_ids = {record.product_use_id for record in program.record_uses}
-    assert transform_input.product_use_id not in recorded_use_ids
-    assert set(transform_output.product_use_ids) == recorded_use_ids
+    assert postprocessor.input_product_use_id not in recorded_use_ids
+    assert set(postprocessor_output.product_use_ids) == recorded_use_ids
 
     context = _batch_context(
         linked_points,
         (0, 1, 2),
     )
 
-    [projected_transform] = context.measurement_transforms
-    assert context.direct_product_uses == (projected_transform.inputs[0].product_use,)
-    assert projected_transform.outputs[0].product_uses
+    assert tuple(use.id for use in context.product_uses) == (
+        postprocessor.input_product_use_id.value,
+    )
 
 
 def test_domain_batch_context_scopes_offer_points_and_product_uses(
@@ -157,16 +157,12 @@ def test_domain_batch_context_scopes_offer_points_and_product_uses(
         tmp_path,
         namespace="owned",
     )
-    program = linked_points.linked_plan.program
-    [transform] = program.measurement_transforms
     full = _batch_context(
         linked_points,
         (0, 1, 2),
     )
     execution = full.execution
     raw_uses = execution.result("raw").product_uses
-    [transform] = execution.measurement_transforms
-    [summary_use] = transform.outputs[0].product_uses
     context = _batch_context(
         linked_points,
         (1, 2),
@@ -179,12 +175,9 @@ def test_domain_batch_context_scopes_offer_points_and_product_uses(
     assert tuple(use.id for use in context.product_uses) == tuple(
         use.id for use in full.product_uses
     )
-    assert tuple(use.id for use in context.direct_product_uses) == tuple(
+    assert tuple(use.id for use in context.product_uses) == tuple(
         use.id for use in raw_uses
     )
-    assert tuple(use.id for use in context.derived_product_uses) == (summary_use.id,)
-    assert tuple(item.id for item in context.measurement_transforms) == (transform.id,)
-    assert summary_use.id in {use.id for use in context.product_uses}
     assert all(isinstance(point, DomainPointRef) for point in context.points)
     assert all(
         (selected.id, selected.ordinal) == (full_point.id, full_point.ordinal)

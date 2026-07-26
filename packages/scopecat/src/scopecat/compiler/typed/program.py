@@ -15,7 +15,7 @@ from scopecat.compiler.relations.uses import RelationUse, relation_use
 from scopecat.compiler.semantic.model import (
     AcquireEffect,
     LocalPythonImplementation,
-    MeasurementTransformId,
+    MeasurementPostprocessorId,
 )
 from scopecat.compiler.semantic.operation_contract import OperationContract
 from scopecat.compiler.semantic.value_expressions import (
@@ -47,14 +47,14 @@ from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
 )
 from scopecat.kernel.value_types import ValueType
+from scopecat.measurements.postprocessor_contract import (
+    MeasurementPostprocessorKernel,
+)
 from scopecat.measurements.products import (
     ProductAxisDef,
     ProductDef,
 )
 from scopecat.measurements.records import RecordUse
-from scopecat.measurements.semantics import (
-    MeasurementTransformSemanticContract,
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,22 +143,8 @@ type CoreEffect = SetStateSpec | TypedDomainExecution | AcquireEffect
 
 
 @dataclass(frozen=True, slots=True)
-class TypedMeasurementTransformInput:
-    """One exact product-use occurrence consumed by a pure transform role."""
-
-    id: str
-    product_id: ProductId
-    product_use_id: ProductUseId
-
-    def __post_init__(self) -> None:
-        if not self.id:
-            msg = "measurement transform input id must be non-empty"
-            raise ValueError(msg)
-
-
-@dataclass(frozen=True, slots=True)
-class TypedMeasurementTransformOutput:
-    """One transform-produced product and all of its downstream use slots."""
+class TypedMeasurementPostprocessorOutput:
+    """One calculated product and all of its downstream use slots."""
 
     id: str
     product_id: ProductId
@@ -166,18 +152,19 @@ class TypedMeasurementTransformOutput:
 
     def __post_init__(self) -> None:
         if not self.id:
-            msg = "measurement transform output id must be non-empty"
+            msg = "measurement postprocessor output id must be non-empty"
             raise ValueError(msg)
 
 
 @dataclass(frozen=True, slots=True)
-class TypedMeasurementTransform:
-    """One live authored pure transform in the demand-closed product graph."""
+class TypedMeasurementPostprocessor:
+    """One live point-local postprocessor retained by record demand."""
 
-    id: MeasurementTransformId
-    semantic: MeasurementTransformSemanticContract
-    inputs: tuple[TypedMeasurementTransformInput, ...] = ()
-    outputs: tuple[TypedMeasurementTransformOutput, ...] = ()
+    id: MeasurementPostprocessorId
+    input_product_id: ProductId
+    input_product_use_id: ProductUseId
+    outputs: tuple[TypedMeasurementPostprocessorOutput, ...]
+    kernel: MeasurementPostprocessorKernel = field(repr=False, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,7 +212,7 @@ class CoreProgram:
     parameter_overlays: tuple[PointParameterOverlay, ...] = ()
     compute_nodes: tuple[TypedComputeNode, ...] = ()
     effects: tuple[CoreEffect, ...] = ()
-    measurement_transforms: tuple[TypedMeasurementTransform, ...] = ()
+    measurement_postprocessors: tuple[TypedMeasurementPostprocessor, ...] = ()
     product_defs: tuple[ProductDef, ...] = ()
     product_uses: tuple[ProductUse, ...] = ()
     record_uses: tuple[RecordUse, ...] = ()

@@ -28,11 +28,6 @@ from scopecat.sdk.domain.job import (
     DomainResultValue,
     DomainTargetArtifactIdentity,
 )
-from scopecat.sdk.domain.measurements import (
-    DomainHostTransformBinding,
-    DomainHostTransformImplementation,
-    MeasurementTransformSemanticContract,
-)
 from scopecat.sdk.domain.runtime import (
     CorrelatedDomainFetch,
     DomainFetchCandidate,
@@ -79,19 +74,10 @@ def _preparation_context(
             "raw": ("raw", "v1"),
         },
     )
-    transform = sc.measurement_transform(
-        "summarize",
-        semantic=MeasurementTransformSemanticContract(
-            id="test.summarize",
-            version="1",
-        ),
-        inputs={"raw": "raw"},
-        outputs={"summary": "summary"},
-    )
-    module = (
-        sc.module_body(id=f"test.sdk.preparation.{namespace}")
-        .product("raw", "summary", unit="count", dtype="int64")
-        .measurement_transforms(transform)
+    module = sc.module_body(id=f"test.sdk.preparation.{namespace}").product(
+        "raw",
+        unit="count",
+        dtype="int64",
     )
     execution = sc.domain_execution(
         program,
@@ -112,9 +98,6 @@ def _preparation_context(
         body = body.record_product(
             module_call.products.raw,
             record_id="raw",
-        ).record_product(
-            module_call.products.summary,
-            record_id="summary",
         )
     selected = sc.template(
         id=f"test.sdk.preparation.{namespace}",
@@ -167,11 +150,11 @@ def _valid_mapping_inputs(
             product_use,
         )
         for point in context.points
-        for product_use in context.direct_product_uses
+        for product_use in context.product_uses
     )
 
 
-def test_map_measurements_closes_exact_direct_product_cover(
+def test_map_measurements_closes_exact_product_cover(
     tmp_path: Path,
 ) -> None:
     context = _preparation_context(tmp_path, namespace="direct")
@@ -182,8 +165,7 @@ def test_map_measurements_closes_exact_direct_product_cover(
 
     assert isinstance(mapping, DomainResultMapping)
     assert mapping.context is context
-    assert len(context.product_uses) == 3
-    assert len(context.direct_product_uses) == 2
+    assert len(context.product_uses) == 1
     assert tuple(result.point for result in mapping.results) == context.points
     assert tuple(result.result_address for result in mapping.results) == (
         "result-0",
@@ -191,32 +173,15 @@ def test_map_measurements_closes_exact_direct_product_cover(
     )
     for result, point in zip(mapping.results, context.points, strict=True):
         assert result.point is point
-        assert result.product_uses == context.direct_product_uses
+        assert result.product_uses == context.product_uses
         assert all(
             actual is expected
             for actual, expected in zip(
                 result.product_uses,
-                context.direct_product_uses,
+                context.product_uses,
                 strict=True,
             )
         )
-
-    non_direct_use = next(
-        product_use
-        for product_use in context.product_uses
-        if all(product_use is not direct for direct in context.direct_product_uses)
-    )
-    invalid_results = (
-        DomainResultBinding(
-            results[0].result_address,
-            results[0].point,
-            non_direct_use,
-        ),
-        *results[1:],
-    )
-    with pytest.raises(ValueError, match="non-direct or foreign product use"):
-        preparation.map_measurements(results=invalid_results)
-
 
 def test_result_values_project_directly_to_canonical_candidates(tmp_path: Path) -> None:
     context = _preparation_context(tmp_path, namespace="values")
@@ -270,11 +235,11 @@ def test_map_measurements_rejects_foreign_point_and_product_use(
         DomainResultBinding(
             results[0].result_address,
             results[0].point,
-            foreign.direct_product_uses[0],
+            foreign.product_uses[0],
         ),
         *results[1:],
     )
-    with pytest.raises(ValueError, match="non-direct or foreign product use"):
+    with pytest.raises(ValueError, match="foreign product use"):
         preparation.map_measurements(results=foreign_results)
 
 
@@ -303,10 +268,10 @@ def test_map_measurements_fans_one_physical_result_out_to_two_uses_of_product(
     preparation = context.new_preparation()
     results = _valid_mapping_inputs(context)
 
-    assert len(context.direct_product_uses) == 2
-    assert context.direct_product_uses[0].id != context.direct_product_uses[1].id
+    assert len(context.product_uses) == 2
+    assert context.product_uses[0].id != context.product_uses[1].id
     assert (
-        context.direct_product_uses[0].product is context.direct_product_uses[1].product
+        context.product_uses[0].product is context.product_uses[1].product
     )
     assert len(results) == 2 * len(context.points)
     for point in context.points:
@@ -328,7 +293,7 @@ def test_map_measurements_fans_one_physical_result_out_to_two_uses_of_product(
     incomplete_results = tuple(
         binding
         for binding in results
-        if binding.product_use is context.direct_product_uses[0]
+        if binding.product_use is context.product_uses[0]
     )
     with pytest.raises(ValueError, match="exactly cover every logical"):
         preparation.map_measurements(results=incomplete_results)
@@ -341,7 +306,7 @@ def test_map_measurements_fans_one_physical_result_out_to_two_uses_of_product(
             actual is expected
             for actual, expected in zip(
                 result.product_uses,
-                context.direct_product_uses,
+                context.product_uses,
                 strict=True,
             )
         )
@@ -354,21 +319,6 @@ def test_measurement_plan_and_build_close_the_complete_public_sdk_declaration(
     preparation = context.new_preparation()
     results = _valid_mapping_inputs(context)
     mapping = preparation.map_measurements(results=results)
-    [transform] = context.measurement_transforms
-    binding = DomainHostTransformBinding(
-        transform,
-        DomainHostTransformImplementation(
-            id="test.summarize.python",
-            semantic_id=transform.semantic.id,
-            semantic_version=transform.semantic.version,
-            validate_transform=lambda _candidate: None,
-            kernel=lambda call: {
-                "summary": tuple(
-                    Quantity(point.ordinal, "count") for point in call.points
-                )
-            },
-        ),
-    )
 
     invocation = DomainInvocationSpec(
         invocation_id="test.complete-sdk.invocation",
@@ -391,38 +341,9 @@ def test_measurement_plan_and_build_close_the_complete_public_sdk_declaration(
 
     prepared = preparation.build(
         mapping=mapping,
-        host_transforms=(binding,),
         invocation=invocation,
         runtime=_NoEffectsRuntime(),
         realize=reject_realization,
     )
 
     assert isinstance(prepared, PreparedDomainExecution)
-
-
-def test_measurement_plan_requires_exact_derived_output_coverage(
-    tmp_path: Path,
-) -> None:
-    context = _preparation_context(tmp_path, namespace="derived-cover")
-    preparation = context.new_preparation()
-    results = _valid_mapping_inputs(context)
-    mapping = preparation.map_measurements(results=results)
-
-    with pytest.raises(ValueError, match="exactly cover residual transforms"):
-        preparation.build(
-            mapping=mapping,
-            invocation=DomainInvocationSpec(
-                invocation_id="test.missing-transform.invocation",
-                target=DomainTargetArtifactIdentity(
-                    target_id="test.target",
-                    compiler_id="test.compiler",
-                    capability_fingerprint="test.capabilities.v1",
-                    artifact_id="test.artifact",
-                    artifact_fingerprint="test.artifact.v1",
-                ),
-                target_intent={"mode": "test"},
-                payload={"job": "test"},
-            ),
-            runtime=_NoEffectsRuntime(),
-            realize=lambda _fetched: (),
-        )

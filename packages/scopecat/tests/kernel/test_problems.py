@@ -8,7 +8,7 @@ from pydantic import ValidationError
 from scopecat.kernel.errors import (
     CheckFailed,
     Conflict,
-    MeasurementTransformExecutionError,
+    MeasurementPostprocessorExecutionError,
     OperationFailure,
     ProblemFailure,
     ProviderContractError,
@@ -112,14 +112,14 @@ def test_problem_failure_requires_nonempty_problems() -> None:
     )
 
 
-def test_measurement_transform_execution_has_its_own_operation_failure_type() -> None:
+def test_postprocessor_execution_has_its_own_operation_failure_type() -> None:
     selected = problem(
-        "measurement_transform_host_kernel_failed",
-        "host measurement transform failed",
+        "measurement_postprocessor_kernel_failed",
+        "measurement postprocessor failed",
         phase=ProblemPhase.EXECUTION,
     )
 
-    error = MeasurementTransformExecutionError((selected,))
+    error = MeasurementPostprocessorExecutionError((selected,))
 
     assert isinstance(error, OperationFailure)
     assert not isinstance(error, ProviderContractError)

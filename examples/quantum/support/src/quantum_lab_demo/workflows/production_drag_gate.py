@@ -8,10 +8,10 @@ import scopecat as sc
 from scopecat import Quantity, QuantityType
 from scopecat_quantum import authoring as quantum
 from scopecat_quantum._ids import GateId, PulseEventId, QubitId
-from scopecat_quantum.measurement_transforms import (
+from scopecat_quantum.measurement_postprocessors import (
     BinaryIqDiscriminator,
     IqCentroid,
-    binary_iq_probability_transform,
+    binary_iq_probability_postprocessor,
 )
 from scopecat_quantum.program_targets import PreparedQuantumTargetEntry
 from scopecat_quantum.programs import (
@@ -88,14 +88,14 @@ def production_drag_capture():
         .use(call)
         .product("probability_0", "probability_1", unit="ratio")
     )
-    transform = binary_iq_probability_transform(
+    postprocessor = binary_iq_probability_postprocessor(
         "binary-iq-probability",
         iq_shots=call.results.iq_shots,
         probability_0=body.products.probability_0,
         probability_1=body.products.probability_1,
         discriminator=_DISCRIMINATOR,
     )
-    return body.measurement_transforms(transform)
+    return body.measurement_postprocessors(postprocessor)
 
 
 @sc.template(

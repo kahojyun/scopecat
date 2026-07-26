@@ -19,7 +19,7 @@ from scopecat.compiler.relations.verification import (
     RowType,
 )
 from scopecat.compiler.semantic.model import (
-    MeasurementTransformId,
+    MeasurementPostprocessorId,
 )
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
@@ -28,9 +28,8 @@ from scopecat.compiler.typed.program import (
     LogicalResourceRequirement,
     TypedDomainExecution,
     TypedDomainResultBinding,
-    TypedMeasurementTransform,
-    TypedMeasurementTransformInput,
-    TypedMeasurementTransformOutput,
+    TypedMeasurementPostprocessor,
+    TypedMeasurementPostprocessorOutput,
     ValueInput,
     record_product,
     set_state_field,
@@ -67,7 +66,7 @@ from scopecat.kernel.resource_identity import (
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar, String, Table, TableColumn
-from scopecat.measurements.semantics import MeasurementTransformSemanticContract
+from scopecat.measurements.results import MeasurementValue
 from scopecat.planning.routing import ResourcePortManifest, RoutingView
 from scopecat.planning.system import ExperimentSystem
 from scopecat.records.config import (
@@ -192,7 +191,7 @@ class _DomainCompiler:
                 )
             )
         preparation = context.new_preparation()
-        product_uses = context.direct_product_uses
+        product_uses = context.product_uses
         result_addresses = tuple(
             tuple(
                 f"{self.compiler_id}.result.{point.ordinal}.{use_index}"
@@ -540,35 +539,33 @@ def _point_frequency_domain_input() -> ValueInput:
     )
 
 
-def _linked_instrument_fed_transform_program() -> LinkedPlan:
+def _postprocess_identity(
+    value: MeasurementValue,
+) -> dict[str, MeasurementValue]:
+    return {"result": value}
+
+
+def _linked_instrument_fed_postprocessor_program() -> LinkedPlan:
     source = observable_product("source", unit="ratio")
     derived = observable_product("derived", unit="ratio")
     source_use = product_use(source.id)
     derived_use, derived_record = record_product(derived)
-    transform_id = MeasurementTransformId(SymbolId(local_id="normalize"))
-    transform = TypedMeasurementTransform(
-        id=transform_id,
-        semantic=MeasurementTransformSemanticContract(
-            id="tests.normalize",
-            version="1",
-        ),
-        inputs=(
-            TypedMeasurementTransformInput(
-                id="source",
-                product_id=source.id,
-                product_use_id=source_use.id,
-            ),
-        ),
+    postprocessor_id = MeasurementPostprocessorId(SymbolId(local_id="normalize"))
+    postprocessor = TypedMeasurementPostprocessor(
+        id=postprocessor_id,
+        input_product_id=source.id,
+        input_product_use_id=source_use.id,
         outputs=(
-            TypedMeasurementTransformOutput(
+            TypedMeasurementPostprocessorOutput(
                 id="result",
                 product_id=derived.id,
                 product_use_ids=(derived_use.id,),
             ),
         ),
+        kernel=_postprocess_identity,
     )
     program = CoreProgram(
-        id="unplaced-instrument-transform",
+        id="instrument-postprocessor",
         kind="compiler_test",
         point_domain=PointDomain(root=POINT_UNIT),
         resource_requirements=(
@@ -584,7 +581,7 @@ def _linked_instrument_fed_transform_program() -> LinkedPlan:
                 provider_key="signal",
             ),
         ),
-        measurement_transforms=(transform,),
+        measurement_postprocessors=(postprocessor,),
         product_defs=(source, derived),
         product_uses=(source_use, derived_use),
         record_uses=(derived_record,),
@@ -660,23 +657,14 @@ def test_unified_planning_rejects_missing_local_provider_before_effects() -> Non
     _assert_no_domain_effects(compiler)
 
 
-def test_planning_reports_unplaced_transform_as_a_capability_boundary() -> None:
-    linked = _linked_instrument_fed_transform_program()
-    [transform] = linked.program.measurement_transforms
-    [output_use_id] = transform.outputs[0].product_use_ids
+def test_planning_keeps_postprocessor_outputs_out_of_local_acquisition() -> None:
+    linked = _linked_instrument_fed_postprocessor_program()
 
-    with pytest.raises(CheckFailed) as captured:
-        ExperimentSystem(provider=TestSignalInstrumentProvider()).compile(linked)
+    plan = ExperimentSystem(provider=TestSignalInstrumentProvider()).compile(linked)
 
-    assert _problem_codes(captured.value) == {
-        "measurement_transform_implementation_missing"
-    }
-    assert captured.value.problems[0].details == {
-        "transform_id": "normalize",
-        "input_product_ids": ("source",),
-        "output_product_use_ids": (output_use_id.value,),
-    }
-    assert captured.value.problems[0].phase is ProblemPhase.PLANNING
+    [postprocessor] = plan.measurement_postprocessors
+    assert postprocessor.id.qualified_name == "normalize"
+    assert postprocessor.input_product_id.qualified_name == "source"
 
 
 def test_domain_target_partitions_complete_point_space_by_capacity() -> None:

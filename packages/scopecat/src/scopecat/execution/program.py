@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from scopecat.compiler.typed.program import TypedMeasurementPostprocessor
 from scopecat.execution.local.program import ComputeOperation, LocalOperation
 from scopecat.kernel.resource_identity import ResourceClaim
 from scopecat.measurements.points import RunPoint, RunPointCatalog
@@ -103,6 +104,11 @@ class RunProgram:
     points: RunPointCatalog = field(repr=False)
     measurements: MeasurementProjection = field(repr=False)
     resource_claims: tuple[ResourceClaim, ...]
+    measurement_postprocessors: tuple[TypedMeasurementPostprocessor, ...] = field(
+        default=(),
+        repr=False,
+        compare=False,
+    )
 
     @property
     def experiment_id(self) -> str:

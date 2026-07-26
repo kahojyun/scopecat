@@ -8,10 +8,10 @@ import scopecat as sc
 
 from scopecat_quantum import authoring
 from scopecat_quantum.gates import GateCall, GateParameterKind
-from scopecat_quantum.measurement_transforms import (
+from scopecat_quantum.measurement_postprocessors import (
     BinaryIqDiscriminator,
     IqCentroid,
-    binary_iq_probability_transform,
+    binary_iq_probability_postprocessor,
 )
 
 
@@ -350,14 +350,14 @@ def test_repeated_program_calls_require_explicit_instances() -> None:
     assert right.results.iq.id == "right/iq"
 
 
-def test_parent_transform_consumes_program_call_result() -> None:
+def test_parent_postprocessor_consumes_program_call_result() -> None:
     @authoring.program(id="test.quantum.discriminate")
     def declaration(qubit: authoring.Qubit) -> authoring.QuantumFragment:
         return authoring.measure(qubit, result="iq_shots")
 
     call = declaration("q0").with_shots(16)
     body = sc.module_body().use(call).product("probability_0", "probability_1")
-    transform = binary_iq_probability_transform(
+    postprocessor = binary_iq_probability_postprocessor(
         "discriminate",
         iq_shots=call.results.iq_shots,
         probability_0=body.products.probability_0,
@@ -370,11 +370,11 @@ def test_parent_transform_consumes_program_call_result() -> None:
 
     @sc.module
     def discriminate():
-        return body.measurement_transforms(transform)
+        return body.measurement_postprocessors(postprocessor)
 
     assert len(discriminate.ir.body.child_instances) == 1
-    [lowered] = discriminate.ir.body.measurement_transforms
-    assert lowered.input_bindings[0][1].qualified_name == "discriminate/iq_shots"
+    [lowered] = discriminate.ir.body.measurement_postprocessors
+    assert lowered.input_binding.qualified_name == "discriminate/iq_shots"
     assert {product.qualified_id for product in discriminate.ir.products} == {
         "discriminate/iq_shots",
         "probability_0",

@@ -23,7 +23,7 @@ from scopecat.compiler.typed.program import (
     LogicalResourceRequirement,
     TypedComputeNode,
     TypedDomainExecution,
-    TypedMeasurementTransform,
+    TypedMeasurementPostprocessor,
 )
 from scopecat.compiler.typed.state import SetStateSpec
 from scopecat.compiler.typed.verification import seal_typed_program
@@ -193,7 +193,7 @@ def typed_program(
     parameter_overlays: Sequence[PointParameterOverlay] = (),
     compute_nodes: Sequence[TypedComputeNode] = (),
     domain_execution: TypedDomainExecution | None = None,
-    measurement_transforms: Sequence[TypedMeasurementTransform] = (),
+    measurement_postprocessors: Sequence[TypedMeasurementPostprocessor] = (),
     state: Sequence[SetStateSpec] = (),
     product_defs: Sequence[ProductDef] = (),
     instrument_acquisitions: Sequence[AcquireEffect] = (),
@@ -214,7 +214,7 @@ def typed_program(
             *((domain_execution,) if domain_execution is not None else ()),
             *instrument_acquisitions,
         ),
-        measurement_transforms=tuple(measurement_transforms),
+        measurement_postprocessors=tuple(measurement_postprocessors),
         product_defs=tuple(product_defs),
         product_uses=tuple(product_uses),
         record_uses=tuple(record_uses),

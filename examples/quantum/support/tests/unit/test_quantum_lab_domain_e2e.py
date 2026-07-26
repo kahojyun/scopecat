@@ -138,35 +138,25 @@ class _WrongResultCompiler(_ConfiguredTestCompiler):
         return cast("PreparedDomainExecution", object())
 
 
-def test_fake_x_count_authors_direct_iq_and_derived_probabilities_separately() -> None:
+def test_fake_x_count_authors_iq_source_and_probability_postprocessor() -> None:
     body = fake_x_count_capture.ir.body
     [program_call] = body.child_instances
     [execution] = program_call.module.body.domain_executions
     program = execution.program
-    [transform] = body.measurement_transforms
+    [postprocessor] = body.measurement_postprocessors
 
     assert tuple(port.id for port in program.result_ports) == ("iq_shots",)
     assert tuple(result_id for result_id, _product in execution.result_bindings) == (
         "iq_shots",
     )
     assert execution.result_bindings[0][1].local_id == "iq_shots"
-    assert [(role, product.local_id) for role, product in transform.input_bindings] == [
-        ("iq_shots", "iq_shots")
-    ]
+    assert postprocessor.input_binding.local_id == "iq_shots"
     assert [
-        (role, product.local_id) for role, product in transform.output_bindings
+        (role, product.local_id) for role, product in postprocessor.output_bindings
     ] == [
         ("probability_0", "probability_0"),
         ("probability_1", "probability_1"),
     ]
-    assert transform.semantic.id == (
-        "scopecat_quantum.readout.binary_iq_discrimination"
-    )
-    assert transform.semantic.parameters["discriminator"] == {
-        "state_0_centroid": {"real": -1.0, "imag": 0.0, "unit": "ratio"},
-        "state_1_centroid": {"real": 1.0, "imag": 0.0, "unit": "ratio"},
-        "tie_policy": "state_0",
-    }
 
 
 def test_fake_x_count_authoring_paths_share_one_standard_domain_semantics(

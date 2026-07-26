@@ -11,7 +11,6 @@ from scopecat.kernel.problems import (
     Problem,
     ProblemPhase,
 )
-from scopecat.measurements.host_transforms import execute_host_measurement_transforms
 from scopecat.measurements.values import (
     MeasurementValueCandidate,
 )
@@ -55,17 +54,7 @@ def execute_domain_job_values(
         submission,
         journal=journal,
     )
-    source = prepared.realize(fetched)
-    transforms = prepared.transforms
-    return (
-        source
-        if transforms is None
-        else execute_host_measurement_transforms(
-            transforms,
-            source,
-            points=prepared.points,
-        )
-    )
+    return prepared.realize(fetched)
 
 
 def domain_runtime_terminal_problem(

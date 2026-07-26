@@ -103,14 +103,14 @@ def _product_demand_problems(program: CoreProgram) -> tuple[Problem, ...]:
     )
     owned_products.update(
         output.product_id
-        for transform in program.measurement_transforms
-        for output in transform.outputs
+        for postprocessor in program.measurement_postprocessors
+        for output in postprocessor.outputs
     )
     return tuple(
         _problem(
             "product_acquire_missing",
             f"product {product_id.qualified_name!r} is selected but has no "
-            "acquisition, domain, or transform owner",
+            "acquisition, domain, or postprocessor owner",
             model_location("product_uses", product_id.qualified_name),
         )
         for product_id in sorted(

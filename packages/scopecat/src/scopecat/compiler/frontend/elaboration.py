@@ -49,7 +49,7 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_point_dependencies,
 )
 from scopecat.authoring.domain import LoweredDomainExecution, lower_domain_execution
-from scopecat.authoring.measurements import MeasurementTransform
+from scopecat.authoring.measurements import MeasurementPostprocessor
 from scopecat.authoring.value_types import (
     Entity as EntityType,
 )
@@ -115,7 +115,7 @@ class _ModuleFragment(_ExperimentEnvelope):
 
     operations: tuple[ModuleOperationDecl, ...] = ()
     python_implementations: tuple[ScopedPythonImplementation, ...] = ()
-    measurement_transforms: tuple[MeasurementTransform, ...] = ()
+    measurement_postprocessors: tuple[MeasurementPostprocessor, ...] = ()
     effects: tuple[_FragmentEffect, ...] = ()
 
     @property
@@ -208,7 +208,7 @@ def _merge_module_fragments(
     point_dependencies: list[tuple[PointValueDependency, ...]] = []
     parameter_overlays: list[AxisSpec] = []
     operations: list[ModuleOperationDecl] = []
-    measurement_transforms: list[MeasurementTransform] = []
+    measurement_postprocessors: list[MeasurementPostprocessor] = []
     python_implementations: list[ScopedPythonImplementation] = []
     product_declarations: list[ModuleProductDecl] = []
     record_selections: list[RecordSelection] = []
@@ -222,7 +222,7 @@ def _merge_module_fragments(
         point_dependencies.append(fragment.point_dependencies)
         parameter_overlays.extend(fragment.parameter_overlays)
         operations.extend(fragment.operations)
-        measurement_transforms.extend(fragment.measurement_transforms)
+        measurement_postprocessors.extend(fragment.measurement_postprocessors)
         python_implementations.extend(fragment.python_implementations)
         product_declarations.extend(fragment.product_declarations)
         record_selections.extend(fragment.record_selections)
@@ -244,7 +244,7 @@ def _merge_module_fragments(
         point_dependencies=merged_point_dependencies,
         parameter_overlays=tuple(parameter_overlays),
         operations=tuple(operations),
-        measurement_transforms=tuple(measurement_transforms),
+        measurement_postprocessors=tuple(measurement_postprocessors),
         python_implementations=tuple(python_implementations),
         product_declarations=tuple(product_declarations),
         record_selections=tuple(record_selections),
@@ -269,7 +269,7 @@ def elaborate_module(
     semantic = elaborate_semantic_graph(
         fragment.operations,
         fragment.python_implementations,
-        measurement_transforms=fragment.measurement_transforms,
+        measurement_postprocessors=fragment.measurement_postprocessors,
         effects=fragment.effects,
         value_roots=value_roots.semantic,
         input_types={port.id: port.value_type for port in fragment.input_ports},
@@ -326,7 +326,7 @@ def _elaborate_module_ir(
             _resolve_operation(operation, resolver=resolver)
             for operation in module.body.operations
         ),
-        measurement_transforms=module.body.measurement_transforms,
+        measurement_postprocessors=module.body.measurement_postprocessors,
         effects=tuple(own_effects),
         python_implementations=tuple(
             ScopedPythonImplementation(
@@ -763,9 +763,9 @@ def _scope_instance_graph(
             for binding in instance.resource_bindings
         },
     )
-    measurement_transforms = tuple(
-        _scope_measurement_transform(transform, scope=scope)
-        for transform in fragment.measurement_transforms
+    measurement_postprocessors = tuple(
+        _scope_measurement_postprocessor(postprocessor, scope=scope)
+        for postprocessor in fragment.measurement_postprocessors
     )
     effects = tuple(
         _scope_fragment_effect(
@@ -803,7 +803,7 @@ def _scope_instance_graph(
             )
             for operation in fragment.operations
         ),
-        measurement_transforms=measurement_transforms,
+        measurement_postprocessors=measurement_postprocessors,
         python_implementations=tuple(
             replace(
                 implementation,
@@ -1064,21 +1064,18 @@ def _scope_operation(
     )
 
 
-def _scope_measurement_transform(
-    transform: MeasurementTransform,
+def _scope_measurement_postprocessor(
+    postprocessor: MeasurementPostprocessor,
     *,
     scope: tuple[str, ...],
-) -> MeasurementTransform:
+) -> MeasurementPostprocessor:
     return replace(
-        transform,
-        scope=(*scope, *transform.scope),
-        input_bindings=tuple(
-            (role, product_id.prefixed(*scope))
-            for role, product_id in transform.input_bindings
-        ),
+        postprocessor,
+        scope=(*scope, *postprocessor.scope),
+        input_binding=postprocessor.input_binding.prefixed(*scope),
         output_bindings=tuple(
             (role, product_id.prefixed(*scope))
-            for role, product_id in transform.output_bindings
+            for role, product_id in postprocessor.output_bindings
         ),
     )
 

@@ -283,7 +283,7 @@ def _valid_inputs():
     preparation = _preparation()
     batch = _batch()
     points = preparation.context.points
-    product_use = preparation.context.direct_product_uses[0]
+    product_use = preparation.context.product_uses[0]
     entry_bindings = (
         QuantumTargetEntryPointBinding(batch.entries[0].id, points[1]),
         QuantumTargetEntryPointBinding(batch.entries[1].id, points[0]),
@@ -394,7 +394,7 @@ def test_mapping_groups_one_logical_result_over_a_recursive_physical_axis() -> N
         repetitions=3,
     )
     points = preparation.context.points
-    product_use = preparation.context.direct_product_uses[0]
+    product_use = preparation.context.product_uses[0]
 
     mapping = seal_quantum_target_result_mapping(
         preparation,

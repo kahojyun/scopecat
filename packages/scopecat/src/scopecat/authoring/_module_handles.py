@@ -55,7 +55,7 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_operation_id,
 )
 from scopecat.authoring.domain import DomainExecution
-from scopecat.authoring.measurements import MeasurementTransform
+from scopecat.authoring.measurements import MeasurementPostprocessor
 from scopecat.authoring.value_types import (
     Entity as EntityType,
 )
@@ -141,7 +141,7 @@ class ModuleBuilder:
     procedure: tuple[ModuleInvocation | ModuleEffectIR, ...] = ()
     operations: tuple[ModuleOperationDecl, ...] = ()
     python_implementations: tuple[ModulePythonImplementation, ...] = ()
-    measurement_transform_intents: tuple[MeasurementTransform, ...] = ()
+    measurement_postprocessor_intents: tuple[MeasurementPostprocessor, ...] = ()
     product_declarations: tuple[ModuleProductDecl, ...] = ()
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
 
@@ -407,17 +407,17 @@ class ModuleBuilder:
             ),
         )
 
-    def measurement_transforms(
+    def measurement_postprocessors(
         self,
-        *transforms: MeasurementTransform,
+        *postprocessors: MeasurementPostprocessor,
     ) -> ModuleBuilder:
-        """Register pure product transforms independently of implementations."""
+        """Register point-local measurement calculations."""
 
         return replace(
             self,
-            measurement_transform_intents=(
-                *self.measurement_transform_intents,
-                *transforms,
+            measurement_postprocessor_intents=(
+                *self.measurement_postprocessor_intents,
+                *postprocessors,
             ),
         )
 
@@ -872,7 +872,7 @@ def build_module_ir(
         body=ModuleBodyIR(
             procedure=closed_procedure,
             operations=builder.operations,
-            measurement_transforms=builder.measurement_transform_intents,
+            measurement_postprocessors=builder.measurement_postprocessor_intents,
             products=builder.product_declarations,
         ),
         python_implementations=builder.python_implementations,

@@ -1,9 +1,9 @@
 """Runtime boundary for one prepared domain-program execution.
 
-Domain compilers consume the target-neutral linked program and close every
-target, result, value, transform, and record-projection decision before a run
-is durably accepted.  Scopecat retains ownership of runtime submission,
-correlation, journalling, recording, and terminal run evidence.
+Domain compilers consume the target-neutral linked program and close target,
+result, and value decisions before a run is durably accepted. Scopecat retains
+ownership of runtime submission, correlation, journalling, recording, and
+terminal run evidence.
 
 The runtime boundary is synchronous: one fetch returns the complete result
 while receipts preserve known and indeterminate outcomes.
@@ -14,8 +14,6 @@ from __future__ import annotations
 from collections.abc import Callable, Hashable
 from dataclasses import dataclass, field
 
-from scopecat.measurements.host_transforms import HostMeasurementTransformPlan
-from scopecat.measurements.points import RunPoint
 from scopecat.measurements.values import MeasurementValueCandidate
 from scopecat.sdk.domain.invocation import ClosedDomainInvocation
 from scopecat.sdk.domain.runtime import CorrelatedDomainFetch, DomainRuntime
@@ -40,8 +38,3 @@ class PreparedDomainExecution:
     invocation: ErasedDomainInvocation = field(repr=False)
     runtime: ErasedDomainRuntime = field(repr=False, compare=False)
     realize: ErasedDomainRealizer = field(repr=False, compare=False)
-    points: tuple[RunPoint, ...] = field(default=(), repr=False)
-    transforms: HostMeasurementTransformPlan | None = field(
-        default=None,
-        repr=False,
-    )

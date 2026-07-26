@@ -23,7 +23,7 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_operation_id,
 )
 from scopecat.authoring.domain import LoweredDomainExecution
-from scopecat.authoring.measurements import MeasurementTransform
+from scopecat.authoring.measurements import MeasurementPostprocessor
 from scopecat.authoring.values import ComputeFunction
 from scopecat.compiler.frontend.value_binding import literal_data_expr
 from scopecat.compiler.relations.verification import (
@@ -37,11 +37,11 @@ from scopecat.compiler.semantic.model import (
     ImplementationId,
     LiteralValueSource,
     LocalPythonImplementation,
-    MeasurementTransformId,
+    MeasurementPostprocessorId,
     PlanExpressionSource,
     SemanticDomainExecution,
     SemanticGraphIR,
-    SemanticMeasurementTransform,
+    SemanticMeasurementPostprocessor,
     SemanticOperation,
     ValueDef,
     ValueUse,
@@ -96,7 +96,7 @@ def elaborate_semantic_graph(
     operations: Sequence[ModuleOperationDecl],
     implementations: Sequence[ScopedPythonImplementation],
     *,
-    measurement_transforms: Sequence[MeasurementTransform] = (),
+    measurement_postprocessors: Sequence[MeasurementPostprocessor] = (),
     effects: Sequence[
         ExperimentBindingIntent | LoweredDomainExecution | AcquireEffect
     ] = (),
@@ -113,8 +113,8 @@ def elaborate_semantic_graph(
         point_dependencies=point_dependencies,
         parameter_contracts=parameter_contracts,
     )
-    for transform in measurement_transforms:
-        builder.add_measurement_transform(transform)
+    for postprocessor in measurement_postprocessors:
+        builder.add_measurement_postprocessor(postprocessor)
     for operation in operations:
         builder.add_authored_operation(operation)
     semantic_effects = tuple(
@@ -164,7 +164,7 @@ class _SemanticGraphBuilder:
         }
         self._definitions: dict[ValueId, ValueDef] = {}
         self._operations: dict[OperationId, SemanticOperation] = {}
-        self._measurement_transforms: list[SemanticMeasurementTransform] = []
+        self._measurement_postprocessors: list[SemanticMeasurementPostprocessor] = []
         self._implementations: dict[OperationId, LocalPythonImplementation] = {}
         self._input_types = dict(input_types)
         self._parameter_types = {
@@ -254,16 +254,16 @@ class _SemanticGraphBuilder:
             resources=execution.resource_bindings,
         )
 
-    def add_measurement_transform(
+    def add_measurement_postprocessor(
         self,
-        declaration: MeasurementTransform,
+        declaration: MeasurementPostprocessor,
     ) -> None:
-        self._measurement_transforms.append(
-            SemanticMeasurementTransform(
-                id=MeasurementTransformId(declaration.symbol_id),
-                semantic=declaration.semantic,
-                inputs=declaration.input_bindings,
+        self._measurement_postprocessors.append(
+            SemanticMeasurementPostprocessor(
+                id=MeasurementPostprocessorId(declaration.symbol_id),
+                input=declaration.input_binding,
                 outputs=declaration.output_bindings,
+                kernel=declaration.kernel,
             )
         )
 
@@ -281,7 +281,7 @@ class _SemanticGraphBuilder:
         graph = SemanticGraphIR(
             value_defs=tuple(self._definitions.values()),
             operations=tuple(self._operations.values()),
-            measurement_transforms=tuple(self._measurement_transforms),
+            measurement_postprocessors=tuple(self._measurement_postprocessors),
         )
         return SemanticElaboration(
             graph=graph,

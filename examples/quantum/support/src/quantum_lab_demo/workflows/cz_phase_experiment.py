@@ -6,10 +6,10 @@ import math
 
 import scopecat as sc
 from scopecat import Quantity
-from scopecat_quantum.measurement_transforms import (
+from scopecat_quantum.measurement_postprocessors import (
     BinaryIqDiscriminator,
     IqCentroid,
-    binary_iq_probability_transform,
+    binary_iq_probability_postprocessor,
 )
 
 from quantum_lab_demo.virtual_lab.parameters import (
@@ -72,21 +72,21 @@ def cz_phase_capture():
             unit="ratio",
         )
     )
-    control_transform = binary_iq_probability_transform(
+    control_postprocessor = binary_iq_probability_postprocessor(
         "control-binary-iq-probability",
         iq_shots=call.results.control_iq_shots,
         probability_0=body.products.control_probability_0,
         probability_1=body.products.control_probability_1,
         discriminator=_DISCRIMINATOR,
     )
-    target_transform = binary_iq_probability_transform(
+    target_postprocessor = binary_iq_probability_postprocessor(
         "target-binary-iq-probability",
         iq_shots=call.results.target_iq_shots,
         probability_0=body.products.target_probability_0,
         probability_1=body.products.target_probability_1,
         discriminator=_DISCRIMINATOR,
     )
-    return body.measurement_transforms(control_transform, target_transform)
+    return body.measurement_postprocessors(control_postprocessor, target_postprocessor)
 
 
 @sc.template(

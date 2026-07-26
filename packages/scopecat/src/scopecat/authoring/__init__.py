@@ -34,8 +34,8 @@ from scopecat.authoring.domain import (
     domain_program,
 )
 from scopecat.authoring.measurements import (
-    MeasurementTransform,
-    measurement_transform,
+    MeasurementPostprocessor,
+    measurement_postprocessor,
 )
 from scopecat.authoring.templates import (
     ExperimentInvocation,
@@ -119,7 +119,7 @@ __all__ = [
     "FloatType",
     "Input",
     "IntType",
-    "MeasurementTransform",
+    "MeasurementPostprocessor",
     "MetadataValue",
     "ModuleBuilder",
     "ModuleInput",
@@ -153,7 +153,7 @@ __all__ = [
     "experiment",
     "input",
     "input_ref",
-    "measurement_transform",
+    "measurement_postprocessor",
     "module",
     "module_body",
     "parameter",

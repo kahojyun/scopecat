@@ -7,10 +7,10 @@ from typing import Annotated
 
 import scopecat as sc
 from scopecat import Quantity
-from scopecat_quantum.measurement_transforms import (
+from scopecat_quantum.measurement_postprocessors import (
     BinaryIqDiscriminator,
     IqCentroid,
-    binary_iq_probability_transform,
+    binary_iq_probability_postprocessor,
 )
 
 from quantum_lab_demo.virtual_lab.parameters import (
@@ -68,14 +68,14 @@ def drag_beta_capture(
         .use(call)
         .product("probability_0", "probability_1", unit="ratio")
     )
-    transform = binary_iq_probability_transform(
+    postprocessor = binary_iq_probability_postprocessor(
         "binary-iq-probability",
         iq_shots=call.results.iq_shots,
         probability_0=body.products.probability_0,
         probability_1=body.products.probability_1,
         discriminator=_DRAG_BETA_DISCRIMINATOR,
     )
-    return body.measurement_transforms(transform)
+    return body.measurement_postprocessors(postprocessor)
 
 
 def _drag_beta_experiment_body(scan: sc.Scan) -> sc.ExperimentBody:

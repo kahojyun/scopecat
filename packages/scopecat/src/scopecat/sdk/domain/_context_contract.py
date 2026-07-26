@@ -8,7 +8,6 @@ from scopecat.measurements.points import RunPoint
 from scopecat.measurements.values import MeasurementValueCatalog
 from scopecat.sdk.domain.view import (
     DomainExecutionView,
-    DomainMeasurementTransform,
     DomainPointRef,
     DomainProductUseRef,
 )
@@ -24,10 +23,7 @@ class DomainBatchContextView(Protocol):
     def execution(self) -> DomainExecutionView: ...
 
     @property
-    def direct_product_uses(self) -> tuple[DomainProductUseRef, ...]: ...
-
-    @property
-    def derived_product_uses(self) -> tuple[DomainProductUseRef, ...]: ...
+    def product_uses(self) -> tuple[DomainProductUseRef, ...]: ...
 
     @property
     def measurement_catalog(self) -> MeasurementValueCatalog: ...
@@ -37,9 +33,3 @@ class DomainBatchContextView(Protocol):
 
     @property
     def points(self) -> tuple[DomainPointRef, ...]: ...
-
-    @property
-    def product_uses(self) -> tuple[DomainProductUseRef, ...]: ...
-
-    @property
-    def measurement_transforms(self) -> tuple[DomainMeasurementTransform, ...]: ...

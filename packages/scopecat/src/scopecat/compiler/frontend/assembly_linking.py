@@ -24,8 +24,8 @@ from scopecat.compiler.frontend.binding_lowering import (
 )
 from scopecat.compiler.frontend.elaboration import SemanticExperimentIR
 from scopecat.compiler.frontend.graph_validation import VerifiedAssembly
-from scopecat.compiler.frontend.measurement_transform_lowering import (
-    lower_semantic_measurement_transform_graph,
+from scopecat.compiler.frontend.measurement_postprocessor_lowering import (
+    lower_semantic_measurement_postprocessor_graph,
 )
 from scopecat.compiler.frontend.parameter_contract_validation import (
     validate_parameter_contracts,
@@ -124,13 +124,13 @@ def _bind_verified_assembly(
         type_bindings=type_bindings,
     )
     record_product_uses = products.product_uses
-    measurement_transforms = lower_semantic_measurement_transform_graph(
+    measurement_postprocessors = lower_semantic_measurement_postprocessor_graph(
         verified_graph.semantic_graph,
         record_product_uses,
     )
     product_uses = (
         *record_product_uses,
-        *measurement_transforms.input_product_uses,
+        *measurement_postprocessors.input_product_uses,
     )
     domain_executions = lower_semantic_domain_graph(
         verified_graph.semantic_graph,
@@ -159,7 +159,7 @@ def _bind_verified_assembly(
         resource_requirements=tuple(resource_requirements),
         compute_nodes=compute_nodes,
         effects=ordered_effects,
-        measurement_transforms=measurement_transforms.transforms,
+        measurement_postprocessors=measurement_postprocessors.postprocessors,
         parameter_overlays=tuple(
             lower_parameter_overlay_intent(
                 parameter_catalog,

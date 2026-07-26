@@ -13,10 +13,10 @@ from typing import Annotated, cast
 
 import scopecat as sc
 from scopecat_quantum import authoring as q
-from scopecat_quantum.measurement_transforms import (
+from scopecat_quantum.measurement_postprocessors import (
     BinaryIqDiscriminator,
     IqCentroid,
-    binary_iq_probability_transform,
+    binary_iq_probability_postprocessor,
 )
 from scopecat_quantum.standard_gates import X90, XM90, Y90, YM90
 
@@ -201,8 +201,8 @@ def single_qubit_rb_capture(
             unit="ratio",
         )
     )
-    return body.measurement_transforms(
-        binary_iq_probability_transform(
+    return body.measurement_postprocessors(
+        binary_iq_probability_postprocessor(
             "binary-iq-probability",
             iq_shots=call.results.iq_shots,
             probability_0=body.products.probability_0,
