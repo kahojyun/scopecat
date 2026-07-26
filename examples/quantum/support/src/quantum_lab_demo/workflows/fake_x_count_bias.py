@@ -2,24 +2,33 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import scopecat as sc
 from scopecat.kernel.quantity import Quantity
-from scopecat.kernel.state import StateLiteral
+from scopecat.kernel.state import StateValue
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     InstrumentSpec,
     RoutingEndpointBinding,
 )
 from scopecat.sdk.instruments import (
+    ApplyReceipt,
+    CollectCommand,
+    CollectReceipt,
+    InstrumentDescription,
+    InstrumentDriver,
     InstrumentProviderContext,
     InstrumentProviderDescription,
     InstrumentProviderResult,
-    SimpleInstrumentDriver,
-    SimpleProduct,
-    SimpleStateField,
+    InstrumentReadback,
+    InstrumentStateCommand,
+    InstrumentStateField,
+    InstrumentStateSnapshot,
+    capability,
     product,
     quantity_field,
-    simple_capability,
+    validate_state_command,
 )
 
 from quantum_lab_demo.virtual_lab.wiring import quantum_wiring_config_profile
@@ -96,16 +105,15 @@ class FakeBiasVoltageProvider:
     provider_id = "quantum_lab_demo.fake_bias_voltage_provider"
 
     def __init__(self) -> None:
-        self._voltage = Quantity(value=0.0, unit="V")
-        self._writes: list[Quantity] = []
+        self._driver_instance = _FakeBiasVoltageDriver()
 
     @property
     def voltage(self) -> Quantity:
-        return self._voltage.model_copy(deep=True)
+        return self._driver_instance.voltage
 
     @property
     def writes(self) -> tuple[Quantity, ...]:
-        return tuple(value.model_copy(deep=True) for value in self._writes)
+        return self._driver_instance.writes
 
     def describe(
         self,
@@ -124,38 +132,80 @@ class FakeBiasVoltageProvider:
         del context
         return InstrumentProviderResult(drivers=(self._driver(),))
 
-    def _driver(self) -> SimpleInstrumentDriver:
-        return SimpleInstrumentDriver(
-            instrument_id=BIAS_SOURCE_ID,
-            implementation_id="quantum_lab_demo.fake_bias_voltage_source",
-            implementation_version="1",
-            capabilities=(
-                simple_capability(
+    def _driver(self) -> InstrumentDriver:
+        return self._driver_instance
+
+
+class _FakeBiasVoltageDriver:
+    """Direct driver for the one state field and product used by this demo."""
+
+    instrument_id = BIAS_SOURCE_ID
+    implementation_id = "quantum_lab_demo.fake_bias_voltage_source"
+    implementation_version = "1"
+
+    def __init__(self) -> None:
+        self._voltage = Quantity(value=0.0, unit="V")
+        self._writes: list[Quantity] = []
+
+    @property
+    def voltage(self) -> Quantity:
+        return self._voltage.model_copy(deep=True)
+
+    @property
+    def writes(self) -> tuple[Quantity, ...]:
+        return tuple(value.model_copy(deep=True) for value in self._writes)
+
+    def describe(self) -> InstrumentDescription:
+        return InstrumentDescription(
+            instrument_id=self.instrument_id,
+            implementation_id=self.implementation_id,
+            implementation_version=self.implementation_version,
+            capabilities=[
+                capability(
                     BIAS_CAPABILITY_ID,
-                    fields=(
-                        SimpleStateField(
-                            field=quantity_field("voltage", unit="V"),
-                            read=lambda: self.voltage,
-                            write=self._write_voltage,
-                        ),
-                    ),
-                    products=(
-                        SimpleProduct(
-                            product=product("voltage", unit="V"),
-                            read=lambda: self.voltage,
-                        ),
-                    ),
-                ),
-            ),
+                    fields=[quantity_field("voltage", unit="V")],
+                    products=[product("voltage", unit="V")],
+                )
+            ],
         )
 
-    def _write_voltage(self, value: StateLiteral) -> None:
-        if not isinstance(value, Quantity):
-            msg = "fake bias voltage source requires Quantity state"
-            raise TypeError(msg)
-        retained = value.model_copy(deep=True)
-        self._voltage = retained
-        self._writes.append(retained)
+    def read_state(self) -> InstrumentStateSnapshot:
+        return InstrumentStateSnapshot(
+            instrument_id=self.instrument_id,
+            fields=[
+                InstrumentStateField(
+                    capability_id=BIAS_CAPABILITY_ID,
+                    field_path="voltage",
+                    value=StateValue(self.voltage),
+                )
+            ],
+        )
+
+    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
+        problems = validate_state_command(
+            command=command,
+            description=self.describe(),
+        )
+        if problems:
+            return ApplyReceipt(status="not_applied", problems=tuple(problems))
+        for field in command.fields:
+            retained = cast("Quantity", field.value.root).model_copy(deep=True)
+            self._voltage = retained
+            self._writes.append(retained)
+        return ApplyReceipt()
+
+    def collect(self, command: CollectCommand) -> CollectReceipt:
+        return CollectReceipt(
+            readback=InstrumentReadback(
+                values={request.id: self.voltage for request in command.requests}
+            )
+        )
+
+    def cleanup(self) -> None:
+        return None
+
+    def abort(self) -> None:
+        return None
 
 
 def fake_x_count_bias_config() -> ConfigProfileSnapshot:
