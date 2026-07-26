@@ -15,7 +15,6 @@ if TYPE_CHECKING:
     )
     from scopecat.config.registry.records import (
         CandidateConfigRegistrySource,
-        CandidateProposalRegistryEvidence,
         ConfigRegistryActivationRecord,
         ConfigRegistryActiveState,
         ConfigRegistryEntry,
@@ -52,7 +51,6 @@ if TYPE_CHECKING:
 
 _RECORD_EXPORTS = (
     "CandidateConfigRegistrySource",
-    "CandidateProposalRegistryEvidence",
     "ConfigRegistryActivationRecord",
     "ConfigRegistryActiveState",
     "ConfigRegistryEntry",

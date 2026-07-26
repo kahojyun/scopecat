@@ -422,12 +422,8 @@ def test_candidate_config_registers_and_activates_parameter_proposal(
     activation = activation_result.activation
     assert isinstance(entry.source, CandidateConfigRegistrySource)
     assert entry.source.run_id == run_id
-    assert entry.source.proposal_id == "best-signal"
-    evidence = entry.source.proposal_evidence
-    assert evidence.proposal_id == proposal.id
-    assert evidence.approval_record_id == f"{proposal.id}-approval"
-    assert evidence.proposal_record_content_hash.startswith("sha256:")
-    assert evidence.approval_record_content_hash.startswith("sha256:")
+    assert entry.source.proposal_id == proposal.id
+    assert entry.source.approval_record_id == f"{proposal.id}-approval"
     assert active_state.active_entry_id == entry.id
 
     stored_proposal = load_parameter_change_proposal(
@@ -436,9 +432,12 @@ def test_candidate_config_registers_and_activates_parameter_proposal(
         services=sqlite_project_services(tmp_path),
     )
     assert stored_proposal == proposal
-    assert load_config_registry_activation_history(
-        unit_of_work=sqlite_config_registry_unit_of_work(tmp_path)
-    )[-1] == activation
+    assert (
+        load_config_registry_activation_history(
+            unit_of_work=sqlite_config_registry_unit_of_work(tmp_path)
+        )[-1]
+        == activation
+    )
 
     config, source = resolve_config_registry_config_source(
         selector="active",

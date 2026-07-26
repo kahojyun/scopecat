@@ -15,15 +15,9 @@ retroactively revoke committed entries.
 
 from __future__ import annotations
 
-import hashlib
-import json
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import cast
-
-from pydantic import BaseModel
-from pydantic_core import PydanticSerializationError
 
 from scopecat.config.candidates import (
     CandidateConfig,
@@ -39,12 +33,10 @@ from scopecat.config.registry.ports import (
 )
 from scopecat.config.registry.records import (
     CandidateConfigRegistrySource,
-    CandidateProposalRegistryEvidence,
     ConfigRegistryActivationRecord,
     ConfigRegistryActiveState,
     ConfigRegistryEntry,
     DirectConfigRegistrySource,
-    EvidenceContentHash,
     ManualConfigDraftRegistrySource,
 )
 from scopecat.kernel.errors import (
@@ -61,7 +53,6 @@ from scopecat.kernel.problems import (
     ProblemPhase,
     StorageLocation,
 )
-from scopecat.records.analysis import AnalysisRecord
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import (
     ConfigContentHash,
@@ -533,39 +524,11 @@ def _validate_candidate_source_records(
             related_locations=(_registry_model_location("proposal_id"),),
             details={"proposal_id": proposal_id},
         )
-    analysis_record = _require_run_record(
-        source_manifest=source_manifest,
-        record_id=proposal.analysis_record_id,
-        kind="analysis",
-    )
-    analysis_ref = record_content_ref(
-        record_id=analysis_record.id,
-        kind=analysis_record.kind,
-    )
-    analysis = storage.read_model(run_id, analysis_ref, AnalysisRecord)
-    owns_proposal = any(
-        output.kind == "parameter_change_proposal"
-        and isinstance(output.content, dict)
-        and cast("dict[str, object]", output.content).get("proposal_id") == proposal.id
-        for output in analysis.outputs
-    )
-    if not owns_proposal:
-        raise _registry_failure(
-            DataIntegrityError,
-            code="config_registry.candidate_analysis_mismatch",
-            message="candidate proposal is not owned by its producing analysis",
-            location=_registry_storage_location(analysis_ref, run_id=run_id),
-            related_locations=(
-                _registry_storage_location(proposal_ref, run_id=run_id),
-            ),
-            details={"proposal_id": proposal_id},
-        )
-    approval_evidence = _candidate_approval_evidence(
+    approval_record_id = _require_candidate_approval(
         storage=storage,
         source_manifest=source_manifest,
         run_id=run_id,
         proposal_id=proposal_id,
-        proposal_hash=_record_content_hash(proposal),
     )
     durable_config = resolve_candidate_config_from_snapshot(
         CandidateConfig(parameter_proposal=proposal),
@@ -573,20 +536,20 @@ def _validate_candidate_source_records(
     )
     source = CandidateConfigRegistrySource(
         run_id=run_id,
-        proposal_evidence=approval_evidence,
+        proposal_id=proposal_id,
+        approval_record_id=approval_record_id,
         base_config_content_hash=source_config_hash,
     )
     return _ValidatedCandidateSource(config=durable_config, source=source)
 
 
-def _candidate_approval_evidence(
+def _require_candidate_approval(
     *,
     storage: RunRepository,
     source_manifest: RunManifest,
     run_id: str,
     proposal_id: str,
-    proposal_hash: EvidenceContentHash,
-) -> CandidateProposalRegistryEvidence:
+) -> str:
     approval_record_id = f"{proposal_id}-approval"
     approval_entry = next(
         (
@@ -623,29 +586,7 @@ def _candidate_approval_evidence(
             related_locations=(_registry_model_location("proposal_id"),),
             details={"record_id": approval_entry.id},
         )
-    return CandidateProposalRegistryEvidence(
-        proposal_id=proposal_id,
-        proposal_record_content_hash=proposal_hash,
-        approval_record_id=approval_record_id,
-        approval_record_content_hash=_record_content_hash(approval),
-    )
-
-
-def _record_content_hash(model: BaseModel) -> EvidenceContentHash:
-    try:
-        content = json.dumps(
-            model.model_dump(mode="json"),
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-    except (PydanticSerializationError, TypeError, ValueError) as error:
-        raise _registry_failure(
-            DataIntegrityError,
-            code="config_registry.evidence_not_serializable",
-            message="candidate evidence cannot be represented durably",
-            location=_registry_model_location("source"),
-        ) from error
-    return "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest()
+    return approval_record_id
 
 
 def list_config_registry_entries(

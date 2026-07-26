@@ -346,12 +346,10 @@ def test_drag_beta_approve_activate_active_replay_and_rollback(
     assert approved.actor == "operator"
     assert activated.active_state.generation == 2
     assert isinstance(activated.entry.source, CandidateConfigRegistrySource)
-    proposal_evidence = activated.entry.source.proposal_evidence
-    assert proposal_evidence.proposal_id == result.proposal_id
-    assert proposal_evidence.approval_record_id == f"{result.proposal_id}-approval"
-    assert proposal_evidence.proposal_record_content_hash.startswith("sha256:")
-    assert proposal_evidence.approval_record_content_hash.startswith("sha256:")
-    assert activated.entry.source.proposal_evidence
+    assert activated.entry.source.proposal_id == result.proposal_id
+    assert activated.entry.source.approval_record_id == (
+        f"{result.proposal_id}-approval"
+    )
     assert activated.entry.source.base_config_content_hash.startswith("sha256:")
     assert active_betas == pytest.approx(
         [fitted_beta + offset for offset in (-0.5, -0.25, 0.0, 0.25, 0.5)]

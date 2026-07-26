@@ -10,11 +10,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from scopecat.kernel.run_outcome import utc_now
 from scopecat.records.config import ConfigContentHash
 
-type EvidenceContentHash = Annotated[
-    str,
-    Field(pattern=r"^sha256:[0-9a-f]{64}$"),
-]
-
 
 class _FrozenRegistryModel(BaseModel):
     model_config = ConfigDict(
@@ -43,36 +38,19 @@ class ManualConfigDraftRegistrySource(_FrozenRegistryModel):
         return self
 
 
-class CandidateProposalRegistryEvidence(_FrozenRegistryModel):
-    proposal_id: str
-    proposal_record_content_hash: EvidenceContentHash
-    approval_record_id: str
-    approval_record_content_hash: EvidenceContentHash
-
-    @model_validator(mode="after")
-    def validate_identity(self) -> CandidateProposalRegistryEvidence:
-        if not self.proposal_id or not self.approval_record_id:
-            msg = "candidate proposal evidence identity fields must be non-empty"
-            raise ValueError(msg)
-        return self
-
-
 class CandidateConfigRegistrySource(_FrozenRegistryModel):
     kind: Literal["candidate_config"] = "candidate_config"
     run_id: str
-    proposal_evidence: CandidateProposalRegistryEvidence
+    proposal_id: str
+    approval_record_id: str
     base_config_content_hash: ConfigContentHash
 
     @model_validator(mode="after")
     def validate_evidence(self) -> CandidateConfigRegistrySource:
-        if not self.run_id:
+        if not self.run_id or not self.proposal_id or not self.approval_record_id:
             msg = "candidate registry source identity fields must be non-empty"
             raise ValueError(msg)
         return self
-
-    @property
-    def proposal_id(self) -> str:
-        return self.proposal_evidence.proposal_id
 
 
 ConfigRegistryEntrySource = Annotated[

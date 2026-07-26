@@ -196,7 +196,7 @@ function EntryProvenance({
   }
 
   const runId = source.run_id;
-  const proposalId = source.proposal_evidence.proposal_id;
+  const proposalId = source.proposal_id;
   const proposalsById = new Map(
     (candidateProposals ?? []).map((proposal) => [proposal.id, proposal]),
   );

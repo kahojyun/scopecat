@@ -249,9 +249,7 @@ describe("ConfigWorkspace", () => {
     ).not.toBeInTheDocument();
     expect(await screen.findByText("analysis-fit")).toBeInTheDocument();
     expect(screen.getByText("Frequency fit")).toBeInTheDocument();
-    expect(
-      screen.getByText("Approved · nightly-calibration"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Approved · nightly-calibration")).toBeInTheDocument();
     expect(screen.getByText("High-confidence fit")).toBeInTheDocument();
     expect(document.querySelector('time[datetime="2026-07-24T08:00:00Z"]')).toBeInTheDocument();
 
@@ -358,12 +356,8 @@ function runtimeDerivedEntry(
           }
         : {
             kind,
-            proposal_evidence: {
-              proposal_id: proposalId,
-              proposal_record_content_hash: `sha256:${proposalId}`,
-              approval_record_id: `${proposalId}-approval`,
-              approval_record_content_hash: `sha256:approval-${proposalId}`,
-            },
+            proposal_id: proposalId,
+            approval_record_id: `${proposalId}-approval`,
             run_id: "run-calibration",
             base_config_content_hash: "sha256:baseline",
           },
