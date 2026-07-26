@@ -22,7 +22,6 @@ from scopecat.graph.relations.model import (
     BinaryScalarExpr,
     InputRelationExpr,
     InputScalarExpr,
-    InputSeriesExpr,
     LiteralRowsRelationExpr,
     LiteralScalarExpr,
     ParameterLookupScalarExpr,
@@ -33,17 +32,13 @@ from scopecat.graph.relations.model import (
     RelationExpression,
     ScalarExpr,
     ScalarExpression,
-    SeriesExpr,
-    SeriesExpression,
     TableRelationExpr,
-    ValuesSeriesExpr,
 )
 from scopecat.graph.relations.operators import scalar_operator_result_type
 from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.kernel.value_type_compatibility import is_assignable, literal_scalar_type
 from scopecat.kernel.value_types import (
     Scalar,
-    Series,
     Table,
     TableColumn,
     ValueType,
@@ -244,15 +239,6 @@ class _Verifier:
                         "expected a non-scalar value",
                     )
                 result = self.scalar(node, path, scalar_expected)
-            case SeriesExpr():
-                series_expected = expected if isinstance(expected, Series) else None
-                if expected is not None and series_expected is None:
-                    raise self.error(
-                        "wrong_shape",
-                        path,
-                        "expected a non-series value",
-                    )
-                result = self.series(node, path, series_expected)
             case RelationExpr():
                 table_expected = expected if isinstance(expected, Table) else None
                 if expected is not None and table_expected is None:
@@ -319,34 +305,6 @@ class _Verifier:
                         (*path, "right"),
                         "division denominator is statically zero",
                     )
-        self.require_expected(result, expected, path)
-        return result
-
-    def series(
-        self,
-        node: SeriesExpr,
-        path: PlanPath,
-        expected: Series | None,
-    ) -> Series:
-        series = cast("SeriesExpression", node)
-        match series:
-            case ValuesSeriesExpr():
-                items = series.items
-                if expected is None:
-                    raise self.error(
-                        "missing_declared_type",
-                        path,
-                        "literal series requires its consumer's declared Series type",
-                    )
-                self.validate_literal(expected, items, path)
-                result = Series(expected.item_type)
-            case InputSeriesExpr():
-                result = self.import_type(
-                    PlanImportNamespace.INPUT,
-                    series.name,
-                    Series,
-                    path,
-                )
         self.require_expected(result, expected, path)
         return result
 

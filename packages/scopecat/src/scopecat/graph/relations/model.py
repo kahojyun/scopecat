@@ -1,4 +1,4 @@
-"""Backend-neutral relation, series, and scalar plan nodes.
+"""Backend-neutral table and scalar plan nodes.
 
 Nodes contain declared semantics and construction helpers only. Traversal and
 reference analysis live in :mod:`scopecat.graph.relations.analysis`;
@@ -152,23 +152,6 @@ type ScalarExpression = (
 )
 
 
-class SeriesExpr:
-    """Common base for one-dimensional series plan variants."""
-
-
-@dataclass(frozen=True, slots=True)
-class ValuesSeriesExpr(SeriesExpr):
-    items: list[CellValue]
-
-
-@dataclass(frozen=True, slots=True)
-class InputSeriesExpr(SeriesExpr):
-    name: str
-
-
-type SeriesExpression = ValuesSeriesExpr | InputSeriesExpr
-
-
 class RelationExpr:
     """Opaque table value passed through to Python or a domain compiler."""
 
@@ -207,12 +190,6 @@ def input_ref(name: str) -> InputScalarExpr:
     return InputScalarExpr(name=name)
 
 
-def input_series(name: str) -> InputSeriesExpr:
-    """Reference a series-shaped input."""
-
-    return InputSeriesExpr(name=name)
-
-
 def input_table(name: str) -> InputRelationExpr:
     """Reference a table-shaped input."""
 
@@ -246,19 +223,6 @@ def as_scalar_expr(value: object) -> ScalarExpression:
         return lit(value)
     msg = f"cannot convert {value!r} to scalar expression"
     raise TypeError(msg)
-
-
-def values(items: Sequence[object], *, unit: str | None = None) -> ValuesSeriesExpr:
-    if unit is None:
-        return ValuesSeriesExpr(
-            items=[cast("CellValue", item) for item in items],
-        )
-    return ValuesSeriesExpr(
-        items=[
-            Quantity(value=float(cast("int | float", item)), unit=unit)
-            for item in items
-        ],
-    )
 
 
 def literal_rows(rows: Sequence[Mapping[str, CellValue]]) -> LiteralRowsRelationExpr:

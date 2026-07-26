@@ -15,7 +15,6 @@ from scopecat.graph.relations.model import (
     CellValue,
     InputRelationExpr,
     InputScalarExpr,
-    InputSeriesExpr,
     LiteralRowsRelationExpr,
     LiteralScalarExpr,
     ParameterLookupScalarExpr,
@@ -26,10 +25,7 @@ from scopecat.graph.relations.model import (
     Row,
     ScalarExpr,
     ScalarExpression,
-    SeriesExpr,
-    SeriesExpression,
     TableRelationExpr,
-    ValuesSeriesExpr,
     is_cell_value,
 )
 from scopecat.kernel.entity import EntityRef
@@ -62,17 +58,6 @@ def evaluate_scalar_expression(expression: ScalarExpr, ctx: EvalContext) -> Cell
             )
 
 
-def evaluate_series_expression(
-    expression: SeriesExpr, ctx: EvalContext
-) -> list[CellValue]:
-    series = cast("SeriesExpression", expression)
-    match series:
-        case ValuesSeriesExpr():
-            return list(series.items)
-        case InputSeriesExpr():
-            return _input_series(ctx.inputs, series.name)
-
-
 def evaluate_relation_expression(
     expression: RelationExpr, ctx: EvalContext
 ) -> list[Row]:
@@ -84,24 +69,6 @@ def evaluate_relation_expression(
             return ctx.params.table_rows(relation.table_id)
         case InputRelationExpr():
             return _input_table(ctx.inputs, relation.name)
-
-
-def _input_series(inputs: Mapping[str, object], name: str) -> list[CellValue]:
-    try:
-        value = inputs[name]
-    except KeyError as error:
-        msg = f"unknown series input {name!r}"
-        raise KeyError(msg) from error
-    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
-        msg = f"series input {name!r} must be a sequence"
-        raise TypeError(msg)
-    items: list[CellValue] = []
-    for item in value:
-        if not is_cell_value(item):
-            msg = f"series input {name!r} contains unsupported value {item!r}"
-            raise TypeError(msg)
-        items.append(item)
-    return items
 
 
 def _input_table(inputs: Mapping[str, object], name: str) -> list[Row]:

@@ -57,9 +57,6 @@ from scopecat.authoring.value_types import (
     Scalar as ScalarType,
 )
 from scopecat.authoring.value_types import (
-    Series as SeriesType,
-)
-from scopecat.authoring.value_types import (
     Table as TableType,
 )
 from scopecat.compiler.frontend.semantic_elaboration import (
@@ -596,14 +593,8 @@ def _entity_input_ids(ports: Sequence[ModuleInputPort]) -> tuple[str, ...]:
     return tuple(
         port.id
         for port in ports
-        if (
-            isinstance(port.value_type, ScalarType)
-            and isinstance(port.value_type.atom, EntityType)
-        )
-        or (
-            isinstance(port.value_type, SeriesType)
-            and isinstance(port.value_type.item_type.atom, EntityType)
-        )
+        if isinstance(port.value_type, ScalarType)
+        and isinstance(port.value_type.atom, EntityType)
     )
 
 
@@ -968,7 +959,7 @@ def _scope_resource_ports(
             )
             if isinstance(localized.value_type, TableType):
                 msg = (
-                    "resource entity source must be scalar or series-shaped; "
+                    "resource entity source must be scalar-shaped; "
                     "declare the resource footprint explicitly"
                 )
                 raise TypeError(msg)

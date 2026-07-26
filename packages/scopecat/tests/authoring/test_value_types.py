@@ -10,7 +10,6 @@ from scopecat.authoring.value_types import (
     Payload,
     Quantity,
     Scalar,
-    Series,
     String,
     Table,
     TableColumn,
@@ -42,8 +41,6 @@ def test_scalar_types_coerce_literals_and_apply_constraints() -> None:
 def test_value_shapes_reject_null() -> None:
     with pytest.raises(ValueValidationError, match="must not be null"):
         coerce_literal(Scalar(String()), None)
-    with pytest.raises(ValueValidationError, match="must not be null"):
-        coerce_literal(Series(Scalar(Int())), None)
     with pytest.raises(ValueValidationError, match="must not be null"):
         coerce_literal(Table(columns=()), None)
 
@@ -94,14 +91,6 @@ def test_entity_coercion_applies_domain_kind_constraint() -> None:
 
     with pytest.raises(ValueValidationError, match="must have kind 'logical_qubit'"):
         coerce_literal(qubit, EntityRef(id="c0", kind="logical_coupler"))
-
-
-def test_series_type_coerces_items_recursively() -> None:
-    series = Series(Scalar(Float()))
-    assert coerce_literal(series, [1, 2.5]) == (1.0, 2.5)
-
-    with pytest.raises(ValueValidationError, match=r"value\[0\]"):
-        coerce_literal(series, ["bad"])
 
 
 def test_table_type_coerces_rows_and_enforces_primary_key() -> None:

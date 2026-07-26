@@ -63,9 +63,6 @@ from scopecat.authoring.value_types import (
     Scalar as ScalarType,
 )
 from scopecat.authoring.value_types import (
-    Series as SeriesType,
-)
-from scopecat.authoring.value_types import (
     String as StringType,
 )
 from scopecat.authoring.value_types import (
@@ -130,7 +127,6 @@ __all__ = [
     "ScalarInput",
     "ScalarType",
     "ScratchDefinition",
-    "SeriesType",
     "StringType",
     "TableColumn",
     "TableType",

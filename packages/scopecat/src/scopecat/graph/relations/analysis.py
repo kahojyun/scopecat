@@ -16,7 +16,6 @@ from scopecat.graph.relations.model import (
     BinaryScalarExpr,
     InputRelationExpr,
     InputScalarExpr,
-    InputSeriesExpr,
     LiteralScalarExpr,
     ParameterLookupScalarExpr,
     ParameterScalarExpr,
@@ -25,12 +24,10 @@ from scopecat.graph.relations.model import (
     RelationExpression,
     ScalarExpr,
     ScalarExpression,
-    SeriesExpr,
-    SeriesExpression,
     TableRelationExpr,
 )
 
-type PlanNode = ScalarExpr | SeriesExpr | RelationExpr
+type PlanNode = ScalarExpr | RelationExpr
 
 
 class PlanReferenceKind(StrEnum):
@@ -38,7 +35,6 @@ class PlanReferenceKind(StrEnum):
 
     POINT_COLUMN = "point_column"
     INPUT_SCALAR = "input.scalar"
-    INPUT_SERIES = "input.series"
     INPUT_TABLE = "input.table"
     PARAMETER_SCALAR = "parameter.scalar"
     PARAMETER_TABLE = "parameter.table"
@@ -103,9 +99,6 @@ def iter_plan_children(node: PlanNode) -> Iterator[PlanNode]:
         yield scalar.right
         return
 
-    if isinstance(node, SeriesExpr):
-        return
-
     return
 
 
@@ -126,8 +119,8 @@ def rewrite_plan[NodeT: PlanNode](
     """Rewrite a plan bottom-up while preserving each node's value shape.
 
     This is the shared structural boundary for compiler transformations. The
-    callback may replace operations, but scalar, series, and relation nodes
-    must retain their respective shapes.
+    callback may replace operations, but scalar and relation nodes must retain
+    their respective shapes.
     """
 
     def visit(node: PlanNode) -> PlanNode:
@@ -151,9 +144,6 @@ def rewrite_plan[NodeT: PlanNode](
                 rewritten = scalar
             return transform(rewritten)
 
-        if isinstance(node, SeriesExpr):
-            return transform(cast("SeriesExpression", node))
-
         return transform(cast("RelationExpression", node))
 
     return cast("NodeT", visit(root))
@@ -166,8 +156,6 @@ def plan_references(root: PlanNode) -> PlanReferences:
     for node in walk_plan(root):
         if isinstance(node, ScalarExpr):
             reference = _scalar_reference(node)
-        elif isinstance(node, SeriesExpr):
-            reference = _series_reference(node)
         else:
             reference = _relation_reference(node)
         if reference is not None:
@@ -176,11 +164,10 @@ def plan_references(root: PlanNode) -> PlanReferences:
 
 
 def plan_input_refs(root: PlanNode) -> tuple[str, ...]:
-    """Return free input ids across scalar, series, and table input shapes."""
+    """Return free input ids across scalar and table input shapes."""
 
     return plan_references(root).ids(
         PlanReferenceKind.INPUT_SCALAR,
-        PlanReferenceKind.INPUT_SERIES,
         PlanReferenceKind.INPUT_TABLE,
     )
 
@@ -197,16 +184,6 @@ def _scalar_reference(node: ScalarExpr) -> PlanReference | None:
         return PlanReference(
             PlanReferenceKind.PARAMETER_TABLE,
             scalar.use.table_id,
-        )
-    return None
-
-
-def _series_reference(node: SeriesExpr) -> PlanReference | None:
-    series = cast("SeriesExpression", node)
-    if isinstance(series, InputSeriesExpr):
-        return PlanReference(
-            PlanReferenceKind.INPUT_SERIES,
-            series.name,
         )
     return None
 

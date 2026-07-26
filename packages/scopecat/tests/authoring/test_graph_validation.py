@@ -429,7 +429,7 @@ def test_entrypoint_closure_is_an_authoring_problem(
     assert problem.location == model_location(root)
 
 
-def test_resource_selector_requires_scalar_or_series_entity_values() -> None:
+def test_resource_selector_requires_a_scalar_entity_value() -> None:
     invalid_entity = sc.input("subject", sc.ScalarType(sc.StringType()))
     port = resource_port(
         "drive",

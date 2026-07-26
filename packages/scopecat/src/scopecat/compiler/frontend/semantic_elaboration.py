@@ -52,7 +52,6 @@ from scopecat.compiler.semantic.operation_contract import (
 from scopecat.graph.relations.model import (
     RelationExpr,
     ScalarExpr,
-    SeriesExpr,
 )
 from scopecat.graph.values import (
     ComputeResultRef,
@@ -70,7 +69,7 @@ from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_type_compatibility import literal_scalar_type
 from scopecat.kernel.value_types import TableColumn, ValueType
 
-type _PlanExpression = ScalarExpr | SeriesExpr | RelationExpr
+type _PlanExpression = ScalarExpr | RelationExpr
 
 
 @dataclass(frozen=True, slots=True)

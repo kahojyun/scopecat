@@ -41,7 +41,6 @@ from scopecat.authoring.value_types import (
     Payload,
     Quantity,
     Scalar,
-    Series,
     String,
     Table,
     ValueType,
@@ -506,7 +505,7 @@ def _annotation_value_type(annotation: object, *, parameter: str) -> ValueType:
 
 
 def _is_value_type(value: object) -> bool:
-    if isinstance(value, Scalar | Series | Table):
+    if isinstance(value, Scalar | Table):
         return True
     return isinstance(
         value,
@@ -515,7 +514,7 @@ def _is_value_type(value: object) -> bool:
 
 
 def _as_value_type(value: object) -> ValueType:
-    if isinstance(value, Scalar | Series | Table):
+    if isinstance(value, Scalar | Table):
         return value
     if isinstance(
         value,
@@ -550,13 +549,6 @@ def _python_annotation_matches(annotation: object, value_type: ValueType) -> boo
             String: (str,),
         }
         return annotation in expected[type(atom)]
-    if isinstance(value_type, Series):
-        if origin not in (tuple, list, Sequence):
-            return False
-        item_types = cast("tuple[object, ...]", get_args(annotation))
-        if not item_types:
-            return False
-        return _python_annotation_matches(item_types[0], value_type.item_type)
     if origin not in (tuple, list, Sequence):
         return False
     row_types = cast("tuple[object, ...]", get_args(annotation))

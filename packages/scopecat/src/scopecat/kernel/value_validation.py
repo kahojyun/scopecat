@@ -26,7 +26,6 @@ from scopecat.kernel.value_types import (
     Payload,
     Quantity,
     Scalar,
-    Series,
     String,
     Table,
     ValueType,
@@ -86,8 +85,6 @@ def coerce_literal(
         raise ValueValidationError(path, "value must not be null")
     if isinstance(value_type, Scalar):
         return _coerce_atom(value_type.atom, value, path=path)
-    if isinstance(value_type, Series):
-        return _coerce_series(value_type, value, path=path)
     return _coerce_table(value_type, value, path=path)
 
 
@@ -252,19 +249,6 @@ def _coerce_payload(atom: Payload, value: object, *, path: ValuePath) -> Payload
     else:
         selected_payload = value
     return PayloadValue(schema_id=atom.schema_id, payload=selected_payload)
-
-
-def _coerce_series(
-    value_type: Series,
-    value: object,
-    *,
-    path: ValuePath,
-) -> tuple[object, ...]:
-    sequence = _sequence(value, path=path, label="series")
-    return tuple(
-        coerce_literal(value_type.item_type, item, path=(*path, index))
-        for index, item in enumerate(sequence)
-    )
 
 
 def _coerce_table(

@@ -20,12 +20,10 @@ from scopecat.graph.relations.model import (
     RelationExpr,
     Row,
     ScalarExpr,
-    SeriesExpr,
     is_cell_value,
 )
 from scopecat.kernel.value_types import (
     Scalar,
-    Series,
     Table,
     TableColumn,
     ValueType,
@@ -46,20 +44,6 @@ def evaluate_scalar(
     result = evaluate_scalar_expression(verified_plan.root, normalized)
     return cast(
         "CellValue",
-        _normalize_materialized_result(verified_plan.certified_type, result),
-    )
-
-
-def evaluate_series(
-    verified_plan: VerifiedRelationPlan[SeriesExpr],
-    ctx: EvalContext,
-) -> list[CellValue]:
-    from scopecat.compiler.relations.evaluator import evaluate_series_expression
-
-    normalized = _prepare_context(verified_plan, ctx)
-    result = evaluate_series_expression(verified_plan.root, normalized)
-    return cast(
-        "list[CellValue]",
         _normalize_materialized_result(verified_plan.certified_type, result),
     )
 
@@ -151,8 +135,7 @@ def _input_import_value(
     try:
         return inputs[imported.id]
     except KeyError as error:
-        shape = "series" if isinstance(imported.value_type, Series) else "table"
-        msg = f"unknown {shape} input {imported.id!r}"
+        msg = f"unknown table input {imported.id!r}"
         raise KeyError(msg) from error
 
 
@@ -376,7 +359,7 @@ def _referenced_row_columns(
 def _normalize_materialized_result(
     value_type: ValueType,
     value: object,
-) -> CellValue | list[CellValue] | list[Row]:
+) -> CellValue | list[Row]:
     """Normalize a result and enforce its runtime carrier contract."""
 
     return _normalize_typed_value(value_type, value, path=("result",))
@@ -387,7 +370,7 @@ def _normalize_typed_value(
     value: object,
     *,
     path: tuple[str | int, ...],
-) -> CellValue | list[CellValue] | list[Row]:
+) -> CellValue | list[Row]:
     normalized = _restore_runtime_collection_carriers(
         value_type,
         coerce_literal(value_type, value, path=path),
@@ -399,16 +382,6 @@ def _normalize_typed_value(
                 f"unsupported scalar runtime value {normalized!r}",
             )
         return normalized
-    if isinstance(value_type, Series):
-        items = list(cast("tuple[object, ...]", normalized))
-        for index, item in enumerate(items):
-            if not is_cell_value(item):
-                raise ValueValidationError(
-                    (*path, index),
-                    f"unsupported series runtime value {item!r}",
-                )
-        return cast("list[CellValue]", items)
-
     rows = list(cast("tuple[dict[str, object], ...]", normalized))
     for index, row in enumerate(rows):
         for column_id, item in row.items():
@@ -428,12 +401,6 @@ def _restore_runtime_collection_carriers(
 
     if isinstance(value_type, Scalar):
         return value
-    if isinstance(value_type, Series):
-        return [
-            _restore_runtime_collection_carriers(value_type.item_type, item)
-            for item in cast("tuple[object, ...]", value)
-        ]
-
     selected_rows: list[dict[str, object]] = []
     columns = {column.id: column for column in value_type.columns}
     for row in cast("tuple[dict[str, object], ...]", value):

@@ -2,7 +2,7 @@
 
 Shape and scalar content are deliberately independent:
 
-* :class:`Scalar`, :class:`Series`, and :class:`Table` describe shape.
+* :class:`Scalar` and :class:`Table` describe shape.
 * :class:`Bool`, :class:`Int`, :class:`Float`, :class:`String`,
   :class:`Quantity`, :class:`Entity`, and :class:`Payload`
   describe scalar content.
@@ -132,13 +132,6 @@ class Scalar:
 
 
 @dataclass(frozen=True, slots=True)
-class Series:
-    """An ordered one-dimensional collection of scalar values."""
-
-    item_type: Scalar
-
-
-@dataclass(frozen=True, slots=True)
 class TableColumn:
     """One scalar column in a table type."""
 
@@ -189,7 +182,7 @@ class Table:
                 raise ValueError(msg)
 
 
-type ValueType = Scalar | Series | Table
+type ValueType = Scalar | Table
 
 
 def _validate_bounds(

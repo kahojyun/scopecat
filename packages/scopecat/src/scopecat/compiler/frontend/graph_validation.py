@@ -32,7 +32,7 @@ from scopecat.compiler.semantic.verification import (
     VerifiedSemanticGraph,
     verify_semantic_graph,
 )
-from scopecat.graph.relations.model import ScalarExpr, SeriesExpr
+from scopecat.graph.relations.model import ScalarExpr
 from scopecat.graph.relations.point_domain import (
     analyze_point_domain,
     is_point_coordinate_type,
@@ -53,7 +53,7 @@ from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
 from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.units import is_supported_unit
-from scopecat.kernel.value_types import Entity, Payload, Scalar, Series
+from scopecat.kernel.value_types import Entity, Payload, Scalar
 
 
 @dataclass(frozen=True, slots=True)
@@ -350,17 +350,13 @@ def _verify_resource_entity_input(
         isinstance(value_type, Scalar)
         and isinstance(value_type.atom, Entity)
         and isinstance(lowered, ScalarExpr)
-    ) or (
-        isinstance(value_type, Series)
-        and isinstance(value_type.item_type.atom, Entity)
-        and isinstance(lowered, SeriesExpr)
     )
     if valid:
         return
     problems.append(
         _problem(
             "module_resource_entity_input_invalid",
-            "resource entity source must be a scalar or series entity value",
+            "resource entity source must be a scalar entity value",
             location,
         )
     )

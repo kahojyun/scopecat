@@ -16,24 +16,20 @@ from scopecat.graph.relations.model import (
     CellValue,
     InputRelationExpr,
     InputScalarExpr,
-    InputSeriesExpr,
     ParameterLookupScalarExpr,
     RelationExpr,
     RelationExpression,
     ScalarExpr,
     ScalarExpression,
-    SeriesExpr,
-    SeriesExpression,
     lit,
     literal_rows,
-    values,
 )
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.quantity import Quantity
 
 _EMPTY_INPUT_RESOLUTION: frozenset[str] = frozenset()
-type _DataExpr = ScalarExpr | SeriesExpr | RelationExpr
+type _DataExpr = ScalarExpr | RelationExpr
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,12 +132,6 @@ def bind_value_input_refs(
             inputs,
             resolving=resolving,
         )
-    if isinstance(expression, SeriesExpr):
-        return bind_series_input_refs(
-            expression,
-            inputs,
-            resolving=resolving,
-        )
     return bind_relation_input_refs(
         expression,
         inputs,
@@ -159,36 +149,6 @@ def substitute_value_input_refs(
         expression,
         _LexicalReplacements(inputs),
     )
-
-
-def bind_series_input_refs(
-    expression: SeriesExpr,
-    inputs: Mapping[str, object],
-    *,
-    resolving: frozenset[str] = _EMPTY_INPUT_RESOLUTION,
-) -> SeriesExpr:
-    series = cast("SeriesExpression", expression)
-    if isinstance(series, InputSeriesExpr):
-        input_name = series.name
-        if input_name not in inputs:
-            return series
-        value = inputs[input_name]
-        substitute_once = isinstance(value, _LexicalReplacement)
-        selected = series_input_value(
-            input_name,
-            value.value if substitute_once else value,
-        )
-        if substitute_once:
-            return selected
-        if isinstance(selected, InputSeriesExpr) and selected.name == input_name:
-            return selected
-        return bind_series_input_refs(
-            selected,
-            inputs,
-            resolving=_descend_input_resolution(input_name, resolving),
-        )
-
-    return series
 
 
 def bind_relation_input_refs(
@@ -220,16 +180,6 @@ def bind_relation_input_refs(
     return relation
 
 
-def series_input_value(input_name: str, value: object) -> SeriesExpression:
-    if isinstance(value, SeriesExpr):
-        return cast("SeriesExpression", value)
-    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
-        sequence = value
-        return values([input_cell(item) for item in sequence])
-    msg = f"series input {input_name!r} must bind to a sequence"
-    raise TypeError(msg)
-
-
 def table_input_value(input_name: str, value: object) -> RelationExpression:
     if isinstance(value, RelationExpr):
         return cast("RelationExpression", value)
@@ -248,13 +198,14 @@ def table_input_value(input_name: str, value: object) -> RelationExpression:
 
 
 def literal_data_expr(value: object) -> _DataExpr:
-    if isinstance(value, ScalarExpr | SeriesExpr | RelationExpr):
+    if isinstance(value, ScalarExpr | RelationExpr):
         return value
     if isinstance(value, Sequence) and not isinstance(value, str | bytes):
         sequence = value
         if sequence and all(isinstance(item, Mapping) for item in sequence):
             return table_input_value("literal", sequence)
-        return values([input_cell(item) for item in sequence])
+        msg = "literal sequences must contain table rows"
+        raise TypeError(msg)
     return lit(input_cell(value))
 
 

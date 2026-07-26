@@ -117,13 +117,6 @@ def _normalize_entity_ids(values: Sequence[object]) -> tuple[str, ...]:
             entity_ids.append(value.id)
         elif isinstance(value, str) and value:
             entity_ids.append(value)
-        elif isinstance(value, Sequence) and not isinstance(value, str | bytes):
-            if not value:
-                raise ResourceBindingError(
-                    "module_resource_entity_invalid",
-                    "resource entity series must not be empty",
-                )
-            entity_ids.extend(_normalize_entity_ids(value))
         else:
             raise ResourceBindingError(
                 "module_resource_entity_invalid",

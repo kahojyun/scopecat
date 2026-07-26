@@ -7,30 +7,25 @@ from scopecat.compiler.relations.verification import (
 from scopecat.graph.relations.input_binding import (
     bind_relation_input_refs,
     bind_scalar_input_refs,
-    bind_series_input_refs,
 )
 from scopecat.graph.relations.model import (
     TableRelationExpr,
     input_ref,
-    input_series,
     input_table,
     literal_rows,
-    values,
 )
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import (
-    Entity,
+    Quantity as QuantityType,
+)
+from scopecat.kernel.value_types import (
     Scalar,
-    Series,
     String,
     Table,
     TableColumn,
 )
-from scopecat.kernel.value_types import (
-    Quantity as QuantityType,
-)
-from tests.testkit.relation_plans import evaluate_relation, evaluate_series
+from tests.testkit.relation_plans import evaluate_relation
 
 _STRING = Scalar(String())
 _FREQUENCY = Scalar(QuantityType(dimension="frequency"))
@@ -105,13 +100,12 @@ def test_parameter_lookup_matches_compatible_quantity_units() -> None:
     )
 
 
-def test_series_and_table_inputs_are_typed_expressions() -> None:
+def test_table_inputs_are_typed_expressions() -> None:
     rows = [
         {"qubit": "q0", "frequency": Quantity(value=5.0, unit="GHz")},
         {"qubit": "q1", "frequency": Quantity(value=5.1, unit="GHz")},
     ]
     relation = input_table("gate_rows")
-    series = input_series("offsets")
 
     assert (
         evaluate_relation(
@@ -128,30 +122,13 @@ def test_series_and_table_inputs_are_typed_expressions() -> None:
         )
         == rows
     )
-    assert evaluate_series(
-        series,
-        EvalContext(
-            inputs={
-                "offsets": [
-                    Quantity(value=-10.0, unit="MHz"),
-                    Quantity(value=10.0, unit="MHz"),
-                ]
-            }
-        ),
-        bindings=RelationTypeBindings(inputs={"offsets": Series(_FREQUENCY)}),
-    ) == [
-        Quantity(value=-10.0, unit="MHz"),
-        Quantity(value=10.0, unit="MHz"),
-    ]
 
 
 def test_input_binding_preserves_same_named_unresolved_references() -> None:
     scalar = input_ref("value")
-    series = input_series("values")
     relation = input_table("rows")
 
     assert bind_scalar_input_refs(scalar, {"value": scalar}) is scalar
-    assert bind_series_input_refs(series, {"values": series}) is series
     assert bind_relation_input_refs(relation, {"rows": relation}) is relation
 
 
@@ -160,11 +137,6 @@ def test_input_binding_rejects_indirect_cycles() -> None:
         bind_scalar_input_refs(
             input_ref("a"),
             {"a": input_ref("b"), "b": input_ref("a")},
-        )
-    with pytest.raises(ValueError, match="cyclic module input reference"):
-        bind_series_input_refs(
-            input_series("a"),
-            {"a": input_series("b"), "b": input_series("a")},
         )
     with pytest.raises(ValueError, match="cyclic module input reference"):
         bind_relation_input_refs(
@@ -178,26 +150,3 @@ def test_relation_variant_fields_preserve_empty_semantics() -> None:
 
     assert leaf.rows == []
     assert TableRelationExpr(table_id="").table_id == ""
-
-
-def test_entity_series_preserves_series_shape() -> None:
-    series = values(
-        [
-            EntityRef(id="q0", kind="logical_device"),
-            EntityRef(id="q1", kind="logical_device"),
-        ]
-    )
-
-    assert evaluate_series(
-        series,
-        EvalContext(),
-        expected_type=Series(Scalar(Entity("logical_device"))),
-    ) == [
-        EntityRef(id="q0", kind="logical_device"),
-        EntityRef(id="q1", kind="logical_device"),
-    ]
-
-
-def test_values_rejects_non_numeric_unit_items() -> None:
-    with pytest.raises(ValueError, match="could not convert string to float"):
-        values(["bad"], unit="GHz")

@@ -16,7 +16,6 @@ from scopecat.compiler.relations.context import EvalContext, ParameterRelationDa
 from scopecat.compiler.relations.evaluation import (
     evaluate_relation,
     evaluate_scalar,
-    evaluate_series,
     normalize_relation_parameter_import,
 )
 from scopecat.compiler.relations.verification import (
@@ -25,7 +24,6 @@ from scopecat.compiler.relations.verification import (
 )
 from scopecat.compiler.semantic.value_expressions import (
     ScalarValueExpr,
-    SeriesValueExpr,
 )
 from scopecat.compiler.typed.parameter_overlays import resolve_point_parameters
 from scopecat.compiler.typed.point_domain import (
@@ -52,7 +50,6 @@ from scopecat.graph.relations.model import (
     RelationExpr,
     Row,
     ScalarExpr,
-    SeriesExpr,
 )
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
@@ -348,11 +345,6 @@ def _evaluate_domain_input(
     if isinstance(value, ScalarValueExpr):
         return evaluate_scalar(
             cast("VerifiedRelationPlan[ScalarExpr]", verified_plan),
-            context,
-        )
-    if isinstance(value, SeriesValueExpr):
-        return evaluate_series(
-            cast("VerifiedRelationPlan[SeriesExpr]", verified_plan),
             context,
         )
     return evaluate_relation(

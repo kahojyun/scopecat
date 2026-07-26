@@ -22,7 +22,6 @@ from scopecat.graph.relations.analysis import (
 from scopecat.graph.relations.model import (
     RelationExpr,
     ScalarExpr,
-    SeriesExpr,
 )
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
@@ -37,7 +36,7 @@ from scopecat.measurements.postprocessor_contract import (
     MeasurementPostprocessorKernel,
 )
 
-type PlanExpression = ScalarExpr | SeriesExpr | RelationExpr
+type PlanExpression = ScalarExpr | RelationExpr
 type VerifiedPlanExpression = VerifiedRelationPlan[PlanExpression]
 type SemanticValueType = ValueType
 
@@ -123,7 +122,6 @@ class PlanExpressionSource:
 
         return self._verified_plan.references.ids(
             PlanReferenceKind.INPUT_SCALAR,
-            PlanReferenceKind.INPUT_SERIES,
             PlanReferenceKind.INPUT_TABLE,
         )
 

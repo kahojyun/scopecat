@@ -9,7 +9,6 @@ from scopecat.compiler.relations.context import EvalContext, ParameterRelationDa
 from scopecat.compiler.relations.evaluation import (
     evaluate_relation,
     evaluate_scalar,
-    evaluate_series,
 )
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
@@ -20,9 +19,8 @@ from scopecat.graph.relations.model import (
     RelationExpr,
     Row,
     ScalarExpr,
-    SeriesExpr,
 )
-from scopecat.kernel.value_types import Scalar, Series, Table
+from scopecat.kernel.value_types import Scalar, Table
 
 
 def _static_bindings(bindings: RelationTypeBindings) -> RelationTypeBindings:
@@ -54,24 +52,6 @@ class StaticRelationEvaluator:
             expected_type=expected_type,
         )
         return evaluate_scalar(
-            verified,
-            EvalContext(params=self.parameters, inputs=dict(inputs)),
-        )
-
-    def series(
-        self,
-        expression: SeriesExpr,
-        *,
-        bindings: RelationTypeBindings,
-        inputs: Mapping[str, object],
-        expected_type: Series | None = None,
-    ) -> list[CellValue]:
-        verified = verify_relation_plan(
-            expression,
-            bindings=_static_bindings(bindings),
-            expected_type=expected_type,
-        )
-        return evaluate_series(
             verified,
             EvalContext(params=self.parameters, inputs=dict(inputs)),
         )

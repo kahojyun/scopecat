@@ -10,8 +10,8 @@ from scopecat.compiler.relations.verification import (
     VerifiedRelationPlan,
     verify_relation_plan,
 )
-from scopecat.graph.relations.model import RelationExpr, ScalarExpr, SeriesExpr
-from scopecat.kernel.value_types import Scalar, Series, Table, ValueType
+from scopecat.graph.relations.model import RelationExpr, ScalarExpr
+from scopecat.kernel.value_types import Scalar, Table, ValueType
 
 
 @dataclass(frozen=True, slots=True, eq=False, repr=False)
@@ -37,28 +37,6 @@ class ScalarValueExpr:
 
 
 @dataclass(frozen=True, slots=True, eq=False, repr=False)
-class SeriesValueExpr:
-    """A series plan together with its backend-neutral static proof."""
-
-    _plan: VerifiedRelationPlan[SeriesExpr]
-
-    shape: ClassVar[Literal["series"]] = "series"
-
-    def __post_init__(self) -> None:
-        if not isinstance(self._plan.certified_type, Series):
-            msg = "series value expressions require a series plan proof"
-            raise TypeError(msg)
-
-    @property
-    def plan(self) -> VerifiedRelationPlan[SeriesExpr]:
-        return self._plan
-
-    @property
-    def value_type(self) -> Series:
-        return cast("Series", self._plan.certified_type)
-
-
-@dataclass(frozen=True, slots=True, eq=False, repr=False)
 class TableValueExpr:
     """A relation plan together with its backend-neutral static proof."""
 
@@ -80,8 +58,7 @@ class TableValueExpr:
         return cast("Table", self._plan.certified_type)
 
 
-type ScalarOrSeriesValueExpr = ScalarValueExpr | SeriesValueExpr
-type ValueExpr = ScalarValueExpr | SeriesValueExpr | TableValueExpr
+type ValueExpr = ScalarValueExpr | TableValueExpr
 
 
 def verify_scalar_value_expr(
@@ -93,23 +70,6 @@ def verify_scalar_value_expr(
     """Verify one transformed scalar expression before it enters compiler IR."""
 
     return ScalarValueExpr(
-        _plan=verify_relation_plan(
-            expression,
-            bindings=bindings,
-            expected_type=expected_type,
-        )
-    )
-
-
-def verify_series_value_expr(
-    expression: SeriesExpr,
-    *,
-    bindings: RelationTypeBindings,
-    expected_type: Series | None = None,
-) -> SeriesValueExpr:
-    """Verify one transformed series expression before it enters compiler IR."""
-
-    return SeriesValueExpr(
         _plan=verify_relation_plan(
             expression,
             bindings=bindings,
@@ -146,15 +106,6 @@ def verify_value_expr(
 
 @overload
 def verify_value_expr(
-    expression: SeriesExpr,
-    *,
-    bindings: RelationTypeBindings,
-    expected_type: Series,
-) -> SeriesValueExpr: ...
-
-
-@overload
-def verify_value_expr(
     expression: RelationExpr,
     *,
     bindings: RelationTypeBindings,
@@ -164,7 +115,7 @@ def verify_value_expr(
 
 @overload
 def verify_value_expr(
-    expression: ScalarExpr | SeriesExpr | RelationExpr,
+    expression: ScalarExpr | RelationExpr,
     *,
     bindings: RelationTypeBindings,
     expected_type: ValueType,
@@ -172,7 +123,7 @@ def verify_value_expr(
 
 
 def verify_value_expr(
-    expression: ScalarExpr | SeriesExpr | RelationExpr,
+    expression: ScalarExpr | RelationExpr,
     *,
     bindings: RelationTypeBindings,
     expected_type: ValueType,
@@ -181,12 +132,6 @@ def verify_value_expr(
 
     if isinstance(expression, ScalarExpr) and isinstance(expected_type, Scalar):
         return verify_scalar_value_expr(
-            expression,
-            bindings=bindings,
-            expected_type=expected_type,
-        )
-    if isinstance(expression, SeriesExpr) and isinstance(expected_type, Series):
-        return verify_series_value_expr(
             expression,
             bindings=bindings,
             expected_type=expected_type,

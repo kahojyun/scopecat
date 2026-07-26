@@ -19,7 +19,6 @@ from scopecat.compiler.semantic.model import (
 )
 from scopecat.compiler.semantic.operation_contract import OperationContract
 from scopecat.compiler.semantic.value_expressions import (
-    ScalarOrSeriesValueExpr,
     ScalarValueExpr,
     ValueExpr,
 )
@@ -185,7 +184,7 @@ class LogicalResourceRequirement:
 
     port_id: LogicalResourcePortId
     capabilities: tuple[str, ...] = ()
-    entity_uses: tuple[RelationUse[ScalarOrSeriesValueExpr], ...] = ()
+    entity_uses: tuple[RelationUse[ScalarValueExpr], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -239,7 +238,7 @@ def set_state_field(
     capability_id: str,
     field_path: str,
     value: ScalarValueExpr | ComputeResultRef,
-    target_entities: Sequence[ScalarOrSeriesValueExpr] = (),
+    target_entities: Sequence[ScalarValueExpr] = (),
 ) -> SetStateSpec:
     """Build desired state from orthogonal capability and field identities."""
 

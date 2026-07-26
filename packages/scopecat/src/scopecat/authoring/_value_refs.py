@@ -31,10 +31,8 @@ from scopecat.graph.relations.model import (
     RelationExpr,
     ScalarExpr,
     ScalarExpression,
-    SeriesExpr,
     as_scalar_expr,
     input_ref,
-    input_series,
     input_table,
     lit,
     parameter_lookup,
@@ -59,14 +57,14 @@ from scopecat.kernel.value_type_compatibility import (
 from scopecat.kernel.value_type_compatibility import (
     literal_scalar_type as _literal_scalar_type,
 )
-from scopecat.kernel.value_types import Scalar, Series, Table, ValueType
+from scopecat.kernel.value_types import Scalar, Table, ValueType
 from scopecat.kernel.value_validation import (
     ValuePath,
     coerce_literal,
     format_value_path,
 )
 
-type _ValueExpression = ScalarExpr | SeriesExpr | RelationExpr
+type _ValueExpression = ScalarExpr | RelationExpr
 type _InputBindingLayers = tuple[tuple[tuple[str, ValueRef], ...], ...]
 
 type FrozenScalarLiteral = (
@@ -832,8 +830,6 @@ def internal_lower_value_ref(value: ValueRef) -> _ValueExpression | ComputeResul
     source_id = source.id
     if isinstance(value.value_type, Scalar):
         return input_ref(source_id)
-    if isinstance(value.value_type, Series):
-        return input_series(source_id)
     return input_table(source_id)
 
 
@@ -898,7 +894,6 @@ def internal_literal_value_ref(
 
     from scopecat.graph.relations.input_binding import (
         input_cell,
-        series_input_value,
         table_input_value,
     )
 
@@ -907,8 +902,6 @@ def internal_literal_value_ref(
     expression = (
         lit(input_cell(coerced))
         if isinstance(value_type, Scalar)
-        else series_input_value(input_name, coerced)
-        if isinstance(value_type, Series)
         else table_input_value(input_name, coerced)
     )
     return internal_value_ref_from_expression(expression, value_type)
@@ -1142,10 +1135,8 @@ def _scalar_operand_type(value: object) -> Scalar:
 def _require_expression_shape(
     expression: _ValueExpression, value_type: ValueType
 ) -> None:
-    if (
-        (isinstance(expression, ScalarExpr) and isinstance(value_type, Scalar))
-        or (isinstance(expression, SeriesExpr) and isinstance(value_type, Series))
-        or (isinstance(expression, RelationExpr) and isinstance(value_type, Table))
+    if (isinstance(expression, ScalarExpr) and isinstance(value_type, Scalar)) or (
+        isinstance(expression, RelationExpr) and isinstance(value_type, Table)
     ):
         return
     msg = f"expression shape is incompatible with {describe_value_type(value_type)}"

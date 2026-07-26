@@ -30,7 +30,6 @@ from scopecat.graph.relations.model import (
     InputScalarExpr,
     ParameterLookupUse,
     input_ref,
-    input_series,
     input_table,
     lit,
     param,
@@ -46,7 +45,6 @@ from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import (
     Float,
     Scalar,
-    Series,
     String,
     Table,
     TableColumn,
@@ -67,7 +65,6 @@ def test_plan_input_refs_cover_each_value_shape() -> None:
     repeated = input_ref("shared") + input_ref("shared")
 
     assert plan_input_refs(repeated) == ("shared",)
-    assert plan_input_refs(input_series("shared")) == ("shared",)
     assert plan_input_refs(input_table("shared")) == ("shared",)
 
 
@@ -111,12 +108,10 @@ def test_plan_walk_rewrite_and_references_cover_nested_scalars() -> None:
 def test_compute_dependencies_project_shared_plan_references() -> None:
     operation_id = OperationId(SymbolId(local_id="consume-plan"))
     rows_type = Table(columns=(TableColumn("value", _FLOAT),))
-    offsets_type = Series(_FLOAT)
     bindings = RelationTypeBindings(
         inputs={
             "rows": rows_type,
             "offset": _FLOAT,
-            "offsets": offsets_type,
         },
         parameters={"gain": _FLOAT},
         point_row=RowType((TableColumn("point_offset", _FLOAT),)),
@@ -148,14 +143,6 @@ def test_compute_dependencies_project_shared_plan_references() -> None:
                     bindings=bindings,
                 ),
             ),
-            "offsets": ValueInput(
-                value=value_expr(
-                    input_series("offsets"),
-                    expected_type=offsets_type,
-                    bindings=bindings,
-                ),
-                origin_input_ids=("authored_offsets",),
-            ),
         },
         result=ComputeOutput(
             id=operation_result_id(operation_id),
@@ -168,10 +155,8 @@ def test_compute_dependencies_project_shared_plan_references() -> None:
     assert dependencies.as_mapping() == {
         "point_columns": ("point_offset",),
         "input_refs": (
-            "authored_offsets",
             "authored_rows",
             "offset",
-            "offsets",
             "rows",
         ),
         "parameters": ("gain",),

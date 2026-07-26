@@ -8,17 +8,15 @@ from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.evaluation import (
     evaluate_relation,
     evaluate_scalar,
-    evaluate_series,
 )
 from scopecat.compiler.relations.verification import VerifiedRelationPlan
 from scopecat.compiler.semantic.value_expressions import (
     ScalarValueExpr,
-    SeriesValueExpr,
     TableValueExpr,
     ValueExpr,
 )
 from scopecat.graph.relations.analysis import PlanNode
-from scopecat.graph.relations.model import RelationExpr, ScalarExpr, SeriesExpr
+from scopecat.graph.relations.model import RelationExpr, ScalarExpr
 
 
 def evaluate_value_expr(
@@ -29,11 +27,6 @@ def evaluate_value_expr(
     if isinstance(value, ScalarValueExpr):
         return evaluate_scalar(
             cast("VerifiedRelationPlan[ScalarExpr]", relation_plan),
-            ctx,
-        )
-    if isinstance(value, SeriesValueExpr):
-        return evaluate_series(
-            cast("VerifiedRelationPlan[SeriesExpr]", relation_plan),
             ctx,
         )
     if isinstance(value, TableValueExpr):

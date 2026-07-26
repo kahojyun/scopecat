@@ -1,4 +1,4 @@
-"""Partial evaluation for pure scalar, series, and relation expressions."""
+"""Partial evaluation for pure scalar and relation expressions."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ from typing import cast
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.evaluator import (
     evaluate_relation_expression,
-    evaluate_series_expression,
 )
 from scopecat.compiler.relations.scalar_eval import cell_matches, eval_binary, read_path
 from scopecat.graph.relations.analysis import (
@@ -31,9 +30,6 @@ from scopecat.graph.relations.model import (
     RelationExpression,
     ScalarExpr,
     ScalarExpression,
-    SeriesExpr,
-    SeriesExpression,
-    ValuesSeriesExpr,
     lit,
 )
 
@@ -118,26 +114,6 @@ def specialize_scalar(
             )
 
 
-def specialize_series(
-    expression: SeriesExpr,
-    *,
-    known: EvalContext,
-    parameter_cells: Sequence[ParameterCellBinding] = (),
-) -> SeriesExpression:
-    """Partially evaluate one pure series and collapse closed subgraphs."""
-    return cast(
-        "SeriesExpression",
-        rewrite_plan(
-            expression,
-            lambda node: _specialize_plan_node(
-                node,
-                known=known,
-                parameter_cells=parameter_cells,
-            ),
-        ),
-    )
-
-
 def specialize_relation(
     expression: RelationExpr,
     *,
@@ -159,11 +135,11 @@ def specialize_relation(
 
 
 def _specialize_plan_node(
-    node: ScalarExpr | SeriesExpr | RelationExpr,
+    node: ScalarExpr | RelationExpr,
     *,
     known: EvalContext,
     parameter_cells: Sequence[ParameterCellBinding],
-) -> ScalarExpr | SeriesExpr | RelationExpr:
+) -> ScalarExpr | RelationExpr:
     if isinstance(node, ScalarExpr):
         return _expression(
             specialize_scalar(
@@ -175,10 +151,6 @@ def _specialize_plan_node(
     if _uses_overlaid_table(node, parameter_cells):
         return node
     try:
-        if isinstance(node, SeriesExpr):
-            return ValuesSeriesExpr(
-                items=deepcopy(evaluate_series_expression(node, known))
-            )
         return LiteralRowsRelationExpr(
             rows=deepcopy(evaluate_relation_expression(node, known))
         )
@@ -187,7 +159,7 @@ def _specialize_plan_node(
 
 
 def _uses_overlaid_table(
-    expression: SeriesExpr | RelationExpr,
+    expression: RelationExpr,
     parameter_cells: Sequence[ParameterCellBinding],
 ) -> bool:
     overlaid = {binding.table_id for binding in parameter_cells}
@@ -331,5 +303,4 @@ __all__ = [
     "residual_scalar_expression",
     "specialize_relation",
     "specialize_scalar",
-    "specialize_series",
 ]

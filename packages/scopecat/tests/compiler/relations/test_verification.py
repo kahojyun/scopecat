@@ -13,7 +13,6 @@ from scopecat.graph.relations.analysis import PlanNode
 from scopecat.graph.relations.model import (
     ParameterLookupUse,
     input_ref,
-    input_series,
     input_table,
     lit,
     literal_rows,
@@ -21,14 +20,12 @@ from scopecat.graph.relations.model import (
     parameter_lookup,
     point_col,
     table,
-    values,
 )
 from scopecat.kernel.value_types import (
     Float,
     Int,
     Quantity,
     Scalar,
-    Series,
     String,
     Table,
     TableColumn,
@@ -52,7 +49,6 @@ TABLE_PARAMETER = Table(
     ("root", "code"),
     [
         (lit(None), "unsupported_null"),
-        (values([]), "missing_declared_type"),
         (literal_rows([]), "missing_declared_type"),
     ],
 )
@@ -65,14 +61,6 @@ def test_context_dependent_literals_require_an_expected_type(
 
     assert caught.value.code == code
     assert caught.value.path == ()
-
-
-def test_empty_series_uses_context_for_items() -> None:
-    expected = Series(STRING)
-
-    assert verify_relation_plan(values([]), expected_type=expected).certified_type == (
-        expected
-    )
 
 
 def test_empty_relation_uses_context_for_schema() -> None:
@@ -119,11 +107,7 @@ def test_input_and_parameter_namespaces_are_typed_independently() -> None:
     [
         (
             input_ref("wrong"),
-            RelationTypeBindings(inputs={"wrong": Series(INT)}),
-        ),
-        (
-            input_series("wrong"),
-            RelationTypeBindings(inputs={"wrong": INT}),
+            RelationTypeBindings(inputs={"wrong": TABLE_PARAMETER}),
         ),
         (
             input_table("wrong"),

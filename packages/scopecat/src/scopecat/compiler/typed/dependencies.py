@@ -320,7 +320,6 @@ def _value_dependencies(value: ValueExpr) -> ComputeDependencies:
         point_columns=references.ids(PlanReferenceKind.POINT_COLUMN),
         input_refs=references.ids(
             PlanReferenceKind.INPUT_SCALAR,
-            PlanReferenceKind.INPUT_SERIES,
             PlanReferenceKind.INPUT_TABLE,
         ),
         parameters=references.ids(

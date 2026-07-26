@@ -12,17 +12,14 @@ from scopecat.compiler.relations.specialization import (
     residual_scalar_expression,
     specialize_relation,
     specialize_scalar,
-    specialize_series,
 )
 from scopecat.compiler.relations.uses import RelationUse
 from scopecat.compiler.semantic.model import AcquireEffect
 from scopecat.compiler.semantic.value_expressions import (
     ScalarValueExpr,
-    SeriesValueExpr,
     TableValueExpr,
     ValueExpr,
     verify_scalar_value_expr,
-    verify_series_value_expr,
     verify_table_value_expr,
 )
 from scopecat.compiler.typed.parameter_overlays import (
@@ -206,15 +203,6 @@ def specialize_value_expression(
 
 @overload
 def specialize_value_expression(
-    value: SeriesValueExpr,
-    *,
-    known: EvalContext,
-    parameter_cells: tuple[ParameterCellBinding, ...],
-) -> SeriesValueExpr: ...
-
-
-@overload
-def specialize_value_expression(
     value: TableValueExpr,
     *,
     known: EvalContext,
@@ -251,18 +239,6 @@ def specialize_value_expression(
                 if isinstance(result, KnownScalar)
                 else residual_scalar_expression(result)
             ),
-            bindings=value.plan.bindings,
-            expected_type=value.value_type,
-        )
-        return expression
-    if isinstance(value, SeriesValueExpr):
-        residual = specialize_series(
-            value.plan.root,
-            known=known,
-            parameter_cells=parameter_cells,
-        )
-        expression = verify_series_value_expr(
-            residual,
             bindings=value.plan.bindings,
             expected_type=value.value_type,
         )

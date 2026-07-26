@@ -15,7 +15,6 @@ from scopecat.kernel.value_types import (
     Payload,
     Quantity,
     Scalar,
-    Series,
     String,
     Table,
     ValueType,
@@ -45,8 +44,6 @@ def is_assignable(source: ValueType, target: ValueType) -> bool:
 
     if isinstance(source, Scalar) and isinstance(target, Scalar):
         return _scalar_assignable(source, target)
-    if isinstance(source, Series) and isinstance(target, Series):
-        return _scalar_assignable(source.item_type, target.item_type)
     if isinstance(source, Table) and isinstance(target, Table):
         return _table_assignable(source, target)
     return False
@@ -55,8 +52,6 @@ def is_assignable(source: ValueType, target: ValueType) -> bool:
 def describe_value_type(value_type: ValueType) -> str:
     if isinstance(value_type, Scalar):
         return f"Scalar[{_describe_atom(value_type.atom)}]"
-    if isinstance(value_type, Series):
-        return f"Series[{describe_value_type(value_type.item_type)}]"
     columns = ", ".join(
         f"{column.id}: {describe_value_type(column.value_type)}"
         for column in value_type.columns

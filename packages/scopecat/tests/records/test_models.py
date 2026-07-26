@@ -452,16 +452,6 @@ def test_durable_parameter_schema_rejects_invalid_values() -> None:
         )
     with pytest.raises(ValidationError, match="duplicate parameter definition"):
         ParameterCatalog(id="catalog", definitions=[definition, definition])
-    with pytest.raises(ValidationError, match="unsupported persisted parameter shape"):
-        ParameterDefinition.model_validate(
-            {
-                "id": "frequencies",
-                "value_type": {
-                    "shape": "series",
-                    "item_type": {"kind": "float", "finite": True},
-                },
-            }
-        )
     with pytest.raises(ValidationError, match="unsupported unit"):
         Quantity(1.0, "invalid")
 

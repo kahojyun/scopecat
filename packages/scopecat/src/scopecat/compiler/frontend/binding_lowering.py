@@ -16,7 +16,6 @@ from scopecat.authoring._value_refs import (
 )
 from scopecat.compiler.entity_resolution import (
     EntityResolutionError,
-    resolve_entities,
     resolve_entity,
 )
 from scopecat.compiler.frontend.problems import (
@@ -26,22 +25,19 @@ from scopecat.compiler.frontend.value_binding import bind_value_input_refs
 from scopecat.compiler.relations.uses import relation_use
 from scopecat.compiler.relations.verification import RelationTypeBindings
 from scopecat.compiler.semantic.value_expressions import (
-    ScalarOrSeriesValueExpr,
+    ScalarValueExpr,
     verify_scalar_value_expr,
-    verify_series_value_expr,
 )
 from scopecat.compiler.typed.program import LogicalResourceRequirement
 from scopecat.graph.relations.model import (
     LiteralScalarExpr,
     ScalarExpr,
-    SeriesExpr,
-    ValuesSeriesExpr,
     as_scalar_expr,
 )
 from scopecat.graph.values import ComputeResultRef
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.resource_identity import LogicalResourcePortId
-from scopecat.kernel.value_types import Entity, Scalar, Series
+from scopecat.kernel.value_types import Entity, Scalar
 from scopecat.records.config import Topology
 
 
@@ -122,26 +118,17 @@ def _resource_entity_expr(
     inputs: Mapping[str, object],
     *,
     type_bindings: RelationTypeBindings,
-) -> ScalarOrSeriesValueExpr:
+) -> ScalarValueExpr:
     value_type = source.value_type
     lowered = internal_lower_value_ref(source)
     if not (
-        (
-            isinstance(value_type, Scalar)
-            and isinstance(value_type.atom, Entity)
-            and isinstance(lowered, ScalarExpr)
-        )
-        or (
-            isinstance(value_type, Series)
-            and isinstance(value_type.item_type.atom, Entity)
-            and isinstance(lowered, SeriesExpr)
-        )
+        isinstance(value_type, Scalar)
+        and isinstance(value_type.atom, Entity)
+        and isinstance(lowered, ScalarExpr)
     ):
-        raise AssertionError(
-            "verified resource entity source must match its declared entity shape"
-        )
+        raise AssertionError("verified resource entity source must be a scalar entity")
     bound = bind_value_input_refs(lowered, inputs)
-    if not isinstance(bound, ScalarExpr | SeriesExpr):
+    if not isinstance(bound, ScalarExpr):
         raise AssertionError(
             "binding a verified resource entity source must preserve its shape"
         )
@@ -153,29 +140,10 @@ def _resource_entity_expr(
                 cast("EntityRef | str", bound.value),
             ),
         )
-    if isinstance(bound, ValuesSeriesExpr):
-        bound = replace(
-            bound,
-            items=list(
-                _resolve_target_entities(
-                    topology, cast("Sequence[EntityRef | str]", bound.items)
-                )
-            ),
-        )
-    if isinstance(bound, ScalarExpr) and isinstance(value_type, Scalar):
-        return verify_scalar_value_expr(
-            bound,
-            bindings=type_bindings,
-            expected_type=value_type,
-        )
-    if isinstance(bound, SeriesExpr) and isinstance(value_type, Series):
-        return verify_series_value_expr(
-            bound,
-            bindings=type_bindings,
-            expected_type=value_type,
-        )
-    raise AssertionError(
-        "binding a verified resource entity source must preserve its declared shape"
+    return verify_scalar_value_expr(
+        bound,
+        bindings=type_bindings,
+        expected_type=value_type,
     )
 
 
@@ -185,15 +153,5 @@ def _resolve_target_entity(
 ) -> EntityRef:
     try:
         return resolve_entity(topology, value)
-    except EntityResolutionError as error:
-        raise_entity_resolution_problem(error)
-
-
-def _resolve_target_entities(
-    topology: Topology,
-    values: Sequence[EntityRef | str],
-) -> tuple[EntityRef, ...]:
-    try:
-        return resolve_entities(topology, values)
     except EntityResolutionError as error:
         raise_entity_resolution_problem(error)

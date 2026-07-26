@@ -35,7 +35,6 @@ from scopecat.compiler.frontend.product_lowering import lower_products
 from scopecat.compiler.frontend.static_evaluation import StaticRelationEvaluator
 from scopecat.compiler.frontend.value_binding import (
     bind_relation_input_refs,
-    bind_series_input_refs,
 )
 from scopecat.compiler.relations.verification import (
     RelationPlanVerificationError,
@@ -113,7 +112,6 @@ def _bind_verified_assembly(
         verified_graph.product_declarations,
         inputs,
         type_bindings=type_bindings,
-        bind_series_input_refs=bind_series_input_refs,
         bind_relation_input_refs=bind_relation_input_refs,
         input_row=input_row,
     )

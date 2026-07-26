@@ -11,20 +11,15 @@ from scopecat.compiler.relations.evaluation import (
 from scopecat.compiler.relations.evaluation import (
     evaluate_scalar as evaluate_selected_scalar,
 )
-from scopecat.compiler.relations.evaluation import (
-    evaluate_series as evaluate_selected_series,
-)
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     verify_relation_plan,
 )
 from scopecat.compiler.semantic.value_expressions import (
     ScalarValueExpr,
-    SeriesValueExpr,
     TableValueExpr,
     ValueExpr,
     verify_scalar_value_expr,
-    verify_series_value_expr,
     verify_table_value_expr,
     verify_value_expr,
 )
@@ -35,7 +30,6 @@ from scopecat.graph.relations.model import (
     RelationExpr,
     Row,
     ScalarExpr,
-    SeriesExpr,
     as_scalar_expr,
 )
 from scopecat.graph.values import ComputeResultRef
@@ -43,7 +37,7 @@ from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
     logical_resource_port_id,
 )
-from scopecat.kernel.value_types import Scalar, Series, Table, ValueType
+from scopecat.kernel.value_types import Scalar, Table, ValueType
 
 
 def scalar_value_expr(
@@ -58,19 +52,6 @@ def scalar_value_expr(
             if isinstance(expression, ScalarExpr)
             else as_scalar_expr(expression)
         ),
-        bindings=bindings or RelationTypeBindings(),
-        expected_type=expected_type,
-    )
-
-
-def series_value_expr(
-    expression: SeriesExpr,
-    *,
-    bindings: RelationTypeBindings | None = None,
-    expected_type: Series | None = None,
-) -> SeriesValueExpr:
-    return verify_series_value_expr(
-        expression,
         bindings=bindings or RelationTypeBindings(),
         expected_type=expected_type,
     )
@@ -95,7 +76,7 @@ def state_field(
     capability_id: str,
     field_path: str,
     value: object | ComputeResultRef,
-    target_entities: Sequence[object | ScalarValueExpr | SeriesValueExpr] = (),
+    target_entities: Sequence[object | ScalarValueExpr] = (),
     bindings: RelationTypeBindings | None = None,
     value_type: Scalar | None = None,
 ) -> SetStateSpec:
@@ -119,19 +100,15 @@ def state_field(
         ),
         target_entities=tuple(
             entity
-            if isinstance(entity, ScalarValueExpr | SeriesValueExpr)
-            else (
-                series_value_expr(entity, bindings=selected_bindings)
-                if isinstance(entity, SeriesExpr)
-                else scalar_value_expr(entity, bindings=selected_bindings)
-            )
+            if isinstance(entity, ScalarValueExpr)
+            else scalar_value_expr(entity, bindings=selected_bindings)
             for entity in target_entities
         ),
     )
 
 
 def value_expr(
-    expression: ScalarExpr | SeriesExpr | RelationExpr,
+    expression: ScalarExpr | RelationExpr,
     *,
     expected_type: ValueType,
     bindings: RelationTypeBindings | None = None,
@@ -156,24 +133,6 @@ def evaluate_scalar(
         expected_type=expected_type,
     )
     return evaluate_selected_scalar(
-        verified,
-        ctx,
-    )
-
-
-def evaluate_series(
-    expression: SeriesExpr,
-    ctx: EvalContext,
-    *,
-    bindings: RelationTypeBindings | None = None,
-    expected_type: Series | None = None,
-) -> list[CellValue]:
-    verified = verify_relation_plan(
-        expression,
-        bindings=bindings or RelationTypeBindings(),
-        expected_type=expected_type,
-    )
-    return evaluate_selected_series(
         verified,
         ctx,
     )
@@ -207,16 +166,6 @@ def materialize_scalar_value(
     )
 
 
-def materialize_series_value(
-    value: SeriesValueExpr,
-    ctx: EvalContext,
-) -> list[CellValue]:
-    return evaluate_selected_series(
-        value.plan,
-        ctx,
-    )
-
-
 def materialize_table_value(
     value: TableValueExpr,
     ctx: EvalContext,
@@ -230,12 +179,9 @@ def materialize_table_value(
 __all__ = [
     "evaluate_relation",
     "evaluate_scalar",
-    "evaluate_series",
     "materialize_scalar_value",
-    "materialize_series_value",
     "materialize_table_value",
     "scalar_value_expr",
-    "series_value_expr",
     "state_field",
     "table_value_expr",
     "value_expr",

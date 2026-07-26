@@ -23,7 +23,6 @@ from scopecat.authoring.value_types import (
 )
 from scopecat.compiler.entity_resolution import (
     EntityResolutionError,
-    resolve_entities,
     resolve_entity,
 )
 from scopecat.compiler.frontend.binding_lowering import BindingSpec
@@ -159,15 +158,11 @@ def validate_entity_inputs(
             if isinstance(value, EntityRef):
                 resolve_entity(topology, value)
                 continue
-            if isinstance(value, Sequence) and not isinstance(value, str | bytes):
-                selected = cast("Sequence[EntityRef | str]", value)
-                resolve_entities(topology, selected)
-                continue
         except EntityResolutionError as error:
             raise_entity_resolution_problem(error)
         raise_frontend_problem(
             "module_entity_input_invalid",
-            f"module entity input {input_id} must be an entity or entity series",
+            f"module entity input {input_id} must be an entity",
             "inputs",
             path=(input_id,),
         )

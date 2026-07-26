@@ -6,11 +6,9 @@ from dataclasses import dataclass
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.evaluation import (
     evaluate_scalar,
-    evaluate_series,
 )
 from scopecat.compiler.relations.uses import RelationUse
 from scopecat.compiler.semantic.value_expressions import (
-    ScalarOrSeriesValueExpr,
     ScalarValueExpr,
 )
 from scopecat.graph.relations.model import (
@@ -44,7 +42,7 @@ class SetStateSpec:
     capability_id: str
     field_path: str
     value_use: StateValueUse
-    target_entity_uses: tuple[RelationUse[ScalarOrSeriesValueExpr], ...] = ()
+    target_entity_uses: tuple[RelationUse[ScalarValueExpr], ...] = ()
 
     @property
     def field(self) -> str:
@@ -96,20 +94,10 @@ def evaluate_state_spec(
 
 
 def _evaluate_target_entities(
-    uses: Sequence[RelationUse[ScalarOrSeriesValueExpr]],
+    uses: Sequence[RelationUse[ScalarValueExpr]],
     ctx: EvalContext,
 ) -> list[TargetEntityValue]:
-    evaluated: list[CellValue] = []
-    for use in uses:
-        expression = use.value
-        if isinstance(expression, ScalarValueExpr):
-            evaluated.append(evaluate_scalar(expression.plan, ctx))
-        else:
-            series_values = evaluate_series(expression.plan, ctx)
-            if not series_values:
-                msg = "state target entity series must not be empty"
-                raise ValueError(msg)
-            evaluated.extend(series_values)
+    evaluated: list[CellValue] = [evaluate_scalar(use.value.plan, ctx) for use in uses]
     entities: list[TargetEntityValue] = []
     seen_ids: set[str] = set()
     for value in evaluated:

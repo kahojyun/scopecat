@@ -62,9 +62,6 @@ from scopecat.authoring.value_types import (
 from scopecat.authoring.value_types import (
     Scalar as ScalarType,
 )
-from scopecat.authoring.value_types import (
-    Series as SeriesType,
-)
 from scopecat.authoring.value_types import ValueType
 from scopecat.authoring.values import (
     Compute,
@@ -103,11 +100,9 @@ def _empty_resource_bindings() -> FrozenMapping[
 
 
 def _is_entity_input_type(value_type: ValueType) -> bool:
-    if isinstance(value_type, ScalarType):
-        return isinstance(value_type.atom, EntityType)
-    if isinstance(value_type, SeriesType):
-        return isinstance(value_type.item_type.atom, EntityType)
-    return False
+    return isinstance(value_type, ScalarType) and isinstance(
+        value_type.atom, EntityType
+    )
 
 
 def _is_public_binding_input(value: object) -> bool:
