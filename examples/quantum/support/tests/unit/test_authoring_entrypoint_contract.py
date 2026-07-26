@@ -12,24 +12,19 @@ from scopecat.authoring._value_refs import (
     ValueRef,
     internal_lower_scalar_value_ref,
 )
-from scopecat.compiler.frontend.invocation import prepare_invocation
 from scopecat.compiler.frontend.resolution import (
     CompiledInvocation,
-    compile_prepared_invocation,
+    compile_invocation,
 )
 from scopecat.compiler.relations.point_domain import (
     PointAxis,
     PointAxisLinear,
-    PointDependentProduct,
     PointDomainExpr,
-    PointProduct,
-    PointRows,
     PointUnit,
 )
 
 _TEMPLATE_ID = "examples.quantum.x-repetition-iq"
 _EXPERIMENT_ID = "x-repetition-iq"
-_SCRATCH_NAME = "x repetition iq"
 _QUBIT = sc.ScalarType(sc.EntityType(entity_kind="logical_qubit"))
 _X_REPETITIONS = sc.coordinate(
     "x_repetitions",
@@ -73,7 +68,6 @@ def equivalent_authoring_paths() -> _EquivalentAuthoringPaths:
     @sc.scratch(
         id="examples.quantum.x-repetition-iq.scratch",
         kind=_EXPERIMENT_ID,
-        label=_SCRATCH_NAME,
     )
     def scratch_definition() -> sc.ExperimentBody:
         return experiment_body()
@@ -91,17 +85,13 @@ def test_template_and_scratch_compile_to_equivalent_execution_semantics(
     """Keep both UX forms above one config-free compiler contract."""
 
     del tmp_path
-    template = compile_prepared_invocation(
-        prepare_invocation(equivalent_authoring_paths.template)
-    )
-    scratch = compile_prepared_invocation(
-        prepare_invocation(equivalent_authoring_paths.scratch)
-    )
+    template = compile_invocation(equivalent_authoring_paths.template)
+    scratch = compile_invocation(equivalent_authoring_paths.scratch)
 
     assert _execution_semantics(template) == _execution_semantics(scratch)
 
-    assert template.request.template_id == _TEMPLATE_ID
-    assert scratch.request.template_id == "examples.quantum.x-repetition-iq.scratch"
+    assert template.request.experiment_id == _TEMPLATE_ID
+    assert scratch.request.experiment_id == "examples.quantum.x-repetition-iq.scratch"
 
 
 def _execution_semantics(compiled: CompiledInvocation) -> object:
@@ -119,7 +109,7 @@ def _execution_semantics(compiled: CompiledInvocation) -> object:
     )
     normalized_request = compiled.request.model_dump(
         mode="python",
-        exclude={"id", "template_id", "template_inputs", "metadata"},
+        exclude={"id", "experiment_id", "inputs", "metadata"},
     )
     return normalized_assembly, assembly.inputs, normalized_request
 
@@ -152,12 +142,6 @@ def _point_domain_semantics(
 
     if isinstance(domain, PointUnit):
         return ("unit",)
-    if isinstance(domain, PointRows):
-        return (
-            "rows",
-            domain.value_type,
-            domain.rows,
-        )
     if isinstance(domain, PointAxis):
         source = domain.source
         return (
@@ -175,18 +159,7 @@ def _point_domain_semantics(
                 else ("values", source.values)
             ),
         )
-    if isinstance(domain, PointProduct):
-        return (
-            "product",
-            tuple(_point_domain_semantics(factor) for factor in domain.factors),
-        )
-    if isinstance(domain, PointDependentProduct):
-        return (
-            "dependent_product",
-            _point_domain_semantics(domain.left),
-            _point_domain_semantics(domain.right),
-        )
     return (
-        "zip",
-        tuple(_point_domain_semantics(source) for source in domain.sources),
+        "product",
+        tuple(_point_domain_semantics(factor) for factor in domain.factors),
     )

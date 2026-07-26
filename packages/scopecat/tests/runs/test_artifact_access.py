@@ -3,12 +3,6 @@ from __future__ import annotations
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.run import RunManifest, RunOutcome
 from scopecat.runs.access import (
-    get_artifact_by_id,
-    get_dataset_by_id,
-    get_record_by_id,
-    list_artifacts,
-    list_artifacts_by_metadata,
-    list_datasets,
     list_payload_entries,
     list_records,
     upsert_contents,
@@ -19,7 +13,7 @@ def _entry(**fields: object) -> RunContentEntry:
     return RunContentEntry.model_validate({"content_hash": "test-content", **fields})
 
 
-def test_manifest_entry_helpers_query_by_id_kind_and_metadata() -> None:
+def test_manifest_entry_helpers_list_by_role_kind_and_metadata() -> None:
     manifest = _manifest(
         artifacts=[
             _entry(
@@ -51,24 +45,21 @@ def test_manifest_entry_helpers_query_by_id_kind_and_metadata() -> None:
         ],
     )
 
-    assert get_artifact_by_id(manifest, "summary") == manifest.artifacts[0]
-    assert get_dataset_by_id(manifest, "raw-measurements") == manifest.datasets[0]
-    assert get_record_by_id(manifest, "analysis-review") == manifest.records[0]
-    assert get_artifact_by_id(manifest, "missing") is None
-    assert [artifact.id for artifact in list_artifacts(manifest)] == [
+    assert [
+        artifact.id for artifact in list_payload_entries(manifest, kind="summary")
+    ] == [
         "summary",
     ]
-    assert [dataset.id for dataset in list_datasets(manifest)] == ["raw-measurements"]
     analysis_records = list_records(manifest, kind="analysis")
     assert [record.id for record in analysis_records] == [
         "analysis-review",
         "analysis-promoted",
     ]
     assert [
-        artifact.id
-        for artifact in list_artifacts_by_metadata(
+        entry.id
+        for entry in list_payload_entries(
             manifest,
-            {"source_step": "manual"},
+            metadata={"source_step": "manual"},
         )
     ] == ["summary"]
     assert [entry.id for entry in list_payload_entries(manifest)] == [
@@ -100,7 +91,7 @@ def test_upsert_contents_replaces_by_artifact_id() -> None:
 def test_upsert_contents_and_records_replace_by_id() -> None:
     datasets = upsert_contents(
         [_entry(role="dataset", id="raw", kind="measurement_dataset")],
-        [_entry(role="dataset", id="raw", kind="data_table")],
+        [_entry(role="dataset", id="raw", kind="updated_measurement_dataset")],
     )
     records = upsert_contents(
         [_entry(role="record", id="analysis", kind="analysis")],
@@ -108,7 +99,7 @@ def test_upsert_contents_and_records_replace_by_id() -> None:
     )
 
     assert [(dataset.id, dataset.kind) for dataset in datasets] == [
-        ("raw", "data_table")
+        ("raw", "updated_measurement_dataset")
     ]
     assert [(record.id, record.kind) for record in records] == [
         ("analysis", "parameter_change_proposal")
@@ -123,13 +114,11 @@ def _manifest(
 ) -> RunManifest:
     return RunManifest(
         run_id="run_test",
-        lifecycle="terminal",
         config_content_hash="sha256:" + "0" * 64,
         outcome=RunOutcome(
             run_id="run_test",
             result="succeeded",
             certainty="known",
-            termination_reason="completed",
         ),
         contents=(*records, *datasets, *artifacts),
     )

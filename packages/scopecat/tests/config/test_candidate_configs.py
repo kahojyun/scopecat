@@ -22,13 +22,13 @@ from scopecat.config.resolution import register_and_activate_candidate_config
 from scopecat.kernel.errors import CheckFailed, Conflict, DataIntegrityError
 from scopecat.records.parameter import Quantity, ScalarParameterValue
 from scopecat.records.parameter_change import ParameterChangeProposal
-from scopecat.testing import (
+from tests.testkit.in_process_lab import InProcessLab, in_process_lab
+from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
+from tests.testkit.runtime import (
     sqlite_config_registry_unit_of_work,
     sqlite_project_services,
     sqlite_run_repository,
 )
-from tests.testkit.in_process_lab import InProcessLab, in_process_lab
-from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.workflow_fixtures import load_invocation
 
@@ -200,11 +200,7 @@ def test_candidate_config_from_snapshot_rejects_stale_base_hash(
         .candidate_config()
     )
     changed_source = run.config.model_copy(
-        update={
-            "environment": run.config.environment.model_copy(
-                update={"id": "changed-environment"}
-            )
-        }
+        update={"system": run.config.system.model_copy(update={"id": "changed-system"})}
     )
 
     with pytest.raises(Conflict) as error:

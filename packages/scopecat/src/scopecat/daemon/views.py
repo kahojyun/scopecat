@@ -14,9 +14,7 @@ from scopecat.config.registry.records import (
     ConfigRegistryEntry,
 )
 from scopecat.control.models import ControlRun, ResourceKey
-from scopecat.kernel.json_types import JsonValue
-from scopecat.kernel.problems import Problem, has_blocking_problems
-from scopecat.measurements.results import MeasurementDataset
+from scopecat.kernel.problems import Problem
 from scopecat.records.analysis import AnalysisRecord
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import (
@@ -24,7 +22,6 @@ from scopecat.records.config import (
     ConfigProfileSnapshot,
     config_content_hash,
 )
-from scopecat.records.data_artifact import DataArrayArtifact, DataTableArtifact
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.parameter_change import (
     ParameterChangeDecisionRecord,
@@ -112,7 +109,7 @@ class ConfigDraftPreview(_ViewModel):
                 or self.result_content_hash is None
                 or not self.deltas
                 or config_content_hash(self.config) != self.result_content_hash
-                or has_blocking_problems(self.problems)
+                or bool(self.problems)
             ):
                 raise ValueError("valid config draft preview is incomplete")
         elif self.config is not None or self.result_content_hash is not None:
@@ -128,11 +125,28 @@ class RunResourceView(_ViewModel):
     expires_at: datetime | None = None
 
 
-class RunDetail(_ViewModel):
-    """Control and content state read from the same daemon."""
+class RunSummary(_ViewModel):
+    """Scheduler projection paired with the accepted run snapshot."""
 
     control: ControlRun
     manifest: RunManifest
+
+    @property
+    def run_id(self) -> str:
+        return self.control.run_id
+
+
+class RunSummaryPage(_ViewModel):
+    """Keyset page retaining scheduler state and terminal outcomes."""
+
+    items: tuple[RunSummary, ...] = ()
+    next_cursor: int | None = Field(default=None, ge=1)
+    previous_cursor: int | None = Field(default=None, ge=1)
+
+
+class RunDetail(RunSummary):
+    """Run summary with scheduler resource state."""
+
     resources: tuple[RunResourceView, ...] = ()
 
 
@@ -151,10 +165,10 @@ class RunConfigView(_ViewModel):
 
 
 class RunRequestView(_ViewModel):
-    """The independently persisted operator request, when one was accepted."""
+    """The operator request accepted with one run."""
 
     run_id: str
-    request: RunRequest | None = None
+    request: RunRequest
 
 
 class RunAnalysisView(_ViewModel):
@@ -199,77 +213,6 @@ class RunArtifactBytesView(_ViewModel):
 
     def content_bytes(self) -> bytes:
         return b64decode(self.content_base64, validate=True)
-
-
-class RunArtifactTextView(_ViewModel):
-    run_id: str
-    artifact: RunContentEntry
-    content: str
-
-    @model_validator(mode="after")
-    def validate_content(self) -> RunArtifactTextView:
-        _require_entry_role(self.artifact, "artifact")
-        return self
-
-
-class RunArtifactJsonView(_ViewModel):
-    run_id: str
-    artifact: RunContentEntry
-    content: dict[str, JsonValue]
-
-    @model_validator(mode="after")
-    def validate_content(self) -> RunArtifactJsonView:
-        _require_entry_role(self.artifact, "artifact")
-        return self
-
-
-class RunRecordJsonView(_ViewModel):
-    run_id: str
-    record: RunContentEntry
-    content: dict[str, JsonValue]
-
-    @model_validator(mode="after")
-    def validate_content(self) -> RunRecordJsonView:
-        _require_entry_role(self.record, "record")
-        return self
-
-
-type RunDatasetContent = MeasurementDataset | DataTableArtifact | DataArrayArtifact
-
-
-class RunDatasetContentView(_ViewModel):
-    run_id: str
-    dataset: RunContentEntry
-    content: RunDatasetContent
-
-    @model_validator(mode="after")
-    def validate_content(self) -> RunDatasetContentView:
-        _require_entry_role(self.dataset, "dataset")
-        mismatched = (
-            (
-                self.dataset.kind == "measurement_dataset"
-                and not isinstance(self.content, MeasurementDataset)
-            )
-            or (
-                self.dataset.kind == "data_table"
-                and not isinstance(self.content, DataTableArtifact)
-            )
-            or (
-                self.dataset.kind == "data_array"
-                and not isinstance(self.content, DataArrayArtifact)
-            )
-        )
-        if (
-            self.dataset.kind
-            not in {
-                "measurement_dataset",
-                "data_table",
-                "data_array",
-            }
-            or mismatched
-        ):
-            raise ValueError("run dataset content does not match its manifest kind")
-        return self
 
 
 class ParameterProposalView(_ViewModel):
@@ -334,13 +277,10 @@ __all__ = [
     "RunAnalysisListView",
     "RunAnalysisView",
     "RunArtifactBytesView",
-    "RunArtifactJsonView",
-    "RunArtifactTextView",
     "RunConfigView",
-    "RunDatasetContent",
-    "RunDatasetContentView",
     "RunDetail",
-    "RunRecordJsonView",
     "RunRequestView",
     "RunResourceView",
+    "RunSummary",
+    "RunSummaryPage",
 ]

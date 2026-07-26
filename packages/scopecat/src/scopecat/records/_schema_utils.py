@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import cast
 
 from scopecat.kernel.units import is_supported_unit
 
@@ -29,61 +28,3 @@ def validate_shape_rank(
 ) -> None:
     if len(shape) != len(dims):
         raise ValueError(message)
-
-
-def declared_shape_for_dims(
-    *, dims: Sequence[str], sizes_by_dimension: dict[str, int]
-) -> list[int]:
-    return [sizes_by_dimension[dimension_id] for dimension_id in dims]
-
-
-def array_shape(value: object, path: str) -> list[int]:
-    if not isinstance(value, list):
-        return []
-    items = cast("list[object]", value)
-    if not items:
-        return [0]
-    child_shapes = [array_shape(item, path) for item in items]
-    first_shape = child_shapes[0]
-    for child_shape in child_shapes[1:]:
-        if child_shape != first_shape:
-            msg = f"{path} contains a ragged array"
-            raise ValueError(msg)
-    return [len(items), *first_shape]
-
-
-def validate_array_dtype(value: object, dtype: str, path: str) -> None:
-    if isinstance(value, list):
-        for index, item in enumerate(cast("list[object]", value)):
-            validate_array_dtype(item, dtype, f"{path}[{index}]")
-        return
-    validate_scalar_dtype(value, dtype, path)
-
-
-def validate_scalar_dtype(value: object, dtype: str, path: str) -> None:
-    if dtype == "float64":
-        if isinstance(value, bool) or not isinstance(value, int | float):
-            _raise_dtype_error(path, dtype)
-        return
-    if dtype == "int64":
-        if (
-            isinstance(value, bool)
-            or not isinstance(value, int | float)
-            or int(value) != value
-        ):
-            _raise_dtype_error(path, dtype)
-        return
-    if dtype == "bool":
-        if not isinstance(value, bool):
-            _raise_dtype_error(path, dtype)
-        return
-    if dtype == "string":
-        if not isinstance(value, str):
-            _raise_dtype_error(path, dtype)
-        return
-    _raise_dtype_error(path, dtype)
-
-
-def _raise_dtype_error(path: str, dtype: str) -> None:
-    msg = f"{path} must be {dtype}"
-    raise ValueError(msg)

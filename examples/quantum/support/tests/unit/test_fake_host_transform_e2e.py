@@ -5,37 +5,34 @@ from pathlib import Path
 
 import pytest
 from scopecat import Quantity
-from scopecat.adapters.memory import MemoryExecutionJournal
-from scopecat.adapters.memory.execution import MemoryMeasurementDatasetRepository
-from scopecat.compiler.frontend.environment import validate_config_environment
+from scopecat.compiler.frontend.environment import build_config_environment
 from scopecat.compiler.linking.linked import (
-    LinkedPointMaterializer,
     MaterializedLinkedPoints,
+    materialize_linked_points,
 )
 from scopecat.compiler.relations.point_domain import point_axis_values
 from scopecat.compiler.semantic.model import (
-    DomainProgramId,
-    DomainResultPortDef,
     MeasurementTransformId,
 )
 from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.point_domain import PointDomain
+from scopecat.compiler.typed.products import ProductDef
 from scopecat.compiler.typed.program import (
     CoreProgram,
     TypedDomainExecution,
-    TypedDomainProgram,
     TypedDomainResultBinding,
     TypedMeasurementTransform,
     TypedMeasurementTransformInput,
     TypedMeasurementTransformOutput,
     core_domain_executions,
-    product_output,
     record_product,
     shot_axis,
 )
 from scopecat.config.profiles import load_config_profile
+from scopecat.domain.program import DomainProgramDef, DomainResultPort
 from scopecat.execution.effects.domain import execute_domain_job_values
-from scopecat.kernel.product_identity import product_use
+from scopecat.execution.events import TransitionRecorder
+from scopecat.kernel.product_identity import product_id, product_use
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Scalar
 from scopecat.measurements.projection import (
@@ -46,10 +43,7 @@ from scopecat.measurements.recording import (
     append_measurement_dataset,
     seal_measurement_dataset,
 )
-from scopecat.measurements.values import (
-    seal_measurement_values,
-    select_measurement_values,
-)
+from scopecat.measurements.values import seal_measurement_values
 from scopecat.sdk.domain import (
     CorrelatedDomainFetch,
     DomainBatchContext,
@@ -62,58 +56,75 @@ from scopecat.sdk.domain import (
 )
 from scopecat.sdk.domain._bridge import (
     make_domain_batch_context,
-    make_domain_compile_request,
-    product_use_id,
+    make_domain_compile_template,
 )
-from scopecat_quantum import (
-    Acquire,
-    AcquireSignal,
-    AcquisitionKind,
-    AcquisitionSlot,
+from scopecat_quantum._ids import (
     AcquisitionSlotId,
-    BinaryIqDiscriminator,
     CircuitOperationId,
-    CompiledQuantumTarget,
-    Constant,
-    IqCentroid,
-    Measure,
-    MeasurementPulseImplementation,
-    MeasurementPulseImplementationKey,
-    Play,
     PulseEventId,
     PulseImplementationId,
-    PulseParallel,
-    PulseProgram,
     PulseProgramId,
     QuantumProgramId,
-    QuantumProgramIR,
-    QuantumTargetEntryPointBinding,
-    QuantumTargetResultUseBinding,
     QubitId,
-    ReadoutSignal,
-    ResolvedPulseImplementations,
     TargetCompileEntryId,
     TargetCompilerId,
+)
+from scopecat_quantum.acquisitions import AcquisitionKind
+from scopecat_quantum.circuits import Measure
+from scopecat_quantum.measurement_transforms import (
+    BinaryIqDiscriminator,
+    IqCentroid,
     binary_iq_probability_host_implementation,
     binary_iq_probability_transform,
-    compile_target,
-    lower_quantum_program_to_pulses,
+)
+from scopecat_quantum.program_results import (
+    CompiledQuantumTarget,
+    QuantumTargetEntryPointBinding,
+    QuantumTargetResultUseBinding,
+    seal_quantum_target_result_mapping,
+)
+from scopecat_quantum.program_targets import (
     prepare_quantum_target_batch,
     prepare_quantum_target_entry,
-    seal_quantum_target_result_mapping,
+)
+from scopecat_quantum.programs import (
+    QuantumProgramIR,
+    lower_quantum_program_to_pulses,
     verify_quantum_program,
+)
+from scopecat_quantum.pulse_implementations import (
+    MeasurementPulseImplementation,
+    MeasurementPulseImplementationKey,
+    ResolvedPulseImplementations,
+)
+from scopecat_quantum.pulses import (
+    Acquire,
+    AcquireSignal,
+    AcquisitionSlot,
+    Constant,
+    Play,
+    PulseProgram,
+    ReadoutSignal,
+)
+from scopecat_quantum.pulses import (
+    Parallel as PulseParallel,
+)
+from scopecat_quantum.targets import compile_target
+from tests.testkit.runtime import (
+    FakeExecutionJournal,
+    FakeMeasurementDatasetRepository,
 )
 
 from quantum_lab_demo.targets.fake_list_mode import (
     FakeListDomainRuntime,
     FakeListRun,
     FakeListTargetCompiler,
-    default_fake_list_target,
+    configured_fake_list_target,
     fake_measurement_invocation_spec,
-    integrated_iq_shots,
     realize_fetched_fake_measurements,
     select_fake_measurement_realization,
 )
+from quantum_lab_demo.virtual_lab.wiring import quantum_wiring_config_profile
 
 from .demo_lab_experiment_testkit import link_program
 
@@ -143,26 +154,25 @@ def _linked_points() -> MaterializedLinkedPoints:
             (10.0, 20.0, 30.0),
         )
     )
-    iq_shots = product_output(
-        "integrated_iq_shots",
+    iq_shots = ProductDef(
+        id=product_id("integrated_iq_shots"),
         dtype="complex128",
         unit="ratio",
         axes=(shot_axis(_SHOT_COUNT),),
     )
-    probability_0 = product_output(
-        "probability_0",
+    probability_0 = ProductDef(
+        id=product_id("probability_0"),
         dtype="float64",
         unit="ratio",
     )
-    probability_1 = product_output(
-        "probability_1",
+    probability_1 = ProductDef(
+        id=product_id("probability_1"),
         dtype="float64",
         unit="ratio",
     )
     iq_use = product_use(iq_shots.id)
     probability_0_use, probability_0_record = record_product(probability_0)
     probability_1_use, probability_1_record = record_product(probability_1)
-    domain_program_id = DomainProgramId(SymbolId(local_id="binary-iq-program"))
     authored_transform = binary_iq_probability_transform(
         "binary-iq-discrimination",
         iq_shots="integrated_iq_shots",
@@ -183,12 +193,12 @@ def _linked_points() -> MaterializedLinkedPoints:
         effects=(
             TypedDomainExecution(
                 id="domain",
-                program=TypedDomainProgram(
-                    id=domain_program_id,
+                program=DomainProgramDef(
+                    id="binary-iq-program",
                     dialect_id="test.quantum.host-transform",
                     dialect_version="1",
                     body=("binary-iq-readout", "v1"),
-                    result_ports=(DomainResultPortDef("iq_shots"),),
+                    result_ports=(DomainResultPort("iq_shots"),),
                 ),
                 results=(
                     TypedDomainResultBinding(
@@ -231,12 +241,12 @@ def _linked_points() -> MaterializedLinkedPoints:
             replace(probability_1_record, id="probability_1_alias"),
         ),
     )
-    environment = validate_config_environment(
+    environment = build_config_environment(
         load_config_profile(
             _REPO_ROOT / "fixtures/core/simple_scan/config-profile.json"
         )
     )
-    return LinkedPointMaterializer(link_program(program, environment)).materialize()
+    return materialize_linked_points(link_program(program, environment))
 
 
 def _lowered_measurement_program():
@@ -302,20 +312,20 @@ def _scenario(
     execution_id = typed_execution.id
     closure = domain_result_closure(linked_points.linked_plan.program, execution_id)
     point_ordinals = (0, 1, 2)
-    materializer = LinkedPointMaterializer(linked_points.linked_plan)
-    request = make_domain_compile_request(
+    request = make_domain_compile_template(
         linked_points.linked_plan,
         execution_id,
         closure,
+    ).bind_coverage(
         (point_ordinals,),
-        lambda input_ids, ordinals, max_points: materializer.bind_domain_inputs(
+        lambda input_ids, ordinals, max_points: linked_points.bind_domain_inputs(
             execution_id,
             "program",
             input_ids,
             ordinals,
             max_points=max_points,
         ),
-        lambda input_ids, ordinals, max_points: materializer.bind_domain_inputs(
+        lambda input_ids, ordinals, max_points: linked_points.bind_domain_inputs(
             execution_id,
             "compiler",
             input_ids,
@@ -356,7 +366,7 @@ def _scenario(
         )
         for point_index in adapter_point_order
     )
-    target = default_fake_list_target()
+    target = configured_fake_list_target(quantum_wiring_config_profile())
     compiler = FakeListTargetCompiler(
         TargetCompilerId("fake-list-compiler.v1"),
         target,
@@ -397,10 +407,6 @@ def _scenario(
     realization = select_fake_measurement_realization(
         compiled_target,
         target,
-        tuple(
-            integrated_iq_shots(result.result_address)
-            for result in mapping.domain_mapping.results
-        ),
     )
     invocation = fake_measurement_invocation_spec(
         realization,
@@ -412,7 +418,7 @@ def _scenario(
     def realize(
         fetched: CorrelatedDomainFetch[FakeListRun],
     ):
-        return realize_fetched_fake_measurements(realization, fetched).result_values
+        return realize_fetched_fake_measurements(realization, fetched)
 
     prepared = preparation.build(
         mapping=mapping.domain_mapping,
@@ -443,21 +449,16 @@ def test_fake_domain_iq_reaches_host_probabilities_and_durable_records() -> None
 
     counted_implementation = replace(reference, kernel=counted_kernel)
     scenario = _scenario(counted_implementation)
-    value_selection = select_measurement_values(
-        scenario.context.measurement_catalog,
-        required_product_use_ids=tuple(
-            product_use_id(product_use) for product_use in scenario.context.product_uses
-        ),
-    )
     projection = select_measurement_projection(
         scenario.context.measurement_catalog,
         scenario.linked_points.linked_plan.program.record_uses,
     )
-    journal = MemoryExecutionJournal()
-    committer = MemoryMeasurementDatasetRepository()
+    journal = FakeExecutionJournal()
+    recorder = TransitionRecorder(journal)
+    committer = FakeMeasurementDatasetRepository()
     run_id = "fake-host-transform-run"
     executed = seal_measurement_values(
-        value_selection,
+        scenario.context.measurement_catalog,
         execute_domain_job_values(
             scenario.prepared,
             semantic_operation_id="domain",
@@ -475,18 +476,17 @@ def test_fake_domain_iq_reaches_host_probabilities_and_durable_records() -> None
     committed = append_measurement_dataset(
         projected,
         committer,
-        journal,
+        recorder,
     )
     assert committed is not None
     assert projected.schema is not None
     seal_measurement_dataset(
         run_id=run_id,
-        dataset_id=projected.schema.dataset_id,
         recording_contract_fingerprint=projected.recording_contract_fingerprint,
         point_count=len(projected.records),
         append_content_hashes=(committed.dataset_content_hash,),
         writer=committer,
-        journal=journal,
+        recorder=recorder,
     )
 
     assert scenario.context.direct_product_uses == (scenario.iq_use,)
@@ -517,7 +517,15 @@ def test_fake_domain_iq_reaches_host_probabilities_and_durable_records() -> None
     )
 
     points = scenario.linked_points.point_domain.points
-    assert scenario.runtime.physical_execution_count == 1
+    assert (
+        sum(
+            entry.stage == "domain_submit"
+            and entry.effect == "acquisition"
+            and entry.state == "started"
+            for entry in journal.entries
+        )
+        == 1
+    )
     assert len(kernel_calls) == 1
     assert kernel_calls[0].points == scenario.context.points
     assert all(
@@ -525,7 +533,6 @@ def test_fake_domain_iq_reaches_host_probabilities_and_durable_records() -> None
         and {port.id for port in call.output_ports}
         == {"probability_0", "probability_1"}
         and "ports" not in call.semantic.parameters
-        and call.semantic.portability == "host_only"
         for call in kernel_calls
     )
     assert len(projected.records) == len(points)

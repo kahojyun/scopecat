@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from pydantic import BaseModel, ConfigDict
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import (
@@ -23,17 +22,6 @@ class ReadoutSettings:
     phase_offset_rad: float
     reps: int
     z_offset: float
-
-
-class ReadoutResponseModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    resonance_frequency_ghz: float
-    linewidth_mhz: float
-    baseline_amplitude: float = 0.92
-    dip_depth: float = 0.52
-    repeatable_variation_amplitude: float = 0.0
-    phase_slope: float = 0.55
 
 
 def settings_from_config(
@@ -120,7 +108,6 @@ def _power_to_dbm(quantity: Quantity) -> float:
 
 
 __all__ = [
-    "ReadoutResponseModel",
     "ReadoutSettings",
     "frequency_to_ghz",
     "settings_from_config",

@@ -1,3 +1,5 @@
+# ruff: noqa: F401
+# pyright: reportUnusedImport=false, reportUnsupportedDunderAll=false
 """Instrument adapter contracts and simple reference implementation."""
 
 from __future__ import annotations
@@ -14,7 +16,6 @@ if TYPE_CHECKING:
         InstrumentStateSnapshot,
     )
     from scopecat.sdk.instruments.contracts import (
-        ActionReceipt,
         ApplyReceipt,
         CapabilityDescription,
         CapabilityField,
@@ -23,8 +24,6 @@ if TYPE_CHECKING:
         CollectProductRequest,
         CollectReceipt,
         DriverFault,
-        InstrumentActionCommand,
-        InstrumentActionCommandField,
         InstrumentDescription,
         InstrumentDriver,
         InstrumentProvider,
@@ -46,7 +45,6 @@ if TYPE_CHECKING:
         product_axis,
         quantity_field,
         string_field,
-        validate_action_command,
         validate_state_command,
     )
     from scopecat.sdk.instruments.simple import (
@@ -63,7 +61,6 @@ if TYPE_CHECKING:
 
 
 _EXPORTS: dict[str, tuple[str, str]] = {
-    "ActionReceipt": ("scopecat.sdk.instruments.contracts", "ActionReceipt"),
     "ApplyReceipt": ("scopecat.sdk.instruments.contracts", "ApplyReceipt"),
     "CapabilityDescription": (
         "scopecat.sdk.instruments.contracts",
@@ -82,14 +79,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "CommandChannelBinding",
     ),
     "DriverFault": ("scopecat.sdk.instruments.contracts", "DriverFault"),
-    "InstrumentActionCommand": (
-        "scopecat.sdk.instruments.contracts",
-        "InstrumentActionCommand",
-    ),
-    "InstrumentActionCommandField": (
-        "scopecat.sdk.instruments.contracts",
-        "InstrumentActionCommandField",
-    ),
     "InstrumentDescription": (
         "scopecat.sdk.instruments.contracts",
         "InstrumentDescription",
@@ -144,10 +133,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "product_axis": ("scopecat.sdk.instruments.contracts", "product_axis"),
     "quantity_field": ("scopecat.sdk.instruments.contracts", "quantity_field"),
     "string_field": ("scopecat.sdk.instruments.contracts", "string_field"),
-    "validate_action_command": (
-        "scopecat.sdk.instruments.contracts",
-        "validate_action_command",
-    ),
     "validate_state_command": (
         "scopecat.sdk.instruments.contracts",
         "validate_state_command",
@@ -182,54 +167,4 @@ def __getattr__(name: str) -> object:
     return value
 
 
-__all__ = [
-    "ActionReceipt",
-    "ApplyReceipt",
-    "CapabilityDescription",
-    "CapabilityField",
-    "CollectAxisRequest",
-    "CollectCommand",
-    "CollectProductRequest",
-    "CollectReceipt",
-    "CommandChannelBinding",
-    "DriverFault",
-    "InstrumentActionCommand",
-    "InstrumentActionCommandField",
-    "InstrumentDescription",
-    "InstrumentDriver",
-    "InstrumentProvider",
-    "InstrumentProviderContext",
-    "InstrumentProviderDescription",
-    "InstrumentProviderResult",
-    "InstrumentReadback",
-    "InstrumentStateCommand",
-    "InstrumentStateCommandField",
-    "InstrumentStateField",
-    "InstrumentStateSnapshot",
-    "PayloadRef",
-    "ProductAxisDescription",
-    "ProductDescription",
-    "SimpleCapability",
-    "SimpleInstrumentDriver",
-    "SimpleLifecycleCallback",
-    "SimpleProduct",
-    "SimpleProductReader",
-    "SimpleStateField",
-    "SimpleStateReader",
-    "SimpleStateWriter",
-    "StateValue",
-    "apply_state_command_to_snapshot",
-    "bool_field",
-    "capability",
-    "enum_field",
-    "float_field",
-    "int_field",
-    "payload_field",
-    "product",
-    "product_axis",
-    "quantity_field",
-    "simple_capability",
-    "string_field",
-    "validate_action_command",
-    "validate_state_command",
-]
+__all__ = sorted(_EXPORTS)

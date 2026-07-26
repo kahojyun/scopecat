@@ -1,8 +1,8 @@
-"""Durable records for externally relevant effects and recovery evidence.
+"""Durable intent and evidence records for externally relevant effects.
 
 The journal records host-controlled effect transitions and the identities and
-hashes needed to reconcile them. Pure computation and best-effort progress do
-not become recovery facts merely because they can be observed at runtime.
+hashes needed for crash containment. Pure computation and best-effort progress
+do not become ledger facts merely because they can be observed at runtime.
 Provider payload contents and private configuration are evidence artifacts,
 not fields to copy into journal transitions.
 """
@@ -10,16 +10,17 @@ not fields to copy into journal transitions.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
-from scopecat.kernel.content_identity import model_wire_content_hash
+from scopecat.kernel.content_identity import (
+    content_fingerprint,
+    stable_content_hash,
+)
 from scopecat.kernel.problems import Problem
-from scopecat.records.instrument import InstrumentReadback
 
 type ExecutionEffect = Literal[
-    "action",
     "pure",
     "read",
     "state_write",
@@ -42,7 +43,6 @@ type ExecutionStage = Literal[
     "point",
     "compute",
     "apply_state",
-    "action",
     "collect",
     "append_measurement",
     "seal_measurement",
@@ -69,7 +69,6 @@ class ExecutionTransition(BaseModel):
     stage: ExecutionStage
     effect: ExecutionEffect
     state: JournalEntryState
-    attempt: int = Field(default=1, ge=1)
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     point_index: int | None = Field(default=None, ge=0)
     instrument_id: str | None = None
@@ -77,57 +76,28 @@ class ExecutionTransition(BaseModel):
     evidence: dict[str, JsonValue] = Field(default_factory=dict)
 
 
-ExecutionJournalEntry = ExecutionTransition
+def execution_transition_identity(
+    transition: ExecutionTransition,
+) -> dict[str, JsonValue]:
+    """Return transport identity without daemon-assigned journal fields."""
 
-
-class CollectionChunk(BaseModel):
-    """Durable payload for one successful driver collection call."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    run_id: str = Field(min_length=1)
-    operation_id: str = Field(min_length=1)
-    command_content_hash: str = Field(min_length=1)
-    attempt: int = Field(default=1, ge=1)
-    point_index: int = Field(ge=0)
-    instrument_id: str = Field(min_length=1)
-    readback: InstrumentReadback
-
-    @property
-    def content_hash(self) -> str:
-        return model_wire_content_hash(self)
-
-
-class CollectionChunkReceipt(BaseModel):
-    """Immutable reference to a chunk resolvable by its repository."""
-
-    model_config = ConfigDict(
-        extra="forbid",
-        frozen=True,
-        revalidate_instances="always",
+    return cast(
+        "dict[str, JsonValue]",
+        transition.model_dump(
+            mode="json",
+            exclude={"sequence", "timestamp"},
+        ),
     )
 
-    operation_id: str = Field(min_length=1)
-    ref: str = Field(min_length=1)
-    content_hash: str = Field(min_length=1)
 
+def execution_transition_content_hash(transition: ExecutionTransition) -> str:
+    """Hash one transition without daemon-assigned journal fields."""
 
-class PayloadEvidence(BaseModel):
-    """Durable structural evidence for one transient command payload."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    run_id: str
-    operation_id: str
-    point_index: int | None = Field(default=None, ge=0)
-    payload_id: str
-    schema_id: str
-    content_hash: str
-    fingerprint: object
-
-
-class CommittedPayloadEvidence(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    ref: str
-    content_hash: str
+    return stable_content_hash(
+        content_fingerprint(
+            {
+                "schema": "scopecat.execution_transition.v1",
+                "transition": execution_transition_identity(transition),
+            }
+        )
+    )

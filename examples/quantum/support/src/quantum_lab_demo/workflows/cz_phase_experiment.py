@@ -6,16 +6,14 @@ import math
 
 import scopecat as sc
 from scopecat import Quantity
-from scopecat_quantum import (
+from scopecat_quantum.measurement_transforms import (
     BinaryIqDiscriminator,
     IqCentroid,
     binary_iq_probability_transform,
 )
 
 from quantum_lab_demo.virtual_lab.parameters import (
-    CZ_AMPLITUDE_PARAMETER_COLUMN,
     q0_q1_cz_amplitude_lookup,
-    q0_q1_cz_row,
     qubit_parameters,
 )
 from quantum_lab_demo.workflows.cz_phase_calibration import (
@@ -94,11 +92,6 @@ def cz_phase_capture():
 @sc.template(
     id=CZ_PHASE_TEMPLATE_ID,
     kind=CZ_PHASE_EXPERIMENT_ID,
-    label="CZ conditional-phase Ramsey",
-    description=(
-        "Resolve accepted single-qubit gates and one explicit coupler-flux CZ "
-        "candidate inside the same typed Program."
-    ),
 )
 def cz_phase_template() -> sc.ExperimentBody:
     capture = cz_phase_capture()
@@ -108,8 +101,7 @@ def cz_phase_template() -> sc.ExperimentBody:
             sc.cartesian(
                 sc.param_axis(
                     CZ_AMPLITUDE,
-                    q0_q1_cz_row(),
-                    CZ_AMPLITUDE_PARAMETER_COLUMN,
+                    q0_q1_cz_amplitude_lookup(),
                     span=CZ_AMPLITUDE_SPAN,
                     points=CZ_AMPLITUDE_POINTS,
                 ),

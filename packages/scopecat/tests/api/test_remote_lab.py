@@ -12,13 +12,17 @@ import httpx2
 import pytest
 from pydantic import BaseModel
 
-import scopecat.api._delegated as delegated_module
+import scopecat.api._runner as runner_module
 from scopecat.analysis.service import AnalysisOutput, prepare_analysis_artifact
-from scopecat.api._delegated import _DelegatedRunner
 from scopecat.api._remote import RemoteRunOperations
+from scopecat.api._runner import _DaemonRunner
 from scopecat.api.lab import LabClient
 from scopecat.config.drafts import ConfigDraft
 from scopecat.config.parameters import (
+    DeleteParameterRows,
+    InsertParameterRows,
+    ReplaceParameter,
+    UpdateParameterRows,
     delete_parameter_rows,
     insert_parameter_rows,
     replace_scalar_parameter,
@@ -32,22 +36,14 @@ from scopecat.config.registry.records import (
     ManualConfigDraftRegistrySource,
 )
 from scopecat.config.resolution import config_revision_entry_id
-from scopecat.control.models import (
-    ControlRun,
-    DurableEvent,
-    EventPage,
-    RunAdmissionRecord,
-    RunPage,
-)
+from scopecat.control.models import ResourceKey
 from scopecat.daemon.client import DaemonClient, DaemonConflictError
-from scopecat.daemon.execution import DelegatedExecutorLeaseLostError
+from scopecat.daemon.execution import ExecutorLeaseLostError
 from scopecat.daemon.views import (
     ActiveConfigView,
     ConfigDraftPreview,
     ConfigEntryView,
     ConfigRegistryView,
-    DaemonHealth,
-    RunDetail,
 )
 from scopecat.daemon.wire import (
     AnalysisArtifactOutputPayload,
@@ -61,24 +57,12 @@ from scopecat.daemon.wire import (
     ConfigDraftRegistrationCommand,
     ConfigDraftRegistrationReceipt,
     ConfigEntryActivationCommand,
-    ConfigImportReceipt,
     ConfigRollbackCommand,
-    DelegatedRunSubmission,
-    DeleteConfigParameterRows,
     DirectConfigDefaultCommand,
     DirectConfigImportCommand,
-    ExecutionRecoverySnapshot,
     ExecutorLease,
-    ExperimentCatalog,
-    InsertConfigParameterRows,
-    ManagedRunSubmission,
-    RegisteredExperimentDescriptor,
-    ReplaceConfigParameter,
-    ResourceClaimDescriptor,
     RunAdmission,
-    RuntimeEventPublishCommand,
-    RuntimeEventPublishReceipt,
-    UpdateConfigParameterRows,
+    RunSubmission,
 )
 from scopecat.execution.observation import (
     RuntimeEvent,
@@ -87,7 +71,7 @@ from scopecat.execution.observation import (
     RuntimeTransitionEvent,
 )
 from scopecat.execution.program import RunProgram
-from scopecat.execution.services import ExecutionServices
+from scopecat.execution.services import ExecutionSession
 from scopecat.planning.preview import build_run_program_preview
 from scopecat.planning.system import ExperimentSystem
 from scopecat.records.artifact import RunContentEntry
@@ -98,132 +82,20 @@ from scopecat.records.run import (
     RunManifest,
     RunOutcome,
 )
-from scopecat.records.run_request import RunRequest
-from scopecat.runs.service import PlannedRun, plan_experiment
+from scopecat.runs.repository import TerminalRunCommit
+from scopecat.runs.service import PlannedRun
 from scopecat.sdk.instruments.contracts import InstrumentProvider
-from scopecat.testing import sqlite_project_services
+from tests.testkit.runtime import plan_experiment, sqlite_project_services
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.workflow_fixtures import (
     load_config,
     load_invocation,
-    load_prepared_invocation,
 )
 
 _NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
 
 
-def test_control_operations_expose_browsing_and_managed_submission() -> None:
-    request = RunRequest(id="managed-request")
-    admission_record = RunAdmissionRecord(
-        submission_id="existing-submission",
-        run_id="run-existing",
-        execution_mode="managed",
-        experiment_id="ramsey",
-        config_content_hash=f"sha256:{'1' * 64}",
-        request=request,
-        admitted_at=_NOW,
-    )
-    run = ControlRun(
-        sequence=1,
-        admission=admission_record,
-        state="accepted",
-        state_version=1,
-        updated_at=_NOW,
-    )
-    event = DurableEvent(
-        event_id=1,
-        run_id=run.run_id,
-        kind="run.admitted",
-        occurred_at=_NOW,
-    )
-    seen_submission_ids: list[str] = []
-
-    def handler(http_request: httpx2.Request) -> httpx2.Response:
-        path = http_request.url.path
-        if path.endswith("/health"):
-            return _model(
-                DaemonHealth(
-                    status="ok",
-                    project_id="project-1",
-                    project_name="test-lab",
-                    project_root="/projects/test-lab",
-                )
-            )
-        if path.endswith("/catalog"):
-            return _model(
-                ExperimentCatalog(
-                    revision="catalog-1",
-                    experiments=(
-                        RegisteredExperimentDescriptor(
-                            id="ramsey",
-                            version="1",
-                            experiment_kind="calibration",
-                        ),
-                    ),
-                )
-            )
-        if path.endswith("/runs") and http_request.method == "GET":
-            if "before" in http_request.url.params:
-                assert http_request.url.params["before"] == "10"
-                assert "latest" not in http_request.url.params
-            else:
-                assert http_request.url.params["state"] == "accepted"
-                assert http_request.url.params["latest"] == "true"
-            return _model(RunPage(items=(run,)))
-        if path.endswith(f"/runs/{run.run_id}"):
-            return _model(
-                RunDetail(
-                    control=run,
-                    manifest=RunManifest(
-                        run_id=run.run_id,
-                        created_at=_NOW,
-                        lifecycle="accepted",
-                        config_content_hash=run.admission.config_content_hash,
-                    ),
-                )
-            )
-        if path.endswith("/events"):
-            assert http_request.url.params["run_id"] == run.run_id
-            return _model(EventPage(items=(event,)))
-        if path.endswith("/runs") and http_request.method == "POST":
-            submission = ManagedRunSubmission.model_validate_json(http_request.content)
-            seen_submission_ids.append(submission.submission_id)
-            return _model(
-                RunAdmission(
-                    run_id="run-managed",
-                    submission_id=submission.submission_id,
-                    execution_mode="managed",
-                    config_content_hash=f"sha256:{'2' * 64}",
-                    accepted_at=_NOW,
-                    event_cursor=2,
-                ),
-                status_code=201,
-            )
-        raise AssertionError(f"unexpected request: {http_request.method} {path}")
-
-    client = _client(handler)
-    lab = LabClient(client)
-
-    assert lab.control.health().project_id == "project-1"
-    assert lab.control.catalog().experiments[0].id == "ramsey"
-    assert lab.control.runs(state="accepted").items == (run,)
-    assert lab.control.runs(before=10).items == (run,)
-    assert lab.control.run_detail(run.run_id).control == run
-    assert lab.control.events(run_id=run.run_id).items == (event,)
-    admission = lab.control.submit_managed(
-        "ramsey",
-        "1",
-        request,
-        submission_id="managed-submission",
-    )
-
-    assert admission.submission_id == "managed-submission"
-    assert seen_submission_ids == ["managed-submission"]
-    lab.close()
-    assert client.health().status == "ok"
-
-
-def test_execute_delegated_submits_complete_plan_and_heartbeats(
+def test_execute_submits_complete_plan_and_heartbeats(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -239,10 +111,18 @@ def test_execute_delegated_submits_complete_plan_and_heartbeats(
         ),
     )
     preview = build_run_program_preview(planned.program)
+
+    def fail_preview(_program: RunProgram) -> None:
+        pytest.fail("execution admission must not build a preview")
+
+    monkeypatch.setattr(
+        runner_module,
+        "build_run_program_preview",
+        fail_preview,
+    )
     heartbeat_seen = Event()
     heartbeat_count = 0
-    delegated_submissions: list[DelegatedRunSubmission] = []
-    published_events: list[RuntimeEventPublishCommand] = []
+    submissions: list[RunSubmission] = []
     local_events: list[RuntimeEvent] = []
     forwarded: dict[str, object] = {}
     transition_event = RuntimeTransitionEvent(
@@ -267,10 +147,8 @@ def test_execute_delegated_submits_complete_plan_and_heartbeats(
         nonlocal heartbeat_count
         path = http_request.url.path
         if path.endswith("/runs"):
-            submission = DelegatedRunSubmission.model_validate_json(
-                http_request.content
-            )
-            delegated_submissions.append(submission)
+            submission = RunSubmission.model_validate_json(http_request.content)
+            submissions.append(submission)
             return _model(_admission(submission), status_code=201)
         if path.endswith("/executor/start"):
             return _model(_lease(heartbeat_interval=0.01))
@@ -278,25 +156,12 @@ def test_execute_delegated_submits_complete_plan_and_heartbeats(
             heartbeat_count += 1
             heartbeat_seen.set()
             return _model(_lease(heartbeat_interval=0.01))
-        if path.endswith("/runtime-events"):
-            command = RuntimeEventPublishCommand.model_validate_json(
-                http_request.content
-            )
-            published_events.append(command)
-            return _model(
-                RuntimeEventPublishReceipt(
-                    event_id=2,
-                    run_id=command.run_id,
-                    kind=command.event.kind,
-                )
-            )
         raise AssertionError(f"unexpected request: {http_request.method} {path}")
 
     def execute(
         *,
-        run_id: str,
         program: RunProgram,
-        services: ExecutionServices,
+        session: ExecutionSession,
         instrument_provider: InstrumentProvider | None,
         event_sink: Callable[[RuntimeEvent], None] | None,
         payload_observer: Callable[[RuntimePayloadObservation], None] | None,
@@ -307,18 +172,16 @@ def test_execute_delegated_submits_complete_plan_and_heartbeats(
             event_sink=event_sink,
             payload_observer=payload_observer,
         )
-        accepted = services.runs.read_manifest(run_id)
-        services.runs.write_manifest(
-            accepted.model_copy(update={"lifecycle": "running"})
-        )
-        with services.resources.acquire(program.resource_claims):
-            assert heartbeat_seen.wait(timeout=1)
-            assert event_sink is not None
-            event_sink(compute_event)
-            event_sink(transition_event)
+        accepted = session.accepted
+        assert session.config == planned.config
+        session.begin()
+        assert heartbeat_seen.wait(timeout=1)
+        assert event_sink is not None
+        event_sink(compute_event)
+        event_sink(transition_event)
         return _terminal_manifest(accepted)
 
-    monkeypatch.setattr(delegated_module, "execute_admitted_run", execute)
+    monkeypatch.setattr(runner_module, "execute_admitted_run", execute)
 
     def event_sink(event: RuntimeEvent) -> None:
         local_events.append(event)
@@ -326,18 +189,18 @@ def test_execute_delegated_submits_complete_plan_and_heartbeats(
     def payload_observer(_event: RuntimePayloadObservation) -> None:
         pass
 
-    result = _DelegatedRunner(_client(handler), None).execute(
+    result = _DaemonRunner(_client(handler), None).execute(
         planned,
         executor_id="notebook-1",
-        submission_id="delegated-submission",
+        submission_id="submission-1",
         event_sink=event_sink,
         payload_observer=payload_observer,
     )
     completed_heartbeats = heartbeat_count
     time.sleep(0.03)
 
-    [submission] = delegated_submissions
-    assert submission.submission_id == "delegated-submission"
+    [submission] = submissions
+    assert submission.submission_id == "submission-1"
     assert submission.config == planned.config
     assert submission.config_source == planned.config_source
     assert submission.request == planned.request
@@ -347,103 +210,96 @@ def test_execute_delegated_submits_complete_plan_and_heartbeats(
     assert submission.plan.coordinate_ids == preview.coordinate_ids
     assert submission.plan.record_ids == tuple(record.id for record in preview.records)
     assert submission.plan.run_resource_claims == tuple(
-        ResourceClaimDescriptor(id=claim.id, kind=claim.kind)
+        ResourceKey(id=claim.id, kind=claim.kind)
         for claim in planned.program.resource_claims
     )
     assert forwarded["program"] == planned.program
     assert forwarded["instrument_provider"] == (
         None if planned.system is None else planned.system.provider
     )
-    assert forwarded["event_sink"] is not event_sink
+    assert forwarded["event_sink"] is event_sink
     assert forwarded["payload_observer"] is payload_observer
     assert local_events == [compute_event, transition_event]
-    assert len(published_events) == 1
-    assert published_events[0].event.progress.completed_points == 1
-    assert published_events[0].event.progress.total_points == 1
     assert result.status == "completed"
     assert completed_heartbeats >= 1
     assert heartbeat_count == completed_heartbeats
 
 
-def test_execute_delegated_fences_effects_after_heartbeat_loses_lease(
+def test_execute_fences_effects_after_heartbeat_loses_lease(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     planned = _planned(tmp_path)
     heartbeat_attempted = Event()
+    admissions: list[RunAdmission] = []
 
     def handler(http_request: httpx2.Request) -> httpx2.Response:
         path = http_request.url.path
         if path.endswith("/runs"):
-            submission = DelegatedRunSubmission.model_validate_json(
-                http_request.content
-            )
-            return _model(_admission(submission), status_code=201)
+            submission = RunSubmission.model_validate_json(http_request.content)
+            admission = _admission(submission)
+            admissions.append(admission)
+            return _model(admission, status_code=201)
         if path.endswith("/executor/start"):
             return _model(_lease(heartbeat_interval=0.005))
         if path.endswith("/executor/heartbeat"):
             heartbeat_attempted.set()
             return httpx2.Response(409, json={"detail": "executor lease expired"})
-        if path.endswith("/execution/recovery"):
-            return _model(ExecutionRecoverySnapshot())
+        if path.endswith("/terminal"):
+            return _model(
+                admissions[-1].manifest.model_copy(
+                    update={
+                        "outcome": RunOutcome(
+                            run_id=admissions[-1].manifest.run_id,
+                            result="succeeded",
+                            certainty="known",
+                        )
+                    }
+                )
+            )
         raise AssertionError(f"unexpected request: {http_request.method} {path}")
 
     def execute(
         *,
-        run_id: str,
         program: RunProgram,
-        services: ExecutionServices,
+        session: ExecutionSession,
         instrument_provider: InstrumentProvider | None,
         event_sink: Callable[[RuntimeEvent], None] | None,
         payload_observer: Callable[[RuntimePayloadObservation], None] | None,
     ) -> RunManifest:
-        del instrument_provider, event_sink, payload_observer
-        accepted = services.runs.read_manifest(run_id)
-        services.runs.write_manifest(
-            accepted.model_copy(update={"lifecycle": "running"})
+        del program, instrument_provider, event_sink, payload_observer
+        session.begin()
+        assert heartbeat_attempted.wait(timeout=1)
+        terminal = TerminalRunCommit(
+            run_id=session.run_id,
+            outcome=RunOutcome(
+                run_id=session.run_id,
+                result="succeeded",
+                certainty="known",
+            ),
         )
-        with services.resources.acquire(program.resource_claims):
-            assert heartbeat_attempted.wait(timeout=1)
-            deadline = time.monotonic() + 1
-            while True:
-                try:
-                    services.journal_for(run_id).entries()
-                except DelegatedExecutorLeaseLostError:
-                    raise
-                if time.monotonic() >= deadline:
-                    raise AssertionError("heartbeat failure did not fence effects")
-                time.sleep(0.001)
+        deadline = time.monotonic() + 1
+        while True:
+            try:
+                session.commit_terminal(terminal)
+            except ExecutorLeaseLostError:
+                raise
+            if time.monotonic() >= deadline:
+                raise AssertionError("heartbeat failure did not fence effects")
+            time.sleep(0.001)
 
-    monkeypatch.setattr(delegated_module, "execute_admitted_run", execute)
+    monkeypatch.setattr(runner_module, "execute_admitted_run", execute)
 
     with pytest.raises(
-        DelegatedExecutorLeaseLostError,
-        match="generation 7 is no longer live",
+        ExecutorLeaseLostError,
+        match=r"lease 'lease-1'.*is no longer live",
     ) as error:
-        _DelegatedRunner(_client(handler), None).execute(
+        _DaemonRunner(_client(handler), None).execute(
             planned,
             executor_id="notebook-1",
         )
 
     assert isinstance(error.value.cause, DaemonConflictError)
-
-
-def test_execute_delegated_requires_a_durable_request(tmp_path: Path) -> None:
-    planned = _planned(tmp_path)
-    runner = _DelegatedRunner(
-        _client(lambda _request: httpx2.Response(500)),
-        None,
-    )
-
-    with pytest.raises(ValueError, match="durable run request"):
-        runner.execute(
-            PlannedRun(
-                config=planned.config,
-                request=None,
-                program=planned.program,
-            ),
-            executor_id="notebook-1",
-        )
 
 
 def test_config_operations_compose_registry_commands() -> None:
@@ -478,7 +334,7 @@ def test_config_operations_compose_registry_commands() -> None:
                 http_request.content
             )
             seen.append(command)
-            return _model(ConfigImportReceipt(entry=entry), status_code=201)
+            return _model(entry, status_code=201)
         if path == "/api/v1/config-registry/drafts/preview":
             command = ConfigDraftCommand.model_validate_json(http_request.content)
             seen.append(command)
@@ -524,7 +380,7 @@ def test_config_operations_compose_registry_commands() -> None:
             config,
             entry_id="baseline",
             registered_by="notebook",
-        ).entry
+        )
         == entry
     )
     previewed = config_ops.preview(
@@ -565,7 +421,7 @@ def test_config_operations_compose_registry_commands() -> None:
             base_generation=state.generation,
             candidate_id="manual-tuning",
             updates=(
-                ReplaceConfigParameter(
+                ReplaceParameter(
                     value=scalar_update.value,
                 ),
             ),
@@ -577,7 +433,7 @@ def test_config_operations_compose_registry_commands() -> None:
                 base_generation=state.generation,
                 candidate_id="manual-tuning",
                 updates=(
-                    ReplaceConfigParameter(
+                    ReplaceParameter(
                         value=scalar_update.value,
                     ),
                 ),
@@ -644,10 +500,10 @@ def test_config_operations_serialize_each_draft_update_shape() -> None:
     )
 
     assert [type(update) for update in seen[0].updates] == [
-        ReplaceConfigParameter,
-        UpdateConfigParameterRows,
-        InsertConfigParameterRows,
-        DeleteConfigParameterRows,
+        ReplaceParameter,
+        UpdateParameterRows,
+        InsertParameterRows,
+        DeleteParameterRows,
     ]
 
 
@@ -786,7 +642,7 @@ def test_lab_config_intents_hide_registry_coordination() -> None:
     ]
 
 
-def test_remote_analysis_artifacts_preserve_source_defaults() -> None:
+def test_remote_analysis_artifacts_send_prepared_snapshots() -> None:
     commands: list[AnalysisSaveCommand] = []
 
     def handler(request: httpx2.Request) -> httpx2.Response:
@@ -860,30 +716,27 @@ def test_remote_analysis_artifacts_preserve_source_defaults() -> None:
     assert isinstance(json_output, AnalysisArtifactOutputPayload)
     assert isinstance(text_output, AnalysisArtifactOutputPayload)
     assert (
-        json_output.source_default_extension,
-        json_output.source_default_media_type,
+        json_output.filename,
+        json_output.media_type,
         b64decode(json_output.content_base64),
-    ) == (".json", "application/json", b'{\n  "ok": true\n}\n')
+    ) == ("fit-json.json", "application/json", b'{\n  "ok": true\n}\n')
     assert (
-        text_output.source_default_extension,
-        text_output.source_default_media_type,
+        text_output.filename,
+        text_output.media_type,
         b64decode(text_output.content_base64),
-    ) == (".txt", "text/plain", b"fit converged\n")
+    ) == ("fit-text.txt", "text/plain", b"fit converged\n")
 
 
-@pytest.mark.parametrize("prepared", [False, True])
 def test_run_scratch_plans_against_explicit_snapshot_without_local_storage(
     monkeypatch: pytest.MonkeyPatch,
-    *,
-    prepared: bool,
 ) -> None:
     config = load_config()
     provider = TestSignalInstrumentProvider()
     system = ExperimentSystem(provider=provider)
     captured: dict[str, object] = {}
 
-    def execute_delegated(
-        self: _DelegatedRunner,
+    def execute_run(
+        self: _DaemonRunner,
         planned: PlannedRun,
         *,
         executor_id: str,
@@ -899,19 +752,17 @@ def test_run_scratch_plans_against_explicit_snapshot_without_local_storage(
         )
         accepted = RunManifest(
             run_id="run-scratch",
-            lifecycle="accepted",
             config_content_hash=planned.program.config_content_hash,
         )
         return _terminal_manifest(accepted)
 
-    monkeypatch.setattr(_DelegatedRunner, "execute", execute_delegated)
+    monkeypatch.setattr(_DaemonRunner, "execute", execute_run)
 
-    experiment = load_prepared_invocation() if prepared else load_invocation()
-    result = _DelegatedRunner(
+    result = _DaemonRunner(
         _client(lambda _request: httpx2.Response(500)),
         lambda _config: system,
     ).run(
-        experiment,
+        load_invocation(),
         config=config,
         name="scratch fit",
         tags=("calibration", "demo"),
@@ -925,7 +776,6 @@ def test_run_scratch_plans_against_explicit_snapshot_without_local_storage(
     planned = captured["planned"]
     assert isinstance(planned, PlannedRun)
     assert planned.config == config
-    assert planned.request is not None
     assert planned.request.operator == "alice"
     assert planned.request.metadata == {
         "sample": "q0",
@@ -956,8 +806,8 @@ def test_run_scratch_uses_active_config_and_bound_system(
         assert http_request.url.path == "/api/v1/config-registry/active"
         return _model(ActiveConfigView(entry=entry, active_state=state, config=config))
 
-    def execute_delegated(
-        self: _DelegatedRunner,
+    def execute_run(
+        self: _DaemonRunner,
         planned: PlannedRun,
         *,
         executor_id: str,
@@ -970,18 +820,17 @@ def test_run_scratch_uses_active_config_and_bound_system(
         return _terminal_manifest(
             RunManifest(
                 run_id="run-scratch",
-                lifecycle="accepted",
                 config_content_hash=planned.program.config_content_hash,
             )
         )
 
-    monkeypatch.setattr(_DelegatedRunner, "execute", execute_delegated)
+    monkeypatch.setattr(_DaemonRunner, "execute", execute_run)
 
     def build_system(selected: ConfigProfileSnapshot) -> ExperimentSystem:
         built_from.append(selected)
         return system
 
-    result = _DelegatedRunner(
+    result = _DaemonRunner(
         _client(handler),
         build_system,
     ).run(load_invocation())
@@ -998,7 +847,7 @@ def test_run_scratch_uses_active_config_and_bound_system(
 
 
 def test_run_scratch_requires_an_explicit_or_bound_system() -> None:
-    runner = _DelegatedRunner(
+    runner = _DaemonRunner(
         _client(
             lambda request: pytest.fail(
                 f"unexpected daemon request: {request.method} {request.url.path}"
@@ -1020,7 +869,7 @@ def test_preview_scratch_uses_active_config_without_admission() -> None:
         requests.append(request)
         return _model(ActiveConfigView(entry=entry, active_state=state, config=config))
 
-    preview = _DelegatedRunner(
+    preview = _DaemonRunner(
         _client(handler),
         lambda _config: ExperimentSystem(provider=TestSignalInstrumentProvider()),
     ).preview(load_invocation())
@@ -1034,7 +883,7 @@ def test_preview_scratch_uses_active_config_without_admission() -> None:
 def _planned(tmp_path: Path) -> PlannedRun:
     provider = TestSignalInstrumentProvider()
     return plan_experiment(
-        load_prepared_invocation(),
+        load_invocation(),
         config=load_config(),
         services=sqlite_project_services(tmp_path),
         system=ExperimentSystem(provider=provider),
@@ -1168,21 +1017,21 @@ def _config_draft_default_receipt(
     )
 
 
-def _admission(submission: DelegatedRunSubmission) -> RunAdmission:
+def _admission(submission: RunSubmission) -> RunAdmission:
     return RunAdmission(
-        run_id="run-1",
         submission_id=submission.submission_id,
-        execution_mode="delegated",
-        config_content_hash=submission.config_content_hash,
-        accepted_at=_NOW,
-        event_cursor=1,
+        manifest=RunManifest(
+            run_id="run-1",
+            created_at=_NOW,
+            config_content_hash=config_content_hash(submission.config),
+            config_source=submission.config_source,
+        ),
     )
 
 
 def _lease(*, heartbeat_interval: float) -> ExecutorLease:
     return ExecutorLease(
         lease_id="lease-1",
-        generation=7,
         run_id="run-1",
         executor_id="notebook-1",
         issued_at=_NOW,
@@ -1196,11 +1045,9 @@ def _terminal_manifest(accepted: RunManifest) -> RunManifest:
         run_id=accepted.run_id,
         result="succeeded",
         certainty="known",
-        termination_reason="completed",
     )
     return accepted.model_copy(
         update={
-            "lifecycle": "terminal",
             "outcome": outcome,
         }
     )

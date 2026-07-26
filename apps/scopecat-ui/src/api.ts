@@ -2,15 +2,12 @@ import type {
   ControlRun,
   DaemonUiApi,
   DurableEvent,
-  RegisteredExperimentDescriptor,
   RunContentEntry,
   RunManifest,
   RunResourceView,
 } from "./api-contract";
 import type {
   ContentEntry,
-  ExperimentCatalog,
-  ExperimentDescriptor,
   MeasurementPreview,
   ProjectEvent,
   ProjectHealth,
@@ -26,19 +23,10 @@ const API = {
   health: "/api/v1/health",
   runs: "/api/v1/runs?limit=100&latest=true",
   events: "/api/v1/events?limit=500&latest=true",
-  catalog: "/api/v1/catalog",
 } as const;
 
 type CurrentRunStatus = Exclude<RunStatus, "terminal" | "unknown">;
-type AdmissionResource = NonNullable<ControlRun["admission"]["resource_claims"]>[number];
-
-interface StoredAdmissionSummary {
-  plan?: {
-    point_count?: number;
-    coordinate_ids?: string[];
-    record_ids?: string[];
-  };
-}
+type AdmissionResource = ControlRun["admission"]["plan"]["run_resource_claims"][number];
 
 export class ApiError extends Error {
   constructor(
@@ -92,17 +80,9 @@ export async function request<T = unknown>(
   }
 }
 
-export type AttentionAction = DaemonUiApi["attentionCommand"]["action"];
-
-export async function resolveAttention(runId: string, action: AttentionAction): Promise<void> {
-  const command: DaemonUiApi["attentionCommand"] = {
-    run_id: runId,
-    action,
-  };
+export async function resolveAttention(runId: string): Promise<void> {
   await request(`/api/v1/runs/${encodeURIComponent(runId)}/attention`, undefined, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(command),
   });
 }
 
@@ -129,7 +109,7 @@ export async function getOlderRuns(before: number, signal?: AbortSignal): Promis
 
 function normalizeRunPage(response: DaemonUiApi["runPage"]): ProjectRunPage {
   return {
-    items: response.items.map((run) => normalizeRun(run)).sort(compareRuns),
+    items: response.items.map((run) => normalizeRun(run.control, run.manifest)).sort(compareRuns),
     previousCursor: response.previous_cursor ?? undefined,
   };
 }
@@ -177,9 +157,7 @@ export async function getRunAnalyses(runId: string, signal?: AbortSignal): Promi
 
 export function canPreviewRunContent(entry: ContentEntry): boolean {
   return (
-    entry.role === "record" ||
-    (entry.role === "dataset" && ["data_table", "data_array"].includes(entry.kind)) ||
-    (entry.role === "artifact" && artifactFormat(entry) !== undefined)
+    entry.role === "record" || (entry.role === "artifact" && artifactFormat(entry) !== undefined)
   );
 }
 
@@ -208,9 +186,9 @@ export async function getRunContent(
       signal,
     );
     return {
-      entry: normalizeContentEntry(response.dataset, 0),
+      entry: normalizeContentEntry(response.dataset_entry, 0),
       format: "json",
-      content: response.content,
+      content: response.dataset,
     };
   }
 
@@ -254,47 +232,37 @@ function normalizeEvents(response: DaemonUiApi["eventPage"]): ProjectEvent[] {
   return response.items.map(normalizeEvent).sort((left, right) => left.id - right.id);
 }
 
-export async function getCatalog(signal?: AbortSignal): Promise<ExperimentCatalog> {
-  const response = await request<DaemonUiApi["catalog"]>(API.catalog, signal);
-  return {
-    revision: response.revision,
-    experiments: (response.experiments ?? []).map(normalizeExperiment),
-  };
-}
-
 function normalizeRun(
   control: ControlRun,
-  manifest?: RunManifest,
+  manifest: RunManifest,
   detailResources?: RunResourceView[],
 ): ProjectRun {
   const admission = control.admission;
-  const outcome = control.outcome ?? undefined;
-  const summary = admission.plan_summary as StoredAdmissionSummary | undefined;
-  const plan = summary?.plan;
-  const status = normalizeStatus(control);
+  const outcome = manifest.outcome ?? undefined;
+  const plan = admission.plan;
+  const status = normalizeStatus(control, manifest);
   return {
     sequence: control.sequence,
     runId: admission.run_id,
-    experimentId: admission.experiment_id,
-    executionMode: admission.execution_mode,
+    experimentId: plan.experiment_id,
     status,
     stateLabel: statusLabel(status),
     createdAt: admission.admitted_at,
     updatedAt: control.updated_at,
-    configHash: admission.config_content_hash,
+    configHash: manifest.config_content_hash,
     attentionReason: control.attention_reason ?? undefined,
     result: outcome?.result,
     certainty: outcome?.certainty,
     plan: {
-      pointCount: plan?.point_count,
-      coordinateIds: plan?.coordinate_ids ?? [],
-      recordIds: plan?.record_ids ?? [],
+      pointCount: plan.point_count,
+      coordinateIds: plan.coordinate_ids ?? [],
+      recordIds: plan.record_ids ?? [],
     },
     resources:
       detailResources !== undefined
         ? detailResources.map(normalizeRunResource)
-        : (admission.resource_claims ?? []).map(normalizeResourceClaim),
-    contents: (manifest?.contents ?? []).map(normalizeContentEntry),
+        : (plan.run_resource_claims ?? []).map(normalizeResourceClaim),
+    contents: manifest.contents.map(normalizeContentEntry),
   };
 }
 
@@ -305,16 +273,6 @@ function normalizeEvent(event: DurableEvent): ProjectEvent {
     kind: event.kind,
     occurredAt: event.occurred_at,
     payload: event.payload ?? {},
-  };
-}
-
-function normalizeExperiment(experiment: RegisteredExperimentDescriptor): ExperimentDescriptor {
-  return {
-    id: experiment.id,
-    version: experiment.version,
-    title: experiment.title ?? experiment.id,
-    description: experiment.description ?? undefined,
-    tags: experiment.tags ?? [],
   };
 }
 
@@ -368,11 +326,11 @@ function artifactFormat(entry: ContentEntry): RunContentPreview["format"] | unde
   return undefined;
 }
 
-function normalizeStatus(control: ControlRun): CurrentRunStatus {
-  if (control.state !== "terminal") {
-    return control.state;
+function normalizeStatus(control: ControlRun, manifest: RunManifest): CurrentRunStatus {
+  if (control.state === "attention_required") {
+    return "attention_required";
   }
-  switch (control.outcome!.result) {
+  switch (manifest.outcome?.result) {
     case "succeeded":
       return "succeeded";
     case "failed":
@@ -380,6 +338,7 @@ function normalizeStatus(control: ControlRun): CurrentRunStatus {
     case "cancelled":
       return "cancelled";
   }
+  return control.state === "leased" ? "running" : "accepted";
 }
 
 function statusLabel(status: CurrentRunStatus): string {

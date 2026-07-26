@@ -1,7 +1,0 @@
-{
-  "format_version": "scopecat.config_profile_manifest.v1",
-  "id": "templates-profile",
-  "system_ref": "system-spec.json",
-  "environment_ref": "environment-spec.json",
-  "parameter_snapshot_ref": "parameter-snapshot.json"
-}

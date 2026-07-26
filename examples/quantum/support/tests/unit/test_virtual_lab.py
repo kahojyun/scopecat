@@ -18,13 +18,16 @@ from quantum_lab_demo.virtual_lab.models import VirtualDeviceProfile, VirtualLab
 from .demo_lab_test_paths import EXPERIMENT_VIRTUAL_LAB_PROFILE
 
 
-def test_virtual_lab_profile_loads_configured_devices_and_responses() -> None:
+def test_virtual_lab_profile_loads_configured_devices() -> None:
     profile = load_virtual_lab_profile(EXPERIMENT_VIRTUAL_LAB_PROFILE)
 
     assert profile.id == "quantum_lab_demo.virtual_lab"
     assert profile.format_version == "quantum_lab_demo.virtual_lab_profile.v1"
-    assert profile.device_profile("readout-stack").response_model_id is None
-    assert profile.response_models == []
+    assert tuple(device.id for device in profile.devices) == (
+        "drive-stack",
+        "readout-stack",
+        "coupler-stack",
+    )
 
 
 def test_virtual_lab_profile_round_trips_structural_initial_state() -> None:
@@ -33,7 +36,6 @@ def test_virtual_lab_profile_round_trips_structural_initial_state() -> None:
         devices=[
             VirtualDeviceProfile(
                 id="drive-stack",
-                kind="drive",
                 initial_state={
                     "set_gain.gain": StateValue(0.5),
                     "set_frequency.frequency": StateValue(
@@ -61,7 +63,7 @@ def test_virtual_lab_profile_round_trips_structural_initial_state() -> None:
 
 
 def test_virtual_device_rejects_patch_for_other_instrument() -> None:
-    device = VirtualDevice(VirtualDeviceProfile(id="readout-stack", kind="readout"))
+    device = VirtualDevice(VirtualDeviceProfile(id="readout-stack"))
 
     with pytest.raises(DriverFault) as error:
         device.apply(

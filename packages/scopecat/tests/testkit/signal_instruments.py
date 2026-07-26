@@ -6,19 +6,16 @@ from dataclasses import dataclass
 
 from scopecat.kernel.problems import (
     Problem,
-    ProblemCategory,
     ProblemPhase,
-    blocking_problem,
     model_location,
+    problem,
 )
 from scopecat.kernel.state import StateValue
 from scopecat.records.parameter import Quantity
 from scopecat.sdk.instruments import (
-    ActionReceipt,
     ApplyReceipt,
     CollectCommand,
     CollectReceipt,
-    InstrumentActionCommand,
     InstrumentDescription,
     InstrumentProviderContext,
     InstrumentProviderDescription,
@@ -31,7 +28,6 @@ from scopecat.sdk.instruments import (
     product,
     quantity_field,
 )
-from scopecat.sdk.instruments.provider_options import ProviderOptionDescription
 
 
 @dataclass(frozen=True)
@@ -59,23 +55,6 @@ class TestSignalInstrumentProvider:
                 else ()
             ),
             problems=tuple(problems),
-            label="Test signal instrument provider",
-            description="Provides a fresh offline test signal instrument driver.",
-            options=(
-                ProviderOptionDescription(
-                    id="instrument_id",
-                    dtype="string | None",
-                    default=self.instrument_id,
-                    label="Instrument id",
-                ),
-            ),
-            metadata={
-                "mode": "test_offline",
-                "auto_selects_single_set_frequency_instrument": (
-                    self.instrument_id is None
-                ),
-                "observable": "signal",
-            },
         )
 
     def provide(self, context: InstrumentProviderContext) -> InstrumentProviderResult:
@@ -191,10 +170,8 @@ class TestSignalInstrument:
                         product(product_key, unit="ratio")
                         for product_key in self.product_keys
                     ],
-                    metadata={"observable": "signal"},
                 ),
             ],
-            metadata={"mode": "test_offline"},
         )
 
     def read_state(self) -> InstrumentStateSnapshot:
@@ -216,10 +193,6 @@ class TestSignalInstrument:
         for field in command.fields:
             self._state[(field.capability_id, field.field_path)] = field.value
         return ApplyReceipt(status="applied")
-
-    def action(self, command: InstrumentActionCommand) -> ActionReceipt:
-        del command
-        return ActionReceipt(status="performed")
 
     def collect(self, command: CollectCommand) -> CollectReceipt:
         self.collect_commands.append(command)
@@ -264,10 +237,9 @@ def _test_signal(point_index: int, point_count: int) -> float:
 
 
 def _problem(code: str, message: str, path: str) -> Problem:
-    return blocking_problem(
+    return problem(
         code,
         message,
-        category=ProblemCategory.PROVIDER_CONTRACT,
         phase=ProblemPhase.PROVIDER_PREFLIGHT,
         location=model_location("test_signal_provider", path),
     )

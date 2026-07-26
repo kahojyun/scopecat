@@ -1,13 +1,12 @@
 """Closed residual operations consumed by the run interpreter.
 
-``RunProgram`` separates point-invariant compute from a single-use source of
-bounded coverage. This keeps peak planning state and resource lifetimes bounded
-while exact point coverage and checkpoints preserve logical result identity.
+``RunProgram`` separates point-invariant compute from immutable bounded
+coverage. Exact point coverage and checkpoints preserve logical result identity
+while callers may inspect the complete program repeatedly before admission.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 
 from scopecat.execution.local.program import ComputeOperation, LocalOperation
@@ -27,29 +26,16 @@ class RunHostBinding:
 
     resource_order: tuple[str, ...]
     provider_id: str
-    instrument_order: tuple[str, ...]
     advertised_descriptions: dict[str, InstrumentDescription] = field(repr=False)
 
 
-type DomainExecutionPreparation = Callable[[], PreparedDomainExecution]
-
-
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class RunDomainJob:
-    """One lightweight, single-use domain operation over exact logical points."""
+    """One prepared domain operation over exact logical points."""
 
     id: str
     point_ordinals: tuple[int, ...]
-    _prepare: DomainExecutionPreparation | None = field(repr=False, compare=False)
-
-    def prepare(self) -> PreparedDomainExecution:
-        """Materialize target payloads once and release the compiler closure."""
-
-        prepare = self._prepare
-        if prepare is None:
-            raise RuntimeError("domain job preparation is single-use")
-        self._prepare = None
-        return prepare()
+    execution: PreparedDomainExecution = field(repr=False, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,20 +60,7 @@ class RunCoverageEffect:
 class RunCoverageCheckpoint:
     """Commit one completed logical prefix inside a larger effect block."""
 
-    point_indices: tuple[int, ...]
-
-    def __post_init__(self) -> None:
-        if not self.point_indices or len(self.point_indices) != len(
-            set(self.point_indices)
-        ):
-            raise ValueError("coverage checkpoint must be non-empty and unique")
-
-
-@dataclass(frozen=True, slots=True)
-class RunCompute:
-    """Execute one point-invariant computation for the complete run."""
-
-    operation: ComputeOperation
+    point_index: int
 
 
 type RunCoveredOperation = RunCoverageCheckpoint | RunCoverageEffect | RunDomainJob
@@ -97,36 +70,36 @@ type RunCoveredOperation = RunCoverageCheckpoint | RunCoverageEffect | RunDomain
 class RunCoverageBlock:
     """Execute bounded host/domain effects over one exact point coverage.
 
-    Points are admitted and block-local resources acquired only when this block
-    is consumed. Checkpoints may commit completed prefixes before the complete
-    block finishes without changing its logical inventory.
+    Points are admitted when this block is consumed. Checkpoints may commit
+    completed prefixes before the complete block finishes without changing its
+    logical inventory. Physical resources are leased once for the complete run.
     """
 
     points: tuple[RunPoint, ...]
     operations: tuple[RunCoveredOperation, ...]
-    resource_claims: tuple[ResourceClaim, ...] = ()
 
     @property
     def point_indices(self) -> tuple[int, ...]:
         return tuple(point.ordinal for point in self.points)
 
 
-type RunOperation = RunCompute | RunCoverageBlock
+type RunOperation = ComputeOperation | RunCoverageBlock
 
 
 @dataclass(frozen=True, slots=True)
 class RunProgram:
-    """Closed, single-use residual effect program awaiting durable admission.
+    """Closed residual effect program awaiting durable admission.
 
     Logical point identity and measurement correlation are independent of how
-    ``coverage`` partitions physical work. Concrete providers remain outside
-    the program and are provisioned by the run boundary.
+    ``coverage`` partitions physical work. Coverage and domain preparations are
+    complete and repeatedly inspectable before the run boundary provisions
+    concrete providers.
     """
 
     config_content_hash: ConfigContentHash
     host: RunHostBinding | None
-    preamble: tuple[RunCompute, ...]
-    coverage: Iterator[RunCoverageBlock] = field(repr=False, compare=False)
+    preamble: tuple[ComputeOperation, ...]
+    coverage: tuple[RunCoverageBlock, ...] = field(repr=False, compare=False)
     points: RunPointCatalog = field(repr=False)
     measurements: MeasurementProjection = field(repr=False)
     resource_claims: tuple[ResourceClaim, ...]

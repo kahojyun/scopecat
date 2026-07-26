@@ -136,11 +136,6 @@ class RealtimeValueId(_StructuralId):
 
 
 @dataclass(frozen=True, slots=True)
-class RealtimeStateId(_StructuralId):
-    """Structural identity of explicit target-local loop-carried state."""
-
-
-@dataclass(frozen=True, slots=True)
 class PulseImplementationId(_NominalId):
     """Stable identity of one compiler-owned pulse implementation recipe."""
 

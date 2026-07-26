@@ -34,8 +34,6 @@ def active_reset_program(
 @sc.template(
     id=ACTIVE_RESET_TEMPLATE_ID,
     kind="active_reset",
-    label="active reset",
-    description="Run bounded measurement feedback on one qubit.",
 )
 def active_reset_template(
     qubit: q.QubitInput = "q0",

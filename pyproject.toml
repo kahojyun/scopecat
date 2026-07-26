@@ -14,7 +14,6 @@ dependencies = [
 [dependency-groups]
 dev = [
   "basedpyright>=1.39.6",
-  "httpx2>=2,<3",
   "hypothesis>=6.155.7",
   "pytest>=9",
   "ruff>=0.15.14",
@@ -103,6 +102,7 @@ reportImportCycles = "none"
 
 [tool.pytest]
 minversion = "9.0"
+pythonpath = ["packages/scopecat"]
 strict_config = true
 strict_markers = true
 testpaths = [
@@ -177,7 +177,7 @@ max-complexity = 30
 
 [tool.uv]
 exclude-newer = "14d"
-default-groups = ["dev", "notebook"]
+default-groups = ["dev"]
 package = false
 
 [tool.uv.sources]

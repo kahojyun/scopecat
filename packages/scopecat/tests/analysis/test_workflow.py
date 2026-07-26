@@ -5,39 +5,61 @@ from pathlib import Path
 
 import pytest
 
-import scopecat as sc
 from scopecat.adapters.sqlite import SQLiteRunRepository
 from scopecat.adapters.sqlite.run_repository import PreparedContentPublication
-from scopecat.config.resolution import (
-    load_active_config,
-    register_and_activate_candidate_config,
-)
+from scopecat.analysis.service import prepare_analysis_artifact
+from scopecat.config.registry import service as config_registry_service
+from scopecat.config.resolution import register_and_activate_candidate_config
 from scopecat.records.run import RunManifest
 from scopecat.runs.refs import record_content_ref
-from scopecat.runs.service import start_run
-from scopecat.testing import (
+from tests.testkit.in_process_lab import in_process_lab
+from tests.testkit.runtime import (
     sqlite_project_services,
 )
-from tests.testkit.in_process_lab import in_process_lab
-from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.signal_testkit import (
     SUMMARY_STATS_RESULT_REF,
     SUMMARY_STATS_SUMMARY_REF,
     BestSignalAnalysisStep,
     SummaryStatsAnalysisStep,
+    execute_signal_run,
 )
-from tests.testkit.workflow_fixtures import load_config, load_prepared_invocation
+from tests.testkit.workflow_fixtures import load_config, load_invocation
+
+
+def test_analysis_artifact_path_is_snapshotted(tmp_path: Path) -> None:
+    source = tmp_path / "report.txt"
+    source.write_bytes(b"first")
+
+    spec = prepare_analysis_artifact(
+        title="report",
+        kind="report",
+        artifact_id="report",
+        filename=None,
+        model=None,
+        json_content=None,
+        text=None,
+        content=None,
+        path=source,
+        media_type=None,
+        metadata=None,
+    )
+    source.write_bytes(b"second")
+
+    assert (spec.content, spec.filename, spec.media_type) == (
+        b"first",
+        "report.txt",
+        "text/plain",
+    )
 
 
 def test_workflow_analysis_review_activate_and_rerun_active_config(
     tmp_path: Path,
 ) -> None:
     services = sqlite_project_services(tmp_path)
-    run = start_run(
-        system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
+    run = execute_signal_run(
         config=load_config(),
-        experiment=load_prepared_invocation(),
-        services=services,
+        experiment=load_invocation(),
+        project_root=tmp_path,
     )
     lab = in_process_lab(tmp_path, config=load_config())
     run_handle = lab.get_run(run.run_id)
@@ -55,21 +77,24 @@ def test_workflow_analysis_review_activate_and_rerun_active_config(
         registered_by="operator",
         operator="operator",
     )
-    active_config = load_active_config(services=services)
-    next_run = start_run(
-        system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
-        config=active_config.config,
-        experiment=load_prepared_invocation(),
-        services=services,
-        config_source=active_config.config_source,
+    active_config, active_source = (
+        config_registry_service.resolve_config_registry_config_source(
+            selector="active",
+            unit_of_work=services.config_registry,
+        )
+    )
+    next_run = execute_signal_run(
+        config=active_config,
+        experiment=load_invocation(),
+        project_root=tmp_path,
+        config_source=active_source,
     )
 
     assert summary.outputs[1].kind == "artifact"
     assert candidate.parameter_proposals[0].deltas[0].parameter_id == "drive_frequency"
     assert activation.entry.id == "candidate-best-signal"
-    assert active_config.config_source is not None
     assert next_run.status == "completed"
-    assert next_run.config_source == active_config.config_source
+    assert next_run.config_source == active_source
 
 
 def test_analysis_save_rolls_back_refs_after_manifest_failure(
@@ -77,11 +102,10 @@ def test_analysis_save_rolls_back_refs_after_manifest_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     services = sqlite_project_services(tmp_path)
-    run = start_run(
-        system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
+    run = execute_signal_run(
         config=load_config(),
-        experiment=load_prepared_invocation(),
-        services=services,
+        experiment=load_invocation(),
+        project_root=tmp_path,
     )
     analysis = (
         in_process_lab(tmp_path, config=load_config())

@@ -26,8 +26,8 @@ batching does not change its logical points, product identities, or results.
 ## Authoring and Ownership
 
 A reusable module combines a pure typed graph with an ordered procedure of
-consequential effects. The procedure may contain desired state, instrument
-actions, acquisitions, domain executions, and child-module occurrences.
+consequential effects. The procedure may contain desired state, acquisitions,
+domain executions, and child-module occurrences.
 Composing a child scopes its resource, value, product, and effect identities to
 that instance and places its procedure exactly once.
 
@@ -68,8 +68,8 @@ record selection, labels, and metadata.
 - Point parameter overrides agree across host and domain placement.
 - Pure computation may be folded, shared, hoisted, or placed on a domain target
   without changing its value.
-- Consequential effects retain declared order. State, actions, acquisitions,
-  and domain jobs cannot be moved across an observable ordering boundary.
+- Consequential effects retain declared order. State, acquisitions, and domain
+  jobs cannot be moved across an observable ordering boundary.
 - Domain jobs remain inside barriers created by varying inputs, conflicting
   resources, and observable effects.
 - Legal host/domain lowering and legal physical partitioning produce the same
@@ -95,9 +95,9 @@ about point variation or nesting.
 Partial evaluation binds accepted inputs and configuration values, applies
 lexical scan overrides, folds pure subgraphs, removes undemanded work, and
 leaves residual host and domain computation. It is pure: reads, state mutation,
-actions, acquisitions, and other external effects execute only from a
-`RunProgram`. Any concrete fallback is bounded by an explicit materialization
-limit.
+acquisitions, low-level driver actions, and other external effects execute only
+from a `RunProgram`. Any concrete fallback is bounded by an explicit
+materialization limit.
 
 A parameter scan is one specialization path: `parameter_lookup` selects a cell
 from the accepted snapshot, and `param_axis` overlays it at each logical point.
@@ -110,14 +110,14 @@ specialization; it does not introduce another compiler or configuration path.
 
 An experiment definition is independent of the `ExperimentSystem` that runs
 it. The accepted system configuration statically selects one domain target and
-its complete physical footprint. The run claims that footprint once, while the
-compiler participates through three boundaries:
+its complete physical footprint. Planning verifies the configured compiler's
+target identity once, and the run claims that footprint once. The compiler
+participates through two boundaries:
 
-1. `target_id` and `supports` verify that the configured compiler can lower the
-   call for the selected target.
-2. `compile` performs pure, bounded lowering over symbolic inputs and exact
-   logical coverage.
-3. `prepare` binds one selected job to runtime context and returns its
+1. `compile` is total for the selected target and performs pure, bounded
+   lowering over symbolic inputs and exact logical coverage into immutable
+   artifacts.
+2. `prepare` binds one selected job to runtime context and returns its
    single-use invocation.
 
 Compilation may absorb supported constants, finite axes, pure computation, and
@@ -145,22 +145,24 @@ entity scan may select different configured endpoints, but it cannot construct
 a new physical route.
 
 Desired state may be split by static entity ownership so different instruments
-maintain explicit values for their devices. A single action or acquisition is
-one driver invocation and is never implicitly broadcast across instruments.
-Each concrete effect carries only the endpoint bindings for its own explicit
-capability.
+maintain explicit values for their devices. A single low-level action or
+acquisition is one driver invocation and is never implicitly broadcast across
+instruments. Each concrete effect carries only the endpoint bindings for its
+own explicit capability.
 
 Switch matrices, patch panels, valves, probers, and similar path-changing
-devices are explicit state or action effects. Selecting replacement hardware
-requires another accepted configuration and plan so the physical choice stays
-reproducible.
+devices are explicit desired-state or domain effects. Selecting replacement
+hardware requires another accepted configuration and plan so the physical
+choice stays reproducible.
 
-The configured domain target and its member instruments are leased for the whole
-run. Other exact instrument, channel, and topology-group claims are derived
-after entity binding, with their enclosing run or coverage block defining the
-lease lifetime. Compatibility that depends on values or simultaneous hardware
-operation belongs to the provider or domain compiler rather than generic
-channel-count rules.
+Planning materializes every coverage block before admission, then derives one
+flat run-level claim set from the concrete effects: the configured domain target
+and its member instruments, plus each instrument actually used by residual host
+operations. That set is leased once across provider provisioning and the whole
+effect program. Channel and topology-group bindings remain exact command data;
+the scheduler does not pretend they form a hierarchical lease model.
+Compatibility that depends on values or simultaneous hardware operation belongs
+to the provider or domain compiler.
 
 ## Execution, Outcomes, and Measurements
 
@@ -180,4 +182,4 @@ Physical chunks and target locations do not alter result identity. One physical
 result may feed multiple uses of the same product, conflicting values for one
 use are rejected, and exact demanded coverage is verified before results enter
 the canonical stream. Durable evidence, rather than UI events or metrics, is
-the source of truth for recovery and final run status.
+the source of truth for operator reconciliation and final run status.

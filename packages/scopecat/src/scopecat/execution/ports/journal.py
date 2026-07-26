@@ -1,18 +1,12 @@
-"""Execution journal, readback, and payload persistence ports."""
+"""Effect intent and evidence ledger persistence port."""
 
 from typing import Protocol, cast
 
-from scopecat.records.execution_journal import (
-    CollectionChunk,
-    CollectionChunkReceipt,
-    CommittedPayloadEvidence,
-    ExecutionTransition,
-    PayloadEvidence,
-)
+from scopecat.records.execution_journal import ExecutionTransition
 
 
 class ExecutionJournal(Protocol):
-    """Mandatory journal used before and after external effects."""
+    """Mandatory crash-containment ledger around external effects."""
 
     def append(self, entry: ExecutionTransition) -> ExecutionTransition: ...
 
@@ -21,7 +15,7 @@ def commit_transition(
     journal: ExecutionJournal,
     transition: ExecutionTransition,
 ) -> ExecutionTransition:
-    """Append one exact durable transition and return its journal identity."""
+    """Append one exact durable transition and return its ledger identity."""
 
     expected = transition.model_dump(mode="json", exclude={"sequence", "timestamp"})
     committed = journal.append(transition)
@@ -38,15 +32,3 @@ def commit_transition(
 
 class ExecutionJournalError(RuntimeError):
     """Raised when operation intent or receipt evidence cannot be committed."""
-
-
-class CollectionRepository(Protocol):
-    """Persist readbacks and resolve them later for ingress or recovery."""
-
-    def commit(self, chunk: CollectionChunk) -> CollectionChunkReceipt: ...
-
-    def resolve(self, receipt: CollectionChunkReceipt) -> CollectionChunk: ...
-
-
-class PayloadEvidenceCommitter(Protocol):
-    def commit(self, evidence: PayloadEvidence) -> CommittedPayloadEvidence: ...

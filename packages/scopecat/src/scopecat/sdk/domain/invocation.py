@@ -11,14 +11,13 @@ from __future__ import annotations
 
 from collections.abc import Hashable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Protocol, cast
+from typing import TYPE_CHECKING, cast
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 from scopecat.compiler.typed.products import ProductDef
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.errors import CheckFailed, ProviderContractError
-from scopecat.kernel.point_identity import LogicalPointId
 from scopecat.kernel.product_identity import (
     ProductId,
     ProductUse,
@@ -30,58 +29,20 @@ from scopecat.measurements.contracts import (
 )
 from scopecat.measurements.values import (
     MeasurementValueCandidate,
-    MeasurementValueCatalog,
 )
 from scopecat.records.measurement import MeasurementValue
 from scopecat.sdk.problems import (
     Problem,
-    ProblemCategory,
     ProblemPhase,
-    blocking_problem,
     model_location,
+    problem,
 )
 
-
-class DomainResultContract[ResultAddressT: Hashable](Protocol):
-    @property
-    def result_address(self) -> ResultAddressT: ...
-
-    @property
-    def logical_point_id(self) -> LogicalPointId: ...
-
-    @property
-    def product_use_ids(self) -> tuple[ProductUseId, ...]: ...
-
-    @property
-    def product_id(self) -> ProductId: ...
-
-    @property
-    def product(self) -> ProductDef: ...
-
-
-class DomainResultMappingContract[ResultAddressT: Hashable](Protocol):
-    @property
-    def catalog(self) -> MeasurementValueCatalog: ...
-
-    @property
-    def selected_product_use_ids(self) -> tuple[ProductUseId, ...]: ...
-
-    @property
-    def selected_product_uses(self) -> tuple[ProductUse, ...]: ...
-
-    @property
-    def results(
-        self,
-    ) -> tuple[DomainResultContract[ResultAddressT], ...]: ...
-
-    @property
-    def contract_fingerprint(self) -> str: ...
-
-    def product_for_use(self, product_use_id: ProductUseId) -> ProductDef: ...
-
-    def result_for_address(
-        self, result_address: ResultAddressT
-    ) -> DomainResultContract[ResultAddressT]: ...
+if TYPE_CHECKING:
+    from scopecat.sdk.domain.preparation import (
+        DomainMappedResult,
+        DomainResultMapping,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,7 +126,7 @@ class ClosedDomainInvocation[
     """
 
     intent: DomainInvocationIntent
-    result_mapping: DomainResultMappingContract[ResultAddressT] = field(repr=False)
+    result_mapping: DomainResultMapping[ResultAddressT] = field(repr=False)
     payload: PayloadT = field(repr=False)
 
     def __post_init__(self) -> None:
@@ -181,7 +142,7 @@ def close_domain_invocation[
     ResultAddressT: Hashable,
     PayloadT,
 ](
-    result_mapping: DomainResultMappingContract[ResultAddressT],
+    result_mapping: DomainResultMapping[ResultAddressT],
     *,
     invocation_id: str,
     target_id: str,
@@ -234,7 +195,7 @@ def close_domain_invocation[
 def _domain_measurement_output_selection_problems[
     ResultAddressT: Hashable,
 ](
-    mapping: DomainResultMappingContract[ResultAddressT],
+    mapping: DomainResultMapping[ResultAddressT],
 ) -> tuple[Problem, ...]:
     problems: list[Problem] = []
     for use_index, product_use in enumerate(mapping.selected_product_uses):
@@ -243,20 +204,6 @@ def _domain_measurement_output_selection_problems[
             "product_use_id": product_use.id.value,
             "product_id": product.id.qualified_name,
         }
-        if product.kind != "observable":
-            problems.append(
-                _domain_output_selection_problem(
-                    "domain_output_product_kind_unsupported",
-                    "domain measurement output closure supports observable "
-                    f"products only, got {product.kind!r}",
-                    path=("product_uses", use_index, "product", "kind"),
-                    details={
-                        **identity_details,
-                        "expected": "observable",
-                        "actual": product.kind,
-                    },
-                )
-            )
         if not product.axes and product.dtype in {"bool", "string"}:
             problems.append(
                 _domain_output_selection_problem(
@@ -281,7 +228,7 @@ def _domain_measurement_output_selection_problems[
 def seal_domain_output_values[
     ResultAddressT: Hashable,
 ](
-    mapping: DomainResultMappingContract[ResultAddressT],
+    mapping: DomainResultMapping[ResultAddressT],
     values: Sequence[DomainOutputValue[ResultAddressT]],
 ) -> tuple[MeasurementValueCandidate, ...]:
     """Accept exact observable-value coverage against retained contracts.
@@ -432,7 +379,7 @@ def _domain_invocation_intent_fingerprint(
 def _domain_output_identity_details[
     ResultAddressT: Hashable,
 ](
-    result: DomainResultContract[ResultAddressT],
+    result: DomainMappedResult[ResultAddressT],
 ) -> dict[str, object]:
     return {
         "logical_point_id": result.logical_point_id.value,
@@ -448,10 +395,9 @@ def _domain_output_problem(
     path: tuple[str | int, ...],
     details: Mapping[str, object] | None = None,
 ) -> Problem:
-    return blocking_problem(
+    return problem(
         code,
         message,
-        category=ProblemCategory.PROVIDER_CONTRACT,
         phase=ProblemPhase.EXECUTION,
         location=model_location("domain_output_values", *path),
         details=details,
@@ -465,10 +411,9 @@ def _domain_output_selection_problem(
     path: tuple[str | int, ...],
     details: Mapping[str, object],
 ) -> Problem:
-    return blocking_problem(
+    return problem(
         code,
         message,
-        category=ProblemCategory.UNAVAILABLE,
         phase=ProblemPhase.PLANNING,
         location=model_location("domain_output_values", *path),
         details=details,

@@ -7,16 +7,11 @@ from dataclasses import dataclass
 from typing import Literal, Self
 
 from scopecat.records.config import (
-    Channel,
     ConfigProfileSnapshot,
-    Device,
-    Link,
     RoutingEndpointBinding,
     RoutingGraph,
-    SharedResourceGroup,
     SystemSpec,
     Topology,
-    TopologyLine,
 )
 from scopecat.records.entity import EntityRef
 
@@ -138,24 +133,6 @@ class QuantumWiringBuilder:
         return self.line(
             line_id,
             kind="readout",
-            instrument=instrument,
-            channel=channel,
-            port=port,
-            shared_lo=shared_lo,
-        )
-
-    def qubit_flux_line(
-        self,
-        line_id: str,
-        *,
-        instrument: str,
-        channel: str,
-        port: str | None = None,
-        shared_lo: str | None = None,
-    ) -> Self:
-        return self.line(
-            line_id,
-            kind="flux",
             instrument=instrument,
             channel=channel,
             port=port,
@@ -319,73 +296,7 @@ def _topology_from_wiring(*, wiring: QuantumWiring) -> Topology:
     ] + [
         EntityRef(id=coupler.id, kind="logical_coupler") for coupler in wiring.couplers
     ]
-    logical_devices = [
-        Device(
-            id=qubit.id,
-            kind="logical_qubit",
-            channels=_qubit_channel_ids(qubit=qubit, lines=wiring.lines),
-        )
-        for qubit in wiring.qubits
-    ] + [
-        Device(
-            id=coupler.id,
-            kind="logical_coupler",
-            channels=_line_channel_ids((coupler.flux,), lines=wiring.lines),
-        )
-        for coupler in wiring.couplers
-    ]
-    instrument_devices = [
-        Device(id=instrument_id, kind="logical_instrument")
-        for instrument_id in _instrument_ids(wiring.lines)
-    ]
-    lines = [
-        TopologyLine(
-            id=line.id,
-            kind=f"{line.kind}_line",
-            signal=line.kind,
-            endpoints=_line_endpoints(line=line, wiring=wiring),
-        )
-        for line in wiring.lines
-    ]
-    channels = [
-        Channel(
-            id=line.channel_id,
-            kind=line.kind,
-            device_id=line.instrument_id,
-            direction=_line_direction(line.kind),
-            signal=line.kind,
-            port=line.port,
-            line_id=line.id,
-            group_ids=[line.lo_group] if line.lo_group is not None else [],
-        )
-        for line in wiring.lines
-    ]
-    groups = [
-        SharedResourceGroup(
-            id=group_id,
-            kind="lo",
-            members=[
-                line.channel_id for line in wiring.lines if line.lo_group == group_id
-            ],
-        )
-        for group_id in _lo_group_ids(wiring.lines)
-    ]
-    links = [
-        Link(
-            id=f"{coupler.qubits[0]}-{coupler.qubits[1]}-coupling",
-            kind="coupling",
-            endpoints=[*coupler.qubits, coupler.id],
-        )
-        for coupler in wiring.couplers
-    ]
-    return Topology(
-        entities=entities,
-        devices=[*logical_devices, *instrument_devices],
-        links=links,
-        lines=lines,
-        channels=channels,
-        groups=groups,
-    )
+    return Topology(entities=entities)
 
 
 def _routing_from_wiring(*, wiring: QuantumWiring) -> RoutingGraph:
@@ -411,6 +322,8 @@ def _routing_bindings(
                 capability=capability,
                 entity_id=entity_id,
                 channel_id=line.channel_id,
+                line_id=line.id,
+                group_ids=[line.lo_group] if line.lo_group is not None else [],
             )
             for entity_id in _line_entities(line=line, wiring=wiring)
             for capability in _line_capabilities(line.kind)
@@ -448,40 +361,8 @@ def _line_capabilities(kind: str) -> list[str]:
     return []
 
 
-def _qubit_channel_ids(*, qubit: QubitWiring, lines: Sequence[LineWiring]) -> list[str]:
-    line_ids = [qubit.drive, qubit.readout]
-    if qubit.flux is not None:
-        line_ids.append(qubit.flux)
-    return _line_channel_ids(line_ids, lines=lines)
-
-
-def _line_channel_ids(
-    line_ids: Sequence[str],
-    *,
-    lines: Sequence[LineWiring],
-) -> list[str]:
-    by_id = {line.id: line.channel_id for line in lines}
-    return [by_id[line_id] for line_id in line_ids if line_id in by_id]
-
-
-def _line_endpoints(*, line: LineWiring, wiring: QuantumWiring) -> list[str]:
-    return [*_line_entities(line=line, wiring=wiring), line.instrument_id]
-
-
 def _instrument_ids(lines: Sequence[LineWiring]) -> list[str]:
     return list(dict.fromkeys(line.instrument_id for line in lines))
-
-
-def _lo_group_ids(lines: Sequence[LineWiring]) -> list[str]:
-    return list(
-        dict.fromkeys(line.lo_group for line in lines if line.lo_group is not None)
-    )
-
-
-def _line_direction(kind: str) -> str:
-    if kind == "readout":
-        return "readout"
-    return "control"
 
 
 def _validate_wiring(wiring: QuantumWiring) -> None:

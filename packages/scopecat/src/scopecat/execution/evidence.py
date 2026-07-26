@@ -3,21 +3,19 @@
 from __future__ import annotations
 
 from scopecat.execution.effect_interpreter import RunEffectResult
-from scopecat.execution.persistence import build_run_manifest, ref_for_dataset
 from scopecat.kernel.content_identity import model_wire_content_hash
-from scopecat.measurements.datasets import MEASUREMENT_DATASET_KIND
+from scopecat.measurements.datasets import (
+    MEASUREMENT_DATASET_KIND,
+    RAW_MEASUREMENTS_DATASET_ID,
+)
 from scopecat.measurements.results import MeasurementDatasetSchema
 from scopecat.records.artifact import RunContentEntry
-from scopecat.records.config import ConfigContentHash
 from scopecat.records.execution import InstrumentStateEvidence
-from scopecat.records.run import RunConfigSource, RunManifest, RunOutcome
+from scopecat.records.run import RunOutcome
 from scopecat.runs.refs import record_content_ref
 
-RAW_MEASUREMENTS_DATASET_ID = "raw-measurements"
 INSTRUMENT_STATE_EVIDENCE_ID = "instrument-state-evidence"
 INSTRUMENT_STATE_EVIDENCE_KIND = "instrument_state_evidence"
-RUN_OUTCOME_ID = "run-outcome"
-RUN_OUTCOME_KIND = "run_outcome"
 
 
 def instrument_state_evidence_ref() -> str:
@@ -25,14 +23,6 @@ def instrument_state_evidence_ref() -> str:
         record_id=INSTRUMENT_STATE_EVIDENCE_ID,
         kind=INSTRUMENT_STATE_EVIDENCE_KIND,
     )
-
-
-def raw_measurements_ref() -> str:
-    return ref_for_dataset(RAW_MEASUREMENTS_DATASET_ID)
-
-
-def run_outcome_ref() -> str:
-    return record_content_ref(record_id=RUN_OUTCOME_ID, kind=RUN_OUTCOME_KIND)
 
 
 def raw_measurement_schema(
@@ -45,18 +35,15 @@ def raw_measurement_schema(
     )
 
 
-def build_execution_manifest(
+def build_terminal_contents(
     *,
-    run_id: str,
     outcome: RunOutcome,
     measurement_count: int,
     dataset_content_hash: str | None,
     dataset_schema: MeasurementDatasetSchema | None,
     expected_record_count: int | None,
-    config_content_hash: ConfigContentHash,
-    config_source: RunConfigSource | None,
     instrument_state: InstrumentStateEvidence | None,
-) -> RunManifest:
+) -> tuple[RunContentEntry, ...]:
     incomplete_run = outcome.result != "succeeded"
     partial = incomplete_run and (
         expected_record_count is None or expected_record_count != measurement_count
@@ -90,51 +77,28 @@ def build_execution_manifest(
                 ),
             )
         )
-    return build_run_manifest(
-        run_id=run_id,
-        lifecycle="terminal",
-        outcome=outcome,
-        config_content_hash=config_content_hash,
-        config_source=config_source,
-        contents=(
-            *_records(outcome=outcome, instrument_state=instrument_state),
-            *datasets,
-        ),
-    )
-
-
-def build_instrument_state_evidence(
-    result: RunEffectResult,
-) -> InstrumentStateEvidence:
-    return InstrumentStateEvidence(
-        run_id=result.run_id,
-        initial_state=list(result.initial_state),
-        final_state=list(result.final_state),
-    )
-
-
-def _records(
-    *,
-    outcome: RunOutcome,
-    instrument_state: InstrumentStateEvidence | None,
-) -> list[RunContentEntry]:
-    records = [
-        RunContentEntry(
-            role="record",
-            id=RUN_OUTCOME_ID,
-            kind=RUN_OUTCOME_KIND,
-            media_type="application/json",
-            content_hash=model_wire_content_hash(outcome),
-        )
-    ]
-    if instrument_state is not None:
-        records.append(
+    records = (
+        ()
+        if instrument_state is None
+        else (
             RunContentEntry(
                 role="record",
                 id=INSTRUMENT_STATE_EVIDENCE_ID,
                 kind=INSTRUMENT_STATE_EVIDENCE_KIND,
                 media_type="application/json",
                 content_hash=model_wire_content_hash(instrument_state),
-            )
+            ),
         )
-    return records
+    )
+    return (*records, *datasets)
+
+
+def build_instrument_state_evidence(
+    run_id: str,
+    result: RunEffectResult,
+) -> InstrumentStateEvidence:
+    return InstrumentStateEvidence(
+        run_id=run_id,
+        initial_state=list(result.initial_state),
+        final_state=list(result.final_state),
+    )

@@ -38,7 +38,6 @@ def config_snapshot_document_json(
     document = _ConfigSnapshotDocument(
         id=config.id,
         system=config.system,
-        environment=config.environment,
         parameter_snapshot=config.parameter_snapshot,
     )
     return document.model_dump_json(indent=indent)

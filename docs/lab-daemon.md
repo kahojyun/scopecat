@@ -8,7 +8,7 @@ itself.
 GUI ─────────────────┐
                      ├─ HTTP + SSE ─ daemon ─ SQLite + object store
 notebook client ─────┘                    │
-  └─ delegated executor ─ fenced effects─┘
+  └─ client executor ──── fenced effects─┘
 ```
 
 The daemon owns admission, run state, resource claims, executor leases,
@@ -17,26 +17,32 @@ transactions provide concurrency control inside that boundary. Content bytes
 remain in an immutable SHA-256 object store so large values do not inflate the
 control database. Clients never open either store.
 
-## Execution modes
+`ControlRun` is the durable lifecycle authority:
+`queued`, `leased`, `attention_required`, or `closed`. `RunManifest` keeps the
+accepted snapshot, content index, and optional terminal outcome; it does not
+duplicate scheduler state. Run list and detail queries read both in one SQLite
+snapshot.
 
-There are two modes with the same durable admission boundary:
+## Execution boundary
 
-- **Managed**: the daemon resolves a versioned catalog registration, plans it,
-  claims resources, and executes it in the daemon process. The daemon
-  application supplies the process-local catalog and config-aware system
-  builder. Planning resolves the configuration snapshot from the daemon-owned
-  registry and builds the matching `ExperimentSystem`.
-- **Delegated**: a notebook keeps its transient `RunProgram`, Python closures,
-  and hardware provider, while the daemon admits the plan and persists every
-  effect.
-  Renewable executor leases carry a generation fencing token, so an expired or
-  superseded notebook cannot continue writing.
+The notebook keeps its transient `RunProgram`, Python closures, and hardware
+provider, while the daemon admits the plan and persists every effect. Renewable
+executor leases carry a unique fencing identity, so an expired client cannot
+continue writing.
 
-Admission and resource claims are durable before hardware access in both
-modes. A delegated executor publishes its running manifest while acquiring its
-lease; all later journal, measurement, collection, payload, recovery, and
-terminal commands carry the lease identity and generation. Lease validation,
-the effect receipt, and its durable event commit in one SQLite transaction.
+Admission and resource claims are durable before hardware access. The executor
+atomically acquires its control lease; all later journal, measurement, and
+terminal commands carry the lease identity. A measurement executor may also
+read durable append identities to reconcile an ambiguous append response.
+Lease validation, the effect receipt, and its durable event commit in one
+SQLite transaction. Heartbeats update lease and resource deadlines in place;
+they do not append project timeline events. Lease grant, loss, and resource
+quarantine remain durable state-change events.
+
+Each admission carries one flat set of target and instrument claims closed by
+planning from the complete run program. The executor validates or acquires that
+set once and holds it across provider provisioning and all coverage blocks;
+there are no nested block leases or channel/group scheduler claims.
 
 `sc.open_project(...).connect()` returns the normal notebook `LabClient`. It
 loads the same application composition as the daemon, resolves the accepted
@@ -46,10 +52,10 @@ their closures or interactive objects cannot be reconstructed reliably in
 another process. Every durable effect still passes through the daemon, so the
 notebook never becomes a second writer.
 
-The same project client exposes exact managed submission, event replay, and
-attention resolution through `lab.control`. Delegated execution remains an
-internal implementation of `lab.prepare(...).run()`, so notebook code has one
-connection entry point and one owner for the HTTP transport.
+The same project client exposes event replay and attention resolution through
+`lab.control`. Execution remains an internal implementation of
+`lab.prepare(...).run()`, so notebook code has one connection entry point and
+one owner for the HTTP transport.
 
 After execution, analysis records, parameter proposals, acceptance decisions,
 and default changes use the same daemon boundary. A notebook may calculate
@@ -63,12 +69,11 @@ records the producing run, analysis records, proposal ids, base config hash,
 and resolved candidate hash. Verification is optional evidence: acceptance may
 happen before it, after it, or without a dedicated verification run.
 
-If an executor disappears, its resources remain quarantined. The GUI or
-`lab.control.resolve_attention(run_id, action)` can explicitly:
-
-- `release` resources after external state has been reconciled;
-- `requeue` the admitted run with a new executor generation; or
-- `abort` it with a structured terminal outcome.
+If an executor disappears, its resources remain quarantined. After reconciling
+external state, the GUI or `lab.control.resolve_attention(run_id)` atomically
+publishes an indeterminate failed outcome, closes the run, and releases its
+resources. The run cannot be resumed or requeued safely because the execution
+program has no general replay contract. Submit a new run to execute again.
 
 A restarted daemon immediately fences executors from the previous process
 instead of trusting their remaining TTL.
@@ -76,8 +81,8 @@ instead of trusting their remaining TTL.
 ## GUI and event stream
 
 The daemon serves the bundled GUI and a versioned, typed HTTP API. The GUI
-reads health, catalog, run detail, resource state, and bounded measurement
-pages from that API.
+reads health, run detail, resource state, and bounded measurement pages from
+that API.
 
 Server-sent events expose the same durable, globally ordered event log used by
 the replay endpoint. A reconnecting GUI resumes from an event cursor and then
@@ -92,7 +97,7 @@ durable state changes.
 
 The process-owner lock answers only “which daemon owns this lab instance?” It is
 not a run coordination mechanism. Resource claims coordinate experiments,
-executor leases coordinate delegated work, and SQLite transactions make
+executor leases coordinate client execution, and SQLite transactions make
 durable commits atomic.
 
 The default transport is a same-user local control plane. It binds to loopback

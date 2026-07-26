@@ -7,7 +7,7 @@ from pathlib import Path
 from scopecat.config.profiles import load_config_profile
 from scopecat.planning.system import ExperimentSystem
 from scopecat.records.config import ConfigProfileSnapshot
-from scopecat_quantum import PulseRecipeProfile
+from scopecat_quantum.pulse_recipes import PulseRecipeProfile
 
 from quantum_lab_demo.compiler import QuantumLabCompiler, QuantumRealtimeLabCompiler
 from quantum_lab_demo.configuration import DEMO_VIRTUAL_LAB_PROFILE
@@ -21,13 +21,14 @@ from quantum_lab_demo.targets.fake_list_mode import (
     FakeListTarget,
     configured_fake_list_target,
 )
-from quantum_lab_demo.targets.fake_realtime import (
-    FakeRealtimeDomainRuntime,
-    FakeRealtimeRuntime,
-    FakeRealtimeTarget,
+from quantum_lab_demo.targets.fake_realtime.defaults import (
     configured_fake_realtime_target,
 )
-from quantum_lab_demo.trace import QuantumLabTrace
+from quantum_lab_demo.targets.fake_realtime.domain_runtime import (
+    FakeRealtimeDomainRuntime,
+)
+from quantum_lab_demo.targets.fake_realtime.model import FakeRealtimeTarget
+from quantum_lab_demo.targets.fake_realtime.runtime import FakeRealtimeRuntime
 from quantum_lab_demo.virtual_lab.compiler_parameters import QuantumCompilerParameters
 from quantum_lab_demo.virtual_lab.provider import QuantumLabVirtualProvider
 from quantum_lab_demo.virtual_lab.pulse_profile import QUANTUM_PULSE_PROFILE
@@ -49,7 +50,6 @@ def quantum_lab_compiler(
     target: FakeListTarget | None = None,
     runtime: FakeListDomainRuntime | None = None,
     response_registry: QuantumLabResponseRegistry | None = None,
-    trace: QuantumLabTrace | None = None,
     pulse_profile: PulseRecipeProfile[QuantumCompilerParameters] | None = None,
 ) -> QuantumLabCompiler:
     """Compose list-mode compilation from one accepted configuration."""
@@ -70,7 +70,6 @@ def quantum_lab_compiler(
             if response_registry is None
             else response_registry
         ),
-        trace=QuantumLabTrace() if trace is None else trace,
         pulse_profile=(
             QUANTUM_PULSE_PROFILE if pulse_profile is None else pulse_profile
         ),
@@ -82,7 +81,6 @@ def quantum_realtime_lab_compiler(
     config_profile: ConfigProfileInput | None = None,
     target: FakeRealtimeTarget | None = None,
     runtime: FakeRealtimeDomainRuntime | None = None,
-    trace: QuantumLabTrace | None = None,
     pulse_profile: PulseRecipeProfile[QuantumCompilerParameters] | None = None,
     measurement_bits: dict[str, tuple[int, ...]] | None = None,
 ) -> QuantumRealtimeLabCompiler:
@@ -104,7 +102,6 @@ def quantum_realtime_lab_compiler(
             if runtime is None
             else runtime
         ),
-        trace=QuantumLabTrace() if trace is None else trace,
         pulse_profile=(
             QUANTUM_PULSE_PROFILE if pulse_profile is None else pulse_profile
         ),
@@ -126,7 +123,7 @@ def quantum_lab_system(
     virtual_lab_profile: PathInput = DEMO_VIRTUAL_LAB_PROFILE,
     compiler: QuantumLabCompiler | QuantumRealtimeLabCompiler | None = None,
 ) -> ExperimentSystem:
-    """Compose one process-local system for daemon or delegated execution.
+    """Compose one process-local system for notebook execution.
 
     Keeping domain dispatch at this single boundary gives every example the
     same routing, resource model, and target pipeline while each operation

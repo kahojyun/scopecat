@@ -33,13 +33,11 @@ export async function reviewParameterProposal(
   command: ReviewProposalCommand,
 ): Promise<void> {
   const payload: DaemonUiApi["parameterProposalReviewCommand"] = {
-    run_id: runId,
-    proposal_id: proposalId,
     decision: command.decision,
     reviewer: command.reviewer,
     note: command.note ?? "",
   };
-  await request<DaemonUiApi["parameterProposalReviewReceipt"]>(
+  await request<DaemonUiApi["parameterProposalDecision"]>(
     `/api/v1/runs/${encodeURIComponent(runId)}/parameter-proposals/${encodeURIComponent(proposalId)}/review`,
     undefined,
     jsonRequest(payload),

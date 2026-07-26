@@ -6,7 +6,6 @@ import scopecat as sc
 from scopecat.config.profiles import load_config_profile
 from scopecat.config.registry import (
     CandidateConfigRegistrySource,
-    load_config_registry_config,
 )
 from scopecat.config.resolution import register_and_activate_candidate_config
 from scopecat.kernel.value_types import Float, Scalar, String, Table, TableColumn
@@ -17,12 +16,13 @@ from scopecat.records.parameter import (
     Quantity,
     TableParameterValue,
 )
-from scopecat.testing import (
+from tests.testkit.config_registry import load_config_registry_config
+from tests.testkit.in_process_lab import in_process_lab
+from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
+from tests.testkit.runtime import (
     sqlite_config_registry_unit_of_work,
     sqlite_project_services,
 )
-from tests.testkit.in_process_lab import in_process_lab
-from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.workflow_fixtures import load_invocation
 

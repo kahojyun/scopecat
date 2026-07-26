@@ -37,96 +37,15 @@ def _ensure_unique[T: _HasId](items: list[T], label: str) -> list[T]:
     return items
 
 
-class Device(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    kind: str = "device"
-    channels: list[str] = Field(default_factory=list)
-
-
-class Link(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    endpoints: list[str] = Field(min_length=2)
-    kind: str = "link"
-
-
-class TopologyLine(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    kind: str
-    signal: str | None = None
-    endpoints: list[str] = Field(default_factory=list)
-    metadata: JsonMetadata = Field(default_factory=dict)
-
-
-class SharedResourceGroup(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    kind: str
-    members: list[str] = Field(default_factory=list)
-    metadata: JsonMetadata = Field(default_factory=dict)
-
-
-class Channel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    kind: str
-    device_id: str | None = None
-    direction: str | None = None
-    signal: str | None = None
-    port: str | None = None
-    line_id: str | None = None
-    group_ids: list[str] = Field(default_factory=list)
-    metadata: JsonMetadata = Field(default_factory=dict)
-
-
 class Topology(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     entities: list[EntityRef] = Field(default_factory=list)
-    devices: list[Device]
-    links: list[Link] = Field(default_factory=list)
-    lines: list[TopologyLine] = Field(default_factory=list)
-    channels: list[Channel] = Field(default_factory=list)
-    groups: list[SharedResourceGroup] = Field(default_factory=list)
 
     @field_validator("entities")
     @classmethod
     def validate_entities(cls, value: list[EntityRef]) -> list[EntityRef]:
         return _ensure_unique(value, "entity")
-
-    @field_validator("devices")
-    @classmethod
-    def validate_devices(cls, value: list[Device]) -> list[Device]:
-        return _ensure_unique(value, "device")
-
-    @field_validator("links")
-    @classmethod
-    def validate_links(cls, value: list[Link]) -> list[Link]:
-        return _ensure_unique(value, "link")
-
-    @field_validator("lines")
-    @classmethod
-    def validate_lines(cls, value: list[TopologyLine]) -> list[TopologyLine]:
-        return _ensure_unique(value, "line")
-
-    @field_validator("channels")
-    @classmethod
-    def validate_channels(cls, value: list[Channel]) -> list[Channel]:
-        return _ensure_unique(value, "channel")
-
-    @field_validator("groups")
-    @classmethod
-    def validate_groups(
-        cls, value: list[SharedResourceGroup]
-    ) -> list[SharedResourceGroup]:
-        return _ensure_unique(value, "group")
 
     def entity(self, entity_id: str) -> EntityRef | None:
         for entity in self.entities:
@@ -158,7 +77,8 @@ class RoutingEndpointBinding(BaseModel):
 
     A binding is reproducible configuration, not a runtime alternative. Devices
     that change a physical path, such as switches or valves, are modeled as
-    explicit state or action effects instead of replacing this ownership fact.
+    explicit desired-state effects or domain programs instead of replacing this
+    ownership fact.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -167,7 +87,22 @@ class RoutingEndpointBinding(BaseModel):
     capability: str = Field(min_length=1)
     entity_id: str | None = None
     channel_id: str | None = None
+    line_id: str | None = None
+    group_ids: list[str] = Field(default_factory=list)
     metadata: JsonMetadata = Field(default_factory=dict)
+
+    @field_validator("group_ids")
+    @classmethod
+    def validate_group_ids(cls, value: list[str]) -> list[str]:
+        if len(value) != len(set(value)):
+            raise ValueError("routing endpoint group ids must be unique")
+        return value
+
+    @model_validator(mode="after")
+    def validate_channel_resources(self) -> RoutingEndpointBinding:
+        if self.channel_id is None and (self.line_id is not None or self.group_ids):
+            raise ValueError("routing line and group ids require a channel id")
+        return self
 
 
 class RoutingGraph(BaseModel):
@@ -188,6 +123,10 @@ class RoutingGraph(BaseModel):
         cls, value: list[RoutingEndpointBinding]
     ) -> list[RoutingEndpointBinding]:
         seen: set[tuple[str, str, str | None, str | None]] = set()
+        resources_by_channel: dict[
+            tuple[str, str | None, str],
+            tuple[str | None, tuple[str, ...]],
+        ] = {}
         for binding in value:
             identity = (
                 binding.instrument_id,
@@ -204,6 +143,19 @@ class RoutingGraph(BaseModel):
                 )
                 raise ValueError(msg)
             seen.add(identity)
+            if binding.channel_id is None:
+                continue
+            channel_identity = (
+                binding.instrument_id,
+                binding.entity_id,
+                binding.channel_id,
+            )
+            resources = (binding.line_id, tuple(sorted(binding.group_ids)))
+            previous = resources_by_channel.setdefault(channel_identity, resources)
+            if previous != resources:
+                raise ValueError(
+                    "routing bindings for one channel must share line and group ids"
+                )
         return value
 
 
@@ -227,28 +179,6 @@ class DomainTargetBinding(BaseModel):
         if len(value) != len(set(value)):
             raise ValueError("domain target instrument ids must be unique")
         return value
-
-
-class ConnectionResource(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    instrument_id: str
-    kind: str = "offline"
-    resource_hint: str | None = None
-
-
-class ConnectionProfile(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    connections: list[ConnectionResource] = Field(default_factory=list)
-
-    @field_validator("connections")
-    @classmethod
-    def validate_connections(
-        cls, value: list[ConnectionResource]
-    ) -> list[ConnectionResource]:
-        return _ensure_unique(value, "connection")
 
 
 class SystemSpec(BaseModel):
@@ -278,15 +208,6 @@ class SystemSpec(BaseModel):
         return self
 
 
-class EnvironmentSpec(BaseModel):
-    """Environment-specific connection resources."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    connection_profile: ConnectionProfile = Field(default_factory=ConnectionProfile)
-
-
 class ConfigProfileSnapshot(BaseModel):
     """Immutable config profile snapshot used by runs and ConfigRegistry entries."""
 
@@ -294,7 +215,6 @@ class ConfigProfileSnapshot(BaseModel):
 
     id: str
     system: SystemSpec
-    environment: EnvironmentSpec
     parameter_snapshot: ParameterSnapshot
 
     @property
@@ -321,16 +241,11 @@ class ConfigProfileSnapshot(BaseModel):
     def parameter_catalog(self) -> ParameterCatalog:
         return self.system.parameter_catalog
 
-    @property
-    def connection_profile(self) -> ConnectionProfile:
-        return self.environment.connection_profile
-
 
 def snapshot_config_profile(
     *,
     profile_id: str,
     system: SystemSpec,
-    environment: EnvironmentSpec,
     parameter_snapshot: ParameterSnapshot,
 ) -> ConfigProfileSnapshot:
     """Freeze split config content as an immutable runtime snapshot."""
@@ -338,7 +253,6 @@ def snapshot_config_profile(
     return ConfigProfileSnapshot(
         id=profile_id,
         system=system,
-        environment=environment,
         parameter_snapshot=parameter_snapshot,
     )
 

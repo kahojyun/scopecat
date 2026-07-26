@@ -2,19 +2,14 @@
 
 from pathlib import PurePosixPath
 
-RUNS_DIR = "runs"
 ARTIFACTS_DIR = "artifacts"
 DATASETS_DIR = "data"
 RECORDS_DIR = "records"
 EXECUTION_DIR = "execution"
 EXECUTION_JOURNAL_DIR = f"{EXECUTION_DIR}/journal"
-EXECUTION_MEASUREMENTS_DIR = f"{EXECUTION_DIR}/measurements"
-EXECUTION_READBACKS_DIR = f"{EXECUTION_DIR}/readbacks"
-EXECUTION_PAYLOADS_DIR = f"{EXECUTION_DIR}/payloads"
 MANIFEST_REF = "manifest.json"
 CONFIG_PROFILE_SNAPSHOT_REF = "config-profile.snapshot.json"
 RUN_REQUEST_REF = "run-request.json"
-CONFIG_REGISTRY_LOCK_REF = "config-registry/registry.lock"
 
 
 def artifact_content_ref(*, artifact_id: str, kind: str) -> str:

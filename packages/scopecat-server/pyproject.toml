@@ -20,7 +20,6 @@ scopecat = "scopecat_server.cli:main"
 
 [dependency-groups]
 test = [
-  "httpx2>=2,<3",
   "pytest>=9",
 ]
 
@@ -30,6 +29,7 @@ build-backend = "uv_build"
 
 [tool.pytest]
 minversion = "9.0"
+pythonpath = ["../scopecat"]
 strict_config = true
 strict_markers = true
 testpaths = ["tests"]

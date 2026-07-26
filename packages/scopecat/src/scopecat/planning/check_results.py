@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from scopecat.kernel.problems import Problem, has_blocking_problems
+from scopecat.kernel.problems import Problem
 from scopecat.planning.preview_models import ExperimentPreview
 
 
@@ -17,11 +17,10 @@ class ExperimentCheckResult:
 
     def __post_init__(self) -> None:
         problems = tuple(self.problems)
-        has_blockers = has_blocking_problems(problems)
-        if (self.preview is not None) == has_blockers:
+        if (self.preview is not None) == bool(problems):
             msg = (
                 "a successful experiment check requires a preview and a failed "
-                "check requires blocking problems"
+                "check requires problems"
             )
             raise ValueError(msg)
         object.__setattr__(self, "problems", problems)

@@ -22,7 +22,6 @@ from scopecat.sdk.domain.context import DomainBatchContext
 from scopecat.sdk.domain.measurements import (
     DomainHostTransformBinding,
     DomainHostTransformCall,
-    DomainHostTransformImplementation,
 )
 from scopecat.sdk.domain.view import (
     DomainMeasurementTransform,
@@ -53,34 +52,23 @@ def lower_domain_measurement_transform(
     )
 
 
-def lower_domain_host_transform_implementation(
+def lower_domain_host_transform_binding(
     context: DomainBatchContext,
-    transform: DomainMeasurementTransform,
-    implementation: DomainHostTransformImplementation,
-) -> HostMeasurementTransformImplementation:
-    """Adapt one SDK validator/kernel pair to the core host executor."""
+    binding: DomainHostTransformBinding,
+) -> tuple[MeasurementTransformDef, HostMeasurementTransformImplementation]:
+    """Lower one complete SDK host binding as a consistent native pair."""
 
-    DomainHostTransformBinding(transform, implementation)
+    transform = binding.transform
+    implementation = binding.implementation
     native_transform = lower_domain_measurement_transform(context, transform)
     point_refs = {point_id(point): point for point in context.points}
 
-    def validate(candidate: MeasurementTransformDef) -> None:
-        if candidate != native_transform:
-            msg = "lowered host implementation received another transform contract"
-            raise ValueError(msg)
+    def validate(_candidate: MeasurementTransformDef) -> None:
         implementation.validate_transform(transform)
 
     def kernel(
         call: HostMeasurementTransformCall,
     ) -> Mapping[str, Sequence[MeasurementValue]]:
-        if (
-            call.transform_id != native_transform.id
-            or call.semantic != native_transform.semantic
-            or call.input_ports != native_transform.inputs
-            or call.output_ports != native_transform.outputs
-        ):
-            msg = "lowered host implementation received another transform call"
-            raise ValueError(msg)
         try:
             points = tuple(point_refs[point.logical_id] for point in call.points)
         except KeyError as error:
@@ -99,29 +87,14 @@ def lower_domain_host_transform_implementation(
             )
         )
 
-    return HostMeasurementTransformImplementation(
-        id=implementation.id,
-        semantic_id=implementation.semantic_id,
-        semantic_version=implementation.semantic_version,
-        implementation_fingerprint=implementation.implementation_fingerprint,
-        validate_transform=validate,
-        kernel=kernel,
+    return (
+        native_transform,
+        HostMeasurementTransformImplementation(
+            id=implementation.id,
+            validate_transform=validate,
+            kernel=kernel,
+        ),
     )
-
-
-def lower_domain_host_transform_binding(
-    context: DomainBatchContext,
-    binding: DomainHostTransformBinding,
-) -> tuple[MeasurementTransformDef, HostMeasurementTransformImplementation]:
-    """Lower one complete SDK host binding as a consistent native pair."""
-
-    transform = lower_domain_measurement_transform(context, binding.transform)
-    implementation = lower_domain_host_transform_implementation(
-        context,
-        binding.transform,
-        binding.implementation,
-    )
-    return transform, implementation
 
 
 def _lower_input_port(

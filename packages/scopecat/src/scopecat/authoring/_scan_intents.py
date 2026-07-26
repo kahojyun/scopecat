@@ -2,19 +2,23 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import dataclass
-from typing import Literal
+from dataclasses import dataclass, replace
+from typing import cast
 
 from scopecat.authoring._parameter_contracts import (
     ParameterContract,
+    ParameterValueContract,
     merge_parameter_contracts,
 )
 from scopecat.authoring._value_refs import (
+    ScalarOperationOperand,
     ValueRef,
     internal_value_ref_parameter_contracts,
+    internal_value_ref_parameter_lookup,
+    internal_value_ref_point_id,
 )
-from scopecat.authoring.values import ParameterKeyInput
+from scopecat.compiler.relations.model import ParameterLookupUse
+from scopecat.kernel.value_types import Scalar
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import Quantity
 
@@ -23,7 +27,7 @@ type ScanCenter = ValueRef | Quantity
 
 
 class Scan:
-    """Opaque public handle for one scan or an explicit scan group."""
+    """Opaque public handle for one scan or a Cartesian bundle."""
 
     __slots__ = ()
 
@@ -32,125 +36,138 @@ class Scan:
         raise TypeError(msg)
 
 
-class ParameterRow:
-    """Opaque selection of one row in a parameter table."""
-
-    __slots__ = ()
-
-    def __init__(self) -> None:
-        msg = "ParameterRow is an opaque handle; create rows with scopecat.param_row"
-        raise TypeError(msg)
+@dataclass(frozen=True, slots=True, repr=False)
+class ImplicitScanCenter:
+    """Use the accepted parameter value unless a default scan supplies a center."""
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class ParameterRowIntent(ParameterRow):
-    table_id: str
-    key: tuple[tuple[str, ParameterKeyInput], ...]
-
-
-@dataclass(frozen=True, slots=True, repr=False)
-class PointScanIntent(Scan):
+class ExplicitPointScanIntent(Scan):
     target: ValueRef
-    point_id: str
-    point_values: tuple[ScanValue, ...] = ()
+    values: tuple[ScanValue, ...]
     unit: str | None = None
-    center: ScanCenter | None = None
-    span: Quantity | str | None = None
-    point_count: int | None = None
-    implicit_center: bool = False
-    parameter_contracts: tuple[ParameterContract, ...] = ()
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class ParameterScanIntent(Scan):
+class CenteredPointScanIntent(Scan):
     target: ValueRef
-    point_id: str
-    table_id: str
-    key: tuple[tuple[str, ParameterKeyInput], ...]
-    column: str
-    values: tuple[ScanValue, ...] = ()
-    unit: str | None = None
-    span: Quantity | str | None = None
-    point_count: int | None = None
-    parameter_contracts: tuple[ParameterContract, ...] = ()
+    center: ScanCenter | ImplicitScanCenter
+    span: Quantity
+    points: int
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class ScanGroupIntent(Scan):
-    kind: Literal["cartesian", "zip"]
-    scans: tuple[Scan, ...]
+class ExplicitParameterScanIntent(Scan):
+    target: ValueRef
+    lookup: ValueRef
+    values: tuple[ScanValue, ...]
+    unit: str | None = None
 
 
+@dataclass(frozen=True, slots=True, repr=False)
+class CenteredParameterScanIntent(Scan):
+    target: ValueRef
+    lookup: ValueRef
+    span: Quantity
+    points: int
+
+
+type PointScanIntent = ExplicitPointScanIntent | CenteredPointScanIntent
+type ParameterScanIntent = ExplicitParameterScanIntent | CenteredParameterScanIntent
 type ScanLeafIntent = PointScanIntent | ParameterScanIntent
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class CartesianScanIntent(Scan):
+    scans: tuple[ScanLeafIntent, ...]
 
 
 def iter_scan_leaves(scan: Scan) -> tuple[ScanLeafIntent, ...]:
     """Return scan leaves in deterministic declaration order."""
 
-    if isinstance(scan, ScanGroupIntent):
-        return tuple(leaf for child in scan.scans for leaf in iter_scan_leaves(child))
-    if isinstance(scan, PointScanIntent | ParameterScanIntent):
+    if isinstance(scan, CartesianScanIntent):
+        return scan.scans
+    if isinstance(
+        scan,
+        ExplicitPointScanIntent
+        | CenteredPointScanIntent
+        | ExplicitParameterScanIntent
+        | CenteredParameterScanIntent,
+    ):
         return (scan,)
     msg = "invalid scan handle"
     raise TypeError(msg)
 
 
 def scan_point_id(scan: ScanLeafIntent) -> str:
-    return scan.point_id
+    point_id = internal_value_ref_point_id(scan.target)
+    assert point_id is not None  # noqa: S101
+    return point_id
 
 
-def replace_scan_group(scan: ScanGroupIntent, scans: Sequence[Scan]) -> Scan:
-    return ScanGroupIntent(kind=scan.kind, scans=tuple(scans))
+def parameter_scan_lookup(
+    scan: ParameterScanIntent,
+) -> tuple[
+    ParameterLookupUse,
+    tuple[tuple[str, ScalarOperationOperand], ...],
+]:
+    lookup = internal_value_ref_parameter_lookup(scan.lookup)
+    assert lookup is not None  # noqa: S101
+    return lookup
 
 
 def inherit_default_scan_fields(
     default: ScanLeafIntent,
     replacement: ScanLeafIntent,
-) -> Scan:
+) -> ScanLeafIntent:
     """Preserve a centered default for an implicit-center override."""
 
     if default.target.value_type != replacement.target.value_type:
         msg = (
-            f"scan override for point {replacement.point_id!r} must reuse its "
+            f"scan override for point {scan_point_id(replacement)!r} must reuse its "
             "declared value type"
         )
         raise TypeError(msg)
-    if not isinstance(default, PointScanIntent) or not isinstance(
-        replacement, PointScanIntent
-    ):
-        return replacement
-    if replacement.point_values or not replacement.implicit_center:
-        return replacement
-    if default.center is None and not default.implicit_center:
-        return replacement
-    return PointScanIntent(
-        target=replacement.target,
-        point_id=replacement.point_id,
-        span=replacement.span,
-        point_count=replacement.point_count,
-        center=default.center,
-        implicit_center=default.implicit_center,
-        parameter_contracts=default.parameter_contracts,
-    )
+    match default, replacement:
+        case (
+            CenteredPointScanIntent(),
+            CenteredPointScanIntent(center=ImplicitScanCenter()),
+        ):
+            return replace(
+                replacement,
+                center=default.center,
+            )
+        case _:
+            return replacement
 
 
 def scan_parameter_contracts(scan: Scan) -> tuple[ParameterContract, ...]:
-    if isinstance(scan, PointScanIntent):
-        return scan.parameter_contracts
-    if isinstance(scan, ParameterScanIntent):
-        return merge_parameter_contracts(
-            *(
-                _value_parameter_contracts(value)
-                for value in (*dict(scan.key).values(), *scan.values)
-            ),
-            scan.parameter_contracts,
-        )
-    if isinstance(scan, ScanGroupIntent):
-        return merge_parameter_contracts(
-            *(scan_parameter_contracts(child) for child in scan.scans)
-        )
-    msg = "invalid scan handle"
-    raise TypeError(msg)
+    match scan:
+        case ExplicitPointScanIntent():
+            return ()
+        case CenteredPointScanIntent(center=ImplicitScanCenter()):
+            return (
+                ParameterValueContract(
+                    parameter_id=scan_point_id(scan),
+                    value_type=cast("Scalar", scan.target.value_type),
+                ),
+            )
+        case CenteredPointScanIntent():
+            return _value_parameter_contracts(scan.center)
+        case ExplicitParameterScanIntent():
+            return merge_parameter_contracts(
+                internal_value_ref_parameter_contracts(scan.lookup),
+                *(_value_parameter_contracts(value) for value in scan.values),
+            )
+        case CenteredParameterScanIntent():
+            return internal_value_ref_parameter_contracts(scan.lookup)
+        case CartesianScanIntent():
+            return merge_parameter_contracts(
+                *(scan_parameter_contracts(child) for child in scan.scans)
+            )
+        case _:
+            msg = "invalid scan handle"
+            raise TypeError(msg)
 
 
 def _value_parameter_contracts(value: object) -> tuple[ParameterContract, ...]:

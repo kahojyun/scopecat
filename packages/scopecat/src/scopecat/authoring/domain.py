@@ -1,4 +1,4 @@
-"""Domain-neutral programs and their module-bound execution.
+"""Domain-program authoring and module-bound execution.
 
 Domain bodies and result contracts are opaque transient values.  Core owns
 only their stable identities, typed value ports, and logical product bindings;
@@ -8,104 +8,26 @@ an adapter for the selected dialect owns interpretation of the body.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import cast
 
-from scopecat.authoring._frozen_values import freeze_runtime_input
+from scopecat.authoring._frozen_values import capture_runtime_input
 from scopecat.authoring._intents import ComputeNodeInputValue
 from scopecat.authoring._products import ProductRef
 from scopecat.authoring._value_refs import ValueRef
 from scopecat.authoring.value_types import ValueType
+from scopecat.domain.program import (
+    DomainInputPort,
+    DomainProgramDef,
+    DomainResourcePort,
+    DomainResultPort,
+)
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.product_identity import ProductId
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
     logical_resource_port_id,
 )
-from scopecat.kernel.symbols import SymbolId
-
-
-@dataclass(frozen=True, slots=True)
-class DomainInputPort:
-    """One typed plan-stage input accepted by an authored domain program."""
-
-    id: str
-    value_type: ValueType
-
-    def __post_init__(self) -> None:
-        if not self.id:
-            raise ValueError("domain input port ids must be non-empty")
-
-
-@dataclass(frozen=True, slots=True)
-class DomainResultPort:
-    """One named output whose contract is interpreted by the dialect."""
-
-    id: str
-    contract: object | None = field(default=None, repr=False)
-
-    def __post_init__(self) -> None:
-        if not self.id:
-            raise ValueError("domain result port ids must be non-empty")
-
-
-@dataclass(frozen=True, slots=True)
-class DomainResourcePort:
-    """One logical resource role required by a domain program."""
-
-    id: str
-    capabilities: tuple[str, ...] = ()
-
-    def __post_init__(self) -> None:
-        if not self.id or any(not item for item in self.capabilities):
-            raise ValueError("domain resource ids and capabilities must be non-empty")
-        _require_unique("domain resource capability", self.capabilities)
-
-
-@dataclass(frozen=True, slots=True)
-class DomainProgramDef:
-    """Opaque domain program declaration retained through target linking.
-
-    Program inputs describe runtime program semantics and may remain residual.
-    Compiler inputs only configure lowering and must be captured by the target
-    artifact, which keeps large parameter collections out of the program ABI.
-    """
-
-    id: str
-    dialect_id: str
-    dialect_version: str
-    body: object = field(repr=False)
-    input_ports: tuple[DomainInputPort, ...] = ()
-    compiler_input_ports: tuple[DomainInputPort, ...] = ()
-    result_ports: tuple[DomainResultPort, ...] = ()
-    resource_ports: tuple[DomainResourcePort, ...] = ()
-
-    def __post_init__(self) -> None:
-        if not all((self.id, self.dialect_id, self.dialect_version)):
-            raise ValueError(
-                "domain program, dialect, and dialect version ids must be non-empty"
-            )
-        _require_unique("domain input port", tuple(p.id for p in self.input_ports))
-        _require_unique(
-            "domain compiler input port",
-            tuple(p.id for p in self.compiler_input_ports),
-        )
-        _require_unique(
-            "domain input port",
-            tuple(p.id for p in (*self.input_ports, *self.compiler_input_ports)),
-        )
-        _require_unique("domain result port", tuple(p.id for p in self.result_ports))
-        _require_unique(
-            "domain resource port", tuple(p.id for p in self.resource_ports)
-        )
-
-    @property
-    def symbol_id(self) -> SymbolId:
-        return SymbolId(local_id=self.id)
-
-    def __deepcopy__(self, _memo: dict[int, object]) -> DomainProgramDef:
-        # The body is trusted frozen transient IR owned by its dialect.
-        return self
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,74 +40,6 @@ class DomainExecution:
     compiler_input_bindings: tuple[tuple[str, ComputeNodeInputValue], ...] = ()
     result_bindings: tuple[tuple[str, ProductRef], ...] = ()
     resource_bindings: tuple[tuple[str, LogicalResourcePortId], ...] = ()
-
-    def __post_init__(self) -> None:
-        if not self.id:
-            raise ValueError("domain execution id must be non-empty")
-        _require_unique(
-            "domain execution input",
-            tuple(k for k, _ in self.input_bindings),
-        )
-        _require_unique(
-            "domain execution compiler input",
-            tuple(k for k, _ in self.compiler_input_bindings),
-        )
-        _require_unique(
-            "domain execution result",
-            tuple(k for k, _ in self.result_bindings),
-        )
-        _require_unique(
-            "domain execution resource",
-            tuple(k for k, _ in self.resource_bindings),
-        )
-        expected_inputs = tuple(port.id for port in self.program.input_ports)
-        actual_inputs = tuple(name for name, _value in self.input_bindings)
-        if actual_inputs != expected_inputs:
-            raise ValueError(
-                "domain execution input bindings must match program port "
-                "declaration order"
-            )
-        expected_compiler_inputs = tuple(
-            port.id for port in self.program.compiler_input_ports
-        )
-        actual_compiler_inputs = tuple(
-            name for name, _value in self.compiler_input_bindings
-        )
-        if actual_compiler_inputs != expected_compiler_inputs:
-            raise ValueError(
-                "domain execution compiler input bindings must match program port "
-                "declaration order"
-            )
-        expected_results = tuple(port.id for port in self.program.result_ports)
-        actual_results = tuple(name for name, _value in self.result_bindings)
-        if actual_results != expected_results:
-            raise ValueError(
-                "domain execution result bindings must match program port "
-                "declaration order"
-            )
-        expected_resources = tuple(port.id for port in self.program.resource_ports)
-        actual_resources = tuple(name for name, _value in self.resource_bindings)
-        if actual_resources != expected_resources:
-            raise ValueError(
-                "domain execution resource bindings must match program port "
-                "declaration order"
-            )
-        object.__setattr__(
-            self,
-            "input_bindings",
-            tuple(
-                (name, _capture_domain_input(value))
-                for name, value in self.input_bindings
-            ),
-        )
-        object.__setattr__(
-            self,
-            "compiler_input_bindings",
-            tuple(
-                (name, _capture_domain_input(value))
-                for name, value in self.compiler_input_bindings
-            ),
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -264,6 +118,9 @@ def domain_execution(
 ) -> DomainExecution:
     """Bind one module call to typed values and composed products."""
 
+    execution_id = program.id if id is None else id
+    if not execution_id:
+        raise ValueError("domain execution id must be non-empty")
     selected_inputs = inputs or {}
     selected_compiler_inputs = compiler_inputs or {}
     selected_results = results or {}
@@ -289,13 +146,14 @@ def domain_execution(
         tuple(port.id for port in program.result_ports),
     )
     return DomainExecution(
-        id=program.id if id is None else id,
+        id=execution_id,
         program=program,
         input_bindings=tuple(
-            (port.id, selected_inputs[port.id]) for port in program.input_ports
+            (port.id, _capture_domain_input(selected_inputs[port.id]))
+            for port in program.input_ports
         ),
         compiler_input_bindings=tuple(
-            (port.id, selected_compiler_inputs[port.id])
+            (port.id, _capture_domain_input(selected_compiler_inputs[port.id]))
             for port in program.compiler_input_ports
         ),
         result_bindings=tuple(
@@ -310,11 +168,6 @@ def domain_execution(
             for port in program.resource_ports
         ),
     )
-
-
-def _require_unique(label: str, values: tuple[str, ...]) -> None:
-    if len(values) != len(set(values)):
-        raise ValueError(f"{label} ids must be unique")
 
 
 def _require_exact_keys(
@@ -338,4 +191,4 @@ def _capture_domain_input(value: ComputeNodeInputValue) -> ComputeNodeInputValue
         return value
     if isinstance(value, PayloadValue):
         return value
-    return cast("ComputeNodeInputValue", freeze_runtime_input(value))
+    return cast("ComputeNodeInputValue", capture_runtime_input(value))

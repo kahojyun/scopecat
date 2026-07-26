@@ -2,64 +2,66 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
-from typing import Literal
 
 import pytest
 
-import scopecat.runs.service as run_workflows
-from scopecat.compiler.frontend.invocation import PreparedInvocation, prepare_invocation
+import tests.testkit.planning as run_workflows
+from scopecat.authoring.templates import ExperimentInvocation
 from scopecat.compiler.frontend.resolution import (
     CompiledInvocation,
-    compile_prepared_invocation,
+    compile_invocation,
 )
-from scopecat.execution.interpreter import admit_run, execute_admitted_run
+from scopecat.execution.interpreter import execute_admitted_run
 from scopecat.kernel.errors import CheckFailed
 from scopecat.planning.system import ExperimentSystem
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.runs.service import (
-    check_experiment,
-    load_run_config,
     load_run_request,
-    plan_experiment,
-    run_experiment,
-    start_run,
+    plan_scratch_experiment,
 )
-from scopecat.testing import sqlite_project_services
 from tests.testkit.authoring import simple_template
+from tests.testkit.execution import execute_invocation_run
+from tests.testkit.runtime import (
+    admit_test_run,
+    check_experiment,
+    list_test_runs,
+    plan_experiment,
+    sqlite_execution_session,
+    sqlite_project_services,
+)
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
-from tests.testkit.workflow_fixtures import load_config, load_prepared_invocation
+from tests.testkit.workflow_fixtures import load_config, load_invocation
 
 
 def test_plan_admit_and_execute_are_separate_run_stages(tmp_path: Path) -> None:
     services = sqlite_project_services(tmp_path)
     system = ExperimentSystem(provider=TestSignalInstrumentProvider())
     planned = plan_experiment(
-        load_prepared_invocation(),
+        load_invocation(),
         config=load_config(),
         services=services,
         system=system,
     )
 
-    assert services.runs.list_runs() == []
+    assert list_test_runs(services.runs) == []
 
-    accepted = admit_run(
+    accepted = admit_test_run(
         config=planned.config,
         request=planned.request,
         repository=services.runs,
         config_source=planned.config_source,
     )
 
-    assert accepted.lifecycle == "accepted"
+    assert accepted.outcome is None
     assert services.runs.read_manifest(accepted.run_id) == accepted
-    assert load_run_config(run_id=accepted.run_id, services=services) == planned.config
+    assert services.runs.read_config_profile_snapshot(accepted.run_id) == planned.config
     assert (
         load_run_request(run_id=accepted.run_id, services=services) == planned.request
     )
 
     completed = execute_admitted_run(
-        run_id=accepted.run_id,
         program=planned.program,
-        services=services.execution,
+        session=sqlite_execution_session(tmp_path, accepted.run_id),
         instrument_provider=system.provider,
     )
 
@@ -74,12 +76,12 @@ def test_admitted_execution_rejects_a_program_for_another_config(
     services = sqlite_project_services(tmp_path)
     system = ExperimentSystem(provider=TestSignalInstrumentProvider())
     planned = plan_experiment(
-        load_prepared_invocation(),
+        load_invocation(),
         config=load_config(),
         services=services,
         system=system,
     )
-    accepted = admit_run(
+    accepted = admit_test_run(
         config=planned.config,
         request=planned.request,
         repository=services.runs,
@@ -87,23 +89,22 @@ def test_admitted_execution_rejects_a_program_for_another_config(
 
     with pytest.raises(ValueError, match="does not match"):
         execute_admitted_run(
-            run_id=accepted.run_id,
             program=replace(
                 planned.program,
                 config_content_hash=f"sha256:{'0' * 64}",
             ),
-            services=services.execution,
+            session=sqlite_execution_session(tmp_path, accepted.run_id),
             instrument_provider=system.provider,
         )
 
-    assert services.runs.read_manifest(accepted.run_id).lifecycle == "accepted"
+    assert services.runs.read_manifest(accepted.run_id).outcome is None
 
 
-def test_check_and_start_run_use_separate_paths(
+def test_check_and_test_execution_use_separate_paths(
     tmp_path: Path,
 ) -> None:
     config = load_config()
-    experiment = load_prepared_invocation()
+    experiment = load_invocation()
 
     result = check_experiment(
         config=config,
@@ -111,11 +112,11 @@ def test_check_and_start_run_use_separate_paths(
         experiment=experiment,
         services=sqlite_project_services(tmp_path / "preview"),
     )
-    provider_run = start_run(
+    provider_run = execute_invocation_run(
         system=ExperimentSystem(provider=TestSignalInstrumentProvider()),
         config=config,
         experiment=experiment,
-        services=sqlite_project_services(tmp_path / "provider"),
+        project_root=tmp_path / "provider",
     )
 
     assert result.preview is not None
@@ -126,9 +127,7 @@ def test_check_and_start_run_use_separate_paths(
     assert {dataset.id for dataset in provider_run.datasets} == {"raw-measurements"}
 
 
-@pytest.mark.parametrize("workflow", ["run", "check"])
-def test_workflow_compiles_authoring_before_config_source_io(
-    workflow: Literal["run", "check"],
+def test_check_compiles_authoring_before_config_source_io(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -144,26 +143,16 @@ def test_workflow_compiles_authoring_before_config_source_io(
         "resolve_experiment_config",
         unexpected_config_read,
     )
-    invalid = prepare_invocation(simple_template().bind())
+    invalid = simple_template().bind()
 
-    if workflow == "check":
-        result = check_experiment(invalid, services=sqlite_project_services(tmp_path))
-        problem = result.problems[0]
-    else:
-        with pytest.raises(CheckFailed) as error:
-            run_experiment(
-                invalid,
-                system=ExperimentSystem(provider=TestSignalInstrumentProvider()),
-                services=sqlite_project_services(tmp_path),
-            )
-        problem = error.value.problems[0]
+    result = check_experiment(invalid, services=sqlite_project_services(tmp_path))
+    problem = result.problems[0]
 
-    assert problem.code == "experiment_template_missing_input"
+    assert problem.code == "experiment_missing_input"
     assert config_reads == 0
 
 
-def test_start_run_compiles_authoring_before_config_validation(
-    tmp_path: Path,
+def test_scratch_planning_compiles_authoring_before_config_validation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config_validations = 0
@@ -175,37 +164,38 @@ def test_start_run_compiles_authoring_before_config_validation(
 
     monkeypatch.setattr(
         run_workflows,
-        "validate_config_environment",
+        "build_config_environment",
         unexpected_config_validation,
     )
 
     with pytest.raises(CheckFailed) as error:
-        start_run(
+        plan_scratch_experiment(
             config=load_config(),
-            experiment=prepare_invocation(simple_template().bind()),
-            services=sqlite_project_services(tmp_path),
+            experiment=simple_template().bind(),
+            system=ExperimentSystem(provider=TestSignalInstrumentProvider()),
         )
 
-    assert error.value.problems[0].code == "experiment_template_missing_input"
+    assert error.value.problems[0].code == "experiment_missing_input"
     assert config_validations == 0
 
 
-@pytest.mark.parametrize("workflow", ["start", "run", "check"])
-def test_workflow_compiles_authoring_once(
-    workflow: Literal["start", "run", "check"],
+def test_check_compiles_authoring_once(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     authoring_compiles = 0
 
-    def counted_compile(experiment: PreparedInvocation) -> CompiledInvocation:
+    def counted_compile(
+        experiment: ExperimentInvocation,
+        **_kwargs: object,
+    ) -> CompiledInvocation:
         nonlocal authoring_compiles
         authoring_compiles += 1
-        return compile_prepared_invocation(experiment)
+        return compile_invocation(experiment)
 
     monkeypatch.setattr(
         run_workflows,
-        "compile_prepared_invocation",
+        "compile_invocation",
         counted_compile,
     )
     config = load_config()
@@ -216,30 +206,13 @@ def test_workflow_compiles_authoring_once(
             )
         }
     )
-    experiment = load_prepared_invocation()
+    experiment = load_invocation()
 
-    if workflow == "check":
-        result = check_experiment(
-            experiment,
-            config=invalid_config,
-            services=sqlite_project_services(tmp_path),
-        )
-        assert result.problems[0].code == "configuration.unknown_primary_entity"
-    else:
-        terminal = {
-            "start": lambda: start_run(
-                config=invalid_config,
-                experiment=experiment,
-                services=sqlite_project_services(tmp_path),
-            ),
-            "run": lambda: run_experiment(
-                experiment,
-                config=invalid_config,
-                services=sqlite_project_services(tmp_path),
-            ),
-        }[workflow]
-        with pytest.raises(CheckFailed) as error:
-            terminal()
-        assert error.value.problems[0].code == "configuration.unknown_primary_entity"
+    result = check_experiment(
+        experiment,
+        config=invalid_config,
+        services=sqlite_project_services(tmp_path),
+    )
+    assert result.problems[0].code == "configuration.unknown_primary_entity"
 
     assert authoring_compiles == 1

@@ -8,7 +8,7 @@ import pytest
 from scopecat.execution.local.program import CollectionResultBinding, CollectOperation
 from scopecat.execution.local.receipts import validate_readback
 from scopecat.kernel.problems import ModelLocation
-from scopecat.kernel.product_identity import ProductUseId, product_id
+from scopecat.kernel.product_identity import ProductUseId
 from scopecat.measurements.contracts import (
     MeasurementValueContractIssueCode,
     measurement_value_contract_issues,
@@ -320,7 +320,6 @@ def _collect_operation(
     shape: Sequence[int],
 ) -> CollectOperation:
     operation_id = "point.collect.source"
-    logical_product_id = product_id("iq")
     product_use_id = ProductUseId("record:iq")
     return CollectOperation(
         operation_id=operation_id,
@@ -351,7 +350,6 @@ def _collect_operation(
             CollectionResultBinding(
                 provider_key="iq",
                 product_use_ids=(product_use_id,),
-                product_id=logical_product_id,
             ),
         ),
     )

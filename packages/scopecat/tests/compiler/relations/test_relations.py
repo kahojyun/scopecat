@@ -72,24 +72,17 @@ def test_quantity_converts_and_combines_compatible_units() -> None:
         Quantity(value=1.0, unit="GHz").to("ns")
 
 
-def test_literal_rows_filter_select() -> None:
-    filter_scope = _scope("literal-filter")
+def test_literal_rows_with_columns_select() -> None:
     columns_scope = _scope("literal-columns")
     relation = (
         literal_rows(
             [
                 {
-                    "device.device_id": device_id,
-                    "device.enabled": enabled,
+                    "device.device_id": "q0",
                     "frequency": Quantity(value=frequency, unit="GHz"),
                 }
-                for device_id, enabled in (("q0", True), ("q1", False))
                 for frequency in (5.0, 5.1, 5.2)
             ]
-        )
-        .filter(
-            col("device.enabled", row_scope_id=filter_scope).eq(True),
-            row_scope_id=filter_scope,
         )
         .with_columns(
             row_scope_id=columns_scope,
@@ -143,14 +136,9 @@ def test_parameter_data_drives_variable_key_lookup_and_joins() -> None:
         },
     )
 
-    filter_scope = _scope("parameter-filter")
     columns_scope = _scope("parameter-columns")
     relation = (
         table("readout_devices")
-        .filter(
-            col("enabled", row_scope_id=filter_scope).eq(True),
-            row_scope_id=filter_scope,
-        )
         .with_columns(
             row_scope_id=columns_scope,
             demod=param("readout.demod_frequency"),
@@ -188,7 +176,13 @@ def test_parameter_data_drives_variable_key_lookup_and_joins() -> None:
             "resource_id": "adc0",
             "demod": Quantity(value=100, unit="MHz"),
             "carrier": Quantity(value=5.95, unit="GHz"),
-        }
+        },
+        {
+            "device_id": "r1",
+            "resource_id": "adc1",
+            "demod": Quantity(value=100, unit="MHz"),
+            "carrier": Quantity(value=6.10, unit="GHz"),
+        },
     ]
 
 
@@ -246,11 +240,7 @@ def test_series_and_table_inputs_are_typed_expressions() -> None:
         {"qubit": "q0", "frequency": Quantity(value=5.0, unit="GHz")},
         {"qubit": "q1", "frequency": Quantity(value=5.1, unit="GHz")},
     ]
-    filter_scope = _scope("input-filter")
-    relation = input_table("gate_rows").filter(
-        col("qubit", row_scope_id=filter_scope).eq("q1"),
-        row_scope_id=filter_scope,
-    )
+    relation = input_table("gate_rows").select("qubit")
     series = input_series("offsets")
 
     assert evaluate_relation(
@@ -264,7 +254,7 @@ def test_series_and_table_inputs_are_typed_expressions() -> None:
                 )
             }
         ),
-    ) == [rows[1]]
+    ) == [{"qubit": "q0"}, {"qubit": "q1"}]
     assert evaluate_series(
         series,
         EvalContext(

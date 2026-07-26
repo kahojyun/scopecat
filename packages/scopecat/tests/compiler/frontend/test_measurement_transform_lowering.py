@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 import scopecat as sc
 from scopecat.compiler.typed.program import core_acquisitions
-from scopecat.planning.authoring import resolve_experiment
+from scopecat.kernel.errors import CheckFailed
 from scopecat.sdk.domain import MeasurementTransformSemanticContract
-from tests.testkit.authoring import load_config, template_fixture
+from tests.testkit.authoring import link_invocation, load_config, template_fixture
 from tests.testkit.typed_program import link_program
 
 
@@ -61,11 +63,11 @@ def test_record_demand_closes_transform_inputs_and_prunes_dead_transform(
         ),
     )
 
-    resolved = resolve_experiment(
+    resolved = link_invocation(
         template.bind(),
         config_profile=load_config(),
     )
-    program = resolved.experiment
+    program = resolved.program
 
     assert tuple(
         transform.id.qualified_name for transform in program.measurement_transforms
@@ -149,13 +151,13 @@ def test_hidden_transform_input_use_ids_are_stable_scoped_and_escaped(
     )
 
     def compile_input_use_ids() -> dict[str, str]:
-        resolved = resolve_experiment(
+        resolved = link_invocation(
             template.bind(),
             config_profile=load_config(),
         )
         return {
             transform.id.qualified_name: transform.inputs[0].product_use_id.value
-            for transform in resolved.experiment.measurement_transforms
+            for transform in resolved.program.measurement_transforms
         }
 
     first = compile_input_use_ids()
@@ -170,3 +172,20 @@ def test_hidden_transform_input_use_ids_are_stable_scoped_and_escaped(
             "scopecat.measurement-transform/right/derive%2F%25/inputs/source%2F%25"
         ),
     }
+
+
+def test_recorded_product_requires_a_producer() -> None:
+    module = sc.module_body(id="test.product.owner").product("orphan").build()
+    template = template_fixture(
+        module,
+        id="test.product.owner",
+        kind="product-owner",
+        records=(sc.record_product(module.products.orphan),),
+    )
+
+    with pytest.raises(CheckFailed) as error:
+        link_invocation(template.bind(), config_profile=load_config())
+
+    assert [problem.code for problem in error.value.problems] == [
+        "product_acquire_missing"
+    ]

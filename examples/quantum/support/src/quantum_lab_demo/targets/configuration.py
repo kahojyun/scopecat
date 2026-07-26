@@ -5,13 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from scopecat.records.config import ConfigProfileSnapshot
-from scopecat_quantum import (
+from scopecat_quantum._ids import CouplerId, QubitId
+from scopecat_quantum.pulses import (
     AcquireSignal,
-    CouplerId,
     DriveSignal,
     FluxSignal,
     PlaySignal,
-    QubitId,
     ReadoutSignal,
 )
 

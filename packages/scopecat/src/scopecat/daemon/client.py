@@ -9,10 +9,10 @@ from urllib.parse import quote
 import httpx2
 from pydantic import BaseModel, ValidationError
 
+from scopecat.config.registry.records import ConfigRegistryEntry
 from scopecat.control.models import (
     ControlRunState,
     EventPage,
-    RunPage,
 )
 from scopecat.daemon.views import (
     ActiveConfigView,
@@ -25,26 +25,17 @@ from scopecat.daemon.views import (
     RunAnalysisListView,
     RunAnalysisView,
     RunArtifactBytesView,
-    RunArtifactJsonView,
-    RunArtifactTextView,
     RunConfigView,
-    RunDatasetContentView,
     RunDetail,
-    RunRecordJsonView,
     RunRequestView,
+    RunSummaryPage,
 )
 from scopecat.daemon.wire import (
     AnalysisSaveCommand,
     AnalysisSaveReceipt,
-    AttentionResolutionAction,
-    AttentionResolutionCommand,
     AttentionResolutionReceipt,
     CandidateConfigActivationCommand,
     CandidateConfigActivationReceipt,
-    CollectionCommitCommand,
-    CollectionCommitReceipt,
-    CollectionResolveCommand,
-    CollectionResolveReceipt,
     ConfigActivationReceipt,
     ConfigDefaultReceipt,
     ConfigDraftCommand,
@@ -53,36 +44,32 @@ from scopecat.daemon.wire import (
     ConfigDraftRegistrationCommand,
     ConfigDraftRegistrationReceipt,
     ConfigEntryActivationCommand,
-    ConfigImportReceipt,
     ConfigRollbackCommand,
-    DelegatedRunSubmission,
     DirectConfigDefaultCommand,
     DirectConfigImportCommand,
-    ExecutionRecoveryRequest,
-    ExecutionRecoverySnapshot,
-    ExecutionTransitionBatch,
-    ExecutionTransitionBatchReceipt,
+    ExecutionTransitionAppend,
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
-    ExperimentCatalog,
-    ManagedRunSubmission,
     MeasurementAppendCommand,
-    MeasurementAppendReceipt,
     MeasurementSealCommand,
-    MeasurementSealReceipt,
     ParameterProposalDecisionCommand,
     ParameterProposalReviewCommand,
-    ParameterProposalReviewReceipt,
-    PayloadCommitCommand,
-    PayloadCommitReceipt,
     RunAdmission,
     RunAttachmentCommand,
-    RunAttachmentReceipt,
-    RuntimeEventPublishCommand,
-    RuntimeEventPublishReceipt,
+    RunSubmission,
     TerminalRunCommitCommand,
-    TerminalRunCommitReceipt,
+)
+from scopecat.records.artifact import RunContentEntry
+from scopecat.records.execution_journal import ExecutionTransition
+from scopecat.records.measurement_recording import MeasurementDatasetReceipt
+from scopecat.records.parameter_change import ParameterChangeDecisionRecord
+from scopecat.records.run import RunManifest
+from scopecat.runs.data import (
+    RunArtifactJsonResult,
+    RunArtifactTextResult,
+    RunMeasurementDatasetResult,
+    RunRecordJsonResult,
 )
 
 _API_PREFIX = "/api/v1"
@@ -138,9 +125,6 @@ class DaemonClient:
     def health(self) -> DaemonHealth:
         return self._get_model(f"{_API_PREFIX}/health", DaemonHealth)
 
-    def catalog(self) -> ExperimentCatalog:
-        return self._get_model(f"{_API_PREFIX}/catalog", ExperimentCatalog)
-
     def config_registry(self) -> ConfigRegistryView:
         return self._get_model(
             f"{_API_PREFIX}/config-registry",
@@ -162,11 +146,11 @@ class DaemonClient:
     def import_direct_config(
         self,
         command: DirectConfigImportCommand,
-    ) -> ConfigImportReceipt:
+    ) -> ConfigRegistryEntry:
         return self._post_model(
             f"{_API_PREFIX}/config-registry/entries",
             command,
-            ConfigImportReceipt,
+            ConfigRegistryEntry,
         )
 
     def set_direct_config_default(
@@ -247,7 +231,7 @@ class DaemonClient:
         before: int | None = None,
         state: ControlRunState | None = None,
         latest: bool = False,
-    ) -> RunPage:
+    ) -> RunSummaryPage:
         params: dict[str, str | int] = {"limit": limit}
         if after is not None:
             params["after"] = after
@@ -257,7 +241,7 @@ class DaemonClient:
             params["state"] = state
         if latest:
             params["latest"] = "true"
-        return self._get_model(f"{_API_PREFIX}/runs", RunPage, params=params)
+        return self._get_model(f"{_API_PREFIX}/runs", RunSummaryPage, params=params)
 
     def get_run(self, run_id: str) -> RunDetail:
         return self._get_model(f"{_API_PREFIX}/runs/{run_id}", RunDetail)
@@ -288,9 +272,13 @@ class DaemonClient:
             RunAnalysisView,
         )
 
-    def save_analysis(self, command: AnalysisSaveCommand) -> AnalysisSaveReceipt:
+    def save_analysis(
+        self,
+        run_id: str,
+        command: AnalysisSaveCommand,
+    ) -> AnalysisSaveReceipt:
         return self._post_model(
-            f"{_API_PREFIX}/runs/{quote(command.run_id, safe='')}/analyses",
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/analyses",
             command,
             AnalysisSaveReceipt,
         )
@@ -316,13 +304,13 @@ class DaemonClient:
         selector: str,
         *,
         expected_kind: str | None = None,
-    ) -> RunArtifactTextView:
+    ) -> RunArtifactTextResult:
         return self._artifact_content(
             run_id,
             selector,
             representation="text",
             expected_kind=expected_kind,
-            model=RunArtifactTextView,
+            model=RunArtifactTextResult,
         )
 
     def artifact_json(
@@ -331,13 +319,13 @@ class DaemonClient:
         selector: str,
         *,
         expected_kind: str | None = None,
-    ) -> RunArtifactJsonView:
+    ) -> RunArtifactJsonResult:
         return self._artifact_content(
             run_id,
             selector,
             representation="json",
             expected_kind=expected_kind,
-            model=RunArtifactJsonView,
+            model=RunArtifactJsonResult,
         )
 
     def _artifact_content[ArtifactViewT: BaseModel](
@@ -369,7 +357,7 @@ class DaemonClient:
         selector: str,
         *,
         expected_kind: str | None = None,
-    ) -> RunRecordJsonView:
+    ) -> RunRecordJsonResult:
         selected_run = quote(run_id, safe="")
         selected_record = quote(selector, safe="")
         params: dict[str, str | int] | None = (
@@ -377,7 +365,7 @@ class DaemonClient:
         )
         return self._get_model(
             f"{_API_PREFIX}/runs/{selected_run}/records/{selected_record}/json",
-            RunRecordJsonView,
+            RunRecordJsonResult,
             params=params,
         )
 
@@ -385,19 +373,23 @@ class DaemonClient:
         self,
         run_id: str,
         selector: str,
-    ) -> RunDatasetContentView:
+    ) -> RunMeasurementDatasetResult:
         selected_run = quote(run_id, safe="")
         selected_dataset = quote(selector, safe="")
         return self._get_model(
             f"{_API_PREFIX}/runs/{selected_run}/datasets/{selected_dataset}",
-            RunDatasetContentView,
+            RunMeasurementDatasetResult,
         )
 
-    def attach(self, command: RunAttachmentCommand) -> RunAttachmentReceipt:
+    def attach(
+        self,
+        run_id: str,
+        command: RunAttachmentCommand,
+    ) -> RunContentEntry:
         return self._post_model(
-            f"{_API_PREFIX}/runs/{quote(command.run_id, safe='')}/attachments",
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/attachments",
             command,
-            RunAttachmentReceipt,
+            RunContentEntry,
         )
 
     def parameter_proposals(self, run_id: str) -> ParameterProposalListView:
@@ -408,38 +400,47 @@ class DaemonClient:
 
     def review_parameter_proposal(
         self,
+        run_id: str,
+        proposal_id: str,
         command: ParameterProposalReviewCommand,
-    ) -> ParameterProposalReviewReceipt:
-        run_id = quote(command.run_id, safe="")
-        proposal_id = quote(command.proposal_id, safe="")
+    ) -> ParameterChangeDecisionRecord:
+        selected_run = quote(run_id, safe="")
+        selected_proposal = quote(proposal_id, safe="")
         return self._post_model(
-            f"{_API_PREFIX}/runs/{run_id}/parameter-proposals/{proposal_id}/review",
+            (
+                f"{_API_PREFIX}/runs/{selected_run}/parameter-proposals/"
+                f"{selected_proposal}/review"
+            ),
             command,
-            ParameterProposalReviewReceipt,
+            ParameterChangeDecisionRecord,
         )
 
     def decide_parameter_proposal(
         self,
+        run_id: str,
+        proposal_id: str,
         command: ParameterProposalDecisionCommand,
-    ) -> ParameterProposalReviewReceipt:
-        run_id = quote(command.run_id, safe="")
-        proposal_id = quote(command.proposal_id, safe="")
+    ) -> ParameterChangeDecisionRecord:
+        selected_run = quote(run_id, safe="")
+        selected_proposal = quote(proposal_id, safe="")
         return self._post_model(
-            f"{_API_PREFIX}/runs/{run_id}/parameter-proposals/{proposal_id}/decision",
+            (
+                f"{_API_PREFIX}/runs/{selected_run}/parameter-proposals/"
+                f"{selected_proposal}/decision"
+            ),
             command,
-            ParameterProposalReviewReceipt,
+            ParameterChangeDecisionRecord,
         )
 
     def resolve_attention(
         self,
         run_id: str,
-        action: AttentionResolutionAction,
     ) -> AttentionResolutionReceipt:
-        return self._post_model(
+        response = self._request(
+            "POST",
             f"{_API_PREFIX}/runs/{run_id}/attention",
-            AttentionResolutionCommand(run_id=run_id, action=action),
-            AttentionResolutionReceipt,
         )
+        return AttentionResolutionReceipt.model_validate_json(response.content)
 
     def measurements(
         self,
@@ -471,14 +472,7 @@ class DaemonClient:
             params["latest"] = "true"
         return self._get_model(f"{_API_PREFIX}/events", EventPage, params=params)
 
-    def submit_managed(self, submission: ManagedRunSubmission) -> RunAdmission:
-        return self._post_model(
-            f"{_API_PREFIX}/runs",
-            submission,
-            RunAdmission,
-        )
-
-    def submit_delegated(self, submission: DelegatedRunSubmission) -> RunAdmission:
+    def submit_run(self, submission: RunSubmission) -> RunAdmission:
         return self._post_model(
             f"{_API_PREFIX}/runs",
             submission,
@@ -487,13 +481,17 @@ class DaemonClient:
 
     def start_executor(
         self,
+        run_id: str,
         request: ExecutorStartRequest,
     ) -> ExecutorLease:
-        return self._post_model(
-            f"{_API_PREFIX}/runs/{request.run_id}/executor/start",
+        lease = self._post_model(
+            f"{_API_PREFIX}/runs/{run_id}/executor/start",
             request,
             ExecutorLease,
         )
+        if lease.run_id != run_id:
+            raise ValueError("executor lease does not match its request")
+        return lease
 
     def heartbeat_executor(
         self,
@@ -506,94 +504,48 @@ class DaemonClient:
             ExecutorLease,
         )
 
-    def append_transitions(
+    def append_transition(
         self,
-        batch: ExecutionTransitionBatch,
-    ) -> ExecutionTransitionBatchReceipt:
+        run_id: str,
+        command: ExecutionTransitionAppend,
+    ) -> ExecutionTransition:
         return self._post_model(
-            f"{_API_PREFIX}/runs/{batch.run_id}/transitions",
-            batch,
-            ExecutionTransitionBatchReceipt,
-        )
-
-    def publish_runtime_event(
-        self,
-        command: RuntimeEventPublishCommand,
-    ) -> RuntimeEventPublishReceipt:
-        return self._post_model(
-            f"{_API_PREFIX}/runs/{command.run_id}/runtime-events",
+            f"{_API_PREFIX}/runs/{run_id}/transitions",
             command,
-            RuntimeEventPublishReceipt,
-        )
-
-    def recover_execution(
-        self,
-        request: ExecutionRecoveryRequest,
-    ) -> ExecutionRecoverySnapshot:
-        return self._post_model(
-            f"{_API_PREFIX}/runs/{request.run_id}/execution/recovery",
-            request,
-            ExecutionRecoverySnapshot,
+            ExecutionTransition,
         )
 
     def append_measurements(
         self,
+        run_id: str,
         command: MeasurementAppendCommand,
-    ) -> MeasurementAppendReceipt:
+    ) -> MeasurementDatasetReceipt:
         return self._post_model(
-            f"{_API_PREFIX}/runs/{command.run_id}/measurements/append",
+            f"{_API_PREFIX}/runs/{run_id}/measurements/append",
             command,
-            MeasurementAppendReceipt,
+            MeasurementDatasetReceipt,
         )
 
     def seal_measurements(
         self,
+        run_id: str,
         command: MeasurementSealCommand,
-    ) -> MeasurementSealReceipt:
+    ) -> MeasurementDatasetReceipt:
         return self._post_model(
-            f"{_API_PREFIX}/runs/{command.run_id}/measurements/seal",
+            f"{_API_PREFIX}/runs/{run_id}/measurements/seal",
             command,
-            MeasurementSealReceipt,
-        )
-
-    def commit_collection(
-        self,
-        command: CollectionCommitCommand,
-    ) -> CollectionCommitReceipt:
-        return self._post_model(
-            f"{_API_PREFIX}/runs/{command.run_id}/collections/commit",
-            command,
-            CollectionCommitReceipt,
-        )
-
-    def resolve_collection(
-        self,
-        command: CollectionResolveCommand,
-    ) -> CollectionResolveReceipt:
-        return self._post_model(
-            f"{_API_PREFIX}/runs/{command.run_id}/collections/resolve",
-            command,
-            CollectionResolveReceipt,
-        )
-
-    def commit_payload(
-        self,
-        command: PayloadCommitCommand,
-    ) -> PayloadCommitReceipt:
-        return self._post_model(
-            f"{_API_PREFIX}/runs/{command.run_id}/payloads/commit",
-            command,
-            PayloadCommitReceipt,
+            MeasurementDatasetReceipt,
         )
 
     def commit_terminal(
         self,
+        run_id: str,
         command: TerminalRunCommitCommand,
-    ) -> TerminalRunCommitReceipt:
+    ) -> RunManifest:
         return self._post_model(
-            f"{_API_PREFIX}/runs/{command.run_id}/terminal",
+            f"{_API_PREFIX}/runs/{run_id}/terminal",
             command,
-            TerminalRunCommitReceipt,
+            RunManifest,
         )
 
     def _get_model[ModelT: BaseModel](

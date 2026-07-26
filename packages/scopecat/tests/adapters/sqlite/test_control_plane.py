@@ -13,15 +13,19 @@ from scopecat.adapters.sqlite import (
     SQLiteControlPlane,
     SQLiteProjectStore,
 )
-from scopecat.control import (
+from scopecat.control.models import (
+    ControlRun,
+    DurableEvent,
     DurableEventInput,
+    ExecutorLease,
     ResourceKey,
+    ResourceLease,
     RunAdmissionRecord,
+    RunPlanSummary,
 )
-from scopecat.records.run import RunOutcome
 
 NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
-CONFIG_HASH = f"sha256:{'1' * 64}"
+SUBMISSION_HASH = "1" * 64
 
 
 def _store(path: Path) -> SQLiteControlPlane:
@@ -36,34 +40,105 @@ def _admission(
 ) -> RunAdmissionRecord:
     return RunAdmissionRecord(
         submission_id=f"submission:{run_id}",
+        submission_content_hash=SUBMISSION_HASH,
         run_id=run_id,
-        execution_mode="delegated",
-        experiment_id=f"scratch:{run_id}",
-        config_content_hash=CONFIG_HASH,
-        plan_summary={"point_count": 3},
-        resource_claims=resources,
+        plan=RunPlanSummary(
+            experiment_id=f"scratch:{run_id}",
+            experiment_kind="scratch",
+            point_count=3,
+            run_resource_claims=resources,
+        ),
         admitted_at=admitted_at,
     )
 
 
-def _succeeded(run_id: str, *, at: datetime) -> RunOutcome:
-    return RunOutcome(
-        run_id=run_id,
-        result="succeeded",
-        certainty="known",
-        termination_reason="completed",
-        finished_at=at,
-    )
+def _admit(
+    store: SQLiteControlPlane,
+    admission: RunAdmissionRecord,
+) -> ControlRun:
+    with store.transaction() as connection:
+        return store.admit_run_in_transaction(connection, admission)
+
+
+def _start(
+    store: SQLiteControlPlane,
+    run_id: str,
+    *,
+    executor_id: str,
+    ttl: timedelta | None = None,
+    at: datetime = NOW,
+) -> ExecutorLease:
+    with store.transaction() as connection:
+        return store.start_execution_in_transaction(
+            connection,
+            run_id,
+            executor_id=executor_id,
+            ttl=ttl or timedelta(seconds=30),
+            at=at,
+        )
+
+
+def _close(
+    store: SQLiteControlPlane,
+    run_id: str,
+    *,
+    executor_token: str | None = None,
+    at: datetime,
+) -> ControlRun:
+    with store.transaction() as connection:
+        return store.close_run_in_transaction(
+            connection,
+            run_id,
+            executor_token=executor_token,
+            at=at,
+        )
+
+
+def _append_event(
+    store: SQLiteControlPlane,
+    event: DurableEventInput,
+    *,
+    executor_token: str | None = None,
+) -> DurableEvent:
+    if executor_token is not None:
+        assert event.run_id is not None
+        with store.fenced_transaction(
+            event.run_id,
+            token=executor_token,
+            at=event.occurred_at,
+        ) as connection:
+            return store.append_event_in_transaction(connection, event)
+    with store.transaction() as connection:
+        return store.append_event_in_transaction(connection, event)
+
+
+def _resource_leases(store: SQLiteControlPlane) -> tuple[ResourceLease, ...]:
+    with store.transaction() as connection:
+        return store.list_resource_leases_in_transaction(connection)
+
+
+def _release_run_resources(store: SQLiteControlPlane, run_id: str) -> int:
+    with store.transaction() as connection:
+        return store.release_run_resources_in_transaction(connection, run_id)
+
+
+def _executor_lease(
+    store: SQLiteControlPlane,
+    run_id: str,
+) -> ExecutorLease | None:
+    with store.transaction() as connection:
+        return store.executor_lease_for_run_in_transaction(connection, run_id)
 
 
 def test_run_admission_state_and_pagination(tmp_path: Path) -> None:
     store = _store(tmp_path / "control.sqlite3")
     for offset in range(3):
-        store.admit_run(
+        _admit(
+            store,
             _admission(
                 f"run-{offset}",
                 admitted_at=NOW + timedelta(seconds=offset),
-            )
+            ),
         )
 
     first = store.list_runs(limit=2)
@@ -87,67 +162,61 @@ def test_run_admission_state_and_pagination(tmp_path: Path) -> None:
     retry = _admission("retry-run").model_copy(
         update={
             "submission_id": "submission:run-0",
-            "experiment_id": "scratch:run-0",
+            "plan": RunPlanSummary(
+                experiment_id="scratch:run-0",
+                experiment_kind="scratch",
+                point_count=3,
+            ),
             "admitted_at": NOW + timedelta(minutes=1),
         }
     )
-    assert store.admit_run(retry) == store.get_run("run-0")
-    assert store.get_run_by_submission_id("submission:run-0").run_id == "run-0"
+    assert _admit(store, retry) == store.get_run("run-0")
+    assert first.items[0].admission.submission_id == "submission:run-0"
     assert [event.kind for event in store.list_events(run_id="run-0").items] == [
         "run_admitted"
     ]
 
     with pytest.raises(ControlPlaneConflict):
-        store.admit_run(
-            retry.model_copy(update={"experiment_id": "different-experiment"})
+        _admit(
+            store,
+            retry.model_copy(update={"submission_content_hash": "2" * 64}),
         )
 
 
-def test_executor_resources_and_terminal_state_commit_together(
+def test_executor_resources_and_scheduler_close_commit_together(
     tmp_path: Path,
 ) -> None:
     store = _store(tmp_path / "control.sqlite3")
-    store.admit_run(
+    _admit(
+        store,
         _admission(
             "run-1",
             ResourceKey(kind="instrument", id="scope"),
-            ResourceKey(kind="channel", id="scope:1"),
-        )
+            ResourceKey(kind="target", id="controller"),
+        ),
     )
-    executor = store.acquire_executor_lease(
+    executor = _start(
+        store,
         "run-1",
         executor_id="kernel-1",
         ttl=timedelta(seconds=30),
         at=NOW,
     )
-    assert executor is not None
-    claims = store.claim_run_resources(executor.token, at=NOW)
-    assert claims.acquired
-    assert len(claims.leases) == 2
-
-    running = store.transition_run(
-        "run-1",
-        expected_state="accepted",
-        state="running",
-        executor_token=executor.token,
-        at=NOW + timedelta(seconds=1),
-    )
-    assert running.state == "running"
+    assert store.get_run("run-1").state == "leased"
+    assert len(_resource_leases(store)) == 2
 
     finished_at = NOW + timedelta(seconds=2)
-    terminal = store.transition_run(
+    closed = _close(
+        store,
         "run-1",
-        expected_state="running",
-        state="terminal",
-        outcome=_succeeded("run-1", at=finished_at),
         executor_token=executor.token,
         at=finished_at,
     )
-    assert terminal.state == "terminal"
-    assert terminal.outcome is not None
-    assert store.list_resource_leases() == ()
+    assert closed.state == "closed"
+    assert _resource_leases(store) == ()
     with pytest.raises(ExecutorLeaseNotHeld):
-        store.append_event(
+        _append_event(
+            store,
             DurableEventInput(run_id="run-1", kind="late_executor_event"),
             executor_token=executor.token,
         )
@@ -155,18 +224,19 @@ def test_executor_resources_and_terminal_state_commit_together(
 
 def test_durable_events_have_global_cursor_and_run_filter(tmp_path: Path) -> None:
     store = _store(tmp_path / "control.sqlite3")
-    store.admit_run(_admission("run-1"))
+    _admit(store, _admission("run-1"))
     for index in range(4):
-        store.append_event(
+        _append_event(
+            store,
             DurableEventInput(
                 run_id="run-1",
                 kind="measurement_chunk",
                 payload={"index": index},
                 occurred_at=NOW + timedelta(seconds=index),
-            )
+            ),
         )
-    later_event = store.append_event(
-        DurableEventInput(kind="config_activated", payload={"generation": 2})
+    later_event = _append_event(
+        store, DurableEventInput(kind="config_activated", payload={"generation": 2})
     )
 
     first = store.list_events(run_id="run-1", limit=2)
@@ -197,93 +267,64 @@ def test_durable_events_have_global_cursor_and_run_filter(tmp_path: Path) -> Non
 def test_resource_claims_are_all_or_none(tmp_path: Path) -> None:
     store = _store(tmp_path / "control.sqlite3")
     shared = ResourceKey(kind="instrument", id="scope")
-    store.admit_run(_admission("run-a", shared, ResourceKey(kind="channel", id="a")))
-    store.admit_run(_admission("run-b", shared, ResourceKey(kind="channel", id="b")))
-    executor_a = store.acquire_executor_lease(
+    _admit(
+        store,
+        _admission("run-a", shared, ResourceKey(kind="target", id="a")),
+    )
+    _admit(
+        store,
+        _admission("run-b", shared, ResourceKey(kind="target", id="b")),
+    )
+    _start(
+        store,
         "run-a",
         executor_id="a",
-        ttl=timedelta(seconds=30),
-        at=NOW,
     )
-    executor_b = store.acquire_executor_lease(
-        "run-b",
-        executor_id="b",
-        ttl=timedelta(seconds=30),
-        at=NOW,
-    )
-    assert executor_a is not None
-    assert executor_b is not None
 
-    assert store.claim_run_resources(executor_a.token, at=NOW).acquired
-    rejected = store.claim_run_resources(executor_b.token, at=NOW)
-
-    assert not rejected.acquired
-    assert [conflict.resource for conflict in rejected.conflicts] == [shared]
-    leases = store.list_resource_leases()
+    with pytest.raises(ControlPlaneConflict, match="resources are busy"):
+        _start(store, "run-b", executor_id="b")
+    leases = _resource_leases(store)
     assert {lease.resource.id for lease in leases} == {"scope", "a"}
     assert {lease.run_id for lease in leases} == {"run-a"}
+    assert _executor_lease(store, "run-b") is None
+    assert store.get_run("run-b").state == "queued"
 
 
 def test_concurrent_resource_claim_has_one_winner(tmp_path: Path) -> None:
     path = tmp_path / "control.sqlite3"
     store = _store(path)
     shared = ResourceKey(kind="instrument", id="scope")
-    store.admit_run(_admission("run-a", shared))
-    store.admit_run(_admission("run-b", shared))
-    executor_a = store.acquire_executor_lease(
-        "run-a",
-        executor_id="a",
-        ttl=timedelta(seconds=30),
-        at=NOW,
-    )
-    executor_b = store.acquire_executor_lease(
-        "run-b",
-        executor_id="b",
-        ttl=timedelta(seconds=30),
-        at=NOW,
-    )
-    assert executor_a is not None
-    assert executor_b is not None
+    _admit(store, _admission("run-a", shared))
+    _admit(store, _admission("run-b", shared))
     barrier = Barrier(2)
 
-    def claim(token: str) -> bool:
+    def start(run_id: str) -> bool:
         peer = SQLiteControlPlane(path)
         barrier.wait()
-        return peer.claim_run_resources(token, at=NOW).acquired
+        try:
+            _start(peer, run_id, executor_id=run_id)
+        except ControlPlaneConflict:
+            return False
+        return True
 
     with ThreadPoolExecutor(max_workers=2) as pool:
-        results = list(pool.map(claim, (executor_a.token, executor_b.token)))
+        results = list(pool.map(start, ("run-a", "run-b")))
 
     assert sorted(results) == [False, True]
-    assert len(store.list_resource_leases()) == 1
+    assert len(_resource_leases(store)) == 1
 
 
-def test_expired_running_executor_quarantines_resources(tmp_path: Path) -> None:
+def test_expired_leased_executor_quarantines_resources(tmp_path: Path) -> None:
     store = _store(tmp_path / "control.sqlite3")
     shared = ResourceKey(kind="instrument", id="scope")
-    store.admit_run(_admission("lost", shared))
-    store.admit_run(_admission("waiting", shared))
-    lost = store.acquire_executor_lease(
+    _admit(store, _admission("lost", shared))
+    _admit(store, _admission("waiting", shared))
+    _start(
+        store,
         "lost",
         executor_id="kernel",
         ttl=timedelta(seconds=10),
         at=NOW,
-    )
-    waiting = store.acquire_executor_lease(
-        "waiting",
-        executor_id="daemon",
-        ttl=timedelta(seconds=30),
-        at=NOW,
-    )
-    assert lost is not None
-    assert waiting is not None
-    assert store.claim_run_resources(lost.token, at=NOW).acquired
-    store.transition_run(
-        "lost",
-        expected_state="accepted",
-        state="running",
-        executor_token=lost.token,
-        at=NOW + timedelta(seconds=1),
     )
 
     expired = store.expire_executor_leases(at=NOW + timedelta(seconds=11))
@@ -299,58 +340,70 @@ def test_expired_running_executor_quarantines_resources(tmp_path: Path) -> None:
         "resources_quarantined",
         "executor_lease_lost",
     } <= event_kinds
-    quarantined = store.list_resource_leases()
+    quarantined = _resource_leases(store)
     assert len(quarantined) == 1
     assert quarantined[0].status == "quarantined"
-    rejected = store.claim_run_resources(
-        waiting.token,
-        at=NOW + timedelta(seconds=11),
-    )
-    assert not rejected.acquired
-    assert rejected.conflicts[0].status == "quarantined"
+    with pytest.raises(ControlPlaneConflict, match="resources are busy"):
+        _start(
+            store,
+            "waiting",
+            executor_id="daemon",
+            at=NOW + timedelta(seconds=11),
+        )
 
-    assert store.release_run_resources("lost") == 1
-    assert store.claim_run_resources(
-        waiting.token,
+    assert _release_run_resources(store, "lost") == 1
+    waiting = _start(
+        store,
+        "waiting",
+        executor_id="daemon",
         at=NOW + timedelta(seconds=12),
-    ).acquired
+    )
+    assert waiting.run_id == "waiting"
+    assert store.get_run("lost").state == "attention_required"
 
 
-def test_renewal_extends_resource_expiry_and_generation_fences_old_token(
+def test_renewal_extends_resource_expiry_and_close_fences_token(
     tmp_path: Path,
 ) -> None:
     store = _store(tmp_path / "control.sqlite3")
-    store.admit_run(_admission("run-1", ResourceKey(kind="instrument", id="scope")))
-    first = store.acquire_executor_lease(
+    _admit(
+        store,
+        _admission("run-1", ResourceKey(kind="instrument", id="scope")),
+    )
+    first = _start(
+        store,
         "run-1",
         executor_id="kernel",
         ttl=timedelta(seconds=10),
         at=NOW,
     )
-    assert first is not None
-    assert store.claim_run_resources(first.token, at=NOW).acquired
+    events_before_renewal = store.list_events(run_id="run-1").items
 
+    with pytest.raises(ExecutorLeaseNotHeld, match="belongs to another run"):
+        store.renew_executor_lease(
+            "run-2",
+            first.token,
+            ttl=timedelta(seconds=20),
+            at=NOW + timedelta(seconds=5),
+        )
     renewed = store.renew_executor_lease(
+        "run-1",
         first.token,
         ttl=timedelta(seconds=20),
         at=NOW + timedelta(seconds=5),
     )
-    assert store.list_resource_leases()[0].expires_at == renewed.expires_at
-    assert "executor_lease_renewed" in {
-        event.kind for event in store.list_events(run_id="run-1").items
-    }
-    assert store.release_executor_lease(first.token)
-
-    second = store.acquire_executor_lease(
+    assert _resource_leases(store)[0].expires_at == renewed.expires_at
+    assert renewed.renewed_at == NOW + timedelta(seconds=5)
+    assert store.list_events(run_id="run-1").items == events_before_renewal
+    _close(
+        store,
         "run-1",
-        executor_id="kernel",
-        ttl=timedelta(seconds=10),
+        executor_token=first.token,
         at=NOW + timedelta(seconds=6),
     )
-    assert second is not None
-    assert second.generation == first.generation + 1
     with pytest.raises(ExecutorLeaseNotHeld):
-        store.append_event(
+        _append_event(
+            store,
             DurableEventInput(
                 run_id="run-1",
                 kind="stale",

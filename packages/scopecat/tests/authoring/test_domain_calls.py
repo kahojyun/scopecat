@@ -13,11 +13,10 @@ from scopecat.compiler.typed.program import (
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.resource_identity import logical_resource_port_id
-from scopecat.planning.authoring import resolve_experiment
-from tests.testkit.authoring import load_config, template_fixture
+from tests.testkit.authoring import link_invocation, load_config, template_fixture
 
 
-def _domain_module() -> tuple[sc.ExperimentModule, sc.DomainProgramDef, object]:
+def _domain_module() -> tuple[sc.ExperimentModule[...], sc.DomainProgramDef, object]:
     value_type = sc.ScalarType(sc.IntType(minimum=0))
     body = object()
     program = sc.domain_program(
@@ -80,8 +79,8 @@ def test_domain_compiler_inputs_are_a_distinct_typed_namespace() -> None:
     )
 
     semantic = elaborate_module(
-        sc.module_body(id="test.domain.compiler-inputs").domain(execution).build()
-    ).semantic_graph.domain_executions[0]
+        sc.module_body(id="test.domain.compiler-inputs").domain(execution).build().ir
+    ).domain_executions[0]
 
     assert tuple(port.id for port in semantic.program.input_ports) == ("value",)
     assert tuple(port.id for port in semantic.program.compiler_input_ports) == (
@@ -128,15 +127,13 @@ def test_domain_execution_binds_declared_resource_roles_and_source_anchor() -> N
         resources={"controller": "controller"},
     )
 
-    assembly = elaborate_module(builder.domain(execution).build())
-    semantic = assembly.semantic_graph.domain_executions[0]
+    assembly = elaborate_module(builder.domain(execution).build().ir)
+    semantic = assembly.domain_executions[0]
 
     assert semantic.resources == (
         ("controller", logical_resource_port_id("controller")),
     )
     assert semantic.program.resource_ports[0].capabilities == ("run-program",)
-    assert assembly.source_map.domain_sources[0][0] == "run-controller"
-    assert assembly.source_map.domain_sources[0][1].kind == "domain"
 
 
 def test_domain_resource_role_checks_module_capabilities() -> None:
@@ -190,7 +187,7 @@ def test_domain_execution_must_bind_a_product_from_the_template_module() -> None
         body=object(),
         results={"result": None},
     )
-    local = sc.module_body(id="test.domain.local").product("result").build()
+    local = sc.module_body(id="test.domain.local").product("result")
     foreign = sc.module_body(id="test.domain.foreign").product("result").build()
     execution = sc.domain_execution(
         program,
@@ -198,7 +195,7 @@ def test_domain_execution_must_bind_a_product_from_the_template_module() -> None
     )
 
     with pytest.raises(CheckFailed) as error:
-        local.domain(execution)
+        local.domain(execution).build()
     assert "domain_execution_product_foreign_instance" in {
         problem.code for problem in error.value.problems
     }
@@ -218,7 +215,9 @@ def test_module_preserves_ordered_domain_executions() -> None:
     )
     template = template_fixture(module, id="test.domain", kind="test")
 
-    assert tuple(call.id for call in template.module.domain_executions) == (
+    assert tuple(
+        call.id for call in template.definition.module.body.domain_executions
+    ) == (
         "first",
         "second",
     )
@@ -232,26 +231,27 @@ def test_composed_domain_effects_are_scoped_per_module_instance() -> None:
         body=object(),
         results={"result": None},
     )
-    base = sc.module_body(id="test.domain.reusable").product("result").build()
+    base = sc.module_body(id="test.domain.reusable").product("result")
     child = base.domain(
         sc.domain_execution(
             program,
             id="call",
             results={"result": base.products["result"]},
         )
-    )
+    ).build()
     right = child.instantiate("right")
     left = child.instantiate("left")
     root = sc.module_body(id="test.domain.composed").use(right, left).build()
 
-    assembly = elaborate_module(root)
+    assembly = elaborate_module(root.ir)
 
-    assert tuple(
-        execution.id for execution in assembly.semantic_graph.domain_executions
-    ) == ("right/call", "left/call")
+    assert tuple(execution.id for execution in assembly.domain_executions) == (
+        "right/call",
+        "left/call",
+    )
     assert tuple(
         execution.results[0][1].qualified_name
-        for execution in assembly.semantic_graph.domain_executions
+        for execution in assembly.domain_executions
     ) == ("right/result", "left/result")
 
 
@@ -274,17 +274,16 @@ def test_domain_execution_rejects_execute_stage_compute_input() -> None:
         sc.module_body(id="test.domain.execute-input")
         .computes(compute)
         .product("result")
-        .build()
     )
     execution = sc.domain_execution(
         program,
         inputs={"value": compute.output},
         results={"result": base.products["result"]},
     )
-    module = base.domain(execution)
+    module = base.domain(execution).build()
 
     with pytest.raises(CheckFailed) as error:
-        verify_assembly_graph(elaborate_module(module))
+        verify_assembly_graph(elaborate_module(module.ir))
     assert "semantic_domain_execution_input_stage_unavailable" in {
         problem.code for problem in error.value.problems
     }
@@ -307,25 +306,27 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
         sc.ScalarType(sc.IntType(minimum=0)),
     )
     outer = wrapper.instantiate("outer", x_count=point_x_count)
-    root = sc.module_body(id="test.domain.root").use(outer).build()
-    selected_product = outer.products["inner/counts"]
+    root = sc.module_body(id="test.domain.root").use(outer)
+    selected_product = root.products["outer/inner/counts"]
     execution = sc.domain_execution(
         program,
         inputs={"x_count": point_x_count},
         results={"counts": selected_product},
     )
 
-    root = root.domain(execution)
-    assembly = elaborate_module(root)
-    graph = assembly.semantic_graph
-    assert len(graph.domain_executions) == 1
-    assert graph.domain_executions[0].program.id.qualified_name == "x-count-program"
-    assert graph.domain_executions[0].results[0][1].qualified_name == (
+    root_module = root.domain(execution).build()
+    assembly = elaborate_module(root_module.ir)
+    assert len(assembly.domain_executions) == 1
+    assert (
+        assembly.domain_executions[0].program.symbol_id.qualified_name
+        == "x-count-program"
+    )
+    assert assembly.domain_executions[0].results[0][1].qualified_name == (
         "outer/inner/counts"
     )
 
     template = template_fixture(
-        root,
+        root_module,
         id="test.domain",
         kind="domain",
         scans=(sc.axis(point_x_count, (1, 2)),),
@@ -334,11 +335,11 @@ def test_template_domain_execution_lowers_plan_inputs_and_composed_product_uses(
             sc.record_product(selected_product, record_id="counts_second"),
         ),
     )
-    resolved = resolve_experiment(
+    resolved = link_invocation(
         template.bind(),
         config_profile=load_config(),
     )
-    typed = resolved.experiment
+    typed = resolved.program
 
     assert core_acquisitions(typed) == ()
     typed_execution = core_domain_executions(typed)[0]
@@ -370,16 +371,15 @@ def test_domain_literal_input_namespace_does_not_collide_with_compute() -> None:
         sc.module_body(id="test.domain.literal-namespace")
         .computes(compute)
         .product("result")
-        .build()
     )
     execution = sc.domain_execution(
         program,
         inputs={"value": 2},
         results={"result": base.products["result"]},
     )
-    module = base.domain(execution)
+    module = base.domain(execution).build()
 
-    graph = elaborate_module(module).semantic_graph
+    graph = elaborate_module(module.ir).semantic_graph
     value_ids = {definition.id.qualified_name for definition in graph.value_defs}
     assert "domain/inputs/value" in value_ids
     assert "domain_execution/program/inputs/value" in value_ids

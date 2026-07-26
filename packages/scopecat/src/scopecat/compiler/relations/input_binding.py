@@ -14,7 +14,6 @@ from scopecat.compiler.relations.analysis import plan_input_refs
 from scopecat.compiler.relations.model import (
     BinaryScalarExpr,
     CellValue,
-    FilterRelationExpr,
     InputRelationExpr,
     InputScalarExpr,
     InputSeriesExpr,
@@ -240,20 +239,6 @@ def bind_relation_input_refs(
             relation,
             source=bind_relation_input_refs(
                 relation.source,
-                inputs,
-                resolving=resolving,
-            ),
-        )
-    if isinstance(relation, FilterRelationExpr):
-        return replace(
-            relation,
-            source=bind_relation_input_refs(
-                relation.source,
-                inputs,
-                resolving=resolving,
-            ),
-            condition=bind_scalar_input_refs(
-                relation.condition,
                 inputs,
                 resolving=resolving,
             ),

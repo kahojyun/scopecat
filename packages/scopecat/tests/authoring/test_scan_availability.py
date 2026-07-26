@@ -4,7 +4,6 @@ import pytest
 
 import scopecat as sc
 from scopecat.compiler.frontend import resolution
-from scopecat.compiler.frontend.invocation import prepare_invocation
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
 
@@ -33,14 +32,20 @@ def test_default_scan_center_rejects_external_operation() -> None:
             points=3,
         )
 
+    template = sc.template(id="test.scan-stage.default", kind="scan-stage")(
+        template_definition
+    )
+
     with pytest.raises(CheckFailed) as error:
-        sc.template(id="test.scan-stage.default", kind="scan-stage")(
-            template_definition
-        )
+        resolution.compile_invocation(template())
 
     problem = error.value.problems[0]
     assert problem.code == "value_requires_execution"
-    assert problem.location == model_location("template", "default_scans", 0, "center")
+    assert problem.location == model_location(
+        "scans",
+        0,
+        "center",
+    )
     assert "scan center" in problem.message
 
 
@@ -61,39 +66,29 @@ def test_invocation_scan_center_rejects_external_operation() -> None:
     )
 
     with pytest.raises(CheckFailed) as error:
-        resolution.compile_prepared_invocation(prepare_invocation(invocation))
+        resolution.compile_invocation(invocation)
 
     problem = error.value.problems[0]
     assert problem.code == "value_requires_execution"
     assert problem.location == model_location("scans", 0, "center")
 
 
-def test_parameter_scan_key_rejects_external_operation() -> None:
+def test_parameter_lookup_key_rejects_external_operation() -> None:
     entity_type = sc.ScalarType(sc.EntityType())
     key = sc.compute(
         "compute-key",
         fn=lambda: "q0",
         output_type=entity_type,
     )
-    target = sc.coordinate("gain", sc.ScalarType(sc.FloatType()))
-    module = sc.module_body(id="test.scan-stage.parameter-key").computes(key).build()
-    call = module()
-    scan = sc.param_axis(
-        target,
-        sc.param_row("device-parameters", device=key.output),
-        "gain",
-        (0.5, 1.0),
-    )
+    target_type = sc.ScalarType(sc.FloatType())
 
-    def template_definition() -> sc.ExperimentBody:
-        return sc.experiment(call).scan(scan)
-
-    with pytest.raises(CheckFailed) as error:
-        sc.template(id="test.scan-stage.parameter-key", kind="scan-stage")(
-            template_definition
+    with pytest.raises(
+        TypeError,
+        match="compute outputs must be connected as standalone values",
+    ):
+        sc.parameter_lookup(
+            "device-parameters",
+            key={"device": key.output},
+            column="gain",
+            value_type=target_type,
         )
-
-    problem = error.value.problems[0]
-    assert problem.code == "value_requires_execution"
-    assert problem.location == model_location("template", "default_scans", 0, "device")
-    assert "parameter scan key" in problem.message

@@ -1,15 +1,8 @@
-"""Exact backend-neutral algebra for ordered logical point domains.
-
-Point-domain leaves describe only the finite point sources the compiler knows
-how to materialize directly: explicit axes, fixed-count linear axes, and
-literal rows.  Cartesian, dependent, and positional composition preserve that
-exact cardinality without embedding a general relation language in the point
-model.
-"""
+"""Exact backend-neutral algebra for ordered logical point domains."""
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from math import prod
 from typing import Never, overload
@@ -97,99 +90,24 @@ class PointAxis[CenterT]:
     source: PointAxisSource[CenterT]
 
     def __post_init__(self) -> None:
-        # Reuse the kernel's column-id invariant at the algebra boundary.
         TableColumn(self.id, self.value_type)
 
 
 @dataclass(frozen=True, slots=True)
-class PointRows:
-    """Exact literal rows stored positionally in declared column order."""
-
-    columns: tuple[TableColumn, ...]
-    rows: tuple[tuple[CellValue, ...], ...]
-
-    def __post_init__(self) -> None:
-        width = len(self.columns)
-        for index, row in enumerate(self.rows):
-            if len(row) != width:
-                msg = (
-                    f"literal point row {index} has width {len(row)}; expected {width}"
-                )
-                raise ValueError(msg)
-
-    @property
-    def value_type(self) -> Table:
-        """Project this exact point leaf to the compiler's table type."""
-
-        count = len(self.rows)
-        return Table(columns=self.columns, min_rows=count, max_rows=count)
-
-
-@dataclass(frozen=True, slots=True)
 class PointProduct[CenterT]:
-    """Independent Cartesian factors evaluated in one ambient environment."""
+    """A flat declaration-ordered Cartesian product."""
 
-    factors: tuple[PointDomainExpr[CenterT], ...]
+    factors: tuple[PointAxis[CenterT], ...]
 
     def __post_init__(self) -> None:
         if len(self.factors) < 2:
             msg = "canonical point product requires at least two factors"
             raise ValueError(msg)
-        if any(isinstance(factor, PointUnit | PointProduct) for factor in self.factors):
-            msg = "point product factors must be canonical"
-            raise ValueError(msg)
 
 
-@dataclass(frozen=True, slots=True)
-class PointDependentProduct[CenterT]:
-    """A product whose right side is evaluated once per left row."""
-
-    left: PointDomainExpr[CenterT]
-    right: PointDomainExpr[CenterT]
-
-    def __post_init__(self) -> None:
-        if isinstance(self.left, PointUnit) or isinstance(self.right, PointUnit):
-            msg = "canonical dependent product cannot contain point unit"
-            raise ValueError(msg)
-
-
-@dataclass(frozen=True, slots=True)
-class PointZip[CenterT]:
-    """Positional composition of equally long child domains."""
-
-    sources: tuple[PointDomainExpr[CenterT], ...]
-
-    def __post_init__(self) -> None:
-        if len(self.sources) < 2:
-            msg = "canonical point zip requires at least two sources"
-            raise ValueError(msg)
-        if any(isinstance(source, PointZip) for source in self.sources):
-            msg = "point zip sources must be canonical"
-            raise ValueError(msg)
-
-
-type PointDomainExpr[CenterT] = (
-    PointUnit
-    | PointAxis[CenterT]
-    | PointRows
-    | PointProduct[CenterT]
-    | PointDependentProduct[CenterT]
-    | PointZip[CenterT]
-)
+type PointDomainExpr[CenterT] = PointUnit | PointAxis[CenterT] | PointProduct[CenterT]
 
 POINT_UNIT = PointUnit()
-
-
-def decompose_product_ordinal(
-    ordinal: int,
-    factor_counts: tuple[int, ...],
-) -> tuple[int, ...]:
-    """Map one left-major product ordinal to each factor's local ordinal."""
-
-    return tuple(
-        (ordinal // prod(factor_counts[index + 1 :])) % count
-        for index, count in enumerate(factor_counts)
-    )
 
 
 def point_axis_values(
@@ -218,15 +136,6 @@ def point_axis_linear[CenterT](
     )
 
 
-def point_literal_rows(
-    columns: tuple[TableColumn, ...],
-    rows: tuple[tuple[CellValue, ...], ...],
-) -> PointRows:
-    """Build exact positional literal rows."""
-
-    return PointRows(columns=columns, rows=rows)
-
-
 @overload
 def point_product() -> PointUnit: ...
 
@@ -249,10 +158,10 @@ def point_product[CenterT](
     first: PointDomainExpr[CenterT] | None = None,
     *rest: PointDomainExpr[CenterT],
 ) -> PointDomainExpr[CenterT]:
-    """Build a canonical ordered product without reordering or deduplication."""
+    """Build a canonical flat product without reordering or deduplication."""
 
     factors = () if first is None else (first, *rest)
-    flattened: list[PointDomainExpr[CenterT]] = []
+    flattened: list[PointAxis[CenterT]] = []
     for factor in factors:
         if isinstance(factor, PointUnit):
             continue
@@ -267,157 +176,57 @@ def point_product[CenterT](
     return PointProduct(tuple(flattened))
 
 
-@overload
-def point_dependent_product(
-    left: PointDomainExpr[Never],
-    right: PointDomainExpr[Never],
-) -> PointDomainExpr[Never]: ...
-
-
-@overload
-def point_dependent_product[CenterT](
-    left: PointDomainExpr[CenterT],
-    right: PointDomainExpr[CenterT],
-) -> PointDomainExpr[CenterT]: ...
-
-
-def point_dependent_product[CenterT](
-    left: PointDomainExpr[CenterT],
-    right: PointDomainExpr[CenterT],
-) -> PointDomainExpr[CenterT]:
-    """Build directional point composition, applying only the Unit laws."""
-
-    if isinstance(left, PointUnit):
-        return right
-    if isinstance(right, PointUnit):
-        return left
-    return PointDependentProduct(left, right)
-
-
-@overload
-def point_zip(
-    first: PointDomainExpr[Never],
-    second: PointDomainExpr[Never],
-    *rest: PointDomainExpr[Never],
-) -> PointDomainExpr[Never]: ...
-
-
-@overload
-def point_zip[CenterT](
-    first: PointDomainExpr[CenterT],
-    second: PointDomainExpr[CenterT],
-    *rest: PointDomainExpr[CenterT],
-) -> PointDomainExpr[CenterT]: ...
-
-
-def point_zip[CenterT](
-    first: PointDomainExpr[CenterT],
-    second: PointDomainExpr[CenterT],
-    *rest: PointDomainExpr[CenterT],
-) -> PointDomainExpr[CenterT]:
-    """Build a canonical positional composition.
-
-    Unit is deliberately not an identity for Zip: its one empty row constrains
-    every other source to have exactly one materialized row.
-    """
-
-    sources = (first, second, *rest)
-    flattened: list[PointDomainExpr[CenterT]] = []
-    for source in sources:
-        if isinstance(source, PointZip):
-            flattened.extend(source.sources)
-        else:
-            flattened.append(source)
-    return PointZip(tuple(flattened))
-
-
-def walk_point_domain[CenterT](
-    root: PointDomainExpr[CenterT],
-) -> Iterator[tuple[PointDomainPath, PointDomainExpr[CenterT]]]:
-    """Walk a canonical domain in deterministic preorder."""
-
-    def visit(
-        node: PointDomainExpr[CenterT],
-        path: PointDomainPath,
-    ) -> Iterator[tuple[PointDomainPath, PointDomainExpr[CenterT]]]:
-        yield path, node
-        match node:
-            case PointUnit() | PointAxis() | PointRows():
-                return
-            case PointProduct(factors=factors):
-                for index, factor in enumerate(factors):
-                    yield from visit(factor, (*path, "factors", index))
-            case PointDependentProduct(left=left, right=right):
-                yield from visit(left, (*path, "left"))
-                yield from visit(right, (*path, "right"))
-            case PointZip(sources=sources):
-                for index, source in enumerate(sources):
-                    yield from visit(source, (*path, "sources", index))
-
-    yield from visit(root, ())
-
-
 def iter_point_axis_linear[CenterT](
     root: PointDomainExpr[CenterT],
 ) -> Iterator[tuple[PointDomainPath, PointAxisLinear[CenterT]]]:
-    """Yield linear axis sources with the path of their owning axis node."""
+    """Yield linear sources and their stable axis paths."""
 
-    for path, node in walk_point_domain(root):
-        if isinstance(node, PointAxis) and isinstance(node.source, PointAxisLinear):
-            yield path, node.source
+    if isinstance(root, PointAxis):
+        if isinstance(root.source, PointAxisLinear):
+            yield (), root.source
+        return
+    if isinstance(root, PointProduct):
+        for index, axis in enumerate(root.factors):
+            if isinstance(axis.source, PointAxisLinear):
+                yield ("factors", index), axis.source
 
 
 def map_point_axis_centers[CenterT, MappedCenterT](
     root: PointDomainExpr[CenterT],
     transform: Callable[[CenterT, PointDomainPath], MappedCenterT],
 ) -> PointDomainExpr[MappedCenterT]:
-    """Map linear-axis centers while preserving the canonical tree and paths."""
+    """Map linear centers while preserving the flat domain structure."""
 
-    def visit(
-        node: PointDomainExpr[CenterT],
+    def map_axis(
+        axis: PointAxis[CenterT],
         path: PointDomainPath,
-    ) -> PointDomainExpr[MappedCenterT]:
-        match node:
-            case PointUnit():
-                return POINT_UNIT
-            case PointAxis(id=axis_id, value_type=value_type, source=source):
-                mapped_source: PointAxisSource[MappedCenterT]
-                if isinstance(source, PointAxisLinear):
-                    mapped_source = PointAxisLinear(
-                        center=transform(source.center, path),
-                        span=source.span,
-                        count=source.count,
-                    )
-                else:
-                    mapped_source = source
-                return PointAxis(axis_id, value_type, mapped_source)
-            case PointRows():
-                return node
-            case PointProduct(factors=factors):
-                return PointProduct(
-                    tuple(
-                        visit(factor, (*path, "factors", index))
-                        for index, factor in enumerate(factors)
-                    )
-                )
-            case PointDependentProduct(left=left, right=right):
-                return PointDependentProduct(
-                    visit(left, (*path, "left")),
-                    visit(right, (*path, "right")),
-                )
-            case PointZip(sources=sources):
-                return PointZip(
-                    tuple(
-                        visit(source, (*path, "sources", index))
-                        for index, source in enumerate(sources)
-                    )
-                )
+    ) -> PointAxis[MappedCenterT]:
+        source = axis.source
+        mapped_source: PointAxisSource[MappedCenterT]
+        if isinstance(source, PointAxisLinear):
+            mapped_source = PointAxisLinear(
+                center=transform(source.center, path),
+                span=source.span,
+                count=source.count,
+            )
+        else:
+            mapped_source = source
+        return PointAxis(axis.id, axis.value_type, mapped_source)
 
-    return visit(root, ())
+    if isinstance(root, PointUnit):
+        return POINT_UNIT
+    if isinstance(root, PointAxis):
+        return map_axis(root, ())
+    return PointProduct(
+        tuple(
+            map_axis(axis, ("factors", index))
+            for index, axis in enumerate(root.factors)
+        )
+    )
 
 
 class PointDomainShapeError(ValueError):
-    """A domain tree has incompatible schemas or exact cardinalities."""
+    """A domain has incompatible output columns."""
 
     def __init__(self, code: str, path: PointDomainPath, message: str) -> None:
         self.code = code
@@ -428,7 +237,7 @@ class PointDomainShapeError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class PointDomainShape:
-    """The ordered columns and exact cardinality of one algebra node."""
+    """The ordered columns and exact cardinality of one point domain."""
 
     columns: tuple[TableColumn, ...]
     cardinality: int
@@ -440,7 +249,7 @@ class PointDomainShape:
 
     @property
     def value_type(self) -> Table:
-        """Project the point shape to the compiler's exact table type."""
+        """Project the exact shape to the compiler's table type."""
 
         return Table(
             columns=self.columns,
@@ -449,101 +258,15 @@ class PointDomainShape:
         )
 
 
-@dataclass(frozen=True, slots=True)
-class PointDomainAnalysis:
-    """Root and per-node exact shapes for one canonical domain tree."""
-
-    root: PointDomainShape
-    facts: Mapping[PointDomainPath, PointDomainShape]
-
-
 def analyze_point_domain[CenterT](
     root: PointDomainExpr[CenterT],
-) -> PointDomainAnalysis:
-    """Compute exact schema and cardinality facts from point structure alone."""
-
-    facts: dict[PointDomainPath, PointDomainShape] = {}
-
-    def analyze(
-        node: PointDomainExpr[CenterT],
-        path: PointDomainPath,
-    ) -> PointDomainShape:
-        match node:
-            case PointUnit():
-                shape = PointDomainShape((), 1)
-            case PointAxis(id=axis_id, value_type=value_type, source=source):
-                count = (
-                    source.count
-                    if isinstance(source, PointAxisLinear)
-                    else len(source.values)
-                )
-                shape = PointDomainShape((TableColumn(axis_id, value_type),), count)
-            case PointRows(columns=columns, rows=rows):
-                shape = PointDomainShape(
-                    _merged_columns((columns,), path=path),
-                    len(rows),
-                )
-            case PointProduct(factors=factors):
-                children = tuple(
-                    analyze(factor, (*path, "factors", index))
-                    for index, factor in enumerate(factors)
-                )
-                shape = _product_shape(children, path=path)
-            case PointDependentProduct(left=left, right=right):
-                children = (
-                    analyze(left, (*path, "left")),
-                    analyze(right, (*path, "right")),
-                )
-                shape = _product_shape(children, path=path)
-            case PointZip(sources=sources):
-                children = tuple(
-                    analyze(source, (*path, "sources", index))
-                    for index, source in enumerate(sources)
-                )
-                shape = _zip_shape(children, path=path)
-        facts[path] = shape
-        return shape
-
-    root_shape = analyze(root, ())
-    return PointDomainAnalysis(
-        root=root_shape,
-        facts=dict(facts),
-    )
-
-
-def _product_shape(
-    children: tuple[PointDomainShape, ...],
-    *,
-    path: PointDomainPath,
 ) -> PointDomainShape:
-    columns = _merged_columns(tuple(child.columns for child in children), path=path)
-    count = prod(child.cardinality for child in children)
-    return PointDomainShape(columns, count)
+    """Compute exact schema and cardinality from the flat point structure."""
 
-
-def _zip_shape(
-    children: tuple[PointDomainShape, ...],
-    *,
-    path: PointDomainPath,
-) -> PointDomainShape:
-    columns = _merged_columns(tuple(child.columns for child in children), path=path)
-    counts = tuple(child.cardinality for child in children)
-    if len(set(counts)) != 1:
-        raise PointDomainShapeError(
-            "point_domain_zip_cardinality_mismatch",
-            path,
-            "point zip sources must have equal exact cardinality",
-        )
-    count = counts[0]
-    return PointDomainShape(columns, count)
-
-
-def _merged_columns(
-    groups: tuple[tuple[TableColumn, ...], ...],
-    *,
-    path: PointDomainPath,
-) -> tuple[TableColumn, ...]:
-    columns = tuple(column for group in groups for column in group)
+    if isinstance(root, PointUnit):
+        return PointDomainShape((), 1)
+    axes = (root,) if isinstance(root, PointAxis) else root.factors
+    columns = tuple(TableColumn(axis.id, axis.value_type) for axis in axes)
     column_ids = tuple(column.id for column in columns)
     duplicates = tuple(
         sorted(
@@ -553,8 +276,16 @@ def _merged_columns(
     if duplicates:
         raise PointDomainShapeError(
             "point_domain_duplicate_columns",
-            path,
+            (),
             "point-domain composition produces duplicate columns: "
             + ", ".join(duplicates),
         )
-    return columns
+    cardinality = prod(
+        (
+            axis.source.count
+            if isinstance(axis.source, PointAxisLinear)
+            else len(axis.source.values)
+        )
+        for axis in axes
+    )
+    return PointDomainShape(columns, cardinality)

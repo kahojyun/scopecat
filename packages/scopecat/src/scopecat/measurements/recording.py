@@ -7,12 +7,13 @@ from typing import Literal, Protocol
 
 from pydantic import JsonValue
 
-from scopecat.execution.ports.journal import ExecutionJournal
+from scopecat.execution.events import TransitionRecorder
 from scopecat.execution.ports.journal import commit_transition as _commit_transition
 from scopecat.execution.ports.measurement import MeasurementDatasetWriter
 from scopecat.execution.problems import problem_from_exception, runtime_problem
 from scopecat.kernel.errors import MeasurementRecordingError
-from scopecat.kernel.problems import Problem, ProblemCategory, ProblemPhase
+from scopecat.kernel.problems import Problem, ProblemPhase
+from scopecat.measurements.datasets import RAW_MEASUREMENTS_DATASET_ID
 from scopecat.measurements.projection import ProjectedMeasurementDataset
 from scopecat.records.execution_journal import ExecutionStage, ExecutionTransition
 from scopecat.records.measurement_recording import (
@@ -25,7 +26,6 @@ from scopecat.records.measurement_recording import (
 
 class _DatasetOperation(Protocol):
     run_id: str
-    dataset_id: str
     recording_contract_fingerprint: str
 
     @property
@@ -35,9 +35,7 @@ class _DatasetOperation(Protocol):
 def append_measurement_dataset(
     dataset: ProjectedMeasurementDataset,
     writer: MeasurementDatasetWriter,
-    journal: ExecutionJournal,
-    *,
-    transition_observer: Callable[[ExecutionTransition], None] | None = None,
+    recorder: TransitionRecorder,
 ) -> MeasurementDatasetReceipt | None:
     """Append one contiguous projected point range."""
 
@@ -48,7 +46,6 @@ def append_measurement_dataset(
         raise ValueError("projected measurement records require a dataset schema")
     append = MeasurementDatasetAppend(
         run_id=dataset.run_id,
-        dataset_id=dataset.schema.dataset_id,
         recording_contract_fingerprint=dataset.recording_contract_fingerprint,
         start_index=records[0].point_index,
         records=records,
@@ -58,33 +55,28 @@ def append_measurement_dataset(
         expected_hash=append.content_hash,
         stage="append_measurement",
         evidence={
-            "dataset_id": append.dataset_id,
             "start_index": append.start_index,
             "record_count": len(append.records),
             "append_content_hash": append.content_hash,
         },
         invoke=lambda: writer.append(append),
-        journal=journal,
-        transition_observer=transition_observer,
+        recorder=recorder,
     )
 
 
 def seal_measurement_dataset(
     *,
     run_id: str,
-    dataset_id: str,
     recording_contract_fingerprint: str,
     point_count: int,
     append_content_hashes: tuple[str, ...],
     writer: MeasurementDatasetWriter,
-    journal: ExecutionJournal,
-    transition_observer: Callable[[ExecutionTransition], None] | None = None,
+    recorder: TransitionRecorder,
 ) -> MeasurementDatasetReceipt:
     """Seal the dataset after all admitted point ranges have been appended."""
 
     seal = MeasurementDatasetSeal(
         run_id=run_id,
-        dataset_id=dataset_id,
         recording_contract_fingerprint=recording_contract_fingerprint,
         point_count=point_count,
         dataset_content_hash=measurement_dataset_content_hash(
@@ -97,13 +89,11 @@ def seal_measurement_dataset(
         expected_hash=seal.dataset_content_hash,
         stage="seal_measurement",
         evidence={
-            "dataset_id": seal.dataset_id,
             "point_count": seal.point_count,
             "dataset_content_hash": seal.dataset_content_hash,
         },
         invoke=lambda: writer.seal(seal),
-        journal=journal,
-        transition_observer=transition_observer,
+        recorder=recorder,
     )
 
 
@@ -114,8 +104,7 @@ def _record_operation(
     stage: ExecutionStage,
     evidence: dict[str, JsonValue],
     invoke: Callable[[], object],
-    journal: ExecutionJournal,
-    transition_observer: Callable[[ExecutionTransition], None] | None,
+    recorder: TransitionRecorder,
 ) -> MeasurementDatasetReceipt:
     started = _transition(
         operation,
@@ -124,9 +113,7 @@ def _record_operation(
         evidence=evidence,
     )
     try:
-        committed_started = _commit_transition(journal, started)
-        if transition_observer is not None:
-            transition_observer(committed_started)
+        recorder.commit(started)
     except Exception as error:
         raise _error(
             operation,
@@ -136,7 +123,6 @@ def _record_operation(
                     "measurement_dataset_intent_persistence_failed",
                     "failed to persist measurement dataset intent",
                     error,
-                    ProblemCategory.STORAGE,
                 ),
             ),
             receipt=None,
@@ -150,9 +136,8 @@ def _record_operation(
             "measurement_dataset_operation_raised",
             "measurement dataset writer raised",
             error,
-            ProblemCategory.EXTERNAL_FAILURE,
         )
-        _append_unknown(journal, started, operation, stage, (problem,), None)
+        _append_unknown(recorder, started, operation, stage, (problem,), None)
         raise _error(
             operation,
             problems=(problem,),
@@ -166,9 +151,8 @@ def _record_operation(
             run_id=operation.run_id,
             operation_id=operation.operation_id,
             phase=ProblemPhase.PERSISTENCE,
-            category=ProblemCategory.INTERRUPTED,
         )
-        _append_unknown(journal, started, operation, stage, (problem,), None)
+        _append_unknown(recorder, started, operation, stage, (problem,), None)
         raise
     receipt: MeasurementDatasetReceipt | None = None
     try:
@@ -189,12 +173,11 @@ def _record_operation(
             run_id=operation.run_id,
             operation_id=operation.operation_id,
             phase=ProblemPhase.PERSISTENCE,
-            category=ProblemCategory.PROVIDER_CONTRACT,
             details={
                 "error_type": f"{type(error).__module__}.{type(error).__qualname__}"
             },
         )
-        _append_unknown(journal, started, operation, stage, (problem,), receipt)
+        _append_unknown(recorder, started, operation, stage, (problem,), receipt)
         raise _error(
             operation,
             problems=(problem,),
@@ -208,13 +191,10 @@ def _record_operation(
         evidence={
             **evidence,
             "receipt": receipt.model_dump(mode="json"),
-            "receipt_content_hash": receipt.content_hash,
         },
     )
     try:
-        committed_completed = _commit_transition(journal, completed)
-        if transition_observer is not None:
-            transition_observer(committed_completed)
+        recorder.commit(completed)
     except Exception as error:
         raise _error(
             operation,
@@ -224,7 +204,6 @@ def _record_operation(
                     "measurement_dataset_receipt_persistence_failed",
                     "failed to persist measurement dataset receipt",
                     error,
-                    ProblemCategory.STORAGE,
                 ),
             ),
             receipt=receipt,
@@ -254,20 +233,21 @@ def _transition(
 
 
 def _append_unknown(
-    journal: ExecutionJournal,
+    recorder: TransitionRecorder,
     started: ExecutionTransition,
     operation: _DatasetOperation,
     stage: ExecutionStage,
     problems: tuple[Problem, ...],
     receipt: MeasurementDatasetReceipt | None,
 ) -> None:
+    """Best-effort journal-only closure for an uncertain dataset effect."""
+
     evidence = dict(started.evidence)
     if receipt is not None:
         evidence["receipt"] = receipt.model_dump(mode="json")
-        evidence["receipt_content_hash"] = receipt.content_hash
     try:
         _commit_transition(
-            journal,
+            recorder.journal,
             _transition(
                 operation,
                 stage=stage,
@@ -285,7 +265,6 @@ def _problem(
     code: str,
     message: str,
     error: Exception,
-    category: ProblemCategory,
 ) -> Problem:
     return problem_from_exception(
         code,
@@ -294,7 +273,6 @@ def _problem(
         operation_id=operation.operation_id,
         error=error,
         phase=ProblemPhase.PERSISTENCE,
-        category=category,
     )
 
 
@@ -308,7 +286,7 @@ def _error(
     return MeasurementRecordingError(
         problems,
         run_id=operation.run_id,
-        dataset_id=operation.dataset_id,
+        dataset_id=RAW_MEASUREMENTS_DATASET_ID,
         recording_contract_fingerprint=operation.recording_contract_fingerprint,
         operation_id=operation.operation_id,
         receipt=receipt,

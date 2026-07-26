@@ -1,15 +1,20 @@
 from dataclasses import replace
+from typing import Never
 
 import pytest
 
-from scopecat.compiler.frontend.environment import validate_config_environment
+from scopecat.compiler.frontend.environment import build_config_environment
 from scopecat.compiler.relations.evaluation import EvalContext
 from scopecat.compiler.relations.model import (
     CellValue,
     parameter_lookup,
     point_col,
 )
-from scopecat.compiler.relations.point_domain import point_literal_rows
+from scopecat.compiler.relations.point_domain import (
+    PointAxis,
+    point_axis_values,
+    point_product,
+)
 from scopecat.compiler.relations.specialization import (
     ResidualScalar,
     specialize_scalar,
@@ -56,7 +61,14 @@ def _point_domain(
     columns: tuple[TableColumn, ...],
     rows: tuple[tuple[CellValue, ...], ...],
 ) -> PointDomain:
-    return PointDomain(root=point_literal_rows(columns, rows))
+    factors: list[PointAxis[Never]] = []
+    for index, column in enumerate(columns):
+        values: list[CellValue] = []
+        for row in rows:
+            if row[index] not in values:
+                values.append(row[index])
+        factors.append(point_axis_values(column.id, column.value_type, tuple(values)))
+    return PointDomain(root=point_product(*factors))
 
 
 def _point_bindings(points: PointDomain) -> RelationTypeBindings:
@@ -68,7 +80,7 @@ def _point_bindings(points: PointDomain) -> RelationTypeBindings:
 
 def _environment():
     return replace(
-        validate_config_environment(load_config()),
+        build_config_environment(load_config()),
         parameters=parameters(),
     )
 
@@ -98,7 +110,7 @@ def test_point_parameter_overlay_replaces_only_one_existing_cell() -> None:
         ),
         (
             ("r0", Quantity(value=5_900, unit="MHz")),
-            ("r1", Quantity(value=6_200, unit="MHz")),
+            ("r0", Quantity(value=6_200, unit="MHz")),
         ),
     )
     point_bindings = _point_bindings(points)
@@ -134,7 +146,7 @@ def test_point_parameter_overlay_replaces_only_one_existing_cell() -> None:
     )
 
     environment = replace(
-        validate_config_environment(
+        build_config_environment(
             config_with_physical_resources({"readout-a": ("readout",)})
         ),
         parameters=parameters(),

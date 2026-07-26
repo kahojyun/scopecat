@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import replace
-
 import pytest
 
 import scopecat as sc
@@ -9,41 +7,41 @@ from scopecat.authoring._binding_intents import requires, resource_port
 from scopecat.authoring._products import ModuleProductDecl, record_product
 from scopecat.compiler.frontend.assembly_lowering import validate_assembly_entrypoint
 from scopecat.compiler.frontend.elaboration import SemanticExperimentIR
-from scopecat.compiler.frontend.environment import validate_config_environment
+from scopecat.compiler.frontend.environment import build_config_environment
 from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
-from scopecat.compiler.frontend.invocation import prepare_invocation
 from scopecat.compiler.frontend.resolution import (
-    compile_prepared_invocation,
+    compile_invocation,
     resolve_compiled_invocation,
 )
-from scopecat.compiler.relations.point_domain import point_literal_rows
+from scopecat.compiler.relations.point_domain import point_axis_values
 from scopecat.compiler.semantic.model import (
-    ImplementationCatalog,
+    AcquireEffect,
     LiteralValueSource,
-    OperationOutputSource,
+    SemanticDomainExecution,
     SemanticGraphIR,
-    SourceMap,
     ValueUse,
 )
 from scopecat.compiler.semantic.operation_contract import ScalarBinarySemantics
 from scopecat.compiler.semantic.verification import (
     VerifiedSemanticGraph,
-    verify_implementation_catalog,
     verify_semantic_graph,
-    verify_source_map,
+)
+from scopecat.compiler.typed.program import CoreProgram
+from scopecat.compiler.typed.verification import (
+    VerifiedCoreProgram,
+    seal_typed_program,
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.problems import ProblemPhase, model_location
-from scopecat.kernel.value_types import Float, Payload, Scalar, TableColumn
-from scopecat.planning.authoring import resolve_experiment
+from scopecat.kernel.value_types import Float, Payload, Scalar
 from scopecat.records.entity import EntityRef
-from tests.testkit.authoring import load_config, template_fixture
+from tests.testkit.authoring import link_invocation, load_config, template_fixture
 
 
-def _resolve(module: sc.ExperimentModule) -> None:
+def _resolve(module: sc.ExperimentModule[...]) -> None:
     invocation = template_fixture(module, id="test.graph", kind="graph").bind()
-    resolve_experiment(
+    link_invocation(
         invocation,
         config_profile=load_config(),
     )
@@ -155,79 +153,13 @@ def test_compile_rejects_a_table_shaped_plan_state_binding() -> None:
     ).bind(rows=({"value": 1.0},))
 
     with pytest.raises(CheckFailed) as error:
-        compile_prepared_invocation(prepare_invocation(invocation))
+        compile_invocation(invocation)
 
     problem = error.value.problems[0]
     assert problem.code == "state_binding_value_shape_invalid"
     assert problem.phase is ProblemPhase.AUTHORING
     assert problem.location == model_location("bindings", 0, "value")
     assert problem.message == "state binding value must be scalar-shaped"
-
-
-def test_compile_rejects_a_table_shaped_plan_action_field() -> None:
-    rows = sc.input(
-        "rows",
-        sc.TableType(columns=(sc.TableColumn("value", sc.ScalarType(sc.FloatType())),)),
-    )
-    module = (
-        sc.module_body(id="test.graph.table-action-field")
-        .inputs(rows)
-        .resource("drive", requires=("set_gain",))
-        .action(
-            "set-gain",
-            resource="drive",
-            capability="set_gain",
-            fields={"value": rows},
-        )
-        .build()
-    )
-    invocation = template_fixture(
-        module,
-        id="test.graph.table-action-field",
-        kind="graph",
-    ).bind(rows=({"value": 1.0},))
-
-    with pytest.raises(CheckFailed) as error:
-        compile_prepared_invocation(prepare_invocation(invocation))
-
-    problem = error.value.problems[0]
-    assert problem.code == "action_field_value_shape_invalid"
-    assert problem.phase is ProblemPhase.AUTHORING
-    assert problem.location == model_location("actions", 0, "fields", "value")
-    assert problem.message == "action field value must be scalar-shaped"
-
-
-def test_compile_rejects_a_table_shaped_plan_row_region_value() -> None:
-    rows = sc.input(
-        "rows",
-        sc.TableType(columns=(sc.TableColumn("value", sc.ScalarType(sc.FloatType())),)),
-    )
-    module = (
-        sc.module_body(id="test.graph.table-row-region-value")
-        .inputs(rows)
-        .resource("drive", requires=("set_gain",))
-        .state_each(
-            rows,
-            resource_port="drive",
-            capability="set_gain",
-            field="value",
-            value=rows,
-        )
-        .build()
-    )
-    invocation = template_fixture(
-        module,
-        id="test.graph.table-row-region-value",
-        kind="graph",
-    ).bind(rows=({"value": 1.0},))
-
-    with pytest.raises(CheckFailed) as error:
-        compile_prepared_invocation(prepare_invocation(invocation))
-
-    problem = error.value.problems[0]
-    assert problem.code == "semantic_row_region_value_shape_invalid"
-    assert problem.phase is ProblemPhase.AUTHORING
-    assert problem.message == "row region state value must be scalar-shaped"
 
 
 def test_static_record_schema_is_checked_before_parameter_catalog() -> None:
@@ -339,7 +271,7 @@ def test_product_axis_rejects_point_dependent_value() -> None:
     ).bind()
 
     with pytest.raises(CheckFailed) as error:
-        resolve_experiment(
+        link_invocation(
             invocation,
             config_profile=load_config(),
         )
@@ -349,40 +281,6 @@ def test_product_axis_rejects_point_dependent_value() -> None:
     assert problem.location == model_location(
         "products", "signal", "axes", "sample", "size"
     )
-
-
-def test_state_target_rejects_external_operation_value() -> None:
-    rows = sc.parameter(
-        "missing-state-rows",
-        sc.TableType(columns=()),
-    )
-    target_entity = sc.compute(
-        "target-entity",
-        fn=lambda: "q0",
-        output_type=sc.ScalarType(sc.EntityType()),
-    )
-    module = (
-        sc.module_body(id="test.stage.state-target")
-        .resource("drive", requires=("set_gain",))
-        .computes(target_entity)
-        .state_each(
-            rows,
-            resource_port="drive",
-            capability="set_gain",
-            field="value",
-            value=1.0,
-            target_entities=(target_entity.output,),
-        )
-        .build()
-    )
-
-    with pytest.raises(CheckFailed) as error:
-        _resolve(module)
-
-    problem = error.value.problems[0]
-    assert problem.code == "value_requires_execution"
-    assert problem.location == model_location("state", 0, "target_entities", 0)
-    assert "state target entity" in problem.message
 
 
 def test_direct_compute_edge_is_topologically_ordered() -> None:
@@ -407,7 +305,7 @@ def test_direct_compute_edge_is_topologically_ordered() -> None:
         id="test.graph.direct-edge",
         kind="graph",
     ).bind()
-    compiled = compile_prepared_invocation(prepare_invocation(invocation))
+    compiled = compile_invocation(invocation)
 
     assert [
         operation.id.local_id
@@ -427,9 +325,9 @@ def test_compile_carries_verified_source_and_normalized_compiler_inputs() -> Non
         kind="graph",
     ).bind(subject="q0")
 
-    compiled = compile_prepared_invocation(prepare_invocation(invocation))
+    compiled = compile_invocation(invocation)
 
-    assert compiled.request.template_inputs == {"subject": "q0"}
+    assert compiled.request.inputs == {"subject": "q0"}
     assert compiled.assembly.source.inputs == {"subject": EntityRef(id="q0")}
     assert (
         compiled.assembly.graph.semantic_graph.graph
@@ -437,37 +335,55 @@ def test_compile_carries_verified_source_and_normalized_compiler_inputs() -> Non
     )
 
 
-def test_compile_verifies_the_final_assembly_once(
+def test_compile_invocation_projects_request_metadata() -> None:
+    subject = sc.input("subject", sc.ScalarType(sc.EntityType()))
+    module = sc.module_body(id="test.graph.prepared-request").inputs(subject).build()
+    invocation = template_fixture(
+        module,
+        id="test.graph.prepared-request",
+        kind="graph",
+    ).bind(subject="q0")
+
+    compiled = compile_invocation(
+        invocation,
+        metadata={"sample": "q0"},
+        operator="alice",
+    )
+
+    assert compiled.request.experiment_id == invocation.definition.id
+    assert compiled.request.inputs == {"subject": "q0"}
+    assert compiled.request.metadata == {"sample": "q0"}
+    assert compiled.request.operator == "alice"
+
+
+def test_compile_verifies_and_seals_the_final_program_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    calls = {"graph": 0, "catalog": 0, "source_map": 0}
+    calls = {"graph": 0, "seal": 0}
 
-    def counted_graph(graph: SemanticGraphIR) -> VerifiedSemanticGraph:
-        calls["graph"] += 1
-        return verify_semantic_graph(graph)
-
-    def counted_catalog(
+    def counted_graph(
         graph: SemanticGraphIR,
-        catalog: ImplementationCatalog,
-    ) -> ImplementationCatalog:
-        calls["catalog"] += 1
-        return verify_implementation_catalog(graph, catalog)
+        *,
+        effects: tuple[SemanticDomainExecution | AcquireEffect, ...] = (),
+    ) -> VerifiedSemanticGraph:
+        calls["graph"] += 1
+        return verify_semantic_graph(graph, effects=effects)
 
-    def counted_source_map(graph: SemanticGraphIR, source_map: SourceMap) -> SourceMap:
-        calls["source_map"] += 1
-        return verify_source_map(graph, source_map)
+    def counted_seal(
+        program: CoreProgram,
+        *,
+        phase: ProblemPhase = ProblemPhase.AUTHORING,
+    ) -> VerifiedCoreProgram:
+        calls["seal"] += 1
+        return seal_typed_program(program, phase=phase)
 
     monkeypatch.setattr(
         "scopecat.compiler.frontend.graph_validation.verify_semantic_graph",
         counted_graph,
     )
     monkeypatch.setattr(
-        "scopecat.compiler.frontend.graph_validation.verify_implementation_catalog",
-        counted_catalog,
-    )
-    monkeypatch.setattr(
-        "scopecat.compiler.frontend.graph_validation.verify_source_map",
-        counted_source_map,
+        "scopecat.compiler.linking.linked.seal_typed_program",
+        counted_seal,
     )
     module = sc.module_body(id="test.graph.single-proof").build()
     invocation = template_fixture(
@@ -476,14 +392,14 @@ def test_compile_verifies_the_final_assembly_once(
         kind="graph",
     ).bind()
 
-    compiled = compile_prepared_invocation(prepare_invocation(invocation))
+    compiled = compile_invocation(invocation)
     resolved = resolve_compiled_invocation(
         compiled,
-        environment=validate_config_environment(load_config()),
+        environment=build_config_environment(load_config()),
     )
 
-    assert calls == {"graph": 1, "catalog": 1, "source_map": 1}
-    assert resolved.experiment.id == "test.graph.single-proof"
+    assert calls == {"graph": 1, "seal": 1}
+    assert resolved.program.id == "test.graph.single-proof"
 
 
 @pytest.mark.parametrize(
@@ -565,7 +481,7 @@ def test_execute_scalar_expression_becomes_semantic_operation_graph() -> None:
         id="test.graph.execute-expression",
         kind="graph",
     ).bind()
-    compiled = compile_prepared_invocation(prepare_invocation(invocation))
+    compiled = compile_invocation(invocation)
     graph = compiled.assembly.source.semantic_graph
     definitions = {definition.id: definition for definition in graph.value_defs}
     producer_operation = next(
@@ -581,24 +497,24 @@ def test_execute_scalar_expression_becomes_semantic_operation_graph() -> None:
     scalar_operation = next(
         operation
         for operation in graph.operations
-        if isinstance(operation.contract.semantics, ScalarBinarySemantics)
+        if isinstance(operation.contract, ScalarBinarySemantics)
     )
 
-    assert scalar_operation.contract.semantics == ScalarBinarySemantics("+")
+    assert scalar_operation.contract == ScalarBinarySemantics("+")
     scalar_inputs = dict(scalar_operation.inputs)
-    scalar_output = dict(scalar_operation.outputs)["result"]
+    scalar_output = scalar_operation.result_id
     consumer_input = dict(consumer_operation.inputs)["value"]
     assert isinstance(consumer_input, ValueUse)
     assert consumer_input.value_id == scalar_output
 
-    left = definitions[scalar_inputs["left"].value_id]
+    left = scalar_inputs["left"]
     right = definitions[scalar_inputs["right"].value_id]
-    assert left.source == OperationOutputSource(producer_operation.id)
+    assert left.value_id == producer_operation.result_id
     assert isinstance(right.source, LiteralValueSource)
     assert right.source.value == 1.0
 
 
-def test_execute_core_operation_defers_local_implementation_selection() -> None:
+def test_execute_core_operation_carries_its_implementation() -> None:
     value_type = sc.ScalarType(sc.FloatType())
     produce = sc.compute("produce", fn=lambda: 1.0, output_type=value_type)
     consume = sc.compute(
@@ -617,38 +533,21 @@ def test_execute_core_operation_defers_local_implementation_selection() -> None:
         id="test.graph.core-implementation",
         kind="graph",
     ).bind()
-    compiled = compile_prepared_invocation(prepare_invocation(invocation))
+    compiled = compile_invocation(invocation)
     scalar_operation = next(
         operation
         for operation in compiled.assembly.source.semantic_graph.operations
-        if isinstance(operation.contract.semantics, ScalarBinarySemantics)
+        if isinstance(operation.contract, ScalarBinarySemantics)
     )
-    catalog = ImplementationCatalog(
-        local_python=tuple(
-            implementation
-            for implementation in (
-                compiled.assembly.source.implementation_catalog.local_python
-            )
-            if implementation.operation_id != scalar_operation.id
-        )
-    )
-
-    verified = verify_assembly_graph(
-        replace(compiled.assembly.source, implementation_catalog=catalog)
-    )
-
-    selected = next(
-        operation
-        for operation in verified.semantic_graph.graph.operations
-        if operation.id == scalar_operation.id
-    )
-    assert selected.contract == scalar_operation.contract
+    implementation = compiled.assembly.source.implementations[scalar_operation.id]
+    assert implementation.id.value.startswith("core.scalar:")
 
 
 def test_source_coordinate_collision_ignores_non_coordinate_payload() -> None:
-    point_source = point_literal_rows(
-        (TableColumn("payload", Scalar(Payload("point-payload"))),),
-        ((PayloadValue(schema_id="point-payload", payload={}),),),
+    point_source = point_axis_values(
+        "payload",
+        Scalar(Payload("point-payload")),
+        (PayloadValue(schema_id="point-payload", payload={}),),
     )
 
     verify_assembly_graph(
@@ -661,9 +560,10 @@ def test_source_coordinate_collision_ignores_non_coordinate_payload() -> None:
 
 
 def test_source_coordinate_collision_uses_typed_coordinate_predicate() -> None:
-    point_source = point_literal_rows(
-        (TableColumn("coordinate", Scalar(Float())),),
-        ((1.0,),),
+    point_source = point_axis_values(
+        "coordinate",
+        Scalar(Float()),
+        (1.0,),
     )
 
     with pytest.raises(CheckFailed) as error:

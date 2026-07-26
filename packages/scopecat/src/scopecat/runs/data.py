@@ -2,31 +2,36 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
+
+from pydantic import BaseModel, ConfigDict
 
 from scopecat.kernel.json_types import JsonValue
 from scopecat.measurements.results import MeasurementDataset
 from scopecat.records.artifact import RunContentEntry
-from scopecat.records.data_artifact import DataArrayArtifact, DataTableArtifact
 
 
-@dataclass(frozen=True)
-class RunArtifactTextResult:
+class _RunDataResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+        revalidate_instances="always",
+    )
+
+
+class RunArtifactTextResult(_RunDataResult):
     artifact: RunContentEntry
     content: str
 
 
-@dataclass(frozen=True)
-class RunArtifactJsonResult:
+class RunArtifactJsonResult(_RunDataResult):
     artifact: RunContentEntry
-    content: Mapping[str, JsonValue]
+    content: dict[str, JsonValue]
 
 
-@dataclass(frozen=True)
-class RunRecordJsonResult:
+class RunRecordJsonResult(_RunDataResult):
     record: RunContentEntry
-    content: Mapping[str, JsonValue]
+    content: dict[str, JsonValue]
 
 
 @dataclass(frozen=True)
@@ -35,19 +40,6 @@ class RunArtifactBytesResult:
     content: bytes
 
 
-@dataclass(frozen=True)
-class RunMeasurementDatasetResult:
+class RunMeasurementDatasetResult(_RunDataResult):
     dataset_entry: RunContentEntry
     dataset: MeasurementDataset
-
-
-@dataclass(frozen=True)
-class RunDataTableResult:
-    dataset_entry: RunContentEntry
-    table: DataTableArtifact
-
-
-@dataclass(frozen=True)
-class RunDataArrayResult:
-    dataset_entry: RunContentEntry
-    array: DataArrayArtifact

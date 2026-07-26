@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Protocol, cast
+from typing import cast
 
 from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.typed.products import ProductDef
@@ -17,10 +16,9 @@ from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.point_identity import LogicalPointId
 from scopecat.kernel.problems import (
     Problem,
-    ProblemCategory,
     ProblemPhase,
-    blocking_problem,
     model_location,
+    problem,
 )
 from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
 from scopecat.measurements.contracts import (
@@ -30,26 +28,6 @@ from scopecat.measurements.contracts import (
 from scopecat.records.measurement import MeasurementValue
 
 
-class MeasurementValueSelection(Protocol):
-    """Logical value contract consumed by projection and canonical sealing."""
-
-    @property
-    def catalog(self) -> MeasurementValueCatalog: ...
-
-    @property
-    def product_use_ids(self) -> tuple[ProductUseId, ...]: ...
-
-    @property
-    def catalog_fingerprint(self) -> str: ...
-
-    @property
-    def contract_fingerprint(self) -> str: ...
-
-    def product_use(self, product_use_id: ProductUseId) -> ProductUse: ...
-
-    def product_for_use(self, product_use_id: ProductUseId) -> ProductDef: ...
-
-
 @dataclass(frozen=True, slots=True)
 class MeasurementValueCatalog:
     """Point-independent measurement product contract for one experiment."""
@@ -57,10 +35,48 @@ class MeasurementValueCatalog:
     point_contract: RunPointContract
     product_uses: tuple[ProductUse, ...]
     product_defs: tuple[ProductDef, ...]
+    product_use_ids: tuple[ProductUseId, ...] = field(init=False)
     contract_fingerprint: str = field(init=False)
+    _use_by_id: Mapping[ProductUseId, ProductUse] = field(
+        init=False,
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    _product_by_use_id: Mapping[ProductUseId, ProductDef] = field(
+        init=False,
+        repr=False,
+        compare=False,
+        hash=False,
+    )
 
     def __post_init__(self) -> None:
         products_by_id = {product.id: product for product in self.product_defs}
+        use_by_id = {use.id: use for use in self.product_uses}
+        product_by_use_id = {
+            use.id: products_by_id[use.product_id] for use in self.product_uses
+        }
+        problems = tuple(
+            problem
+            for use in self.product_uses
+            for problem in _catalog_carrier_problems(
+                use.id,
+                product_by_use_id[use.id],
+            )
+        )
+        if problems:
+            raise CheckFailed(problems)
+        object.__setattr__(
+            self,
+            "product_use_ids",
+            tuple(use.id for use in self.product_uses),
+        )
+        object.__setattr__(self, "_use_by_id", MappingProxyType(use_by_id))
+        object.__setattr__(
+            self,
+            "_product_by_use_id",
+            MappingProxyType(product_by_use_id),
+        )
         object.__setattr__(
             self,
             "contract_fingerprint",
@@ -84,71 +100,18 @@ class MeasurementValueCatalog:
             ),
         )
 
-
-@dataclass(frozen=True, slots=True)
-class SelectedMeasurementValues:
-    """Canonical logical value inventory required from one RunProgram."""
-
-    catalog: MeasurementValueCatalog = field(repr=False)
-    product_use_ids: tuple[ProductUseId, ...]
-    catalog_fingerprint: str = field(init=False)
-    contract_fingerprint: str = field(init=False)
-    _use_by_id: Mapping[ProductUseId, ProductUse] = field(
-        init=False,
-        repr=False,
-        compare=False,
-        hash=False,
-    )
-    _product_by_use_id: Mapping[ProductUseId, ProductDef] = field(
-        init=False,
-        repr=False,
-        compare=False,
-        hash=False,
-    )
-
-    def __post_init__(self) -> None:
-        all_uses, all_products = _measurement_product_inventory(self.catalog)
-        use_by_id = {use.id: use for use in all_uses}
-        catalog_fingerprint = self.catalog.contract_fingerprint
-        object.__setattr__(self, "catalog_fingerprint", catalog_fingerprint)
-        object.__setattr__(
-            self,
-            "contract_fingerprint",
-            stable_content_hash(
-                {
-                    "schema": "scopecat.selected_measurement_values.v1",
-                    "catalog_fingerprint": catalog_fingerprint,
-                    "product_use_ids": [item.value for item in self.product_use_ids],
-                }
-            ),
-        )
-        object.__setattr__(
-            self,
-            "_use_by_id",
-            MappingProxyType(
-                {use_id: use_by_id[use_id] for use_id in self.product_use_ids}
-            ),
-        )
-        object.__setattr__(
-            self,
-            "_product_by_use_id",
-            MappingProxyType(
-                {use_id: all_products[use_id] for use_id in self.product_use_ids}
-            ),
-        )
-
     def product_use(self, product_use_id: ProductUseId) -> ProductUse:
         try:
             return self._use_by_id[product_use_id]
         except KeyError as error:
-            msg = f"product use {product_use_id.value!r} is not selected"
+            msg = f"product use {product_use_id.value!r} is not in the catalog"
             raise KeyError(msg) from error
 
     def product_for_use(self, product_use_id: ProductUseId) -> ProductDef:
         try:
             return self._product_by_use_id[product_use_id]
         except KeyError as error:
-            msg = f"product use {product_use_id.value!r} is not selected"
+            msg = f"product use {product_use_id.value!r} is not in the catalog"
             raise KeyError(msg) from error
 
 
@@ -207,7 +170,7 @@ class ClosedMeasurementProductValue:
 class ClosedMeasurementProductValues:
     """Canonical producer-neutral values for every required point/use pair."""
 
-    selection: MeasurementValueSelection = field(repr=False)
+    catalog: MeasurementValueCatalog = field(repr=False)
     values: tuple[ClosedMeasurementProductValue, ...]
     _by_output: Mapping[
         tuple[LogicalPointId, ProductUseId],
@@ -223,7 +186,7 @@ class ClosedMeasurementProductValues:
 
     @property
     def product_use_ids(self) -> tuple[ProductUseId, ...]:
-        return self.selection.product_use_ids
+        return self.catalog.product_use_ids
 
     def value_for_output(
         self,
@@ -240,66 +203,23 @@ class ClosedMeasurementProductValues:
             raise KeyError(msg) from error
 
 
-def select_measurement_values(
-    catalog: MeasurementValueCatalog,
-    *,
-    required_product_use_ids: Sequence[ProductUseId],
-) -> SelectedMeasurementValues:
-    """Select one canonical logical inventory of demanded product uses."""
-
-    required = tuple(required_product_use_ids)
-    all_uses, product_by_use_id = _measurement_product_inventory(catalog)
-    all_use_by_id = {use.id: use for use in all_uses}
-    required_set = set(required)
-    problems: list[Problem] = []
-    for use_id, count in Counter(required).items():
-        if count > 1:
-            problems.append(
-                _selection_problem(
-                    "measurement_value_required_use_duplicate",
-                    f"required product use {use_id.value!r} is repeated",
-                    path=("required_product_use_ids",),
-                    category=ProblemCategory.CONFLICT,
-                )
-            )
-    for index, use_id in enumerate(required):
-        if use_id not in all_use_by_id:
-            problems.append(
-                _selection_problem(
-                    "measurement_value_required_use_unknown",
-                    f"required product use {use_id.value!r} is not in the plan",
-                    path=("required_product_use_ids", index),
-                    category=ProblemCategory.NOT_FOUND,
-                )
-            )
-    for use_id in required_set & set(all_use_by_id):
-        problems.extend(_carrier_selection_problems(use_id, product_by_use_id[use_id]))
-    if problems:
-        raise CheckFailed(problems)
-    return SelectedMeasurementValues(
-        catalog,
-        tuple(use.id for use in all_uses if use.id in required_set),
-    )
-
-
 def seal_measurement_values(
-    selection: MeasurementValueSelection,
+    catalog: MeasurementValueCatalog,
     candidates: Sequence[MeasurementValueCandidate],
     *,
     points: Sequence[RunPoint],
 ) -> ClosedMeasurementProductValues:
     """Close the canonical logical value inventory for one admitted coverage."""
 
-    selected = selection
     supplied = tuple(candidates)
     points = tuple(points)
     expected_keys = {
         (point.logical_id, use_id)
         for point in points
-        for use_id in selected.product_use_ids
+        for use_id in catalog.product_use_ids
     }
     point_ids = {point.logical_id for point in points}
-    use_ids = set(selected.product_use_ids)
+    use_ids = set(catalog.product_use_ids)
     by_key: dict[
         tuple[LogicalPointId, ProductUseId],
         MeasurementValueCandidate,
@@ -332,13 +252,13 @@ def seal_measurement_values(
             problems.append(
                 _value_problem(
                     "measurement_value_use_unknown",
-                    "logical measurement values reference an unselected product use",
+                    "logical measurement values reference a foreign product use",
                     path=("candidates", candidate_index, "product_use_id"),
                 )
             )
         if key not in expected_keys:
             continue
-        product = selected.product_for_use(candidate.product_use_id)
+        product = catalog.product_for_use(candidate.product_use_id)
         problems.extend(
             _measurement_contract_problems(
                 candidate.value,
@@ -350,7 +270,7 @@ def seal_measurement_values(
         )
 
     for point in points:
-        for use_id in selected.product_use_ids:
+        for use_id in catalog.product_use_ids:
             if (point.logical_id, use_id) in by_key:
                 continue
             problems.append(
@@ -368,38 +288,21 @@ def seal_measurement_values(
         raise ProviderContractError(problems)
 
     return ClosedMeasurementProductValues(
-        selected,
+        catalog,
         tuple(
             ClosedMeasurementProductValue(
                 point,
-                selected.product_use(use_id),
-                selected.product_for_use(use_id),
+                catalog.product_use(use_id),
+                catalog.product_for_use(use_id),
                 by_key[(point.logical_id, use_id)].value,
             )
             for point in points
-            for use_id in selected.product_use_ids
+            for use_id in catalog.product_use_ids
         ),
     )
 
 
-def _measurement_product_inventory(
-    catalog: MeasurementValueCatalog,
-) -> tuple[tuple[ProductUse, ...], dict[ProductUseId, ProductDef]]:
-    uses = catalog.product_uses
-    products_by_id = {product.id: product for product in catalog.product_defs}
-    products = {use.id: products_by_id[use.product_id] for use in uses}
-    return uses, products
-
-
-def measurement_value_contract_fingerprint(
-    catalog: MeasurementValueCatalog,
-) -> str:
-    """Identify one transient point/use/product contract independent of objects."""
-
-    return catalog.contract_fingerprint
-
-
-def _carrier_selection_problems(
+def _catalog_carrier_problems(
     use_id: ProductUseId,
     product: ProductDef,
 ) -> tuple[Problem, ...]:
@@ -408,18 +311,9 @@ def _carrier_selection_problems(
         "product_use_id": use_id.value,
         "product_id": product.id.qualified_name,
     }
-    if product.kind != "observable":
-        problems.append(
-            _selection_problem(
-                "measurement_value_product_kind_unsupported",
-                f"measurement values cannot carry {product.kind!r} products",
-                path=("product_uses", use_id.value, "product", "kind"),
-                details={**details, "actual": product.kind},
-            )
-        )
     if not product.axes and product.dtype in {"bool", "string"}:
         problems.append(
-            _selection_problem(
+            _catalog_problem(
                 "measurement_value_scalar_dtype_unsupported",
                 f"measurement values have no scalar {product.dtype!r} carrier",
                 path=("product_uses", use_id.value, "product", "dtype"),
@@ -461,19 +355,17 @@ def _measurement_contract_problems(
     return tuple(problems)
 
 
-def _selection_problem(
+def _catalog_problem(
     code: str,
     message: str,
     *,
     path: tuple[str | int, ...],
-    category: ProblemCategory = ProblemCategory.INVALID_INPUT,
     details: Mapping[str, object] | None = None,
 ) -> Problem:
     return compiler_problem(
         code,
         message,
         model_location("measurement_values", *path),
-        category=category,
         details=details,
     )
 
@@ -485,10 +377,9 @@ def _value_problem(
     path: tuple[str | int, ...],
     details: Mapping[str, object] | None = None,
 ) -> Problem:
-    return blocking_problem(
+    return problem(
         code,
         message,
-        category=ProblemCategory.PROVIDER_CONTRACT,
         phase=ProblemPhase.EXECUTION,
         location=model_location("measurement_values", *path),
         details=details,

@@ -14,12 +14,7 @@ from scopecat.config.candidates import (
     resolve_candidate_config_from_snapshot,
 )
 from scopecat.config.drafts import ConfigDraft
-from scopecat.config.parameter_updates import (
-    InsertParameterRows,
-    ParameterUpdate,
-    ReplaceParameter,
-    UpdateParameterRows,
-)
+from scopecat.config.registry.records import ConfigRegistryEntry
 from scopecat.config.resolution import config_revision_entry_id
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.views import (
@@ -40,16 +35,11 @@ from scopecat.daemon.wire import (
     ConfigDraftRegistrationCommand,
     ConfigDraftRegistrationReceipt,
     ConfigEntryActivationCommand,
-    ConfigImportReceipt,
     ConfigRollbackCommand,
-    DeleteConfigParameterRows,
     DirectConfigDefaultCommand,
     DirectConfigImportCommand,
-    InsertConfigParameterRows,
     ParameterProposalDecisionCommand,
     ParameterProposalReviewCommand,
-    ReplaceConfigParameter,
-    UpdateConfigParameterRows,
 )
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.parameter_change import (
@@ -181,7 +171,7 @@ class LabConfigOperations:
                 base_content_hash=active.entry.content_hash,
                 base_generation=active.active_state.generation,
                 candidate_id=candidate_id or f"{active.config.id}.draft",
-                updates=_config_parameter_updates(draft.updates),
+                updates=draft.updates,
             )
         )
 
@@ -219,7 +209,7 @@ class LabConfigOperations:
         entry_id: str,
         registered_by: str | None = None,
         note: str = "",
-    ) -> ConfigImportReceipt:
+    ) -> ConfigRegistryEntry:
         return self.client.import_direct_config(
             DirectConfigImportCommand(
                 entry_id=entry_id,
@@ -316,30 +306,6 @@ class LabConfigOperations:
             )
         )
 
-    def activate_snapshot(
-        self,
-        config: ConfigProfileSnapshot,
-        *,
-        entry_id: str,
-        registered_by: str | None = None,
-        operator: str | None = None,
-        note: str = "",
-        activation_note: str = "",
-        expected_generation: int | None = None,
-    ) -> ConfigActivationReceipt:
-        self.import_snapshot(
-            config,
-            entry_id=entry_id,
-            registered_by=registered_by,
-            note=note,
-        )
-        return self.activate_entry(
-            entry_id,
-            operator=operator,
-            expected_generation=expected_generation,
-            note=activation_note,
-        )
-
     def activate_candidate(
         self,
         candidate: CandidateConfig,
@@ -384,14 +350,14 @@ class LabConfigOperations:
         note: str = "",
     ) -> ParameterChangeDecisionRecord:
         return self.client.review_parameter_proposal(
+            run_handle_id(run),
+            selector,
             ParameterProposalReviewCommand(
-                run_id=run_handle_id(run),
-                proposal_id=selector,
                 decision=decision,
                 reviewer=reviewer or self.reviewer,
                 note=note,
-            )
-        ).decision
+            ),
+        )
 
     def accept(
         self,
@@ -430,13 +396,13 @@ class LabConfigOperations:
             ):
                 continue
             self.client.decide_parameter_proposal(
+                selected.source_run_id,
+                proposal_id,
                 ParameterProposalDecisionCommand(
-                    run_id=selected.source_run_id,
-                    proposal_id=proposal_id,
                     decision="approved",
                     authority=selected_authority,
                     note=note,
-                )
+                ),
             )
         return self.activate_candidate(
             selected,
@@ -488,51 +454,8 @@ def _reviewed_draft_command(
         base_content_hash=preview.base_content_hash,
         base_generation=preview.base_generation,
         candidate_id=config.id,
-        updates=_config_parameter_updates(draft.updates),
+        updates=draft.updates,
     )
-
-
-def _config_parameter_updates(
-    updates: tuple[ParameterUpdate, ...],
-) -> tuple[
-    ReplaceConfigParameter
-    | UpdateConfigParameterRows
-    | InsertConfigParameterRows
-    | DeleteConfigParameterRows,
-    ...,
-]:
-    payloads: list[
-        ReplaceConfigParameter
-        | UpdateConfigParameterRows
-        | InsertConfigParameterRows
-        | DeleteConfigParameterRows
-    ] = []
-    for update in updates:
-        if isinstance(update, ReplaceParameter):
-            payloads.append(ReplaceConfigParameter(value=update.value))
-        elif isinstance(update, UpdateParameterRows):
-            payloads.append(
-                UpdateConfigParameterRows(
-                    parameter_id=update.parameter_id,
-                    key=dict(update.key),
-                    values=dict(update.values),
-                )
-            )
-        elif isinstance(update, InsertParameterRows):
-            payloads.append(
-                InsertConfigParameterRows(
-                    parameter_id=update.parameter_id,
-                    rows=tuple(dict(row) for row in update.rows),
-                )
-            )
-        else:
-            payloads.append(
-                DeleteConfigParameterRows(
-                    parameter_id=update.parameter_id,
-                    key=dict(update.key),
-                )
-            )
-    return tuple(payloads)
 
 
 __all__ = ["LabConfigOperations"]

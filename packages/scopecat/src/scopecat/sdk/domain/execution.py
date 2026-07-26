@@ -5,19 +5,17 @@ target, result, value, transform, and record-projection decision before a run
 is durably accepted.  Scopecat retains ownership of runtime submission,
 correlation, journalling, recording, and terminal run evidence.
 
-The first public contract is deliberately synchronous: the initial fetch must
-either return the complete result or violate the adapter contract. Polling and
-resumption require a separate durable lifecycle and are not implied here.
+The runtime boundary is synchronous: one fetch returns the complete result
+while receipts preserve known and indeterminate outcomes.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Hashable
 from dataclasses import dataclass, field
-from typing import Literal
 
 from scopecat.execution.points import RunPoint
-from scopecat.measurements.host_transforms import BoundHostMeasurementTransforms
+from scopecat.measurements.host_transforms import HostMeasurementTransformPlan
 from scopecat.measurements.values import MeasurementValueCandidate
 from scopecat.sdk.domain.invocation import ClosedDomainInvocation
 from scopecat.sdk.domain.runtime import CorrelatedDomainFetch, DomainRuntime
@@ -43,11 +41,7 @@ class PreparedDomainExecution:
     runtime: ErasedDomainRuntime = field(repr=False, compare=False)
     realize: ErasedDomainRealizer = field(repr=False, compare=False)
     points: tuple[RunPoint, ...] = field(default=(), repr=False)
-    transforms: BoundHostMeasurementTransforms | None = field(
+    transforms: HostMeasurementTransformPlan | None = field(
         default=None,
         repr=False,
     )
-
-    @property
-    def completion_contract(self) -> Literal["synchronous"]:
-        return "synchronous"

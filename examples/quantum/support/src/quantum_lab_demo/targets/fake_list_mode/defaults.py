@@ -3,15 +3,7 @@
 from __future__ import annotations
 
 from scopecat.records.config import ConfigProfileSnapshot
-from scopecat_quantum import (
-    AcquireSignal,
-    CouplerId,
-    DriveSignal,
-    FluxSignal,
-    QubitId,
-    ReadoutSignal,
-    TargetId,
-)
+from scopecat_quantum._ids import TargetId
 
 from quantum_lab_demo.targets.configuration import (
     FAKE_LIST_TARGET_KIND,
@@ -26,48 +18,6 @@ from quantum_lab_demo.targets.fake_list_mode.model import (
     FakeListTarget,
     FakeOutputBinding,
 )
-
-
-def default_fake_list_target() -> FakeListTarget:
-    """Return the demo lab's explicit four-qubit fake hardware target."""
-
-    qubits = tuple(QubitId(f"q{index}") for index in range(4))
-    output_bindings = (
-        *(
-            binding
-            for index, qubit in enumerate(qubits)
-            for binding in (
-                FakeOutputBinding(
-                    DriveSignal(qubit),
-                    FakeAwgChannelId(f"awg.drive.{index}"),
-                ),
-                FakeOutputBinding(
-                    ReadoutSignal(qubit),
-                    FakeAwgChannelId(f"awg.readout.{index}"),
-                ),
-            )
-        ),
-        FakeOutputBinding(
-            FluxSignal(CouplerId("coupler-q0-q1")),
-            FakeAwgChannelId("awg.flux.0"),
-        ),
-        FakeOutputBinding(
-            FluxSignal(CouplerId("coupler-q2-q3")),
-            FakeAwgChannelId("awg.flux.1"),
-        ),
-    )
-    acquisition_bindings = tuple(
-        FakeAcquisitionBinding(
-            AcquireSignal(qubit),
-            FakeDigitizerChannelId(f"digitizer.readout.{index}"),
-        )
-        for index, qubit in enumerate(qubits)
-    )
-    return _fake_list_target(
-        target_id="quantum-lab-demo.fake-list-mode.v1",
-        output_bindings=output_bindings,
-        acquisition_bindings=acquisition_bindings,
-    )
 
 
 def configured_fake_list_target(config: ConfigProfileSnapshot) -> FakeListTarget:
@@ -118,4 +68,4 @@ def _fake_list_target(
     )
 
 
-__all__ = ["configured_fake_list_target", "default_fake_list_target"]
+__all__ = ["configured_fake_list_target"]

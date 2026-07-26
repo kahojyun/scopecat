@@ -16,10 +16,9 @@ from scopecat.config.validation import (
 )
 from scopecat.kernel.problems import (
     Problem,
-    ProblemCategory,
     ProblemPhase,
-    blocking_problem,
     model_location,
+    problem,
 )
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter import (
@@ -142,10 +141,9 @@ def _problem(
     *,
     details: dict[str, object],
 ) -> Problem:
-    return blocking_problem(
+    return problem(
         code,
         message,
-        category=ProblemCategory.INVALID_INPUT,
         phase=ProblemPhase.CONFIGURATION,
         location=model_location("parameter_snapshot", *path),
         details=details,

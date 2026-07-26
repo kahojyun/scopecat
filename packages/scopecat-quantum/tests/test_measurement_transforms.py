@@ -8,7 +8,7 @@ import pytest
 from pydantic import ValidationError
 from scopecat import MeasurementTransform, Quantity
 from scopecat.compiler.typed.products import ProductAxisDef, ProductDef
-from scopecat.compiler.typed.program import product_output
+from scopecat.kernel.product_identity import product_id as product_id_
 from scopecat.measurements.results import (
     ComplexQuantity,
     MeasurementArray,
@@ -44,8 +44,8 @@ def _iq_product(
     axis_kind: str = "shot",
     shot_count: int = 3,
 ) -> ProductDef:
-    return product_output(
-        "integrated-iq-shots",
+    return ProductDef(
+        id=product_id_("integrated-iq-shots"),
         dtype=dtype,
         unit=unit,
         axes=(
@@ -65,13 +65,12 @@ def _probability_product(
     dtype: MeasurementDType = "float64",
     unit: str | None = "ratio",
 ) -> ProductDef:
-    return product_output(product_id, dtype=dtype, unit=unit)
+    return ProductDef(id=product_id_(product_id), dtype=dtype, unit=unit)
 
 
 def _product_view(product: ProductDef) -> DomainProductContractView:
     return DomainProductContractView(
         id=product.id.qualified_name,
-        kind=product.kind,
         unit=product.unit,
         dtype=product.dtype,
         axes=tuple(
@@ -227,7 +226,6 @@ def test_binary_iq_builder_retains_complete_authored_semantics_and_edges() -> No
         "scopecat_quantum.readout.binary_iq_discrimination"
     )
     assert transform.semantic.version == "1"
-    assert transform.semantic.portability == "host_only"
     assert transform.semantic.parameters == {
         "discriminator": {
             "state_0_centroid": {"real": -1.0, "imag": 0.0, "unit": "ratio"},
@@ -242,21 +240,15 @@ def test_binary_iq_builder_retains_complete_authored_semantics_and_edges() -> No
     changed_tie = _authored_transform(
         discriminator=_discriminator(tie_policy="state_1")
     )
-    assert (
-        transform.semantic.contract_fingerprint
-        != changed_centroid.semantic.contract_fingerprint
-    )
-    assert (
-        _authored_transform().semantic.contract_fingerprint
-        != changed_tie.semantic.contract_fingerprint
-    )
+    assert transform.semantic != changed_centroid.semantic
+    assert _authored_transform().semantic != changed_tie.semantic
 
 
 def test_semantic_identity_is_independent_of_authored_product_wiring() -> None:
     left = _authored_transform(wiring="left")
     right = _authored_transform(wiring="right")
 
-    assert left.semantic.contract_fingerprint == right.semantic.contract_fingerprint
+    assert left.semantic == right.semantic
     assert left.semantic.parameters == right.semantic.parameters
     assert left.input_bindings != right.input_bindings
     assert left.output_bindings != right.output_bindings
@@ -276,7 +268,6 @@ def test_reference_implementation_rejects_invalid_sdk_contract(
             semantic=MeasurementTransformSemanticContract(
                 id=valid.semantic.id,
                 version=valid.semantic.version,
-                portability="host_only",
                 parameters={
                     "discriminator": _discriminator().model_dump(mode="json"),
                     "unexpected": True,
@@ -352,7 +343,7 @@ def test_reference_implementation_rejects_incompatible_input_contract(
 def test_reference_implementation_rejects_incompatible_output_contract(
     product: ProductDef,
 ) -> None:
-    with pytest.raises(ValueError, match="scalar float64 ratio observable"):
+    with pytest.raises(ValueError, match="scalar float64 ratio product"):
         binary_iq_probability_host_implementation().validate_transform(
             _domain_transform(probability_0_product=product)
         )

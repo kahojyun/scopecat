@@ -6,13 +6,13 @@ from collections.abc import Sequence
 from typing import Annotated
 
 import scopecat as sc
-from scopecat_quantum import (
+from scopecat_quantum import authoring as quantum
+from scopecat_quantum.gates import GateParameterKind
+from scopecat_quantum.measurement_transforms import (
     BinaryIqDiscriminator,
-    GateParameterKind,
     IqCentroid,
     binary_iq_probability_transform,
 )
-from scopecat_quantum import authoring as quantum
 from scopecat_quantum.standard_gates import X
 
 from quantum_lab_demo.virtual_lab.parameters import qubit_parameters
@@ -91,7 +91,6 @@ def _fake_x_count_body(x_counts: Sequence[int]) -> sc.ExperimentBody:
 @sc.template(
     id=FAKE_X_COUNT_TEMPLATE_ID,
     kind=FAKE_X_COUNT_EXPERIMENT_ID,
-    label="Fake AWG X-count scan",
 )
 def fake_x_count_template() -> sc.ExperimentBody:
     """Compile q0 X repetitions and discriminate the digitizer IQ."""
@@ -102,7 +101,6 @@ def fake_x_count_template() -> sc.ExperimentBody:
 @sc.scratch(
     id="quantum_lab_demo.workflows.fake_x_count.scratch",
     kind=FAKE_X_COUNT_EXPERIMENT_ID,
-    label="Fake X-count scratch",
 )
 def fake_x_count_scratch(
     *,

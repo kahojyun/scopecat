@@ -5,13 +5,15 @@ from pathlib import Path
 
 import pytest
 from scopecat import Quantity
-from scopecat_quantum import (
+from scopecat.sdk.domain import DomainCompilation, DomainCompileRequest
+from scopecat_quantum._ids import QubitId
+from scopecat_quantum.programs import (
     AuthoredPulseEventProvenance,
     CircuitPulseEventProvenance,
-    QubitId,
 )
 
 from quantum_lab_demo import quantum_lab_compiler
+from quantum_lab_demo.compiler import QuantumLabCompiler, _ListQuantumLabArtifact
 from quantum_lab_demo.virtual_lab.pulse_profile import (
     y90_pulse_recipe,
     ym90_pulse_recipe,
@@ -30,11 +32,13 @@ from .demo_lab_experiment_testkit import in_process_quantum_lab
 
 def _compile_point(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     *,
     preparation: str,
     analysis_basis: str,
 ):
     compiler = quantum_lab_compiler()
+    compilations = _capture_compilations(compiler, monkeypatch)
     run = (
         in_process_quantum_lab(project_root=tmp_path, compiler=compiler)
         .prepare(interaction_tomography_template.bind(shots=2))
@@ -43,17 +47,23 @@ def _compile_point(
         .scan(INTERACTION_AMPLITUDE, (Quantity(0.03, "arb"),))
         .run()
     )
-    [evidence] = compiler.trace.preparations(interaction_tomography_program.id)
-    [prepared] = evidence.entries
-    [artifact_entry] = evidence.artifact.entries
+    [compilation] = compilations
+    [job] = compilation.jobs
+    artifact = job.artifact
+    assert isinstance(artifact, _ListQuantumLabArtifact)
+    assert artifact.program.id == interaction_tomography_program.id
+    [prepared] = artifact.entries
+    [artifact_entry] = artifact.compiled.artifact.entries
     return run, prepared, artifact_entry
 
 
 def test_direct_layout_preserves_offsets_and_complex_samples(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     run, prepared, artifact = _compile_point(
         tmp_path,
+        monkeypatch,
         preparation="00",
         analysis_basis="z",
     )
@@ -85,9 +95,11 @@ def test_direct_layout_preserves_offsets_and_complex_samples(
 
 def test_standard_gates_and_direct_pulses_keep_distinct_provenance(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _run, prepared, _artifact = _compile_point(
         tmp_path,
+        monkeypatch,
         preparation="0+",
         analysis_basis="x",
     )
@@ -110,3 +122,19 @@ def test_standard_gates_and_direct_pulses_keep_distinct_provenance(
     assert {provenance.template_program_id.value for provenance in authored} == {
         interaction_pulse_layout.id
     }
+
+
+def _capture_compilations(
+    compiler: QuantumLabCompiler,
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[DomainCompilation]:
+    compilations: list[DomainCompilation] = []
+    compile_domain = compiler.compile
+
+    def compile_and_capture(request: DomainCompileRequest) -> DomainCompilation:
+        compilation = compile_domain(request)
+        compilations.append(compilation)
+        return compilation
+
+    monkeypatch.setattr(compiler, "compile", compile_and_capture)
+    return compilations

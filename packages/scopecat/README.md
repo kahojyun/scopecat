@@ -17,9 +17,9 @@ with project.connect() as lab:
 ```
 
 Project discovery loads the same version-controlled `LabApplication` used by
-the daemon. The application supplies an optional bootstrap factory, a catalog,
-and a config-aware system builder; planning always passes it the accepted
-config snapshot selected for that run.
+the daemon. The application supplies an optional bootstrap factory and a
+config-aware system builder; notebook planning always passes the builder the
+accepted config snapshot selected for that run.
 
 The Python application may provide the initial immutable snapshot when the
 registry is empty. Later default changes, analysis, acceptance decisions, and
@@ -69,8 +69,8 @@ resource ownership, measurements, terminal state, saved analysis, acceptance
 decisions, and configuration changes still go through the daemon.
 
 Operator and infrastructure workflows use the same project client through
-`lab.control` for catalog submission, event replay, and attention resolution.
-There is no second public connection facade.
+`lab.control` for event replay and attention resolution. There is no second
+public connection facade.
 
 See the [repository README](../../README.md) for the runnable introduction and
 development commands, and the

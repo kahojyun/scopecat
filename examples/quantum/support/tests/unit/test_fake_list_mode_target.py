@@ -5,67 +5,75 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from decimal import Decimal
-from typing import cast
 
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 from scopecat import Quantity
-from scopecat_quantum import (
+from scopecat_quantum._ids import (
+    AcquisitionSlotId,
+    CircuitOperationId,
+    GateId,
+    PulseEventId,
+    PulseImplementationId,
+    PulseProgramId,
+    QuantumProgramId,
+    QubitId,
+    TargetCompileEntryId,
+    TargetCompilerId,
+    TargetId,
+)
+from scopecat_quantum.acquisitions import AcquisitionKind
+from scopecat_quantum.circuits import Measure
+from scopecat_quantum.gates import GateCall, GateDefinition
+from scopecat_quantum.program_targets import (
+    PreparedQuantumTargetEntry,
+    prepare_quantum_target_batch,
+    prepare_quantum_target_entry,
+)
+from scopecat_quantum.programs import (
+    CircuitPulseAcquisitionProvenance,
+    CircuitPulseEventProvenance,
+    QuantumProgramIR,
+    lower_quantum_program_to_pulses,
+    verify_quantum_program,
+)
+from scopecat_quantum.programs import Sequence as QuantumSequence
+from scopecat_quantum.pulse_implementations import (
+    GatePulseImplementation,
+    GatePulseImplementationKey,
+    MeasurementPulseImplementation,
+    MeasurementPulseImplementationKey,
+    ResolvedPulseImplementations,
+)
+from scopecat_quantum.pulses import (
     DRAG,
     Acquire,
     AcquireSignal,
-    AcquisitionKind,
     AcquisitionSlot,
-    AcquisitionSlotId,
-    CircuitId,
-    CircuitOperationId,
-    CircuitProgram,
-    CircuitPulseAcquisitionProvenance,
-    CircuitSequence,
     Constant,
     Delay,
     DriveSignal,
-    GateCall,
-    GateDefinition,
-    GateId,
-    GatePulseImplementation,
-    GatePulseImplementationKey,
     Gaussian,
-    Measure,
-    MeasurementPulseImplementation,
-    MeasurementPulseImplementationKey,
     Play,
-    PreparedQuantumTargetEntry,
-    PulseEventId,
-    PulseImplementationId,
-    PulseParallel,
     PulseProgram,
-    PulseProgramId,
-    PulseSequence,
-    QuantumProgramId,
-    QuantumProgramIR,
-    QubitId,
     ReadoutSignal,
-    ResolvedPulseImplementations,
     ScheduledPulseProgram,
     ShiftPhase,
+    schedule,
+)
+from scopecat_quantum.pulses import (
+    Parallel as PulseParallel,
+)
+from scopecat_quantum.pulses import (
+    Sequence as PulseSequence,
+)
+from scopecat_quantum.targets import (
     TargetArtifact,
     TargetCompilationError,
     TargetCompileEntry,
-    TargetCompileEntryId,
     TargetCompileRequest,
-    TargetCompilerId,
-    TargetId,
-    bind_pulse_implementations,
     compile_target,
-    lower_circuit_to_pulses,
-    lower_quantum_program_to_pulses,
-    prepare_quantum_target_batch,
-    prepare_quantum_target_entry,
-    schedule,
-    verify_circuit_program,
-    verify_quantum_program,
 )
 
 from quantum_lab_demo.targets.fake_list_mode import (
@@ -79,7 +87,7 @@ from quantum_lab_demo.targets.fake_list_mode import (
     FakeListTargetCompiler,
     FakeOutputBinding,
     FakeSegmentedDigitizer,
-    default_fake_list_target,
+    configured_fake_list_target,
 )
 from quantum_lab_demo.targets.fake_list_mode.model import (
     acquisition_slot_identity_payload,
@@ -89,6 +97,7 @@ from quantum_lab_demo.targets.fake_list_mode.runtime import (
     FakeAwgPlayback,
     FakeDigitizerValue,
 )
+from quantum_lab_demo.virtual_lab.wiring import quantum_wiring_config_profile
 
 Q0 = QubitId("q0")
 Q1 = QubitId("q1")
@@ -116,11 +125,7 @@ class _IndexedAcquisitionResponse:
             playback.shot_index + self.offset,
             window.start_sample + window.sample_count,
         )
-        if window.kind is AcquisitionKind.INTEGRATED_IQ:
-            return base
-        return tuple(
-            base + complex(index, -index) for index in range(window.sample_count)
-        )
+        return base
 
 
 def _target(
@@ -250,7 +255,7 @@ def _parallel_two_qubit_program(
         ),
         AcquisitionSlot(
             AcquisitionSlotId("q1-slot"),
-            AcquisitionKind.RAW_TRACE,
+            AcquisitionKind.INTEGRATED_IQ,
             ACQUIRE_Q1,
         ),
     )
@@ -402,7 +407,6 @@ def _compile_two_entries(*, repetitions: int = 3):
             _scheduled_program(
                 "q1-program",
                 qubit=Q1,
-                kind=AcquisitionKind.RAW_TRACE,
             ),
         ),
         repetitions=repetitions,
@@ -432,7 +436,6 @@ def test_compiler_builds_immutable_ordered_list_artifact() -> None:
         for waveform in entry.waveforms
     )
     assert artifact.entries[0].waveforms[0].samples == (0.25 + 0j,) * 4
-    assert artifact.entries[1].acquisitions[0].kind is AcquisitionKind.RAW_TRACE
     assert artifact.artifact_fingerprint.startswith("sha256:")
     assert artifact.id.value.endswith(
         artifact.artifact_fingerprint.removeprefix("sha256:")
@@ -556,7 +559,6 @@ def test_fake_target_uses_structural_acquisition_slot_identity() -> None:
             channel_id=FakeDigitizerChannelId("adc.0"),
             start_sample=0,
             sample_count=1,
-            kind=AcquisitionKind.INTEGRATED_IQ,
         )
         for index, slot_id in enumerate((rendered_first, structurally_first))
     )
@@ -584,10 +586,10 @@ def test_calibrated_gate_circuit_reaches_fake_list_target() -> None:
     gate = GateDefinition(GateId("x"), qubit_arity=1)
     first = GateCall(CircuitOperationId("first"), gate.id, (Q0,))
     second = GateCall(CircuitOperationId("second"), gate.id, (Q0,))
-    circuit = verify_circuit_program(
-        CircuitProgram(
-            CircuitId("two-x-gates"),
-            CircuitSequence((first, second)),
+    program = verify_quantum_program(
+        QuantumProgramIR(
+            QuantumProgramId("two-x-gates"),
+            QuantumSequence((first, second)),
         ),
         (gate,),
     )
@@ -599,8 +601,8 @@ def test_calibrated_gate_circuit_reaches_fake_list_target() -> None:
             Constant(Quantity(4, "ns"), Quantity(0.25, "arb")),
         ),
     )
-    selection = bind_pulse_implementations(
-        circuit,
+    lowered = lower_quantum_program_to_pulses(
+        program,
         ResolvedPulseImplementations(
             gates=(
                 GatePulseImplementation(
@@ -610,10 +612,6 @@ def test_calibrated_gate_circuit_reaches_fake_list_target() -> None:
                 ),
             )
         ),
-    )
-    lowered = lower_circuit_to_pulses(
-        circuit,
-        selection,
         output_id=PulseProgramId("two-x-pulses"),
     )
     scheduled = schedule(lowered.program)
@@ -638,10 +636,10 @@ def test_calibrated_measurement_reaches_fake_awg_and_digitizer() -> None:
         AcquisitionSlotId("result"),
         AcquisitionKind.INTEGRATED_IQ,
     )
-    circuit = verify_circuit_program(
-        CircuitProgram(
-            CircuitId("x-then-measure"),
-            CircuitSequence((gate_call, measurement)),
+    program = verify_quantum_program(
+        QuantumProgramIR(
+            QuantumProgramId("x-then-measure"),
+            QuantumSequence((gate_call, measurement)),
         ),
         (gate,),
     )
@@ -677,8 +675,8 @@ def test_calibrated_measurement_reaches_fake_awg_and_digitizer() -> None:
         ),
         acquisition_slots=(template_slot,),
     )
-    selection = bind_pulse_implementations(
-        circuit,
+    lowered = lower_quantum_program_to_pulses(
+        program,
         ResolvedPulseImplementations(
             gates=(
                 GatePulseImplementation(
@@ -695,10 +693,6 @@ def test_calibrated_measurement_reaches_fake_awg_and_digitizer() -> None:
                 ),
             ),
         ),
-    )
-    lowered = lower_circuit_to_pulses(
-        circuit,
-        selection,
         output_id=PulseProgramId("x-then-readout"),
     )
     scheduled = schedule(lowered.program)
@@ -710,8 +704,9 @@ def test_calibrated_measurement_reaches_fake_awg_and_digitizer() -> None:
     assert {
         provenance.event_id.scope[:4]
         for provenance in lowered.event_provenance
-        if provenance.operation_id == measurement.id
-    } == {("circuits", "x-then-measure", "operations", "measure")}
+        if isinstance(provenance, CircuitPulseEventProvenance)
+        and provenance.operation_id == measurement.id
+    } == {("programs", "x-then-measure", "operations", "measure")}
     target = _target()
     compiler, request = _request(target, (scheduled,), repetitions=2)
     compiled = compile_target(compiler, request)
@@ -727,8 +722,6 @@ def test_calibrated_measurement_reaches_fake_awg_and_digitizer() -> None:
     assert window.slot_id == measurement.acquisition_slot_id
     assert window.start_sample == 4
     assert window.sample_count == 8
-    assert window.kind is AcquisitionKind.INTEGRATED_IQ
-
     run = FakeListRuntime().execute(compiled)
     assert tuple(
         (frame.shot_index, frame.entry_id, frame.slot_id) for frame in run.frames
@@ -757,16 +750,16 @@ def test_prepared_quantum_batch_resolves_reused_slots_from_runtime_frames() -> N
         acquisition_kind=AcquisitionKind.INTEGRATED_IQ,
         acquisition_slot_id=shared_slot_id,
     )
-    trace_entry, trace_measurement, trace_implementation = _prepared_measurement_entry(
-        entry_id="trace-entry",
-        program_id="trace-program",
+    q1_entry, q1_measurement, q1_implementation = _prepared_measurement_entry(
+        entry_id="q1-entry",
+        program_id="q1-program",
         qubit=Q1,
-        acquisition_kind=AcquisitionKind.RAW_TRACE,
+        acquisition_kind=AcquisitionKind.INTEGRATED_IQ,
         acquisition_slot_id=shared_slot_id,
     )
     repetitions = 3
     batch = prepare_quantum_target_batch(
-        (iq_entry, trace_entry),
+        (iq_entry, q1_entry),
         target_id=target.id,
         compiler_id=compiler.id,
         capability_fingerprint=target.capability_fingerprint,
@@ -796,10 +789,10 @@ def test_prepared_quantum_batch_resolves_reused_slots_from_runtime_frames() -> N
             iq_measurement,
             iq_implementation,
         ),
-        trace_entry.id: (
-            trace_entry.source_program_id,
-            trace_measurement,
-            trace_implementation,
+        q1_entry.id: (
+            q1_entry.source_program_id,
+            q1_measurement,
+            q1_implementation,
         ),
     }
     for frame in run.frames:
@@ -812,12 +805,7 @@ def test_prepared_quantum_batch_resolves_reused_slots_from_runtime_frames() -> N
         assert origin.provenance.acquisition_slot_id == measurement.acquisition_slot_id
         assert origin.provenance.implementation_id == implementation.id
         assert frame.slot_id == shared_slot_id
-        assert frame.kind is measurement.acquisition_kind
-        if frame.kind is AcquisitionKind.INTEGRATED_IQ:
-            assert isinstance(frame.value, complex)
-        else:
-            assert isinstance(frame.value, tuple)
-            assert len(frame.value) == 4
+        assert isinstance(frame.value, complex)
 
 
 def test_runtime_loops_full_list_per_shot_and_correlates_frames() -> None:
@@ -859,10 +847,7 @@ def test_runtime_loops_full_list_per_shot_and_correlates_frames() -> None:
             (shot, list_index) for shot in range(3) for list_index in range(2)
         )
     ]
-    assert isinstance(first.frames[0].value, complex)
-    raw_value = first.frames[1].value
-    assert isinstance(raw_value, tuple)
-    assert len(raw_value) == 4
+    assert all(isinstance(frame.value, complex) for frame in first.frames)
     assert first == second
     assert first.fingerprint.startswith("sha256:")
 
@@ -887,48 +872,7 @@ def test_runtime_accepts_deterministic_custom_acquisition_response() -> None:
     assert first.fingerprint != default_run.fingerprint
     for frame in first.frames:
         expected = complex(frame.shot_index + response.offset, 4)
-        if frame.kind is AcquisitionKind.INTEGRATED_IQ:
-            assert frame.value == expected
-        else:
-            assert isinstance(frame.value, tuple)
-            assert frame.value == tuple(
-                expected + complex(index, -index) for index in range(4)
-            )
-
-
-def test_custom_acquisition_response_run_rejects_tampering() -> None:
-    response = _IndexedAcquisitionResponse(
-        fingerprint="sha256:" + "2" * 64,
-        offset=3,
-    )
-    run = FakeListRuntime(
-        digitizer=FakeSegmentedDigitizer(response=response),
-    ).execute(_compile_two_entries(repetitions=1))
-
-    changed_response = replace(
-        response,
-        fingerprint="sha256:" + "3" * 64,
-        offset=response.offset + 1,
-    )
-    with pytest.raises(ValueError, match="logical address"):
-        replace(run, response=changed_response)
-
-    changed_response_identity = replace(
-        response,
-        fingerprint="sha256:" + "4" * 64,
-    )
-    with pytest.raises(ValueError, match="fingerprint"):
-        replace(run, response=changed_response_identity)
-
-    changed_frame = replace(
-        run.frames[0],
-        value=cast("complex", run.frames[0].value) + 1,
-    )
-    with pytest.raises(ValueError, match="logical address"):
-        replace(run, frames=(changed_frame, *run.frames[1:]))
-
-    with pytest.raises(ValueError, match="fingerprint"):
-        replace(run, fingerprint="sha256:" + "5" * 64)
+        assert frame.value == expected
 
 
 def test_runtime_preserves_multiple_slot_order_within_each_list_entry() -> None:
@@ -950,26 +894,6 @@ def test_runtime_preserves_multiple_slot_order_within_each_list_entry() -> None:
         (1, 0, "q0-slot"),
         (1, 1, "q1-slot"),
     ]
-
-
-def test_complete_run_rejects_missing_or_mismatched_frames() -> None:
-    run = FakeListRuntime().execute(_compile_two_entries(repetitions=1))
-
-    with pytest.raises(ValueError, match="exactly cover"):
-        replace(run, frames=run.frames[:-1])
-
-    wrong_slot = replace(
-        run.frames[0],
-        slot_id=AcquisitionSlotId("wrong-slot"),
-    )
-    with pytest.raises(ValueError, match="acquisition window"):
-        replace(run, frames=(wrong_slot, *run.frames[1:]))
-
-    raw_frame = run.frames[1]
-    assert isinstance(raw_frame.value, tuple)
-    wrong_trace = replace(raw_frame, value=(1j,))
-    with pytest.raises(ValueError, match="logical address"):
-        replace(run, frames=(run.frames[0], wrong_trace))
 
 
 def test_response_depends_on_waveform_but_not_physical_list_position() -> None:
@@ -1380,8 +1304,8 @@ def test_runtime_frame_count_matches_repetitions_times_windows(
     ) == len(run.frames)
 
 
-def test_default_target_is_explicit_lab_owned_hardware_configuration() -> None:
-    target = default_fake_list_target()
+def test_configured_target_projects_lab_owned_hardware_configuration() -> None:
+    target = configured_fake_list_target(quantum_wiring_config_profile())
 
     assert target.id == TargetId("quantum-lab-demo.fake-list-mode.v1")
     assert target.sample_rate_hz == 1_000_000_000

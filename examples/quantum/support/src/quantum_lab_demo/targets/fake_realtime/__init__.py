@@ -1,87 +1,17 @@
-"""Fake realtime control processor, compiler, and deterministic interpreter."""
+"""Fake realtime target composition entry points."""
 
 from quantum_lab_demo.targets.fake_realtime.compiler import FakeRealtimeCompiler
 from quantum_lab_demo.targets.fake_realtime.defaults import (
     configured_fake_realtime_target,
-    default_fake_realtime_target,
 )
 from quantum_lab_demo.targets.fake_realtime.domain_runtime import (
     FakeRealtimeDomainRuntime,
-    FakeRealtimeInvocation,
-    fake_realtime_invocation_spec,
-    realize_fetched_realtime_results,
 )
-from quantum_lab_demo.targets.fake_realtime.lowering import (
-    prepare_fake_realtime_request,
-)
-from quantum_lab_demo.targets.fake_realtime.model import (
-    FakeFeedbackRoute,
-    FakeRealtimeArtifact,
-    FakeRealtimeCompileRequest,
-    FakeRealtimeInputBinding,
-    FakeRealtimeInputId,
-    FakeRealtimeInstruction,
-    FakeRealtimeOutputBinding,
-    FakeRealtimeOutputId,
-    FakeRealtimeProgram,
-    FakeRealtimeRegister,
-    FakeRealtimeTarget,
-    RtDecrementAndJump,
-    RtEmit,
-    RtHalt,
-    RtJump,
-    RtJumpIf,
-    RtLabel,
-    RtMove,
-    RtPulseTimeline,
-    RtScheduledAcquire,
-    RtScheduledPlay,
-    RtWait,
-    RtXor,
-)
-from quantum_lab_demo.targets.fake_realtime.runtime import (
-    FakeRealtimeExecutionError,
-    FakeRealtimeRecord,
-    FakeRealtimeRun,
-    FakeRealtimeRuntime,
-    FakeRealtimeTraceEvent,
-)
+from quantum_lab_demo.targets.fake_realtime.runtime import FakeRealtimeRuntime
 
 __all__ = [
-    "FakeFeedbackRoute",
-    "FakeRealtimeArtifact",
-    "FakeRealtimeCompileRequest",
     "FakeRealtimeCompiler",
     "FakeRealtimeDomainRuntime",
-    "FakeRealtimeExecutionError",
-    "FakeRealtimeInputBinding",
-    "FakeRealtimeInputId",
-    "FakeRealtimeInstruction",
-    "FakeRealtimeInvocation",
-    "FakeRealtimeOutputBinding",
-    "FakeRealtimeOutputId",
-    "FakeRealtimeProgram",
-    "FakeRealtimeRecord",
-    "FakeRealtimeRegister",
-    "FakeRealtimeRun",
     "FakeRealtimeRuntime",
-    "FakeRealtimeTarget",
-    "FakeRealtimeTraceEvent",
-    "RtDecrementAndJump",
-    "RtEmit",
-    "RtHalt",
-    "RtJump",
-    "RtJumpIf",
-    "RtLabel",
-    "RtMove",
-    "RtPulseTimeline",
-    "RtScheduledAcquire",
-    "RtScheduledPlay",
-    "RtWait",
-    "RtXor",
     "configured_fake_realtime_target",
-    "default_fake_realtime_target",
-    "fake_realtime_invocation_spec",
-    "prepare_fake_realtime_request",
-    "realize_fetched_realtime_results",
 ]

@@ -15,7 +15,7 @@ import type {
   StoredParameterValue,
   TableParameterType,
   TableParameterValue,
-} from "./config-types";
+} from "../../api-contract";
 
 export function ConfigParameters({
   config,
@@ -37,7 +37,7 @@ export function ConfigParameters({
     if (!query) return diffs;
     return diffs.filter((diff) => {
       const definition = diff.afterDefinition ?? diff.beforeDefinition;
-      return [diff.parameterId, definition?.description, definition?.valueType.shape]
+      return [diff.parameterId, definition?.description, definition?.value_type.shape]
         .filter((value): value is string => value !== undefined)
         .join(" ")
         .toLocaleLowerCase()
@@ -62,7 +62,7 @@ export function ConfigParameters({
           </span>
           <span>
             <h4 id={headingId}>Parameters</h4>
-            <small>{config.system.parameterCatalog.id}</small>
+            <small>{config.system.parameter_catalog.id}</small>
           </span>
         </div>
         {activeConfig && (
@@ -139,7 +139,7 @@ export function ConfigParameters({
           <Braces size={15} aria-hidden="true" />
           Advanced · raw snapshot
         </summary>
-        <pre>{JSON.stringify(config.raw, null, 2)}</pre>
+        <pre>{JSON.stringify(config, null, 2)}</pre>
       </details>
     </section>
   );
@@ -168,22 +168,22 @@ function ParameterDetail({ diff, comparing }: { diff: ParameterDiff; comparing: 
       </header>
       <div className="parameter-type-facts">
         <ParameterFact label="Type" value={parameterTypeLabel(definition)} />
-        {definition.valueType.shape === "table" && (
+        {definition.value_type.shape === "table" && (
           <>
             <ParameterFact
               label="Rows"
-              value={String(value.shape === "table" ? value.rows.length : 0)}
+              value={String(value.shape === "table" ? (value.rows?.length ?? 0) : 0)}
             />
             <ParameterFact
               label="Primary key"
-              value={definition.valueType.primaryKey.join(", ") || "None"}
+              value={(definition.value_type.primary_key ?? []).join(", ") || "None"}
             />
           </>
         )}
-        {definition.valueType.shape === "series" && (
+        {definition.value_type.shape === "series" && (
           <ParameterFact
             label="Items"
-            value={String(value.shape === "series" ? value.items.length : 0)}
+            value={String(value.shape === "series" ? (value.items?.length ?? 0) : 0)}
           />
         )}
       </div>
@@ -223,7 +223,7 @@ function ParameterValueView({
     const before = diff.before?.shape === "series" ? diff.before : undefined;
     return <SeriesValueView value={value} before={before} />;
   }
-  const valueType = definition.valueType.shape === "table" ? definition.valueType : undefined;
+  const valueType = definition.value_type.shape === "table" ? definition.value_type : undefined;
   if (!valueType) {
     return (
       <ParameterEmpty
@@ -270,8 +270,8 @@ function SeriesValueView({
             </tr>
           </thead>
           <tbody>
-            {value.items.map((item, index) => {
-              const active = before?.items[index];
+            {(value.items ?? []).map((item, index) => {
+              const active = before?.items?.[index];
               const changed =
                 active !== undefined && parameterAtomLabel(active) !== parameterAtomLabel(item);
               return (
@@ -311,7 +311,7 @@ function TableValueView({
   const keyedRows = diff.table?.mode === "keyed" ? diff.table.rows : undefined;
   const rows =
     keyedRows ??
-    value.rows.map(
+    (value.rows ?? []).map(
       (row, index): TableRowDiff => ({
         identity: String(index),
         status: "unchanged",
@@ -339,8 +339,8 @@ function TableValueView({
                 <th key={column.id}>
                   <span>{column.id}</span>
                   <small>
-                    {column.valueType.type}
-                    {valueType.primaryKey.includes(column.id) ? " · key" : ""}
+                    {column.value_type.type}
+                    {(valueType.primary_key ?? []).includes(column.id) ? " · key" : ""}
                   </small>
                 </th>
               ))}

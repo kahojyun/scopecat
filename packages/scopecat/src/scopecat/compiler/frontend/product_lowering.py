@@ -171,7 +171,6 @@ def _lower_product_declaration(
 ) -> ProductDef:
     return ProductDef(
         id=product.product_id,
-        kind=product.kind,
         unit=product.unit,
         dtype=product.dtype,
         axes=tuple(

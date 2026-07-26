@@ -17,11 +17,16 @@ import math
 from dataclasses import dataclass
 from decimal import Decimal
 
-from scopecat_quantum import (
+from scopecat_quantum._ids import (
+    TargetArtifactId,
+    TargetCompileEntryId,
+    TargetCompilerId,
+    TargetId,
+)
+from scopecat_quantum.pulses import (
     DRAG,
     Acquire,
     AcquireSignal,
-    AcquisitionKind,
     Barrier,
     Constant,
     Delay,
@@ -31,15 +36,13 @@ from scopecat_quantum import (
     Play,
     ReadoutSignal,
     ShiftPhase,
-    TargetArtifactId,
+)
+from scopecat_quantum.targets import (
     TargetCompilationError,
     TargetCompilationIssue,
     TargetCompilationIssueDimension,
     TargetCompileEntry,
-    TargetCompileEntryId,
     TargetCompileRequest,
-    TargetCompilerId,
-    TargetId,
 )
 
 from quantum_lab_demo.targets.fake_list_mode.model import (
@@ -107,8 +110,6 @@ class FakeListTargetCompiler:
 
     def compile(self, request: TargetCompileRequest) -> FakeListArtifact:
         """Compile one checked finite request without performing hardware effects."""
-
-        self._validate_dispatch(request)
 
         issues: list[TargetCompilationIssue] = []
         if len(request.entries) > self.target.max_list_entries:
@@ -209,32 +210,6 @@ class FakeListTargetCompiler:
             sample_rate_hz=self.target.sample_rate_hz,
             entries=entries,
         )
-
-    def _validate_dispatch(self, request: TargetCompileRequest) -> None:
-        issues: list[TargetCompilationIssue] = []
-        if request.target_id != self.target.id:
-            _issue(
-                issues,
-                dimension=TargetCompilationIssueDimension.REQUEST,
-                code="fake_list_target_mismatch",
-                message="compile request selects another target",
-            )
-        if request.compiler_id != self.id:
-            _issue(
-                issues,
-                dimension=TargetCompilationIssueDimension.REQUEST,
-                code="fake_list_compiler_mismatch",
-                message="compile request selects another compiler",
-            )
-        if request.capability_fingerprint != self.capability_fingerprint:
-            _issue(
-                issues,
-                dimension=TargetCompilationIssueDimension.CAPABILITY,
-                code="fake_list_capability_fingerprint_mismatch",
-                message="compile request has a stale target capability fingerprint",
-            )
-        if issues:
-            raise TargetCompilationError(tuple(issues))
 
     def _plan_entry(
         self,
@@ -378,7 +353,6 @@ class FakeListTargetCompiler:
                                     channel_id=channel_id,
                                     start_sample=start_sample,
                                     sample_count=duration_sample_count,
-                                    kind=slot.kind,
                                 )
                             )
                 case Delay():
@@ -727,7 +701,6 @@ def _artifact_payload(
             "max_frames": target.max_frames,
             "max_abs_amplitude": float(target.max_abs_amplitude).hex(),
             "supported_envelopes": list(target.supported_envelopes),
-            "supported_acquisition_kinds": [kind.value for kind in AcquisitionKind],
             "output_bindings": [
                 {
                     "signal": signal_key(binding.signal),
@@ -770,7 +743,6 @@ def _artifact_payload(
                         "channel_id": window.channel_id.value,
                         "start_sample": window.start_sample,
                         "sample_count": window.sample_count,
-                        "kind": window.kind.value,
                     }
                     for window in entry.acquisitions
                 ],

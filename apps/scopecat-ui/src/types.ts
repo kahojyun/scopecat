@@ -34,7 +34,6 @@ export interface ProjectRun {
   sequence?: number;
   runId: string;
   experimentId: string;
-  executionMode: string;
   status: RunStatus;
   stateLabel: string;
   createdAt?: string;
@@ -60,19 +59,6 @@ export interface ProjectEvent {
   kind: string;
   occurredAt?: string;
   payload: Record<string, unknown>;
-}
-
-export interface ExperimentDescriptor {
-  id: string;
-  version: string;
-  title: string;
-  description?: string;
-  tags: string[];
-}
-
-export interface ExperimentCatalog {
-  revision?: string;
-  experiments: ExperimentDescriptor[];
 }
 
 export interface ProjectHealth {

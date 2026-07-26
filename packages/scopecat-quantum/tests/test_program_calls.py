@@ -7,7 +7,6 @@ import pytest
 import scopecat as sc
 
 from scopecat_quantum import authoring
-from scopecat_quantum.acquisitions import AcquisitionKind
 from scopecat_quantum.gates import GateCall, GateParameterKind
 from scopecat_quantum.measurement_transforms import (
     BinaryIqDiscriminator,
@@ -288,7 +287,7 @@ def test_program_call_owns_domain_effect_shots_and_named_products() -> None:
         return sc.experiment(call).record_product(call.results.iq_shots)
 
     invocation = experiment()
-    assert invocation.template.record_selections[0].product_id.qualified_name == (
+    assert invocation.definition.record_selections[0].product_id.qualified_name == (
         "call/iq_shots"
     )
 
@@ -330,16 +329,23 @@ def test_repeated_program_calls_require_explicit_instances() -> None:
     def declaration(qubit: authoring.Qubit) -> authoring.QuantumFragment:
         return authoring.measure(qubit, result="iq")
 
-    with pytest.raises(ValueError, match="duplicate instance ids"):
+    with pytest.raises(ValueError, match="duplicate module instance ids"):
         sc.experiment(
             declaration("q0").with_shots(8),
             declaration("q0").with_shots(8),
-        )
+        ).module.build(id="test.quantum.repeated-defaults")
 
     left = declaration.call("left", "q0").with_shots(8)
     right = declaration.call("right", "q0").with_shots(8)
     body = sc.experiment(left, right)
-    assert [item.instance_id for item in body.module.invocations] == ["left", "right"]
+    assert [
+        item.instance_id
+        for item in body.module.procedure
+        if isinstance(item, sc.ModuleInvocation)
+    ] == [
+        "left",
+        "right",
+    ]
     assert left.results.iq.id == "left/iq"
     assert right.results.iq.id == "right/iq"
 
@@ -366,57 +372,11 @@ def test_parent_transform_consumes_program_call_result() -> None:
     def discriminate():
         return body.measurement_transforms(transform)
 
-    assert len(discriminate.ir.body.instances) == 1
+    assert len(discriminate.ir.body.child_instances) == 1
     [lowered] = discriminate.ir.body.measurement_transforms
     assert lowered.input_bindings[0][1].qualified_name == "discriminate/iq_shots"
-    assert {product.qualified_id for product in discriminate.ir.interface.products} == {
+    assert {product.qualified_id for product in discriminate.ir.products} == {
         "discriminate/iq_shots",
         "probability_0",
         "probability_1",
     }
-
-
-def test_program_call_derives_raw_trace_product_from_result_contract() -> None:
-    @authoring.program(id="test.quantum.raw")
-    def declaration(qubit: authoring.Qubit) -> authoring.QuantumFragment:
-        return authoring.measure(
-            qubit,
-            result="trace",
-            contract=authoring.raw_trace_result(16),
-        )
-
-    call = declaration("q0").with_shots(8)
-    [product] = call.module_invocation.module.product_declarations
-    [raw] = declaration.results
-
-    assert isinstance(raw, authoring.MeasurementResult)
-    assert raw.contract.acquisition_kind is AcquisitionKind.RAW_TRACE
-    assert raw.contract.acquisition_shape == ("sample",)
-    assert product.dtype == "complex128"
-    assert product.unit == "ratio"
-    assert [(axis.id, axis.kind, axis.unit) for axis in product.axes] == [
-        ("shot", "shot", "count"),
-        ("sample", "sample", "count"),
-    ]
-    assert product.axes[1].size == 16
-
-
-def test_result_axis_size_is_a_declared_program_input() -> None:
-    @authoring.program
-    def trace(
-        qubit: authoring.Qubit,
-        samples: Annotated[int, sc.IntType(minimum=1)],
-    ) -> authoring.QuantumFragment:
-        return authoring.measure(
-            qubit,
-            result="trace",
-            contract=authoring.raw_trace_result(samples),
-        )
-
-    assert [port.id for port in trace.ports] == ["qubit", "samples"]
-    call = trace("q0", 16).with_shots(8)
-    assert [port.id for port in call.module_invocation.module.input_ports] == [
-        "qubit",
-        "samples",
-        "__shots__",
-    ]

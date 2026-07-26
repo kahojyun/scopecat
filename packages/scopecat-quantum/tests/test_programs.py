@@ -5,40 +5,21 @@ from decimal import Decimal
 import pytest
 from scopecat import Quantity
 
-from scopecat_quantum import (
-    DRAG,
-    Acquire,
-    AcquireSignal,
-    AcquisitionKind,
-    AcquisitionSlot,
+from scopecat_quantum._ids import (
     AcquisitionSlotId,
     CircuitOperationId,
-    Constant,
-    Delay,
-    DriveSignal,
-    GateCall,
-    GateDefinition,
     GateId,
-    GatePulseImplementation,
-    GatePulseImplementationKey,
-    Measure,
-    MeasurementDiscriminator,
-    MeasurementPulseImplementation,
-    MeasurementPulseImplementationKey,
-    Play,
     PulseEventId,
     PulseImplementationId,
-    PulseParallel,
-    PulseProgram,
     PulseProgramId,
     QuantumProgramId,
     QubitId,
-    ReadoutSignal,
-    RealtimeStateId,
     RealtimeValueId,
-    ResolvedPulseImplementations,
-    schedule,
 )
+from scopecat_quantum.acquisitions import AcquisitionKind
+from scopecat_quantum.circuits import Measure
+from scopecat_quantum.gates import GateCall, GateDefinition
+from scopecat_quantum.measurement_implementations import MeasurementDiscriminator
 from scopecat_quantum.programs import (
     AuthoredPulseAcquisitionProvenance,
     AuthoredPulseEventProvenance,
@@ -49,12 +30,6 @@ from scopecat_quantum.programs import (
     QuantumProgramIR,
     QuantumProgramVerificationError,
     RealtimeBitRef,
-    RealtimeBitStateInit,
-    RealtimeBitStateRead,
-    RealtimeBitStateWrite,
-    RealtimeBitXor,
-    RealtimeControlFlowUnsupportedError,
-    RealtimeResultEmit,
     Repeat,
     Sequence,
     StructuredPulseBlock,
@@ -65,6 +40,28 @@ from scopecat_quantum.programs import (
     lower_quantum_program_to_structured_pulses,
     verify_quantum_program,
 )
+from scopecat_quantum.pulse_implementations import (
+    GatePulseImplementation,
+    GatePulseImplementationBinding,
+    GatePulseImplementationKey,
+    MeasurementPulseImplementation,
+    MeasurementPulseImplementationKey,
+    ResolvedPulseImplementations,
+)
+from scopecat_quantum.pulses import (
+    DRAG,
+    Acquire,
+    AcquireSignal,
+    AcquisitionSlot,
+    Constant,
+    Delay,
+    DriveSignal,
+    Play,
+    PulseProgram,
+    ReadoutSignal,
+    schedule,
+)
+from scopecat_quantum.pulses import Parallel as PulseParallel
 
 X90 = GateDefinition(GateId("x90"), qubit_arity=1)
 Q0 = QubitId("q0")
@@ -206,7 +203,12 @@ def test_mixed_program_refines_only_unimplemented_operations() -> None:
         candidate_call.id,
         measurement.id,
     )
-    assert lowered.implementation_bindings.operation_ids == (
+    assert tuple(
+        binding.call_id
+        if isinstance(binding, GatePulseImplementationBinding)
+        else binding.measurement_id
+        for binding in lowered.implementation_bindings.bindings
+    ) == (
         reference.id,
         measurement.id,
     )
@@ -311,91 +313,6 @@ def test_realtime_condition_uses_exact_structural_value_identity() -> None:
     ]
 
 
-def test_structured_refinement_retains_detector_state_and_emit_ops() -> None:
-    state_id = RealtimeStateId("previous-syndrome", scope=("rounds",))
-    previous = RealtimeValueId("previous", scope=("rounds", "body"))
-    current = RealtimeValueId("current", scope=("rounds", "body"))
-    detector = RealtimeValueId("detector", scope=("rounds", "body"))
-    measurement = _measurement(realtime_bit_id=current)
-    source = QuantumProgramIR(
-        id=QuantumProgramId("detector-rounds"),
-        body=Sequence(
-            (
-                RealtimeBitStateInit(
-                    CircuitOperationId("initialize-previous"),
-                    state_id,
-                    0,
-                ),
-                Repeat(
-                    Sequence(
-                        (
-                            RealtimeBitStateRead(
-                                CircuitOperationId("read-previous"),
-                                state_id,
-                                previous,
-                            ),
-                            measurement,
-                            RealtimeBitXor(
-                                CircuitOperationId("detector-xor"),
-                                detector,
-                                RealtimeBitRef(current),
-                                RealtimeBitRef(previous),
-                            ),
-                            RealtimeResultEmit(
-                                CircuitOperationId("emit-detector"),
-                                AcquisitionSlotId("detector"),
-                                RealtimeBitRef(detector),
-                            ),
-                            RealtimeBitStateWrite(
-                                CircuitOperationId("carry-syndrome"),
-                                state_id,
-                                RealtimeBitRef(current),
-                            ),
-                        )
-                    ),
-                    count=3,
-                    axis_id="round",
-                ),
-            )
-        ),
-    )
-    verified = verify_quantum_program(source, ())
-    implementation = MeasurementPulseImplementation(
-        id=PulseImplementationId("readout-q0"),
-        key=MeasurementPulseImplementationKey.from_measurement(measurement),
-        pulse_template=_measurement_template(),
-        discriminator=MeasurementDiscriminator(
-            "binary-iq-threshold",
-            AcquisitionKind.INTEGRATED_IQ,
-        ),
-    )
-
-    structured = lower_quantum_program_to_structured_pulses(
-        verified,
-        ResolvedPulseImplementations(measurements=(implementation,)),
-        output_id=PulseProgramId("detector-round-pulses"),
-    )
-
-    assert isinstance(structured.body, StructuredPulseSequence)
-    initialize, repeated = structured.body.operations
-    assert isinstance(initialize, RealtimeBitStateInit)
-    assert isinstance(repeated, StructuredPulseRepeat)
-    assert isinstance(repeated.operation, StructuredPulseSequence)
-    assert [type(item) for item in repeated.operation.operations] == [
-        RealtimeBitStateRead,
-        StructuredPulseBlock,
-        RealtimeBitXor,
-        RealtimeResultEmit,
-        RealtimeBitStateWrite,
-    ]
-    with pytest.raises(RealtimeControlFlowUnsupportedError):
-        lower_quantum_program_to_pulses(
-            verified,
-            ResolvedPulseImplementations(measurements=(implementation,)),
-            output_id=PulseProgramId("unsupported-straight-line"),
-        )
-
-
 def test_authored_pulse_block_can_own_an_acquisition() -> None:
     template = _measurement_template()
     block = PulseBlock(
@@ -413,7 +330,7 @@ def test_authored_pulse_block_can_own_an_acquisition() -> None:
         output_id=PulseProgramId("inline-pulse-lowered"),
     )
 
-    assert lowered.implementation_bindings.operation_ids == ()
+    assert lowered.implementation_bindings.bindings == ()
     assert all(
         isinstance(item, AuthoredPulseEventProvenance)
         for item in lowered.event_provenance

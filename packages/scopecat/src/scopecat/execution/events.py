@@ -3,16 +3,16 @@
 Runtime events are lossy projections for notebooks and user interfaces, not an
 audit log or replay protocol. Events derived from committed journal entries
 retain their sequence; transient progress has none. Observer failure is logged
-and cannot change run semantics. The execution journal remains the authority
-for externally relevant effects and recovery.
+and cannot change run semantics. The execution journal remains the intent and
+evidence ledger used to contain crashes around externally relevant effects.
 """
 
 from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
+from dataclasses import dataclass, is_dataclass
 from dataclasses import fields as dataclass_fields
-from dataclasses import is_dataclass
 from typing import SupportsInt, cast
 
 from pydantic import JsonValue
@@ -27,6 +27,7 @@ from scopecat.execution.observation import (
     RuntimeProgress,
     RuntimeTransitionEvent,
 )
+from scopecat.execution.ports.journal import ExecutionJournal, commit_transition
 from scopecat.records.artifact import CommandPayload
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.run import RunOutcome
@@ -72,7 +73,7 @@ class RuntimeTransitionProjector:
 
     Callers decide separately whether a transition belongs in the durable
     effect ledger.  Durable transitions should be observed only after their
-    journal append succeeds; transient progress may be observed directly and
+    ledger append succeeds; transient progress may be observed directly and
     therefore has no journal sequence.
     """
 
@@ -143,6 +144,26 @@ class RuntimeTransitionProjector:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class TransitionRecorder:
+    """Keep durable journal writes ahead of their lossy runtime projection."""
+
+    journal: ExecutionJournal
+    projector: RuntimeTransitionProjector | None = None
+
+    def commit(self, transition: ExecutionTransition) -> ExecutionTransition:
+        committed = commit_transition(self.journal, transition)
+        if self.projector is not None:
+            self.projector.observe(committed)
+        return committed
+
+    def observe(self, transition: ExecutionTransition) -> None:
+        """Project transient progress without adding it to the journal."""
+
+        if self.projector is not None:
+            self.projector.observe(transition)
+
+
 def emit_run_started(
     *,
     event_sink: RuntimeEventSink | None,
@@ -188,7 +209,6 @@ def emit_run_finished(
             ),
             result=outcome.result,
             certainty=outcome.certainty,
-            termination_reason=outcome.termination_reason,
             measurement_count=measurement_count,
             problem_count=problem_count,
             compute_evaluated_node_count=compute_evaluated_node_count,

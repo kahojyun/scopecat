@@ -5,11 +5,14 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
-from scopecat_quantum import PreparedQuantumTargetBatch, PreparedQuantumTargetEntry
 from scopecat_quantum import authoring as quantum
+from scopecat_quantum.program_targets import (
+    PreparedQuantumTargetBatch,
+    PreparedQuantumTargetEntry,
+)
 
+from quantum_lab_demo.point_values import QuantumLabPointValues
 from quantum_lab_demo.targets.fake_list_mode import FakeAcquisitionResponse
-from quantum_lab_demo.trace import QuantumLabPointValues
 
 
 @dataclass(frozen=True, slots=True)

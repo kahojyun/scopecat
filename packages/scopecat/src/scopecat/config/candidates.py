@@ -13,11 +13,10 @@ from scopecat.kernel.errors import CheckFailed, Conflict
 from scopecat.kernel.ids import artifact_slug
 from scopecat.kernel.problems import (
     Problem,
-    ProblemCategory,
     ProblemLocation,
     ProblemPhase,
-    blocking_problem,
     model_location,
+    problem,
 )
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.parameter_change import ParameterChangeProposal
@@ -104,7 +103,6 @@ def _build_candidate_config_snapshot(
                     "parameter_change_proposal_base_mismatch",
                     "parameter change proposal was derived from a different "
                     "source config snapshot",
-                    category=ProblemCategory.CONFLICT,
                     location=model_location("candidate_config", "parameter_proposals"),
                     details={
                         "expected_content_hash": candidate.base_config_content_hash,
@@ -120,7 +118,6 @@ def _build_candidate_config_snapshot(
                 _candidate_problem(
                     "parameter_change_proposal_base_id_mismatch",
                     "parameter change proposal base config id is stale",
-                    category=ProblemCategory.CONFLICT,
                     location=model_location("candidate_config", "parameter_proposals"),
                     details={
                         "expected_config_id": config.id,
@@ -143,7 +140,6 @@ def _build_candidate_config_snapshot(
                 _candidate_problem(
                     "parameter_change_proposal_merge_invalid",
                     f"parameter change proposals cannot be merged: {error}",
-                    category=ProblemCategory.INVALID_INPUT,
                     location=model_location("candidate_config", "parameter_proposals"),
                 )
             ]
@@ -170,7 +166,6 @@ def _validate_candidate(candidate: CandidateConfig) -> None:
                 _candidate_problem(
                     "candidate_config_empty",
                     "candidate config requires at least one proposal",
-                    category=ProblemCategory.INVALID_INPUT,
                     location=model_location("candidate_config"),
                 )
             ]
@@ -182,7 +177,6 @@ def _validate_candidate(candidate: CandidateConfig) -> None:
                 _candidate_problem(
                     "candidate_config_source_run_mismatch",
                     "candidate config proposals must come from one source run",
-                    category=ProblemCategory.INVALID_INPUT,
                     location=model_location("candidate_config", "parameter_proposals"),
                     details={"source_run_ids": sorted(run_ids)},
                 )
@@ -197,7 +191,6 @@ def _validate_candidate(candidate: CandidateConfig) -> None:
                 _candidate_problem(
                     "candidate_config_base_mismatch",
                     "candidate config proposals must share one base config",
-                    category=ProblemCategory.INVALID_INPUT,
                     location=model_location("candidate_config", "parameter_proposals"),
                     details={"base_content_hashes": sorted(hashes)},
                 )
@@ -211,7 +204,6 @@ def _validate_candidate(candidate: CandidateConfig) -> None:
                     _candidate_problem(
                         "parameter_change_invalid_id",
                         "parameter change proposal id is not safe for record paths",
-                        category=ProblemCategory.INVALID_INPUT,
                         location=model_location("parameter_change_proposal", "id"),
                         details={"proposal_id": proposal.id},
                     )
@@ -223,7 +215,6 @@ def _validate_candidate(candidate: CandidateConfig) -> None:
                     _candidate_problem(
                         "candidate_config_duplicate_proposal",
                         "candidate config contains a duplicate parameter proposal",
-                        category=ProblemCategory.INVALID_INPUT,
                         location=model_location(
                             "candidate_config", "parameter_proposals"
                         ),
@@ -245,15 +236,13 @@ def _candidate_problem(
     code: str,
     message: str,
     *,
-    category: ProblemCategory,
     location: ProblemLocation,
     phase: ProblemPhase = ProblemPhase.CONFIGURATION,
     details: dict[str, object] | None = None,
 ) -> Problem:
-    return blocking_problem(
+    return problem(
         code,
         message,
-        category=category,
         phase=phase,
         location=location,
         details=details,

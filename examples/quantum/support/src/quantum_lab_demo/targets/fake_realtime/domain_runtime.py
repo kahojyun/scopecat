@@ -21,16 +21,15 @@ from scopecat.sdk.domain import (
 )
 from scopecat.sdk.problems import (
     Problem,
-    ProblemCategory,
     ProblemPhase,
-    blocking_problem,
     model_location,
+    problem,
 )
-from scopecat_quantum import (
+from scopecat_quantum.result_collections import result_collection_axes
+from scopecat_quantum.targets import (
     CompiledTargetArtifact,
     TargetAcquisitionAddress,
     TargetResultAddress,
-    result_collection_axes,
     target_result_acquisition_addresses,
 )
 
@@ -72,7 +71,7 @@ def fake_realtime_invocation_spec(
         ),
         target_intent={
             "schema": "quantum_lab_demo.fake_realtime_invocation.v1",
-            "program_id": artifact.program.id,
+            "program_id": artifact.program.source_program_id.value,
             "measurements": [
                 {"result_id": result_id, "bits": list(bits)}
                 for result_id, bits in measurements
@@ -88,15 +87,7 @@ class FakeRealtimeDomainRuntime:
     def __init__(self, device: FakeRealtimeRuntime) -> None:
         self._device = device
         self._jobs: dict[str, _FakeRealtimeJob] = {}
-        self._submit_calls = 0
-        self._fetch_calls = 0
-        self._physical_execution_count = 0
         self._lock = Lock()
-
-    @property
-    def physical_execution_count(self) -> int:
-        with self._lock:
-            return self._physical_execution_count
 
     def submit(
         self,
@@ -104,40 +95,40 @@ class FakeRealtimeDomainRuntime:
     ) -> DomainSubmitReceipt:
         key = request.submission_id.submission_key
         with self._lock:
-            self._submit_calls += 1
             existing = self._jobs.get(key)
             if existing is not None:
-                if existing.intent_fingerprint != request.identity.intent_fingerprint:
+                if (
+                    existing.intent_fingerprint
+                    != request.submission_id.intent_fingerprint
+                ):
                     return DomainSubmitReceipt(
-                        identity=request.identity,
+                        submission_key=key,
                         status="not_submitted",
                         problems=(
                             _problem(
                                 "fake_realtime_submission_key_conflict",
                                 "submission key is already bound to another intent",
-                                ProblemCategory.CONFLICT,
                             ),
                         ),
                     )
                 return DomainSubmitReceipt(
-                    identity=request.identity,
+                    submission_key=key,
                     status="submitted",
                     job_id=existing.job_id,
                 )
 
             job_id = f"fake-realtime-job:{key}"
-            self._physical_execution_count += 1
             run = self._device.execute(
                 request.payload.compiled,
                 dict(request.payload.measurements),
             )
             self._jobs[key] = _FakeRealtimeJob(
-                request.identity.intent_fingerprint,
+                request.submission_id.intent_fingerprint,
                 job_id,
                 run,
             )
             return DomainSubmitReceipt(
-                identity=request.identity,
+                submission_key=key,
                 status="submitted",
                 job_id=job_id,
             )
@@ -148,41 +139,38 @@ class FakeRealtimeDomainRuntime:
     ) -> DomainFetchCandidate[FakeRealtimeRun]:
         key = request.submission_id.submission_key
         with self._lock:
-            self._fetch_calls += 1
             job = self._jobs.get(key)
             if job is None or job.job_id != request.job_id:
                 return DomainFetchCandidate(
                     receipt=DomainFetchReceipt(
-                        identity=request.identity,
+                        submission_key=key,
                         job_id=request.job_id,
                         status="not_found",
                         problems=(
                             _problem(
                                 "fake_realtime_job_not_found",
                                 "fake realtime job does not exist",
-                                ProblemCategory.NOT_FOUND,
                             ),
                         ),
                     )
                 )
-            if job.intent_fingerprint != request.identity.intent_fingerprint:
+            if job.intent_fingerprint != request.submission_id.intent_fingerprint:
                 return DomainFetchCandidate(
                     receipt=DomainFetchReceipt(
-                        identity=request.identity,
+                        submission_key=key,
                         job_id=request.job_id,
                         status="unknown",
                         problems=(
                             _problem(
                                 "fake_realtime_job_intent_mismatch",
                                 "fake realtime job belongs to another invocation",
-                                ProblemCategory.PROVIDER_CONTRACT,
                             ),
                         ),
                     )
                 )
             return DomainFetchCandidate(
                 receipt=DomainFetchReceipt(
-                    identity=request.identity,
+                    submission_key=key,
                     job_id=request.job_id,
                     status="fetched",
                     result_fingerprint=job.run.fingerprint,
@@ -281,11 +269,10 @@ def _decode_bit(bit: int, *, dtype: str, unit: str | None) -> object:
     raise ValueError(f"unsupported realtime result dtype {dtype!r}")
 
 
-def _problem(code: str, message: str, category: ProblemCategory) -> Problem:
-    return blocking_problem(
+def _problem(code: str, message: str) -> Problem:
+    return problem(
         code,
         message,
-        category=category,
         phase=ProblemPhase.EXECUTION,
         location=model_location("fake_realtime_domain_runtime"),
     )

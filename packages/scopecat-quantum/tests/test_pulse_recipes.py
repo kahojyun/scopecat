@@ -5,33 +5,31 @@ from dataclasses import dataclass
 import pytest
 from scopecat import Quantity
 
-from scopecat_quantum import (
-    AcquisitionKind,
+from scopecat_quantum import authoring as quantum
+from scopecat_quantum._ids import (
     AcquisitionSlotId,
     CircuitId,
     CircuitOperationId,
-    CircuitProgram,
-    CircuitSequence,
-    Constant,
     CouplerId,
-    GateArgument,
-    GateParameterKind,
+    QubitId,
+)
+from scopecat_quantum.acquisitions import AcquisitionKind
+from scopecat_quantum.circuits import CircuitProgram, Measure, verify_circuit_program
+from scopecat_quantum.circuits import Sequence as CircuitSequence
+from scopecat_quantum.gates import GateArgument, GateCall, GateParameterKind
+from scopecat_quantum.pulse_implementations import (
     GatePulseImplementationArgument,
     GatePulseImplementationKey,
-    Measure,
     MeasurementPulseImplementationKey,
-    Play,
+)
+from scopecat_quantum.pulse_recipes import (
     PulseRecipeMap,
     PulseRecipeProfile,
-    QubitId,
     gate_pulse_recipe,
-    iter_pulse_leaves,
     map_qubit_pulse_recipes,
     measurement_pulse_recipe,
-    verify_circuit_program,
 )
-from scopecat_quantum import authoring as quantum
-from scopecat_quantum.gates import GateCall
+from scopecat_quantum.pulses import Constant, Play, iter_pulse_leaves
 
 
 @dataclass(frozen=True, slots=True)

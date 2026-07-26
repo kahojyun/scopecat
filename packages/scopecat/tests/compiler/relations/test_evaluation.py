@@ -29,7 +29,6 @@ from scopecat.compiler.relations.model import (
 from scopecat.compiler.relations.verification import RelationTypeBindings, RowType
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import (
-    Bool,
     Entity,
     Int,
     Quantity,
@@ -47,7 +46,6 @@ _SMALL_INT = st.integers(min_value=-2, max_value=2)
 _INT = Scalar(Int())
 _FREQUENCY = Scalar(Quantity(unit="GHz"))
 _STRING = Scalar(String())
-_NULLABLE_BOOL = Scalar(Bool(), nullable=True)
 
 
 def _row_scope(local_id: str) -> RowScopeId:
@@ -60,31 +58,17 @@ def _int_row(*column_ids: str) -> RowType:
 
 @settings(max_examples=50)
 @given(
-    cells=st.lists(
-        st.tuples(
-            _SMALL_INT,
-            st.one_of(st.none(), st.booleans()),
-        ),
-        max_size=5,
-    ),
+    values=st.lists(_SMALL_INT, max_size=5),
     offset=_SMALL_INT,
 )
-def test_generated_unary_pipeline_preserves_relative_row_order(
-    cells: list[tuple[int, bool | None]],
+def test_generated_projection_pipeline_preserves_relative_row_order(
+    values: list[int],
     offset: int,
 ) -> None:
-    filter_scope = _row_scope("filter-row")
     derived_scope = _row_scope("derived-row")
-    rows = [
-        {"token": token, "value": value, "keep": keep}
-        for token, (value, keep) in enumerate(cells)
-    ]
+    rows = [{"token": token, "value": value} for token, value in enumerate(values)]
     plan = (
         input_table("rows")
-        .filter(
-            col("keep", row_scope_id=filter_scope).eq(True),
-            row_scope_id=filter_scope,
-        )
         .with_columns(
             row_scope_id=derived_scope,
             derived=col("value", row_scope_id=derived_scope) + offset,
@@ -101,7 +85,6 @@ def test_generated_unary_pipeline_preserves_relative_row_order(
                     (
                         TableColumn("token", _INT),
                         TableColumn("value", _INT),
-                        TableColumn("keep", _NULLABLE_BOOL),
                     )
                 )
             }
@@ -109,8 +92,7 @@ def test_generated_unary_pipeline_preserves_relative_row_order(
     )
     expected = [
         {"token": token, "derived": value + offset}
-        for token, (value, keep) in enumerate(cells)
-        if keep is True
+        for token, value in enumerate(values)
     ]
 
     assert actual == expected

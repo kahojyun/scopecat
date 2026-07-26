@@ -28,12 +28,11 @@ class MeasurementDatasetAppend(BaseModel):
     )
 
     run_id: str
-    dataset_id: str
     recording_contract_fingerprint: str
     start_index: int = Field(ge=0)
     records: tuple[MeasurementRecord, ...] = Field(min_length=1)
 
-    @field_validator("run_id", "dataset_id", "recording_contract_fingerprint")
+    @field_validator("run_id", "recording_contract_fingerprint")
     @classmethod
     def validate_required_text(cls, value: str) -> str:
         if not value:
@@ -62,9 +61,8 @@ class MeasurementDatasetAppend(BaseModel):
     def operation_id(self) -> str:
         digest = stable_content_hash(
             {
-                "schema": "scopecat.measurement_dataset_append_operation.v1",
+                "schema": "scopecat.measurement_dataset_append_operation.v2",
                 "run_id": self.run_id,
-                "dataset_id": self.dataset_id,
                 "recording_contract_fingerprint": self.recording_contract_fingerprint,
                 "start_index": self.start_index,
             }
@@ -110,37 +108,6 @@ class MeasurementDatasetReceipt(BaseModel):
             )
         return value
 
-    @property
-    def content_hash(self) -> str:
-        return model_wire_content_hash(self)
-
-
-class MeasurementDatasetAppendIndex(BaseModel):
-    """Small durable index for one canonical record append."""
-
-    model_config = ConfigDict(
-        extra="forbid", frozen=True, revalidate_instances="always"
-    )
-
-    operation_id: str
-    start_index: int = Field(ge=0)
-    record_count: int = Field(gt=0)
-    recording_contract_fingerprint: str
-    append_content_hash: str
-
-    @classmethod
-    def from_append(
-        cls,
-        append: MeasurementDatasetAppend,
-    ) -> MeasurementDatasetAppendIndex:
-        return cls(
-            operation_id=append.operation_id,
-            start_index=append.start_index,
-            record_count=len(append.records),
-            recording_contract_fingerprint=(append.recording_contract_fingerprint),
-            append_content_hash=append.content_hash,
-        )
-
 
 class MeasurementDatasetSeal(BaseModel):
     """Seal one append-only dataset after its admitted point range is complete."""
@@ -150,14 +117,12 @@ class MeasurementDatasetSeal(BaseModel):
     )
 
     run_id: str
-    dataset_id: str
     recording_contract_fingerprint: str
     point_count: int = Field(ge=0)
     dataset_content_hash: str
 
     @field_validator(
         "run_id",
-        "dataset_id",
         "recording_contract_fingerprint",
         "dataset_content_hash",
     )
@@ -173,9 +138,8 @@ class MeasurementDatasetSeal(BaseModel):
     def operation_id(self) -> str:
         digest = stable_content_hash(
             {
-                "schema": "scopecat.measurement_dataset_seal_operation.v1",
+                "schema": "scopecat.measurement_dataset_seal_operation.v2",
                 "run_id": self.run_id,
-                "dataset_id": self.dataset_id,
                 "recording_contract_fingerprint": self.recording_contract_fingerprint,
             }
         )
@@ -202,7 +166,6 @@ def measurement_dataset_content_hash(
 
 __all__ = [
     "MeasurementDatasetAppend",
-    "MeasurementDatasetAppendIndex",
     "MeasurementDatasetReceipt",
     "MeasurementDatasetSeal",
     "measurement_dataset_content_hash",

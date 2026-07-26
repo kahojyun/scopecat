@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from scopecat.compiler.relations.point_domain import POINT_UNIT
 from scopecat.compiler.semantic.model import (
-    DomainProgramId,
     MeasurementTransformId,
 )
 from scopecat.compiler.typed.domain_results import domain_result_closure
@@ -10,12 +9,12 @@ from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     CoreProgram,
     TypedDomainExecution,
-    TypedDomainProgram,
     TypedDomainResultBinding,
     TypedMeasurementTransform,
     TypedMeasurementTransformInput,
     TypedMeasurementTransformOutput,
 )
+from scopecat.domain.program import DomainProgramDef
 from scopecat.kernel.product_identity import (
     ProductUse,
     ProductUseId,
@@ -33,8 +32,8 @@ def test_domain_result_closure_follows_exact_product_use_edges() -> None:
     output_use = ProductUse(output_product, ProductUseId("output/use"))
     execution = TypedDomainExecution(
         id="domain",
-        program=TypedDomainProgram(
-            id=DomainProgramId(SymbolId(local_id="program")),
+        program=DomainProgramDef(
+            id="program",
             dialect_id="test",
             dialect_version="1",
             body=object(),
@@ -77,6 +76,4 @@ def test_domain_result_closure_follows_exact_product_use_edges() -> None:
     result_closure = domain_result_closure(program, "domain")
 
     assert result_closure.transforms == ()
-    assert result_closure.direct_product_use_ids == (direct_use.id,)
-    assert result_closure.derived_product_use_ids == ()
     assert result_closure.product_use_ids == (direct_use.id,)

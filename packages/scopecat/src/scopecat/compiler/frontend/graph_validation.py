@@ -31,35 +31,27 @@ from scopecat.compiler.frontend.elaboration import SemanticExperimentIR
 from scopecat.compiler.frontend.semantic_elaboration import semantic_value_id
 from scopecat.compiler.relations.model import ScalarExpr, SeriesExpr
 from scopecat.compiler.relations.point_domain import is_point_coordinate_type
-from scopecat.compiler.semantic.dependencies import residual_value_ids
 from scopecat.compiler.semantic.model import (
-    ImplementationCatalog,
-    OperationOutputSource,
-    SourceMap,
-    ValueDef,
-    ValueUse,
+    LocalPythonImplementation,
+    OperationId,
 )
-from scopecat.compiler.semantic.operation_contract import ScalarBinarySemantics
 from scopecat.compiler.semantic.verification import (
     VerifiedSemanticGraph,
-    verify_implementation_catalog,
     verify_semantic_graph,
-    verify_source_map,
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
     ModelLocation,
     Problem,
-    ProblemCategory,
     ProblemLocation,
     ProblemPhase,
-    blocking_problem,
     model_location,
+    problem,
 )
 from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.units import is_supported_unit
-from scopecat.kernel.value_types import Entity, Payload, Scalar, Series, Table
+from scopecat.kernel.value_types import Entity, Payload, Scalar, Series
 from scopecat.records.parameter import Quantity as QuantityValue
 
 
@@ -68,8 +60,7 @@ class VerifiedAssemblyGraph:
     """Source graph facts safe for config-dependent lowering to consume."""
 
     semantic_graph: VerifiedSemanticGraph
-    implementation_catalog: ImplementationCatalog
-    source_map: SourceMap
+    implementations: Mapping[OperationId, LocalPythonImplementation]
     product_declarations: Mapping[ProductId, ModuleProductDecl]
 
 
@@ -108,39 +99,25 @@ def verify_assembly_graph(
     resource_ports = _resource_ports(assembly.resource_ports, problems)
     product_declarations = _verify_product_schema(assembly, problems)
     try:
-        semantic_graph = verify_semantic_graph(assembly.semantic_graph)
+        semantic_graph = verify_semantic_graph(
+            assembly.semantic_graph,
+            effects=assembly.semantic_effects,
+        )
     except CheckFailed as error:
         problems.extend(error.problems)
         semantic_graph = None
-    try:
-        implementation_catalog = verify_implementation_catalog(
-            assembly.semantic_graph,
-            assembly.implementation_catalog,
-        )
-    except CheckFailed as error:
-        problems.extend(error.problems)
-        implementation_catalog = None
-    try:
-        source_map = verify_source_map(assembly.semantic_graph, assembly.source_map)
-    except CheckFailed as error:
-        problems.extend(error.problems)
-        source_map = None
     if semantic_graph is not None:
-        _verify_compute_input_scope(semantic_graph, problems)
-        _verify_state_compute_values(assembly, semantic_graph, problems)
+        _verify_binding_compute_values(assembly, semantic_graph, problems)
     _verify_state_resource_ports(assembly, resource_ports, problems)
     if semantic_graph is not None:
-        _verify_static_value_dependencies(assembly, semantic_graph, problems)
+        _verify_static_value_dependencies(assembly, problems)
     if problems:
         raise CheckFailed(problems)
-    if semantic_graph is None or implementation_catalog is None or source_map is None:
-        raise AssertionError(
-            "successful assembly verification requires graph and sidecar proofs"
-        )
+    if semantic_graph is None:
+        raise AssertionError("successful assembly verification requires graph proofs")
     return VerifiedAssemblyGraph(
         semantic_graph=semantic_graph,
-        implementation_catalog=implementation_catalog,
-        source_map=source_map,
+        implementations=assembly.implementations,
         product_declarations=MappingProxyType(product_declarations),
     )
 
@@ -163,7 +140,6 @@ def _resource_ports(
                 "module_resource_port_duplicate",
                 f"duplicate resource port {port_id.qualified_name}",
                 model_location("resources", *port_id.scope, port_id.local_id),
-                category=ProblemCategory.CONFLICT,
             )
         )
     return selected
@@ -183,25 +159,7 @@ def _verify_state_resource_ports(
             location=model_location("bindings", index, "resource"),
             problems=problems,
         )
-    for index, state in enumerate(assembly.semantic_graph.row_regions):
-        _verify_state_resource_port(
-            state.resource_port,
-            state.capability_id,
-            ports,
-            context="state binding",
-            location=model_location("state", index, "resource_port"),
-            problems=problems,
-        )
-    for index, action in enumerate(assembly.semantic_graph.actions):
-        _verify_state_resource_port(
-            action.resource_port_id,
-            action.capability_id,
-            ports,
-            context="action",
-            location=model_location("actions", index, "resource_port"),
-            problems=problems,
-        )
-    for index, acquire in enumerate(assembly.semantic_graph.acquisitions):
+    for index, acquire in enumerate(assembly.acquisitions):
         _verify_state_resource_port(
             acquire.resource_port_id,
             acquire.capability_id,
@@ -229,7 +187,6 @@ def _verify_state_resource_port(
                 f"{context} references undeclared resource port "
                 f"{port_id.qualified_name!r}",
                 location,
-                category=ProblemCategory.NOT_FOUND,
             )
         )
         return
@@ -261,35 +218,7 @@ def _verify_resource_port_capability(
         )
 
 
-def _verify_compute_input_scope(
-    graph: VerifiedSemanticGraph,
-    problems: list[Problem],
-) -> None:
-    for operation in graph.graph.operations:
-        for input_name, use in operation.inputs:
-            definition = graph.value_defs.get(use.value_id)
-            if definition is None:
-                continue
-            location = model_location(
-                "compute_nodes",
-                *operation.id.scope,
-                operation.id.local_id,
-                "inputs",
-                input_name,
-            )
-            if definition.owner_region_id is not None and not isinstance(
-                operation.contract.semantics, ScalarBinarySemantics
-            ):
-                problems.append(
-                    _problem(
-                        "value_row_scope_unavailable",
-                        "compute input cannot escape its row region",
-                        location,
-                    )
-                )
-
-
-def _verify_state_compute_values(
+def _verify_binding_compute_values(
     assembly: SemanticExperimentIR,
     graph: VerifiedSemanticGraph,
     problems: list[Problem],
@@ -315,10 +244,8 @@ def _verify_state_compute_values(
                 )
             continue
         value_id = semantic_value_id(value)
-        definition = graph.value_defs.get(value_id)
-        if definition is None or not isinstance(
-            definition.source, OperationOutputSource
-        ):
+        operation = graph.operation_results.get(value_id)
+        if operation is None:
             problems.append(
                 _problem(
                     "compute_payload_unknown_output",
@@ -328,102 +255,26 @@ def _verify_state_compute_values(
                 )
             )
             continue
-        if definition.value_type != value.value_type:
+        if operation.result_type != value.value_type:
             problems.append(
                 _problem(
                     "compute_edge_type_mismatch",
                     f"state expects compute output {value.value_type!r}, but "
-                    f"output {definition.id.qualified_name!r} has type "
-                    f"{definition.value_type!r}",
+                    f"output {operation.result_id.qualified_name!r} has type "
+                    f"{operation.result_type!r}",
                     location,
                 )
             )
             continue
-        if not _is_payload_type(definition.value_type):
+        if not _is_payload_type(operation.result_type):
             problems.append(
                 _problem(
                     "compute_payload_unavailable",
                     "state compute output is not an available payload: "
-                    f"{definition.id.qualified_name!r}",
+                    f"{operation.result_id.qualified_name!r}",
                     location,
                 )
             )
-    for index, region in enumerate(graph.graph.row_regions):
-        definition = graph.value_defs.get(region.value.value_id)
-        if definition is None:
-            continue
-        location = model_location("state", index, "value")
-        if not _definition_is_residual(graph, definition):
-            assert isinstance(definition.value_type, Scalar), (  # noqa: S101
-                "verified row-region state values must be scalar-shaped"
-            )
-            continue
-        if not isinstance(definition.source, OperationOutputSource):
-            problems.append(
-                _problem(
-                    "compute_payload_unknown_output",
-                    "state references an execute value without a compute output: "
-                    f"{definition.id.qualified_name!r}",
-                    location,
-                )
-            )
-        elif not _is_payload_type(definition.value_type):
-            problems.append(
-                _problem(
-                    "compute_payload_unavailable",
-                    "state compute output is not an available payload: "
-                    f"{definition.id.qualified_name!r}",
-                    location,
-                )
-            )
-    for action_index, action in enumerate(graph.graph.actions):
-        for field_name, use in action.fields:
-            definition = graph.value_defs.get(use.value_id)
-            if definition is None:
-                continue
-            location = model_location(
-                "actions",
-                action_index,
-                "fields",
-                field_name,
-            )
-            if definition.owner_region_id is not None:
-                problems.append(
-                    _problem(
-                        "value_row_scope_unavailable",
-                        "action field cannot escape its row region",
-                        location,
-                    )
-                )
-                continue
-            if not _definition_is_residual(graph, definition):
-                if not isinstance(definition.value_type, Scalar):
-                    problems.append(
-                        _problem(
-                            "action_field_value_shape_invalid",
-                            "action field value must be scalar-shaped",
-                            location,
-                        )
-                    )
-                continue
-            if not isinstance(definition.source, OperationOutputSource):
-                problems.append(
-                    _problem(
-                        "compute_payload_unknown_output",
-                        "action references an execute value without a compute output: "
-                        f"{definition.id.qualified_name!r}",
-                        location,
-                    )
-                )
-            elif not _is_payload_type(definition.value_type):
-                problems.append(
-                    _problem(
-                        "compute_payload_unavailable",
-                        "action compute output is not an available payload: "
-                        f"{definition.id.qualified_name!r}",
-                        location,
-                    )
-                )
 
 
 def _is_payload_type(value_type: object) -> bool:
@@ -432,7 +283,6 @@ def _is_payload_type(value_type: object) -> bool:
 
 def _verify_static_value_dependencies(
     assembly: SemanticExperimentIR,
-    graph: VerifiedSemanticGraph,
     problems: list[Problem],
 ) -> None:
     for port in assembly.resource_ports:
@@ -456,37 +306,6 @@ def _verify_static_value_dependencies(
                     location=location,
                     problems=problems,
                 )
-
-    for index, state in enumerate(graph.graph.row_regions):
-        relation = graph.value_defs[state.relation.value_id]
-        assert isinstance(relation.value_type, Table), (  # noqa: S101
-            "verified row-region relations must be table-shaped"
-        )
-        _require_semantic_plan_value(
-            graph,
-            state.relation,
-            context="state relation",
-            location=model_location("state", index, "relation"),
-            problems=problems,
-        )
-        for target_index, target_entity in enumerate(state.target_entities):
-            target = graph.value_defs[target_entity.value_id]
-            assert isinstance(target.value_type, Scalar | Series), (  # noqa: S101
-                "verified row-region targets must be scalar- or series-shaped"
-            )
-            _require_semantic_plan_value(
-                graph,
-                target_entity,
-                context="state target entity",
-                location=model_location(
-                    "state",
-                    index,
-                    "target_entities",
-                    target_index,
-                ),
-                problems=problems,
-                allow_row=True,
-            )
 
     for product in assembly.product_declarations:
         for axis in product.axes:
@@ -560,7 +379,6 @@ def _require_plan_value(
     context: str,
     location: ModelLocation,
     problems: list[Problem],
-    allow_row: bool = False,
 ) -> bool:
     if internal_value_ref_requires_execution(value):
         problems.append(
@@ -571,7 +389,7 @@ def _require_plan_value(
             )
         )
         return False
-    if not allow_row and internal_value_ref_is_row_dependent(value):
+    if internal_value_ref_is_row_dependent(value):
         problems.append(
             _problem(
                 "value_row_scope_unavailable",
@@ -581,46 +399,6 @@ def _require_plan_value(
         )
         return False
     return True
-
-
-def _require_semantic_plan_value(
-    graph: VerifiedSemanticGraph,
-    use: ValueUse,
-    *,
-    context: str,
-    location: ModelLocation,
-    problems: list[Problem],
-    allow_row: bool = False,
-) -> None:
-    definition = graph.value_defs.get(use.value_id)
-    if definition is None:
-        return
-    if _definition_is_residual(graph, definition):
-        problems.append(
-            _problem(
-                "value_requires_execution",
-                f"{context} cannot depend on an external operation",
-                location,
-            )
-        )
-    elif not allow_row and definition.owner_region_id is not None:
-        problems.append(
-            _problem(
-                "value_row_scope_unavailable",
-                f"{context} cannot depend on a row scope",
-                location,
-            )
-        )
-
-
-def _definition_is_residual(
-    graph: VerifiedSemanticGraph,
-    definition: ValueDef,
-) -> bool:
-    return definition.id in residual_value_ids(
-        graph.value_defs,
-        graph.graph.operations,
-    )
 
 
 def _verify_product_schema(
@@ -634,7 +412,7 @@ def _verify_product_schema(
             duplicate_products.add(product.product_id)
             continue
         product_by_id[product.product_id] = product
-    for acquire_index, acquire in enumerate(assembly.semantic_graph.acquisitions):
+    for acquire_index, acquire in enumerate(assembly.acquisitions):
         for product_index, product in enumerate(acquire.products):
             if product.product_id in product_by_id:
                 continue
@@ -650,7 +428,6 @@ def _verify_product_schema(
                         product_index,
                         "product_id",
                     ),
-                    category=ProblemCategory.NOT_FOUND,
                 )
             )
     if duplicate_products:
@@ -660,7 +437,6 @@ def _verify_product_schema(
                 "experiment assembly defines duplicate products: "
                 + ", ".join(sorted(item.qualified_name for item in duplicate_products)),
                 model_location("products"),
-                category=ProblemCategory.CONFLICT,
             )
         )
 
@@ -682,7 +458,6 @@ def _verify_product_schema(
                     "experiment selects unknown product "
                     f"{selection.product_id.qualified_name}",
                     model_location("record_selections"),
-                    category=ProblemCategory.NOT_FOUND,
                 )
             )
             continue
@@ -709,7 +484,6 @@ def _verify_product_schema(
                 f"{existing_use.product_id.qualified_name!r} and "
                 f"{conflicting_use.product_id.qualified_name!r}",
                 model_location("record_selections"),
-                category=ProblemCategory.CONFLICT,
             )
         )
 
@@ -721,11 +495,10 @@ def _verify_product_schema(
     if duplicate_records:
         problems.append(
             _problem(
-                "template_record_duplicate",
-                "experiment template selects duplicate record ids: "
+                "experiment_record_duplicate",
+                "experiment definition selects duplicate record ids: "
                 + ", ".join(duplicate_records),
                 model_location("record_selections"),
-                category=ProblemCategory.CONFLICT,
             )
         )
 
@@ -740,7 +513,6 @@ def _verify_product_schema(
                 "experiment_record_coordinate_collision",
                 f"record {record_id!r} conflicts with a point coordinate",
                 model_location("record_selections", record_id),
-                category=ProblemCategory.CONFLICT,
             )
         )
 
@@ -766,7 +538,6 @@ def _verify_product_schema(
                         f"product {existing_record_id!r}; shared axes must have "
                         "identical kind, size, and unit",
                         model_location("products", product_id, "axes", axis.id),
-                        category=ProblemCategory.CONFLICT,
                         related_locations=(
                             model_location(
                                 "products",
@@ -801,7 +572,6 @@ def _verify_product_definition(
                 "product_axis_duplicate",
                 f"product {product_id!r} axis {axis_id!r} is duplicated",
                 model_location(location.root, *location.path, "axes"),
-                category=ProblemCategory.CONFLICT,
             )
         )
     for axis in product.axes:
@@ -877,12 +647,10 @@ def _problem(
     message: str,
     location: ModelLocation,
     *,
-    category: ProblemCategory = ProblemCategory.INVALID_INPUT,
     related_locations: Sequence[ProblemLocation] = (),
 ) -> Problem:
-    return blocking_problem(
+    return problem(
         code=code,
-        category=category,
         phase=ProblemPhase.AUTHORING,
         message=message,
         location=location,

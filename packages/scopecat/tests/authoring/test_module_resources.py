@@ -3,20 +3,24 @@ from __future__ import annotations
 import pytest
 
 import scopecat as sc
+from scopecat.authoring._binding_intents import BindingIntent
 from scopecat.compiler.frontend.elaboration import elaborate_module
 from scopecat.compiler.frontend.graph_validation import verify_assembly_graph
-from scopecat.compiler.typed.program import core_state
-from scopecat.compiler.typed.state import ForEachStateSpec, SetStateSpec
+from scopecat.compiler.semantic.model import AcquireEffect
+from scopecat.compiler.typed.program import (
+    TypedDomainExecution,
+    core_state,
+)
+from scopecat.compiler.typed.state import SetStateSpec
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.symbols import SymbolId
-from scopecat.planning.authoring import resolve_experiment
-from tests.testkit.authoring import load_config
+from tests.testkit.authoring import link_invocation, load_config, template_fixture
 from tests.testkit.materialized_effects import config_with_physical_resources
 
 
-def _resource_module() -> sc.ExperimentModule:
+def _resource_module() -> sc.ExperimentModule[...]:
     frequency = sc.Quantity(value=5.0, unit="GHz")
     return (
         sc.module_body(id="test.resources.child")
@@ -39,7 +43,7 @@ def _resource_module() -> sc.ExperimentModule:
 
 
 def test_graph_proof_indexes_verified_product_declarations() -> None:
-    assembly = elaborate_module(_resource_module())
+    assembly = elaborate_module(_resource_module().ir)
 
     verified = verify_assembly_graph(assembly)
 
@@ -54,17 +58,13 @@ def test_explicit_instances_own_independent_resource_ports() -> None:
     right = child.instantiate("right.arm")
     root = sc.module_body(id="test.resources.root").use(left, right).build()
 
-    assembly = elaborate_module(root)
+    assembly = elaborate_module(root.ir)
     verify_assembly_graph(assembly)
 
     assert tuple(port.symbol_id for port in assembly.resource_ports) == (
         logical_resource_port_id(SymbolId(scope=("left.arm",), local_id="drive.v1")),
         logical_resource_port_id(SymbolId(scope=("right.arm",), local_id="drive.v1")),
     )
-    assert [binding.port_path for binding in assembly.bindings] == [
-        "left.arm/drive.v1.set.frequency.value.path",
-        "right.arm/drive.v1.set.frequency.value.path",
-    ]
     assert [binding.capability_id for binding in assembly.bindings] == [
         "set.frequency",
         "set.frequency",
@@ -73,9 +73,7 @@ def test_explicit_instances_own_independent_resource_ports() -> None:
         "value.path",
         "value.path",
     ]
-    assert [
-        acquire.resource_port_id for acquire in assembly.semantic_graph.acquisitions
-    ] == [
+    assert [acquire.resource_port_id for acquire in assembly.acquisitions] == [
         logical_resource_port_id(SymbolId(scope=("left.arm",), local_id="drive.v1")),
         logical_resource_port_id(SymbolId(scope=("right.arm",), local_id="drive.v1")),
     ]
@@ -85,13 +83,13 @@ def test_explicit_instances_own_independent_resource_ports() -> None:
     def template_definition() -> sc.ExperimentBody:
         return sc.experiment(call)
 
-    resolved = resolve_experiment(
+    resolved = link_invocation(
         template_definition(),
         config_profile=load_config(),
     )
     assert [
         state.capability_id
-        for state in core_state(resolved.experiment)
+        for state in core_state(resolved.program)
         if isinstance(state, SetStateSpec)
     ] == [
         "set.frequency",
@@ -99,7 +97,7 @@ def test_explicit_instances_own_independent_resource_ports() -> None:
     ]
     assert [
         state.field_path
-        for state in core_state(resolved.experiment)
+        for state in core_state(resolved.program)
         if isinstance(state, SetStateSpec)
     ] == [
         "value.path",
@@ -119,15 +117,14 @@ def test_child_resource_port_can_bind_to_parent_resource_port() -> None:
         .build()
     )
 
-    assembly = elaborate_module(root)
+    assembly = elaborate_module(root.ir)
 
     assert tuple(port.qualified_id for port in assembly.resource_ports) == ("shared",)
     assert tuple(binding.port_id.qualified_name for binding in assembly.bindings) == (
         "shared",
     )
     assert tuple(
-        acquire.resource_port_id.qualified_name
-        for acquire in assembly.semantic_graph.acquisitions
+        acquire.resource_port_id.qualified_name for acquire in assembly.acquisitions
     ) == ("shared",)
 
 
@@ -137,7 +134,7 @@ def test_nested_instances_prefix_resource_references_once_per_level() -> None:
     outer = wrapper.instantiate("outer")
     root = sc.module_body(id="test.resources.nested-root").use(outer).build()
 
-    assembly = elaborate_module(root)
+    assembly = elaborate_module(root.ir)
     verify_assembly_graph(assembly)
 
     expected_port_id = logical_resource_port_id(
@@ -149,10 +146,118 @@ def test_nested_instances_prefix_resource_references_once_per_level() -> None:
     assert tuple(port.symbol_id for port in assembly.resource_ports) == (
         expected_port_id,
     )
-    assert assembly.bindings[0].port_path == (
-        "outer/inner/drive.v1.set.frequency.value.path"
+    assert assembly.acquisitions[0].resource_port_id == expected_port_id
+
+
+def test_hierarchical_effects_keep_source_order_and_duplicate_occurrences() -> None:
+    value = sc.Quantity(value=5.0, unit="GHz")
+    program = sc.domain_program(
+        "noop",
+        dialect_id="test",
+        dialect_version="1",
+        body=object(),
     )
-    assert assembly.semantic_graph.acquisitions[0].resource_port_id == expected_port_id
+    child_builder = (
+        sc.module_body(id="test.effects.child")
+        .resource("drive.v1", requires=("set.frequency",))
+        .bind_field(
+            "drive.v1",
+            capability="set.frequency",
+            field="value.path",
+            value=value,
+        )
+        .domain(sc.domain_execution(program, id="call"))
+        .product("signal")
+    )
+    child = (
+        child_builder.acquire(
+            "read-signal",
+            "signal",
+            resource="drive.v1",
+            capability="set.frequency",
+        )
+        .build()
+        .instantiate(
+            "child",
+            resource_bindings={"drive.v1": "drive.v1"},
+        )
+    )
+    root_builder = (
+        sc.module_body(id="test.effects.root")
+        .resource("drive.v1", requires=("set.frequency",))
+        .bind_field(
+            "drive.v1",
+            capability="set.frequency",
+            field="value.path",
+            value=value,
+        )
+        .use(child)
+        .bind_field(
+            "drive.v1",
+            capability="set.frequency",
+            field="value.path",
+            value=value,
+        )
+        .domain(sc.domain_execution(program, id="root-call"))
+        .product("root-signal")
+    )
+    module = root_builder.acquire(
+        "root-read",
+        "root-signal",
+        resource="drive.v1",
+        capability="set.frequency",
+    ).build()
+    assembly = elaborate_module(module.ir)
+
+    assert [
+        ("binding", effect.port_id.qualified_name)
+        if isinstance(effect, BindingIntent)
+        else ("acquire", effect.id.qualified_name)
+        if isinstance(effect, AcquireEffect)
+        else ("domain", effect.id)
+        for effect in assembly.effects
+    ] == [
+        ("binding", "drive.v1"),
+        ("binding", "drive.v1"),
+        ("domain", "child/call"),
+        ("acquire", "child/read-signal"),
+        ("binding", "drive.v1"),
+        ("domain", "root-call"),
+        ("acquire", "root-read"),
+    ]
+
+    template = template_fixture(
+        module,
+        id="test.effects.root",
+        kind="effects",
+    )
+    linked = link_invocation(template(), config_profile=load_config())
+    assert [
+        "binding"
+        if isinstance(effect, SetStateSpec)
+        else f"acquire:{effect.id.qualified_name}"
+        if isinstance(effect, AcquireEffect)
+        else f"domain:{effect.id}"
+        for effect in linked.program.effects
+    ] == [
+        "binding",
+        "binding",
+        "domain:child/call",
+        "acquire:child/read-signal",
+        "binding",
+        "domain:root-call",
+        "acquire:root-read",
+    ]
+    assert (
+        sum(isinstance(effect, SetStateSpec) for effect in linked.program.effects) == 3
+    )
+    assert (
+        sum(
+            isinstance(effect, TypedDomainExecution)
+            for effect in linked.program.effects
+        )
+        == 2
+    )
 
 
 def test_resource_identity_distinguishes_slash_from_nested_scope() -> None:
@@ -163,7 +268,7 @@ def test_resource_identity_distinguishes_slash_from_nested_scope() -> None:
     nested = wrapper.instantiate("outer")
     root = sc.module_body(id="test.resources.identity-root").use(direct, nested).build()
 
-    assembly = elaborate_module(root)
+    assembly = elaborate_module(root.ir)
     verify_assembly_graph(assembly)
 
     direct_id = logical_resource_port_id(
@@ -177,9 +282,7 @@ def test_resource_identity_distinguishes_slash_from_nested_scope() -> None:
         direct_id,
         nested_id,
     }
-    assert {
-        acquire.resource_port_id for acquire in assembly.semantic_graph.acquisitions
-    } == {
+    assert {acquire.resource_port_id for acquire in assembly.acquisitions} == {
         direct_id,
         nested_id,
     }
@@ -225,7 +328,7 @@ def test_acquire_resource_capabilities_are_checked_before_linking() -> None:
     )
 
     with pytest.raises(CheckFailed) as error:
-        verify_assembly_graph(elaborate_module(module))
+        verify_assembly_graph(elaborate_module(module.ir))
 
     assert [problem.code for problem in error.value.problems] == [
         "module_resource_port_capability_missing",
@@ -238,44 +341,26 @@ def test_acquire_resource_capabilities_are_checked_before_linking() -> None:
 
 
 def test_state_resource_references_are_checked_before_linking() -> None:
-    rows = sc.input(
-        "rows",
-        sc.TableType(columns=(sc.TableColumn("value", sc.ScalarType(sc.FloatType())),)),
-    )
     with pytest.raises(CheckFailed) as error:
         (
             sc.module_body(id="test.resources.missing-state-port")
-            .inputs(rows)
             .bind_field(
                 "missing-binding",
                 capability="set.offset",
                 field="value",
                 value=1.0,
             )
-            .state_each(
-                rows,
-                resource_port="missing-state",
-                capability="set.offset",
-                field="value",
-                value=lambda row: row["value"],
-            )
             .build()
         )
 
     assert [problem.code for problem in error.value.problems] == [
         "module_resource_undeclared",
-        "module_resource_undeclared",
     ]
 
 
 def test_state_resource_capabilities_are_checked_before_linking() -> None:
-    rows = sc.input(
-        "rows",
-        sc.TableType(columns=(sc.TableColumn("value", sc.ScalarType(sc.FloatType())),)),
-    )
     module = (
         sc.module_body(id="test.resources.missing-state-capability")
-        .inputs(rows)
         .resource("drive", requires=("set.frequency",))
         .bind_field(
             "drive",
@@ -283,47 +368,30 @@ def test_state_resource_capabilities_are_checked_before_linking() -> None:
             field="value",
             value=1.0,
         )
-        .state_each(
-            rows,
-            resource_port="drive",
-            capability="set.offset",
-            field="value",
-            value=lambda row: row["value"],
-        )
         .build()
     )
 
     with pytest.raises(CheckFailed) as error:
-        verify_assembly_graph(elaborate_module(module))
+        verify_assembly_graph(elaborate_module(module.ir))
 
     assert [problem.code for problem in error.value.problems] == [
-        "module_resource_port_capability_missing",
         "module_resource_port_capability_missing",
     ]
 
 
-def test_state_each_keeps_dotted_capability_and_field_ids_structured() -> None:
-    rows_type = sc.TableType(
-        columns=(sc.TableColumn("value", sc.ScalarType(sc.FloatType())),)
-    )
-    rows = sc.input("rows", rows_type)
+def test_state_binding_keeps_dotted_capability_and_field_ids_structured() -> None:
     child = (
         sc.module_body(id="test.resources.structured-state")
-        .inputs(rows)
         .resource("source", requires=("set.offset",))
-        .state_each(
-            rows,
-            resource_port="source",
+        .bind_field(
+            "source",
             capability="set.offset",
             field="value.path",
-            value=lambda row: row["value"],
+            value=1.0,
         )
         .build()
     )
-    instance = child.instantiate(
-        "state.arm",
-        rows=({"value": 1.0},),
-    )
+    instance = child.instantiate("state.arm")
     root = (
         sc.module_body(id="test.resources.structured-state-root").use(instance).build()
     )
@@ -333,14 +401,12 @@ def test_state_each_keeps_dotted_capability_and_field_ids_structured() -> None:
     def template_definition() -> sc.ExperimentBody:
         return sc.experiment(call)
 
-    resolved = resolve_experiment(
+    resolved = link_invocation(
         template_definition(),
         config_profile=config_with_physical_resources({"source-0": ("set.offset",)}),
     )
 
-    state = core_state(resolved.experiment)[0]
-    assert isinstance(state, ForEachStateSpec)
-    child = state.state[0]
-    assert isinstance(child, SetStateSpec)
-    assert child.capability_id == "set.offset"
-    assert child.field_path == "value.path"
+    state = core_state(resolved.program)[0]
+    assert isinstance(state, SetStateSpec)
+    assert state.capability_id == "set.offset"
+    assert state.field_path == "value.path"

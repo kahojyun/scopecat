@@ -1,14 +1,21 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from typing import Annotated
+import inspect
+from collections.abc import Callable, Mapping, Sequence
+from typing import Annotated, cast
 
 import scopecat.authoring as authoring
-from scopecat.authoring import ExperimentTemplate
+from scopecat.authoring import ExperimentInvocation, ExperimentTemplate
 from scopecat.authoring._products import RecordSelection
-from scopecat.authoring._validation import validate_template_definition
 from scopecat.authoring.scans import Scan
+from scopecat.authoring.templates import create_experiment_definition_internal
 from scopecat.authoring.values import MetadataValue
+from scopecat.compiler.frontend.environment import build_config_environment
+from scopecat.compiler.frontend.resolution import (
+    compile_invocation,
+    resolve_compiled_invocation,
+)
+from scopecat.compiler.linking.linked import LinkedPlan
 from scopecat.config.parameter_resolution import resolve_config_parameters
 from scopecat.config.profiles import load_config_profile
 from scopecat.records.config import ConfigProfileSnapshot
@@ -25,38 +32,65 @@ def parameters():
     return resolve_config_parameters(load_config()).data
 
 
+def link_invocation(
+    invocation: authoring.ExperimentInvocation,
+    *,
+    config_profile: ConfigProfileSnapshot,
+) -> LinkedPlan:
+    """Compile and link an authoring fixture against an explicit snapshot."""
+
+    return resolve_compiled_invocation(
+        compile_invocation(invocation),
+        environment=build_config_environment(config_profile),
+    )
+
+
 def template_fixture(
-    module: authoring.ExperimentModule,
+    module: authoring.ExperimentModule[...],
     *,
     id: str,  # noqa: A002
     kind: str,
-    inputs: Sequence[authoring.InputDescription] = (),
+    required_inputs: Sequence[str] = (),
+    defaults: Mapping[str, authoring.RuntimeInput] | None = None,
     scans: Sequence[Scan] = (),
     records: Sequence[RecordSelection] = (),
-    label: str | None = None,
-    description: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
-) -> ExperimentTemplate:
+) -> ExperimentTemplate[...]:
     """Build exact-root fixtures for low-level IR and compiler tests."""
 
-    template = ExperimentTemplate(
+    experiment_definition = create_experiment_definition_internal(
         id=id,
         kind=kind,
-        module=module,
+        module=module.ir,
         record_selections=tuple(records),
-        inputs=tuple(inputs),
+        input_defaults=defaults,
+        required_inputs=tuple(required_inputs),
         default_scans=tuple(scans),
-        label=label,
-        description=description,
         metadata=metadata or {},
     )
-    validate_template_definition(
-        module=template.module,
-        inputs=template.inputs,
-        default_scans=template.default_scans,
-        record_selections=template.record_selections,
+    signature = inspect.Signature(
+        tuple(
+            inspect.Parameter(
+                input_definition.id,
+                inspect.Parameter.KEYWORD_ONLY,
+                default=(
+                    input_definition.default
+                    if input_definition.has_default
+                    else inspect.Parameter.empty
+                ),
+            )
+            for input_definition in experiment_definition.inputs
+        )
     )
-    return template
+
+    def fixture_callable() -> object:
+        raise AssertionError("closed test templates are not re-evaluated")
+
+    return ExperimentTemplate(
+        definition=experiment_definition,
+        _callable=cast("Callable[..., object]", fixture_callable),
+        _signature=signature.replace(return_annotation=ExperimentInvocation),
+    )
 
 
 _SIMPLE_SUBJECT = authoring.input(
@@ -88,7 +122,7 @@ SIMPLE_MODULE = (
 )
 
 
-def simple_template() -> ExperimentTemplate:
+def simple_template() -> ExperimentTemplate[...]:
     def definition(
         subject: Annotated[
             authoring.Input[EntityRef | str],
@@ -118,6 +152,5 @@ def simple_template() -> ExperimentTemplate:
     return authoring.template(
         id="test.simple_scan",
         kind="simple_scan",
-        label="Simple scan",
         metadata={"assembled_by": "template"},
     )(definition)

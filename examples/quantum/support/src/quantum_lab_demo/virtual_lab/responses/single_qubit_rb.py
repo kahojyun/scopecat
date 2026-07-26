@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import override
 
-from scopecat_quantum import AcquisitionKind, TargetAcquisitionAddress
+from scopecat_quantum.targets import TargetAcquisitionAddress
 
 from quantum_lab_demo.targets.fake_list_mode.model import (
     FakeAcquisitionWindow,
@@ -111,8 +111,6 @@ class SingleQubitRbAcquisitionResponse(FakeAcquisitionResponse):
         playback: FakeAwgPlayback,
         window: FakeAcquisitionWindow,
     ) -> FakeDigitizerValue:
-        if window.kind is not AcquisitionKind.INTEGRATED_IQ:
-            raise ValueError("single-qubit RB requires integrated-IQ acquisitions")
         address = TargetAcquisitionAddress(playback.entry_id, window.slot_id)
         if address not in self._by_address:
             raise ValueError("single-qubit RB response does not cover acquisition")

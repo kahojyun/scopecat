@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 import mimetypes
 from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import asdict, dataclass, is_dataclass, replace
+from dataclasses import asdict, dataclass, is_dataclass
 from pathlib import Path, PurePosixPath
-from typing import Literal, NoReturn, Protocol, cast
+from typing import Literal, NoReturn, cast
 
 from pydantic import BaseModel, JsonValue
 
@@ -25,10 +25,9 @@ from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.ids import artifact_slug
 from scopecat.kernel.problems import (
     LocationPathItem,
-    ProblemCategory,
     ProblemPhase,
-    blocking_problem,
     model_location,
+    problem,
 )
 from scopecat.records.analysis import (
     AnalysisRecord,
@@ -82,187 +81,21 @@ class PreparedAnalysis:
     publication: RunContentPublication
 
 
-class _AnalysisArtifactSource(Protocol):
-    def default_filename(self) -> str | None: ...
-
-    def default_extension(self) -> str: ...
-
-    def default_media_type(self) -> str: ...
-
-    def content_hash(self) -> str: ...
-
-    def content_bytes(self) -> bytes: ...
-
-
-@dataclass(frozen=True)
-class _AnalysisModelArtifactSource:
-    model: BaseModel
-
-    def default_filename(self) -> str | None:
-        return None
-
-    def default_extension(self) -> str:
-        return ".json"
-
-    def default_media_type(self) -> str:
-        return "application/json"
-
-    def content_hash(self) -> str:
-        return model_wire_content_hash(self.model)
-
-    def content_bytes(self) -> bytes:
-        return _text_storage_bytes(
-            json.dumps(
-                self.model.model_dump(mode="json"),
-                indent=2,
-                sort_keys=True,
-            )
-        )
-
-
-@dataclass(frozen=True)
-class _AnalysisJsonArtifactSource:
-    content: object
-
-    def default_filename(self) -> str | None:
-        return None
-
-    def default_extension(self) -> str:
-        return ".json"
-
-    def default_media_type(self) -> str:
-        return "application/json"
-
-    def content_hash(self) -> str:
-        return stable_content_hash(content_fingerprint(_json_safe(self.content)))
-
-    def content_bytes(self) -> bytes:
-        return _text_storage_bytes(
-            json.dumps(
-                _json_safe(self.content),
-                indent=2,
-                sort_keys=True,
-            )
-        )
-
-
-@dataclass(frozen=True)
-class _AnalysisTextArtifactSource:
-    content: str
-
-    def default_filename(self) -> str | None:
-        return None
-
-    def default_extension(self) -> str:
-        return ".txt"
-
-    def default_media_type(self) -> str:
-        return "text/plain"
-
-    def content_hash(self) -> str:
-        return stable_content_hash(content_fingerprint(self.content))
-
-    def content_bytes(self) -> bytes:
-        return _text_storage_bytes(self.content)
-
-
-@dataclass(frozen=True)
-class _AnalysisBytesArtifactSource:
-    content: bytes
-
-    def default_filename(self) -> str | None:
-        return None
-
-    def default_extension(self) -> str:
-        return ".bin"
-
-    def default_media_type(self) -> str:
-        return "application/octet-stream"
-
-    def content_hash(self) -> str:
-        return stable_content_hash(content_fingerprint(self.content))
-
-    def content_bytes(self) -> bytes:
-        return self.content
-
-
-@dataclass(frozen=True)
-class _AnalysisFileArtifactSource:
-    path: Path
-
-    def default_filename(self) -> str | None:
-        return self.path.name
-
-    def default_extension(self) -> str:
-        return ""
-
-    def default_media_type(self) -> str:
-        return "application/octet-stream"
-
-    def content_hash(self) -> str:
-        return stable_content_hash(content_fingerprint(self.path.read_bytes()))
-
-    def content_bytes(self) -> bytes:
-        return self.path.read_bytes()
-
-
-@dataclass(frozen=True)
-class _EncodedAnalysisArtifactSource:
-    content: bytes
-    filename: str | None
-    extension: str
-    media_type: str
-    declared_content_hash: str | None
-
-    def default_filename(self) -> str | None:
-        return self.filename
-
-    def default_extension(self) -> str:
-        return self.extension
-
-    def default_media_type(self) -> str:
-        return self.media_type
-
-    def content_hash(self) -> str:
-        return self.declared_content_hash or stable_content_hash(
-            content_fingerprint(self.content)
-        )
-
-    def content_bytes(self) -> bytes:
-        return self.content
-
-
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class AnalysisArtifactSpec:
     title: str
     kind: str
-    source: _AnalysisArtifactSource
+    content: bytes
     artifact_id: str | None
-    filename: str | None
-    media_type: str | None
+    filename: str
+    media_type: str
     metadata: Mapping[str, object]
-
-    def content_bytes(self) -> bytes:
-        return self.source.content_bytes()
-
-    def source_default_filename(self) -> str | None:
-        return self.source.default_filename()
-
-    def source_default_extension(self) -> str:
-        return self.source.default_extension()
-
-    def source_default_media_type(self) -> str:
-        return self.source.default_media_type()
-
-    def source_content_hash(self) -> str:
-        return self.source.content_hash()
 
 
 @dataclass(frozen=True)
 class _PreparedAnalysisArtifact:
-    spec: AnalysisArtifactSpec
     artifact: RunContentEntry
-    artifact_id: str
+    content: bytes
 
 
 def prepare_analysis_artifact(
@@ -279,7 +112,7 @@ def prepare_analysis_artifact(
     media_type: str | None,
     metadata: Mapping[str, object] | None,
 ) -> AnalysisArtifactSpec:
-    """Validate an artifact request and bind its source for later ingestion."""
+    """Validate and snapshot an artifact before its source can change."""
 
     if not title.strip():
         _raise_analysis_problem(
@@ -321,7 +154,7 @@ def prepare_analysis_artifact(
             f"analysis artifact filename must be a basename: {filename}",
             "filename",
         )
-    source: _AnalysisArtifactSource
+    source_filename: str | None = None
     if path is not None:
         source_path = Path(path)
         if not source_path.is_file():
@@ -337,13 +170,34 @@ def prepare_analysis_artifact(
                 (f"analysis artifact filename must be a basename: {selected_filename}"),
                 "filename",
             )
-        source = _AnalysisFileArtifactSource(path=source_path)
+        snapshot = source_path.read_bytes()
+        source_filename = source_path.name
+        default_extension = ""
+        default_media_type = "application/octet-stream"
     elif model is not None:
-        source = _AnalysisModelArtifactSource(model=model)
+        snapshot = _text_storage_bytes(
+            json.dumps(
+                model.model_dump(mode="json"),
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        default_extension = ".json"
+        default_media_type = "application/json"
     elif json_content is not None:
-        source = _AnalysisJsonArtifactSource(content=json_content)
+        snapshot = _text_storage_bytes(
+            json.dumps(
+                _json_safe(json_content),
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        default_extension = ".json"
+        default_media_type = "application/json"
     elif text is not None:
-        source = _AnalysisTextArtifactSource(content=text)
+        snapshot = _text_storage_bytes(text)
+        default_extension = ".txt"
+        default_media_type = "text/plain"
     else:
         if content is None:
             _raise_analysis_problem(
@@ -354,56 +208,26 @@ def prepare_analysis_artifact(
                 ),
                 "artifact",
             )
-        source = _AnalysisBytesArtifactSource(content=content)
+        snapshot = content
+        default_extension = ".bin"
+        default_media_type = "application/octet-stream"
+    selected_filename = (
+        filename
+        or source_filename
+        or (
+            f"{artifact_slug(artifact_id or title, fallback='analysis')}"
+            f"{default_extension}"
+        )
+    )
+    guessed_media_type, _encoding = mimetypes.guess_type(selected_filename)
     return AnalysisArtifactSpec(
         title=title,
         kind=kind,
-        source=source,
+        content=snapshot,
         artifact_id=artifact_id,
-        filename=filename,
-        media_type=media_type,
+        filename=selected_filename,
+        media_type=media_type or guessed_media_type or default_media_type,
         metadata=metadata or {},
-    )
-
-
-def prepare_encoded_analysis_artifact(
-    *,
-    title: str,
-    kind: str,
-    artifact_id: str | None,
-    filename: str | None,
-    content: bytes,
-    media_type: str | None,
-    metadata: Mapping[str, object] | None,
-    source_default_filename: str | None,
-    source_default_extension: str,
-    source_default_media_type: str,
-    source_content_hash: str | None,
-) -> AnalysisArtifactSpec:
-    """Rebuild a client-prepared artifact without losing its source defaults."""
-
-    spec = prepare_analysis_artifact(
-        title=title,
-        kind=kind,
-        artifact_id=artifact_id,
-        filename=filename,
-        model=None,
-        json_content=None,
-        text=None,
-        content=content,
-        path=None,
-        media_type=media_type,
-        metadata=metadata,
-    )
-    return replace(
-        spec,
-        source=_EncodedAnalysisArtifactSource(
-            content=content,
-            filename=source_default_filename,
-            extension=source_default_extension,
-            media_type=source_default_media_type,
-            declared_content_hash=source_content_hash,
-        ),
     )
 
 
@@ -466,7 +290,7 @@ def prepare_analysis(
         outputs=outputs,
     )
     output_artifacts = [prepared.artifact for prepared in prepared_artifacts]
-    output_refs = [prepared.artifact_id for prepared in prepared_artifacts]
+    output_refs = [prepared.artifact.id for prepared in prepared_artifacts]
     analysis_record = AnalysisRecord(
         run_id=run_id,
         title=title,
@@ -512,7 +336,7 @@ def prepare_analysis(
             bytes=tuple(
                 RunBytesWrite(
                     ref=artifact_storage_ref(prepared.artifact),
-                    content=prepared.spec.source.content_bytes(),
+                    content=prepared.content,
                 )
                 for prepared in prepared_artifacts
             ),
@@ -601,17 +425,15 @@ def _prepare_analysis_output_artifacts(
             default_id_counts=default_artifact_id_counts,
             seen_artifact_ids=seen_artifact_ids,
         )
-        selected_filename = _analysis_artifact_filename(spec, selected_artifact_id)
-        media_type = _analysis_artifact_media_type(spec, selected_filename)
         metadata = _json_mapping(cast("Mapping[object, object]", spec.metadata))
         artifact = RunContentEntry(
             role="artifact",
             id=selected_artifact_id,
             kind=spec.kind,
             title=spec.title,
-            media_type=media_type,
-            filename=selected_filename,
-            content_hash=spec.source.content_hash(),
+            media_type=spec.media_type,
+            filename=spec.filename,
+            content_hash=stable_content_hash(content_fingerprint(spec.content)),
             produced_by=(
                 f"analysis_step:{step_id}"
                 if step_id is not None
@@ -621,9 +443,8 @@ def _prepare_analysis_output_artifacts(
         )
         prepared_artifacts.append(
             _PreparedAnalysisArtifact(
-                spec=spec,
                 artifact=artifact,
-                artifact_id=selected_artifact_id,
+                content=spec.content,
             )
         )
     return prepared_artifacts
@@ -675,31 +496,6 @@ def _analysis_artifact_artifact_id(
     return selected
 
 
-def _analysis_artifact_filename(
-    spec: AnalysisArtifactSpec,
-    selected_artifact_id: str,
-) -> str:
-    if spec.filename is not None:
-        return spec.filename
-    source_filename = spec.source.default_filename()
-    if source_filename is not None:
-        return source_filename
-    extension = spec.source.default_extension()
-    return f"{artifact_slug(selected_artifact_id, fallback='analysis')}{extension}"
-
-
-def _analysis_artifact_media_type(
-    spec: AnalysisArtifactSpec,
-    filename: str,
-) -> str:
-    if spec.media_type is not None:
-        return spec.media_type
-    guessed, _encoding = mimetypes.guess_type(filename)
-    if guessed is not None:
-        return guessed
-    return spec.source.default_media_type()
-
-
 def _is_artifact_filename(filename: str) -> bool:
     if not filename or "\\" in filename:
         return False
@@ -714,10 +510,9 @@ def _raise_analysis_problem(
 ) -> NoReturn:
     raise CheckFailed(
         [
-            blocking_problem(
+            problem(
                 code,
                 message,
-                category=ProblemCategory.INVALID_INPUT,
                 phase=ProblemPhase.ANALYSIS,
                 location=model_location("analysis", *path),
             )

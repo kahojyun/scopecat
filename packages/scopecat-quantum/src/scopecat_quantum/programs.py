@@ -18,7 +18,6 @@ from collections import Counter
 from collections.abc import Iterator
 from collections.abc import Sequence as SequenceCollection
 from dataclasses import dataclass, field, replace
-from typing import Literal
 
 from scopecat_quantum._ids import (
     AcquisitionSlotId,
@@ -26,14 +25,10 @@ from scopecat_quantum._ids import (
     CircuitOperationId,
     GateId,
     PulseEventId,
+    PulseImplementationId,
     PulseProgramId,
     QuantumProgramId,
-    RealtimeStateId,
     RealtimeValueId,
-)
-from scopecat_quantum.circuit_pulses import (
-    CircuitPulseAcquisitionProvenance,
-    CircuitPulseEventProvenance,
 )
 from scopecat_quantum.circuits import (
     CircuitProgram,
@@ -141,71 +136,7 @@ class Conditional:
             raise ValueError("quantum realtime conditions compare against one bit")
 
 
-@dataclass(frozen=True, slots=True)
-class RealtimeBitStateInit:
-    """Initialize explicit target-local state before a realtime loop."""
-
-    id: CircuitOperationId
-    state_id: RealtimeStateId
-    value: Literal[0, 1]
-
-
-@dataclass(frozen=True, slots=True)
-class RealtimeBitStateRead:
-    """Read explicit state into one exact SSA value."""
-
-    id: CircuitOperationId
-    state_id: RealtimeStateId
-    output_id: RealtimeValueId
-
-
-@dataclass(frozen=True, slots=True)
-class RealtimeBitStateWrite:
-    """Commit one SSA bit as the state carried to a later iteration."""
-
-    id: CircuitOperationId
-    state_id: RealtimeStateId
-    source: RealtimeBitRef
-
-
-@dataclass(frozen=True, slots=True)
-class RealtimeBitXor:
-    """Define one SSA bit as the XOR of two exact inputs."""
-
-    id: CircuitOperationId
-    output_id: RealtimeValueId
-    left: RealtimeBitRef
-    right: RealtimeBitRef
-
-
-@dataclass(frozen=True, slots=True)
-class RealtimeResultEmit:
-    """Emit one target-local bit into a declared result slot."""
-
-    id: CircuitOperationId
-    result_id: AcquisitionSlotId
-    source: RealtimeBitRef
-
-
-@dataclass(frozen=True, slots=True)
-class RealtimeResultProvenance:
-    """Exact authored operation and SSA value behind one emitted result."""
-
-    result_id: AcquisitionSlotId
-    source_id: CircuitOperationId
-    source_value_id: RealtimeValueId
-
-
-type RealtimeOperation = (
-    RealtimeBitStateInit
-    | RealtimeBitStateRead
-    | RealtimeBitStateWrite
-    | RealtimeBitXor
-    | RealtimeResultEmit
-)
-type QuantumOperation = (
-    GateCall | Measure | PulseBlock | ImplementedGate | RealtimeOperation
-)
+type QuantumOperation = GateCall | Measure | PulseBlock | ImplementedGate
 type QuantumNode = QuantumOperation | Sequence | Parallel | Repeat | Conditional
 
 
@@ -283,15 +214,7 @@ def iter_quantum_operations(node: QuantumNode) -> Iterator[QuantumOperation]:
 
     if isinstance(
         node,
-        GateCall
-        | Measure
-        | PulseBlock
-        | ImplementedGate
-        | RealtimeBitStateInit
-        | RealtimeBitStateRead
-        | RealtimeBitStateWrite
-        | RealtimeBitXor
-        | RealtimeResultEmit,
+        GateCall | Measure | PulseBlock | ImplementedGate,
     ):
         yield node
         return
@@ -343,32 +266,6 @@ def _verified_quantum_program_components(
                     message=(
                         f"realtime value {value_id.value!r} has multiple definitions"
                     ),
-                )
-            )
-    realtime_state_ids = tuple(
-        operation.state_id
-        for operation, _path in operation_entries
-        if isinstance(operation, RealtimeBitStateInit)
-    )
-    for state_id, count in Counter(realtime_state_ids).items():
-        if count > 1:
-            issues.append(
-                QuantumProgramIssue(
-                    code="quantum_realtime_state_duplicate",
-                    message=f"realtime state {state_id.value!r} is initialized twice",
-                )
-            )
-    emitted_result_ids = tuple(
-        operation.result_id
-        for operation, _path in operation_entries
-        if isinstance(operation, RealtimeResultEmit)
-    )
-    for result_id, count in Counter(emitted_result_ids).items():
-        if count > 1:
-            issues.append(
-                QuantumProgramIssue(
-                    code="quantum_realtime_result_duplicate",
-                    message=f"realtime result {result_id.value!r} is emitted twice",
                 )
             )
     operation_ids = tuple(
@@ -590,8 +487,6 @@ def _defined_realtime_value(
 ) -> RealtimeValueId | None:
     if isinstance(operation, Measure):
         return operation.realtime_bit_id
-    if isinstance(operation, RealtimeBitStateRead | RealtimeBitXor):
-        return operation.output_id
     return None
 
 
@@ -601,15 +496,7 @@ def _iter_operations_with_paths(
 ) -> Iterator[tuple[QuantumOperation, tuple[QuantumIssuePathItem, ...]]]:
     if isinstance(
         node,
-        GateCall
-        | Measure
-        | PulseBlock
-        | ImplementedGate
-        | RealtimeBitStateInit
-        | RealtimeBitStateRead
-        | RealtimeBitStateWrite
-        | RealtimeBitXor
-        | RealtimeResultEmit,
+        GateCall | Measure | PulseBlock | ImplementedGate,
     ):
         yield node, path
         return
@@ -647,7 +534,6 @@ def _iter_operations_with_paths(
 @dataclass(frozen=True, slots=True)
 class _RealtimeFlow:
     values: tuple[RealtimeValueId, ...] = ()
-    states: tuple[RealtimeStateId, ...] = ()
 
 
 def _verify_realtime_flow(
@@ -656,7 +542,7 @@ def _verify_realtime_flow(
     path: tuple[QuantumIssuePathItem, ...],
     issues: list[QuantumProgramIssue],
 ) -> _RealtimeFlow:
-    """Verify exact SSA dominance and explicit state-effect ordering."""
+    """Verify exact measurement-bit dominance through structured control flow."""
 
     if isinstance(node, Measure):
         return (
@@ -665,22 +551,6 @@ def _verify_realtime_flow(
             else replace(flow, values=(*flow.values, node.realtime_bit_id))
         )
     if isinstance(node, GateCall | PulseBlock | ImplementedGate):
-        return flow
-    if isinstance(node, RealtimeBitStateInit):
-        return replace(flow, states=(*flow.states, node.state_id))
-    if isinstance(node, RealtimeBitStateRead):
-        _require_realtime_state(node.state_id, flow, path, issues)
-        return replace(flow, values=(*flow.values, node.output_id))
-    if isinstance(node, RealtimeBitStateWrite):
-        _require_realtime_state(node.state_id, flow, path, issues)
-        _require_realtime_value(node.source, flow, path, issues)
-        return flow
-    if isinstance(node, RealtimeBitXor):
-        _require_realtime_value(node.left, flow, (*path, "left"), issues)
-        _require_realtime_value(node.right, flow, (*path, "right"), issues)
-        return replace(flow, values=(*flow.values, node.output_id))
-    if isinstance(node, RealtimeResultEmit):
-        _require_realtime_value(node.source, flow, path, issues)
         return flow
     if isinstance(node, Sequence):
         selected = flow
@@ -705,9 +575,6 @@ def _verify_realtime_flow(
         return _RealtimeFlow(
             values=tuple(
                 dict.fromkeys(value for branch in branches for value in branch.values)
-            ),
-            states=tuple(
-                dict.fromkeys(state for branch in branches for state in branch.states)
             ),
         )
     if isinstance(node, Repeat):
@@ -740,10 +607,8 @@ def _verify_realtime_flow(
         issues,
     )
     false_values = set(when_false.values)
-    false_states = set(when_false.states)
     return _RealtimeFlow(
         values=tuple(value for value in when_true.values if value in false_values),
-        states=tuple(state for state in when_true.states if state in false_states),
     )
 
 
@@ -769,23 +634,6 @@ def _require_realtime_value(
     )
 
 
-def _require_realtime_state(
-    state_id: RealtimeStateId,
-    flow: _RealtimeFlow,
-    path: tuple[QuantumIssuePathItem, ...],
-    issues: list[QuantumProgramIssue],
-) -> None:
-    if state_id in flow.states:
-        return
-    issues.append(
-        QuantumProgramIssue(
-            code="quantum_realtime_state_uninitialized",
-            message=f"realtime state {state_id.value!r} must be initialized first",
-            path=path,
-        )
-    )
-
-
 def _circuit_projection(
     node: QuantumNode,
     *,
@@ -797,15 +645,6 @@ def _circuit_projection(
         return CircuitSequence(())
     if isinstance(node, ImplementedGate):
         return node.call if include_implemented else CircuitSequence(())
-    if isinstance(
-        node,
-        RealtimeBitStateInit
-        | RealtimeBitStateRead
-        | RealtimeBitStateWrite
-        | RealtimeBitXor
-        | RealtimeResultEmit,
-    ):
-        return CircuitSequence(())
     if isinstance(node, Sequence):
         return CircuitSequence(
             tuple(
@@ -839,6 +678,35 @@ def _circuit_projection(
             ),
         )
     )
+
+
+@dataclass(frozen=True, slots=True)
+class CircuitPulseEventProvenance:
+    """Exact circuit origin of one instantiated pulse event."""
+
+    event_id: PulseEventId
+    operation_id: CircuitOperationId
+    implementation_id: PulseImplementationId
+    implementation_fingerprint: str
+    template_program_id: PulseProgramId
+    template_event_id: PulseEventId
+    template_path: tuple[int, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "template_path", tuple(self.template_path))
+
+
+@dataclass(frozen=True, slots=True)
+class CircuitPulseAcquisitionProvenance:
+    """Exact circuit origin of one instantiated acquisition."""
+
+    acquisition_slot_id: AcquisitionSlotId
+    measurement_id: CircuitOperationId
+    implementation_id: PulseImplementationId
+    implementation_fingerprint: str
+    template_program_id: PulseProgramId
+    template_acquisition_slot_id: AcquisitionSlotId
+    acquire_event_id: PulseEventId
 
 
 @dataclass(frozen=True, slots=True)
@@ -933,7 +801,6 @@ class StructuredPulseConditional:
 
 type StructuredPulseNode = (
     StructuredPulseBlock
-    | RealtimeOperation
     | StructuredPulseSequence
     | StructuredPulseParallel
     | StructuredPulseRepeat
@@ -950,7 +817,6 @@ class StructuredQuantumPulseProgram:
     implementation_bindings: PulseImplementationBindings
     event_provenance: tuple[QuantumPulseEventProvenance, ...]
     acquisition_provenance: tuple[QuantumPulseAcquisitionProvenance, ...]
-    realtime_result_provenance: tuple[RealtimeResultProvenance, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -1032,7 +898,6 @@ def lower_quantum_program_to_structured_pulses(
     )
     event_provenance: list[QuantumPulseEventProvenance] = []
     acquisition_provenance: list[QuantumPulseAcquisitionProvenance] = []
-    realtime_result_provenance: list[RealtimeResultProvenance] = []
 
     def refine(node: QuantumNode) -> StructuredPulseNode:
         if isinstance(node, Sequence):
@@ -1056,24 +921,6 @@ def lower_quantum_program_to_structured_pulses(
                 when_true=refine(node.when_true),
                 when_false=refine(node.when_false),
             )
-        if isinstance(node, RealtimeResultEmit):
-            realtime_result_provenance.append(
-                RealtimeResultProvenance(
-                    result_id=node.result_id,
-                    source_id=node.id,
-                    source_value_id=node.source.value_id,
-                )
-            )
-            return node
-        if isinstance(
-            node,
-            RealtimeBitStateInit
-            | RealtimeBitStateRead
-            | RealtimeBitStateWrite
-            | RealtimeBitXor,
-        ):
-            return node
-
         acquisition_slots: list[AcquisitionSlot] = []
         body = _lower_leaf(
             node,
@@ -1116,7 +963,6 @@ def lower_quantum_program_to_structured_pulses(
         implementation_bindings=bindings,
         event_provenance=tuple(event_provenance),
         acquisition_provenance=tuple(acquisition_provenance),
-        realtime_result_provenance=tuple(realtime_result_provenance),
     )
 
 
@@ -1216,18 +1062,6 @@ def _lower_node(
         raise RealtimeControlFlowUnsupportedError(
             "measurement-conditioned programs require a realtime target backend"
         )
-    if isinstance(
-        node,
-        RealtimeBitStateInit
-        | RealtimeBitStateRead
-        | RealtimeBitStateWrite
-        | RealtimeBitXor
-        | RealtimeResultEmit,
-    ):
-        raise RealtimeControlFlowUnsupportedError(
-            "realtime classical operations require a realtime target backend"
-        )
-
     return _lower_leaf(
         node,
         source_program_id=source_program_id,

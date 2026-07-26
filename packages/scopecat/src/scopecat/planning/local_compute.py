@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 
 from scopecat.compiler.diagnostics import compiler_problem
-from scopecat.compiler.linking.implementations import SelectedLocalImplementations
 from scopecat.compiler.relations.evaluation import EvalContext
 from scopecat.compiler.semantic.model import ValueId
 from scopecat.compiler.typed.dependencies import ComputePlan
@@ -14,7 +13,6 @@ from scopecat.compiler.typed.verification import VerifiedCoreProgram
 from scopecat.execution.local.program import (
     BoundInput,
     ComputeOperation,
-    ComputeResultSlot,
     OutputInput,
     PayloadSlot,
 )
@@ -32,7 +30,6 @@ def bind_compute_operations(
     operation_prefix: str,
     ctx: EvalContext,
     compute_plan: ComputePlan,
-    implementations: SelectedLocalImplementations,
     demanded_payload_results: set[ValueId],
     problems: list[Problem],
     verified_program: VerifiedCoreProgram,
@@ -100,13 +97,23 @@ def bind_compute_operations(
                 )
         if failed:
             continue
-        implementation = implementations.selected_for(node.id)
+        implementation = node.implementation
         signature = stable_content_hash(
             {
                 "operation": node.id.qualified_name,
                 "contract": content_fingerprint(node.contract),
-                "interface": content_fingerprint(implementation.interface),
-                "implementation": implementation.implementation_id.value,
+                "interface": content_fingerprint(
+                    (
+                        tuple(
+                            sorted(
+                                (name, value.value_type)
+                                for name, value in node.inputs.items()
+                            )
+                        ),
+                        node.result.value_type,
+                    )
+                ),
+                "implementation": implementation.id.value,
                 "inputs": signature_inputs,
             }
         )
@@ -127,15 +134,10 @@ def bind_compute_operations(
             ComputeOperation(
                 operation_id=(f"{operation_prefix}.compute.{node.id.qualified_name}"),
                 semantic_operation_id=node.id.qualified_name,
-                implementation_id=implementation.implementation_id.value,
-                contract=node.contract,
+                implementation_id=implementation.id.value,
                 kernel=implementation.kernel,
                 inputs=inputs,
-                result=ComputeResultSlot(
-                    id=node.result.id,
-                    value_type=node.result.value_type,
-                ),
-                binding_signature=signature,
+                result=node.result,
                 dependencies=dict(compute_plan.dependencies[node.id].as_mapping()),
                 payload_slot=(
                     PayloadSlot(id=payload_id, schema_id=schema_id)

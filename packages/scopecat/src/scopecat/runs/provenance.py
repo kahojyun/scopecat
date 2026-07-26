@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from scopecat.kernel.errors import DataIntegrityError
 from scopecat.kernel.problems import (
-    ProblemCategory,
     ProblemPhase,
     StorageLocation,
-    blocking_problem,
+    problem,
 )
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.run import RunManifest
@@ -32,10 +31,9 @@ def validate_run_config_provenance(
         return
     raise DataIntegrityError(
         [
-            blocking_problem(
+            problem(
                 "run.config_provenance_mismatch",
                 "run configuration hash evidence does not match the accepted snapshot",
-                category=ProblemCategory.DATA_INTEGRITY,
                 phase=ProblemPhase.PERSISTENCE,
                 location=StorageLocation(
                     run_id=manifest.run_id,

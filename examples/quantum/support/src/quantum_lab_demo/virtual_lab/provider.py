@@ -7,13 +7,11 @@ from typing import override
 
 from pydantic import JsonValue
 from scopecat.sdk.instruments import (
-    ActionReceipt,
     ApplyReceipt,
     CapabilityDescription,
     CollectCommand,
     CollectReceipt,
     DriverFault,
-    InstrumentActionCommand,
     InstrumentDescription,
     InstrumentDriver,
     InstrumentProviderContext,
@@ -30,7 +28,6 @@ from scopecat.sdk.instruments import (
     product_axis,
     quantity_field,
 )
-from scopecat.sdk.instruments.provider_options import ProviderOptionDescription
 from scopecat.sdk.problems import Problem
 
 from quantum_lab_demo.virtual_lab.devices import VirtualDevice, VirtualLab
@@ -60,17 +57,12 @@ class _VirtualInstrumentDriver:
         self._capabilities = list(capabilities)
         self._metadata = dict(metadata or {})
 
-    @property
-    def virtual_device(self) -> VirtualDevice:
-        return self._device
-
     def describe(self) -> InstrumentDescription:
         return InstrumentDescription(
             instrument_id=self.instrument_id,
             implementation_id=self.implementation_id,
             implementation_version=self.implementation_version,
             capabilities=list(self._capabilities),
-            metadata=self._metadata,
         )
 
     def read_state(self) -> InstrumentStateSnapshot:
@@ -92,10 +84,6 @@ class _VirtualInstrumentDriver:
     def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
         self._device.apply(command)
         return ApplyReceipt(status="applied")
-
-    def action(self, command: InstrumentActionCommand) -> ActionReceipt:
-        del command
-        return ActionReceipt(status="performed")
 
     def collect(self, command: CollectCommand) -> CollectReceipt:
         del command
@@ -188,8 +176,6 @@ class QuantumReadoutStack(_VirtualInstrumentDriver):
             readback=InstrumentReadback(
                 values=record_quantum_measurement(
                     command=command,
-                    readout=self.virtual_device,
-                    implementation_id=self.implementation_id,
                 )
             )
         )
@@ -224,28 +210,15 @@ class _VirtualLabProvider:
         *,
         profile: VirtualLabProfileInput,
         provider_id: str,
-        label: str,
-        description: str,
         category: str,
     ) -> None:
         self.profile = load_virtual_lab_profile(profile)
         self._provider_id = provider_id
-        self._label = label
-        self._description = description
         self._metadata: dict[str, JsonValue] = {
             "mode": "virtual_lab",
             "category": category,
             "virtual_lab_profile": self.profile.id,
         }
-        self._options = (
-            ProviderOptionDescription(
-                id="virtual_lab_profile",
-                dtype="VirtualLabProfile",
-                required=True,
-                label="Virtual lab profile",
-                description="Offline virtual devices and response behavior.",
-            ),
-        )
 
     @property
     def provider_id(self) -> str:
@@ -268,10 +241,6 @@ class _VirtualLabProvider:
             provider_id=self.provider_id,
             instruments=instruments,
             problems=tuple(problems),
-            label=self._label,
-            description=self._description,
-            options=self._options,
-            metadata=self._metadata,
         )
 
     def provide(self, context: InstrumentProviderContext) -> InstrumentProviderResult:
@@ -310,11 +279,6 @@ class QuantumLabVirtualProvider(_VirtualLabProvider):
         super().__init__(
             profile=profile,
             provider_id=provider_id,
-            label="virtual-lab instrument provider",
-            description=(
-                "Provides virtual hardware-shaped devices for experiment-system "
-                "authoring templates."
-            ),
             category="experiment_system",
         )
 

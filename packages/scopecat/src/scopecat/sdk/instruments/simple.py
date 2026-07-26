@@ -7,11 +7,9 @@ domain jobs should implement the full driver or domain execution contract.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from typing import cast
-
-from pydantic import JsonValue
 
 from scopecat.kernel.state import StateLiteral, StateValue
 from scopecat.kernel.value_types import Payload
@@ -23,14 +21,12 @@ from scopecat.records.instrument import (
     InstrumentStateSnapshot,
 )
 from scopecat.sdk.instruments.contracts import (
-    ActionReceipt,
     ApplyReceipt,
     CapabilityDescription,
     CapabilityField,
     CollectCommand,
     CollectReceipt,
     DriverFault,
-    InstrumentActionCommand,
     InstrumentDescription,
     InstrumentStateCommand,
     ProductDescription,
@@ -40,10 +36,9 @@ from scopecat.sdk.instruments.contracts import (
 from scopecat.sdk.problems import (
     LocationPathItem,
     Problem,
-    ProblemCategory,
     ProblemPhase,
-    blocking_problem,
     model_location,
+    problem,
 )
 
 type SimpleStateReader = Callable[[], StateLiteral | StateValue]
@@ -92,7 +87,6 @@ class SimpleCapability:
     id: str
     fields: tuple[SimpleStateField, ...] = ()
     products: tuple[SimpleProduct, ...] = ()
-    metadata: Mapping[str, JsonValue] | None = None
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -113,7 +107,6 @@ def simple_capability(
     *,
     fields: Sequence[SimpleStateField] = (),
     products: Sequence[SimpleProduct] = (),
-    metadata: Mapping[str, JsonValue] | None = None,
 ) -> SimpleCapability:
     """Declare a callback-backed capability."""
 
@@ -121,7 +114,6 @@ def simple_capability(
         id=id,
         fields=tuple(fields),
         products=tuple(products),
-        metadata=metadata,
     )
 
 
@@ -141,7 +133,6 @@ class SimpleInstrumentDriver:
         implementation_id: str,
         implementation_version: str,
         capabilities: Sequence[SimpleCapability],
-        metadata: Mapping[str, JsonValue] | None = None,
         cleanup: SimpleLifecycleCallback | None = None,
         abort: SimpleLifecycleCallback | None = None,
     ) -> None:
@@ -191,7 +182,6 @@ class SimpleInstrumentDriver:
                     item.id,
                     fields=described_fields,
                     products=described_products,
-                    metadata=dict(item.metadata or {}),
                 )
             )
         self._description = InstrumentDescription(
@@ -199,7 +189,6 @@ class SimpleInstrumentDriver:
             implementation_id=implementation_id,
             implementation_version=implementation_version,
             capabilities=described_capabilities,
-            metadata=dict(metadata or {}),
         )
 
     def describe(self) -> InstrumentDescription:
@@ -236,19 +225,6 @@ class SimpleInstrumentDriver:
         for write, value in writes:
             write(value)
         return ApplyReceipt(status="applied")
-
-    def action(self, command: InstrumentActionCommand) -> ActionReceipt:
-        return ActionReceipt(
-            status="not_performed",
-            problems=(
-                _problem(
-                    "simple_instrument_action_unsupported",
-                    f"{self.instrument_id} does not support one-shot actions",
-                    "actions",
-                    command.operation_id,
-                ),
-            ),
-        )
 
     def collect(self, command: CollectCommand) -> CollectReceipt:
         selected: list[tuple[str, SimpleProductReader]] = []
@@ -345,10 +321,9 @@ def _problem(
     message: str,
     *path: LocationPathItem,
 ) -> Problem:
-    return blocking_problem(
+    return problem(
         code,
         message,
-        category=ProblemCategory.PROVIDER_CONTRACT,
         phase=ProblemPhase.EXECUTION,
         location=model_location("simple_instrument", *path),
     )

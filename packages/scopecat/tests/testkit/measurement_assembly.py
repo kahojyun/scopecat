@@ -2,24 +2,23 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from scopecat.compiler.frontend.environment import validate_config_environment
+from scopecat.compiler.frontend.environment import build_config_environment
 from scopecat.compiler.linking.linked import (
-    LinkedPointMaterializer,
     MaterializedLinkedPoints,
+    materialize_linked_points,
 )
-from scopecat.compiler.relations.point_domain import point_literal_rows
+from scopecat.compiler.relations.point_domain import point_axis_values, point_product
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     CoreProgram,
     LogicalResourceRequirement,
-    product_output,
 )
 from scopecat.compiler.typed.records import RecordUse
 from scopecat.execution.points import RunPoint
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.product_identity import ProductUse, product_use
 from scopecat.kernel.resource_identity import logical_resource_port_id
-from scopecat.kernel.value_types import Float, Payload, Scalar, Table, TableColumn
+from scopecat.kernel.value_types import Float, Payload, Scalar
 from scopecat.measurements._bridge import (
     project_measurement_catalog,
     project_run_point_catalog,
@@ -28,13 +27,15 @@ from scopecat.measurements.values import (
     ClosedMeasurementProductValues,
     MeasurementValueCandidate,
     MeasurementValueCatalog,
-    SelectedMeasurementValues,
     seal_measurement_values,
-    select_measurement_values,
 )
 from scopecat.records.parameter import Quantity
 from tests.testkit.authoring import load_config
-from tests.testkit.typed_program import instrument_acquisitions, link_program
+from tests.testkit.typed_program import (
+    instrument_acquisitions,
+    link_program,
+    observable_product,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,17 +56,9 @@ def measurement_assembly_scenario(
     use_count: int = 3,
     shared_product: bool = False,
 ) -> MeasurementAssemblyScenario:
-    point_type = Table(
-        columns=(
-            TableColumn("x", Scalar(Float())),
-            TableColumn("opaque", Scalar(Payload("point-payload"))),
-        ),
-        min_rows=len(point_values),
-        max_rows=len(point_values),
-    )
     if shared_product and use_count:
         products = (
-            product_output(
+            observable_product(
                 "shared-signal",
                 unit="ratio",
                 dtype="float64",
@@ -75,7 +68,7 @@ def measurement_assembly_scenario(
         selected_products = products * use_count
     else:
         products = tuple(
-            product_output(
+            observable_product(
                 f"signal-{index}",
                 unit="ratio",
                 dtype="float64",
@@ -113,17 +106,17 @@ def measurement_assembly_scenario(
         id=f"measurement-assembly-{len(point_values)}-{use_count}",
         kind="compiler_test",
         point_domain=PointDomain(
-            root=point_literal_rows(
-                point_type.columns,
-                tuple(
+            root=point_product(
+                point_axis_values("x", Scalar(Float()), point_values),
+                point_axis_values(
+                    "opaque",
+                    Scalar(Payload("point-payload")),
                     (
-                        value,
                         PayloadValue(
                             schema_id="point-payload",
-                            payload={"ordinal": index},
+                            payload={"constant": True},
                         ),
-                    )
-                    for index, value in enumerate(point_values)
+                    ),
                 ),
             )
         ),
@@ -142,9 +135,9 @@ def measurement_assembly_scenario(
         product_uses=uses,
         record_uses=tuple(records),
     )
-    linked_points = LinkedPointMaterializer(
-        link_program(program, validate_config_environment(load_config()))
-    ).materialize()
+    linked_points = materialize_linked_points(
+        link_program(program, build_config_environment(load_config()))
+    )
     return MeasurementAssemblyScenario(
         linked_points=linked_points,
         catalog=project_measurement_catalog(linked_points),
@@ -176,20 +169,15 @@ def assembled_measurement_values_for_all_uses(
     point_values: tuple[float, ...] = (0.0, 1.0),
 ) -> tuple[
     MeasurementAssemblyScenario,
-    SelectedMeasurementValues,
     ClosedMeasurementProductValues,
 ]:
     scenario = measurement_assembly_scenario(point_values=point_values, use_count=3)
-    selected = select_measurement_values(
-        scenario.catalog,
-        required_product_use_ids=tuple(use.id for use in scenario.uses),
-    )
     values = seal_measurement_values(
-        selected,
+        scenario.catalog,
         measurement_value_candidates(scenario, scenario.uses),
         points=scenario.points,
     )
-    return scenario, selected, values
+    return scenario, values
 
 
 __all__ = [

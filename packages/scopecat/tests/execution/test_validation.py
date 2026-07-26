@@ -8,17 +8,17 @@ from scopecat.execution.local.program import (
     CollectOperation,
 )
 from scopecat.execution.local.validation import validate_local_effect_block_instruments
+from scopecat.execution.persistence import validate_run_measurements
 from scopecat.execution.points import RunPoint
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
 from scopecat.kernel.problems import (
-    ProblemCategory,
-    ProblemImpact,
     ProblemPhase,
     model_location,
 )
 from scopecat.kernel.product_identity import product_id, product_use
 from scopecat.kernel.resource_identity import ResourceClaim
 from scopecat.measurements.results import MeasurementDType
+from scopecat.records.measurement import MeasurementRecord
 from scopecat.sdk.instruments.contracts import (
     CapabilityDescription,
     CollectCommand,
@@ -102,8 +102,6 @@ def test_duplicate_product_key_within_selected_capability_is_ambiguous() -> None
     assert len(problems) == 1
     problem = problems[0]
     assert problem.code == "instrument_product_ambiguous"
-    assert problem.impact is ProblemImpact.BLOCKING
-    assert problem.category is ProblemCategory.PROVIDER_CONTRACT
     assert problem.phase is ProblemPhase.PROVIDER_PREFLIGHT
     assert problem.location == model_location(
         "execution_program",
@@ -114,6 +112,31 @@ def test_duplicate_product_key_within_selected_capability_is_ambiguous() -> None
         "capability_id",
     )
     assert "under capability 'readout'" in problem.message
+
+
+def test_run_measurements_have_expected_unique_points_and_observables() -> None:
+    records = [
+        MeasurementRecord(
+            run_id="run-1",
+            point_index=1,
+            coordinates={},
+            observables={},
+        )
+        for _ in range(2)
+    ]
+
+    problems = validate_run_measurements(
+        measurements=records,
+        expected_indices={0},
+    )
+
+    assert [item.code for item in problems] == [
+        "execution_plan_measurement_point_unknown",
+        "execution_plan_measurement_observables_missing",
+        "execution_plan_measurement_point_duplicate",
+        "execution_plan_measurement_point_unknown",
+        "execution_plan_measurement_observables_missing",
+    ]
 
 
 def _collect_program(
@@ -153,7 +176,6 @@ def _collect_program(
                         CollectionResultBinding(
                             provider_key="signal",
                             product_use_ids=(signal_use.id,),
-                            product_id=signal_use.product_id,
                         ),
                     ),
                 ),

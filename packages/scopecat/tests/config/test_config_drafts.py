@@ -26,7 +26,7 @@ from scopecat.records.parameter import (
 from tests.testkit.workflow_fixtures import load_config
 
 
-def test_draft_builds_candidate_deltas_and_structured_table_diff() -> None:
+def test_draft_builds_candidate_and_deltas() -> None:
     source = _config()
     source_before = source.model_copy(deep=True)
     draft = (
@@ -67,32 +67,17 @@ def test_draft_builds_candidate_deltas_and_structured_table_diff() -> None:
         "thresholds",
         "drive_channels",
     ]
-    assert result.diff is not None
-    assert [parameter.parameter_id for parameter in result.diff.parameters] == [
-        "drive.lo_frequency",
-        "thresholds",
-        "drive_channels",
-    ]
     frequency = result.candidate.parameter_snapshot.get("drive.lo_frequency")
     assert frequency == ScalarParameterValue(
         id="drive.lo_frequency",
         value=Quantity(value=5.1, unit="GHz"),
     )
-    table_parameter = result.diff.get("drive_channels")
-    assert table_parameter is not None
-    assert table_parameter.table is not None
-    assert table_parameter.table.primary_key == ("channel_id",)
-    assert [row.operation for row in table_parameter.table.rows] == [
-        "update",
-        "delete",
-        "insert",
-    ]
-    update = table_parameter.table.rows[0]
-    assert update.key == {"channel_id": "xy0"}
-    assert update.before_index == update.after_index == 0
-    assert [(cell.column_id, cell.before, cell.after) for cell in update.cells] == [
-        ("gain", 0.5, 0.7)
-    ]
+    table_delta = result.deltas[2]
+    assert isinstance(table_delta.before, TableParameterValue)
+    assert isinstance(table_delta.after, TableParameterValue)
+    assert [row["channel_id"] for row in table_delta.before.rows] == ["xy0", "xy1"]
+    assert [row["channel_id"] for row in table_delta.after.rows] == ["xy0", "xy2"]
+    assert table_delta.after.rows[0]["gain"] == 0.7
     assert source == source_before
 
 
@@ -112,12 +97,13 @@ def test_draft_supports_complete_table_replacement() -> None:
     result = draft.check()
 
     assert result.ok
-    assert result.diff is not None
-    parameter = result.diff.get("drive_channels")
-    assert parameter is not None
-    assert parameter.table is not None
-    assert [row.operation for row in parameter.table.rows] == ["update", "delete"]
-    assert [cell.column_id for cell in parameter.table.rows[0].cells] == ["enabled"]
+    [delta] = result.deltas
+    assert delta.parameter_id == "drive_channels"
+    assert isinstance(delta.before, TableParameterValue)
+    assert isinstance(delta.after, TableParameterValue)
+    assert len(delta.before.rows) == 2
+    assert len(delta.after.rows) == 1
+    assert delta.after.rows[0]["enabled"] is False
 
 
 def test_invalid_draft_returns_cell_addressable_problem() -> None:
@@ -126,7 +112,6 @@ def test_invalid_draft_returns_cell_addressable_problem() -> None:
     assert not result.ok
     assert result.candidate is None
     assert result.deltas == ()
-    assert result.diff is None
     [problem] = result.problems
     assert problem.code == "invalid_parameter_quantity"
     assert isinstance(problem.location, ModelLocation)

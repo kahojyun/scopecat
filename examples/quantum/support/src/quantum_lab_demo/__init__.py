@@ -15,11 +15,7 @@ from quantum_lab_demo.lab import (
     quantum_lab_system,
     quantum_realtime_lab_compiler,
 )
-from quantum_lab_demo.trace import (
-    QuantumLabPointValues,
-    QuantumLabPreparationEvidence,
-    QuantumLabTrace,
-)
+from quantum_lab_demo.point_values import QuantumLabPointValues
 
 __all__ = [
     "DAEMON_URL_ENV",
@@ -28,8 +24,6 @@ __all__ = [
     "EXAMPLE_ROOT",
     "QuantumLabCompiler",
     "QuantumLabPointValues",
-    "QuantumLabPreparationEvidence",
-    "QuantumLabTrace",
     "QuantumRealtimeLabCompiler",
     "__version__",
     "quantum_lab_application",

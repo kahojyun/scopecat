@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Generator
-from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 from typing import cast, override
@@ -11,7 +9,7 @@ import pytest
 from pydantic import JsonValue
 
 from scopecat.adapters.sqlite import SQLiteRunRepository
-from scopecat.compiler.frontend.environment import validate_config_environment
+from scopecat.compiler.frontend.environment import build_config_environment
 from scopecat.compiler.relations.model import (
     lit,
     point_col,
@@ -21,8 +19,8 @@ from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
 )
+from scopecat.compiler.semantic.compute_result import ComputeOutput
 from scopecat.compiler.semantic.model import (
-    ImplementationCatalog,
     ImplementationId,
     LocalPythonImplementation,
     OperationId,
@@ -35,7 +33,6 @@ from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     LogicalResourceRequirement,
     TypedComputeNode,
-    TypedComputeOutput,
     ValueInput,
     core_acquisitions,
     record_product,
@@ -43,7 +40,6 @@ from scopecat.compiler.typed.program import (
 )
 from scopecat.execution.evidence import (
     instrument_state_evidence_ref,
-    run_outcome_ref,
 )
 from scopecat.execution.local.program import CollectOperation
 from scopecat.execution.observation import (
@@ -53,16 +49,13 @@ from scopecat.execution.observation import (
     RuntimeTransitionEvent,
 )
 from scopecat.execution.program import RunHostBinding
-from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.errors import ProviderContractError, RunFailed
 from scopecat.kernel.problems import (
     Problem,
-    ProblemCategory,
-    ProblemImpact,
     ProblemPhase,
     model_location,
 )
-from scopecat.kernel.resource_identity import ResourceClaim, logical_resource_port_id
+from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.state import StateValue
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Payload, Scalar, String, TableColumn
@@ -100,10 +93,6 @@ from scopecat.sdk.instruments.contracts import (
     InstrumentStateCommandField,
     product_axis,
 )
-from scopecat.testing import (
-    sqlite_execution_services,
-    sqlite_run_repository,
-)
 from tests.testkit.execution import execute_bound_run, execute_program_run
 from tests.testkit.instrument_drivers import SignalInstrumentDriver
 from tests.testkit.local_materialization import (
@@ -119,6 +108,10 @@ from tests.testkit.relation_plans import (
     scalar_value_expr,
     value_expr,
 )
+from tests.testkit.runtime import (
+    sqlite_execution_session,
+    sqlite_run_repository,
+)
 from tests.testkit.signal_instruments import (
     TestSignalInstrument,
 )
@@ -130,6 +123,37 @@ from tests.testkit.typed_program import (
     typed_program,
 )
 from tests.testkit.workflow_fixtures import load_config, load_experiment
+
+
+def test_execution_builds_one_bound_session(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session_count = 0
+
+    def counted_session(
+        project_root: str | Path,
+        run_id: str,
+        *,
+        runs: SQLiteRunRepository | None = None,
+    ):
+        nonlocal session_count
+        session_count += 1
+        return sqlite_execution_session(project_root, run_id, runs=runs)
+
+    monkeypatch.setattr(
+        "tests.testkit.execution.sqlite_execution_session",
+        counted_session,
+    )
+
+    execute_bound_run(
+        config=load_config(),
+        experiment=load_experiment(),
+        instruments=[TestSignalInstrument()],
+        project_root=tmp_path,
+    )
+
+    assert session_count == 1
 
 
 def test_instrument_models_round_trip() -> None:
@@ -214,10 +238,7 @@ def test_run_persists_measurements_and_run_files(
 
     repository = sqlite_run_repository(tmp_path)
     assert manifest.status == "completed"
-    assert {record.id for record in manifest.records} == {
-        "instrument-state-evidence",
-        "run-outcome",
-    }
+    assert {record.id for record in manifest.records} == {"instrument-state-evidence"}
     assert {dataset.id for dataset in manifest.datasets} == {"raw-measurements"}
     raw_dataset = manifest.datasets[0]
     assert raw_dataset.kind == "measurement_dataset"
@@ -302,8 +323,7 @@ def test_terminal_commit_does_not_publish_manifest_after_content_write_failure(
 
     storage = sqlite_run_repository(tmp_path)
     manifest = storage.list_runs()[0]
-    assert manifest.lifecycle == "running"
-    assert not storage.exists(manifest.run_id, run_outcome_ref())
+    assert manifest.outcome is None
     assert not storage.exists(manifest.run_id, pending_ref)
 
 
@@ -358,74 +378,6 @@ def test_run_round_trips_non_finite_terminal_measurements(
     ]
     assert math.isnan(values[0])
     assert values[1:] == [float("inf"), float("-inf")]
-
-
-class _RecordingLeaseManager:
-    def __init__(self, events: list[str]) -> None:
-        self.events = events
-        self.active = False
-        self.claims: tuple[ResourceClaim, ...] = ()
-
-    @contextmanager
-    def acquire(
-        self,
-        claims: tuple[ResourceClaim, ...],
-    ) -> Generator[None, None, None]:
-        self.claims = tuple(dict.fromkeys((*self.claims, *claims)))
-        self.events.append("lease.enter")
-        self.active = True
-        try:
-            yield
-        finally:
-            self.active = False
-            self.events.append("lease.exit")
-
-
-class _LeaseOrderProvider:
-    provider_id = "tests.lease_order_provider"
-
-    def __init__(
-        self,
-        *,
-        driver: TestSignalInstrument,
-        leases: _RecordingLeaseManager,
-        project_root: Path,
-        events: list[str],
-    ) -> None:
-        self.driver = driver
-        self.leases = leases
-        self.project_root = project_root
-        self.events = events
-
-    def describe(
-        self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderDescription:
-        del context
-        self.events.append("provider.describe")
-        assert not self.leases.active
-        assert sqlite_run_repository(self.project_root).list_runs() == []
-        return InstrumentProviderDescription(
-            provider_id=self.provider_id,
-            instruments=(self.driver.describe(),),
-        )
-
-    def provide(
-        self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderResult:
-        del context
-        self.events.append("provider.provide")
-        assert self.leases.active
-        assert (
-            sqlite_run_repository(self.project_root).list_runs()[0].status == "running"
-        )
-        return InstrumentProviderResult(
-            drivers=(self.driver,),
-            metadata={
-                "allocation": {"rack": "virtual-0", "exclusive": True},
-            },
-        )
 
 
 class _PersistentInterruptingIdentityDriver(SignalInstrumentDriver):
@@ -589,8 +541,6 @@ class _OrderedAbiProblemProvider:
             problems=(
                 Problem(
                     code="provider_abi_warning",
-                    impact=ProblemImpact.ADVISORY,
-                    category=ProblemCategory.PROVIDER_CONTRACT,
                     phase=ProblemPhase.PROVIDER_PREFLIGHT,
                     message="provider ABI warning",
                     location=model_location("instrument_provider", "description"),
@@ -748,56 +698,6 @@ class _UnitAbiProvider:
         return InstrumentProviderResult(drivers=())
 
 
-def test_provider_lifecycle_is_inside_resource_lease(
-    tmp_path: Path,
-) -> None:
-    events: list[str] = []
-    leases = _RecordingLeaseManager(events)
-    provider = _LeaseOrderProvider(
-        driver=TestSignalInstrument(),
-        leases=leases,
-        project_root=tmp_path,
-        events=events,
-    )
-    config = load_config()
-    manifest = execute_program_run(
-        config=config,
-        experiment=load_experiment(),
-        instrument_provider=provider,
-        project_root=tmp_path,
-        resource_leases=leases,
-    )
-
-    assert manifest.status == "completed"
-    assert events[:3] == [
-        "provider.describe",
-        "lease.enter",
-        "provider.provide",
-    ]
-    assert events[-1] == "lease.exit"
-    assert {(claim.kind, claim.id) for claim in leases.claims} >= {
-        ("instrument", "source-0")
-    }
-    journal_entries = (
-        sqlite_execution_services(tmp_path).journal_for(manifest.run_id).entries()
-    )
-    provisioned = next(
-        entry
-        for entry in journal_entries
-        if entry.stage == "provide_instruments" and entry.state == "completed"
-    )
-    receipt = provisioned.evidence["provisioning_receipt"]
-    assert isinstance(receipt, dict)
-    assert receipt["provider_id"] == provider.provider_id
-    assert receipt["instrument_ids"] == ["source-0"]
-    assert receipt["metadata"] == {
-        "allocation": {"rack": "virtual-0", "exclusive": True}
-    }
-    assert provisioned.evidence["provisioning_receipt_content_hash"] == (
-        stable_content_hash(receipt)
-    )
-
-
 def test_returned_driver_is_finalized_when_identity_getter_interrupts(
     tmp_path: Path,
 ) -> None:
@@ -816,9 +716,10 @@ def test_returned_driver_is_finalized_when_identity_getter_interrupts(
     assert driver.terminal_read_count == 1
     manifest = sqlite_run_repository(tmp_path).list_runs()[0]
     assert manifest.status == "interrupted"
-    journal_entries = (
-        sqlite_execution_services(tmp_path).journal_for(manifest.run_id).entries()
-    )
+    journal_entries = sqlite_execution_session(
+        tmp_path,
+        manifest.run_id,
+    ).journal.entries()
     cleanup = next(
         entry
         for entry in journal_entries
@@ -864,7 +765,6 @@ def _lower_test_host_binding(
     program = RunHostBinding(
         resource_order=plan.resource_order,
         provider_id=preflight.provider_id,
-        instrument_order=preflight.instrument_order,
         advertised_descriptions=preflight.advertised_descriptions,
     )
     return validate_run_host_binding(
@@ -881,7 +781,7 @@ def test_malformed_provider_description_is_rejected_before_run_acceptance(
     provider = _MalformedDescriptionProvider()
     config = load_config()
     plan = materialize_local_execution(
-        link_program(load_experiment(), validate_config_environment(config))
+        link_program(load_experiment(), build_config_environment(config))
     )
 
     with pytest.raises(ProviderContractError) as captured:
@@ -900,14 +800,12 @@ def test_provider_abi_problems_are_aggregated_in_stable_order_before_run(
     provider = _OrderedAbiProblemProvider()
     config = load_config()
     plan = materialize_local_execution(
-        link_program(load_experiment(), validate_config_environment(config))
+        link_program(load_experiment(), build_config_environment(config))
     )
     plan = _first_point_plan(plan)
     planning_problems = (
         Problem(
             code="plan_warning",
-            impact=ProblemImpact.ADVISORY,
-            category=ProblemCategory.INVALID_INPUT,
             phase=ProblemPhase.PLANNING,
             message="materialized local semantics warning",
             location=model_location("materialized_effects"),
@@ -939,7 +837,7 @@ def test_partial_provider_description_reports_missing_bound_instrument_before_ru
     provider = _PartialDescriptionProvider()
     config = load_config()
     plan = materialize_local_execution(
-        link_program(load_experiment(), validate_config_environment(config))
+        link_program(load_experiment(), build_config_environment(config))
     )
 
     with pytest.raises(ProviderContractError) as captured:
@@ -960,7 +858,7 @@ def test_provider_description_exception_fails_at_preflight_boundary(
     provider = _FailingDescriptionProvider(failure)
     config = load_config()
     plan = materialize_local_execution(
-        link_program(load_experiment(), validate_config_environment(config))
+        link_program(load_experiment(), build_config_environment(config))
     )
     with pytest.raises(ProviderContractError) as captured:
         _lower_test_host_binding(plan, config, provider)
@@ -979,7 +877,7 @@ def test_invalid_provider_identity_stops_before_description_and_run(
     provider = _InvalidIdentityProvider()
     config = load_config()
     plan = materialize_local_execution(
-        link_program(load_experiment(), validate_config_environment(config))
+        link_program(load_experiment(), build_config_environment(config))
     )
 
     with pytest.raises(ProviderContractError) as captured:
@@ -1002,7 +900,7 @@ def test_provider_product_unit_mismatch_is_rejected_before_run(
     provider = _UnitAbiProvider(product_unit=advertised_unit)
     config = load_config()
     plan = materialize_local_execution(
-        link_program(load_experiment(), validate_config_environment(config))
+        link_program(load_experiment(), build_config_environment(config))
     )
     plan = _first_point_plan(plan)
 
@@ -1035,7 +933,7 @@ def test_provider_product_axis_unit_mismatch_is_rejected_before_run(
         include_axis=True,
     )
     config = load_config()
-    environment = validate_config_environment(config)
+    environment = build_config_environment(config)
     experiment = load_experiment()
     plan = materialize_local_execution(link_program(experiment, environment))
     plan = _first_point_plan(plan)
@@ -1099,7 +997,7 @@ def test_provider_description_interruption_precedes_run_acceptance(
     provider = _FailingDescriptionProvider(KeyboardInterrupt("description cancelled"))
     config = load_config()
     plan = materialize_local_execution(
-        link_program(load_experiment(), validate_config_environment(config))
+        link_program(load_experiment(), build_config_environment(config))
     )
 
     with pytest.raises(KeyboardInterrupt, match="description cancelled"):
@@ -1145,9 +1043,10 @@ def test_run_emits_transient_runtime_events(tmp_path: Path) -> None:
     assert [event.progress.completed_points for event in point_finished] == [1, 2, 3]
     assert len(committed_records) == 1
     assert all(event.sequence is None for event in point_finished)
-    durable_transitions = (
-        sqlite_execution_services(tmp_path).journal_for(manifest.run_id).entries()
-    )
+    durable_transitions = sqlite_execution_session(
+        tmp_path,
+        manifest.run_id,
+    ).journal.entries()
     assert not {
         "point",
         "compute",
@@ -1181,9 +1080,10 @@ def test_runtime_event_sink_failure_does_not_change_durable_execution(
     )
 
     assert manifest.status == "completed"
-    durable_transitions = (
-        sqlite_execution_services(tmp_path).journal_for(manifest.run_id).entries()
-    )
+    durable_transitions = sqlite_execution_session(
+        tmp_path,
+        manifest.run_id,
+    ).journal.entries()
     assert any(
         transition.stage == "collect" and transition.state == "completed"
         for transition in durable_transitions
@@ -1269,7 +1169,11 @@ def test_run_shares_identical_residual_point_compute(tmp_path: Path) -> None:
             TypedComputeNode(
                 id=operation_id,
                 contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-                result=TypedComputeOutput(
+                implementation=LocalPythonImplementation(
+                    id=ImplementationId("python.build-program.v1"),
+                    kernel=build_program,
+                ),
+                result=ComputeOutput(
                     id=result_id,
                     value_type=Scalar(Payload("pulse_program")),
                 ),
@@ -1286,16 +1190,6 @@ def test_run_shares_identical_residual_point_compute(tmp_path: Path) -> None:
                 },
             )
         ],
-        implementation_catalog=ImplementationCatalog(
-            local_python=(
-                LocalPythonImplementation(
-                    id=ImplementationId("python.build-program.v1"),
-                    operation_id=operation_id,
-                    operation_contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-                    kernel=build_program,
-                ),
-            )
-        ),
     )
     events: list[RuntimeEvent] = []
     payload_observations: list[RuntimePayloadObservation] = []
@@ -1340,9 +1234,10 @@ def test_run_shares_identical_residual_point_compute(tmp_path: Path) -> None:
     assert all(event.sequence is None for event in compute_events)
     assert all(
         transition.stage != "compute"
-        for transition in sqlite_execution_services(tmp_path)
-        .journal_for(manifest.run_id)
-        .entries()
+        for transition in sqlite_execution_session(
+            tmp_path,
+            manifest.run_id,
+        ).journal.entries()
     )
     payload_ids = cast(
         "list[str]",

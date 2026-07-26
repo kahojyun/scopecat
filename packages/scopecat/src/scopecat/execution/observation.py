@@ -65,12 +65,11 @@ class RuntimeTransitionEvent(_RuntimeEvent):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class RunFinishedEvent(_RuntimeEvent):
-    """Live notification emitted only after the terminal manifest commits."""
+    """Live notification emitted only after the terminal outcome commits."""
 
     progress: RuntimeProgress
     result: RunResult
     certainty: RunCertainty
-    termination_reason: str
     measurement_count: int
     problem_count: int
     compute_evaluated_node_count: int

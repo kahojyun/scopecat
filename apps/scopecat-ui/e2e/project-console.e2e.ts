@@ -55,7 +55,6 @@ const CONTROLLED_EXPERIMENT_SOURCE = `\
 
 from __future__ import annotations
 
-from dataclasses import replace
 import time
 from pathlib import Path
 
@@ -87,16 +86,13 @@ config = quantum_lab_bootstrap_config()
 
 
 def build_system(selected):
-    return replace(
-        quantum_lab_system(config=selected),
-        coverage_block_size=1,
-    )
+    return quantum_lab_system(config=selected)
 
 
 project = sc.open_project(PROJECT_ROOT)
 with project.connect(build_system=build_system) as lab:
     client = lab._client
-    original_submit = client.submit_delegated
+    original_submit = client.submit_run
     original_start = client.start_executor
     original_append = client.append_measurements
     prepared = lab.prepare(
@@ -110,29 +106,29 @@ with project.connect(build_system=build_system) as lab:
         wait_for_release(RELEASE_ACCEPTED)
         return admission
 
-    def gated_start(request):
-        lease = original_start(request)
-        RUNNING_READY.write_text(request.run_id, encoding="utf-8")
+    def gated_start(run_id, request):
+        lease = original_start(run_id, request)
+        RUNNING_READY.write_text(run_id, encoding="utf-8")
         wait_for_release(RELEASE_RUNNING)
         return lease
 
     append_count = [0]
 
-    def gated_append(command):
-        receipt = original_append(command)
+    def gated_append(run_id, command):
+        receipt = original_append(run_id, command)
         append_count[0] += 1
         if append_count[0] == 1:
-            MEASUREMENT_READY.write_text(command.run_id, encoding="utf-8")
+            MEASUREMENT_READY.write_text(run_id, encoding="utf-8")
             wait_for_release(RELEASE_MEASUREMENT)
         return receipt
 
-    client.submit_delegated = gated_submit
+    client.submit_run = gated_submit
     client.start_executor = gated_start
     client.append_measurements = gated_append
     try:
         run = prepared.run(name="Live state browser E2E")
     finally:
-        client.submit_delegated = original_submit
+        client.submit_run = original_submit
         client.start_executor = original_start
         client.append_measurements = original_append
     summary = {"run_id": run.id, "status": run.manifest.status}
@@ -376,7 +372,7 @@ test("open console reconnects SSE and follows a live notebook run", async ({ dae
     await writeFile(experiment.releaseAccepted, "", "utf8");
     await waitForMarker(experiment.runningReady, experiment);
     await expect(state).toHaveText("Running");
-    await expect(timeline.getByText(/From: accepted.*To: running/)).toBeVisible();
+    await expect(timeline.getByText(/From: queued.*To: leased/)).toBeVisible();
 
     await writeFile(experiment.releaseRunning, "", "utf8");
     await waitForMarker(experiment.measurementReady, experiment);
@@ -385,9 +381,10 @@ test("open console reconnects SSE and follows a live notebook run", async ({ dae
     await expect(dataCard.getByText("Measurement preview", { exact: true })).toBeVisible();
     await expect(dataCard.getByText("1 records", { exact: true })).toBeVisible();
     await expect(dataCard.locator(".measurement-preview pre")).toContainText('"point_index": 0');
+    // The point closes only after the held append call returns its durable receipt.
     await expect(
       detail.getByRole("progressbar", {
-        name: "1 of 5 points complete",
+        name: "0 of 5 points complete",
       }),
     ).toBeVisible();
 
@@ -396,7 +393,7 @@ test("open console reconnects SSE and follows a live notebook run", async ({ dae
     expectProcessOk(completion);
     await expect(state).toHaveText("Succeeded");
     await expect(dataCard.getByText("5 records", { exact: true })).toBeVisible();
-    await expect(timeline.getByText(/From: running.*To: terminal/)).toBeVisible();
+    await expect(timeline.getByText(/From: leased.*To: closed/)).toBeVisible();
   } finally {
     await finishControlledExperiment(experiment);
   }

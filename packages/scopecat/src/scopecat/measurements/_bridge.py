@@ -79,9 +79,11 @@ def project_run_point_catalog_from_domain(
     )
     coordinate_ids = tuple(point_coordinate_ids(points))
     return RunPointCatalog(
-        experiment_id=linked.program.id,
-        experiment_kind=linked.program.kind,
-        coordinate_ids=coordinate_ids,
+        contract=RunPointContract(
+            experiment_id=linked.program.id,
+            experiment_kind=linked.program.kind,
+            coordinate_ids=coordinate_ids,
+        ),
         points=tuple(
             RunPoint(
                 point.logical_id,

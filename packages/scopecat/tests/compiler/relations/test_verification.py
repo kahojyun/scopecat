@@ -228,32 +228,6 @@ def test_unknown_import_reports_a_stable_code_and_nested_path() -> None:
     assert caught.value.path == ("new_columns", "missing")
 
 
-def test_filter_uses_its_source_row_signature() -> None:
-    source = Table(
-        columns=(TableColumn("keep", BOOL),),
-        min_rows=0,
-        max_rows=2,
-    )
-    local_scope = _scope("filter")
-    root = input_table("rows").filter(
-        col("keep", row_scope_id=local_scope),
-        row_scope_id=local_scope,
-    )
-
-    verified = verify_relation_plan(
-        root,
-        bindings=RelationTypeBindings(
-            inputs={"rows": source},
-        ),
-    )
-
-    assert verified.certified_type == Table(
-        columns=source.columns,
-        min_rows=0,
-        max_rows=2,
-    )
-
-
 def test_external_nominal_row_argument_has_its_own_typed_signature() -> None:
     scope = _scope("state-row")
 
@@ -271,9 +245,9 @@ def test_external_nominal_row_argument_has_its_own_typed_signature() -> None:
 
 def test_plan_local_binder_cannot_shadow_an_external_row_argument() -> None:
     scope = _scope("state-row")
-    root = literal_rows([{"keep": True}]).filter(
-        col("keep", row_scope_id=scope),
+    root = literal_rows([{"keep": True}]).with_columns(
         row_scope_id=scope,
+        copied=col("keep", row_scope_id=scope),
     )
 
     with pytest.raises(RelationPlanVerificationError) as caught:
@@ -325,9 +299,9 @@ def test_external_row_interface_projects_only_free_typed_column_reads() -> None:
 
 def test_external_row_interface_excludes_plan_local_row_binders() -> None:
     scope = _scope("local-interface")
-    expression = literal_rows([{"keep": True}]).filter(
-        col("keep", row_scope_id=scope),
+    expression = literal_rows([{"keep": True}]).with_columns(
         row_scope_id=scope,
+        copied=col("keep", row_scope_id=scope),
     )
 
     verified = verify_relation_plan(expression)
@@ -389,18 +363,18 @@ def test_exact_dotted_column_takes_precedence_over_record_traversal() -> None:
     assert verified.certified_type == INT
 
 
-def test_unknown_column_reports_the_condition_path() -> None:
-    scope = _scope("filter")
-    root = literal_rows([{"keep": True}]).filter(
-        col("missing", row_scope_id=scope),
+def test_unknown_column_reports_the_with_columns_path() -> None:
+    scope = _scope("columns")
+    root = literal_rows([{"keep": True}]).with_columns(
         row_scope_id=scope,
+        copied=col("missing", row_scope_id=scope),
     )
 
     with pytest.raises(RelationPlanVerificationError) as caught:
         verify_relation_plan(root)
 
     assert caught.value.code == "unknown_column"
-    assert caught.value.path == ("condition",)
+    assert caught.value.path == ("new_columns", "copied")
 
 
 def test_binary_validates_operand_types_before_execution() -> None:
@@ -427,10 +401,6 @@ def test_relational_operators_preserve_cardinality_facts() -> None:
     selected = verify_relation_plan(
         input_table("rows").select("group", "keep"), bindings=bindings
     )
-    filtered = verify_relation_plan(
-        _scoped_filter(input_table("rows")),
-        bindings=bindings,
-    )
     overwritten = verify_relation_plan(
         _scoped_with_column(input_table("rows"), "item", 0),
         bindings=bindings,
@@ -441,18 +411,8 @@ def test_relational_operators_preserve_cardinality_facts() -> None:
         3,
         5,
     )
-    assert isinstance(filtered.certified_type, Table)
-    assert (filtered.certified_type.min_rows, filtered.certified_type.max_rows) == (
-        0,
-        5,
-    )
     assert isinstance(overwritten.certified_type, Table)
     assert overwritten.certified_type.primary_key == ()
-
-
-def _scoped_filter(source: RelationExpr) -> RelationExpr:
-    scope = _scope("filter-cardinality")
-    return source.filter(col("keep", row_scope_id=scope), row_scope_id=scope)
 
 
 def _scoped_with_column(

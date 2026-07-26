@@ -5,9 +5,9 @@ from pathlib import Path
 import pytest
 from scopecat import Quantity
 from scopecat.authoring import ExperimentInvocation
-from scopecat.config.profiles import load_config_profile
 from scopecat.records.config import ConfigProfileSnapshot
 
+from quantum_lab_demo.configuration import quantum_lab_bootstrap_config
 from quantum_lab_demo.virtual_lab.responses.readout_frequency import (
     settings_from_config,
 )
@@ -26,14 +26,11 @@ from quantum_lab_demo.workflows.single_qubit_rb import (
 )
 
 from .demo_lab_experiment_testkit import in_process_quantum_lab
-from .demo_lab_test_paths import (
-    EXPERIMENT_FIXTURE_DIR,
-    EXPERIMENT_VIRTUAL_LAB_PROFILE,
-)
+from .demo_lab_test_paths import EXPERIMENT_VIRTUAL_LAB_PROFILE
 
 
 def load_config() -> ConfigProfileSnapshot:
-    return load_config_profile(EXPERIMENT_FIXTURE_DIR / "config-profile.json")
+    return quantum_lab_bootstrap_config()
 
 
 def test_readout_settings_come_from_the_typed_qubit_table() -> None:

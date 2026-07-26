@@ -37,7 +37,6 @@ from scopecat_quantum.targets import (
     TargetCompiler,
     TargetCompileRequest,
     TargetCompileRequestLike,
-    TargetDescription,
     TargetEventAddress,
     TargetResultAxisLayout,
     compile_target,
@@ -95,12 +94,6 @@ def _request(*, repetitions: int = 5) -> TargetCompileRequest:
         ),
         repetitions=repetitions,
     )
-
-
-@dataclass(frozen=True)
-class _Description:
-    id: TargetId
-    capability_fingerprint: str
 
 
 @dataclass(frozen=True)
@@ -164,20 +157,15 @@ class _Compiler:
 
 
 def test_structural_target_protocols_admit_a_laboratory_adapter() -> None:
-    description: TargetDescription = _Description(
-        id=TargetId("reference-target"),
-        capability_fingerprint="capabilities:v1",
-    )
     compiler: TargetCompiler[TargetCompileRequest, _Artifact] = _Compiler(
         id=TargetCompilerId("reference-compiler"),
-        target_id=description.id,
-        capability_fingerprint=description.capability_fingerprint,
+        target_id=TargetId("reference-target"),
+        capability_fingerprint="capabilities:v1",
     )
 
     compiled = compile_target(compiler, _request())
     artifact: TargetArtifact = compiled.artifact
 
-    assert isinstance(description, TargetDescription)
     assert isinstance(compiler, TargetCompiler)
     assert isinstance(artifact, TargetArtifact)
     assert artifact.source_entry_ids == (TargetCompileEntryId("point-0"),)

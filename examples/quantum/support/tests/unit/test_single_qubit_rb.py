@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 from scopecat import Quantity
-from scopecat_quantum import GateCall
 from scopecat_quantum import authoring as q
+from scopecat_quantum.gates import GateCall
 
 import quantum_lab_demo.workflows.single_qubit_rb as rb
 from quantum_lab_demo.lab import quantum_lab_compiler
@@ -85,10 +85,6 @@ def test_single_qubit_rb_runs_as_one_domain_program_with_two_scan_axes(
         abs=1 / rb.SINGLE_QUBIT_RB_SHOTS,
     )
     assert min(survival_by_length[4]) > max(survival_by_length[64])
-
-    [evidence] = compiler.trace.preparations(rb.single_qubit_rb_program.id)
-    assert len(evidence.points) == len(evidence.entries) == 4
-    assert compiler.trace.physical_execution_count == 1
 
 
 def _compose(

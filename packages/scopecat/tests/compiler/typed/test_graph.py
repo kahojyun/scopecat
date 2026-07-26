@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import scopecat as sc
-from scopecat.compiler.frontend.invocation import prepare_invocation
-from scopecat.compiler.frontend.resolution import compile_prepared_invocation
+from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.compiler.semantic.model import (
     OperationId,
-    OperationOutputSource,
     ValueId,
     ValueUse,
 )
@@ -62,10 +60,8 @@ def test_cross_module_compute_edges_are_scoped_and_topologically_ordered() -> No
         lambda: sc.experiment(parent())
     )
     invocation = template.bind()
-    compiled = compile_prepared_invocation(prepare_invocation(invocation))
+    compiled = compile_invocation(invocation)
     graph = compiled.assembly.graph.semantic_graph.graph
-    definitions = {definition.id: definition for definition in graph.value_defs}
-
     operations = graph.operations
     assert [operation.id.local_id for operation in operations] == [
         "produce",
@@ -78,8 +74,7 @@ def test_cross_module_compute_edges_are_scoped_and_topologically_ordered() -> No
     for consumer in operations[1:]:
         use = dict(consumer.inputs)["program"]
         assert isinstance(use, ValueUse)
-        source = definitions[use.value_id].source
-        assert source == OperationOutputSource(operations[0].id)
+        assert use.value_id == operations[0].result_id
 
 
 def _identity_program(*, program: object) -> object:

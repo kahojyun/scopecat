@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 
-from scopecat.compiler.linking.linked import LinkedPlan, LinkedPointMaterializer
+from scopecat.compiler.linking.linked import LinkedPlan, materialize_linked_points
 from scopecat.execution.local.program import ComputeOperation, LocalOperation
 from scopecat.execution.points import RunPoint
 from scopecat.execution.program import RunCoverageEffect
@@ -59,7 +59,7 @@ def materialize_local_execution(
 ) -> LocalEffectInspection:
     """Lower a linked program for focused inspection of final effect coverage."""
 
-    linked_points = LinkedPointMaterializer(linked).materialize()
+    linked_points = materialize_linked_points(linked)
     selected_product_use_ids = (
         frozenset(use.id for use in linked.program.product_uses)
         if product_use_ids is None
@@ -73,7 +73,6 @@ def materialize_local_execution(
     lowered = lower_local_execution(
         linked_points,
         target=target,
-        point_count=len(linked_points.point_domain.points),
     )
     ordered_effects = (
         *lowered.compute_operations,

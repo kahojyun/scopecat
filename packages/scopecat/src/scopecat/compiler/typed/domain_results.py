@@ -14,12 +14,9 @@ from scopecat.kernel.product_identity import ProductUseId
 
 @dataclass(frozen=True, slots=True)
 class DomainResultClosure:
-    """Stable result ownership before compiler-specific transform absorption."""
+    """Stable direct and host-derived result ownership for one execution."""
 
-    execution_id: str
     transforms: tuple[TypedMeasurementTransform, ...]
-    direct_product_use_ids: tuple[ProductUseId, ...]
-    derived_product_use_ids: tuple[ProductUseId, ...]
     product_use_ids: tuple[ProductUseId, ...]
 
 
@@ -36,56 +33,22 @@ def domain_result_closure(
     direct_ids = {
         use_id for result in execution.results for use_id in result.product_use_ids
     }
-    transforms = _typed_transform_closure(
-        program.measurement_transforms,
-        frozenset(direct_ids),
-    )
-    derived_ids = {
-        use_id
-        for transform in transforms
-        for output in transform.outputs
-        for use_id in output.product_use_ids
-    }
-    owned_ids = direct_ids | derived_ids
-    return DomainResultClosure(
-        execution_id=execution_id,
-        transforms=transforms,
-        direct_product_use_ids=tuple(
-            use_id for use_id in ordered_use_ids if use_id in direct_ids
-        ),
-        derived_product_use_ids=tuple(
-            use_id for use_id in ordered_use_ids if use_id in derived_ids
-        ),
-        product_use_ids=tuple(
-            use_id for use_id in ordered_use_ids if use_id in owned_ids
-        ),
-    )
-
-
-def _typed_transform_closure(
-    transforms: tuple[TypedMeasurementTransform, ...],
-    source_product_use_ids: frozenset[ProductUseId],
-) -> tuple[TypedMeasurementTransform, ...]:
-    available = set(source_product_use_ids)
+    available = set(direct_ids)
     selected: list[TypedMeasurementTransform] = []
-    remaining = list(transforms)
-    while remaining:
-        progressed = False
-        next_remaining: list[TypedMeasurementTransform] = []
-        for transform in remaining:
-            if transform.inputs and all(
-                port.product_use_id in available for port in transform.inputs
-            ):
-                selected.append(transform)
-                available.update(
-                    use_id
-                    for output in transform.outputs
-                    for use_id in output.product_use_ids
-                )
-                progressed = True
-            else:
-                next_remaining.append(transform)
-        if not progressed:
-            break
-        remaining = next_remaining
-    return tuple(selected)
+    # Semantic verification topologically orders transforms before typed lowering.
+    for transform in program.measurement_transforms:
+        if transform.inputs and all(
+            port.product_use_id in available for port in transform.inputs
+        ):
+            selected.append(transform)
+            available.update(
+                use_id
+                for output in transform.outputs
+                for use_id in output.product_use_ids
+            )
+    return DomainResultClosure(
+        transforms=tuple(selected),
+        product_use_ids=tuple(
+            use_id for use_id in ordered_use_ids if use_id in available
+        ),
+    )

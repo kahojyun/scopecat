@@ -5,16 +5,14 @@ from __future__ import annotations
 import logging
 from typing import cast
 
-from scopecat.execution.events import RuntimeTransitionProjector
-from scopecat.execution.ports.journal import ExecutionJournal, commit_transition
+from scopecat.execution.events import TransitionRecorder
 from scopecat.execution.problems import problem_from_exception, runtime_problem
 from scopecat.kernel.problems import (
     LocationPathItem,
     Problem,
-    ProblemCategory,
     ProblemPhase,
-    blocking_problem,
     model_location,
+    problem,
 )
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.execution_journal import ExecutionTransition
@@ -151,8 +149,7 @@ def cleanup_after_setup_failure(
     problems: list[Problem],
     *,
     run_id: str,
-    journal: ExecutionJournal,
-    transition_observer: RuntimeTransitionProjector,
+    recorder: TransitionRecorder,
 ) -> tuple[list[InstrumentStateSnapshot], BaseException | None]:
     """Release provisioned drivers and capture their terminal state."""
 
@@ -180,8 +177,7 @@ def cleanup_after_setup_failure(
         interruption = _first_interruption(
             interruption,
             _commit_setup_transition(
-                journal,
-                transition_observer,
+                recorder,
                 entry,
                 problems,
             ),
@@ -201,8 +197,7 @@ def cleanup_after_setup_failure(
             interruption = _first_interruption(
                 interruption,
                 _commit_setup_transition(
-                    journal,
-                    transition_observer,
+                    recorder,
                     entry.model_copy(
                         update={"state": "failed", "problems": (problem,)}
                     ),
@@ -222,8 +217,7 @@ def cleanup_after_setup_failure(
             interruption = _first_interruption(
                 interruption,
                 _commit_setup_transition(
-                    journal,
-                    transition_observer,
+                    recorder,
                     entry.model_copy(
                         update={"state": "failed", "problems": (problem,)}
                     ),
@@ -234,8 +228,7 @@ def cleanup_after_setup_failure(
         interruption = _first_interruption(
             interruption,
             _commit_setup_transition(
-                journal,
-                transition_observer,
+                recorder,
                 entry.model_copy(update={"state": "completed"}),
                 problems,
             ),
@@ -252,7 +245,7 @@ def cleanup_after_setup_failure(
             state="started",
             instrument_id=instrument_id,
         )
-        transition_observer.observe(entry)
+        recorder.observe(entry)
         try:
             state = instrument.read_state().model_copy(deep=True)
             if identity_known and state.instrument_id != instrument_id:
@@ -267,7 +260,7 @@ def cleanup_after_setup_failure(
                 error=error,
             )
             problems.append(problem)
-            transition_observer.observe(
+            recorder.observe(
                 entry.model_copy(update={"state": "failed", "problems": (problem,)})
             )
             continue
@@ -280,24 +273,22 @@ def cleanup_after_setup_failure(
                 instrument_id=instrument_id,
             )
             problems.append(problem)
-            transition_observer.observe(
+            recorder.observe(
                 entry.model_copy(update={"state": "failed", "problems": (problem,)})
             )
             continue
         states.append(state)
-        transition_observer.observe(entry.model_copy(update={"state": "completed"}))
+        recorder.observe(entry.model_copy(update={"state": "completed"}))
     return states, interruption
 
 
 def _commit_setup_transition(
-    journal: ExecutionJournal,
-    transition_observer: RuntimeTransitionProjector,
+    recorder: TransitionRecorder,
     entry: ExecutionTransition,
     problems: list[Problem],
 ) -> BaseException | None:
     try:
-        committed = commit_transition(journal, entry)
-        transition_observer.observe(committed)
+        recorder.commit(entry)
     except Exception as error:
         problems.append(
             problem_from_exception(
@@ -307,7 +298,6 @@ def _commit_setup_transition(
                 operation_id=entry.operation_id,
                 error=error,
                 phase=ProblemPhase.PERSISTENCE,
-                category=ProblemCategory.STORAGE,
             )
         )
     except BaseException as error:
@@ -359,7 +349,6 @@ def _safe_instrument_id(
                 "finalization",
                 run_id=run_id,
                 instrument_id=fallback,
-                category=ProblemCategory.PROVIDER_CONTRACT,
             )
         )
         return fallback, False, None
@@ -396,10 +385,9 @@ def preflight_problem_from_exception(
         extra={"problem_code": code},
         exc_info=(type(error), error, error.__traceback__),
     )
-    return blocking_problem(
+    return problem(
         code,
         f"{message} ({type(error).__name__})",
-        category=ProblemCategory.EXTERNAL_FAILURE,
         phase=ProblemPhase.PROVIDER_PREFLIGHT,
         location=model_location("instrument_provider", *path),
         details={
@@ -421,7 +409,6 @@ def _interruption_problem(
         run_id=run_id,
         operation_id=operation_id,
         instrument_id=instrument_id,
-        category=ProblemCategory.INTERRUPTED,
         details={
             "exception_type": f"{type(error).__module__}.{type(error).__qualname__}"
         },
@@ -433,10 +420,9 @@ def _preflight_problem(
     message: str,
     *path: LocationPathItem,
 ) -> Problem:
-    return blocking_problem(
+    return problem(
         code,
         message,
-        category=ProblemCategory.PROVIDER_CONTRACT,
         phase=ProblemPhase.PROVIDER_PREFLIGHT,
         location=model_location("instrument_provider", *path),
     )

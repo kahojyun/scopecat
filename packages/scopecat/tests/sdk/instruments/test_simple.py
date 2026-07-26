@@ -8,7 +8,6 @@ from scopecat.sdk.instruments import (
     CapabilityField,
     CollectCommand,
     CollectProductRequest,
-    InstrumentActionCommand,
     InstrumentStateCommand,
     InstrumentStateCommandField,
     SimpleInstrumentDriver,
@@ -86,16 +85,6 @@ def test_simple_state_only_driver_applies_typed_fields_and_defaults_lifecycle() 
     )
     driver.cleanup()
     driver.abort()
-
-    action = driver.action(
-        InstrumentActionCommand(
-            operation_id="reset-0",
-            instrument_id="switch-0",
-            capability_id="reset",
-        )
-    )
-    assert action.status == "not_performed"
-    assert action.problems[0].code == "simple_instrument_action_unsupported"
 
 
 def test_simple_state_driver_rejects_all_invalid_fields_before_effects() -> None:

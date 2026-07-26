@@ -28,7 +28,6 @@ from scopecat.compiler.relations.analysis import (
 from scopecat.compiler.relations.model import (
     BinaryScalarExpr,
     ColumnScalarExpr,
-    FilterRelationExpr,
     InputRelationExpr,
     InputScalarExpr,
     InputSeriesExpr,
@@ -56,7 +55,6 @@ from scopecat.compiler.relations.operators import scalar_operator_result_type
 from scopecat.kernel.units import unit_kind
 from scopecat.kernel.value_type_compatibility import is_assignable, literal_scalar_type
 from scopecat.kernel.value_types import (
-    Bool,
     Entity,
     Float,
     Int,
@@ -646,28 +644,6 @@ class _Verifier:
                     source.min_rows,
                     source.max_rows,
                 )
-            case FilterRelationExpr():
-                source = cast(
-                    "Table",
-                    self.infer(relation.source, (*path, "source"), rows=rows),
-                )
-                row = RowType.from_table(source)
-                condition = cast(
-                    "Scalar",
-                    self.infer(
-                        relation.condition,
-                        (*path, "condition"),
-                        rows=rows.with_binder(row, relation.row_scope_id),
-                    ),
-                )
-                self.require_bool(condition, (*path, "condition"))
-                result = Table(
-                    source.columns,
-                    source.primary_key,
-                    0,
-                    source.max_rows,
-                    source.allow_extra_columns,
-                )
             case WithColumnsRelationExpr():
                 source = cast(
                     "Table",
@@ -881,14 +857,6 @@ class _Verifier:
                 "incompatible_result_type",
                 path,
                 f"inferred {actual!r}, which is not assignable to {expected!r}",
-            )
-
-    def require_bool(self, value_type: Scalar, path: PlanPath) -> None:
-        if value_type.nullable or not isinstance(value_type.atom, Bool):
-            raise self.error(
-                "non_boolean_condition",
-                path,
-                "condition must be a non-null Bool scalar",
             )
 
     @staticmethod

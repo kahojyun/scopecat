@@ -15,7 +15,7 @@ from scopecat.execution.effect_interpreter import (
     RunEffectResult,
 )
 from scopecat.execution.events import (
-    RuntimeTransitionProjector,
+    TransitionRecorder,
     observe_payload,
 )
 from scopecat.execution.local.drivers import (
@@ -24,30 +24,20 @@ from scopecat.execution.local.drivers import (
     validate_instruments,
 )
 from scopecat.execution.observation import RuntimePayloadObserver
-from scopecat.execution.ports.journal import (
-    CollectionRepository,
-    ExecutionJournal,
-    PayloadEvidenceCommitter,
-    commit_transition,
-)
-from scopecat.execution.ports.resources import ResourceLeaseManager
 from scopecat.execution.problems import (
     contextualize_problems,
     problem_from_exception,
     runtime_problem,
 )
 from scopecat.execution.program import RunProgram
-from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.errors import (
     ProviderContractError,
 )
 from scopecat.kernel.problems import (
     Problem,
-    ProblemCategory,
     ProblemPhase,
-    blocking_problem,
-    has_blocking_problems,
     model_location,
+    problem,
 )
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.execution_journal import ExecutionTransition
@@ -68,14 +58,10 @@ def execute_run_operations(
     config: ConfigProfileSnapshot,
     program: RunProgram,
     run_id: str,
-    journal: ExecutionJournal,
-    readbacks: CollectionRepository,
-    payloads: PayloadEvidenceCommitter,
-    transition_observer: RuntimeTransitionProjector,
+    recorder: TransitionRecorder,
     instrument_provider: InstrumentProvider | None = None,
     payload_observer: RuntimePayloadObserver | None = None,
     coverage_observer: CoverageMeasurementObserver | None = None,
-    resource_leases: ResourceLeaseManager | None = None,
 ) -> RunEffectResult:
     """Provision optional host drivers and interpret one operation sequence."""
 
@@ -84,17 +70,11 @@ def execute_run_operations(
     if host is None:
         engine = RunEffectInterpreter(
             run_id=run_id,
-            experiment_id=program.experiment_id,
-            experiment_kind=point_catalog.experiment_kind,
             coordinate_ids=point_catalog.coordinate_ids,
             resource_order=program.resource_order,
             drivers={},
-            journal=journal,
-            readbacks=readbacks,
-            payloads=payloads,
-            transition_observer=transition_observer,
+            recorder=recorder,
             coverage_observer=coverage_observer,
-            resource_leases=resource_leases,
         )
         return engine.run(chain(program.preamble, program.coverage))
 
@@ -103,12 +83,8 @@ def execute_run_operations(
         program=program,
         instrument_provider=instrument_provider,
         run_id=run_id,
-        journal=journal,
-        readbacks=readbacks,
-        payloads=payloads,
+        recorder=recorder,
         payload_observer=payload_observer,
-        resource_leases=resource_leases,
-        transition_observer=transition_observer,
         coverage_observer=coverage_observer,
     )
 
@@ -119,13 +95,9 @@ def _execute_run_host_operations(
     program: RunProgram,
     instrument_provider: InstrumentProvider | None,
     run_id: str,
-    journal: ExecutionJournal,
-    readbacks: CollectionRepository,
-    payloads: PayloadEvidenceCommitter,
+    recorder: TransitionRecorder,
     payload_observer: RuntimePayloadObserver | None = None,
-    transition_observer: RuntimeTransitionProjector,
     coverage_observer: CoverageMeasurementObserver | None,
-    resource_leases: ResourceLeaseManager | None,
 ) -> RunEffectResult:
     """Provision host resources and interpret the complete operation sequence."""
 
@@ -135,10 +107,9 @@ def _execute_run_host_operations(
     if instrument_provider is None:
         raise ProviderContractError(
             (
-                blocking_problem(
+                problem(
                     "instrument_provider_missing",
                     "host execution requires its experiment-system provider",
-                    category=ProblemCategory.NOT_FOUND,
                     phase=ProblemPhase.EXECUTION,
                     location=model_location("execution", "provider"),
                 ),
@@ -151,13 +122,9 @@ def _execute_run_host_operations(
         provider=instrument_provider,
         program=program,
         setup_problems=setup_problems,
-        journal=journal,
-        transition_observer=transition_observer,
+        recorder=recorder,
         coverage_observer=coverage_observer,
-        readbacks=readbacks,
-        payloads=payloads,
         payload_observer=payload_observer,
-        resource_leases=resource_leases,
     )
     if not setup_problems:
         return result
@@ -177,15 +144,11 @@ def _provision_and_execute(
     provider: InstrumentProvider,
     program: RunProgram,
     setup_problems: list[Problem],
-    journal: ExecutionJournal,
-    transition_observer: RuntimeTransitionProjector,
-    readbacks: CollectionRepository,
-    payloads: PayloadEvidenceCommitter,
+    recorder: TransitionRecorder,
     payload_observer: RuntimePayloadObserver | None,
     coverage_observer: CoverageMeasurementObserver | None,
-    resource_leases: ResourceLeaseManager | None,
 ) -> RunEffectResult:
-    """Provision, verify, execute, and finalize while the caller holds leases."""
+    """Provision, verify, execute, and finalize the admitted run."""
 
     host = program.host
     if host is None:
@@ -202,15 +165,12 @@ def _provision_and_execute(
         },
     )
     provider_intent_committed, journal_interruption = _commit_provider_transition(
-        journal,
-        transition_observer,
+        recorder,
         provider_entry,
         setup_problems,
     )
     if not provider_intent_committed:
         return _setup_result(
-            run_id=run_id,
-            experiment_id=program.experiment_id,
             problems=setup_problems,
             interruption=journal_interruption,
         )
@@ -227,16 +187,13 @@ def _provision_and_execute(
         )
         setup_problems.append(problem)
         _, journal_interruption = _commit_provider_transition(
-            journal,
-            transition_observer,
+            recorder,
             provider_entry.model_copy(
                 update={"state": "unknown", "problems": (problem,)}
             ),
             setup_problems,
         )
         return _setup_result(
-            run_id=run_id,
-            experiment_id=program.experiment_id,
             problems=setup_problems,
             indeterminate=True,
             interruption=journal_interruption,
@@ -249,16 +206,13 @@ def _provision_and_execute(
         )
         setup_problems.append(problem)
         _, journal_interruption = _commit_provider_transition(
-            journal,
-            transition_observer,
+            recorder,
             provider_entry.model_copy(
                 update={"state": "unknown", "problems": (problem,)}
             ),
             setup_problems,
         )
         return _setup_result(
-            run_id=run_id,
-            experiment_id=program.experiment_id,
             problems=setup_problems,
             indeterminate=True,
             interruption=error,
@@ -271,13 +225,9 @@ def _provision_and_execute(
         provider_entry=provider_entry,
         program=program,
         setup_problems=setup_problems,
-        journal=journal,
-        transition_observer=transition_observer,
-        readbacks=readbacks,
-        payloads=payloads,
+        recorder=recorder,
         payload_observer=payload_observer,
         coverage_observer=coverage_observer,
-        resource_leases=resource_leases,
     )
 
 
@@ -289,13 +239,9 @@ def _execute_provider_result(
     provider_entry: ExecutionTransition,
     program: RunProgram,
     setup_problems: list[Problem],
-    journal: ExecutionJournal,
-    transition_observer: RuntimeTransitionProjector,
-    readbacks: CollectionRepository,
-    payloads: PayloadEvidenceCommitter,
+    recorder: TransitionRecorder,
     payload_observer: RuntimePayloadObserver | None,
     coverage_observer: CoverageMeasurementObserver | None,
-    resource_leases: ResourceLeaseManager | None,
 ) -> RunEffectResult:
     """Own every returned driver until a fully constructed engine takes over."""
 
@@ -332,15 +278,10 @@ def _execute_provider_result(
         }
         provider_transition_attempted = True
         transition_committed, journal_interruption = _commit_provider_transition(
-            journal,
-            transition_observer,
+            recorder,
             provider_entry.model_copy(
                 update={
-                    "state": (
-                        "failed"
-                        if has_blocking_problems(provider_problems)
-                        else "completed"
-                    ),
+                    "state": ("failed" if bool(provider_problems) else "completed"),
                     "problems": tuple(provider_problems),
                     "evidence": provider_evidence,
                 }
@@ -352,7 +293,7 @@ def _execute_provider_result(
             interruption = journal_interruption
         else:
             actual_descriptions: list[InstrumentDescription] = []
-            if instruments and not has_blocking_problems(setup_problems):
+            if instruments and not bool(setup_problems):
                 setup_problems.extend(
                     validate_instruments(config=config, instruments=instruments)
                 )
@@ -367,24 +308,16 @@ def _execute_provider_result(
                     actual=actual_descriptions,
                 )
             )
-            if not has_blocking_problems(setup_problems):
+            if not bool(setup_problems):
                 engine = RunEffectInterpreter(
                     run_id=run_id,
-                    experiment_id=program.experiment_id,
-                    experiment_kind=program.points.experiment_kind,
                     coordinate_ids=program.points.coordinate_ids,
                     resource_order=program.resource_order,
                     drivers={
                         instrument.instrument_id: instrument
                         for instrument in instruments
                     },
-                    descriptions={
-                        item.instrument_id: item for item in actual_descriptions
-                    },
-                    journal=journal,
-                    transition_observer=transition_observer,
-                    readbacks=readbacks,
-                    payloads=payloads,
+                    recorder=recorder,
                     payload_observer=lambda payload: observe_payload(
                         observer=payload_observer,
                         run_id=run_id,
@@ -392,7 +325,6 @@ def _execute_provider_result(
                         payload=payload,
                     ),
                     coverage_observer=coverage_observer,
-                    resource_leases=resource_leases,
                 )
     except Exception as error:
         problem = problem_from_exception(
@@ -405,8 +337,7 @@ def _execute_provider_result(
         setup_problems.append(problem)
         if not provider_transition_attempted:
             _commit_provider_transition(
-                journal,
-                transition_observer,
+                recorder,
                 provider_entry.model_copy(
                     update={"state": "failed", "problems": (problem,)}
                 ),
@@ -421,8 +352,7 @@ def _execute_provider_result(
         setup_problems.append(problem)
         if not provider_transition_attempted:
             _commit_provider_transition(
-                journal,
-                transition_observer,
+                recorder,
                 provider_entry.model_copy(
                     update={"state": "unknown", "problems": (problem,)}
                 ),
@@ -437,11 +367,9 @@ def _execute_provider_result(
         return engine.run(chain(program.preamble, program.coverage))
     return _finalize_owned_setup(
         run_id=run_id,
-        experiment_id=program.experiment_id,
         instruments=instruments,
         problems=setup_problems,
-        journal=journal,
-        transition_observer=transition_observer,
+        recorder=recorder,
         indeterminate=indeterminate,
         interruption=interruption,
     )
@@ -450,11 +378,9 @@ def _execute_provider_result(
 def _finalize_owned_setup(
     *,
     run_id: str,
-    experiment_id: str,
     instruments: list[InstrumentDriver],
     problems: list[Problem],
-    journal: ExecutionJournal,
-    transition_observer: RuntimeTransitionProjector,
+    recorder: TransitionRecorder,
     indeterminate: bool = False,
     interruption: BaseException | None = None,
 ) -> RunEffectResult:
@@ -462,12 +388,9 @@ def _finalize_owned_setup(
         instruments,
         problems,
         run_id=run_id,
-        journal=journal,
-        transition_observer=transition_observer,
+        recorder=recorder,
     )
     return _setup_result(
-        run_id=run_id,
-        experiment_id=experiment_id,
         problems=problems,
         final_state=final_state,
         indeterminate=indeterminate,
@@ -479,16 +402,12 @@ def _finalize_owned_setup(
 
 def _setup_result(
     *,
-    run_id: str,
-    experiment_id: str,
     problems: list[Problem],
     final_state: Sequence[InstrumentStateSnapshot] = (),
     indeterminate: bool = False,
     interruption: BaseException | None = None,
 ) -> RunEffectResult:
     return RunEffectResult(
-        run_id=run_id,
-        experiment_id=experiment_id,
         problems=tuple(problems),
         initial_state=(),
         final_state=tuple(final_state),
@@ -513,7 +432,6 @@ def _validate_provided_descriptions(
                 run_id=run_id,
                 operation_id="lifecycle.provide-instruments",
                 instrument_id=instrument_id,
-                category=ProblemCategory.PROVIDER_CONTRACT,
             )
         )
     for instrument_id in sorted(set(actual_by_id) - set(advertised)):
@@ -524,7 +442,6 @@ def _validate_provided_descriptions(
                 run_id=run_id,
                 operation_id="lifecycle.provide-instruments",
                 instrument_id=instrument_id,
-                category=ProblemCategory.PROVIDER_CONTRACT,
             )
         )
     for instrument_id in sorted(set(advertised) & set(actual_by_id)):
@@ -536,7 +453,6 @@ def _validate_provided_descriptions(
                     run_id=run_id,
                     operation_id="lifecycle.provide-instruments",
                     instrument_id=instrument_id,
-                    category=ProblemCategory.PROVIDER_CONTRACT,
                 )
             )
     return problems
@@ -553,7 +469,6 @@ def _interruption_problem(
         f"execution interrupted by {type(error).__name__}",
         run_id=run_id,
         operation_id=operation_id,
-        category=ProblemCategory.INTERRUPTED,
         details={
             "exception_type": f"{type(error).__module__}.{type(error).__qualname__}"
         },
@@ -561,14 +476,12 @@ def _interruption_problem(
 
 
 def _commit_provider_transition(
-    journal: ExecutionJournal,
-    transition_observer: RuntimeTransitionProjector,
+    recorder: TransitionRecorder,
     entry: ExecutionTransition,
     problems: list[Problem],
 ) -> tuple[bool, BaseException | None]:
     try:
-        committed = commit_transition(journal, entry)
-        transition_observer.observe(committed)
+        recorder.commit(entry)
     except Exception as error:
         problems.append(
             problem_from_exception(
@@ -578,7 +491,6 @@ def _commit_provider_transition(
                 operation_id=entry.operation_id,
                 error=error,
                 phase=ProblemPhase.PERSISTENCE,
-                category=ProblemCategory.STORAGE,
             )
         )
         return False, None
@@ -621,6 +533,5 @@ def _provider_result_evidence(
     evidence = {
         "instrument_ids": instrument_ids,
         "provisioning_receipt": receipt,
-        "provisioning_receipt_content_hash": stable_content_hash(receipt),
     }
     return cast("dict[str, JsonValue]", evidence)

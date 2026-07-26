@@ -1,43 +1,46 @@
 import type {
-  ConfigParameterUpdate,
   ConfigProfileSnapshot,
   ParameterAtom,
   ParameterEntity,
   ParameterScalarType,
+  ParameterUpdate,
   StoredParameterValue,
   TableParameterType,
   TableParameterValue,
-} from "./config-types";
+} from "../../api-contract";
 import { parameterAtomIdentity } from "./config-diff";
 
 export function deriveConfigDraftUpdates(
   config: ConfigProfileSnapshot,
   editedValues: Record<string, StoredParameterValue>,
-): ConfigParameterUpdate[] {
-  const baseValues = new Map(config.parameterSnapshot.values.map((value) => [value.id, value]));
-  const definitions = new Map(
-    config.system.parameterCatalog.definitions.map((definition) => [definition.id, definition]),
-  );
-  const updates: ConfigParameterUpdate[] = [];
+): ParameterUpdate[] {
+  const values = config.parameter_snapshot.values ?? [];
+  const definitions = config.system.parameter_catalog.definitions ?? [];
+  const baseValues = new Map(values.map((value) => [value.id, value]));
+  const definitionsById = new Map(definitions.map((definition) => [definition.id, definition]));
+  const updates: ParameterUpdate[] = [];
 
-  for (const definition of config.system.parameterCatalog.definitions) {
+  for (const definition of definitions) {
     const edited = editedValues[definition.id];
     const base = baseValues.get(definition.id);
     if (!edited || !base || storedValuesEqual(base, edited)) continue;
     if (
-      definition.valueType.shape === "table" &&
+      definition.value_type.shape === "table" &&
       base.shape === "table" &&
       edited.shape === "table" &&
-      definition.valueType.primaryKey.length > 0
+      (definition.value_type.primary_key?.length ?? 0) > 0
     ) {
-      updates.push(...deriveKeyedTableUpdates(definition.valueType, base, edited));
+      updates.push(...deriveKeyedTableUpdates(definition.value_type, base, edited));
       continue;
     }
     updates.push({ kind: "replace_parameter", value: edited });
   }
 
   for (const [parameterId, edited] of Object.entries(editedValues)) {
-    if (definitions.has(parameterId) || storedValuesEqual(baseValues.get(parameterId), edited)) {
+    if (
+      definitionsById.has(parameterId) ||
+      storedValuesEqual(baseValues.get(parameterId), edited)
+    ) {
       continue;
     }
     updates.push({ kind: "replace_parameter", value: edited });
@@ -70,12 +73,12 @@ export function defaultParameterAtom(
       };
     case "entity": {
       const selected = entities.find(
-        (entity) => !type.entityKind || entity.kind === type.entityKind,
+        (entity) => !type.entity_kind || entity.kind === type.entity_kind,
       );
       return (
         selected ?? {
           id: "",
-          ...(type.entityKind ? { kind: type.entityKind } : {}),
+          ...(type.entity_kind ? { kind: type.entity_kind } : {}),
           metadata: {},
         }
       );
@@ -90,8 +93,8 @@ export function defaultTableRow(
   return Object.fromEntries(
     type.columns.map((column) => [
       column.id,
-      column.required || !column.valueType.nullable
-        ? defaultParameterAtom(column.valueType, entities)
+      (column.required ?? true) || !column.value_type.nullable
+        ? defaultParameterAtom(column.value_type, entities)
         : null,
     ]),
   );
@@ -101,24 +104,27 @@ function deriveKeyedTableUpdates(
   type: TableParameterType,
   base: TableParameterValue,
   edited: TableParameterValue,
-): ConfigParameterUpdate[] {
-  const baseRows = new Map(base.rows.map((row) => [tableRowIdentity(row, type.primaryKey), row]));
+): ParameterUpdate[] {
+  const primaryKey = type.primary_key ?? [];
+  const baseRows = new Map(
+    (base.rows ?? []).map((row) => [tableRowIdentity(row, primaryKey), row]),
+  );
   const editedRows = new Map<string, Array<Record<string, ParameterAtom>>>();
-  for (const row of edited.rows) {
-    const identity = tableRowIdentity(row, type.primaryKey);
+  for (const row of edited.rows ?? []) {
+    const identity = tableRowIdentity(row, primaryKey);
     editedRows.set(identity, [...(editedRows.get(identity) ?? []), row]);
   }
   if ([...editedRows.values()].some((rows) => rows.length > 1)) {
     return [{ kind: "replace_parameter", value: edited }];
   }
-  const updates: ConfigParameterUpdate[] = [];
+  const updates: ParameterUpdate[] = [];
 
   for (const [identity, row] of baseRows) {
     if (!editedRows.has(identity)) {
       updates.push({
         kind: "delete_parameter_rows",
-        parameterId: base.id,
-        key: pickColumns(row, type.primaryKey),
+        parameter_id: base.id,
+        key: pickColumns(row, primaryKey),
       });
     }
   }
@@ -129,15 +135,15 @@ function deriveKeyedTableUpdates(
     const row = rows[0]!;
     const values = Object.fromEntries(
       type.columns
-        .filter((column) => !type.primaryKey.includes(column.id))
+        .filter((column) => !primaryKey.includes(column.id))
         .filter((column) => !atomsEqual(before[column.id], row[column.id]))
         .map((column) => [column.id, row[column.id] ?? null]),
     );
     if (Object.keys(values).length > 0) {
       updates.push({
         kind: "update_parameter_rows",
-        parameterId: base.id,
-        key: pickColumns(row, type.primaryKey),
+        parameter_id: base.id,
+        key: pickColumns(row, primaryKey),
         values,
       });
     }
@@ -149,8 +155,8 @@ function deriveKeyedTableUpdates(
   if (insertedRows.length > 0) {
     updates.push({
       kind: "insert_parameter_rows",
-      parameterId: base.id,
-      rows: insertedRows,
+      parameter_id: base.id,
+      rows: insertedRows as [Record<string, ParameterAtom>, ...Record<string, ParameterAtom>[]],
     });
   }
   return updates;
@@ -180,10 +186,10 @@ function storedValuesEqual(
     return atomsEqual(left.value, right.value);
   }
   if (left.shape === "series" && right.shape === "series") {
-    return atomsEqual(left.items, right.items);
+    return atomsEqual(left.items ?? [], right.items ?? []);
   }
   if (left.shape === "table" && right.shape === "table") {
-    return atomsEqual(left.rows, right.rows);
+    return atomsEqual(left.rows ?? [], right.rows ?? []);
   }
   return false;
 }

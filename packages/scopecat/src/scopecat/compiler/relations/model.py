@@ -226,18 +226,6 @@ class RelationExpr:
             select_columns=list(columns),
         )
 
-    def filter(
-        self,
-        condition: ScalarExpression,
-        *,
-        row_scope_id: RowScopeId,
-    ) -> FilterRelationExpr:
-        return FilterRelationExpr(
-            source=cast("RelationExpression", self),
-            condition=condition,
-            row_scope_id=row_scope_id,
-        )
-
     def with_columns(
         self,
         *,
@@ -283,13 +271,6 @@ class SelectRelationExpr(RelationExpr):
 
 
 @dataclass(frozen=True, slots=True)
-class FilterRelationExpr(RelationExpr):
-    source: RelationExpression
-    condition: ScalarExpression
-    row_scope_id: RowScopeId
-
-
-@dataclass(frozen=True, slots=True)
 class WithColumnsRelationExpr(RelationExpr):
     source: RelationExpression
     new_columns: dict[str, ScalarExpression]
@@ -301,7 +282,6 @@ type RelationExpression = (
     | TableRelationExpr
     | InputRelationExpr
     | SelectRelationExpr
-    | FilterRelationExpr
     | WithColumnsRelationExpr
 )
 

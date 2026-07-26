@@ -1,1 +1,1 @@
-"""Test-local workflow fixtures."""
+"""Test-local workflow fixtures shared across the workspace."""

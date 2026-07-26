@@ -31,7 +31,7 @@ from scopecat.compiler.relations.uses import (
 )
 from scopecat.compiler.relations.verification import VerifiedRelationPlan
 from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
-from scopecat.kernel.problems import ModelLocation, ProblemCategory, model_location
+from scopecat.kernel.problems import ModelLocation, model_location
 from scopecat.kernel.value_types import Scalar
 from scopecat.kernel.value_validation import ValueValidationError, coerce_literal
 from scopecat.records.entity import EntityRef, same_entity_identity
@@ -155,7 +155,6 @@ def _apply_point_parameter_overlay(
                 "experiment_parameter_overlay_table_missing",
                 msg,
                 model_location("parameters", overlay.table_id),
-                category=ProblemCategory.NOT_FOUND,
             )
         ) from error
 
@@ -193,7 +192,6 @@ def _apply_point_parameter_overlay(
                 "experiment_parameter_overlay_row_not_found",
                 msg,
                 model_location("parameters", overlay.table_id),
-                category=ProblemCategory.NOT_FOUND,
             )
         )
     if len(matches) > 1:
@@ -203,7 +201,6 @@ def _apply_point_parameter_overlay(
                 "experiment_parameter_overlay_row_ambiguous",
                 msg,
                 model_location("parameters", overlay.table_id),
-                category=ProblemCategory.CONFLICT,
                 details={"match_count": len(matches)},
             )
         )
@@ -224,7 +221,6 @@ def _apply_point_parameter_overlay(
                     "columns",
                     overlay.column_id,
                 ),
-                category=ProblemCategory.NOT_FOUND,
             )
         )
     _coerce_overlay_value(

@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from scopecat.config.changes import parameter_change_proposal_from_updates
 from scopecat.config.drafts import ConfigDraft
-from scopecat.config.parameters import replace_scalar_parameter
+from scopecat.config.parameters import ReplaceParameter, replace_scalar_parameter
 from scopecat.config.registry.records import (
     ConfigRegistryActivationRecord,
     ConfigRegistryActiveState,
@@ -22,7 +22,7 @@ from scopecat.control.models import (
     DurableEvent,
     EventPage,
     RunAdmissionRecord,
-    RunPage,
+    RunPlanSummary,
 )
 from scopecat.daemon.client import (
     DaemonClient,
@@ -40,13 +40,11 @@ from scopecat.daemon.views import (
     RunAnalysisListView,
     RunAnalysisView,
     RunArtifactBytesView,
-    RunArtifactJsonView,
-    RunArtifactTextView,
     RunConfigView,
-    RunDatasetContentView,
     RunDetail,
-    RunRecordJsonView,
     RunRequestView,
+    RunSummary,
+    RunSummaryPage,
 )
 from scopecat.daemon.wire import (
     AnalysisNoteOutputPayload,
@@ -60,31 +58,17 @@ from scopecat.daemon.wire import (
     ConfigDraftRegistrationCommand,
     ConfigDraftRegistrationReceipt,
     ConfigEntryActivationCommand,
-    ConfigImportReceipt,
     ConfigRollbackCommand,
-    DelegatedPlanSummary,
-    DelegatedRunSubmission,
     DirectConfigImportCommand,
-    ExecutionTransitionBatch,
-    ExecutionTransitionBatchReceipt,
+    ExecutionTransitionAppend,
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
-    ExperimentCatalog,
-    ManagedRunSubmission,
     ParameterProposalReviewCommand,
-    ParameterProposalReviewReceipt,
-    RegisteredExperimentDescriptor,
-    ReplaceConfigParameter,
     RunAdmission,
     RunAttachmentCommand,
-    RunAttachmentReceipt,
-    RuntimeEventPublishCommand,
-    RuntimeEventPublishReceipt,
-    RuntimeProgressPayload,
-    RuntimeTransitionEventPayload,
+    RunSubmission,
     TerminalRunCommitCommand,
-    TerminalRunCommitReceipt,
 )
 from scopecat.measurements.results import MeasurementDataset, MeasurementDatasetSchema
 from scopecat.records.analysis import AnalysisRecord
@@ -99,60 +83,61 @@ from scopecat.records.parameter_change import (
 )
 from scopecat.records.run import RunManifest, RunOutcome
 from scopecat.records.run_request import RunRequest
+from scopecat.runs.data import (
+    RunArtifactJsonResult,
+    RunArtifactTextResult,
+    RunMeasurementDatasetResult,
+    RunRecordJsonResult,
+)
 from tests.testkit.workflow_fixtures import load_config
 
 _NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
 _HASH = f"sha256:{'a' * 64}"
-_REQUEST = RunRequest(id="request-1")
+_REQUEST = RunRequest(experiment_id="request-1")
 
 
-def test_queries_and_run_submissions_use_typed_wire_models() -> None:
+def test_queries_and_run_submission_use_typed_wire_models() -> None:
     requests: list[httpx2.Request] = []
     client = _client(requests)
 
     health = client.health()
-    catalog = client.catalog()
-    runs = client.list_runs(limit=5, after=2, state="accepted")
+    runs = client.list_runs(limit=5, after=2, state="queued")
     run = client.get_run("run-1")
     measurements = client.measurements("run-1", limit=10, offset=5)
     events = client.replay_events(limit=25, after=3, run_id="run-1")
-    managed = client.submit_managed(_managed_submission("managed-1"))
-    delegated = client.submit_delegated(_delegated_submission())
+    admission = client.submit_run(_submission())
 
     assert health.status == "ok"
     assert health.project_id == "project-1"
     assert health.project_name == "test-lab"
     assert health.project_root == "/projects/test-lab"
-    assert isinstance(catalog, ExperimentCatalog)
-    assert catalog.experiments[0].id == "ramsey"
-    assert isinstance(runs, RunPage)
-    assert runs.items == (run.control,)
+    assert isinstance(runs, RunSummaryPage)
+    assert runs.items[0].control == run.control
+    assert runs.items[0].manifest == run.manifest
     assert measurements.items[0].point_index == 0
     assert isinstance(events, EventPage)
     assert events.items[0].event_id == 4
-    assert managed.execution_mode == "managed"
-    assert delegated.execution_mode == "delegated"
+    assert admission.submission_id == "submission-1"
 
-    list_request = requests[2]
+    list_request = requests[1]
     assert dict(list_request.url.params) == {
         "limit": "5",
         "after": "2",
-        "state": "accepted",
+        "state": "queued",
     }
-    measurement_request = requests[4]
+    measurement_request = requests[3]
     assert dict(measurement_request.url.params) == {
         "limit": "10",
         "offset": "5",
     }
-    event_request = requests[5]
+    event_request = requests[4]
     assert dict(event_request.url.params) == {
         "limit": "25",
         "after": "3",
         "run_id": "run-1",
     }
-    assert requests[6].method == "POST"
-    assert b'"execution_mode":"managed"' in requests[6].content
-    assert b'"execution_mode":"delegated"' in requests[7].content
+    assert requests[5].method == "POST"
+    assert RunSubmission.model_validate_json(requests[5].content) == _submission()
 
 
 def test_run_queries_serialize_the_older_page_cursor() -> None:
@@ -161,86 +146,70 @@ def test_run_queries_serialize_the_older_page_cursor() -> None:
 
     page = client.list_runs(limit=5, before=10)
 
-    assert isinstance(page, RunPage)
+    assert isinstance(page, RunSummaryPage)
     assert dict(requests[0].url.params) == {
         "limit": "5",
         "before": "10",
     }
 
 
-def test_delegated_executor_commands_follow_run_scoped_routes() -> None:
+def test_executor_commands_follow_run_scoped_routes() -> None:
     requests: list[httpx2.Request] = []
     client = _client(requests)
     start_request = ExecutorStartRequest(
-        run_id="run-1",
         executor_id="notebook-1",
-        manifest=_running_manifest(),
     )
     heartbeat = ExecutorHeartbeat(
-        run_id="run-1",
         lease_id="lease-1",
-        generation=1,
     )
-    batch = ExecutionTransitionBatch(
-        batch_id="batch-1",
+    transition = ExecutionTransitionAppend(
         lease_id="lease-1",
-        generation=1,
-        run_id="run-1",
-        transitions=(_transition(),),
-    )
-    runtime_event = RuntimeEventPublishCommand(
-        run_id="run-1",
-        lease_id="lease-1",
-        generation=1,
-        event=RuntimeTransitionEventPayload(
-            run_id="run-1",
-            experiment_id="scratch",
-            observed_at=_NOW,
-            occurred_at=_NOW,
-            operation_id="point-0",
-            stage="point",
-            effect="pure",
-            state="completed",
-            progress=RuntimeProgressPayload(
-                completed_points=1,
-                total_points=2,
-            ),
-            point_index=0,
-        ),
+        transition=_transition(),
     )
     terminal = _terminal_command()
 
-    lease = client.start_executor(start_request)
+    started = client.start_executor("run-1", start_request)
     renewed = client.heartbeat_executor("run-1", heartbeat)
-    receipt = client.append_transitions(batch)
-    runtime_receipt = client.publish_runtime_event(runtime_event)
-    completed = client.commit_terminal(terminal)
+    committed = client.append_transition("run-1", transition)
+    completed = client.commit_terminal("run-1", terminal)
 
-    assert isinstance(lease, ExecutorLease)
-    assert renewed.expires_at == lease.expires_at
-    assert isinstance(receipt, ExecutionTransitionBatchReceipt)
-    assert receipt.committed[0].sequence == 1
-    assert runtime_receipt.kind == "transition"
-    assert completed.manifest.lifecycle == "terminal"
+    assert isinstance(started, ExecutorLease)
+    assert renewed.expires_at == started.expires_at
+    assert committed.sequence == 1
+    assert completed.outcome is not None
     assert [request.url.path for request in requests] == [
         "/api/v1/runs/run-1/executor/start",
         "/api/v1/runs/run-1/executor/heartbeat",
         "/api/v1/runs/run-1/transitions",
-        "/api/v1/runs/run-1/runtime-events",
         "/api/v1/runs/run-1/terminal",
     ]
+
+
+def test_executor_start_rejects_receipt_for_another_run() -> None:
+    other_lease = _lease().model_copy(update={"run_id": "run-2"})
+    client = DaemonClient(
+        "http://daemon.local/",
+        transport=httpx2.MockTransport(lambda _request: _model(other_lease)),
+    )
+
+    with pytest.raises(ValueError, match="does not match"):
+        client.start_executor(
+            "run-1",
+            ExecutorStartRequest(
+                executor_id="notebook-1",
+            ),
+        )
 
 
 def test_attention_resolution_uses_operator_route() -> None:
     requests: list[httpx2.Request] = []
     client = _client(requests)
 
-    receipt = client.resolve_attention("run-1", "requeue")
+    receipt = client.resolve_attention("run-1")
 
     assert receipt == AttentionResolutionReceipt(
         run_id="run-1",
-        action="requeue",
-        state="accepted",
+        state="closed",
         released_resource_count=1,
     )
     assert requests[0].url.path == "/api/v1/runs/run-1/attention"
@@ -287,7 +256,7 @@ def test_config_registry_client_uses_typed_routes() -> None:
     assert registry.entries[0].id == "baseline"
     assert active.config == config
     assert entry == ConfigEntryView(entry=registry.entries[0], config=config)
-    assert imported.entry == registry.entries[0]
+    assert imported == registry.entries[0]
     assert previewed == draft_preview
     assert registered.entry.id == "manual-tuning"
     assert registered.result_content_hash == draft_preview.result_content_hash
@@ -327,7 +296,6 @@ def test_post_run_client_uses_run_scoped_typed_routes() -> None:
     client = _client(requests)
     proposal = _proposal()
     analysis = AnalysisSaveCommand(
-        run_id="run-1",
         title="fit",
         analysis_key="fit",
         outputs=(
@@ -339,8 +307,6 @@ def test_post_run_client_uses_run_scoped_typed_routes() -> None:
         ),
     )
     review = ParameterProposalReviewCommand(
-        run_id="run-1",
-        proposal_id=proposal.id,
         decision="approved",
         reviewer="operator",
     )
@@ -354,15 +320,15 @@ def test_post_run_client_uses_run_scoped_typed_routes() -> None:
     )
 
     config = client.run_config("run-1")
-    saved = client.save_analysis(analysis)
+    saved = client.save_analysis("run-1", analysis)
     proposals = client.parameter_proposals("run-1")
-    reviewed = client.review_parameter_proposal(review)
+    reviewed = client.review_parameter_proposal("run-1", proposal.id, review)
     activated = client.activate_candidate_config(candidate)
 
     assert config.config == load_config()
     assert saved.analysis_key == "fit"
     assert proposals.items[0].proposal == proposal
-    assert reviewed.decision.proposal_id == proposal.id
+    assert reviewed.proposal_id == proposal.id
     assert activated.entry.id == "baseline"
     assert [request.url.path for request in requests] == [
         "/api/v1/runs/run-1/config",
@@ -377,7 +343,6 @@ def test_run_content_client_uses_symmetric_typed_routes() -> None:
     requests: list[httpx2.Request] = []
     client = _client(requests)
     attachment = RunAttachmentCommand(
-        run_id="run-1",
         key="notes",
         text="hello",
         filename="notes.txt",
@@ -407,7 +372,7 @@ def test_run_content_client_uses_symmetric_typed_routes() -> None:
         expected_kind="analysis",
     )
     dataset = client.dataset_content("run-1", "raw-measurements")
-    attached = client.attach(attachment)
+    attached = client.attach("run-1", attachment)
 
     assert request.request == _REQUEST
     assert analyses.items[0] == analysis
@@ -415,8 +380,8 @@ def test_run_content_client_uses_symmetric_typed_routes() -> None:
     assert artifact_text.content == "hello"
     assert artifact_json.content == {"ok": True}
     assert record.content == {"run_id": "run-1"}
-    assert isinstance(dataset.content, MeasurementDataset)
-    assert attached.artifact.filename == "notes.txt"
+    assert isinstance(dataset.dataset, MeasurementDataset)
+    assert attached.filename == "notes.txt"
     assert [request.url.path for request in requests] == [
         "/api/v1/runs/run-1/request",
         "/api/v1/runs/run-1/analyses",
@@ -438,7 +403,7 @@ def test_not_found_and_conflict_are_typed_and_other_http_errors_raise() -> None:
     with pytest.raises(DaemonNotFoundError) as missing:
         client.get_run("missing")
     with pytest.raises(DaemonConflictError) as conflict:
-        client.submit_managed(_managed_submission("duplicate"))
+        client.submit_run(_submission("duplicate"))
     with pytest.raises(httpx2.HTTPStatusError):
         client.get_run("invalid")
 
@@ -509,39 +474,34 @@ def _run_content_response(request: httpx2.Request) -> httpx2.Response | None:
         )
     if path == "/api/v1/runs/run-1/artifacts/notes/text":
         return _model(
-            RunArtifactTextView(
-                run_id="run-1",
+            RunArtifactTextResult(
                 artifact=_content_entry("artifact", "notes", "attachment"),
                 content="hello",
             )
         )
     if path == "/api/v1/runs/run-1/artifacts/result/json":
         return _model(
-            RunArtifactJsonView(
-                run_id="run-1",
+            RunArtifactJsonResult(
                 artifact=_content_entry("artifact", "result", "result"),
                 content={"ok": True},
             )
         )
     if path == "/api/v1/runs/run-1/records/analysis-fit/json":
         return _model(
-            RunRecordJsonView(
-                run_id="run-1",
+            RunRecordJsonResult(
                 record=_content_entry("record", "analysis-fit", "analysis"),
                 content={"run_id": "run-1"},
             )
         )
     if path == "/api/v1/runs/run-1/datasets/raw-measurements":
         return _model(
-            RunDatasetContentView(
-                run_id="run-1",
-                dataset=_content_entry(
+            RunMeasurementDatasetResult(
+                dataset_entry=_content_entry(
                     "dataset",
                     "raw-measurements",
                     "measurement_dataset",
                 ),
-                content=MeasurementDataset(
-                    dataset_id="raw-measurements",
+                dataset=MeasurementDataset(
                     schema=MeasurementDatasetSchema(
                         dataset_id="raw-measurements",
                         dataset_role="raw",
@@ -553,14 +513,11 @@ def _run_content_response(request: httpx2.Request) -> httpx2.Response | None:
     if path == "/api/v1/runs/run-1/attachments":
         command = RunAttachmentCommand.model_validate_json(request.content)
         return _model(
-            RunAttachmentReceipt(
-                run_id="run-1",
-                artifact=_content_entry(
-                    "artifact",
-                    command.key,
-                    command.kind,
-                    filename=command.filename,
-                ),
+            _content_entry(
+                "artifact",
+                command.key,
+                command.kind,
+                filename=command.filename,
             ),
             status_code=201,
         )
@@ -580,8 +537,6 @@ def _client(requests: list[httpx2.Request]) -> DaemonClient:
                     "project_root": "/projects/test-lab",
                 }
             )
-        if path == "/api/v1/catalog":
-            return _model(_catalog())
         if path == "/api/v1/config-registry" and request.method == "GET":
             entry, state = _config_registry_records()
             return _model(ConfigRegistryView(entries=(entry,), active_state=state))
@@ -599,7 +554,7 @@ def _client(requests: list[httpx2.Request]) -> DaemonClient:
             return _model(ConfigEntryView(entry=entry, config=load_config()))
         if path == "/api/v1/config-registry/entries":
             entry, _state = _config_registry_records()
-            return _model(ConfigImportReceipt(entry=entry), status_code=201)
+            return _model(entry, status_code=201)
         if path == "/api/v1/config-registry/drafts/preview":
             command = ConfigDraftCommand.model_validate_json(request.content)
             return _model(_config_draft_preview(command))
@@ -651,7 +606,16 @@ def _client(requests: list[httpx2.Request]) -> DaemonClient:
                 )
             )
         if path == "/api/v1/runs" and request.method == "GET":
-            return _model(RunPage(items=(_control_run(),)))
+            return _model(
+                RunSummaryPage(
+                    items=(
+                        RunSummary(
+                            control=_control_run(),
+                            manifest=_accepted_manifest(),
+                        ),
+                    )
+                )
+            )
         if path == "/api/v1/events":
             return _model(
                 EventPage(
@@ -700,22 +664,19 @@ def _client(requests: list[httpx2.Request]) -> DaemonClient:
                 request.content
             )
             return _model(
-                ParameterProposalReviewReceipt(
-                    decision=ParameterChangeDecisionRecord(
-                        event_id="decision-1",
-                        run_id=command.run_id,
-                        proposal_id=command.proposal_id,
-                        decision=command.decision,
-                        authority=HumanDecisionAuthority(actor=command.reviewer),
-                    )
+                ParameterChangeDecisionRecord(
+                    event_id="decision-1",
+                    run_id="run-1",
+                    proposal_id="drive-frequency",
+                    decision=command.decision,
+                    authority=HumanDecisionAuthority(actor=command.reviewer),
                 )
             )
         if path == "/api/v1/runs/run-1/attention":
             return _model(
                 AttentionResolutionReceipt(
                     run_id="run-1",
-                    action="requeue",
-                    state="accepted",
+                    state="closed",
                     released_resource_count=1,
                 )
             )
@@ -739,40 +700,16 @@ def _client(requests: list[httpx2.Request]) -> DaemonClient:
                     {"detail": "submission already exists"},
                     status_code=409,
                 )
-            mode = (
-                "delegated"
-                if b'"execution_mode":"delegated"' in request.content
-                else "managed"
-            )
-            submission_id = "delegated-1" if mode == "delegated" else "managed-1"
-            return _model(_admission(submission_id, mode), status_code=201)
+            submission = RunSubmission.model_validate_json(request.content)
+            return _model(_admission(submission.submission_id), status_code=201)
         if path == "/api/v1/runs/run-1/executor/start":
             return _model(_lease())
         if path == "/api/v1/runs/run-1/executor/heartbeat":
             return _model(_lease())
         if path == "/api/v1/runs/run-1/transitions":
-            return _model(
-                ExecutionTransitionBatchReceipt(
-                    batch_id="batch-1",
-                    committed=(_transition().model_copy(update={"sequence": 1}),),
-                )
-            )
-        if path == "/api/v1/runs/run-1/runtime-events":
-            command = RuntimeEventPublishCommand.model_validate_json(request.content)
-            return _model(
-                RuntimeEventPublishReceipt(
-                    event_id=7,
-                    run_id=command.run_id,
-                    kind=command.event.kind,
-                )
-            )
+            return _model(_transition().model_copy(update={"sequence": 1}))
         if path == "/api/v1/runs/run-1/terminal":
-            return _model(
-                TerminalRunCommitReceipt(
-                    command_id="terminal:run-1",
-                    manifest=_terminal_manifest(),
-                )
-            )
+            return _model(_terminal_manifest())
         raise AssertionError(f"unexpected request: {request.method} {path}")
 
     return DaemonClient(
@@ -789,34 +726,21 @@ def _json(content: object, *, status_code: int = 200) -> httpx2.Response:
     return httpx2.Response(status_code, json=content)
 
 
-def _catalog() -> ExperimentCatalog:
-    return ExperimentCatalog(
-        revision="catalog-1",
-        experiments=(
-            RegisteredExperimentDescriptor(
-                id="ramsey",
-                version="1",
-                experiment_kind="quantum.ramsey",
-                title="Ramsey",
-            ),
-        ),
-    )
-
-
 def _control_run() -> ControlRun:
     return ControlRun(
         sequence=1,
         admission=RunAdmissionRecord(
-            submission_id="delegated-1",
+            submission_id="submission-1",
+            submission_content_hash="1" * 64,
             run_id="run-1",
-            execution_mode="delegated",
-            experiment_id="scratch",
-            config_content_hash=_HASH,
-            request=_REQUEST,
+            plan=RunPlanSummary(
+                experiment_id="scratch",
+                experiment_kind="scratch",
+                point_count=1,
+            ),
             admitted_at=_NOW,
         ),
-        state="accepted",
-        state_version=1,
+        state="queued",
         updated_at=_NOW,
     )
 
@@ -863,7 +787,7 @@ def _config_draft_command(
         base_generation=state.generation,
         candidate_id="manual-tuning",
         updates=(
-            ReplaceConfigParameter(
+            ReplaceParameter(
                 value=ScalarParameterValue(
                     id="drive_frequency",
                     value=Quantity(value=5.1, unit="GHz"),
@@ -898,34 +822,19 @@ def _config_draft_preview(command: ConfigDraftCommand) -> ConfigDraftPreview:
 
 def _admission(
     submission_id: str,
-    execution_mode: Literal["managed", "delegated"],
 ) -> RunAdmission:
     return RunAdmission(
-        run_id="run-1",
         submission_id=submission_id,
-        execution_mode=execution_mode,
-        config_content_hash=_HASH,
-        accepted_at=_NOW,
-        event_cursor=1,
+        manifest=_accepted_manifest(),
     )
 
 
-def _managed_submission(submission_id: str) -> ManagedRunSubmission:
-    return ManagedRunSubmission(
+def _submission(submission_id: str = "submission-1") -> RunSubmission:
+    return RunSubmission(
         submission_id=submission_id,
-        registration_id="ramsey",
-        registration_version="1",
-        request=_REQUEST,
-    )
-
-
-def _delegated_submission() -> DelegatedRunSubmission:
-    return DelegatedRunSubmission(
-        submission_id="delegated-1",
-        executor_id="notebook-1",
         config=load_config(),
         request=_REQUEST,
-        plan=DelegatedPlanSummary(
+        plan=RunPlanSummary(
             experiment_id="scratch",
             experiment_kind="scratch",
             point_count=1,
@@ -954,7 +863,6 @@ def _proposal():
 def _lease() -> ExecutorLease:
     return ExecutorLease(
         lease_id="lease-1",
-        generation=1,
         run_id="run-1",
         executor_id="notebook-1",
         issued_at=_NOW,
@@ -973,20 +881,10 @@ def _transition() -> ExecutionTransition:
     )
 
 
-def _running_manifest() -> RunManifest:
-    return RunManifest(
-        run_id="run-1",
-        created_at=_NOW,
-        lifecycle="running",
-        config_content_hash=_HASH,
-    )
-
-
 def _accepted_manifest() -> RunManifest:
     return RunManifest(
         run_id="run-1",
         created_at=_NOW,
-        lifecycle="accepted",
         config_content_hash=_HASH,
     )
 
@@ -996,23 +894,21 @@ def _terminal_manifest() -> RunManifest:
         run_id="run-1",
         result="succeeded",
         certainty="known",
-        termination_reason="completed",
         finished_at=_NOW + timedelta(seconds=2),
     )
     return RunManifest(
         run_id="run-1",
         created_at=_NOW,
-        lifecycle="terminal",
         config_content_hash=_HASH,
         outcome=outcome,
     )
 
 
 def _terminal_command() -> TerminalRunCommitCommand:
+    terminal = _terminal_manifest()
+    assert terminal.outcome is not None
     return TerminalRunCommitCommand(
-        command_id="terminal:run-1",
-        run_id="run-1",
         lease_id="lease-1",
-        generation=1,
-        manifest=_terminal_manifest(),
+        outcome=terminal.outcome,
+        contents=terminal.contents,
     )

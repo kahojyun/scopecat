@@ -86,22 +86,8 @@ class PreparedQuantumTargetEntry:
         return self.lowered.source_program_id
 
     @property
-    def event_addresses(self) -> tuple[TargetEventAddress, ...]:
-        return tuple(origin.address for origin in self.event_origins)
-
-    @property
     def acquisition_addresses(self) -> tuple[TargetAcquisitionAddress, ...]:
         return tuple(origin.address for origin in self.acquisition_origins)
-
-    def event_origin_for(
-        self,
-        address: TargetEventAddress,
-    ) -> QuantumTargetEventOrigin:
-        for origin in self.event_origins:
-            if origin.address == address:
-                return origin
-        msg = f"target event address {address!r} does not belong to entry {self.id}"
-        raise KeyError(msg)
 
     def acquisition_origin_for(
         self,
@@ -155,19 +141,9 @@ class PreparedQuantumTargetBatch:
         )
 
     @property
-    def event_origins(self) -> tuple[QuantumTargetEventOrigin, ...]:
-        return tuple(origin for entry in self.entries for origin in entry.event_origins)
-
-    @property
     def acquisition_origins(self) -> tuple[QuantumTargetAcquisitionOrigin, ...]:
         return tuple(
             origin for entry in self.entries for origin in entry.acquisition_origins
-        )
-
-    @property
-    def event_addresses(self) -> tuple[TargetEventAddress, ...]:
-        return tuple(
-            address for entry in self.entries for address in entry.event_addresses
         )
 
     @property
@@ -175,26 +151,6 @@ class PreparedQuantumTargetBatch:
         return tuple(
             address for entry in self.entries for address in entry.acquisition_addresses
         )
-
-    def entry_for(
-        self,
-        entry_id: TargetCompileEntryId,
-    ) -> PreparedQuantumTargetEntry:
-        for entry in self.entries:
-            if entry.id == entry_id:
-                return entry
-        msg = f"target compile entry {entry_id!r} is not in this batch"
-        raise KeyError(msg)
-
-    def event_origin_for(
-        self,
-        address: TargetEventAddress,
-    ) -> QuantumTargetEventOrigin:
-        for origin in self.event_origins:
-            if origin.address == address:
-                return origin
-        msg = f"target event address {address!r} is not in this batch"
-        raise KeyError(msg)
 
     def acquisition_origin_for(
         self,

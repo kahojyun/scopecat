@@ -2,18 +2,19 @@
 
 from __future__ import annotations
 
-import re
-from collections.abc import Collection, Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from typing import cast
 
 from scopecat.authoring._point_domain_intents import PointDomainIntent
 from scopecat.authoring._scan_intents import (
-    ParameterScanIntent,
-    PointScanIntent,
-    Scan,
-    ScanGroupIntent,
-    iter_scan_leaves,
+    CenteredParameterScanIntent,
+    CenteredPointScanIntent,
+    ExplicitParameterScanIntent,
+    ExplicitPointScanIntent,
+    ImplicitScanCenter,
+    ScanLeafIntent,
+    parameter_scan_lookup,
     scan_parameter_contracts,
     scan_point_id,
 )
@@ -21,9 +22,7 @@ from scopecat.authoring._value_refs import (
     ValueRef,
     internal_lower_scalar_value_ref,
     internal_value_ref_from_expression,
-    internal_value_ref_point_dependencies,
 )
-from scopecat.authoring.values import parameter_lookup as authoring_parameter_lookup
 from scopecat.compiler.frontend.request_values import (
     project_run_request_scalar,
     project_run_request_value,
@@ -36,12 +35,11 @@ from scopecat.compiler.relations.model import (
     param,
 )
 from scopecat.compiler.relations.point_domain import (
+    POINT_UNIT,
     PointAxis,
     point_axis_linear,
     point_axis_values,
-    point_dependent_product,
     point_product,
-    point_zip,
 )
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar
@@ -51,157 +49,92 @@ from scopecat.records.run_request import (
     ParameterAroundScanRecord,
     ParameterScanRecord,
     PointScanRecord,
-    ScanGroupRecord,
     ScanRecord,
 )
 
 
 def lower_scan_points(
-    scan: Scan,
+    scan: ScanLeafIntent,
     *,
     inputs: Mapping[str, object] | None = None,
 ) -> PointAxis[ValueRef]:
     """Build one structural point-domain axis from a scalar scan intent."""
 
-    if isinstance(scan, ScanGroupIntent):
-        msg = "scan groups must lower through the point-domain algebra"
-        raise TypeError(msg)
-    if isinstance(scan, PointScanIntent):
-        value_type = _scan_point_value_type(scan)
-        if scan.point_values:
+    match scan:
+        case ExplicitPointScanIntent() | ExplicitParameterScanIntent():
             return point_axis_values(
-                scan.point_id,
-                value_type,
-                _scan_axis_values(scan.point_values, unit=scan.unit),
-            )
-        if (
-            (scan.center is None and not scan.implicit_center)
-            or scan.span is None
-            or scan.point_count is None
-        ):
-            msg = f"scan axis {scan.point_id!r} requires values or center/span/points"
-            raise ValueError(msg)
-        if scan.point_count < 2:
-            msg = "scan axis points must be at least 2"
-            raise ValueError(msg)
-        return point_axis_linear(
-            scan.point_id,
-            value_type,
-            _lower_scan_center_value_ref(scan, inputs=inputs),
-            _scan_quantity(scan.span),
-            scan.point_count,
-        )
-    if isinstance(scan, ParameterScanIntent):
-        value_type = _scan_point_value_type(scan)
-        if scan.values:
-            return point_axis_values(
-                scan.point_id,
-                value_type,
+                scan_point_id(scan),
+                _scan_point_value_type(scan),
                 _scan_axis_values(scan.values, unit=scan.unit),
             )
-        if scan.span is None or scan.point_count is None:
-            msg = (
-                f"parameter scan axis {scan.point_id!r} requires values or span/points"
+        case CenteredPointScanIntent():
+            return point_axis_linear(
+                scan_point_id(scan),
+                _scan_point_value_type(scan),
+                _lower_scan_center_value_ref(scan, inputs=inputs),
+                scan.span,
+                scan.points,
             )
-            raise ValueError(msg)
-        return point_axis_linear(
-            scan.point_id,
-            value_type,
-            _lower_parameter_scan_center_value_ref(scan, inputs=inputs),
-            _scan_quantity(scan.span),
-            scan.point_count,
-        )
-    msg = "scan axis must be a point or parameter scan"
-    raise TypeError(msg)
+        case CenteredParameterScanIntent():
+            return point_axis_linear(
+                scan_point_id(scan),
+                _scan_point_value_type(scan),
+                _lower_parameter_scan_center_value_ref(scan, inputs=inputs),
+                scan.span,
+                scan.points,
+            )
 
 
-def lower_scan_point_domain(
-    scan: Scan,
+def lower_scans_point_domain(
+    scans: Sequence[ScanLeafIntent],
     *,
     inputs: Mapping[str, object] | None = None,
-    dependency_edges: Collection[tuple[str, str]] = (),
 ) -> PointDomainIntent:
-    """Preserve Cartesian, dependent, and positional scan composition."""
+    """Lower flat scan axes as one declaration-ordered Cartesian product."""
 
-    if not isinstance(scan, ScanGroupIntent):
-        return lower_scan_points(scan, inputs=inputs)
-    children = tuple(
-        lower_scan_point_domain(
-            child,
-            inputs=inputs,
-            dependency_edges=dependency_edges,
+    domain: PointDomainIntent = POINT_UNIT
+    for scan in scans:
+        domain = point_product(
+            domain,
+            lower_scan_points(scan, inputs=inputs),
         )
-        for child in scan.scans
-    )
-    if scan.kind == "zip":
-        return point_zip(*children)
-
-    combined = children[0]
-    produced = {scan_point_id(leaf) for leaf in iter_scan_leaves(scan.scans[0])}
-    for child_scan, child_domain in zip(scan.scans[1:], children[1:], strict=True):
-        child_ids = {scan_point_id(leaf) for leaf in iter_scan_leaves(child_scan)}
-        dependent = any(
-            producer_id in produced and consumer_id in child_ids
-            for producer_id, consumer_id in dependency_edges
-        )
-        combined = (
-            point_dependent_product(combined, child_domain)
-            if dependent
-            else point_product(combined, child_domain)
-        )
-        produced.update(child_ids)
-    return combined
+    return domain
 
 
 def project_scan_record(
-    scan: Scan,
+    scan: ScanLeafIntent,
     *,
     inputs: Mapping[str, object] | None = None,
 ) -> ScanRecord:
     """Project scan intent into the closed durable request value domain."""
 
-    if isinstance(scan, PointScanIntent):
-        if scan.point_values:
+    match scan:
+        case ExplicitPointScanIntent():
             return PointScanRecord.model_validate(
                 {
-                    "target_id": scan.point_id,
-                    "axis_id": scan.point_id,
+                    "target_id": scan_point_id(scan),
+                    "axis_id": scan_point_id(scan),
                     "values": [
                         _request_scalar_value(value, inputs=inputs)
-                        for value in scan.point_values
+                        for value in scan.values
                     ],
                     "unit": scan.unit,
                 }
             )
-        if (
-            (scan.center is None and not scan.implicit_center)
-            or scan.span is None
-            or scan.point_count is None
-        ):
-            msg = f"scan axis {scan.point_id!r} requires values or center/span/points"
-            raise ValueError(msg)
-        return AroundScanRecord.model_validate(
-            {
-                "target_id": scan.point_id,
-                "axis_id": scan.point_id,
-                "center": project_run_request_scalar(
-                    _lower_scan_center(scan, inputs=inputs)
-                ),
-                "span": _request_scalar_value(scan.span, inputs=inputs),
-                "points": scan.point_count,
-            }
-        )
-    if isinstance(scan, ParameterScanIntent):
-        common = {
-            "table_id": scan.table_id,
-            "key": {
-                name: _request_scalar_value(value, inputs=inputs)
-                for name, value in scan.key
-            },
-            "column": scan.column,
-            "axis_id": scan.point_id,
-        }
-        if scan.values:
+        case CenteredPointScanIntent():
+            return AroundScanRecord.model_validate(
+                {
+                    "target_id": scan_point_id(scan),
+                    "axis_id": scan_point_id(scan),
+                    "center": project_run_request_scalar(
+                        _lower_scan_center(scan, inputs=inputs)
+                    ),
+                    "span": _request_scalar_value(scan.span, inputs=inputs),
+                    "points": scan.points,
+                }
+            )
+        case ExplicitParameterScanIntent():
+            common = _parameter_scan_record_fields(scan, inputs=inputs)
             return ParameterScanRecord.model_validate(
                 {
                     **common,
@@ -212,39 +145,50 @@ def project_scan_record(
                     "unit": scan.unit,
                 }
             )
-        if scan.span is None or scan.point_count is None:
-            msg = (
-                f"parameter scan axis {scan.point_id!r} requires values or span/points"
+        case CenteredParameterScanIntent():
+            common = _parameter_scan_record_fields(scan, inputs=inputs)
+            return ParameterAroundScanRecord.model_validate(
+                {
+                    **common,
+                    "span": _request_scalar_value(scan.span, inputs=inputs),
+                    "points": scan.points,
+                }
             )
-            raise ValueError(msg)
-        return ParameterAroundScanRecord.model_validate(
-            {
-                **common,
-                "span": _request_scalar_value(scan.span, inputs=inputs),
-                "points": scan.point_count,
-            }
+
+
+def _parameter_scan_record_fields(
+    scan: ExplicitParameterScanIntent | CenteredParameterScanIntent,
+    *,
+    inputs: Mapping[str, object] | None,
+) -> dict[str, object]:
+    lookup, key = parameter_scan_lookup(scan)
+    return {
+        "table_id": lookup.table_id,
+        "key": {
+            name: _request_scalar_value(value, inputs=inputs) for name, value in key
+        },
+        "column": lookup.column_id,
+        "axis_id": scan_point_id(scan),
+    }
+
+
+def _scan_point_value_type(scan: ScanLeafIntent) -> Scalar:
+    value_type = cast("Scalar", scan.target.value_type)
+    unit = (
+        scan.unit
+        if isinstance(
+            scan,
+            ExplicitPointScanIntent | ExplicitParameterScanIntent,
         )
-    if not isinstance(scan, ScanGroupIntent):
-        msg = "invalid scan handle"
-        raise TypeError(msg)
-    return ScanGroupRecord(
-        kind=scan.kind,
-        scans=[project_scan_record(child, inputs=inputs) for child in scan.scans],
+        else None
     )
-
-
-def _scan_point_value_type(scan: PointScanIntent | ParameterScanIntent) -> Scalar:
-    value_type = scan.target.value_type
-    if not isinstance(value_type, Scalar):
-        msg = "scan target must carry a scalar value type"
-        raise TypeError(msg)
     if (
-        scan.unit is not None
+        unit is not None
         and isinstance(value_type.atom, QuantityType)
         and value_type.atom.unit is None
     ):
         return Scalar(
-            replace(value_type.atom, unit=scan.unit),
+            replace(value_type.atom, unit=unit),
             nullable=value_type.nullable,
         )
     return value_type
@@ -262,61 +206,42 @@ def _scan_axis_values(
     )
 
 
-def _scan_quantity(value: object) -> Quantity:
-    if isinstance(value, Quantity):
-        return value
-    if isinstance(value, str):
-        match = re.match(
-            r"^\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s+([A-Za-z][A-Za-z0-9_]*)\s*$",
-            value,
-        )
-        if match is not None:
-            return Quantity(value=float(match.group(1)), unit=match.group(2))
-    msg = "scan span must be a Quantity or '<number> <unit>' string"
-    raise TypeError(msg)
-
-
 def _lower_scan_center(
-    scan: PointScanIntent,
+    scan: CenteredPointScanIntent,
     *,
     inputs: Mapping[str, object] | None,
 ) -> ScalarExpr:
     if isinstance(scan.center, ValueRef):
         expression = internal_lower_scalar_value_ref(scan.center)
-    elif scan.center is not None:
-        expression = as_scalar_expr(scan.center)
-    elif scan.implicit_center:
-        expression = param(scan.point_id)
+    elif isinstance(scan.center, ImplicitScanCenter):
+        expression = param(scan_point_id(scan))
     else:
-        msg = f"scan axis {scan.point_id!r} requires a center"
-        raise ValueError(msg)
+        expression = as_scalar_expr(scan.center)
     if inputs is None:
         return expression
     return bind_scalar_input_refs(expression, inputs)
 
 
 def _lower_scan_center_value_ref(
-    scan: PointScanIntent,
+    scan: CenteredPointScanIntent,
     *,
     inputs: Mapping[str, object] | None,
 ) -> ValueRef:
     center = scan.center if isinstance(scan.center, ValueRef) else None
-    center_type = center.value_type if center is not None else scan.target.value_type
-    if not isinstance(center_type, Scalar):
-        msg = "scan center must carry a scalar value type"
-        raise TypeError(msg)
+    center_type = (
+        cast("Scalar", center.value_type)
+        if center is not None
+        else cast("Scalar", scan.target.value_type)
+    )
     return internal_value_ref_from_expression(
         _lower_scan_center(scan, inputs=inputs),
         center_type,
         parameter_contracts=scan_parameter_contracts(scan),
-        point_dependencies=(
-            internal_value_ref_point_dependencies(center) if center is not None else ()
-        ),
     )
 
 
 def _lower_parameter_scan_center_value_ref(
-    scan: ParameterScanIntent,
+    scan: CenteredParameterScanIntent,
     *,
     inputs: Mapping[str, object] | None,
 ) -> ValueRef:
@@ -327,12 +252,7 @@ def _lower_parameter_scan_center_value_ref(
     scan does not introduce a second configuration access mechanism.
     """
 
-    center = authoring_parameter_lookup(
-        scan.table_id,
-        key=dict(scan.key),
-        column=scan.column,
-        value_type=cast("Scalar", scan.target.value_type),
-    )
+    center = scan.lookup
     expression = internal_lower_scalar_value_ref(center)
     if inputs is not None:
         expression = bind_scalar_input_refs(expression, inputs)
@@ -340,7 +260,6 @@ def _lower_parameter_scan_center_value_ref(
         expression,
         cast("Scalar", scan.target.value_type),
         parameter_contracts=scan_parameter_contracts(scan),
-        point_dependencies=internal_value_ref_point_dependencies(center),
     )
 
 

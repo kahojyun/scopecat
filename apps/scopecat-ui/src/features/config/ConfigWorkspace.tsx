@@ -27,6 +27,7 @@ import {
   importConfigProfile,
   parseConfigProfileJson,
   rollbackConfig,
+  type ConfigSnapshotSummary,
 } from "./config-api";
 import { ConfigDraftEditor, type ConfigDraftSeed } from "./ConfigDraftEditor";
 import { ConfigParameters } from "./ConfigParameters";
@@ -37,9 +38,7 @@ import type {
   ConfigProfileSnapshot,
   ConfigRegistryEntry,
   ConfigRegistryOverview,
-  ConfigSnapshotSummary,
-  JsonObject,
-} from "./config-types";
+} from "../../api-contract";
 import type { ParameterProposal } from "../runs/proposal-types";
 import type { RunAnalysis } from "../../types";
 import { useConfirmationDialog } from "../../ui/ConfirmationDialog";
@@ -52,7 +51,7 @@ type ConfigMutation =
 interface ImportDraft {
   fileName: string;
   entryId: string;
-  config: JsonObject;
+  config: ConfigProfileSnapshot;
 }
 
 export function ConfigWorkspace({
@@ -82,29 +81,29 @@ export function ConfigWorkspace({
       !(error instanceof ApiError && error.status === 404) && failureCount < 1,
   });
   const overview = registryQuery.data;
-  const generation = overview?.active?.generation ?? 0;
+  const generation = overview?.active_state?.generation ?? 0;
 
   const mutation = useMutation({
     mutationFn: async (action: ConfigMutation) => {
       const command = {
         operator: operator.trim(),
         note: note.trim(),
-        expectedGeneration: generation,
+        expected_generation: generation,
       };
       if (!command.operator) {
         throw new Error("Enter an operator name before changing configuration.");
       }
       switch (action.kind) {
         case "activate-entry":
-          await activateConfigEntry(action.entryId, command);
+          await activateConfigEntry({ ...command, entry_id: action.entryId });
           return;
         case "rollback":
           await rollbackConfig(command);
           return;
         case "import":
           await importConfigProfile({
-            entryId: action.draft.entryId,
-            registeredBy: command.operator,
+            entry_id: action.draft.entryId,
+            registered_by: command.operator,
             note: command.note,
             config: action.draft.config,
           });
@@ -125,7 +124,7 @@ export function ConfigWorkspace({
     const selectionExists = overview.entries.some((entry) => entry.id === selectedId);
     if (selectionExists) return;
     const preferred =
-      overview.entries.find((entry) => entry.id === overview.active?.entryId) ??
+      overview.entries.find((entry) => entry.id === overview.active_state?.active_entry_id) ??
       overview.entries[0];
     if (preferred) {
       setSelectedId(preferred.id);
@@ -137,21 +136,23 @@ export function ConfigWorkspace({
     [overview?.entries, registrySearch],
   );
   const selectedEntry = overview?.entries.find((entry) => entry.id === selectedId);
-  const activeEntry = overview?.entries.find((entry) => entry.id === overview.active?.entryId);
+  const activeEntry = overview?.entries.find(
+    (entry) => entry.id === overview.active_state?.active_entry_id,
+  );
   const entryDetailQuery = useQuery({
-    queryKey: ["config", "entry", selectedEntry?.id, selectedEntry?.contentHash],
+    queryKey: ["config", "entry", selectedEntry?.id, selectedEntry?.content_hash],
     queryFn: ({ signal }) => getConfigRegistryEntry(selectedEntry!.id, signal),
     enabled: selectedEntry !== undefined,
     staleTime: Infinity,
   });
   const activeDetailQuery = useQuery({
-    queryKey: ["config", "entry", activeEntry?.id, activeEntry?.contentHash],
+    queryKey: ["config", "entry", activeEntry?.id, activeEntry?.content_hash],
     queryFn: ({ signal }) => getConfigRegistryEntry(activeEntry!.id, signal),
     enabled: activeEntry !== undefined,
     staleTime: Infinity,
   });
   const candidateRunId =
-    selectedEntry?.source.kind === "candidate_config" ? selectedEntry.source.runId : undefined;
+    selectedEntry?.source.kind === "candidate_config" ? selectedEntry.source.run_id : undefined;
   const candidateProposalsQuery = useQuery({
     queryKey: ["parameter-proposals", candidateRunId],
     queryFn: ({ signal }) => getRunParameterProposals(candidateRunId!, signal),
@@ -313,14 +314,16 @@ export function ConfigWorkspace({
       <ConfigSummary
         overview={overview}
         rollbackDisabled={
-          commandDisabled || overview.history.length < 2 || overview.active === undefined
+          commandDisabled ||
+          (overview.active_state?.history?.length ?? 0) < 2 ||
+          overview.active_state === undefined
         }
         rollbackPending={mutation.isPending && mutation.variables?.kind === "rollback"}
         onRollback={() =>
           runAction(
             { kind: "rollback" },
             `Restore ${
-              overview.history[1]?.entryId ?? "the previous version"
+              overview.active_state?.history?.[1]?.entry_id ?? "the previous version"
             } as the default configuration?`,
           )
         }
@@ -363,7 +366,7 @@ export function ConfigWorkspace({
                 <RegistryEntryButton
                   key={entry.id}
                   entry={entry}
-                  active={entry.id === overview.active?.entryId}
+                  active={entry.id === overview.active_state?.active_entry_id}
                   selected={entry.id === selectedId}
                   onSelect={() => selectEntry(entry.id)}
                 />
@@ -376,7 +379,7 @@ export function ConfigWorkspace({
           {selectedEntry ? (
             <EntryInspector
               entry={selectedEntry}
-              active={overview.active?.entryId === selectedEntry.id}
+              active={overview.active_state?.active_entry_id === selectedEntry.id}
               snapshot={entryDetailQuery.data?.summary}
               config={entryDetailQuery.data?.config}
               activeConfig={activeDetailQuery.data?.config}
@@ -401,13 +404,13 @@ export function ConfigWorkspace({
                 )
               }
               onEdit={
-                overview.active &&
+                overview.active_state &&
                 entryDetailQuery.data?.config &&
-                overview.active.entryId === selectedEntry.id
+                overview.active_state.active_entry_id === selectedEntry.id
                   ? () =>
                       setConfigDraft({
                         entry: selectedEntry,
-                        active: overview.active!,
+                        active: overview.active_state!,
                         config: entryDetailQuery.data!.config,
                       })
                   : undefined
@@ -427,7 +430,7 @@ export function ConfigWorkspace({
       {configDraft && (
         <ConfigDraftEditor
           seed={configDraft}
-          currentActive={overview.active}
+          currentActive={overview.active_state ?? undefined}
           operator={operator}
           onCancel={() => setConfigDraft(undefined)}
           onRegistered={async (receipt) => {
@@ -441,7 +444,7 @@ export function ConfigWorkspace({
         />
       )}
 
-      <ActivationHistory history={overview.history} />
+      <ActivationHistory history={overview.active_state?.history ?? []} />
 
       {importDraft && (
         <ImportDialog
@@ -471,7 +474,9 @@ function ConfigSummary({
   rollbackPending: boolean;
   onRollback: () => void;
 }) {
-  const defaultEntry = overview.entries.find((entry) => entry.id === overview.active?.entryId);
+  const active = overview.active_state;
+  const history = active?.history ?? [];
+  const defaultEntry = overview.entries.find((entry) => entry.id === active?.active_entry_id);
   const runtimeDerived =
     defaultEntry?.source.kind === "manual_parameter_updates" ||
     defaultEntry?.source.kind === "candidate_config";
@@ -479,11 +484,11 @@ function ConfigSummary({
     <div className="config-summary" aria-label="Configuration summary">
       <div className="config-summary-default">
         <span>Default</span>
-        <strong data-testid="active-config-entry" title={overview.active?.entryId}>
-          {overview.active?.entryId ?? "Not configured"}
+        <strong data-testid="active-config-entry" title={active?.active_entry_id}>
+          {active?.active_entry_id ?? "Not configured"}
         </strong>
-        <code title={overview.active?.contentHash}>
-          {overview.active ? shorten(overview.active.contentHash, 16) : "No content hash"}
+        <code title={active?.active_entry_content_hash}>
+          {active ? shorten(active.active_entry_content_hash, 16) : "No content hash"}
         </code>
       </div>
       <dl className="config-summary-facts">
@@ -493,14 +498,12 @@ function ConfigSummary({
         </div>
         <div>
           <dt>Default changes</dt>
-          <dd>{overview.history.length}</dd>
+          <dd>{history.length}</dd>
         </div>
       </dl>
       <div className="config-summary-rollback">
         <span>Previous</span>
-        <strong title={overview.history[1]?.entryId}>
-          {overview.history[1]?.entryId ?? "Nothing to undo"}
-        </strong>
+        <strong title={history[1]?.entry_id}>{history[1]?.entry_id ?? "Nothing to undo"}</strong>
         <button
           className="secondary-button"
           type="button"
@@ -550,9 +553,9 @@ function RegistryEntryButton({
         <strong>{entry.id}</strong>
         <small>
           {sourceLabel(entry)}
-          {entry.registeredAt ? ` · ${formatRelative(entry.registeredAt)}` : ""}
+          {entry.registered_at ? ` · ${formatRelative(entry.registered_at)}` : ""}
         </small>
-        <code>{shorten(entry.contentHash, 22)}</code>
+        <code>{shorten(entry.content_hash, 22)}</code>
       </span>
       {active && <span className="active-label">Default</span>}
     </button>
@@ -613,7 +616,7 @@ function EntryInspector({
             {active ? "Default" : "Saved"}
           </span>
           <h3 title={entry.id}>{shorten(entry.id, 44)}</h3>
-          <code title={entry.contentHash}>{entry.contentHash}</code>
+          <code title={entry.content_hash}>{entry.content_hash}</code>
         </div>
         {active && onEdit && (
           <button className="primary-button" type="button" onClick={onEdit}>
@@ -635,12 +638,12 @@ function EntryInspector({
       </header>
       <div className="config-detail-facts">
         <ConfigFact label="Source" value={sourceLabel(entry)} />
-        <ConfigFact label="Saved by" value={entry.registeredBy ?? "Not reported"} />
+        <ConfigFact label="Saved by" value={entry.registered_by || "Not reported"} />
         <ConfigFact
           label="Saved"
-          value={entry.registeredAt ? formatDateTime(entry.registeredAt) : "Not reported"}
+          value={entry.registered_at ? formatDateTime(entry.registered_at) : "Not reported"}
         />
-        <ConfigFact label="Config ref" value={entry.configRef ?? "Not reported"} code />
+        <ConfigFact label="Config ref" value={entry.config_ref || "Not reported"} code />
       </div>
       <EntryProvenance
         entry={entry}
@@ -723,26 +726,29 @@ function EntryProvenance({
           <strong>Manual parameter update</strong>
           <p>
             Derived from{" "}
-            {source.baseEntryId ? (
+            {source.base_entry_id ? (
               <button
                 className="config-provenance-link"
                 type="button"
-                aria-label={`Open base version ${source.baseEntryId}`}
-                onClick={() => onSelectEntry(source.baseEntryId!)}
+                aria-label={`Open base version ${source.base_entry_id}`}
+                onClick={() => onSelectEntry(source.base_entry_id)}
               >
-                <code>{source.baseEntryId}</code>
+                <code>{source.base_entry_id}</code>
               </button>
             ) : (
               "an unreported base version"
             )}
-            {source.baseGeneration ? ` at registry generation ${source.baseGeneration}.` : "."}
+            {source.base_registry_generation
+              ? ` at registry generation ${source.base_registry_generation}.`
+              : "."}
           </p>
         </div>
       </div>
     );
   }
 
-  const runId = source.runId;
+  const runId = source.run_id;
+  const proposalIds = source.proposal_evidence.map((evidence) => evidence.proposal_id);
   const proposalsById = new Map(
     (candidateProposals ?? []).map((proposal) => [proposal.id, proposal]),
   );
@@ -779,12 +785,12 @@ function EntryProvenance({
         )}
 
         <div className="candidate-evidence-list">
-          {source.proposalIds.length === 0 && (
+          {proposalIds.length === 0 && (
             <p className="candidate-evidence-status">
               No proposal evidence is recorded for this candidate.
             </p>
           )}
-          {source.proposalIds.map((proposalId) => {
+          {proposalIds.map((proposalId) => {
             const proposal = proposalsById.get(proposalId);
             const analysis = proposal ? analysesById.get(proposal.analysisRecordId) : undefined;
             const decision = proposal ? latestProposalDecision(proposal) : undefined;
@@ -887,7 +893,6 @@ function SnapshotSummary({ snapshot }: { snapshot: ConfigSnapshotSummary }) {
       <div className="snapshot-metrics">
         <ConfigFact label="Parameters" value={String(snapshot.parameterCount)} />
         <ConfigFact label="Instruments" value={String(snapshot.instrumentCount)} />
-        <ConfigFact label="Connections" value={String(snapshot.connectionCount)} />
         <ConfigFact label="Primary entity" value={snapshot.primaryEntityId ?? "Not reported"} />
       </div>
     </section>
@@ -922,14 +927,14 @@ function ActivationHistory({ history }: { history: ConfigActivationRecord[] }) {
               </span>
               <span className="history-connector" aria-hidden="true" />
               <div>
-                <strong>{record.entryId}</strong>
+                <strong>{record.entry_id}</strong>
                 <small>
-                  {record.operator ?? "Unknown operator"}
-                  {record.recordedAt ? ` · ${formatDateTime(record.recordedAt)}` : ""}
+                  {record.operator || "Unknown operator"}
+                  {record.recorded_at ? ` · ${formatDateTime(record.recorded_at)}` : ""}
                 </small>
                 {record.note && <p>{record.note}</p>}
               </div>
-              <code>{shorten(record.entryContentHash, 18)}</code>
+              <code>{shorten(record.entry_content_hash, 18)}</code>
             </li>
           ))}
         </ol>
@@ -1092,20 +1097,20 @@ function ConfigBoundaryMessage({
 function filterEntries(entries: ConfigRegistryEntry[], search: string): ConfigRegistryEntry[] {
   const query = search.trim().toLocaleLowerCase();
   if (!query) return entries;
-  return entries.filter((entry) =>
-    [
-      entry.id,
-      entry.registeredBy,
-      entry.note,
-      entry.source.kind,
-      entry.source.runId,
-      ...entry.source.proposalIds,
-    ]
+  return entries.filter((entry) => {
+    const candidateTerms =
+      entry.source.kind === "candidate_config"
+        ? [
+            entry.source.run_id,
+            ...entry.source.proposal_evidence.map((evidence) => evidence.proposal_id),
+          ]
+        : [];
+    return [entry.id, entry.registered_by, entry.note, entry.source.kind, ...candidateTerms]
       .filter((value): value is string => value !== undefined)
       .join(" ")
       .toLocaleLowerCase()
-      .includes(query),
-  );
+      .includes(query);
+  });
 }
 
 function sourceLabel(entry: ConfigRegistryEntry): string {

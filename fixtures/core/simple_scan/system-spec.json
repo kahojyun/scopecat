@@ -15,31 +15,6 @@
         "id": "readout-q0",
         "kind": "readout_channel"
       }
-    ],
-    "devices": [
-      {
-        "id": "q0",
-        "kind": "logical_device",
-        "channels": [
-          "drive-q0",
-          "readout-q0"
-        ]
-      }
-    ],
-    "links": [],
-    "channels": [
-      {
-        "id": "drive-q0",
-        "kind": "drive",
-        "device_id": "q0",
-        "direction": "control"
-      },
-      {
-        "id": "readout-q0",
-        "kind": "readout",
-        "device_id": "q0",
-        "direction": "readout"
-      }
     ]
   },
   "instrument_registry": {
@@ -71,8 +46,7 @@
         },
         "description": "Example drive frequency."
       }
-    ],
-    "metadata": {}
+    ]
   },
   "routing": {
     "bindings": [

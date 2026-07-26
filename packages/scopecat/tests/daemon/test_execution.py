@@ -7,44 +7,27 @@ from typing import Protocol
 import httpx2
 from pydantic import BaseModel
 
+from scopecat.control.models import RunPlanSummary
 from scopecat.daemon.client import DaemonClient
-from scopecat.daemon.execution import delegated_execution_services
+from scopecat.daemon.execution import daemon_execution_session
 from scopecat.daemon.wire import (
-    CollectionCommitCommand,
-    CollectionCommitReceipt,
-    CollectionResolveCommand,
-    CollectionResolveReceipt,
-    DelegatedPlanSummary,
-    DelegatedRunSubmission,
-    ExecutionRecoveryRequest,
-    ExecutionRecoverySnapshot,
-    ExecutionTransitionBatch,
-    ExecutionTransitionBatchReceipt,
+    ExecutionTransitionAppend,
     ExecutorLease,
     ExecutorStartRequest,
     MeasurementAppendCommand,
-    MeasurementAppendReceipt,
     MeasurementSealCommand,
-    MeasurementSealReceipt,
-    PayloadCommitCommand,
-    PayloadCommitReceipt,
     RunAdmission,
+    RunSubmission,
     TerminalRunCommitCommand,
-    TerminalRunCommitReceipt,
 )
-from scopecat.kernel.resource_identity import ResourceClaim
+from scopecat.records.config import config_content_hash
 from scopecat.records.execution_journal import (
-    CollectionChunk,
-    CollectionChunkReceipt,
-    CommittedPayloadEvidence,
     ExecutionTransition,
-    PayloadEvidence,
+    execution_transition_content_hash,
 )
-from scopecat.records.instrument import InstrumentReadback
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
-    MeasurementDatasetAppendIndex,
     MeasurementDatasetReceipt,
     MeasurementDatasetSeal,
     measurement_dataset_content_hash,
@@ -52,187 +35,127 @@ from scopecat.records.measurement_recording import (
 from scopecat.records.parameter import Quantity
 from scopecat.records.run import RunManifest, RunOutcome
 from scopecat.records.run_request import RunRequest
-from scopecat.runs.repository import (
-    RunModelWrite,
-    RunRecordSetWrite,
-    TerminalRunCommit,
-)
+from scopecat.runs.repository import TerminalRunCommit
 from tests.testkit.workflow_fixtures import load_config
 
 _NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
 
 
-def test_delegated_execution_ports_round_trip_through_fenced_http_commands() -> None:
-    submission = DelegatedRunSubmission(
+def test_daemon_execution_ports_round_trip_through_fenced_http_commands() -> None:
+    submission = RunSubmission(
         submission_id="submission-1",
-        executor_id="notebook-1",
         config=load_config(),
-        request=RunRequest(id="scratch-request"),
-        plan=DelegatedPlanSummary(
+        request=RunRequest(experiment_id="scratch"),
+        plan=RunPlanSummary(
             experiment_id="scratch",
             experiment_kind="scratch",
             point_count=1,
         ),
     )
     admission = RunAdmission(
-        run_id="run-1",
         submission_id=submission.submission_id,
-        execution_mode="delegated",
-        config_content_hash=submission.config_content_hash,
-        accepted_at=_NOW,
-        event_cursor=1,
+        manifest=RunManifest(
+            run_id="run-1",
+            created_at=_NOW,
+            config_content_hash=config_content_hash(submission.config),
+        ),
     )
     record = _measurement()
     append = _measurement_append(record)
     seal = _measurement_seal(append)
-    chunk = _collection_chunk()
-    collection_receipt = CollectionChunkReceipt(
-        operation_id=chunk.operation_id,
-        ref="readbacks/operation-1.json",
-        content_hash=chunk.content_hash,
-    )
     transition = _transition()
     committed_transition = transition.model_copy(
         update={"sequence": 0, "timestamp": _NOW + timedelta(seconds=1)}
     )
-    append_index = MeasurementDatasetAppendIndex.from_append(append)
-    fences: list[tuple[str, str, int]] = []
+    started_manifest = admission.manifest
+    fences: list[tuple[str, str]] = []
+    transition_commands: list[ExecutionTransitionAppend] = []
     terminal_commands: list[TerminalRunCommitCommand] = []
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         path = request.url.path
         if path.endswith("/executor/start"):
             command = ExecutorStartRequest.model_validate_json(request.content)
-            assert command.manifest.lifecycle == "running"
+            assert command.executor_id == "notebook-1"
             return _model(_lease())
         if path.endswith("/transitions"):
-            command = ExecutionTransitionBatch.model_validate_json(request.content)
-            _remember_fence(fences, command)
-            return _model(
-                ExecutionTransitionBatchReceipt(
-                    batch_id=command.batch_id,
-                    committed=(committed_transition,),
-                )
-            )
+            command = ExecutionTransitionAppend.model_validate_json(request.content)
+            _remember_fence(fences, "run-1", command)
+            transition_commands.append(command)
+            return _model(committed_transition)
         if path.endswith("/measurements/append"):
             command = MeasurementAppendCommand.model_validate_json(request.content)
-            _remember_fence(fences, command)
-            return _model(
-                MeasurementAppendReceipt(
-                    command_id=command.command_id,
-                    receipt=_measurement_receipt(command.append),
-                )
-            )
+            _remember_fence(fences, "run-1", command)
+            return _model(_measurement_receipt(command.append))
         if path.endswith("/measurements/seal"):
             command = MeasurementSealCommand.model_validate_json(request.content)
-            _remember_fence(fences, command)
-            return _model(
-                MeasurementSealReceipt(
-                    command_id=command.command_id,
-                    receipt=_seal_receipt(command.seal),
-                )
-            )
-        if path.endswith("/collections/commit"):
-            command = CollectionCommitCommand.model_validate_json(request.content)
-            _remember_fence(fences, command)
-            return _model(
-                CollectionCommitReceipt(
-                    command_id=command.command_id,
-                    receipt=collection_receipt,
-                )
-            )
-        if path.endswith("/collections/resolve"):
-            command = CollectionResolveCommand.model_validate_json(request.content)
-            _remember_fence(fences, command)
-            assert command.receipt == collection_receipt
-            return _model(CollectionResolveReceipt(chunk=chunk))
-        if path.endswith("/payloads/commit"):
-            command = PayloadCommitCommand.model_validate_json(request.content)
-            _remember_fence(fences, command)
-            return _model(
-                PayloadCommitReceipt(
-                    command_id=command.command_id,
-                    evidence=CommittedPayloadEvidence(
-                        ref="payloads/operation-1.json",
-                        content_hash=command.evidence.content_hash,
-                    ),
-                )
-            )
-        if path.endswith("/execution/recovery"):
-            command = ExecutionRecoveryRequest.model_validate_json(request.content)
-            _remember_fence(fences, command)
-            return _model(
-                ExecutionRecoverySnapshot(
-                    transitions=(committed_transition,),
-                    measurements=(record,),
-                    measurement_append_indices=(append_index,),
-                    collection_receipts=(collection_receipt,),
-                )
-            )
+            _remember_fence(fences, "run-1", command)
+            return _model(_seal_receipt(command.seal))
         if path.endswith("/terminal"):
             command = TerminalRunCommitCommand.model_validate_json(request.content)
-            _remember_fence(fences, command)
+            _remember_fence(fences, "run-1", command)
             terminal_commands.append(command)
             return _model(
-                TerminalRunCommitReceipt(
-                    command_id=command.command_id,
-                    manifest=command.manifest,
+                started_manifest.model_copy(
+                    update={
+                        "outcome": command.outcome,
+                        "contents": command.contents,
+                    }
                 )
             )
         raise AssertionError(f"unexpected request: {request.method} {path}")
 
     client = _client(handler)
-    services = delegated_execution_services(client, submission, admission)
-    accepted = services.runs.read_manifest(admission.run_id)
-    running = accepted.model_copy(update={"lifecycle": "running"})
-    services.runs.write_manifest(running)
+    session = daemon_execution_session(
+        client,
+        submission,
+        admission,
+        executor_id="notebook-1",
+    )
+    accepted = session.accepted
+    assert session.config == submission.config
+    assert session.begin() is None
 
-    with services.resources.acquire((ResourceClaim(id="scope-1"),)):
-        journal = services.journal_for(admission.run_id)
-        measurements = services.measurements_for(admission.run_id)
-        collections = services.collections_for(admission.run_id)
-        payloads = services.payloads_for(admission.run_id)
+    journal = session.journal
+    measurements = session.measurements
 
-        assert journal.append(transition) == committed_transition
-        assert measurements.append(append) == _measurement_receipt(append)
-        assert measurements.seal(seal) == _seal_receipt(seal)
-        assert collections.commit(chunk) == collection_receipt
-        assert collections.resolve(collection_receipt) == chunk
-        assert payloads.commit(_payload()).content_hash == _payload().content_hash
-
-    assert journal.entries() == (committed_transition,)
-    assert measurements.measurements() == (record,)
-    assert measurements.append_indices() == (append_index,)
-    assert collections.receipts() == (collection_receipt,)
+    assert journal.append(transition) == committed_transition
+    assert (
+        journal.append(
+            transition.model_copy(
+                update={"timestamp": transition.timestamp + timedelta(seconds=1)}
+            )
+        )
+        == committed_transition
+    )
+    assert len(transition_commands) == 2
+    assert {
+        execution_transition_content_hash(command.transition)
+        for command in transition_commands
+    } == {execution_transition_content_hash(transition)}
+    assert measurements.append(append) == _measurement_receipt(append)
+    assert measurements.seal(seal) == _seal_receipt(seal)
 
     outcome = _outcome()
     terminal = RunManifest(
         run_id=admission.run_id,
         created_at=accepted.created_at,
-        lifecycle="terminal",
         config_content_hash=accepted.config_content_hash,
         outcome=outcome,
     )
-    committed = services.runs.commit_terminal(
+    committed = session.commit_terminal(
         TerminalRunCommit(
-            manifest=terminal,
-            models=(RunModelWrite(ref="run/outcome.json", value=outcome),),
-            record_sets=(
-                RunRecordSetWrite(
-                    ref="measurements/raw.jsonl",
-                    records=(record,),
-                ),
-            ),
+            run_id=admission.run_id,
+            outcome=outcome,
         )
     )
 
     assert committed == terminal
-    assert terminal_commands[0].models[0].value == outcome.model_dump(mode="json")
-    assert terminal_commands[0].record_sets[0].records == (
-        record.model_dump(mode="json"),
-    )
+    assert terminal_commands[0].outcome == outcome
+    assert terminal_commands[0].contents == ()
+    assert terminal_commands[0].models == ()
     assert fences
-    assert set(fences) == {("run-1", "lease-1", 7)}
+    assert set(fences) == {("run-1", "lease-1")}
 
 
 def _client(
@@ -245,16 +168,15 @@ def _client(
 
 
 class _Fenced(Protocol):
-    run_id: str
     lease_id: str
-    generation: int
 
 
 def _remember_fence(
-    fences: list[tuple[str, str, int]],
+    fences: list[tuple[str, str]],
+    run_id: str,
     command: _Fenced,
 ) -> None:
-    fences.append((command.run_id, command.lease_id, command.generation))
+    fences.append((run_id, command.lease_id))
 
 
 def _model(model: BaseModel) -> httpx2.Response:
@@ -264,7 +186,6 @@ def _model(model: BaseModel) -> httpx2.Response:
 def _lease() -> ExecutorLease:
     return ExecutorLease(
         lease_id="lease-1",
-        generation=7,
         run_id="run-1",
         executor_id="notebook-1",
         issued_at=_NOW,
@@ -298,7 +219,6 @@ def _measurement_append(
 ) -> MeasurementDatasetAppend:
     return MeasurementDatasetAppend(
         run_id="run-1",
-        dataset_id="raw",
         recording_contract_fingerprint="contract-1",
         start_index=0,
         records=(record,),
@@ -320,7 +240,6 @@ def _measurement_seal(
 ) -> MeasurementDatasetSeal:
     return MeasurementDatasetSeal(
         run_id=append.run_id,
-        dataset_id=append.dataset_id,
         recording_contract_fingerprint=append.recording_contract_fingerprint,
         point_count=1,
         dataset_content_hash=measurement_dataset_content_hash(
@@ -340,36 +259,10 @@ def _seal_receipt(
     )
 
 
-def _collection_chunk() -> CollectionChunk:
-    return CollectionChunk(
-        run_id="run-1",
-        operation_id="operation-1",
-        command_content_hash="sha256:command",
-        point_index=0,
-        instrument_id="scope-1",
-        readback=InstrumentReadback(
-            values={"signal": Quantity(value=1.25, unit="ratio")}
-        ),
-    )
-
-
-def _payload() -> PayloadEvidence:
-    return PayloadEvidence(
-        run_id="run-1",
-        operation_id="operation-1",
-        point_index=0,
-        payload_id="payload-1",
-        schema_id="schema-1",
-        content_hash="sha256:payload",
-        fingerprint={"kind": "test"},
-    )
-
-
 def _outcome() -> RunOutcome:
     return RunOutcome(
         run_id="run-1",
         result="succeeded",
         certainty="known",
-        termination_reason="completed",
         finished_at=_NOW + timedelta(seconds=2),
     )

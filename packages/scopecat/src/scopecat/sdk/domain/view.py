@@ -10,20 +10,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Literal
 
 from scopecat.kernel.frozen import freeze_json_mapping
 from scopecat.kernel.value_types import ValueType
 from scopecat.measurements.results import MeasurementDType
 from scopecat.measurements.semantics import MeasurementTransformSemanticContract
 
-type DomainProductKind = Literal[
-    "observable",
-    "artifact",
-    "readback",
-    "expression",
-]
-_DOMAIN_PRODUCT_KINDS = frozenset({"observable", "artifact", "readback", "expression"})
 _MEASUREMENT_DTYPES = frozenset({"float64", "int64", "complex128", "bool", "string"})
 
 
@@ -86,7 +78,6 @@ class DomainProductContractView:
     """Immutable logical product contract owned by the public adapter SDK."""
 
     id: str
-    kind: DomainProductKind
     unit: str | None
     dtype: MeasurementDType
     axes: tuple[DomainProductAxisView, ...] = ()
@@ -95,8 +86,6 @@ class DomainProductContractView:
     def __post_init__(self) -> None:
         if not self.id:
             raise ValueError("domain product contract ids must be non-empty")
-        if self.kind not in _DOMAIN_PRODUCT_KINDS:
-            raise ValueError("domain product contract kind is unsupported")
         if self.dtype not in _MEASUREMENT_DTYPES:
             raise ValueError("domain product contract dtype is unsupported")
         object.__setattr__(

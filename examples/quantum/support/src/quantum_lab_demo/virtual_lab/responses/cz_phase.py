@@ -10,7 +10,7 @@ from types import MappingProxyType
 from typing import Literal, override
 
 from scopecat import Quantity
-from scopecat_quantum import AcquisitionKind, TargetAcquisitionAddress
+from scopecat_quantum.targets import TargetAcquisitionAddress
 
 from quantum_lab_demo.targets.fake_list_mode.model import (
     FakeAcquisitionWindow,
@@ -216,9 +216,6 @@ class CzPhaseAcquisitionResponse(FakeAcquisitionResponse):
         playback: FakeAwgPlayback,
         window: FakeAcquisitionWindow,
     ) -> FakeDigitizerValue:
-        if window.kind is not AcquisitionKind.INTEGRATED_IQ:
-            msg = "CZ phase responses only implement integrated-IQ acquisitions"
-            raise ValueError(msg)
         address = TargetAcquisitionAddress(
             entry_id=playback.entry_id,
             slot_id=window.slot_id,

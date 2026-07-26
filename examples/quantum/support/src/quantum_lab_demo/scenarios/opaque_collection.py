@@ -10,10 +10,7 @@ import numpy as np
 import scopecat as sc
 from numpy.typing import NDArray
 
-from quantum_lab_demo.virtual_lab.parameters import (
-    QUBIT_PARAMETER_TABLE,
-    TWO_QUBIT_GATE_PARAMETER_TABLE,
-)
+from quantum_lab_demo.virtual_lab.parameters import TWO_QUBIT_GATE_PARAMETER_TABLE
 
 PARALLEL_GATE_SET_TEMPLATE_ID = "quantum_lab_demo.scenarios.parallel_gate_set"
 _QUBIT = sc.ScalarType(sc.EntityType(entity_kind="logical_qubit"))
@@ -55,8 +52,6 @@ class ParallelCzGate:
     coupler: str
     duration: sc.Quantity
     amplitude: sc.Quantity
-    control_frequency: sc.Quantity
-    partner_frequency: sc.Quantity
 
 
 @dataclass(frozen=True)
@@ -78,15 +73,13 @@ def build_parallel_gate_set_program(
             coupler=_entity_id(row["coupler"]),
             duration=gate_duration,
             amplitude=cast("sc.Quantity", row["coupler_parking_flux"]),
-            control_frequency=cast("sc.Quantity", row["control_frequency"]),
-            partner_frequency=cast("sc.Quantity", row["partner_frequency"]),
         )
         for row in gates
     )
     return ParallelGateSetProgram(
         gates=selected,
         compiler_id="quantum_lab_demo.scenarios.parallel_gate_set.v1",
-        parameters=(QUBIT_PARAMETER_TABLE, TWO_QUBIT_GATE_PARAMETER_TABLE),
+        parameters=(TWO_QUBIT_GATE_PARAMETER_TABLE,),
     )
 
 
@@ -174,26 +167,12 @@ def resolve_parallel_gate_collection(gates: sc.ValueRef) -> sc.ValueRef:
                 column="coupler_parking_flux",
                 value_type=_QUANTITY,
             ),
-            "control_frequency": sc.parameter_lookup(
-                QUBIT_PARAMETER_TABLE,
-                key={"qubit": row["control_qubit"]},
-                column="drive_frequency",
-                value_type=_QUANTITY,
-            ),
-            "partner_frequency": sc.parameter_lookup(
-                QUBIT_PARAMETER_TABLE,
-                key={"qubit": row["partner_qubit"]},
-                column="drive_frequency",
-                value_type=_QUANTITY,
-            ),
         }
     ).select(
         "control_qubit",
         "partner_qubit",
         "coupler",
         "coupler_parking_flux",
-        "control_frequency",
-        "partner_frequency",
     )
 
 
@@ -293,11 +272,6 @@ def _collection_readout_module(
 @sc.template(
     id=PARALLEL_GATE_SET_TEMPLATE_ID,
     kind="parallel_gate_set",
-    label="parallel gate set",
-    description=(
-        "Pass one table-defined gate collection through the opaque-payload "
-        "escape hatch for a lab without a domain compiler."
-    ),
 )
 def parallel_gate_set_template(
     gates: Annotated[

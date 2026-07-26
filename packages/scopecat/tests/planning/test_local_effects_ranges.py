@@ -1,6 +1,6 @@
 import pytest
 
-from scopecat.compiler.frontend.environment import validate_config_environment
+from scopecat.compiler.frontend.environment import build_config_environment
 from scopecat.compiler.relations.model import (
     param,
     point_col,
@@ -46,7 +46,7 @@ from tests.testkit.workflow_fixtures import load_experiment
 
 def _materialized_effects_spec(spec: CoreProgram, config: ConfigProfileSnapshot):
     return materialized_effects_contract(
-        spec, validate_config_environment(config).parameters, config=config
+        spec, build_config_environment(config).parameters, config=config
     )
 
 

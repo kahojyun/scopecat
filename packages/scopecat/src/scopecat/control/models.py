@@ -14,18 +14,13 @@ from pydantic import (
     model_validator,
 )
 
-from scopecat.records.config import ConfigContentHash
-from scopecat.records.run import RunOutcome
-from scopecat.records.run_request import RunRequest
-
-type ExecutionMode = Literal["managed", "delegated"]
 type ControlRunState = Literal[
-    "accepted",
-    "running",
-    "terminal",
+    "queued",
+    "leased",
     "attention_required",
+    "closed",
 ]
-type ResourceKind = Literal["target", "instrument", "channel", "group"]
+type ResourceKind = Literal["target", "instrument"]
 type ResourceLeaseStatus = Literal["active", "quarantined"]
 
 
@@ -48,30 +43,57 @@ class ResourceKey(_ControlModel):
     id: str = Field(min_length=1)
 
 
-class RunAdmissionRecord(_ControlModel):
-    """Inputs that must become durable before an executor can touch hardware."""
+class RunPlanSummary(_ControlModel):
+    """Bounded scheduling and presentation facts for an in-process plan."""
 
-    submission_id: str = Field(min_length=1)
-    run_id: str = Field(min_length=1)
-    execution_mode: ExecutionMode
     experiment_id: str = Field(min_length=1)
-    config_content_hash: ConfigContentHash
-    request: RunRequest | None = None
-    plan_summary: dict[str, JsonValue] = Field(default_factory=dict)
-    resource_claims: tuple[ResourceKey, ...] = ()
-    admitted_at: datetime = Field(default_factory=utc_now)
+    experiment_kind: str = Field(min_length=1)
+    point_count: int = Field(ge=0)
+    coordinate_ids: tuple[str, ...] = ()
+    record_ids: tuple[str, ...] = ()
+    run_resource_claims: tuple[ResourceKey, ...] = ()
 
-    @field_validator("resource_claims")
+    @field_validator("coordinate_ids", "record_ids")
     @classmethod
-    def validate_resource_claims(
+    def validate_unique_ids(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if len(value) != len(set(value)):
+            raise ValueError("run plan summary ids must be unique")
+        return value
+
+    @field_validator("run_resource_claims")
+    @classmethod
+    def validate_unique_claims(
         cls,
         value: tuple[ResourceKey, ...],
     ) -> tuple[ResourceKey, ...]:
-        identities = {(resource.kind, resource.id) for resource in value}
-        if len(identities) != len(value):
-            msg = "run admission contains duplicate resource claims"
-            raise ValueError(msg)
+        identities = tuple((claim.kind, claim.id) for claim in value)
+        if len(identities) != len(set(identities)):
+            raise ValueError("run plan resource claims must be unique")
         return value
+
+
+class RunAdmissionRecord(_ControlModel):
+    """Scheduler facts committed with an accepted run skeleton."""
+
+    submission_id: str = Field(min_length=1)
+    submission_content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    run_id: str = Field(min_length=1)
+    plan: RunPlanSummary
+    admitted_at: datetime = Field(default_factory=utc_now)
+
+    def is_retry_of(self, other: RunAdmissionRecord) -> bool:
+        return (
+            self.submission_id == other.submission_id
+            and self.submission_content_hash == other.submission_content_hash
+        )
+
+    @property
+    def experiment_id(self) -> str:
+        return self.plan.experiment_id
+
+    @property
+    def resource_claims(self) -> tuple[ResourceKey, ...]:
+        return self.plan.run_resource_claims
 
 
 class ControlRun(_ControlModel):
@@ -80,23 +102,11 @@ class ControlRun(_ControlModel):
     sequence: int = Field(ge=1)
     admission: RunAdmissionRecord
     state: ControlRunState
-    state_version: int = Field(ge=1)
     updated_at: datetime
-    outcome: RunOutcome | None = None
     attention_reason: str | None = None
 
     @model_validator(mode="after")
     def validate_state_details(self) -> ControlRun:
-        if self.state == "terminal":
-            if self.outcome is None:
-                msg = "a terminal control run requires an outcome"
-                raise ValueError(msg)
-            if self.outcome.run_id != self.admission.run_id:
-                msg = "run outcome does not belong to its control run"
-                raise ValueError(msg)
-        elif self.outcome is not None:
-            msg = "a non-terminal control run cannot have an outcome"
-            raise ValueError(msg)
         if self.state == "attention_required":
             if not self.attention_reason:
                 msg = "attention-required control run requires a reason"
@@ -141,7 +151,6 @@ class ExecutorLease(_ControlModel):
     run_id: str
     executor_id: str
     token: str
-    generation: int = Field(ge=1)
     acquired_at: datetime
     renewed_at: datetime
     expires_at: datetime
@@ -170,27 +179,5 @@ class ResourceLease(_ControlModel):
                 raise ValueError(msg)
         elif self.executor_token is not None or self.expires_at is not None:
             msg = "a quarantined resource lease cannot remain executor-owned"
-            raise ValueError(msg)
-        return self
-
-
-class ResourceClaimConflict(_ControlModel):
-    resource: ResourceKey
-    owner_run_id: str
-    status: ResourceLeaseStatus
-
-
-class ResourceClaimResult(_ControlModel):
-    acquired: bool
-    leases: tuple[ResourceLease, ...] = ()
-    conflicts: tuple[ResourceClaimConflict, ...] = ()
-
-    @model_validator(mode="after")
-    def validate_result(self) -> ResourceClaimResult:
-        if self.acquired and self.conflicts:
-            msg = "an acquired resource claim cannot contain conflicts"
-            raise ValueError(msg)
-        if not self.acquired and self.leases:
-            msg = "a rejected resource claim cannot contain leases"
             raise ValueError(msg)
         return self

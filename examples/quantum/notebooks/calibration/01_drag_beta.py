@@ -6,8 +6,7 @@ from __future__ import annotations
 import scopecat as sc
 from quantum_lab_demo import EXAMPLE_ROOT
 from quantum_lab_demo.virtual_lab import (
-    DRAG_BETA_PARAMETER_COLUMN,
-    q0_drag_beta_row,
+    q0_drag_beta_lookup,
 )
 from quantum_lab_demo.workflows.drag_beta_analysis import analyze_drag_beta_run
 from quantum_lab_demo.workflows.drag_beta_experiment import (
@@ -24,8 +23,7 @@ from quantum_lab_demo.workflows.production_drag_gate import production_drag_temp
 lab = sc.open_project(EXAMPLE_ROOT).connect()
 parameter_scan = sc.param_axis(
     BETA,
-    q0_drag_beta_row(),
-    DRAG_BETA_PARAMETER_COLUMN,
+    q0_drag_beta_lookup(),
     span=DRAG_BETA_SPAN,
     points=DRAG_BETA_POINTS,
 )

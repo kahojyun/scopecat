@@ -14,9 +14,7 @@ from scopecat.authoring._value_refs import (
     internal_require_resolved_value_ref,
     internal_scope_value_ref,
     internal_transform_value_ref,
-    internal_value_ref_has_module_export,
     internal_value_ref_module_export,
-    internal_value_ref_source_kind,
 )
 from scopecat.compiler.frontend.elaboration import elaborate_module
 from scopecat.compiler.relations.evaluation import EvalContext
@@ -38,12 +36,10 @@ def test_module_export_edge_remains_symbolic_until_elaboration() -> None:
     )
 
     assert exported.value_type == value_type
-    assert internal_value_ref_source_kind(exported) == "module_export"
     assert internal_value_ref_module_export(exported) == (
         invocation_key,
         "frequency",
     )
-    assert internal_value_ref_has_module_export(exported)
     assert internal_bind_value_ref_inputs(exported, {}) is exported
     assert internal_scope_value_ref(exported, "outer") is exported
 
@@ -65,8 +61,6 @@ def test_transform_resolves_exports_nested_in_expression_binding_layers() -> Non
     outer_input = internal_input_value_ref("outer", value_type)
     nested = internal_bind_value_ref_inputs(outer_input * 2.0, {"outer": inner})
 
-    assert internal_value_ref_has_module_export(nested)
-
     literal = internal_literal_value_ref(
         3.0,
         value_type,
@@ -79,7 +73,6 @@ def test_transform_resolves_exports_nested_in_expression_binding_layers() -> Non
         ),
     )
 
-    assert not internal_value_ref_has_module_export(resolved)
     internal_require_resolved_value_ref(resolved)
     lowered = internal_lower_scalar_value_ref(resolved)
     assert evaluate_scalar(lowered, EvalContext()) == 8.0
@@ -110,4 +103,4 @@ def test_flattened_ir_rejects_export_edges_hidden_in_root_inputs() -> None:
     root = sc.module_body(id="test.value-export.root-input").build()
 
     with pytest.raises(ValueError, match="unresolved module export 'value'"):
-        elaborate_module(root, hidden=producer.outputs.value)
+        elaborate_module(root.ir, hidden=producer.outputs.value)

@@ -3,43 +3,30 @@ from __future__ import annotations
 from pathlib import Path
 from typing import override
 
-import pytest
-
 import scopecat as sc
-from scopecat.adapters.memory import (
-    MemoryCollectionRepository,
-    MemoryExecutionJournal,
-    MemoryPayloadEvidenceCommitter,
-)
+from scopecat.compiler.semantic.compute_result import ComputeOutput
 from scopecat.compiler.semantic.model import (
     OperationId,
     operation_result_id,
 )
-from scopecat.compiler.semantic.operation_contract import (
-    LOCAL_OPAQUE_OPERATION_CONTRACT,
-)
 from scopecat.execution.effect_interpreter import RunEffectInterpreter
+from scopecat.execution.events import TransitionRecorder
 from scopecat.execution.local.program import (
-    ActionField,
     ApplyStateOperation,
     BoundInput,
     CollectionResultBinding,
     CollectOperation,
     ComputeOperation,
-    ComputeResultSlot,
-    InstrumentActionOperation,
     OutputInput,
     StateTarget,
 )
 from scopecat.execution.points import RunPoint
-from scopecat.execution.program import RunCompute, RunCoverageBlock, RunCoverageEffect
-from scopecat.kernel.content_identity import model_wire_content_hash
+from scopecat.execution.program import RunCoverageBlock, RunCoverageEffect
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
 from scopecat.kernel.problems import (
-    ProblemCategory,
     ProblemPhase,
-    blocking_problem,
     model_location,
+    problem,
 )
 from scopecat.kernel.product_identity import ProductUse, ProductUseId, product_id
 from scopecat.kernel.resource_identity import ResourceClaim
@@ -48,28 +35,19 @@ from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Float, Scalar
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.measurements.values import MeasurementValueCandidate
-from scopecat.records.execution_journal import (
-    CollectionChunk,
-    CollectionChunkReceipt,
-    ExecutionTransition,
-)
+from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.parameter import Quantity
 from scopecat.sdk.instruments import (
-    ActionReceipt,
     ApplyReceipt,
     CollectCommand,
     CollectProductRequest,
     CollectReceipt,
-    InstrumentActionCommand,
     InstrumentProviderContext,
     InstrumentProviderDescription,
     InstrumentProviderResult,
     InstrumentReadback,
     InstrumentStateCommand,
     InstrumentStateSnapshot,
-)
-from scopecat.testing import (
-    sqlite_run_repository,
 )
 from tests.testkit.in_process_lab import in_process_lab
 from tests.testkit.instrument_drivers import SignalInstrumentDriver
@@ -79,6 +57,7 @@ from tests.testkit.local_materialization import (
 )
 from tests.testkit.materialized_effects import config_with_physical_resources
 from tests.testkit.run_operations import complete_coverage_operations
+from tests.testkit.runtime import FakeExecutionJournal
 
 
 def _logical_point_id(name: str, ordinal: int = 0) -> LogicalPointId:
@@ -103,14 +82,10 @@ def test_coverage_iterator_is_consumed_after_each_block_is_delivered() -> None:
 
     result = RunEffectInterpreter(
         run_id="incremental-source-run",
-        experiment_id="test-local-effects",
-        experiment_kind="test-local-effects",
         coordinate_ids=(),
         resource_order=(),
         drivers={},
-        journal=MemoryExecutionJournal(),
-        readbacks=MemoryCollectionRepository(),
-        payloads=MemoryPayloadEvidenceCommitter(),
+        recorder=TransitionRecorder(FakeExecutionJournal()),
         coverage_observer=lambda block, _candidates: delivered.append(
             block.point_indices
         ),
@@ -155,10 +130,6 @@ def test_project_run_schedules_parent_compute_before_child_consumer(
     source_program_type = sc.ScalarType(sc.PayloadType("source_program"))
     pulse_program_type = sc.ScalarType(sc.PayloadType("pulse_program"))
     program = sc.input("program", source_program_type)
-    state_rows = sc.input(
-        "state_rows",
-        sc.TableType(columns=(sc.TableColumn("slot", sc.ScalarType(sc.IntType())),)),
-    )
 
     def consume(*, program: object) -> dict[str, object]:
         calls.append("consume")
@@ -172,12 +143,11 @@ def test_project_run_schedules_parent_compute_before_child_consumer(
     )
     child = (
         sc.module_body(id="tests.compute_schedule.child")
-        .inputs(program, state_rows)
+        .inputs(program)
         .resource("source", requires=("play_program",))
         .computes(consume_program)
-        .state_each(
-            state_rows,
-            resource_port="source",
+        .bind_field(
+            "source",
             capability="play_program",
             field="program",
             value=consume_program.output,
@@ -201,7 +171,6 @@ def test_project_run_schedules_parent_compute_before_child_consumer(
             child.instantiate(
                 "compute-schedule-child",
                 program=produce_program.output,
-                state_rows=({"slot": 0},),
             )
         )
         .build()
@@ -227,13 +196,7 @@ def test_project_run_schedules_parent_compute_before_child_consumer(
     assert isinstance(payload_ref, PayloadRef)
     command_payload = applied.payloads[payload_ref.payload_id]
     assert command_payload.payload == {"consumed": {"source": "parent"}}
-    assert command_payload.evidence_ref is not None
-    assert command_payload.evidence_ref.startswith("execution/payloads/")
     assert command_payload.content_hash
-    assert sqlite_run_repository(tmp_path).exists(
-        run.manifest.run_id,
-        command_payload.evidence_ref,
-    )
 
 
 def test_compute_output_is_normalized_before_downstream_use() -> None:
@@ -253,13 +216,12 @@ def test_compute_output_is_normalized_before_downstream_use() -> None:
                 operation_id=producer_id,
                 semantic_operation_id="producer",
                 implementation_id="python.producer.v1",
-                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
                 kernel=lambda: Quantity(
                     value=5000.0,
                     unit="MHz",
                 ),
                 inputs={},
-                result=ComputeResultSlot(
+                result=ComputeOutput(
                     id=producer_result_id,
                     value_type=Scalar(QuantityType(unit="GHz")),
                 ),
@@ -268,10 +230,9 @@ def test_compute_output_is_normalized_before_downstream_use() -> None:
                 operation_id=("normalized-output-point.compute.consumer"),
                 semantic_operation_id="consumer",
                 implementation_id="python.consumer.v1",
-                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
                 kernel=consume,
                 inputs={"value": OutputInput(producer_result_id)},
-                result=ComputeResultSlot(
+                result=ComputeOutput(
                     id=consumer_result_id,
                     value_type=Scalar(Float()),
                 ),
@@ -283,14 +244,10 @@ def test_compute_output_is_normalized_before_downstream_use() -> None:
 
     result = RunEffectInterpreter(
         run_id="normalized-output-run",
-        experiment_id="test-local-effects",
-        experiment_kind="test-local-effects",
         coordinate_ids=tuple(program.points[0].coordinates),
         resource_order=program.resource_order,
         drivers={},
-        journal=MemoryExecutionJournal(),
-        readbacks=MemoryCollectionRepository(),
-        payloads=MemoryPayloadEvidenceCommitter(),
+        recorder=TransitionRecorder(FakeExecutionJournal()),
     ).run(complete_coverage_operations(program))
 
     assert not result.problems and not result.indeterminate
@@ -314,19 +271,16 @@ def test_run_compute_is_shared_by_every_point_frame() -> None:
         consumed.append(value)
         return value + 1.0
 
-    run_compute = RunCompute(
-        ComputeOperation(
-            operation_id="run.compute.producer",
-            semantic_operation_id=producer_id.qualified_name,
-            implementation_id="python.producer.v1",
-            contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-            kernel=produce,
-            inputs={},
-            result=ComputeResultSlot(
-                id=producer_result_id,
-                value_type=Scalar(Float()),
-            ),
-        )
+    run_compute = ComputeOperation(
+        operation_id="run.compute.producer",
+        semantic_operation_id=producer_id.qualified_name,
+        implementation_id="python.producer.v1",
+        kernel=produce,
+        inputs={},
+        result=ComputeOutput(
+            id=producer_result_id,
+            value_type=Scalar(Float()),
+        ),
     )
     points = tuple(
         RunPoint(
@@ -345,10 +299,9 @@ def test_run_compute_is_shared_by_every_point_frame() -> None:
                     operation_id=f"point-{index}.compute.consumer",
                     semantic_operation_id=consumer_id.qualified_name,
                     implementation_id="python.consumer.v1",
-                    contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
                     kernel=consume,
                     inputs={"value": OutputInput(producer_result_id)},
-                    result=ComputeResultSlot(
+                    result=ComputeOutput(
                         id=consumer_result_id,
                         value_type=Scalar(Float()),
                     ),
@@ -365,14 +318,10 @@ def test_run_compute_is_shared_by_every_point_frame() -> None:
 
     result = RunEffectInterpreter(
         run_id="run-compute-sharing-run",
-        experiment_id="test-local-effects",
-        experiment_kind="test-local-effects",
         coordinate_ids=tuple(program.points[0].coordinates),
         resource_order=program.resource_order,
         drivers={},
-        journal=MemoryExecutionJournal(),
-        readbacks=MemoryCollectionRepository(),
-        payloads=MemoryPayloadEvidenceCommitter(),
+        recorder=TransitionRecorder(FakeExecutionJournal()),
     ).run(
         (
             run_compute,
@@ -415,10 +364,9 @@ def test_multi_point_compute_coverage_evaluates_once_and_seeds_every_point() -> 
             operation_id="coverage.compute.shared",
             semantic_operation_id=shared_id.qualified_name,
             implementation_id="python.shared.v1",
-            contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
             kernel=produce,
             inputs={},
-            result=ComputeResultSlot(
+            result=ComputeOutput(
                 id=shared_result_id,
                 value_type=Scalar(Float()),
             ),
@@ -431,13 +379,12 @@ def test_multi_point_compute_coverage_evaluates_once_and_seeds_every_point() -> 
                 operation_id=f"point-{index}.compute.consumer",
                 semantic_operation_id=consumer_id.qualified_name,
                 implementation_id="python.consumer.v1",
-                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
                 kernel=consume,
                 inputs={
                     "point_index": BoundInput(index),
                     "value": OutputInput(shared_result_id),
                 },
-                result=ComputeResultSlot(
+                result=ComputeOutput(
                     id=consumer_result_id,
                     value_type=Scalar(Float()),
                 ),
@@ -448,14 +395,10 @@ def test_multi_point_compute_coverage_evaluates_once_and_seeds_every_point() -> 
 
     result = RunEffectInterpreter(
         run_id="shared-point-compute-run",
-        experiment_id="shared-point-compute",
-        experiment_kind="test-local-effects",
         coordinate_ids=(),
         resource_order=(),
         drivers={},
-        journal=MemoryExecutionJournal(),
-        readbacks=MemoryCollectionRepository(),
-        payloads=MemoryPayloadEvidenceCommitter(),
+        recorder=TransitionRecorder(FakeExecutionJournal()),
     ).run(
         (
             RunCoverageBlock(
@@ -490,10 +433,9 @@ def test_distinct_compute_operations_are_each_evaluated() -> None:
                 operation_id="implementation-cache-point.compute.first",
                 semantic_operation_id="first",
                 implementation_id="python.first.v1",
-                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
                 kernel=first,
                 inputs={},
-                result=ComputeResultSlot(
+                result=ComputeOutput(
                     id=first_result_id,
                     value_type=Scalar(Float()),
                 ),
@@ -502,10 +444,9 @@ def test_distinct_compute_operations_are_each_evaluated() -> None:
                 operation_id="implementation-cache-point.compute.second",
                 semantic_operation_id="second",
                 implementation_id="python.second.v1",
-                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
                 kernel=second,
                 inputs={},
-                result=ComputeResultSlot(
+                result=ComputeOutput(
                     id=second_result_id,
                     value_type=Scalar(Float()),
                 ),
@@ -517,14 +458,10 @@ def test_distinct_compute_operations_are_each_evaluated() -> None:
 
     result = RunEffectInterpreter(
         run_id="implementation-cache-run",
-        experiment_id="test-local-effects",
-        experiment_kind="test-local-effects",
         coordinate_ids=tuple(program.points[0].coordinates),
         resource_order=program.resource_order,
         drivers={},
-        journal=MemoryExecutionJournal(),
-        readbacks=MemoryCollectionRepository(),
-        payloads=MemoryPayloadEvidenceCommitter(),
+        recorder=TransitionRecorder(FakeExecutionJournal()),
     ).run(complete_coverage_operations(program))
 
     assert not result.problems and not result.indeterminate
@@ -538,10 +475,9 @@ class _BlockingStateDriver(SignalInstrumentDriver):
         return ApplyReceipt(
             status="not_applied",
             problems=(
-                blocking_problem(
+                problem(
                     "instrument_driver_blocked",
                     "driver blocked",
-                    category=ProblemCategory.EXTERNAL_FAILURE,
                     phase=ProblemPhase.EXECUTION,
                     location=model_location("instrument", self.instrument_id),
                 ),
@@ -556,10 +492,9 @@ class _UnknownAppliedStateDriver(SignalInstrumentDriver):
         return ApplyReceipt(
             status="unknown",
             problems=(
-                blocking_problem(
+                problem(
                     "instrument_driver_applied_with_error",
                     "driver reported an error after applying state",
-                    category=ProblemCategory.EXTERNAL_FAILURE,
                     phase=ProblemPhase.EXECUTION,
                     location=model_location("instrument", self.instrument_id),
                 ),
@@ -567,7 +502,7 @@ class _UnknownAppliedStateDriver(SignalInstrumentDriver):
         )
 
 
-class _MalformedApplyDriver(SignalInstrumentDriver):
+class _FinalizationFailureDriver(SignalInstrumentDriver):
     def __init__(self, *, instrument_id: str = "source-0") -> None:
         super().__init__(instrument_id=instrument_id)
         self.abort_count = 0
@@ -581,13 +516,12 @@ class _MalformedApplyDriver(SignalInstrumentDriver):
     @override
     def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
         super().apply_state(command)
-        return ApplyReceipt.model_construct(
-            status="applied",
+        return ApplyReceipt(
+            status="unknown",
             problems=(
-                blocking_problem(
-                    "instrument_driver_receipt_conflict",
-                    "driver bypassed receipt validation",
-                    category=ProblemCategory.EXTERNAL_FAILURE,
+                problem(
+                    "instrument_driver_outcome_unknown",
+                    "driver could not establish the state-write outcome",
                     phase=ProblemPhase.EXECUTION,
                     location=model_location("instrument", self.instrument_id),
                 ),
@@ -615,201 +549,12 @@ class _FinalizationTrackingDriver(SignalInstrumentDriver):
         self.abort_count += 1
 
 
-class _MalformedCollectDriver(SignalInstrumentDriver):
-    @override
-    def collect(self, command: CollectCommand) -> CollectReceipt:
-        super().collect(command)
-        return CollectReceipt.model_construct(status="not_collected", problems=())
-
-
-class _UnknownActionDriver(SignalInstrumentDriver):
-    @override
-    def action(self, command: InstrumentActionCommand) -> ActionReceipt:
-        self.action_commands.append(command)
-        return ActionReceipt(
-            status="unknown",
-            problems=(
-                blocking_problem(
-                    code="instrument_action_response_lost",
-                    message="action response was lost",
-                    category=ProblemCategory.EXTERNAL_FAILURE,
-                    phase=ProblemPhase.EXECUTION,
-                    location=model_location("driver", "action"),
-                ),
-            ),
-        )
-
-
-def _action_operation(point_uid: str, instrument_id: str) -> InstrumentActionOperation:
-    return InstrumentActionOperation(
-        operation_id=f"{point_uid}.action.trigger",
-        instrument_id=instrument_id,
-        capability_id="set_gain",
-        fields=(ActionField(id="gain", value=StateValue(1.0)),),
-    )
-
-
-def test_identical_actions_are_delivered_at_every_point() -> None:
-    driver = SignalInstrumentDriver()
-    points = tuple(
-        RunPoint(_logical_point_id(f"action-point-{index}", index), {})
-        for index in range(2)
-    )
-    effects = tuple(
-        effect
-        for index in range(2)
-        for effect in effects_at_point(
-            index,
-            (
-                _action_operation(
-                    f"action-point-{index}",
-                    driver.instrument_id,
-                ),
-            ),
-        )
-    )
-    program = LocalEffectInspection(
-        points=points,
-        effects=effects,
-        resource_order=(driver.instrument_id,),
-        resource_claims=_claims(driver.instrument_id),
-    )
-    result = RunEffectInterpreter(
-        run_id="action-run",
-        experiment_id="test-local-effects",
-        experiment_kind="test-local-effects",
-        coordinate_ids=tuple(program.points[0].coordinates),
-        resource_order=program.resource_order,
-        drivers={driver.instrument_id: driver},
-        journal=MemoryExecutionJournal(),
-        readbacks=MemoryCollectionRepository(),
-        payloads=MemoryPayloadEvidenceCommitter(),
-    ).run(complete_coverage_operations(program))
-
-    assert not result.problems and not result.indeterminate
-    assert len(driver.action_commands) == 2
-
-
-def test_unknown_action_is_not_retried_and_makes_run_indeterminate() -> None:
-    driver = _UnknownActionDriver()
-    point_uid = "unknown-action-point"
-    operation = _action_operation(point_uid, driver.instrument_id)
-    journal = MemoryExecutionJournal()
-    program = LocalEffectInspection.at_point(
-        RunPoint(_logical_point_id(point_uid), {}),
-        (operation,),
-        resource_order=(driver.instrument_id,),
-        resource_claims=_claims(driver.instrument_id),
-    )
-    result = RunEffectInterpreter(
-        run_id="unknown-action-run",
-        experiment_id="test-local-effects",
-        experiment_kind="test-local-effects",
-        coordinate_ids=tuple(program.points[0].coordinates),
-        resource_order=program.resource_order,
-        drivers={driver.instrument_id: driver},
-        journal=journal,
-        readbacks=MemoryCollectionRepository(),
-        payloads=MemoryPayloadEvidenceCommitter(),
-    ).run(complete_coverage_operations(program))
-
-    assert result.indeterminate
-    assert len(driver.action_commands) == 1
-    assert [
-        entry.state
-        for entry in journal.entries
-        if entry.operation_id == operation.operation_id
-    ] == ["started", "unknown"]
-
-
-class _MismatchedCollectionReceiptRepository(MemoryCollectionRepository):
-    def __init__(self, update: dict[str, str]) -> None:
-        super().__init__()
-        self._update = update
-
-    @override
-    def commit(self, chunk: CollectionChunk) -> CollectionChunkReceipt:
-        receipt = super().commit(chunk)
-        return receipt.model_copy(update=self._update)
-
-
-class _BrokenFinalizationJournal(MemoryExecutionJournal):
+class _BrokenFinalizationJournal(FakeExecutionJournal):
     @override
     def append(self, entry: ExecutionTransition) -> ExecutionTransition:
         if entry.stage == "abort":
             raise RuntimeError("lifecycle journal unavailable")
         return super().append(entry)
-
-
-def test_invalid_apply_receipt_truth_table_is_rejected_at_normalize_boundary() -> None:
-    driver = _MalformedApplyDriver()
-    operation = _gain_operation(driver.instrument_id, 1.0)
-    program = LocalEffectInspection.at_point(
-        RunPoint(_logical_point_id("malformed-apply-point"), {}),
-        (operation,),
-        resource_order=(driver.instrument_id,),
-        resource_claims=_claims(driver.instrument_id),
-    )
-    journal = MemoryExecutionJournal()
-
-    result = RunEffectInterpreter(
-        run_id="malformed-apply-run",
-        experiment_id="test-local-effects",
-        experiment_kind="test-local-effects",
-        coordinate_ids=tuple(program.points[0].coordinates),
-        resource_order=program.resource_order,
-        drivers={driver.instrument_id: driver},
-        journal=journal,
-        readbacks=MemoryCollectionRepository(),
-        payloads=MemoryPayloadEvidenceCommitter(),
-    ).run(complete_coverage_operations(program))
-
-    assert result.indeterminate
-    problem_codes = {problem.code for problem in result.problems}
-    assert "instrument_apply_unknown" in problem_codes
-    assert "instrument_apply_receipt_conflict" not in problem_codes
-    assert [
-        entry.state
-        for entry in journal.entries
-        if entry.operation_id == operation.operation_id
-    ] == ["started", "unknown"]
-
-
-def test_invalid_collect_receipt_is_rejected_at_normalize_boundary() -> None:
-    driver = _MalformedCollectDriver()
-    point_uid = "malformed-collect-point"
-    operation = _collect_operation(point_uid, driver.instrument_id, "signal")
-    program = LocalEffectInspection.at_point(
-        RunPoint(_logical_point_id(point_uid), {}),
-        (operation,),
-        resource_order=(driver.instrument_id,),
-        resource_claims=_claims(driver.instrument_id),
-    )
-    journal = MemoryExecutionJournal()
-    readbacks = MemoryCollectionRepository()
-
-    result = RunEffectInterpreter(
-        run_id="malformed-collect-run",
-        experiment_id="test-local-effects",
-        experiment_kind="test-local-effects",
-        coordinate_ids=tuple(program.points[0].coordinates),
-        resource_order=program.resource_order,
-        drivers={driver.instrument_id: driver},
-        journal=journal,
-        readbacks=readbacks,
-        payloads=MemoryPayloadEvidenceCommitter(),
-    ).run(complete_coverage_operations(program))
-
-    assert result.indeterminate
-    problem_codes = {problem.code for problem in result.problems}
-    assert "instrument_collect_unknown" in problem_codes
-    assert "instrument_collection_not_completed" not in problem_codes
-    assert readbacks.chunks == ()
-    assert [
-        entry.state
-        for entry in journal.entries
-        if entry.operation_id == operation.operation_id
-    ] == ["started", "unknown"]
 
 
 def test_one_provider_readback_fans_out_to_every_logical_product_use() -> None:
@@ -839,7 +584,6 @@ def test_one_provider_readback_fans_out_to_every_logical_product_use() -> None:
             CollectionResultBinding(
                 provider_key="signal",
                 product_use_ids=tuple(use.id for use in uses),
-                product_id=uses[0].product_id,
             ),
         ),
     )
@@ -849,83 +593,35 @@ def test_one_provider_readback_fans_out_to_every_logical_product_use() -> None:
         resource_order=(driver.instrument_id,),
         resource_claims=_claims(driver.instrument_id),
     )
-    readbacks = MemoryCollectionRepository()
-
+    observed_candidates: list[tuple[MeasurementValueCandidate, ...]] = []
     result = RunEffectInterpreter(
         run_id="shared-readback-run",
-        experiment_id="test-local-effects",
-        experiment_kind="test-local-effects",
         coordinate_ids=tuple(point.coordinates),
         resource_order=program.resource_order,
         drivers={driver.instrument_id: driver},
-        journal=MemoryExecutionJournal(),
-        readbacks=readbacks,
-        payloads=MemoryPayloadEvidenceCommitter(),
+        recorder=TransitionRecorder(FakeExecutionJournal()),
+        coverage_observer=lambda _block, candidates: observed_candidates.append(
+            candidates
+        ),
     ).run(complete_coverage_operations(program))
 
     assert not result.problems and not result.indeterminate
     assert len(driver.collect_commands) == 1
     assert [request.id for request in driver.collect_commands[0].requests] == ["signal"]
-    assert len(readbacks.chunks) == 1
-    assert result.measurement_values == tuple(
-        MeasurementValueCandidate(
-            logical_point_id=point.logical_id,
-            product_use_id=use.id,
-            value=Quantity(value=1.0, unit="ratio"),
+    assert observed_candidates == [
+        tuple(
+            MeasurementValueCandidate(
+                logical_point_id=point.logical_id,
+                product_use_id=use.id,
+                value=Quantity(value=1.0, unit="ratio"),
+            )
+            for use in uses
         )
-        for use in uses
-    )
-
-
-@pytest.mark.parametrize(
-    "receipt_update",
-    [
-        {"operation_id": "wrong-operation"},
-        {"content_hash": "wrong-chunk-hash"},
-    ],
-)
-def test_mismatched_collection_receipt_is_indeterminate(
-    receipt_update: dict[str, str],
-) -> None:
-    driver = SignalInstrumentDriver()
-    point_uid = "mismatched-collection-receipt-point"
-    operation = _collect_operation(point_uid, driver.instrument_id, "signal")
-    program = LocalEffectInspection.at_point(
-        RunPoint(_logical_point_id(point_uid), {}),
-        (operation,),
-        resource_order=(driver.instrument_id,),
-        resource_claims=_claims(driver.instrument_id),
-    )
-    journal = MemoryExecutionJournal()
-    readbacks = _MismatchedCollectionReceiptRepository(receipt_update)
-
-    result = RunEffectInterpreter(
-        run_id="mismatched-collection-receipt-run",
-        experiment_id="test-local-effects",
-        experiment_kind="test-local-effects",
-        coordinate_ids=tuple(program.points[0].coordinates),
-        resource_order=program.resource_order,
-        drivers={driver.instrument_id: driver},
-        journal=journal,
-        readbacks=readbacks,
-        payloads=MemoryPayloadEvidenceCommitter(),
-    ).run(complete_coverage_operations(program))
-
-    assert result.indeterminate
-    assert len(readbacks.chunks) == 1
-    assert len(readbacks.receipts) == 1
-    assert "collection_readback_commit_failed" in {
-        problem.code for problem in result.problems
-    }
-    assert [
-        entry.state
-        for entry in journal.entries
-        if entry.operation_id == operation.operation_id
-    ] == ["started", "unknown"]
+    ]
 
 
 def test_finalization_journal_failure_cannot_block_abort_or_terminal_read() -> None:
-    first = _MalformedApplyDriver(instrument_id="source-a")
+    first = _FinalizationFailureDriver(instrument_id="source-a")
     second = _FinalizationTrackingDriver(instrument_id="source-b")
     program = LocalEffectInspection.at_point(
         RunPoint(_logical_point_id("finalization-journal-point"), {}),
@@ -939,14 +635,10 @@ def test_finalization_journal_failure_cannot_block_abort_or_terminal_read() -> N
 
     result = RunEffectInterpreter(
         run_id="finalization-journal-run",
-        experiment_id="test-local-effects",
-        experiment_kind="test-local-effects",
         coordinate_ids=tuple(program.points[0].coordinates),
         resource_order=program.resource_order,
         drivers={"source-a": first, "source-b": second},
-        journal=_BrokenFinalizationJournal(),
-        readbacks=MemoryCollectionRepository(),
-        payloads=MemoryPayloadEvidenceCommitter(),
+        recorder=TransitionRecorder(_BrokenFinalizationJournal()),
     ).run(complete_coverage_operations(program))
 
     assert result.indeterminate
@@ -984,18 +676,14 @@ def test_apply_journal_persists_full_receipt_evidence() -> None:
         resource_order=("source-0",),
         resource_claims=_claims("source-0"),
     )
-    journal = MemoryExecutionJournal()
+    journal = FakeExecutionJournal()
 
     result = RunEffectInterpreter(
         run_id="apply-receipt-evidence-run",
-        experiment_id="test-local-effects",
-        experiment_kind="test-local-effects",
         coordinate_ids=tuple(program.points[0].coordinates),
         resource_order=program.resource_order,
         drivers={driver.instrument_id: driver},
-        journal=journal,
-        readbacks=MemoryCollectionRepository(),
-        payloads=MemoryPayloadEvidenceCommitter(),
+        recorder=TransitionRecorder(journal),
     ).run(complete_coverage_operations(program))
 
     assert not result.problems and not result.indeterminate
@@ -1011,9 +699,6 @@ def test_apply_journal_persists_full_receipt_evidence() -> None:
     receipt_state = receipt["state"]
     assert isinstance(receipt_state, dict)
     assert receipt_state["instrument_id"] == "source-0"
-    assert completed.evidence["receipt_content_hash"] == model_wire_content_hash(
-        ApplyReceipt.model_validate(receipt)
-    )
 
 
 def test_state_apply_stops_on_blocking_result_without_committing_state() -> None:
@@ -1028,20 +713,16 @@ def test_state_apply_stops_on_blocking_result_without_committing_state() -> None
         resource_order=("source-a", "source-b"),
         resource_claims=_claims("source-a", "source-b"),
     )
-    journal = MemoryExecutionJournal()
+    journal = FakeExecutionJournal()
     engine = RunEffectInterpreter(
         run_id="blocking-state-run",
-        experiment_id="test-local-effects",
-        experiment_kind="test-local-effects",
         coordinate_ids=tuple(program.points[0].coordinates),
         resource_order=program.resource_order,
         drivers={
             first.instrument_id: first,
             second.instrument_id: second,
         },
-        journal=journal,
-        readbacks=MemoryCollectionRepository(),
-        payloads=MemoryPayloadEvidenceCommitter(),
+        recorder=TransitionRecorder(journal),
     )
 
     result = engine.run(complete_coverage_operations(program))
@@ -1077,7 +758,6 @@ def test_state_apply_stops_on_blocking_result_without_committing_state() -> None
     command = started.evidence["command"]
     assert isinstance(command, dict)
     assert command["operation_id"] == started.operation_id
-    assert started.evidence["command_content_hash"]
 
 
 class _UnexpectedProductDriver(SignalInstrumentDriver):
@@ -1106,21 +786,16 @@ def test_unexpected_product_stops_later_collection_and_fails_journal_entry() -> 
         resource_order=("source-a", "source-b"),
         resource_claims=_claims("source-a", "source-b"),
     )
-    journal = MemoryExecutionJournal()
-    readbacks = MemoryCollectionRepository()
+    journal = FakeExecutionJournal()
     result = RunEffectInterpreter(
         run_id="blocking-collect-run",
-        experiment_id="test-local-effects",
-        experiment_kind="test-local-effects",
         coordinate_ids=tuple(program.points[0].coordinates),
         resource_order=program.resource_order,
         drivers={
             first.instrument_id: first,
             second.instrument_id: second,
         },
-        journal=journal,
-        readbacks=readbacks,
-        payloads=MemoryPayloadEvidenceCommitter(),
+        recorder=TransitionRecorder(journal),
     ).run(complete_coverage_operations(program))
 
     assert result.problems and not result.indeterminate
@@ -1129,8 +804,6 @@ def test_unexpected_product_stops_later_collection_and_fails_journal_entry() -> 
     ]
     assert len(first.collect_commands) == 1
     assert second.collect_commands == []
-    assert len(readbacks.chunks) == 1
-    assert set(readbacks.chunks[0].readback.values) == {"signal", "unexpected"}
     assert [
         (entry.operation_id, entry.state)
         for entry in journal.entries
@@ -1139,17 +812,9 @@ def test_unexpected_product_stops_later_collection_and_fails_journal_entry() -> 
         (first_operation.operation_id, "started"),
         (first_operation.operation_id, "failed"),
     ]
-    failed_entry = next(
-        entry
-        for entry in journal.entries
-        if entry.operation_id == first_operation.operation_id
-        and entry.state == "failed"
-    )
-    assert failed_entry.evidence["readback_ref"]
-    assert failed_entry.evidence["readback_content_hash"]
 
 
-def test_unknown_receipt_with_blocking_problem_does_not_advance_state() -> None:
+def test_unknown_receipt_with_problem_does_not_advance_state() -> None:
     first = _UnknownAppliedStateDriver(instrument_id="source-a")
     second = SignalInstrumentDriver(instrument_id="source-b")
     program = LocalEffectInspection.at_point(
@@ -1181,20 +846,16 @@ def test_unknown_receipt_with_blocking_problem_does_not_advance_state() -> None:
         resource_order=("source-a", "source-b"),
         resource_claims=_claims("source-a", "source-b"),
     )
-    journal = MemoryExecutionJournal()
+    journal = FakeExecutionJournal()
     engine = RunEffectInterpreter(
         run_id="conflicting-applied-state-run",
-        experiment_id="test-local-effects",
-        experiment_kind="test-local-effects",
         coordinate_ids=tuple(program.points[0].coordinates),
         resource_order=program.resource_order,
         drivers={
             first.instrument_id: first,
             second.instrument_id: second,
         },
-        journal=journal,
-        readbacks=MemoryCollectionRepository(),
-        payloads=MemoryPayloadEvidenceCommitter(),
+        recorder=TransitionRecorder(journal),
     )
 
     result = engine.run(complete_coverage_operations(program))
@@ -1258,7 +919,6 @@ def _collect_operation(
             CollectionResultBinding(
                 provider_key="signal",
                 product_use_ids=(use.id,),
-                product_id=use.product_id,
             ),
         ),
     )

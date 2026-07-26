@@ -5,15 +5,15 @@ from __future__ import annotations
 import math
 
 from scopecat import Quantity
-from scopecat_quantum import (
-    AcquisitionKind,
-    MeasurementDiscriminator,
+from scopecat_quantum import authoring as quantum
+from scopecat_quantum.acquisitions import AcquisitionKind
+from scopecat_quantum.measurement_implementations import MeasurementDiscriminator
+from scopecat_quantum.pulse_recipes import (
     PulseRecipeProfile,
     gate_pulse_recipe,
     map_qubit_pulse_recipes,
     measurement_pulse_recipe,
 )
-from scopecat_quantum import authoring as quantum
 from scopecat_quantum.standard_gates import X90, XM90, Y90, YM90, X
 
 from quantum_lab_demo.virtual_lab.compiler_parameters import (

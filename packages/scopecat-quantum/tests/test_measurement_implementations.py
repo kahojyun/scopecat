@@ -125,10 +125,10 @@ def _binding(
 def test_measurement_implementation_key_contains_only_reusable_logical_data() -> None:
     key = MeasurementPulseImplementationKey(
         qubit=Q0,
-        acquisition_kind=AcquisitionKind.RAW_TRACE,
+        acquisition_kind=AcquisitionKind.INTEGRATED_IQ,
     )
 
-    assert key == MeasurementPulseImplementationKey(Q0, AcquisitionKind.RAW_TRACE)
+    assert key == MeasurementPulseImplementationKey(Q0, AcquisitionKind.INTEGRATED_IQ)
 
 
 def test_measurement_implementation_key_snapshots_measurement_semantics() -> None:
@@ -136,12 +136,12 @@ def test_measurement_implementation_key_snapshots_measurement_semantics() -> Non
         id=CircuitOperationId("measure"),
         qubit=Q1,
         acquisition_slot_id=AcquisitionSlotId("result"),
-        acquisition_kind=AcquisitionKind.RAW_TRACE,
+        acquisition_kind=AcquisitionKind.INTEGRATED_IQ,
     )
 
     key = MeasurementPulseImplementationKey.from_measurement(measurement)
 
-    assert key == MeasurementPulseImplementationKey(Q1, AcquisitionKind.RAW_TRACE)
+    assert key == MeasurementPulseImplementationKey(Q1, AcquisitionKind.INTEGRATED_IQ)
 
 
 def test_measurement_implementation_accepts_exact_single_slot_template() -> None:
@@ -194,13 +194,6 @@ def test_template_requires_exactly_one_declared_slot(slot_count: int) -> None:
 
     with pytest.raises(ValueError, match="exactly one acquisition slot"):
         _implementation(pulse_template=pulse_template)
-
-
-def test_template_slot_kind_must_match_key() -> None:
-    pulse_template = _template(kind=AcquisitionKind.RAW_TRACE)
-
-    with pytest.raises(ValueError, match="slot kind must match"):
-        _implementation(key=_key(), pulse_template=pulse_template)
 
 
 def test_template_slot_signal_must_match_key_qubit() -> None:

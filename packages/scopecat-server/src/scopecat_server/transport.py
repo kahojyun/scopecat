@@ -10,10 +10,10 @@ from typing import Annotated, Protocol, override
 from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from scopecat.config.registry.records import ConfigRegistryEntry
 from scopecat.control.models import (
     ControlRunState,
     EventPage,
-    RunPage,
 )
 from scopecat.daemon.views import (
     ActiveConfigView,
@@ -26,25 +26,17 @@ from scopecat.daemon.views import (
     RunAnalysisListView,
     RunAnalysisView,
     RunArtifactBytesView,
-    RunArtifactJsonView,
-    RunArtifactTextView,
     RunConfigView,
-    RunDatasetContentView,
     RunDetail,
-    RunRecordJsonView,
     RunRequestView,
+    RunSummaryPage,
 )
 from scopecat.daemon.wire import (
     AnalysisSaveCommand,
     AnalysisSaveReceipt,
-    AttentionResolutionCommand,
     AttentionResolutionReceipt,
     CandidateConfigActivationCommand,
     CandidateConfigActivationReceipt,
-    CollectionCommitCommand,
-    CollectionCommitReceipt,
-    CollectionResolveCommand,
-    CollectionResolveReceipt,
     ConfigActivationReceipt,
     ConfigDefaultReceipt,
     ConfigDraftCommand,
@@ -53,35 +45,32 @@ from scopecat.daemon.wire import (
     ConfigDraftRegistrationCommand,
     ConfigDraftRegistrationReceipt,
     ConfigEntryActivationCommand,
-    ConfigImportReceipt,
     ConfigRollbackCommand,
     DirectConfigDefaultCommand,
     DirectConfigImportCommand,
-    ExecutionRecoveryRequest,
-    ExecutionRecoverySnapshot,
-    ExecutionTransitionBatch,
-    ExecutionTransitionBatchReceipt,
+    ExecutionTransitionAppend,
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
-    ExperimentCatalog,
     MeasurementAppendCommand,
-    MeasurementAppendReceipt,
     MeasurementSealCommand,
-    MeasurementSealReceipt,
     ParameterProposalDecisionCommand,
     ParameterProposalReviewCommand,
-    ParameterProposalReviewReceipt,
-    PayloadCommitCommand,
-    PayloadCommitReceipt,
     RunAdmission,
     RunAttachmentCommand,
-    RunAttachmentReceipt,
     RunSubmission,
-    RuntimeEventPublishCommand,
-    RuntimeEventPublishReceipt,
     TerminalRunCommitCommand,
-    TerminalRunCommitReceipt,
+)
+from scopecat.records.artifact import RunContentEntry
+from scopecat.records.execution_journal import ExecutionTransition
+from scopecat.records.measurement_recording import MeasurementDatasetReceipt
+from scopecat.records.parameter_change import ParameterChangeDecisionRecord
+from scopecat.records.run import RunManifest
+from scopecat.runs.data import (
+    RunArtifactJsonResult,
+    RunArtifactTextResult,
+    RunMeasurementDatasetResult,
+    RunRecordJsonResult,
 )
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -102,7 +91,7 @@ class ConfigOperations(Protocol):
     def import_direct_config(
         self,
         command: DirectConfigImportCommand,
-    ) -> ConfigImportReceipt: ...
+    ) -> ConfigRegistryEntry: ...
     def set_direct_config_default(
         self,
         command: DirectConfigDefaultCommand,
@@ -142,7 +131,7 @@ class RunOperations(Protocol):
         before: int | None,
         state: ControlRunState | None,
         latest: bool,
-    ) -> RunPage: ...
+    ) -> RunSummaryPage: ...
     def get_run(self, run_id: str) -> RunDetail: ...
     def get_run_config(self, run_id: str) -> RunConfigView: ...
     def get_run_request(self, run_id: str) -> RunRequestView: ...
@@ -166,31 +155,31 @@ class RunOperations(Protocol):
         selector: str,
         *,
         expected_kind: str | None,
-    ) -> RunArtifactTextView: ...
+    ) -> RunArtifactTextResult: ...
     def get_run_artifact_json(
         self,
         run_id: str,
         selector: str,
         *,
         expected_kind: str | None,
-    ) -> RunArtifactJsonView: ...
+    ) -> RunArtifactJsonResult: ...
     def get_run_record_json(
         self,
         run_id: str,
         selector: str,
         *,
         expected_kind: str | None,
-    ) -> RunRecordJsonView: ...
+    ) -> RunRecordJsonResult: ...
     def get_run_dataset_content(
         self,
         run_id: str,
         selector: str,
-    ) -> RunDatasetContentView: ...
+    ) -> RunMeasurementDatasetResult: ...
     def attach_run_content(
         self,
         run_id: str,
         command: RunAttachmentCommand,
-    ) -> RunAttachmentReceipt: ...
+    ) -> RunContentEntry: ...
     def list_parameter_proposals(
         self,
         run_id: str,
@@ -198,13 +187,15 @@ class RunOperations(Protocol):
     def review_parameter_proposal(
         self,
         run_id: str,
+        proposal_id: str,
         command: ParameterProposalReviewCommand,
-    ) -> ParameterProposalReviewReceipt: ...
+    ) -> ParameterChangeDecisionRecord: ...
     def decide_parameter_proposal(
         self,
         run_id: str,
+        proposal_id: str,
         command: ParameterProposalDecisionCommand,
-    ) -> ParameterProposalReviewReceipt: ...
+    ) -> ParameterChangeDecisionRecord: ...
     def measurements(
         self,
         run_id: str,
@@ -233,51 +224,26 @@ class ExecutorOperations(Protocol):
         run_id: str,
         heartbeat: ExecutorHeartbeat,
     ) -> ExecutorLease: ...
-    def append_transitions(
+    def append_transition(
         self,
         run_id: str,
-        batch: ExecutionTransitionBatch,
-    ) -> ExecutionTransitionBatchReceipt: ...
-    def publish_runtime_event(
-        self,
-        run_id: str,
-        command: RuntimeEventPublishCommand,
-    ) -> RuntimeEventPublishReceipt: ...
-    def recover_execution(
-        self,
-        run_id: str,
-        request: ExecutionRecoveryRequest,
-    ) -> ExecutionRecoverySnapshot: ...
+        command: ExecutionTransitionAppend,
+    ) -> ExecutionTransition: ...
     def append_measurements(
         self,
         run_id: str,
         command: MeasurementAppendCommand,
-    ) -> MeasurementAppendReceipt: ...
+    ) -> MeasurementDatasetReceipt: ...
     def seal_measurements(
         self,
         run_id: str,
         command: MeasurementSealCommand,
-    ) -> MeasurementSealReceipt: ...
-    def commit_collection(
-        self,
-        run_id: str,
-        command: CollectionCommitCommand,
-    ) -> CollectionCommitReceipt: ...
-    def resolve_collection(
-        self,
-        run_id: str,
-        command: CollectionResolveCommand,
-    ) -> CollectionResolveReceipt: ...
-    def commit_payload(
-        self,
-        run_id: str,
-        command: PayloadCommitCommand,
-    ) -> PayloadCommitReceipt: ...
+    ) -> MeasurementDatasetReceipt: ...
     def commit_terminal(
         self,
         run_id: str,
         command: TerminalRunCommitCommand,
-    ) -> TerminalRunCommitReceipt: ...
+    ) -> RunManifest: ...
 
 
 class DaemonApplicationContract(Protocol):
@@ -294,14 +260,11 @@ class DaemonApplicationContract(Protocol):
 
     def health(self) -> DaemonHealth: ...
 
-    def catalog(self) -> ExperimentCatalog: ...
-
     def submit_run(self, submission: RunSubmission) -> RunAdmission: ...
 
     def resolve_attention(
         self,
         run_id: str,
-        command: AttentionResolutionCommand,
     ) -> AttentionResolutionReceipt: ...
 
 
@@ -322,10 +285,6 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     def health() -> DaemonHealth:
         return application.health()
 
-    @app.get(f"{_API_PREFIX}/catalog")
-    def catalog() -> ExperimentCatalog:
-        return application.catalog()
-
     @app.get(f"{_API_PREFIX}/config-registry")
     def get_config_registry() -> ConfigRegistryView:
         return application.config.get_config_registry()
@@ -341,7 +300,7 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     @app.post(f"{_API_PREFIX}/config-registry/entries", status_code=201)
     def import_direct_config(
         command: DirectConfigImportCommand,
-    ) -> ConfigImportReceipt:
+    ) -> ConfigRegistryEntry:
         return application.config.import_direct_config(command)
 
     @app.post(f"{_API_PREFIX}/config-registry/default")
@@ -393,7 +352,7 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         before: Annotated[int | None, Query(ge=1)] = None,
         state: ControlRunState | None = None,
         latest: bool = False,
-    ) -> RunPage:
+    ) -> RunSummaryPage:
         if after is not None and before is not None:
             raise HTTPException(
                 status_code=422,
@@ -437,7 +396,6 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         run_id: str,
         command: AnalysisSaveCommand,
     ) -> AnalysisSaveReceipt:
-        _require_run_id(run_id, command.run_id)
         return application.runs.save_run_analysis(run_id, command)
 
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/analyses/{{selector}}")
@@ -461,7 +419,7 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         run_id: str,
         selector: str,
         expected_kind: str | None = None,
-    ) -> RunArtifactTextView:
+    ) -> RunArtifactTextResult:
         return application.runs.get_run_artifact_text(
             run_id,
             selector,
@@ -473,7 +431,7 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         run_id: str,
         selector: str,
         expected_kind: str | None = None,
-    ) -> RunArtifactJsonView:
+    ) -> RunArtifactJsonResult:
         return application.runs.get_run_artifact_json(
             run_id,
             selector,
@@ -485,7 +443,7 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         run_id: str,
         selector: str,
         expected_kind: str | None = None,
-    ) -> RunRecordJsonView:
+    ) -> RunRecordJsonResult:
         return application.runs.get_run_record_json(
             run_id,
             selector,
@@ -496,15 +454,14 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     def get_run_dataset_content(
         run_id: str,
         selector: str,
-    ) -> RunDatasetContentView:
+    ) -> RunMeasurementDatasetResult:
         return application.runs.get_run_dataset_content(run_id, selector)
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/attachments", status_code=201)
     def attach_run_content(
         run_id: str,
         command: RunAttachmentCommand,
-    ) -> RunAttachmentReceipt:
-        _require_run_id(run_id, command.run_id)
+    ) -> RunContentEntry:
         return application.runs.attach_run_content(run_id, command)
 
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/parameter-proposals")
@@ -518,14 +475,12 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         run_id: str,
         proposal_id: str,
         command: ParameterProposalReviewCommand,
-    ) -> ParameterProposalReviewReceipt:
-        _require_run_id(run_id, command.run_id)
-        if proposal_id != command.proposal_id:
-            raise HTTPException(
-                status_code=422,
-                detail="path proposal_id must match request body",
-            )
-        return application.runs.review_parameter_proposal(run_id, command)
+    ) -> ParameterChangeDecisionRecord:
+        return application.runs.review_parameter_proposal(
+            run_id,
+            proposal_id,
+            command,
+        )
 
     @app.post(
         f"{_API_PREFIX}/runs/{{run_id}}/parameter-proposals/{{proposal_id}}/decision"
@@ -534,22 +489,18 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         run_id: str,
         proposal_id: str,
         command: ParameterProposalDecisionCommand,
-    ) -> ParameterProposalReviewReceipt:
-        _require_run_id(run_id, command.run_id)
-        if proposal_id != command.proposal_id:
-            raise HTTPException(
-                status_code=422,
-                detail="path proposal_id must match request body",
-            )
-        return application.runs.decide_parameter_proposal(run_id, command)
+    ) -> ParameterChangeDecisionRecord:
+        return application.runs.decide_parameter_proposal(
+            run_id,
+            proposal_id,
+            command,
+        )
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/attention")
     def resolve_attention(
         run_id: str,
-        command: AttentionResolutionCommand,
     ) -> AttentionResolutionReceipt:
-        _require_run_id(run_id, command.run_id)
-        return application.resolve_attention(run_id, command)
+        return application.resolve_attention(run_id)
 
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/measurements")
     def measurements(
@@ -606,7 +557,6 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         run_id: str,
         request: ExecutorStartRequest,
     ) -> ExecutorLease:
-        _require_run_id(run_id, request.run_id)
         return application.executor.start_executor(run_id, request)
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/executor/heartbeat")
@@ -614,79 +564,38 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         run_id: str,
         heartbeat: ExecutorHeartbeat,
     ) -> ExecutorLease:
-        _require_run_id(run_id, heartbeat.run_id)
         return application.executor.heartbeat_executor(run_id, heartbeat)
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/transitions")
-    def append_transitions(
+    def append_transition(
         run_id: str,
-        batch: ExecutionTransitionBatch,
-    ) -> ExecutionTransitionBatchReceipt:
-        _require_run_id(run_id, batch.run_id)
-        return application.executor.append_transitions(run_id, batch)
-
-    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/runtime-events")
-    def publish_runtime_event(
-        run_id: str,
-        command: RuntimeEventPublishCommand,
-    ) -> RuntimeEventPublishReceipt:
-        _require_run_id(run_id, command.run_id)
-        return application.executor.publish_runtime_event(run_id, command)
-
-    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/execution/recovery")
-    def recover_execution(
-        run_id: str,
-        request: ExecutionRecoveryRequest,
-    ) -> ExecutionRecoverySnapshot:
-        _require_run_id(run_id, request.run_id)
-        return application.executor.recover_execution(run_id, request)
+        command: ExecutionTransitionAppend,
+    ) -> ExecutionTransition:
+        _require_run_id(run_id, command.transition.run_id)
+        return application.executor.append_transition(run_id, command)
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/measurements/append")
     def append_measurements(
         run_id: str,
         command: MeasurementAppendCommand,
-    ) -> MeasurementAppendReceipt:
-        _require_run_id(run_id, command.run_id)
+    ) -> MeasurementDatasetReceipt:
+        _require_run_id(run_id, command.append.run_id)
         return application.executor.append_measurements(run_id, command)
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/measurements/seal")
     def seal_measurements(
         run_id: str,
         command: MeasurementSealCommand,
-    ) -> MeasurementSealReceipt:
-        _require_run_id(run_id, command.run_id)
+    ) -> MeasurementDatasetReceipt:
+        _require_run_id(run_id, command.seal.run_id)
         return application.executor.seal_measurements(run_id, command)
-
-    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/collections/commit")
-    def commit_collection(
-        run_id: str,
-        command: CollectionCommitCommand,
-    ) -> CollectionCommitReceipt:
-        _require_run_id(run_id, command.run_id)
-        return application.executor.commit_collection(run_id, command)
-
-    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/collections/resolve")
-    def resolve_collection(
-        run_id: str,
-        command: CollectionResolveCommand,
-    ) -> CollectionResolveReceipt:
-        _require_run_id(run_id, command.run_id)
-        return application.executor.resolve_collection(run_id, command)
-
-    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/payloads/commit")
-    def commit_payload(
-        run_id: str,
-        command: PayloadCommitCommand,
-    ) -> PayloadCommitReceipt:
-        _require_run_id(run_id, command.run_id)
-        return application.executor.commit_payload(run_id, command)
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/terminal")
     def commit_terminal(
         run_id: str,
         command: TerminalRunCommitCommand,
-    ) -> TerminalRunCommitReceipt:
-        _require_run_id(run_id, command.run_id)
+    ) -> RunManifest:
+        _require_run_id(run_id, command.outcome.run_id)
         return application.executor.commit_terminal(run_id, command)
 
     if static_dir is not None:

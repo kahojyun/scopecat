@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
-from typing import Annotated, Literal, Protocol, Self, cast
+from typing import Annotated, Literal, Protocol, cast
 
 from pydantic import (
     BaseModel,
@@ -15,11 +15,9 @@ from pydantic import (
     WithJsonSchema,
     field_serializer,
     field_validator,
-    model_validator,
 )
 
-from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping, thaw_json_value
-from scopecat.kernel.problems import ExternalLocation
+from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
 from scopecat.kernel.units import (
     compatible_units,
     from_base_value,
@@ -487,23 +485,11 @@ class ParameterDefinition(BaseModel):
     id: str
     value_type: PersistableValueType
     description: str | None = None
-    metadata: Mapping[str, object] = Field(
-        default_factory=lambda: FrozenMapping[str, object]()
-    )
 
     @field_validator("value_type")
     @classmethod
     def validate_value_type(cls, value: ValueType) -> ValueType:
         return _validate_persistable_value_type(value)
-
-    @field_validator("metadata", mode="after")
-    @classmethod
-    def validate_metadata(cls, value: Mapping[str, object]) -> Mapping[str, object]:
-        return freeze_json_mapping(value, path="parameter definition metadata")
-
-    @field_serializer("metadata")
-    def serialize_metadata(self, value: Mapping[str, object]) -> object:
-        return thaw_json_value(value)
 
 
 class ParameterCatalog(BaseModel):
@@ -517,9 +503,6 @@ class ParameterCatalog(BaseModel):
 
     id: str
     definitions: Sequence[ParameterDefinition] = Field(default_factory=tuple)
-    metadata: Mapping[str, object] = Field(
-        default_factory=lambda: FrozenMapping[str, object]()
-    )
 
     @field_validator("definitions")
     @classmethod
@@ -527,15 +510,6 @@ class ParameterCatalog(BaseModel):
         cls, value: Sequence[ParameterDefinition]
     ) -> Sequence[ParameterDefinition]:
         return tuple(_ensure_unique_ids(list(value), "parameter definition"))
-
-    @field_validator("metadata", mode="after")
-    @classmethod
-    def validate_metadata(cls, value: Mapping[str, object]) -> Mapping[str, object]:
-        return freeze_json_mapping(value, path="parameter catalog metadata")
-
-    @field_serializer("metadata")
-    def serialize_metadata(self, value: Mapping[str, object]) -> object:
-        return thaw_json_value(value)
 
     def get(self, definition_id: str) -> ParameterDefinition | None:
         for definition in self.definitions:
@@ -555,22 +529,6 @@ class _StoredParameterValue(BaseModel):
     )
 
     id: str
-    source_location: ExternalLocation | None = None
-    metadata: Mapping[str, object] = Field(
-        default_factory=lambda: FrozenMapping[str, object]()
-    )
-
-    @field_validator("metadata", mode="after")
-    @classmethod
-    def validate_metadata(
-        cls,
-        value: Mapping[str, object],
-    ) -> Mapping[str, object]:
-        return freeze_json_mapping(value, path="stored parameter metadata")
-
-    @field_serializer("metadata")
-    def serialize_metadata(self, value: Mapping[str, object]) -> object:
-        return thaw_json_value(value)
 
 
 class ScalarParameterValue(_StoredParameterValue):
@@ -590,7 +548,6 @@ class SeriesParameterValue(_StoredParameterValue):
 
     shape: Literal["series"] = "series"
     items: Sequence[ParameterAtomValue] = Field(default_factory=tuple)
-    item_locations: Sequence[ExternalLocation] = Field(default_factory=tuple)
 
     @field_validator("items")
     @classmethod
@@ -599,26 +556,6 @@ class SeriesParameterValue(_StoredParameterValue):
         value: Sequence[ParameterAtomValue],
     ) -> Sequence[ParameterAtomValue]:
         return tuple(_validate_finite_parameter_scalar(item) for item in value)
-
-    @field_validator("item_locations")
-    @classmethod
-    def validate_item_locations(
-        cls, value: Sequence[ExternalLocation]
-    ) -> Sequence[ExternalLocation]:
-        return tuple(value)
-
-    @field_serializer("item_locations")
-    def serialize_item_locations(
-        self, value: Sequence[ExternalLocation]
-    ) -> list[object]:
-        return [location.model_dump(mode="json") for location in value]
-
-    @model_validator(mode="after")
-    def validate_location_count(self) -> Self:
-        if self.item_locations and len(self.item_locations) != len(self.items):
-            msg = "stored series item_locations must match items length"
-            raise ValueError(msg)
-        return self
 
     @field_serializer("items")
     def serialize_items(self, value: Sequence[ParameterAtomValue]) -> list[object]:
@@ -630,7 +567,6 @@ class TableParameterValue(_StoredParameterValue):
 
     shape: Literal["table"] = "table"
     rows: Sequence[Mapping[str, ParameterAtomValue]] = Field(default_factory=tuple)
-    row_locations: Sequence[ExternalLocation] = Field(default_factory=tuple)
 
     @field_validator("rows")
     @classmethod
@@ -645,26 +581,6 @@ class TableParameterValue(_StoredParameterValue):
             )
             for row in value
         )
-
-    @field_validator("row_locations")
-    @classmethod
-    def validate_row_locations(
-        cls, value: Sequence[ExternalLocation]
-    ) -> Sequence[ExternalLocation]:
-        return tuple(value)
-
-    @field_serializer("row_locations")
-    def serialize_row_locations(
-        self, value: Sequence[ExternalLocation]
-    ) -> list[object]:
-        return [location.model_dump(mode="json") for location in value]
-
-    @model_validator(mode="after")
-    def validate_location_count(self) -> Self:
-        if self.row_locations and len(self.row_locations) != len(self.rows):
-            msg = "stored table row_locations must match rows length"
-            raise ValueError(msg)
-        return self
 
     @field_serializer("rows")
     def serialize_rows(
@@ -697,9 +613,6 @@ class ParameterSnapshot(BaseModel):
 
     id: str
     values: Sequence[StoredParameterValue] = Field(default_factory=tuple)
-    metadata: Mapping[str, object] = Field(
-        default_factory=lambda: FrozenMapping[str, object]()
-    )
 
     @field_validator("values")
     @classmethod
@@ -708,15 +621,6 @@ class ParameterSnapshot(BaseModel):
         value: Sequence[StoredParameterValue],
     ) -> Sequence[StoredParameterValue]:
         return tuple(_ensure_unique_ids(list(value), "stored parameter value"))
-
-    @field_validator("metadata", mode="after")
-    @classmethod
-    def validate_metadata(cls, value: Mapping[str, object]) -> Mapping[str, object]:
-        return freeze_json_mapping(value, path="parameter snapshot metadata")
-
-    @field_serializer("metadata")
-    def serialize_metadata(self, value: Mapping[str, object]) -> object:
-        return thaw_json_value(value)
 
     def get(self, value_id: str) -> StoredParameterValue | None:
         for value in self.values:

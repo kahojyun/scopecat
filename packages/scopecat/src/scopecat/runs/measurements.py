@@ -2,51 +2,47 @@
 
 from __future__ import annotations
 
-from scopecat.kernel.errors import DataIntegrityError
-from scopecat.kernel.problems import ProblemCategory
-from scopecat.measurements.datasets import (
-    assemble_measurement_dataset,
-    measurement_records_error,
+from pydantic import ValidationError
+
+from scopecat.kernel.errors import DataIntegrityError, NotFound
+from scopecat.kernel.problems import (
+    Problem,
+    ProblemPhase,
+    StorageLocation,
+    problem,
 )
 from scopecat.measurements.results import (
     MeasurementDataset,
-    MeasurementDatasetReadContract,
+    MeasurementDatasetSchema,
     MeasurementRecord,
+    validate_measurement_records_against_schema,
 )
 from scopecat.records.artifact import RunContentEntry
 from scopecat.runs.access import dataset_storage_ref
 from scopecat.runs.repository import RunRepository
 
 
-def read_measurement_records(
-    *,
-    storage: RunRepository,
-    run_id: str,
-    ref: str,
-    missing_code: str,
-    empty_code: str,
-    invalid_code: str,
-    noun: str,
+def _read_measurement_records(
+    *, storage: RunRepository, run_id: str, ref: str
 ) -> list[MeasurementRecord]:
     if not storage.exists(run_id, ref):
-        raise measurement_records_error(
-            missing_code,
-            f"{noun} is missing: {ref}",
+        raise _not_found(
+            "run.measurement_dataset.missing",
+            f"run measurement dataset is missing: {ref}",
             ref=ref,
-            category=ProblemCategory.NOT_FOUND,
         )
     try:
         records = storage.read_measurement_records(run_id, ref)
     except DataIntegrityError as error:
-        raise measurement_records_error(
-            invalid_code,
-            f"{noun} is not valid measurement data: {ref}",
+        raise _integrity_error(
+            "run.measurement_dataset.invalid",
+            f"run measurement dataset is not valid measurement data: {ref}",
             ref=ref,
         ) from error
     if not records:
-        raise measurement_records_error(
-            empty_code,
-            f"{noun} is empty: {ref}",
+        raise _integrity_error(
+            "run.measurement_dataset.empty",
+            f"run measurement dataset is empty: {ref}",
             ref=ref,
         )
     return records
@@ -57,23 +53,53 @@ def read_measurement_dataset(
     storage: RunRepository,
     run_id: str,
     dataset: RunContentEntry,
-    contract: MeasurementDatasetReadContract,
 ) -> MeasurementDataset:
     ref = dataset_storage_ref(dataset)
-    records = read_measurement_records(
-        storage=storage,
-        run_id=run_id,
-        ref=ref,
-        missing_code=contract.missing_code,
-        empty_code=contract.empty_code,
-        invalid_code=contract.invalid_code,
-        noun=contract.noun,
-    )
-    return assemble_measurement_dataset(
+    records = _read_measurement_records(storage=storage, run_id=run_id, ref=ref)
+    if dataset.data_schema is None:
+        raise _integrity_error(
+            "run.measurement_dataset.schema_missing",
+            f"run measurement dataset ref is missing schema: {ref}",
+            ref=ref,
+        )
+    try:
+        schema = MeasurementDatasetSchema.model_validate(dataset.data_schema)
+    except ValidationError as error:
+        raise _invalid_schema(ref) from error
+    if schema.dataset_id != dataset.id or validate_measurement_records_against_schema(
+        records,
+        schema,
+        dataset.id,
+        schema.dataset_role,
+    ):
+        raise _invalid_schema(ref)
+    return MeasurementDataset(
+        schema=schema,
         records=records,
-        dataset_id=dataset.id,
-        ref=ref,
-        schema_data=dataset.data_schema,
         metadata=dataset.metadata,
-        contract=contract,
+    )
+
+
+def _invalid_schema(ref: str) -> DataIntegrityError:
+    return _integrity_error(
+        "run.measurement_dataset.schema_invalid",
+        f"run measurement dataset schema is invalid: {ref}",
+        ref=ref,
+    )
+
+
+def _integrity_error(code: str, message: str, *, ref: str) -> DataIntegrityError:
+    return DataIntegrityError((_problem(code, message, ref=ref),))
+
+
+def _not_found(code: str, message: str, *, ref: str) -> NotFound:
+    return NotFound((_problem(code, message, ref=ref),))
+
+
+def _problem(code: str, message: str, *, ref: str) -> Problem:
+    return problem(
+        code,
+        message,
+        phase=ProblemPhase.PERSISTENCE,
+        location=StorageLocation(ref=ref),
     )

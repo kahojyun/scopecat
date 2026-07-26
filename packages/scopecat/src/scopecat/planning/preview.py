@@ -32,7 +32,6 @@ def build_run_program_preview(
         records=tuple(
             ExperimentPreviewRecord(
                 id=record.id,
-                kind=record.kind,
                 unit=record.unit,
                 dtype=record.dtype,
                 dims=tuple(record.dims),

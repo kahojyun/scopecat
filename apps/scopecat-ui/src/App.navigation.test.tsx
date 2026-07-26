@@ -6,7 +6,6 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import {
-  getCatalog,
   getEvents,
   getHealth,
   getMeasurementPreview,
@@ -20,7 +19,6 @@ import type { ProjectRun } from "./types";
 
 vi.mock("./api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./api")>()),
-  getCatalog: vi.fn(),
   getEvents: vi.fn(),
   getHealth: vi.fn(),
   getMeasurementPreview: vi.fn(),
@@ -86,10 +84,6 @@ beforeEach(() => {
   vi.mocked(getRun).mockImplementation(async (runId) => projectRun(runId));
   vi.mocked(getEvents).mockResolvedValue([]);
   vi.mocked(getRunEvents).mockResolvedValue([]);
-  vi.mocked(getCatalog).mockResolvedValue({
-    revision: "test",
-    experiments: [],
-  });
   vi.mocked(getMeasurementPreview).mockResolvedValue({ items: [] });
   vi.mocked(getRunAnalyses).mockResolvedValue([]);
 });
@@ -253,7 +247,7 @@ describe("config provenance navigation", () => {
     expect(screen.getByText("Daemon unavailable.")).toBeVisible();
   });
 
-  it("uses runtime progress instead of treating a started point as complete", async () => {
+  it("uses durable transitions without treating a started point as complete", async () => {
     window.history.replaceState(null, "", "/?run=run-1");
     const running = {
       ...projectRun("run-1"),
@@ -271,23 +265,22 @@ describe("config provenance navigation", () => {
       {
         id: 1,
         runId: "run-1",
-        kind: "runtime_transition",
+        kind: "execution_transition_committed",
         payload: {
           stage: "compute",
           state: "started",
           point_index: 2,
-          progress: { completed_points: 0, total_points: 3 },
+          evidence: {},
         },
       },
       {
         id: 2,
         runId: "run-1",
-        kind: "runtime_transition",
+        kind: "execution_transition_committed",
         payload: {
-          stage: "point",
+          stage: "append_measurement",
           state: "completed",
-          point_index: 0,
-          progress: { completed_points: 1, total_points: 3 },
+          evidence: { start_index: 0, record_count: 1 },
         },
       },
     ]);
@@ -424,7 +417,6 @@ function projectRun(runId: string): ProjectRun {
   return {
     runId,
     experimentId: "ramsey",
-    executionMode: "managed",
     status: "succeeded",
     stateLabel: "Succeeded",
     updatedAt: "2026-07-24T08:00:00Z",

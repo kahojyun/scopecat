@@ -24,44 +24,29 @@ from scopecat.compiler.relations.verification import (
     verify_relation_plan,
 )
 from scopecat.compiler.semantic.dependencies import (
-    residual_operation_ids,
-    residual_value_ids,
+    analyze_residual_dependencies,
 )
 from scopecat.compiler.semantic.model import (
-    ImplementationCatalog,
-    ImplementationId,
     LiteralValueSource,
-    LocalPythonImplementation,
     OperationId,
-    OperationOutputSource,
     PlanExpressionSource,
-    RowArgumentDef,
     SemanticGraphIR,
     SemanticOperation,
-    SourceAnchor,
-    SourceMap,
-    StateEachRegion,
     ValueDef,
     ValueId,
     ValueUse,
     operation_result_id,
-    state_each_region_id,
 )
 from scopecat.compiler.semantic.operation_contract import (
     LOCAL_OPAQUE_OPERATION_CONTRACT,
-    PlacementConstraint,
-    Portability,
     scalar_binary_operation_contract,
 )
 from scopecat.compiler.semantic.verification import (
-    verify_implementation_catalog,
     verify_semantic_graph,
-    verify_source_map,
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.problems import ModelLocation
-from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import (
     Bool,
@@ -120,25 +105,18 @@ def _opaque_operation(
     local_id: str,
     *,
     inputs: tuple[tuple[str, ValueUse], ...] = (),
-    portability: Portability = Portability.IMPLEMENTATION_DEFINED,
-) -> tuple[SemanticOperation, ValueDef]:
+) -> tuple[SemanticOperation, ValueId]:
     operation_id = _operation_id(local_id)
     result_id = operation_result_id(operation_id)
     return (
         SemanticOperation(
             id=operation_id,
-            contract=replace(
-                LOCAL_OPAQUE_OPERATION_CONTRACT,
-                portability=portability,
-            ),
+            contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
             inputs=inputs,
-            outputs=(("result", result_id),),
+            result_id=result_id,
+            result_type=FLOAT,
         ),
-        ValueDef(
-            id=result_id,
-            value_type=FLOAT,
-            source=OperationOutputSource(operation_id),
-        ),
+        result_id,
     )
 
 
@@ -165,15 +143,11 @@ def _binary_graph(
             ("left", ValueUse(left.id)),
             ("right", ValueUse(right.id)),
         ),
-        outputs=(("result", result_id),),
-    )
-    result = ValueDef(
-        id=result_id,
-        value_type=result_type,
-        source=OperationOutputSource(operation_id),
+        result_id=result_id,
+        result_type=result_type,
     )
     return SemanticGraphIR(
-        value_defs=(left, right, result),
+        value_defs=(left, right),
         operations=(operation,),
     )
 
@@ -183,7 +157,7 @@ def _problem_codes(error: CheckFailed) -> list[str]:
 
 
 def test_residual_dependency_closure_includes_portable_downstream_operations() -> None:
-    producer, produced = _opaque_operation("produce")
+    producer, produced_id = _opaque_operation("produce")
     literal = _plan_value("literal")
     operation_id = _operation_id("add")
     result_id = operation_result_id(operation_id)
@@ -191,25 +165,17 @@ def test_residual_dependency_closure_includes_portable_downstream_operations() -
         id=operation_id,
         contract=scalar_binary_operation_contract("+"),
         inputs=(
-            ("left", ValueUse(produced.id)),
+            ("left", ValueUse(produced_id)),
             ("right", ValueUse(literal.id)),
         ),
-        outputs=(("result", result_id),),
+        result_id=result_id,
+        result_type=FLOAT,
     )
-    result = ValueDef(
-        id=result_id,
-        value_type=FLOAT,
-        source=OperationOutputSource(operation_id),
-    )
-    definitions = {item.id: item for item in (produced, literal, result)}
     operations = (producer, operation)
+    residual = analyze_residual_dependencies(operations)
 
-    assert residual_value_ids(definitions, operations) == frozenset(
-        {produced.id, result.id}
-    )
-    assert residual_operation_ids(definitions, operations) == frozenset(
-        {producer.id, operation.id}
-    )
+    assert residual.value_ids == frozenset({produced_id, result_id})
+    assert residual.operation_ids == frozenset({producer.id, operation.id})
 
 
 def test_operation_and_value_ids_are_nominal_structural_identities() -> None:
@@ -233,23 +199,20 @@ def test_value_use_contains_only_its_target_identity() -> None:
 
 
 def test_topological_order_is_identity_based_and_declaration_independent() -> None:
-    producer, producer_result = _opaque_operation("producer")
-    independent, independent_result = _opaque_operation("independent")
-    consumer, consumer_result = _opaque_operation(
+    producer, producer_result_id = _opaque_operation("producer")
+    independent, _independent_result_id = _opaque_operation("independent")
+    consumer, _consumer_result_id = _opaque_operation(
         "consumer",
-        inputs=(("value", ValueUse(producer_result.id)),),
+        inputs=(("value", ValueUse(producer_result_id)),),
     )
-    definitions = (consumer_result, producer_result, independent_result)
 
     forward = verify_semantic_graph(
         SemanticGraphIR(
-            value_defs=definitions,
             operations=(consumer, independent, producer),
         )
     )
     reversed_declarations = verify_semantic_graph(
         SemanticGraphIR(
-            value_defs=tuple(reversed(definitions)),
             operations=(producer, independent, consumer),
         )
     )
@@ -301,13 +264,15 @@ def test_duplicate_operation_diagnostic_is_declaration_independent() -> None:
         id=operation_id,
         contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
         inputs=(),
-        outputs=(("result", result_id),),
+        result_id=result_id,
+        result_type=FLOAT,
     )
     second = SemanticOperation(
         id=operation_id,
         contract=scalar_binary_operation_contract("+"),
         inputs=(),
-        outputs=(("result", result_id),),
+        result_id=result_id,
+        result_type=FLOAT,
     )
 
     errors: list[CheckFailed] = []
@@ -324,15 +289,13 @@ def test_duplicate_operation_diagnostic_is_declaration_independent() -> None:
 
 
 def test_dangling_value_use_is_a_structured_problem() -> None:
-    operation, result = _opaque_operation(
+    operation, _result_id = _opaque_operation(
         "consumer",
         inputs=(("missing", ValueUse(_value_id("missing"))),),
     )
 
     with pytest.raises(CheckFailed) as caught:
-        verify_semantic_graph(
-            SemanticGraphIR(value_defs=(result,), operations=(operation,))
-        )
+        verify_semantic_graph(SemanticGraphIR(operations=(operation,)))
 
     assert _problem_codes(caught.value) == ["semantic_value_use_dangling"]
     location = caught.value.problems[0].location
@@ -353,31 +316,20 @@ def test_operation_cycles_are_reported_in_identity_order() -> None:
         id=left_id,
         contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
         inputs=(("right", ValueUse(right_result)),),
-        outputs=(("result", left_result),),
+        result_id=left_result,
+        result_type=FLOAT,
     )
     right = SemanticOperation(
         id=right_id,
         contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
         inputs=(("left", ValueUse(left_result)),),
-        outputs=(("result", right_result),),
-    )
-    definitions = (
-        ValueDef(
-            id=left_result,
-            value_type=FLOAT,
-            source=OperationOutputSource(left_id),
-        ),
-        ValueDef(
-            id=right_result,
-            value_type=FLOAT,
-            source=OperationOutputSource(right_id),
-        ),
+        result_id=right_result,
+        result_type=FLOAT,
     )
 
     with pytest.raises(CheckFailed) as caught:
         verify_semantic_graph(
             SemanticGraphIR(
-                value_defs=tuple(reversed(definitions)),
                 operations=(right, left),
             )
         )
@@ -386,46 +338,17 @@ def test_operation_cycles_are_reported_in_identity_order() -> None:
     assert caught.value.problems[0].message.endswith("left, right")
 
 
-def test_operation_outputs_and_value_producers_must_be_reciprocal() -> None:
-    operation_id = _operation_id("produce")
-    missing = operation_result_id(operation_id, "declared")
-    orphan = operation_result_id(operation_id, "orphan")
-    operation = SemanticOperation(
-        id=operation_id,
-        contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-        inputs=(),
-        outputs=(("declared", missing),),
-    )
-    orphan_definition = ValueDef(
-        id=orphan,
-        value_type=FLOAT,
-        source=OperationOutputSource(operation_id, "orphan"),
-    )
-
-    with pytest.raises(CheckFailed) as caught:
-        verify_semantic_graph(
-            SemanticGraphIR(
-                value_defs=(orphan_definition,),
-                operations=(operation,),
-            )
-        )
-
-    assert _problem_codes(caught.value) == [
-        "semantic_operation_output_missing_definition",
-        "semantic_value_producer_missing_output",
-    ]
-
-
-def test_operation_output_definition_must_point_back_to_its_port() -> None:
+def test_operation_result_cannot_shadow_a_plan_value() -> None:
     operation_id = _operation_id("produce")
     result_id = operation_result_id(operation_id)
     operation = SemanticOperation(
         id=operation_id,
         contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
         inputs=(),
-        outputs=(("result", result_id),),
+        result_id=result_id,
+        result_type=FLOAT,
     )
-    unrelated_definition = ValueDef(
+    plan_definition = ValueDef(
         id=result_id,
         value_type=FLOAT,
         source=_plan_source(as_scalar_expr(1.0), expected_type=FLOAT),
@@ -434,35 +357,12 @@ def test_operation_output_definition_must_point_back_to_its_port() -> None:
     with pytest.raises(CheckFailed) as caught:
         verify_semantic_graph(
             SemanticGraphIR(
-                value_defs=(unrelated_definition,),
+                value_defs=(plan_definition,),
                 operations=(operation,),
             )
         )
 
-    assert _problem_codes(caught.value) == ["semantic_operation_output_source_mismatch"]
-
-
-def test_opaque_operation_requires_one_execute_point_result() -> None:
-    operation_id = _operation_id("opaque")
-    output_id = operation_result_id(operation_id, "other")
-    operation = SemanticOperation(
-        id=operation_id,
-        contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-        inputs=(),
-        outputs=(("other", output_id),),
-    )
-    output = ValueDef(
-        id=output_id,
-        value_type=FLOAT,
-        source=OperationOutputSource(operation_id, "other"),
-    )
-
-    with pytest.raises(CheckFailed) as caught:
-        verify_semantic_graph(
-            SemanticGraphIR(value_defs=(output,), operations=(operation,))
-        )
-
-    assert _problem_codes(caught.value) == ["semantic_opaque_operation_shape_invalid"]
+    assert _problem_codes(caught.value) == ["semantic_value_definition_duplicate"]
 
 
 def test_plan_expression_source_retains_semantics() -> None:
@@ -682,46 +582,14 @@ def test_plan_expression_accepts_run_and_point_dependencies() -> None:
     assert verified.value_defs[run.id] == run
 
 
-def test_row_region_relation_is_evaluated_before_its_own_binder() -> None:
-    row_scope = RowScopeId(SymbolId(local_id="row"))
-    region_id = state_each_region_id(row_scope)
-    row_type = Table(columns=())
-    relation = replace(
-        _plan_value("rows", value_type=row_type),
-        owner_region_id=region_id,
-    )
-    value = _plan_value("value")
-    region = StateEachRegion(
-        id=region_id,
-        row_argument=RowArgumentDef(row_scope, row_type),
-        relation=ValueUse(relation.id),
-        resource_port=LogicalResourcePortId(SymbolId(local_id="source")),
-        capability_id="set_frequency",
-        field_path="frequency",
-        value=ValueUse(value.id),
-    )
-
-    with pytest.raises(CheckFailed) as caught:
-        verify_semantic_graph(
-            SemanticGraphIR(
-                value_defs=(relation, value),
-                row_regions=(region,),
-            )
-        )
-
-    assert _problem_codes(caught.value) == [
-        "semantic_row_region_relation_visibility_invalid"
-    ]
-
-
-def test_row_region_binder_collision_is_rejected_before_graph_construction() -> None:
+def test_row_binder_collision_is_rejected_before_graph_construction() -> None:
     row_scope = RowScopeId(SymbolId(local_id="row"))
     row_type = Table(columns=())
     with pytest.raises(RelationPlanVerificationError) as caught:
         verify_relation_plan(
-            literal_rows([]).filter(
-                col("keep", row_scope_id=row_scope),
+            literal_rows([]).with_columns(
                 row_scope_id=row_scope,
+                copied=col("keep", row_scope_id=row_scope),
             ),
             bindings=RelationTypeBindings(
                 row_arguments={row_scope: RowType.from_table(row_type)}
@@ -737,41 +605,7 @@ def test_scalar_binary_infers_result_type() -> None:
     verified = verify_semantic_graph(graph)
 
     result_id = operation_result_id(_operation_id("add"))
-    assert verified.value_defs[result_id].value_type == FLOAT
-
-
-def test_scalar_binary_requires_portable_semantics() -> None:
-    graph = _binary_graph()
-    operation = replace(
-        graph.operations[0],
-        contract=replace(
-            graph.operations[0].contract,
-            portability=Portability.IMPLEMENTATION_DEFINED,
-            placement=PlacementConstraint.HOST,
-        ),
-    )
-
-    with pytest.raises(CheckFailed) as caught:
-        verify_semantic_graph(replace(graph, operations=(operation,)))
-
-    assert _problem_codes(caught.value) == [
-        "semantic_scalar_binary_portability_invalid"
-    ]
-
-
-def test_scalar_binary_allows_host_placement_constraint() -> None:
-    graph = _binary_graph()
-    operation = replace(
-        graph.operations[0],
-        contract=replace(
-            graph.operations[0].contract,
-            placement=PlacementConstraint.HOST,
-        ),
-    )
-
-    verified = verify_semantic_graph(replace(graph, operations=(operation,)))
-
-    assert verified.graph.operations[0].contract.placement is PlacementConstraint.HOST
+    assert verified.value_types[result_id] == FLOAT
 
 
 def test_scalar_binary_requires_scalar_inputs() -> None:
@@ -820,202 +654,15 @@ def test_scalar_binary_preserves_null_literal_type_inference() -> None:
         id=operation_id,
         contract=scalar_binary_operation_contract("=="),
         inputs=(("left", ValueUse(left.id)), ("right", ValueUse(null.id))),
-        outputs=(("result", result_id),),
-    )
-    result = ValueDef(
-        id=result_id,
-        value_type=BOOL,
-        source=OperationOutputSource(operation_id),
+        result_id=result_id,
+        result_type=BOOL,
     )
 
     verified = verify_semantic_graph(
         SemanticGraphIR(
-            value_defs=(left, null, result),
+            value_defs=(left, null),
             operations=(operation,),
         )
     )
 
-    assert verified.value_defs[result_id].value_type == BOOL
-
-
-def test_implementation_catalog_rejects_duplicate_implementation_ids() -> None:
-    first, first_result = _opaque_operation("first")
-    second, second_result = _opaque_operation("second")
-    graph = SemanticGraphIR(
-        value_defs=(first_result, second_result),
-        operations=(first, second),
-    )
-    implementation_id = ImplementationId("shared")
-    catalog = ImplementationCatalog(
-        local_python=(
-            LocalPythonImplementation(
-                implementation_id,
-                first.id,
-                first.contract,
-                lambda: 1,
-            ),
-            LocalPythonImplementation(
-                implementation_id,
-                second.id,
-                second.contract,
-                lambda: 2,
-            ),
-        )
-    )
-
-    with pytest.raises(CheckFailed) as caught:
-        verify_implementation_catalog(graph, catalog)
-
-    assert _problem_codes(caught.value) == ["semantic_implementation_duplicate"]
-
-
-def test_implementation_catalog_rejects_orphan_implementations() -> None:
-    unknown = _operation_id("unknown")
-    catalog = ImplementationCatalog(
-        local_python=(
-            LocalPythonImplementation(
-                ImplementationId("orphan"),
-                unknown,
-                LOCAL_OPAQUE_OPERATION_CONTRACT,
-                lambda: None,
-            ),
-        )
-    )
-
-    with pytest.raises(CheckFailed) as caught:
-        verify_implementation_catalog(SemanticGraphIR(), catalog)
-
-    assert _problem_codes(caught.value) == ["semantic_implementation_orphan"]
-
-
-def test_implementation_catalog_rejects_mismatched_declared_contract() -> None:
-    operation, result = _opaque_operation("compute")
-    graph = SemanticGraphIR(value_defs=(result,), operations=(operation,))
-    catalog = ImplementationCatalog(
-        local_python=(
-            LocalPythonImplementation(
-                ImplementationId("wrong-contract"),
-                operation.id,
-                scalar_binary_operation_contract("+"),
-                lambda: 1,
-            ),
-        )
-    )
-
-    with pytest.raises(CheckFailed) as caught:
-        verify_implementation_catalog(graph, catalog)
-
-    assert _problem_codes(caught.value) == ["semantic_implementation_contract_mismatch"]
-
-
-def test_implementation_catalog_preserves_unselected_target_candidates() -> None:
-    operation, result = _opaque_operation("compute")
-    graph = SemanticGraphIR(value_defs=(result,), operations=(operation,))
-    catalog = ImplementationCatalog(
-        local_python=(
-            LocalPythonImplementation(
-                ImplementationId("first"),
-                operation.id,
-                operation.contract,
-                lambda: 1,
-            ),
-            LocalPythonImplementation(
-                ImplementationId("second"),
-                operation.id,
-                operation.contract,
-                lambda: 2,
-            ),
-        )
-    )
-
-    verified = verify_implementation_catalog(graph, catalog)
-
-    assert tuple(item.id.value for item in verified.local_python) == (
-        "first",
-        "second",
-    )
-
-
-def test_implementation_catalog_does_not_select_target_coverage() -> None:
-    operation, result = _opaque_operation("compute")
-    opaque = SemanticGraphIR(value_defs=(result,), operations=(operation,))
-
-    assert verify_implementation_catalog(opaque, ImplementationCatalog()) == (
-        ImplementationCatalog()
-    )
-    assert (
-        verify_implementation_catalog(
-            _binary_graph(),
-            ImplementationCatalog(),
-        )
-        == ImplementationCatalog()
-    )
-
-
-def test_callable_and_source_sidecars_do_not_participate_in_graph_equality() -> None:
-    operation, result = _opaque_operation("compute")
-    graph = SemanticGraphIR(value_defs=(result,), operations=(operation,))
-    implementation_id = ImplementationId("compute.local")
-    first_catalog = ImplementationCatalog(
-        local_python=(
-            LocalPythonImplementation(
-                implementation_id,
-                operation.id,
-                operation.contract,
-                lambda: 1,
-            ),
-        )
-    )
-    second_catalog = ImplementationCatalog(
-        local_python=(
-            LocalPythonImplementation(
-                implementation_id,
-                operation.id,
-                operation.contract,
-                lambda: 2,
-            ),
-        )
-    )
-    first_sources = SourceMap(
-        operation_sources=(
-            (
-                operation.id,
-                SourceAnchor("compute", "first", composition_scope=("left",)),
-            ),
-        )
-    )
-    second_sources = SourceMap(
-        operation_sources=(
-            (
-                operation.id,
-                SourceAnchor("compute", "second", composition_scope=("right",)),
-            ),
-        )
-    )
-
-    assert first_catalog == second_catalog
-    assert first_sources != second_sources
-    assert graph == SemanticGraphIR(value_defs=(result,), operations=(operation,))
-
-
-def test_source_map_requires_exact_declaration_coverage() -> None:
-    operation, result = _opaque_operation("compute")
-    graph = SemanticGraphIR(value_defs=(result,), operations=(operation,))
-    operation_anchor = SourceAnchor("compute", "operation")
-
-    with pytest.raises(CheckFailed) as caught:
-        verify_source_map(
-            graph,
-            SourceMap(operation_sources=((operation.id, operation_anchor),)),
-        )
-
-    assert _problem_codes(caught.value) == ["semantic_source_map_value_missing"]
-
-    source_map = verify_source_map(
-        graph,
-        SourceMap(
-            operation_sources=((operation.id, operation_anchor),),
-            value_sources=((result.id, SourceAnchor("compute_result", "value")),),
-        ),
-    )
-    assert dict(source_map.operation_sources)[operation.id] == operation_anchor
+    assert verified.value_types[result_id] == BOOL

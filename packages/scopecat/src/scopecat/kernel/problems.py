@@ -4,8 +4,7 @@ A ``Problem`` describes an expected domain finding; it is not Python control
 flow, a run outcome, a live event, or a log record. Codes are stable
 domain-owned strings, while messages are presentation text and must not be
 parsed. Machine-readable context belongs in details and structural locations,
-never in delimiter-packed path strings. Advisory problems inform callers;
-blocking problems prevent the owning phase from completing.
+never in delimiter-packed path strings.
 """
 
 from __future__ import annotations
@@ -28,28 +27,6 @@ from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping, thaw_json
 type LocationPathItem = str | int
 
 
-class ProblemImpact(StrEnum):
-    """Whether a problem only informs the caller or prevents an operation."""
-
-    ADVISORY = "advisory"
-    BLOCKING = "blocking"
-
-
-class ProblemCategory(StrEnum):
-    """Stable machine-oriented classification independent of presentation."""
-
-    INVALID_INPUT = "invalid_input"
-    NOT_FOUND = "not_found"
-    CONFLICT = "conflict"
-    DATA_INTEGRITY = "data_integrity"
-    STORAGE = "storage"
-    PROVIDER_CONTRACT = "provider_contract"
-    UNAVAILABLE = "unavailable"
-    OPERATION = "operation"
-    EXTERNAL_FAILURE = "external_failure"
-    INTERRUPTED = "interrupted"
-
-
 class ProblemPhase(StrEnum):
     """Pipeline boundary at which a problem was established."""
 
@@ -61,7 +38,6 @@ class ProblemPhase(StrEnum):
     EXECUTION = "execution"
     PERSISTENCE = "persistence"
     ANALYSIS = "analysis"
-    IMPORTING = "importing"
 
 
 class _LocationModel(BaseModel):
@@ -228,8 +204,6 @@ class Problem(BaseModel):
     )
 
     code: str
-    impact: ProblemImpact
-    category: ProblemCategory
     phase: ProblemPhase
     message: str
     location: ProblemLocation | None = None
@@ -263,23 +237,20 @@ def model_location(root: str, *path: LocationPathItem) -> ModelLocation:
     return ModelLocation(root=root, path=path)
 
 
-def blocking_problem(
+def problem(
     code: str,
     message: str,
     *,
-    category: ProblemCategory,
     phase: ProblemPhase,
     location: ProblemLocation | None = None,
     related_locations: Sequence[ProblemLocation] = (),
     details: Mapping[str, object] | None = None,
     occurrence_id: str | None = None,
 ) -> Problem:
-    """Build a blocking problem while keeping classification explicit."""
+    """Build one structured problem."""
 
     return Problem(
         code=code,
-        impact=ProblemImpact.BLOCKING,
-        category=category,
         phase=phase,
         message=message,
         location=location,
@@ -287,12 +258,6 @@ def blocking_problem(
         details={} if details is None else details,
         occurrence_id=occurrence_id,
     )
-
-
-def has_blocking_problems(problems: Sequence[Problem]) -> bool:
-    """Return whether a problem collection prevents its operation."""
-
-    return any(problem.impact is ProblemImpact.BLOCKING for problem in problems)
 
 
 def _non_empty(value: str, *, field: str) -> str:

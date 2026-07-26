@@ -447,7 +447,7 @@ def test_acquisition_closure_holds_for_every_use_count(use_count: int) -> None:
 def test_acquisition_closure_reports_missing_undeclared_and_multiple_uses() -> None:
     signal = AcquireSignal(Q0)
     declared = AcquisitionSlot(
-        AcquisitionSlotId("declared"), AcquisitionKind.RAW_TRACE, signal
+        AcquisitionSlotId("declared"), AcquisitionKind.INTEGRATED_IQ, signal
     )
     used_twice = AcquisitionSlot(
         AcquisitionSlotId("twice"), AcquisitionKind.INTEGRATED_IQ, signal

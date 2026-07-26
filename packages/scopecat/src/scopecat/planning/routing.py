@@ -44,10 +44,10 @@ class ResourcePortManifest:
         self,
         entity_ids: Sequence[str] = (),
     ) -> ResourceBinding:
-        """Select the single driver invocation for an action or acquisition.
+        """Select the single driver invocation for a point-local operation.
 
         Different points may select different instruments, but one point-local
-        action or acquisition is atomic at one driver and is never implicitly
+        operation is atomic at one driver and is never implicitly
         broadcast across instrument shards.
         """
 
@@ -70,7 +70,7 @@ class ResourcePortManifest:
 
         This split is intended for desired state, where different devices may
         maintain their explicit values through different drivers. It does not
-        turn a multi-instrument action or acquisition into a broadcast.
+        turn a multi-instrument operation into a broadcast.
         """
 
         selected_entity_ids = tuple(dict.fromkeys(entity_ids))
@@ -157,22 +157,10 @@ class RoutingView:
     """
 
     bindings: tuple[RoutingEndpointBinding, ...] = ()
-    channel_lines_by_id: dict[str, str | None] | None = None
-    channel_groups_by_id: dict[str, tuple[str, ...]] | None = None
 
     @classmethod
     def from_config(cls, config: ConfigProfileSnapshot) -> RoutingView:
-        bindings = tuple(config.routing.bindings)
-        return cls(
-            bindings=bindings,
-            channel_lines_by_id={
-                channel.id: channel.line_id for channel in config.topology.channels
-            },
-            channel_groups_by_id={
-                channel.id: tuple(channel.group_ids)
-                for channel in config.topology.channels
-            },
-        )
+        return cls(bindings=tuple(config.routing.bindings))
 
     def bind_port(
         self,
@@ -277,13 +265,13 @@ class RoutingView:
             if capabilities and endpoint.capability not in capabilities:
                 continue
             selected.append(
-                self._enriched_binding(
-                    CommandChannelBinding(
-                        entity_id=endpoint.entity_id,
-                        channel_id=endpoint.channel_id,
-                        capability=endpoint.capability,
-                        metadata=endpoint.metadata,
-                    )
+                CommandChannelBinding(
+                    entity_id=endpoint.entity_id,
+                    channel_id=endpoint.channel_id,
+                    line_id=endpoint.line_id,
+                    capability=endpoint.capability,
+                    group_ids=endpoint.group_ids,
+                    metadata=endpoint.metadata,
                 )
             )
         return tuple(selected)
@@ -297,29 +285,3 @@ class RoutingView:
             for binding in self.bindings
             if binding.instrument_id == instrument_id
         )
-
-    def _enriched_binding(
-        self,
-        binding: CommandChannelBinding,
-    ) -> CommandChannelBinding:
-        channel_line = self._channel_line(binding.channel_id)
-        channel_groups = self._channel_groups(binding.channel_id)
-        has_inferred_topology = channel_line is not None or bool(channel_groups)
-        if not has_inferred_topology:
-            return binding
-        return binding.model_copy(
-            update={
-                "line_id": channel_line,
-                "group_ids": list(channel_groups),
-            }
-        )
-
-    def _channel_line(self, channel_id: str) -> str | None:
-        if self.channel_lines_by_id is None:
-            return None
-        return self.channel_lines_by_id.get(channel_id)
-
-    def _channel_groups(self, channel_id: str) -> tuple[str, ...]:
-        if self.channel_groups_by_id is None:
-            return ()
-        return self.channel_groups_by_id.get(channel_id, ())

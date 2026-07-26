@@ -103,7 +103,7 @@ describe("parameter proposal reads", () => {
 });
 
 describe("parameter proposal commands", () => {
-  it("sends the run and proposal identity with a review decision", async () => {
+  it("uses the path as review identity", async () => {
     const fetchMock = vi.fn((_input: string | URL | Request) => Promise.resolve(jsonResponse({})));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -114,8 +114,6 @@ describe("parameter proposal commands", () => {
     });
 
     expectRequest(fetchMock, "/api/v1/runs/run%2Fa/parameter-proposals/proposal%20b/review", {
-      run_id: "run/a",
-      proposal_id: "proposal b",
       decision: "rejected",
       reviewer: "Grace",
       note: "Needs another sweep",
@@ -176,8 +174,6 @@ function scalarValue(value: number) {
     id: "q0.drive.frequency",
     shape: "scalar",
     value,
-    source_location: null,
-    metadata: {},
   };
 }
 

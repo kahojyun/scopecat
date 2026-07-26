@@ -4,10 +4,7 @@ from typing import override
 
 import pytest
 
-from scopecat.adapters.memory import (
-    MemoryExecutionJournal,
-    MemoryMeasurementDatasetRepository,
-)
+from scopecat.execution.events import TransitionRecorder
 from scopecat.kernel.errors import MeasurementRecordingError
 from scopecat.measurements.projection import (
     ProjectedMeasurementDataset,
@@ -23,10 +20,14 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetReceipt,
 )
 from tests.testkit.measurement_assembly import assembled_measurement_values_for_all_uses
+from tests.testkit.runtime import (
+    FakeExecutionJournal,
+    FakeMeasurementDatasetRepository,
+)
 
 
 def _projected(*, run_id: str = "recording-run") -> ProjectedMeasurementDataset:
-    scenario, _, assembled = assembled_measurement_values_for_all_uses()
+    scenario, assembled = assembled_measurement_values_for_all_uses()
     projection = select_measurement_projection(scenario.catalog, scenario.records)
     return project_measurement_records(
         projection, assembled, run_id=run_id, points=scenario.points
@@ -35,30 +36,30 @@ def _projected(*, run_id: str = "recording-run") -> ProjectedMeasurementDataset:
 
 def _seal(
     projected: ProjectedMeasurementDataset,
-    writer: MemoryMeasurementDatasetRepository,
-    journal: MemoryExecutionJournal,
+    writer: FakeMeasurementDatasetRepository,
+    recorder: TransitionRecorder,
     append_receipt: MeasurementDatasetReceipt,
 ) -> MeasurementDatasetReceipt:
     assert projected.schema is not None
     return seal_measurement_dataset(
         run_id=projected.run_id,
-        dataset_id=projected.schema.dataset_id,
         recording_contract_fingerprint=projected.recording_contract_fingerprint,
         point_count=len(projected.records),
         append_content_hashes=(append_receipt.dataset_content_hash,),
         writer=writer,
-        journal=journal,
+        recorder=recorder,
     )
 
 
 def test_recording_appends_and_seals_one_canonical_dataset() -> None:
     projected = _projected()
-    writer = MemoryMeasurementDatasetRepository()
-    journal = MemoryExecutionJournal()
+    writer = FakeMeasurementDatasetRepository()
+    journal = FakeExecutionJournal()
+    recorder = TransitionRecorder(journal)
 
-    append_receipt = append_measurement_dataset(projected, writer, journal)
+    append_receipt = append_measurement_dataset(projected, writer, recorder)
     assert append_receipt is not None
-    _seal(projected, writer, journal, append_receipt)
+    _seal(projected, writer, recorder, append_receipt)
 
     [append] = writer.appends
     assert append.records == projected.records
@@ -75,7 +76,6 @@ def test_append_identity_is_stable_and_content_detects_conflict() -> None:
     assert projected.schema is not None
     append = MeasurementDatasetAppend(
         run_id=projected.run_id,
-        dataset_id=projected.schema.dataset_id,
         recording_contract_fingerprint=projected.recording_contract_fingerprint,
         start_index=0,
         records=projected.records,
@@ -92,7 +92,7 @@ def test_append_identity_is_stable_and_content_detects_conflict() -> None:
     assert changed.content_hash != append.content_hash
 
 
-class _InvalidReceiptWriter(MemoryMeasurementDatasetRepository):
+class _InvalidReceiptWriter(FakeMeasurementDatasetRepository):
     @override
     def append(self, append: MeasurementDatasetAppend) -> MeasurementDatasetReceipt:
         return MeasurementDatasetReceipt(
@@ -107,7 +107,7 @@ def test_invalid_append_receipt_terminalizes_uncertain_operation() -> None:
         append_measurement_dataset(
             _projected(),
             _InvalidReceiptWriter(),
-            MemoryExecutionJournal(),
+            TransitionRecorder(FakeExecutionJournal()),
         )
     assert caught.value.write_may_have_completed
     assert caught.value.receipt is not None
@@ -115,12 +115,20 @@ def test_invalid_append_receipt_terminalizes_uncertain_operation() -> None:
 
 def test_append_and_seal_replay_are_idempotent() -> None:
     projected = _projected()
-    writer = MemoryMeasurementDatasetRepository()
-    receipt = append_measurement_dataset(projected, writer, MemoryExecutionJournal())
+    writer = FakeMeasurementDatasetRepository()
+    receipt = append_measurement_dataset(
+        projected,
+        writer,
+        TransitionRecorder(FakeExecutionJournal()),
+    )
     assert receipt is not None
-    repeated = append_measurement_dataset(projected, writer, MemoryExecutionJournal())
+    repeated = append_measurement_dataset(
+        projected,
+        writer,
+        TransitionRecorder(FakeExecutionJournal()),
+    )
     assert repeated == receipt
-    _seal(projected, writer, MemoryExecutionJournal(), receipt)
-    _seal(projected, writer, MemoryExecutionJournal(), receipt)
+    _seal(projected, writer, TransitionRecorder(FakeExecutionJournal()), receipt)
+    _seal(projected, writer, TransitionRecorder(FakeExecutionJournal()), receipt)
     assert len(writer.appends) == 1
     assert writer.measurements() == projected.records

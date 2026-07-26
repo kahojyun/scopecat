@@ -31,7 +31,10 @@ from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
 )
+from scopecat.compiler.semantic.compute_result import ComputeOutput
 from scopecat.compiler.semantic.model import (
+    ImplementationId,
+    LocalPythonImplementation,
     OperationId,
     operation_result_id,
 )
@@ -45,7 +48,6 @@ from scopecat.compiler.typed.dependencies import (
 from scopecat.compiler.typed.program import (
     ComputeEdge,
     TypedComputeNode,
-    TypedComputeOutput,
     ValueInput,
 )
 from scopecat.kernel.symbols import SymbolId
@@ -59,6 +61,13 @@ from scopecat.kernel.value_types import (
     TableColumn,
 )
 from tests.testkit.relation_plans import value_expr
+
+
+def _implementation(operation_id: OperationId) -> LocalPythonImplementation:
+    return LocalPythonImplementation(
+        id=ImplementationId(f"python.{operation_id.qualified_name}"),
+        kernel=lambda: None,
+    )
 
 
 def _scope(local_id: str) -> RowScopeId:
@@ -102,19 +111,19 @@ def test_free_row_references_exclude_plan_local_binders() -> None:
 
 def test_nominal_row_binders_cannot_shadow_an_enclosing_identity() -> None:
     scope = RowScopeId(SymbolId(local_id="row"))
-    filtered = literal_rows([{"value": 1}]).filter(
-        col("value", row_scope_id=scope).gt(0),
+    bound = literal_rows([{"value": 1}]).with_columns(
         row_scope_id=scope,
+        copied=col("value", row_scope_id=scope),
     )
     reused_scope = _scope("reused")
-    reused = filtered.with_columns(
+    reused = bound.with_columns(
         row_scope_id=reused_scope,
         copied=col("value", row_scope_id=reused_scope),
     )
 
     verify_plan_scopes(reused)
     with pytest.raises(RelationPlanBinderError, match="collides with an enclosing"):
-        verify_plan_scopes(filtered, active_row_scopes=(scope,))
+        verify_plan_scopes(bound, active_row_scopes=(scope,))
 
 
 def test_prefix_plan_row_scopes_alpha_renames_binders_and_uses_together() -> None:
@@ -136,7 +145,6 @@ def test_prefix_plan_row_scopes_alpha_renames_binders_and_uses_together() -> Non
 
 
 def test_plan_walk_and_references_cover_every_nested_shape() -> None:
-    filter_scope = _scope("filter")
     columns_scope = _scope("columns")
     lookup = parameter_lookup(
         ParameterLookupUse(
@@ -154,19 +162,17 @@ def test_plan_walk_and_references_cover_every_nested_shape() -> None:
             "point": point_col("point_id"),
         },
     )
-    filtered = input_table("rows").filter(
-        input_ref("enabled"),
-        row_scope_id=filter_scope,
-    )
-    plan = filtered.with_columns(
+    plan = input_table("rows").with_columns(
         row_scope_id=columns_scope,
+        enabled=input_ref("enabled"),
         start=input_ref("start"),
         gain=lookup,
         stop=param("stop"),
     )
 
     assert tuple(iter_plan_children(plan)) == (
-        filtered,
+        plan.source,
+        plan.new_columns["enabled"],
         plan.new_columns["start"],
         plan.new_columns["gain"],
         plan.new_columns["stop"],
@@ -213,18 +219,19 @@ def test_compute_dependencies_project_shared_plan_references() -> None:
         parameters={"gain": Scalar(Float())},
         point_row=RowType((TableColumn("point_enabled", bool_type),)),
     )
-    filter_scope = _scope("compute-filter")
-    plan = input_table("rows").filter(
-        input_ref("enabled").and_(
+    columns_scope = _scope("compute-columns")
+    plan = input_table("rows").with_columns(
+        row_scope_id=columns_scope,
+        selected=input_ref("enabled").and_(
             point_col("point_enabled").and_(
-                col("local_enabled", row_scope_id=filter_scope)
+                col("local_enabled", row_scope_id=columns_scope)
             )
         ),
-        row_scope_id=filter_scope,
     )
     node = TypedComputeNode(
         id=operation_id,
         contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
+        implementation=_implementation(operation_id),
         inputs={
             "rows": ValueInput(
                 value=value_expr(
@@ -250,7 +257,7 @@ def test_compute_dependencies_project_shared_plan_references() -> None:
                 origin_input_ids=("authored_offsets",),
             ),
         },
-        result=TypedComputeOutput(
+        result=ComputeOutput(
             id=operation_result_id(operation_id),
             value_type=Scalar(Float()),
         ),
@@ -279,6 +286,7 @@ def test_compute_scope_propagates_through_compute_edges() -> None:
     producer = TypedComputeNode(
         id=producer_id,
         contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
+        implementation=_implementation(producer_id),
         inputs={
             "coordinate": ValueInput(
                 value=value_expr(
@@ -290,7 +298,7 @@ def test_compute_scope_propagates_through_compute_edges() -> None:
                 )
             )
         },
-        result=TypedComputeOutput(
+        result=ComputeOutput(
             id=producer_output,
             value_type=Scalar(Float()),
         ),
@@ -298,13 +306,14 @@ def test_compute_scope_propagates_through_compute_edges() -> None:
     consumer = TypedComputeNode(
         id=consumer_id,
         contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
+        implementation=_implementation(consumer_id),
         inputs={
             "value": ComputeEdge(
                 value_id=producer_output,
                 expected_type=Scalar(Float()),
             )
         },
-        result=TypedComputeOutput(
+        result=ComputeOutput(
             id=operation_result_id(consumer_id),
             value_type=Scalar(Float()),
         ),

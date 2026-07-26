@@ -5,23 +5,15 @@ from dataclasses import replace
 
 import pytest
 
-from scopecat.compiler.relations.model import ScalarExpr, lit, point_col
 from scopecat.kernel.value_types import Int, Scalar
-from scopecat.measurements.semantics import (
-    MeasurementTransformPortability,
-    MeasurementTransformSemanticContract,
-)
-from scopecat.sdk.domain._bridge import _domain_input_normal_form
 from scopecat.sdk.domain.compiler import (
     DomainCompilation,
     DomainCompiledInputs,
     DomainCompiledJob,
     DomainCompileRequest,
+    DomainCompileTemplate,
     DomainInput,
     DomainIterationLayout,
-    DomainLiteral,
-    DomainPointAffine,
-    DomainPointAxis,
     DomainResolvedInputs,
     compiled_jobs,
     validate_domain_compilation,
@@ -29,13 +21,7 @@ from scopecat.sdk.domain.compiler import (
 from scopecat.sdk.domain.view import (
     DomainCallView,
     DomainInputPortView,
-    DomainMeasurementTransform,
-    DomainProductContractView,
-    DomainProductUseRef,
     DomainProgramView,
-    DomainResultBindingView,
-    DomainTransformInputPort,
-    DomainTransformOutputPort,
 )
 
 
@@ -48,16 +34,12 @@ def _request() -> DomainCompileRequest:
         body=object(),
         inputs=(DomainInputPortView("x", value_type),),
     )
-    return DomainCompileRequest(
+    return DomainCompileTemplate(
         call=DomainCallView(id="call", program=program, results=()),
-        program_inputs=(
-            DomainInput(
-                id="x",
-                normal_form=DomainPointAffine("x", 1, 0),
-            ),
-        ),
+        program_inputs=(DomainInput("x"),),
         compiler_inputs=(),
-        barrier_regions=((0, 1), (2,)),
+    ).bind_coverage(
+        ((0, 1), (2,)),
         program_input_binder=lambda input_ids, ordinals, _max_points: tuple(
             (
                 input_id,
@@ -66,46 +48,6 @@ def _request() -> DomainCompileRequest:
             for input_id in input_ids
         ),
         compiler_input_binder=lambda _input_ids, _ordinals, _max_points: (),
-    )
-
-
-def _layout(*axes: DomainPointAxis) -> DomainIterationLayout:
-    return DomainIterationLayout(
-        axes=axes,
-        preferred_tile_size=len(axes[0].values),
-    )
-
-
-def _request_with_transform(
-    *,
-    portability: MeasurementTransformPortability = "portable",
-) -> DomainCompileRequest:
-    request = _request()
-    product = DomainProductContractView(
-        id="signal",
-        kind="observable",
-        unit="ratio",
-        dtype="float64",
-    )
-    source = DomainProductUseRef("source", product, native=object())
-    derived = DomainProductUseRef("derived", product, native=object())
-    transform = DomainMeasurementTransform(
-        id="normalize",
-        semantic=MeasurementTransformSemanticContract(
-            id="tests.normalize",
-            version="1",
-            portability=portability,
-        ),
-        inputs=(DomainTransformInputPort("source", source, product),),
-        outputs=(DomainTransformOutputPort("result", product, (derived,)),),
-    )
-    return replace(
-        request,
-        call=replace(
-            request.call,
-            results=(DomainResultBindingView("signal", product, (source,)),),
-            measurement_transforms=(transform,),
-        ),
     )
 
 
@@ -124,8 +66,7 @@ def test_compiler_controls_partition_within_barrier_regions() -> None:
     )
 
     assert [job.point_ordinals for job in compilation.jobs] == [(0, 1), (2,)]
-    assert lowered == []
-    assert [job.take_artifact() for job in compilation.jobs] == [
+    assert [job.artifact for job in compilation.jobs] == [
         "artifact-0",
         "artifact-2",
     ]
@@ -134,10 +75,6 @@ def test_compiler_controls_partition_within_barrier_regions() -> None:
 
 def test_partition_preserves_complete_innermost_sweeps_when_capacity_allows() -> None:
     layout = DomainIterationLayout(
-        axes=(
-            DomainPointAxis("slow", (10, 20), repeat_each=3),
-            DomainPointAxis("fast", (1, 2, 3)),
-        ),
         preferred_tile_size=3,
     )
     request = replace(
@@ -151,10 +88,6 @@ def test_partition_preserves_complete_innermost_sweeps_when_capacity_allows() ->
 
 def test_partition_respects_barrier_clipping_before_axis_alignment() -> None:
     layout = DomainIterationLayout(
-        axes=(
-            DomainPointAxis("slow", (10, 20), repeat_each=3),
-            DomainPointAxis("fast", (1, 2, 3)),
-        ),
         preferred_tile_size=3,
     )
     request = replace(
@@ -164,26 +97,6 @@ def test_partition_respects_barrier_clipping_before_axis_alignment() -> None:
     )
 
     assert request.partition(max_points=4) == ((1, 2), (3, 4, 5))
-
-
-def test_compile_request_exposes_sdk_owned_input_normal_form() -> None:
-    request = _request()
-
-    assert request.program_input("x").normal_form == DomainPointAffine("x", 1, 0)
-    assert not request.program_input("x").is_literal
-    with pytest.raises(ValueError, match="not a scalar literal"):
-        request.program_input("x").literal_value()
-
-
-def test_domain_residual_input_exposes_literal_normal_form() -> None:
-    assert _domain_input_normal_form(lit(None)) == DomainLiteral(None)
-    literal_input = replace(
-        _request().program_input("x"),
-        normal_form=DomainLiteral(None),
-    )
-
-    assert literal_input.is_literal
-    assert literal_input.literal_value() is None
 
 
 def test_resolved_inputs_decode_each_collection_into_a_typed_value() -> None:
@@ -200,133 +113,11 @@ def test_resolved_inputs_decode_each_collection_into_a_typed_value() -> None:
     assert decoded == ((1,), (2, 3))
 
 
-@pytest.mark.parametrize(
-    ("expression", "expected"),
-    [
-        (point_col("x"), DomainPointAffine("x", 1, 0)),
-        (point_col("x") * 2 + 1, DomainPointAffine("x", 2, 1)),
-        (3 - 2 * point_col("x"), DomainPointAffine("x", -2, 3)),
-        ((point_col("x") + 4) / 2, DomainPointAffine("x", 0.5, 2.0)),
-    ],
-)
-def test_domain_bridge_projects_point_affine_normal_form(
-    expression: ScalarExpr,
-    expected: DomainPointAffine,
-) -> None:
-    assert _domain_input_normal_form(expression) == expected
-
-
-def test_domain_bridge_rejects_multiple_or_nonlinear_point_columns() -> None:
-    assert _domain_input_normal_form(point_col("x") + point_col("y")) is None
-    assert _domain_input_normal_form(point_col("x") * point_col("x")) is None
-
-
-def test_compile_request_exposes_exact_finite_point_axis() -> None:
-    request = replace(
-        _request(),
-        iteration_layout=_layout(DomainPointAxis("x", (1, 2, 3), repeat_each=2)),
-    )
-
-    axis = request.point_axis("x")
-
-    assert axis is not None
-    assert axis.values_at((0, 1, 2, 3, 4, 5, 6)) == (1, 1, 2, 2, 3, 3, 1)
-    assert request.point_axis("missing") is None
-
-
-def test_iteration_layout_partitions_coverage_by_selected_axes() -> None:
-    layout = DomainIterationLayout(
-        axes=(
-            DomainPointAxis("slow", (10, 20), repeat_each=3),
-            DomainPointAxis("fast", (1, 2, 3)),
-        ),
-        preferred_tile_size=3,
-    )
-
-    assert layout.partition_by_axes(("slow",), range(6)) == (
-        (0, 1, 2),
-        (3, 4, 5),
-    )
-    assert layout.partition_by_axes(("fast",), range(6)) == (
-        (0,),
-        (1,),
-        (2,),
-        (3,),
-        (4,),
-        (5,),
-    )
-    assert layout.partition_by_axes((), (1, 2, 3, 4)) == ((1, 2, 3, 4),)
-    assert layout.partition_by_axes(("unknown",), range(6)) is None
-
-
 def test_iteration_layout_normalizes_empty_tile_size_and_rejects_negative() -> None:
     assert DomainIterationLayout(preferred_tile_size=0).preferred_tile_size is None
 
     with pytest.raises(ValueError, match="tile size must be nonnegative"):
         DomainIterationLayout(preferred_tile_size=-1)
-
-
-def test_exact_leaf_can_expose_a_repeating_known_axis() -> None:
-    layout = DomainIterationLayout(
-        axes=(DomainPointAxis("fast", (1, 2, 3)),),
-        preferred_tile_size=6,
-    )
-
-    assert layout.preferred_tile_size == 6
-    assert layout.partition_by_axes(("fast",), range(6)) == (
-        (0,),
-        (1,),
-        (2,),
-        (3,),
-        (4,),
-        (5,),
-    )
-
-
-def test_compile_request_keeps_barriers_while_partitioning_by_axes() -> None:
-    request = replace(
-        _request(),
-        barrier_regions=((0, 1), (2, 3, 4, 5)),
-        iteration_layout=DomainIterationLayout(
-            axes=(
-                DomainPointAxis("slow", (10, 20), repeat_each=3),
-                DomainPointAxis("fast", (1, 2, 3)),
-            ),
-            preferred_tile_size=3,
-        ),
-    )
-
-    assert request.partition_by_axes(("slow",)) == (
-        (0, 1),
-        (2,),
-        (3, 4, 5),
-    )
-
-
-def test_domain_input_resolution_uses_normal_forms_before_binder() -> None:
-    def reject_binding(
-        _input_ids: Sequence[str],
-        _ordinals: Sequence[int],
-        _max_points: int,
-    ) -> tuple[tuple[str, tuple[object, ...]], ...]:
-        raise AssertionError("normal-form inputs must not reach the binder")
-
-    request = replace(
-        _request(),
-        program_inputs=(
-            replace(
-                _request().program_input("x"),
-                normal_form=DomainPointAffine("x", 2, 1),
-            ),
-        ),
-        iteration_layout=_layout(DomainPointAxis("x", (0, 1, 2))),
-        program_input_binder=reject_binding,
-    )
-
-    inputs = request.resolve_program_inputs(("x",), (0, 2), max_points=2)
-
-    assert inputs.input("x") == (1, 5)
-    assert inputs.binder_input_ids == ()
 
 
 def test_domain_compiler_resolves_only_selected_inputs_and_points() -> None:
@@ -336,7 +127,6 @@ def test_domain_compiler_resolves_only_selected_inputs_and_points() -> None:
 
     assert inputs.ordinals == (1, 2)
     assert inputs.input("x") == (2, 3)
-    assert inputs.binder_input_ids == ("x",)
     with pytest.raises(ValueError, match="exceeds"):
         request.resolve_program_inputs(("x",), (0, 1), max_points=1)
 
@@ -400,13 +190,9 @@ def test_domain_input_binding_does_not_expose_unselected_inputs() -> None:
         inputs.input("x")
 
 
-def test_domain_input_resolution_binds_only_inputs_without_normal_forms() -> None:
+def test_domain_input_resolution_binds_all_selected_inputs() -> None:
     request = _request()
-    second_input = replace(
-        request.program_inputs[0],
-        id="y",
-        normal_form=None,
-    )
+    second_input = DomainInput("y")
     selected_ids: list[tuple[str, ...]] = []
 
     def bind_inputs(
@@ -434,14 +220,12 @@ def test_domain_input_resolution_binds_only_inputs_without_normal_forms() -> Non
         ),
         program_inputs=(*request.program_inputs, second_input),
         program_input_binder=bind_inputs,
-        iteration_layout=_layout(DomainPointAxis("x", (1, 2, 3))),
     )
 
     inputs = request.resolve_program_inputs(("x", "y"), (0, 2), max_points=2)
 
-    assert selected_ids == [("y",)]
-    assert inputs.columns == (("x", (1, 3)), ("y", (0, 20)))
-    assert inputs.binder_input_ids == ("y",)
+    assert selected_ids == [("x", "y")]
+    assert inputs.columns == (("x", (0, 20)), ("y", (0, 20)))
 
 
 def test_compiler_can_absorb_point_varying_inputs() -> None:
@@ -454,7 +238,6 @@ def test_compiler_can_absorb_point_varying_inputs() -> None:
     )
 
     assert compilation.absorbed_input_ids == ("x",)
-    assert compilation.binder_input_ids == ("x",)
 
 
 def test_compiled_jobs_resolve_every_compiler_input_separately() -> None:
@@ -488,17 +271,13 @@ def test_compiled_jobs_resolve_every_compiler_input_separately() -> None:
         compiler_input_binder=bind_compiler_inputs,
     )
 
-    compilation = compiled_jobs(
+    compiled_jobs(
         request,
         max_points=2,
         compile_artifact=compile_artifact,
     )
 
-    assert compilation.compiler_input_ids == ("calibrations",)
     assert compiler_binds == [("calibrations",), ("calibrations",)]
-    assert lowered == []
-    for job in compilation.jobs:
-        job.take_artifact()
     assert lowered == [(10, 11), (12,)]
 
 
@@ -515,29 +294,13 @@ def test_input_resolution_accepts_an_empty_selection() -> None:
 
     request = replace(
         _request(),
-        program_inputs=(replace(_request().program_inputs[0], normal_form=None),),
         program_input_binder=bind_inputs,
     )
     assert request.resolve_program_inputs((), (0, 1), max_points=2).columns == ()
     selected = request.resolve_program_inputs(("x",), (0, 1), max_points=2)
 
     assert selected.columns == (("x", (0, 1)),)
-    assert selected.binder_input_ids == ("x",)
     assert calls == [("x",)]
-
-
-def test_compilation_rejects_concretely_bound_residual_input() -> None:
-    request = _request()
-    compilation = compiled_jobs(
-        request,
-        max_points=2,
-    )
-
-    with pytest.raises(ValueError, match="concretized a residual input"):
-        validate_domain_compilation(
-            request,
-            replace(compilation, binder_input_ids=("x",)),
-        )
 
 
 def test_compiled_artifact_inputs_are_absorbed_implicitly() -> None:
@@ -552,48 +315,10 @@ def test_compiled_artifact_inputs_are_absorbed_implicitly() -> None:
     assert compilation.absorbed_input_ids == ("x",)
 
 
-def test_compiler_can_absorb_dependency_closed_portable_transforms() -> None:
-    request = _request_with_transform()
-
-    compilation = compiled_jobs(
-        request,
-        max_points=2,
-        absorbed_transform_ids=("normalize",),
-    )
-
-    assert compilation.absorbed_input_ids == ()
-    assert compilation.absorbed_transform_ids == ("normalize",)
-
-
-def test_compiler_cannot_absorb_host_only_transforms() -> None:
-    request = _request_with_transform(portability="host_only")
-
-    with pytest.raises(ValueError, match="host-only"):
-        compiled_jobs(
-            request,
-            max_points=2,
-            absorbed_transform_ids=("normalize",),
-        )
-
-
-def test_compilation_absorption_must_select_known_transforms() -> None:
-    request = _request_with_transform()
-    compilation = compiled_jobs(
-        request,
-        max_points=2,
-    )
-
-    with pytest.raises(ValueError, match="known and follow typed order"):
-        validate_domain_compilation(
-            request,
-            replace(compilation, absorbed_transform_ids=("missing",)),
-        )
-
-
 def test_compilation_rejects_job_crossing_effect_region() -> None:
     request = _request()
     compilation = DomainCompilation(
-        jobs=(DomainCompiledJob("job-0", (0, 1, 2), lambda: object()),),
+        jobs=(DomainCompiledJob("job-0", (0, 1, 2), object()),),
     )
 
     with pytest.raises(ValueError, match="crosses a barrier region"):
@@ -603,7 +328,7 @@ def test_compilation_rejects_job_crossing_effect_region() -> None:
 def test_compilation_rejects_missing_logical_point() -> None:
     request = _request()
     compilation = DomainCompilation(
-        jobs=(DomainCompiledJob("job-0", (0, 1), lambda: object()),),
+        jobs=(DomainCompiledJob("job-0", (0, 1), object()),),
     )
 
     with pytest.raises(ValueError, match="cover every logical point exactly once"):

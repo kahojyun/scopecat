@@ -9,7 +9,6 @@ from scopecat.kernel.product_identity import ProductUseId
 from scopecat.measurements.values import (
     MeasurementValueCandidate,
     seal_measurement_values,
-    select_measurement_values,
 )
 from scopecat.records.parameter import Quantity
 from tests.testkit.measurement_assembly import (
@@ -18,57 +17,38 @@ from tests.testkit.measurement_assembly import (
 )
 
 
-def _selection(*, point_values: tuple[float, ...] = (0.0, 1.0), use_count: int = 3):
-    scenario = measurement_assembly_scenario(
+def _scenario(*, point_values: tuple[float, ...] = (0.0, 1.0), use_count: int = 3):
+    return measurement_assembly_scenario(
         point_values=point_values,
         use_count=use_count,
     )
-    selected = select_measurement_values(
-        scenario.catalog,
-        required_product_use_ids=tuple(use.id for use in scenario.uses),
-    )
-    return scenario, selected
 
 
 def _codes(error: CheckFailed | ProviderContractError) -> set[str]:
     return {problem.code for problem in error.problems}
 
 
-def test_selection_is_canonical_and_declaration_order_independent() -> None:
+def test_catalog_rejects_unsupported_scalar_measurement_dtype() -> None:
     scenario = measurement_assembly_scenario(use_count=3)
+    unsupported = replace(scenario.catalog.product_defs[0], dtype="bool")
 
-    selected = select_measurement_values(
-        scenario.catalog,
-        required_product_use_ids=tuple(use.id for use in reversed(scenario.uses)),
-    )
-
-    assert selected.product_use_ids == tuple(use.id for use in scenario.uses)
-
-
-def test_selection_rejects_duplicate_and_unknown_uses() -> None:
-    scenario = measurement_assembly_scenario(use_count=1)
-
-    with pytest.raises(CheckFailed) as duplicate:
-        select_measurement_values(
+    with pytest.raises(CheckFailed) as captured:
+        replace(
             scenario.catalog,
-            required_product_use_ids=(scenario.uses[0].id, scenario.uses[0].id),
-        )
-    with pytest.raises(CheckFailed) as unknown:
-        select_measurement_values(
-            scenario.catalog,
-            required_product_use_ids=(ProductUseId("foreign"),),
+            product_defs=(unsupported, *scenario.catalog.product_defs[1:]),
         )
 
-    assert "measurement_value_required_use_duplicate" in _codes(duplicate.value)
-    assert "measurement_value_required_use_unknown" in _codes(unknown.value)
+    assert "measurement_value_scalar_dtype_unsupported" in _codes(captured.value)
 
 
 def test_sealing_canonicalizes_candidate_order_and_copies_values() -> None:
-    scenario, selected = _selection()
+    scenario = _scenario()
     candidates = list(measurement_value_candidates(scenario, scenario.uses))
 
     values = seal_measurement_values(
-        selected, tuple(reversed(candidates)), points=scenario.points
+        scenario.catalog,
+        tuple(reversed(candidates)),
+        points=scenario.points,
     )
     exposed = candidates[0].value
     assert isinstance(exposed, Quantity)
@@ -97,7 +77,7 @@ def test_sealing_requires_one_exact_candidate_per_point_and_use(
     mode: str,
     code: str,
 ) -> None:
-    scenario, selected = _selection(use_count=2)
+    scenario = _scenario(use_count=2)
     candidates = list(measurement_value_candidates(scenario, scenario.uses))
     if mode == "missing":
         candidates.pop()
@@ -110,18 +90,18 @@ def test_sealing_requires_one_exact_candidate_per_point_and_use(
         )
 
     with pytest.raises(ProviderContractError) as captured:
-        seal_measurement_values(selected, candidates, points=scenario.points)
+        seal_measurement_values(scenario.catalog, candidates, points=scenario.points)
 
     assert code in _codes(captured.value)
 
 
 def test_sealing_rejects_values_outside_the_product_contract() -> None:
-    scenario, selected = _selection(point_values=(0.0,), use_count=1)
+    scenario = _scenario(point_values=(0.0,), use_count=1)
     point = scenario.linked_points.point_domain.points[0]
 
     with pytest.raises(ProviderContractError) as captured:
         seal_measurement_values(
-            selected,
+            scenario.catalog,
             (
                 MeasurementValueCandidate(
                     point.logical_id,
@@ -136,15 +116,23 @@ def test_sealing_rejects_values_outside_the_product_contract() -> None:
 
 
 def test_zero_points_and_empty_inventories_close_without_special_cases() -> None:
-    zero_scenario, zero_selected = _selection(point_values=(), use_count=1)
-    empty_scenario, empty_selected = _selection(use_count=0)
+    zero_scenario = _scenario(point_values=(), use_count=1)
+    empty_scenario = _scenario(use_count=0)
 
     assert (
-        seal_measurement_values(zero_selected, (), points=zero_scenario.points).values
+        seal_measurement_values(
+            zero_scenario.catalog,
+            (),
+            points=zero_scenario.points,
+        ).values
         == ()
     )
     assert (
-        seal_measurement_values(empty_selected, (), points=empty_scenario.points).values
+        seal_measurement_values(
+            empty_scenario.catalog,
+            (),
+            points=empty_scenario.points,
+        ).values
         == ()
     )
     assert zero_scenario.uses

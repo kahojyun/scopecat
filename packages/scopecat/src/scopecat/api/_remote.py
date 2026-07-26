@@ -28,10 +28,8 @@ from scopecat.daemon.wire import (
     AnalysisSaveCommand,
     RunAttachmentCommand,
 )
-from scopecat.measurements.results import MeasurementDataset
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot
-from scopecat.records.data_artifact import DataArrayArtifact, DataTableArtifact
 from scopecat.records.parameter_change import ParameterChangeProposal
 from scopecat.records.run import RunManifest
 from scopecat.records.run_request import RunRequest
@@ -39,8 +37,6 @@ from scopecat.runs.data import (
     RunArtifactBytesResult,
     RunArtifactJsonResult,
     RunArtifactTextResult,
-    RunDataArrayResult,
-    RunDataTableResult,
     RunMeasurementDatasetResult,
     RunRecordJsonResult,
 )
@@ -60,7 +56,7 @@ class RemoteRunOperations:
     def load_config(self, run_id: str) -> ConfigProfileSnapshot:
         return self.client.run_config(run_id).config
 
-    def load_request(self, run_id: str) -> RunRequest | None:
+    def load_request(self, run_id: str) -> RunRequest:
         return self.client.run_request(run_id).request
 
     def measurements(
@@ -69,13 +65,7 @@ class RemoteRunOperations:
         *,
         selector: str = "raw-measurements",
     ) -> RunMeasurementDatasetResult:
-        view = self.client.dataset_content(run_id, selector)
-        if not isinstance(view.content, MeasurementDataset):
-            raise ValueError("run dataset is not a measurement dataset")
-        return RunMeasurementDatasetResult(
-            dataset_entry=view.dataset,
-            dataset=view.content,
-        )
+        return self.client.dataset_content(run_id, selector)
 
     def save_analysis(
         self,
@@ -97,14 +87,14 @@ class RemoteRunOperations:
         if output_proposals != tuple(parameter_proposals):
             raise ValueError("analysis parameter proposals must match proposal outputs")
         receipt = self.client.save_analysis(
+            run_id,
             AnalysisSaveCommand(
-                run_id=run_id,
                 title=title,
                 analysis_key=analysis_key,
                 step_id=step_id,
                 inputs=tuple(_analysis_input_payload(item) for item in inputs),
                 outputs=payloads,
-            )
+            ),
         )
         return SavedAnalysis(
             record=receipt.record,
@@ -140,8 +130,8 @@ class RemoteRunOperations:
             filename = filename or source_path.name
         encoded = None if content is None else b64encode(content).decode("ascii")
         return self.client.attach(
+            run_id,
             RunAttachmentCommand(
-                run_id=run_id,
                 key=key,
                 kind=kind,
                 text=text,
@@ -149,8 +139,8 @@ class RemoteRunOperations:
                 filename=filename,
                 media_type=media_type,
                 metadata=dict(metadata or {}),
-            )
-        ).artifact
+            ),
+        )
 
     def artifact_bytes(
         self,
@@ -176,12 +166,11 @@ class RemoteRunOperations:
         *,
         expected_kind: str | None,
     ) -> RunArtifactTextResult:
-        view = self.client.artifact_text(
+        return self.client.artifact_text(
             run_id,
             selector,
             expected_kind=expected_kind,
         )
-        return RunArtifactTextResult(artifact=view.artifact, content=view.content)
 
     def artifact_json(
         self,
@@ -190,12 +179,11 @@ class RemoteRunOperations:
         *,
         expected_kind: str | None,
     ) -> RunArtifactJsonResult:
-        view = self.client.artifact_json(
+        return self.client.artifact_json(
             run_id,
             selector,
             expected_kind=expected_kind,
         )
-        return RunArtifactJsonResult(artifact=view.artifact, content=view.content)
 
     def record_json(
         self,
@@ -204,24 +192,11 @@ class RemoteRunOperations:
         *,
         expected_kind: str | None,
     ) -> RunRecordJsonResult:
-        view = self.client.record_json(
+        return self.client.record_json(
             run_id,
             selector,
             expected_kind=expected_kind,
         )
-        return RunRecordJsonResult(record=view.record, content=view.content)
-
-    def data_table(self, run_id: str, selector: str) -> RunDataTableResult:
-        view = self.client.dataset_content(run_id, selector)
-        if not isinstance(view.content, DataTableArtifact):
-            raise ValueError("run dataset is not a data table")
-        return RunDataTableResult(dataset_entry=view.dataset, table=view.content)
-
-    def data_array(self, run_id: str, selector: str) -> RunDataArrayResult:
-        view = self.client.dataset_content(run_id, selector)
-        if not isinstance(view.content, DataArrayArtifact):
-            raise ValueError("run dataset is not a data array")
-        return RunDataArrayResult(dataset_entry=view.dataset, array=view.content)
 
 
 class _JsonValue(RootModel[JsonValue]):
@@ -267,14 +242,10 @@ def _analysis_output_payload(value: AnalysisOutput) -> AnalysisOutputPayload:
             kind=value.kind,
             title=value.title,
             artifact_kind=value.content.kind,
-            content_base64=b64encode(value.content.content_bytes()).decode("ascii"),
+            content_base64=b64encode(value.content.content).decode("ascii"),
             artifact_id=value.content.artifact_id,
             filename=value.content.filename,
             media_type=value.content.media_type,
-            source_default_filename=value.content.source_default_filename(),
-            source_default_extension=value.content.source_default_extension(),
-            source_default_media_type=value.content.source_default_media_type(),
-            source_content_hash=value.content.source_content_hash(),
             artifact_metadata=_JSON_MAPPING.validate_python(value.content.metadata),
             metadata=metadata,
         )

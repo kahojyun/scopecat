@@ -11,14 +11,12 @@ _FORBIDDEN_IMPORT_PREFIXES = (
     "scopecat.measurements.host_transforms",
     "scopecat.measurements.projection",
     "scopecat.measurements.transform_model",
-    "scopecat.measurements.transform_verification",
     "scopecat.measurements.values",
     "scopecat.sdk.domain.invocation",
 )
 _FORBIDDEN_NAMES = {
     "context_compiler_id_internal",
     "context_linked_points_internal",
-    "domain_receipt_identity",
     "linked_points_for_preparation_internal",
     "point_id",
     "product_def_for_preparation_internal",

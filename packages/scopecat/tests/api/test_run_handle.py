@@ -42,7 +42,7 @@ def simple_frequency_scan(*, subject: str) -> ExperimentInvocation:
     return simple_frequency_scan_template().bind(subject=subject)
 
 
-def simple_frequency_scan_template() -> ExperimentTemplate:
+def simple_frequency_scan_template() -> ExperimentTemplate[...]:
     def definition(
         subject: Annotated[
             authoring.Input[sc.EntityRef | str],
@@ -68,12 +68,10 @@ def simple_frequency_scan_template() -> ExperimentTemplate:
     return authoring.template(
         id="test.session.simple_frequency_scan",
         kind="simple_frequency_scan",
-        label="Session test frequency scan",
     )(definition)
 
 
 def test_in_process_lab_runs_experiment_spec(tmp_path: Path) -> None:
-    assert simple_frequency_scan_template().label == "Session test frequency scan"
     lab = in_process_lab(
         tmp_path,
         config_profile=EXAMPLE_DIR / "config-profile.json",

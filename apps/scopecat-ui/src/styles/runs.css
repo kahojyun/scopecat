@@ -1,6 +1,6 @@
 .status-strip {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   margin-bottom: 10px;
   overflow: hidden;
   border: 1px solid var(--line);
@@ -767,8 +767,7 @@
 }
 
 .resource-list,
-.content-list,
-.catalog-list {
+.content-list {
   display: grid;
   gap: 7px;
   margin: 0;
@@ -777,8 +776,7 @@
 }
 
 .resource-list li,
-.content-list li,
-.catalog-list li {
+.content-list li {
   display: flex;
   gap: 9px;
   align-items: center;
@@ -790,8 +788,7 @@
 }
 
 .resource-icon,
-.content-role,
-.catalog-symbol {
+.content-role {
   display: grid;
   width: 28px;
   height: 28px;
@@ -803,8 +800,7 @@
 }
 
 .resource-list li > span:nth-child(2),
-.content-list li > span:nth-child(2),
-.catalog-list li > span:nth-child(2) {
+.content-list li > span:nth-child(2) {
   display: grid;
   min-width: 0;
   flex: 1;
@@ -812,8 +808,7 @@
 }
 
 .resource-list strong,
-.content-list strong,
-.catalog-list strong {
+.content-list strong {
   overflow: hidden;
   font-size: 0.7rem;
   font-weight: 650;
@@ -822,8 +817,7 @@
 }
 
 .resource-list small,
-.content-list small,
-.catalog-list small {
+.content-list small {
   overflow: hidden;
   color: var(--text-dim);
   font-size: 0.6rem;
@@ -1148,29 +1142,6 @@
   color: #aebfd0;
   font-size: 0.6rem;
   line-height: 1.5;
-}
-
-.catalog-list li.current {
-  border-color: rgb(var(--accent-rgb) / 22%);
-  background: var(--accent-soft);
-}
-
-.catalog-list li > svg {
-  flex: none;
-  color: var(--accent);
-}
-
-.catalog-revision {
-  overflow: hidden;
-  margin: 11px 2px 0;
-  color: var(--text-dim);
-  font-size: 0.58rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.catalog-revision code {
-  color: var(--text-soft);
 }
 
 .inline-empty {

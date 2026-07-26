@@ -65,18 +65,18 @@ describe("project daemon reads", () => {
         Promise.resolve(
           jsonResponse({
             control: {
-              state: "terminal",
-              outcome: { result: "succeeded", certainty: "known" },
+              state: "closed",
               admission: {
                 run_id: "run/1",
-                experiment_id: "ramsey",
-                execution_mode: "managed",
-                config_content_hash: "sha256:config",
+                plan: {
+                  experiment_id: "ramsey",
+                  experiment_kind: "scratch",
+                  point_count: 1,
+                },
               },
             },
             manifest: {
               run_id: "run/1",
-              lifecycle: "terminal",
               config_content_hash: "sha256:config",
               outcome: { result: "succeeded", certainty: "known" },
               contents: [
@@ -105,6 +105,11 @@ describe("project daemon reads", () => {
 
     const run = await getRun("run/1");
 
+    expect(run).toMatchObject({
+      status: "succeeded",
+      result: "succeeded",
+      certainty: "known",
+    });
     expect(run.contents).toEqual([
       {
         id: "fit-notes",
@@ -125,6 +130,63 @@ describe("project daemon reads", () => {
         filename: undefined,
       },
     ]);
+  });
+
+  it("prioritizes scheduler attention over a terminal outcome", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          jsonResponse({
+            control: {
+              state: "attention_required",
+              attention_reason: "executor_lease_expired",
+              admission: {
+                run_id: "run/attention",
+                plan: {
+                  experiment_id: "ramsey",
+                  experiment_kind: "scratch",
+                  point_count: 1,
+                },
+              },
+            },
+            manifest: {
+              run_id: "run/attention",
+              config_content_hash: "sha256:config",
+              outcome: { result: "failed", certainty: "indeterminate" },
+              contents: [],
+            },
+            resources: [],
+          }),
+        ),
+      ),
+    );
+
+    await expect(getRun("run/attention")).resolves.toMatchObject({
+      status: "attention_required",
+      attentionReason: "executor_lease_expired",
+    });
+  });
+
+  it("derives nonterminal status from scheduler ownership", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          jsonResponse({
+            items: [runSummary("run/queued", "queued"), runSummary("run/leased", "leased")],
+            previous_cursor: null,
+          }),
+        ),
+      ),
+    );
+
+    await expect(getRuns()).resolves.toMatchObject({
+      items: [
+        { runId: "run/leased", status: "running" },
+        { runId: "run/queued", status: "accepted" },
+      ],
+    });
   });
 
   it("reads persisted analyses and typed run content", async () => {
@@ -169,17 +231,6 @@ describe("project daemon reads", () => {
           }),
         );
       }
-      if (path.includes("/datasets/")) {
-        return Promise.resolve(
-          jsonResponse({
-            dataset: dataTable(),
-            content: {
-              format_version: "scopecat.data_table.v0",
-              rows: [{ frequency: 5.1 }],
-            },
-          }),
-        );
-      }
       return Promise.resolve(
         jsonResponse({
           record: {
@@ -204,7 +255,6 @@ describe("project daemon reads", () => {
       label: "Fit review",
       detail: "analysis",
     });
-    const table = await getRunContent("run/1", dataTable());
 
     expect(analyses[0]).toMatchObject({
       id: "analysis-fit",
@@ -221,16 +271,11 @@ describe("project daemon reads", () => {
       format: "json",
       content: { title: "Fit review" },
     });
-    expect(table).toMatchObject({
-      format: "json",
-      content: { rows: [{ frequency: 5.1 }] },
-    });
     expect(fetchMock.mock.calls.map(([path]) => String(path))).toEqual([
       "/api/v1/runs/run%2F1/analyses",
       "/api/v1/runs/run%2F1/artifacts/fit-notes/text?expected_kind=attachment",
       "/api/v1/runs/run%2F1/artifacts/fit-result/json?expected_kind=result",
       "/api/v1/runs/run%2F1/records/analysis-fit/json?expected_kind=analysis",
-      "/api/v1/runs/run%2F1/datasets/fit-table",
     ]);
   });
 
@@ -255,12 +300,21 @@ describe("project daemon reads", () => {
         jsonResponse({
           items: [
             {
-              sequence: path.includes("before=") ? 1 : 2,
-              state: "accepted",
-              admission: {
+              control: {
+                sequence: path.includes("before=") ? 1 : 2,
+                state: "queued",
+                admission: {
+                  run_id: path.includes("before=") ? "run-old" : "run-new",
+                  plan: {
+                    experiment_id: "ramsey",
+                    experiment_kind: "scratch",
+                    point_count: 1,
+                  },
+                },
+              },
+              manifest: {
                 run_id: path.includes("before=") ? "run-old" : "run-new",
-                experiment_id: "ramsey",
-                execution_mode: "managed",
+                contents: [],
               },
             },
           ],
@@ -310,6 +364,27 @@ describe("project daemon reads", () => {
   });
 });
 
+function runSummary(runId: string, state: "queued" | "leased") {
+  return {
+    control: {
+      sequence: state === "leased" ? 2 : 1,
+      state,
+      admission: {
+        run_id: runId,
+        plan: {
+          experiment_id: "ramsey",
+          experiment_kind: "scratch",
+          point_count: 1,
+        },
+      },
+    },
+    manifest: {
+      run_id: runId,
+      contents: [],
+    },
+  };
+}
+
 function textArtifact(): ContentEntry {
   return {
     id: "fit-notes",
@@ -331,16 +406,6 @@ function jsonArtifact(): ContentEntry {
     detail: "application/json",
     mediaType: "application/json",
     filename: "fit.json",
-  };
-}
-
-function dataTable(): ContentEntry {
-  return {
-    id: "fit-table",
-    role: "dataset",
-    kind: "data_table",
-    label: "Fit table",
-    detail: "data_table",
   };
 }
 

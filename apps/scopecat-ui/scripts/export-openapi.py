@@ -11,7 +11,6 @@ from scopecat_server.transport import DaemonApplicationContract, create_app
 OUTPUT = Path(__file__).parent.parent / ".generated" / "ui-api.openapi.json"
 
 _OPERATIONS = {
-    ("/api/v1/catalog", "get"),
     ("/api/v1/config-registry", "get"),
     ("/api/v1/config-registry/active", "post"),
     ("/api/v1/config-registry/candidates/activate", "post"),

@@ -11,23 +11,15 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
-from scopecat.compiler.relations.model import (
-    RowScopeId,
-)
 from scopecat.compiler.relations.uses import (
     RelationUse,
     RelationUseId,
     relation_use,
 )
-from scopecat.compiler.semantic.compute_result import ComputeResultRef
+from scopecat.compiler.semantic.compute_result import ComputeOutput, ComputeResultRef
 from scopecat.compiler.semantic.model import (
-    AcquireId,
-    ActionId,
-    DomainInputPortDef,
-    DomainProgramId,
-    DomainResourcePortDef,
-    DomainResultPortDef,
-    ImplementationCatalog,
+    AcquireEffect,
+    LocalPythonImplementation,
     MeasurementTransformId,
     OperationId,
     ValueId,
@@ -36,38 +28,31 @@ from scopecat.compiler.semantic.operation_contract import OperationContract
 from scopecat.compiler.semantic.value_expressions import (
     ScalarOrSeriesValueExpr,
     ScalarValueExpr,
-    TableValueExpr,
     ValueExpr,
 )
-from scopecat.compiler.typed.action import ActionFieldSpec, ActionSpec
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.products import (
     ProductAxisDef,
     ProductDef,
-    ProductKind,
 )
 from scopecat.compiler.typed.records import RecordUse
 from scopecat.compiler.typed.state import (
-    ForEachStateSpec,
     LogicalStateResourceTarget,
     SetStateSpec,
-    StateSpecVariant,
 )
-from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
+from scopecat.domain.program import DomainProgramDef
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.product_identity import (
     ProductId,
     ProductUse,
     ProductUseId,
-    product_id,
     product_use,
 )
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
 )
 from scopecat.kernel.value_types import ValueType
-from scopecat.measurements.results import MeasurementDType
 from scopecat.measurements.semantics import (
     MeasurementTransformSemanticContract,
 )
@@ -118,35 +103,6 @@ def _empty_compute_inputs() -> dict[str, ComputeInput]:
     return {}
 
 
-def _empty_metadata() -> FrozenMapping[str, JsonValue]:
-    return FrozenMapping()
-
-
-@dataclass(frozen=True, slots=True)
-class TypedDomainProgram:
-    """Opaque domain program retained as trusted frozen transient IR."""
-
-    id: DomainProgramId
-    dialect_id: str
-    dialect_version: str
-    body: object = field(repr=False)
-    input_ports: tuple[DomainInputPortDef, ...] = ()
-    compiler_input_ports: tuple[DomainInputPortDef, ...] = ()
-    result_ports: tuple[DomainResultPortDef, ...] = ()
-    resource_ports: tuple[DomainResourcePortDef, ...] = ()
-
-    def __post_init__(self) -> None:
-        if not self.dialect_id or not self.dialect_version:
-            msg = "domain program dialect id and version must be non-empty"
-            raise ValueError(msg)
-
-    def __deepcopy__(
-        self,
-        _memo: dict[int, object] | None = None,
-    ) -> TypedDomainProgram:
-        return self
-
-
 @dataclass(frozen=True, slots=True)
 class TypedDomainResultBinding:
     """Exact logical product occurrences produced by one named domain result."""
@@ -166,7 +122,7 @@ class TypedDomainExecution:
     """One domain program with executable plan inputs and result bindings."""
 
     id: str
-    program: TypedDomainProgram
+    program: DomainProgramDef
     inputs: Mapping[str, ValueInput] = field(default_factory=_empty_value_inputs)
     compiler_inputs: Mapping[str, ValueInput] = field(
         default_factory=_empty_value_inputs
@@ -185,61 +141,7 @@ class TypedDomainExecution:
         object.__setattr__(self, "resources", dict(self.resources))
 
 
-@dataclass(frozen=True, slots=True)
-class AcquireProductSpec:
-    """Provider-facing mapping for one product in an acquisition."""
-
-    product_id: ProductId
-    provider_key: str
-    metadata: Mapping[str, JsonValue] = field(default_factory=_empty_metadata)
-
-    def __post_init__(self) -> None:
-        if not self.provider_key:
-            raise ValueError("acquired product provider key must be non-empty")
-        object.__setattr__(
-            self,
-            "metadata",
-            freeze_json_mapping(
-                self.metadata,
-                path=f"acquired product {self.product_id.qualified_name!r} metadata",
-            ),
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class AcquireSpec:
-    """Ordered local acquisition of one or more logical products.
-
-    It is deliberately smaller than a domain program: providers own the
-    ordinary arm/trigger/read protocol behind each product, while an explicit
-    domain execution models a coordinated program with its own typed boundary.
-    Every product is acquired through one explicitly named capability on the
-    same logical port; product provider keys never infer or redirect that
-    capability.
-    """
-
-    id: AcquireId
-    resource_port_id: LogicalResourcePortId
-    capability_id: str
-    products: tuple[AcquireProductSpec, ...]
-
-    def __post_init__(self) -> None:
-        if not self.products:
-            raise ValueError("acquisitions require at least one product")
-        if not self.capability_id:
-            raise ValueError("acquisition capability must be non-empty")
-        if len(self.product_ids) != len(set(self.product_ids)):
-            raise ValueError("acquisition product ids must be unique")
-        provider_keys = tuple(product.provider_key for product in self.products)
-        if len(provider_keys) != len(set(provider_keys)):
-            raise ValueError("acquisition provider keys must be unique")
-
-    @property
-    def product_ids(self) -> tuple[ProductId, ...]:
-        return tuple(product.product_id for product in self.products)
-
-
-type CoreEffect = StateSpecVariant | ActionSpec | TypedDomainExecution | AcquireSpec
+type CoreEffect = SetStateSpec | TypedDomainExecution | AcquireEffect
 
 
 @dataclass(frozen=True, slots=True)
@@ -281,20 +183,13 @@ class TypedMeasurementTransform:
 
 
 @dataclass(frozen=True, slots=True)
-class TypedComputeOutput:
-    """One explicitly identified value defined by a typed compute node."""
-
-    id: ValueId
-    value_type: ValueType
-
-
-@dataclass(frozen=True, slots=True)
 class TypedComputeNode:
     """One typed pure-code node in the expanded compute graph."""
 
     id: OperationId
     contract: OperationContract
-    result: TypedComputeOutput
+    implementation: LocalPythonImplementation
+    result: ComputeOutput
     inputs: Mapping[str, ComputeInput] = field(default_factory=_empty_compute_inputs)
 
     def __post_init__(self) -> None:
@@ -333,26 +228,14 @@ class CoreProgram:
     compute_nodes: tuple[TypedComputeNode, ...] = ()
     effects: tuple[CoreEffect, ...] = ()
     measurement_transforms: tuple[TypedMeasurementTransform, ...] = ()
-    implementation_catalog: ImplementationCatalog = field(
-        default_factory=ImplementationCatalog
-    )
     product_defs: tuple[ProductDef, ...] = ()
     product_uses: tuple[ProductUse, ...] = ()
     record_uses: tuple[RecordUse, ...] = ()
-    metadata: Mapping[str, JsonValue] = field(default_factory=_empty_metadata)
 
     def __post_init__(self) -> None:
         if not self.id or not self.kind:
             msg = "core program id and kind must be non-empty"
             raise ValueError(msg)
-        object.__setattr__(
-            self,
-            "metadata",
-            freeze_json_mapping(
-                self.metadata,
-                path=f"core program {self.id!r} metadata",
-            ),
-        )
 
 
 def core_domain_executions(program: CoreProgram) -> tuple[TypedDomainExecution, ...]:
@@ -361,21 +244,15 @@ def core_domain_executions(program: CoreProgram) -> tuple[TypedDomainExecution, 
     )
 
 
-def core_acquisitions(program: CoreProgram) -> tuple[AcquireSpec, ...]:
+def core_acquisitions(program: CoreProgram) -> tuple[AcquireEffect, ...]:
     return tuple(
-        effect for effect in program.effects if isinstance(effect, AcquireSpec)
+        effect for effect in program.effects if isinstance(effect, AcquireEffect)
     )
 
 
-def core_actions(program: CoreProgram) -> tuple[ActionSpec, ...]:
-    return tuple(effect for effect in program.effects if isinstance(effect, ActionSpec))
-
-
-def core_state(program: CoreProgram) -> tuple[StateSpecVariant, ...]:
+def core_state(program: CoreProgram) -> tuple[SetStateSpec, ...]:
     return tuple(
-        effect
-        for effect in program.effects
-        if isinstance(effect, SetStateSpec | ForEachStateSpec)
+        effect for effect in program.effects if isinstance(effect, SetStateSpec)
     )
 
 
@@ -400,45 +277,6 @@ def set_state_field(
     )
 
 
-def bind_each(
-    relation: TableValueExpr,
-    *state: StateSpecVariant,
-    row_scope_id: RowScopeId,
-) -> ForEachStateSpec:
-    return ForEachStateSpec(
-        relation_use=relation_use(relation),
-        state=tuple(state),
-        row_scope_id=row_scope_id,
-    )
-
-
-def invoke_action(
-    id: ActionId,  # noqa: A002
-    *,
-    resource_port_id: LogicalResourcePortId,
-    capability_id: str,
-    fields: Mapping[str, ScalarValueExpr | ComputeResultRef] | None = None,
-) -> ActionSpec:
-    """Build one ordered instrument action invoked for every point."""
-
-    return ActionSpec(
-        id=id,
-        resource_port_id=resource_port_id,
-        capability_id=capability_id,
-        fields=tuple(
-            ActionFieldSpec(
-                id=field_id,
-                value_use=(
-                    value
-                    if isinstance(value, ComputeResultRef)
-                    else relation_use(value)
-                ),
-            )
-            for field_id, value in (fields or {}).items()
-        ),
-    )
-
-
 def product_axis(
     id: str,  # noqa: A002
     *,
@@ -458,26 +296,6 @@ def product_axis(
 
 def shot_axis(size: int) -> ProductAxisDef:
     return product_axis("shot", size=size, kind="shot", unit="count")
-
-
-def product_output(
-    id: str | ProductId,  # noqa: A002
-    *,
-    kind: ProductKind = "observable",
-    unit: str | None = None,
-    dtype: MeasurementDType = "float64",
-    axes: Sequence[ProductAxisDef] = (),
-    metadata: Mapping[str, JsonValue] | None = None,
-) -> ProductDef:
-    selected_id = id if isinstance(id, ProductId) else product_id(id)
-    return ProductDef(
-        id=selected_id,
-        kind=kind,
-        unit=unit,
-        dtype=dtype,
-        axes=tuple(axes),
-        metadata=metadata or {},
-    )
 
 
 def record_product(

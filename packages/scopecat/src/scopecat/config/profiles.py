@@ -11,13 +11,10 @@ from scopecat.kernel.errors import DataIntegrityError, NotFound, StorageError
 from scopecat.kernel.problems import (
     ExternalLocation,
     Problem,
-    ProblemCategory,
-    ProblemImpact,
     ProblemPhase,
 )
 from scopecat.records.config import (
     ConfigProfileSnapshot,
-    EnvironmentSpec,
     SystemSpec,
     snapshot_config_profile,
 )
@@ -34,7 +31,6 @@ class ConfigProfileManifest(BaseModel):
     )
     id: str
     system_ref: str
-    environment_ref: str
     parameter_snapshot_ref: str
 
 
@@ -50,7 +46,6 @@ def load_config_profile(path: str | Path) -> ConfigProfileSnapshot:
     )
     base_dir = profile_path.parent
     system_path = _resolve_profile_ref(base_dir, profile.system_ref)
-    environment_path = _resolve_profile_ref(base_dir, profile.environment_ref)
     parameter_snapshot_path = _resolve_profile_ref(
         base_dir, profile.parameter_snapshot_ref
     )
@@ -59,12 +54,6 @@ def load_config_profile(path: str | Path) -> ConfigProfileSnapshot:
         SystemSpec,
         code_prefix="config.system",
         label="system specification",
-    )
-    environment = _load_config_input(
-        environment_path,
-        EnvironmentSpec,
-        code_prefix="config.environment",
-        label="environment specification",
     )
     parameter_snapshot = _load_config_input(
         parameter_snapshot_path,
@@ -76,7 +65,6 @@ def load_config_profile(path: str | Path) -> ConfigProfileSnapshot:
         return snapshot_config_profile(
             profile_id=profile.id,
             system=system,
-            environment=environment,
             parameter_snapshot=parameter_snapshot,
         )
     except ValidationError as error:
@@ -84,7 +72,6 @@ def load_config_profile(path: str | Path) -> ConfigProfileSnapshot:
             [
                 _config_problem(
                     code="config.snapshot.invalid",
-                    category=ProblemCategory.DATA_INTEGRITY,
                     message="config profile inputs do not form a valid snapshot",
                     path=profile_path,
                 )
@@ -113,7 +100,6 @@ def _load_config_input[TModel: BaseModel](
             [
                 _config_problem(
                     code=f"{code_prefix}.not_found",
-                    category=ProblemCategory.NOT_FOUND,
                     message=f"{label} was not found",
                     path=path,
                 )
@@ -124,7 +110,6 @@ def _load_config_input[TModel: BaseModel](
             [
                 _config_problem(
                     code=f"{code_prefix}.not_file",
-                    category=ProblemCategory.DATA_INTEGRITY,
                     message=f"{label} is not a readable file",
                     path=path,
                 )
@@ -135,7 +120,6 @@ def _load_config_input[TModel: BaseModel](
             [
                 _config_problem(
                     code="config.read_failed",
-                    category=ProblemCategory.STORAGE,
                     message="config input could not be read",
                     path=path,
                 )
@@ -146,7 +130,6 @@ def _load_config_input[TModel: BaseModel](
             [
                 _config_problem(
                     code=f"{code_prefix}.invalid_encoding",
-                    category=ProblemCategory.DATA_INTEGRITY,
                     message=f"{label} is not valid text",
                     path=path,
                 )
@@ -160,7 +143,6 @@ def _load_config_input[TModel: BaseModel](
             [
                 _config_problem(
                     code=f"{code_prefix}.invalid",
-                    category=ProblemCategory.DATA_INTEGRITY,
                     message=f"{label} does not match its schema",
                     path=path,
                 )
@@ -171,14 +153,11 @@ def _load_config_input[TModel: BaseModel](
 def _config_problem(
     *,
     code: str,
-    category: ProblemCategory,
     message: str,
     path: Path,
 ) -> Problem:
     return Problem(
         code=code,
-        impact=ProblemImpact.BLOCKING,
-        category=category,
         phase=ProblemPhase.CONFIGURATION,
         message=message,
         location=ExternalLocation(uri=str(path)),

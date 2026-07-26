@@ -1,14 +1,16 @@
 """Configuration-registry use cases and persistence ports.
 
 The registry stores named configuration snapshots under the project-local
-``config-registry`` tree and maintains an ``active`` selector for later runs.
-Entries can be registered directly from a ``ConfigProfileSnapshot`` or from a
-candidate configuration. Activating an entry records the previous active
-entry so rollback can restore it without depending on external state.
+``config-registry`` tree. Its append-only activation log projects the active
+entry for later runs and retains enough history for rollback without another
+durable selector. Entries can be registered directly from a
+``ConfigProfileSnapshot`` or from a candidate configuration.
 
 Runs started from a registry entry carry source coordinates on the run
 manifest. Reporting code can then show which registry selector and entry were
-used without mixing run lifecycle data into the config snapshot.
+used without mixing run lifecycle data into the config snapshot. Candidate
+evidence is verified and frozen at registration; later review events do not
+retroactively revoke committed entries.
 """
 
 from __future__ import annotations
@@ -53,14 +55,11 @@ from scopecat.kernel.errors import (
 from scopecat.kernel.problems import (
     ModelLocation,
     Problem,
-    ProblemCategory,
-    ProblemImpact,
     ProblemLocation,
     ProblemPhase,
     StorageLocation,
-    has_blocking_problems,
 )
-from scopecat.planning.validation import validate_config
+from scopecat.planning.validation import validate_config_profile
 from scopecat.records.analysis import AnalysisRecord
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import (
@@ -89,6 +88,25 @@ SAFE_ENTRY_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 class _ValidatedCandidateSource:
     config: ConfigProfileSnapshot
     source: CandidateConfigRegistrySource
+
+
+@dataclass(frozen=True, slots=True)
+class ConfigRegistryEntrySnapshot:
+    entry: ConfigRegistryEntry
+    config: ConfigProfileSnapshot
+
+
+@dataclass(frozen=True, slots=True)
+class ConfigRegistrySnapshot:
+    entries: tuple[ConfigRegistryEntry, ...]
+    active_state: ConfigRegistryActiveState | None
+
+
+@dataclass(frozen=True, slots=True)
+class ActiveConfigRegistrySnapshot:
+    entry: ConfigRegistryEntry
+    active_state: ConfigRegistryActiveState
+    config: ConfigProfileSnapshot
 
 
 @dataclass(frozen=True, slots=True)
@@ -233,7 +251,6 @@ def _register_manual_config_draft_locked(
         raise _registry_failure(
             Conflict,
             code="config_registry.config_draft_result_changed",
-            category=ProblemCategory.CONFLICT,
             message="config draft result changed since it was previewed",
             location=_registry_model_location("expected_result_content_hash"),
             details={
@@ -285,7 +302,6 @@ def _check_manual_config_draft_locked(
         raise _registry_failure(
             Conflict,
             code="config_registry.config_draft_base_changed",
-            category=ProblemCategory.CONFLICT,
             message="config draft base is no longer the active entry",
             location=_registry_model_location("base_entry_id"),
             related_locations=(_registry_storage_location(work.registry.active_ref),),
@@ -296,12 +312,11 @@ def _check_manual_config_draft_locked(
                 "actual_content_hash": state.active_entry_content_hash,
             },
         )
-    entry = _load_config_registry_entry_locked(entry_id=base_entry_id, work=work)
-    _validate_active_entry_identity(work.registry, state, entry)
-    base = _read_entry_config(work.registry, entry)
-    check = ConfigDraft(base).apply(*updates).check(candidate_id=candidate_id)
+    loaded = _load_config_registry_entry_locked(entry_id=base_entry_id, work=work)
+    _validate_active_entry_identity(work.registry, state, loaded.entry)
+    check = ConfigDraft(loaded.config).apply(*updates).check(candidate_id=candidate_id)
     return ManualConfigDraftResult(
-        base_entry=entry,
+        base_entry=loaded.entry,
         base_generation=state.generation,
         check=check,
     )
@@ -398,35 +413,6 @@ def _register_config_profile_locked(
     )
 
 
-def register_candidate_config(
-    *,
-    config: ConfigProfileSnapshot,
-    unit_of_work: ConfigRegistryUnitOfWorkFactory,
-    entry_id: str,
-    registered_by: str,
-    run_id: str,
-    proposal_ids: Sequence[str],
-    base_config_content_hash: ConfigContentHash,
-    note: str = "",
-) -> ConfigRegistryEntry:
-    _validate_entry_id(entry_id)
-    _validate_required_text(registered_by, field="registered_by")
-    _validate_required_text(run_id, field="run_id")
-    for proposal_id in proposal_ids:
-        _validate_required_text(proposal_id, field="proposal_ids")
-    with unit_of_work() as work:
-        return _register_candidate_config_locked(
-            config=config,
-            work=work,
-            entry_id=entry_id,
-            registered_by=registered_by,
-            run_id=run_id,
-            proposal_ids=proposal_ids,
-            base_config_content_hash=base_config_content_hash,
-            note=note,
-        )
-
-
 def register_and_activate_candidate_config(
     *,
     config: ConfigProfileSnapshot,
@@ -494,7 +480,6 @@ def _register_candidate_config_locked(
         raise _registry_failure(
             CheckFailed,
             code="config_registry.candidate_config_missing_proposals",
-            category=ProblemCategory.INVALID_INPUT,
             message="candidate config registration requires parameter proposals",
             location=_registry_model_location("proposal_ids"),
         )
@@ -529,6 +514,8 @@ def _validate_candidate_source_records(
     base_config_content_hash: ConfigContentHash,
     requested_config: ConfigProfileSnapshot,
 ) -> _ValidatedCandidateSource:
+    """Validate a candidate and capture its registration-time evidence."""
+
     source_manifest = storage.read_manifest(run_id)
     source_config = storage.read_config_profile_snapshot(run_id)
     source_config_hash = config_content_hash(source_config)
@@ -536,7 +523,6 @@ def _validate_candidate_source_records(
         raise _registry_failure(
             Conflict,
             code="config_registry.candidate_base_mismatch",
-            category=ProblemCategory.CONFLICT,
             message="candidate base config does not match its source run snapshot",
             location=_registry_model_location("base_config_content_hash"),
             related_locations=(
@@ -554,7 +540,6 @@ def _validate_candidate_source_records(
         raise _registry_failure(
             CheckFailed,
             code="config_registry.candidate_duplicate_proposal",
-            category=ProblemCategory.INVALID_INPUT,
             message="candidate config proposal ids must be unique",
             location=_registry_model_location("proposal_ids"),
         )
@@ -584,7 +569,6 @@ def _validate_candidate_source_records(
             raise _registry_failure(
                 DataIntegrityError,
                 code="config_registry.candidate_proposal_mismatch",
-                category=ProblemCategory.DATA_INTEGRITY,
                 message="candidate proposal does not match its source config",
                 location=_registry_storage_location(proposal_ref, run_id=run_id),
                 related_locations=(_registry_model_location("proposal_ids"),),
@@ -614,7 +598,6 @@ def _validate_candidate_source_records(
             raise _registry_failure(
                 DataIntegrityError,
                 code="config_registry.candidate_analysis_mismatch",
-                category=ProblemCategory.DATA_INTEGRITY,
                 message="candidate proposal is not owned by its producing analysis",
                 location=_registry_storage_location(analysis_ref, run_id=run_id),
                 related_locations=(
@@ -641,7 +624,6 @@ def _validate_candidate_source_records(
         raise _registry_failure(
             DataIntegrityError,
             code="config_registry.candidate_derivation_mismatch",
-            category=ProblemCategory.DATA_INTEGRITY,
             message="candidate config cannot be derived from its durable proposals",
             location=_registry_model_location("proposal_ids"),
         ) from error
@@ -656,7 +638,6 @@ def _validate_candidate_source_records(
         raise _registry_failure(
             Conflict,
             code="config_registry.candidate_derivation_mismatch",
-            category=ProblemCategory.CONFLICT,
             message="candidate config is not derived from its durable proposals",
             location=_registry_model_location("proposal_ids"),
         )
@@ -694,7 +675,6 @@ def _candidate_approval_evidence(
             raise _registry_failure(
                 DataIntegrityError,
                 code="config_registry.candidate_approval_identity_mismatch",
-                category=ProblemCategory.DATA_INTEGRITY,
                 message="candidate approval identity does not match its run record",
                 location=_registry_storage_location(decision_ref, run_id=run_id),
                 related_locations=(_registry_model_location("proposal_ids"),),
@@ -711,7 +691,6 @@ def _candidate_approval_evidence(
             raise _registry_failure(
                 Conflict,
                 code="config_registry.candidate_proposal_not_approved",
-                category=ProblemCategory.CONFLICT,
                 message="candidate proposal latest decision is not approved",
                 location=_registry_model_location("proposal_ids"),
                 details={"proposal_id": proposal_id, "latest_decision": latest},
@@ -739,113 +718,61 @@ def _record_content_hash(model: BaseModel) -> EvidenceContentHash:
         raise _registry_failure(
             DataIntegrityError,
             code="config_registry.evidence_not_serializable",
-            category=ProblemCategory.DATA_INTEGRITY,
             message="candidate evidence cannot be represented durably",
             location=_registry_model_location("source"),
         ) from error
     return "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
-def _validate_derived_entry_source_locked(
-    *,
-    work: ConfigRegistryUnitOfWork,
-    entry: ConfigRegistryEntry,
-    config: ConfigProfileSnapshot,
-) -> None:
-    if isinstance(entry.source, ManualConfigDraftRegistrySource):
-        base_entry = _load_committed_config_registry_entry_locked(
-            entry_id=entry.source.base_entry_id,
-            work=work,
-        )
-        if base_entry.content_hash != entry.source.base_config_content_hash:
-            raise _registry_failure(
-                DataIntegrityError,
-                code="config_registry.config_draft_base_mismatch",
-                category=ProblemCategory.DATA_INTEGRITY,
-                message="manual config draft base no longer matches its source",
-                location=_registry_model_location("entries", entry.id, "source"),
-                details={"entry_id": entry.id},
-            )
-        _read_entry_config(work.registry, base_entry)
-        return
-    if not isinstance(entry.source, CandidateConfigRegistrySource):
-        return
-    validated = _validate_candidate_source_records(
-        storage=work.runs,
-        run_id=entry.source.run_id,
-        proposal_ids=entry.source.proposal_ids,
-        base_config_content_hash=entry.source.base_config_content_hash,
-        requested_config=config,
-    )
-    current_evidence = {
-        evidence.proposal_id: evidence
-        for evidence in validated.source.proposal_evidence
-    }
-    for stored in entry.source.proposal_evidence:
-        current = current_evidence.get(stored.proposal_id)
-        if (
-            current is None
-            or current.proposal_record_content_hash
-            != stored.proposal_record_content_hash
-        ):
-            raise _registry_failure(
-                DataIntegrityError,
-                code="config_registry.candidate_evidence_mismatch",
-                category=ProblemCategory.DATA_INTEGRITY,
-                message="candidate registry evidence no longer matches its source",
-                location=_registry_model_location("entries", entry.id, "source"),
-                details={"entry_id": entry.id},
-            )
-        approval_id = f"{stored.proposal_id}-decision-{stored.approval_event_id}"
-        approval_entry = _require_run_record(
-            source_manifest=work.runs.read_manifest(entry.source.run_id),
-            record_id=approval_id,
-            kind="parameter_change_decision_record",
-        )
-        approval_ref = record_content_ref(
-            record_id=approval_entry.id,
-            kind=approval_entry.kind,
-        )
-        approval = work.runs.read_model(
-            entry.source.run_id,
-            approval_ref,
-            ParameterChangeDecisionRecord,
-        )
-        if (
-            approval.decision != "approved"
-            or approval.event_id != stored.approval_event_id
-            or _record_content_hash(approval) != stored.approval_record_content_hash
-        ):
-            raise _registry_failure(
-                DataIntegrityError,
-                code="config_registry.candidate_evidence_mismatch",
-                category=ProblemCategory.DATA_INTEGRITY,
-                message="candidate acceptance evidence no longer matches its source",
-                location=_registry_storage_location(
-                    approval_ref,
-                    run_id=entry.source.run_id,
-                ),
-                details={"entry_id": entry.id},
-            )
-
-
 def list_config_registry_entries(
     *, unit_of_work: ConfigRegistryUnitOfWorkFactory
 ) -> list[ConfigRegistryEntry]:
     with unit_of_work() as work:
-        entries = [
-            _validate_listed_entry_locked(
+        return list(_list_config_registry_entries_locked(work.registry))
+
+
+def load_config_registry_snapshot(
+    *,
+    unit_of_work: ConfigRegistryUnitOfWorkFactory,
+) -> ConfigRegistrySnapshot:
+    """Read the registry list and active projection in one transaction."""
+
+    with unit_of_work() as work:
+        entries = _list_config_registry_entries_locked(work.registry)
+        active_state = _read_active_state_optional(work.registry)
+        if active_state is not None:
+            loaded = _load_config_registry_entry_locked(
+                entry_id=active_state.active_entry_id,
                 work=work,
-                entry=entry,
             )
-            for entry in work.registry.list_entries()
-        ]
-        return sorted(entries, key=lambda entry: entry.registered_at)
+            _validate_active_entry_identity(
+                work.registry,
+                active_state,
+                loaded.entry,
+            )
+        return ConfigRegistrySnapshot(
+            entries=entries,
+            active_state=active_state,
+        )
 
 
-def load_config_registry_entry(
-    *, entry_id: str, unit_of_work: ConfigRegistryUnitOfWorkFactory
-) -> ConfigRegistryEntry:
+def _list_config_registry_entries_locked(
+    repository: ConfigRegistryRepository,
+) -> tuple[ConfigRegistryEntry, ...]:
+    entries = repository.list_entries()
+    for entry in entries:
+        _validate_registry_entry_coordinates(
+            repository=repository,
+            entry=entry,
+        )
+    return tuple(sorted(entries, key=lambda entry: entry.registered_at))
+
+
+def load_config_registry_entry_snapshot(
+    *,
+    entry_id: str,
+    unit_of_work: ConfigRegistryUnitOfWorkFactory,
+) -> ConfigRegistryEntrySnapshot:
     _validate_entry_id(entry_id)
     with unit_of_work() as work:
         return _load_config_registry_entry_locked(
@@ -856,56 +783,25 @@ def load_config_registry_entry(
 
 def _load_config_registry_entry_locked(
     *, entry_id: str, work: ConfigRegistryUnitOfWork
-) -> ConfigRegistryEntry:
-    entry = _load_committed_config_registry_entry_locked(
-        entry_id=entry_id,
-        work=work,
-    )
-    config = _read_entry_config(work.registry, entry)
-    _validate_derived_entry_source_locked(
-        work=work,
-        entry=entry,
-        config=config,
-    )
-    return entry
-
-
-def _load_committed_config_registry_entry_locked(
-    *, entry_id: str, work: ConfigRegistryUnitOfWork
-) -> ConfigRegistryEntry:
-    """Load committed registry identity without re-evaluating source evidence."""
+) -> ConfigRegistryEntrySnapshot:
+    """Validate registry-owned entry and config integrity in one read."""
 
     if not work.registry.entry_exists(entry_id):
         raise _registry_failure(
             NotFound,
             code="config_registry.not_found",
-            category=ProblemCategory.NOT_FOUND,
             message="config registry entry was not found",
             location=_registry_model_location("entry_id"),
             details={"entry_id": entry_id},
         )
-    return _read_config_registry_entry_locked(
+    entry = _read_config_registry_entry_locked(
         entry_id=entry_id,
         repository=work.registry,
     )
-
-
-def _validate_listed_entry_locked(
-    *,
-    work: ConfigRegistryUnitOfWork,
-    entry: ConfigRegistryEntry,
-) -> ConfigRegistryEntry:
-    _validate_registry_entry_coordinates(
-        repository=work.registry,
+    return ConfigRegistryEntrySnapshot(
         entry=entry,
+        config=_read_entry_config(work.registry, entry),
     )
-    config = _read_entry_config(work.registry, entry)
-    _validate_derived_entry_source_locked(
-        work=work,
-        entry=entry,
-        config=config,
-    )
-    return entry
 
 
 def _validate_registry_entry_coordinates(
@@ -919,7 +815,6 @@ def _validate_registry_entry_coordinates(
     raise _registry_failure(
         DataIntegrityError,
         code="config_registry.entry_ref_mismatch",
-        category=ProblemCategory.DATA_INTEGRITY,
         message="config registry entry has inconsistent storage coordinates",
         location=_registry_storage_location(repository.entry_ref(entry.id)),
         related_locations=(_registry_model_location("config_ref"),),
@@ -936,7 +831,6 @@ def _read_config_registry_entry_locked(
         raise _registry_failure(
             DataIntegrityError,
             code="config_registry.entry_missing",
-            category=ProblemCategory.DATA_INTEGRITY,
             message="committed config registry entry file is missing",
             location=_registry_storage_location(entry_ref),
             details={"entry_id": entry_id},
@@ -946,7 +840,6 @@ def _read_config_registry_entry_locked(
         raise _registry_failure(
             DataIntegrityError,
             code="config_registry.entry_ref_mismatch",
-            category=ProblemCategory.DATA_INTEGRITY,
             message="config registry entry has inconsistent storage coordinates",
             location=_registry_storage_location(entry_ref),
             related_locations=(_registry_model_location("config_ref"),),
@@ -956,29 +849,37 @@ def _read_config_registry_entry_locked(
     return entry
 
 
-def load_config_registry_config(
-    *, entry_id: str, unit_of_work: ConfigRegistryUnitOfWorkFactory
-) -> ConfigProfileSnapshot:
-    _validate_entry_id(entry_id)
-    with unit_of_work() as work:
-        entry = _load_config_registry_entry_locked(
-            entry_id=entry_id,
-            work=work,
-        )
-        return _read_entry_config(work.registry, entry)
-
-
 def load_active_config_registry_config(
     *, unit_of_work: ConfigRegistryUnitOfWorkFactory
 ) -> ConfigProfileSnapshot:
     with unit_of_work() as work:
         state = _load_active_config_registry_state_locked(work.registry)
-        entry = _load_config_registry_entry_locked(
+        loaded = _load_config_registry_entry_locked(
             entry_id=state.active_entry_id,
             work=work,
         )
-        _validate_active_entry_identity(work.registry, state, entry)
-        return _read_entry_config(work.registry, entry)
+        _validate_active_entry_identity(work.registry, state, loaded.entry)
+        return loaded.config
+
+
+def load_active_config_registry_snapshot(
+    *,
+    unit_of_work: ConfigRegistryUnitOfWorkFactory,
+) -> ActiveConfigRegistrySnapshot:
+    """Read active identity, history, and config in one transaction."""
+
+    with unit_of_work() as work:
+        state = _load_active_config_registry_state_locked(work.registry)
+        loaded = _load_config_registry_entry_locked(
+            entry_id=state.active_entry_id,
+            work=work,
+        )
+        _validate_active_entry_identity(work.registry, state, loaded.entry)
+        return ActiveConfigRegistrySnapshot(
+            entry=loaded.entry,
+            active_state=state,
+            config=loaded.config,
+        )
 
 
 def resolve_config_registry_config_source(
@@ -1029,12 +930,13 @@ def _activate_config_registry_entry_locked(
         expected_generation,
         active_ref=work.registry.active_ref,
     )
-    entry = _load_config_registry_entry_locked(
+    loaded = _load_config_registry_entry_locked(
         entry_id=entry_id,
         work=work,
     )
+    entry = loaded.entry
     _validate_derived_entry_base(current_state, entry, work)
-    _validate_entry_config(work.registry, entry)
+    _validate_loaded_config(loaded.config)
     previous_entry_id = (
         current_state.active_entry_id if current_state is not None else None
     )
@@ -1087,25 +989,25 @@ def rollback_config_registry(
             raise _registry_failure(
                 NotFound,
                 code="config_registry.no_active_entry",
-                category=ProblemCategory.NOT_FOUND,
                 message="config registry has no active entry",
                 location=_registry_model_location("active"),
             )
-        _load_current_active_entry_for_rollback_locked(
-            state=current_state,
+        current = _load_config_registry_entry_locked(
+            entry_id=current_state.active_entry_id,
             work=work,
         )
+        _validate_active_entry_identity(work.registry, current_state, current.entry)
         rollback_target = _previous_distinct_activation(current_state)
-        entry = _load_config_registry_entry_locked(
+        loaded = _load_config_registry_entry_locked(
             entry_id=rollback_target.entry_id,
             work=work,
         )
-        _validate_entry_config(work.registry, entry)
+        entry = loaded.entry
+        _validate_loaded_config(loaded.config)
         if entry.content_hash != rollback_target.entry_content_hash:
             raise _registry_failure(
                 DataIntegrityError,
                 code="config_registry.rollback_content_mismatch",
-                category=ProblemCategory.DATA_INTEGRITY,
                 message="rollback target no longer matches activation history",
                 location=_registry_storage_location(work.registry.active_ref),
                 related_locations=(_registry_storage_location(entry.config_ref),),
@@ -1138,35 +1040,11 @@ def rollback_config_registry(
         return state, record
 
 
-def _load_current_active_entry_for_rollback_locked(
-    *,
-    state: ConfigRegistryActiveState,
-    work: ConfigRegistryUnitOfWork,
-) -> ConfigRegistryEntry:
-    """Validate the entry being left without blocking emergency rollback.
-
-    A candidate may be rejected or invalidated after it became active. That
-    later review state must prevent future selection, but it must not trap the
-    active selector on the now-disallowed candidate. The committed index,
-    entry coordinates, active-state identity, and config content hash remain
-    mandatory here. The rollback target still goes through the complete
-    candidate-evidence validation in ``_load_config_registry_entry_locked``.
-    """
-
-    entry = _load_committed_config_registry_entry_locked(
-        entry_id=state.active_entry_id,
-        work=work,
-    )
-    _validate_active_entry_identity(work.registry, state, entry)
-    _read_entry_config(work.registry, entry)
-    return entry
-
-
 def current_config_registry_generation(
     *, unit_of_work: ConfigRegistryUnitOfWorkFactory
 ) -> int:
     with unit_of_work() as work:
-        return _state_generation(_read_active_state_optional(work.registry))
+        return work.registry.current_generation()
 
 
 def load_active_config_registry_state(
@@ -1184,7 +1062,6 @@ def _load_active_config_registry_state_locked(
         raise _registry_failure(
             NotFound,
             code="config_registry.no_active_entry",
-            category=ProblemCategory.NOT_FOUND,
             message="config registry has no active entry",
             location=_registry_model_location("active"),
         )
@@ -1197,42 +1074,41 @@ def load_active_config_registry_entry(
 ) -> ConfigRegistryEntry:
     with unit_of_work() as work:
         state = _load_active_config_registry_state_locked(work.registry)
-        entry = _load_config_registry_entry_locked(
+        loaded = _load_config_registry_entry_locked(
             entry_id=state.active_entry_id,
             work=work,
         )
-        _validate_active_entry_identity(work.registry, state, entry)
-        _read_entry_config(work.registry, entry)
-        return entry
+        _validate_active_entry_identity(work.registry, state, loaded.entry)
+        return loaded.entry
 
 
 def _resolve_entry_config_registry_config_source_locked(
     *, selector: str, work: ConfigRegistryUnitOfWork
 ) -> tuple[ConfigProfileSnapshot, RunConfigSource]:
-    entry = _load_config_registry_entry_locked(
+    loaded = _load_config_registry_entry_locked(
         entry_id=selector,
         work=work,
     )
-    config = _read_entry_config(work.registry, entry)
+    entry = loaded.entry
     source = ConfigRegistryRunConfigSource(
         selector=selector,
         entry_id=entry.id,
         config_ref=entry.config_ref,
         content_hash=entry.content_hash,
     )
-    return config, source
+    return loaded.config, source
 
 
 def _resolve_active_config_registry_config_source_locked(
     *, work: ConfigRegistryUnitOfWork
 ) -> tuple[ConfigProfileSnapshot, RunConfigSource]:
     state = _load_active_config_registry_state_locked(work.registry)
-    entry = _load_config_registry_entry_locked(
+    loaded = _load_config_registry_entry_locked(
         entry_id=state.active_entry_id,
         work=work,
     )
+    entry = loaded.entry
     _validate_active_entry_identity(work.registry, state, entry)
-    config = _read_entry_config(work.registry, entry)
     source = ConfigRegistryRunConfigSource(
         selector=ACTIVE_CONFIG_REGISTRY_ENTRY_SELECTOR,
         entry_id=entry.id,
@@ -1240,7 +1116,7 @@ def _resolve_active_config_registry_config_source_locked(
         content_hash=entry.content_hash,
         registry_generation=state.generation,
     )
-    return config, source
+    return loaded.config, source
 
 
 def _validate_entry_id(entry_id: str) -> None:
@@ -1248,7 +1124,6 @@ def _validate_entry_id(entry_id: str) -> None:
         raise _registry_failure(
             CheckFailed,
             code="config_registry.invalid_entry_id",
-            category=ProblemCategory.INVALID_INPUT,
             message="config registry entry id is not safe",
             location=_registry_model_location("entry_id"),
             details={"entry_id": entry_id},
@@ -1261,7 +1136,6 @@ def _validate_durable_entry_id(entry_id: str, *, ref: str) -> None:
     raise _registry_failure(
         DataIntegrityError,
         code="config_registry.entry_id_invalid",
-        category=ProblemCategory.DATA_INTEGRITY,
         message="config registry durable entry id is not safe",
         location=_registry_storage_location(ref),
         details={"entry_id": entry_id},
@@ -1274,7 +1148,6 @@ def _validate_required_text(value: str, *, field: str) -> None:
     raise _registry_failure(
         CheckFailed,
         code=f"config_registry.{field}_missing",
-        category=ProblemCategory.INVALID_INPUT,
         message=f"config registry {field} must be non-empty",
         location=_registry_model_location(field),
     )
@@ -1291,7 +1164,6 @@ def _require_run_record(
         raise _registry_failure(
             NotFound,
             code="config_registry.source_record_not_found",
-            category=ProblemCategory.NOT_FOUND,
             message="config registry source record was not found",
             location=StorageLocation(
                 run_id=source_manifest.run_id,
@@ -1304,7 +1176,6 @@ def _require_run_record(
         raise _registry_failure(
             CheckFailed,
             code="config_registry.source_record_kind_mismatch",
-            category=ProblemCategory.INVALID_INPUT,
             message="config registry source record has the wrong kind",
             location=StorageLocation(
                 run_id=source_manifest.run_id,
@@ -1339,7 +1210,6 @@ def _commit_registration_locked(
             raise _registry_failure(
                 Conflict,
                 code="config_registry.duplicate_entry",
-                category=ProblemCategory.CONFLICT,
                 message="config registry entry id is already committed differently",
                 location=_registry_model_location("entry_id"),
                 related_locations=(
@@ -1424,7 +1294,6 @@ def _require_expected_generation(
     raise _registry_failure(
         Conflict,
         code="config_registry.conflict",
-        category=ProblemCategory.CONFLICT,
         message="config registry active state changed",
         location=_registry_model_location("expected_generation"),
         related_locations=(_registry_storage_location(active_ref),),
@@ -1433,10 +1302,6 @@ def _require_expected_generation(
             "actual_generation": current_generation,
         },
     )
-
-
-def _state_generation(state: ConfigRegistryActiveState | None) -> int:
-    return 0 if state is None else state.generation
 
 
 def _validate_active_state_entry_ids(
@@ -1467,7 +1332,6 @@ def _read_entry_config(
         raise _registry_failure(
             DataIntegrityError,
             code="config_registry.content_hash_mismatch",
-            category=ProblemCategory.DATA_INTEGRITY,
             message="config registry snapshot does not match its registered hash",
             location=_registry_storage_location(entry.config_ref),
             related_locations=(
@@ -1492,7 +1356,6 @@ def _validate_active_entry_identity(
     raise _registry_failure(
         DataIntegrityError,
         code="config_registry.active_content_mismatch",
-        category=ProblemCategory.DATA_INTEGRITY,
         message="active config registry state does not match its entry",
         location=_registry_storage_location(repository.active_ref),
         related_locations=(_registry_storage_location(repository.entry_ref(entry.id)),),
@@ -1507,14 +1370,15 @@ def _validate_derived_entry_base(
 ) -> None:
     if state is None:
         return
-    active_entry = _load_config_registry_entry_locked(
+    if state.active_entry_id == entry.id:
+        _validate_active_entry_identity(work.registry, state, entry)
+        return
+    active = _load_config_registry_entry_locked(
         entry_id=state.active_entry_id,
         work=work,
     )
+    active_entry = active.entry
     _validate_active_entry_identity(work.registry, state, active_entry)
-    _read_entry_config(work.registry, active_entry)
-    if state.active_entry_id == entry.id:
-        return
     if isinstance(
         entry.source,
         (CandidateConfigRegistrySource, ManualConfigDraftRegistrySource),
@@ -1527,7 +1391,6 @@ def _validate_derived_entry_base(
     raise _registry_failure(
         Conflict,
         code="config_registry.stale_candidate",
-        category=ProblemCategory.CONFLICT,
         message="candidate config was based on a different active config",
         location=_registry_model_location(
             "entries",
@@ -1544,13 +1407,9 @@ def _validate_derived_entry_base(
     )
 
 
-def _validate_entry_config(
-    repository: ConfigRegistryRepository,
-    entry: ConfigRegistryEntry,
-) -> None:
-    config = _read_entry_config(repository, entry)
-    problems = validate_config(config)
-    if has_blocking_problems(problems):
+def _validate_loaded_config(config: ConfigProfileSnapshot) -> None:
+    problems = validate_config_profile(config)
+    if bool(problems):
         raise CheckFailed(problems)
 
 
@@ -1563,7 +1422,6 @@ def _previous_distinct_activation(
     raise _registry_failure(
         Conflict,
         code="config_registry.no_rollback_target",
-        category=ProblemCategory.CONFLICT,
         message="config registry has no previous active entry",
         location=_registry_model_location("active"),
     )
@@ -1578,7 +1436,6 @@ def _registry_failure(
     failure_type: type[ProblemFailure],
     *,
     code: str,
-    category: ProblemCategory,
     message: str,
     location: ProblemLocation | None = None,
     related_locations: Sequence[ProblemLocation] = (),
@@ -1588,8 +1445,6 @@ def _registry_failure(
         [
             Problem(
                 code=code,
-                impact=ProblemImpact.BLOCKING,
-                category=category,
                 phase=ProblemPhase.CONFIGURATION,
                 message=message,
                 location=location,
@@ -1614,7 +1469,10 @@ def _registry_storage_location(
 
 __all__ = [
     "ACTIVE_CONFIG_REGISTRY_ENTRY_SELECTOR",
+    "ActiveConfigRegistrySnapshot",
+    "ConfigRegistryEntrySnapshot",
     "ConfigRegistryRepository",
+    "ConfigRegistrySnapshot",
     "ConfigRegistryUnitOfWork",
     "ConfigRegistryUnitOfWorkFactory",
     "ManualConfigDraftResult",
@@ -1623,14 +1481,14 @@ __all__ = [
     "list_config_registry_entries",
     "load_active_config_registry_config",
     "load_active_config_registry_entry",
+    "load_active_config_registry_snapshot",
     "load_active_config_registry_state",
-    "load_config_registry_config",
-    "load_config_registry_entry",
+    "load_config_registry_entry_snapshot",
+    "load_config_registry_snapshot",
     "preview_manual_config_draft",
     "register_and_activate_candidate_config",
     "register_and_activate_config_profile",
     "register_and_activate_manual_config_draft",
-    "register_candidate_config",
     "register_config_profile",
     "register_manual_config_draft",
     "resolve_config_registry_config_source",

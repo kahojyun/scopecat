@@ -31,7 +31,6 @@ def qnd_repeated_measurement_program(
 @sc.template(
     id=QND_REPEATED_MEASUREMENT_TEMPLATE_ID,
     kind="qnd_repeated_measurement",
-    label="QND repeated measurement",
 )
 def qnd_repeated_measurement_template(
     qubit: q.QubitInput,

@@ -52,20 +52,13 @@ class RunContentEntry(BaseModel):
 
 
 class CommandPayload(BaseModel):
-    """Runtime command payload referenced by instrument state commands.
-
-    Payloads are transient command inputs produced while lowering in-memory
-    compute results. ``evidence_ref`` points to durable structural identity
-    evidence; it is deliberately distinct from ``uri``, which denotes
-    replayable payload content when a domain codec provides one.
-    """
+    """Runtime command payload referenced by instrument state commands."""
 
     model_config = ConfigDict(extra="forbid")
 
     id: str
     schema_id: str = Field(min_length=1)
     uri: str | None = None
-    evidence_ref: str | None = None
     content_hash: str | None = None
     media_type: str | None = None
     operation_id: str | None = None

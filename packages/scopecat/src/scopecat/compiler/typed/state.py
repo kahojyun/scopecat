@@ -7,14 +7,11 @@ from typing import cast
 from scopecat.compiler.relations.analysis import PlanNode
 from scopecat.compiler.relations.evaluation import (
     EvalContext,
-    evaluate_relation,
     evaluate_scalar,
     evaluate_series,
 )
 from scopecat.compiler.relations.model import (
     CellValue,
-    RelationExpr,
-    RowScopeId,
     ScalarExpr,
     SeriesExpr,
 )
@@ -27,9 +24,7 @@ from scopecat.compiler.semantic.compute_result import ComputeResultRef
 from scopecat.compiler.semantic.value_expressions import (
     ScalarOrSeriesValueExpr,
     ScalarValueExpr,
-    TableValueExpr,
 )
-from scopecat.kernel.problems import ModelLocation, model_location
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
 )
@@ -50,14 +45,8 @@ class LogicalStateResourceTarget:
     port_id: LogicalResourcePortId
 
 
-class StateSpec:
-    """Base class for desired-state bindings."""
-
-    __slots__ = ()
-
-
 @dataclass(frozen=True, slots=True)
-class SetStateSpec(StateSpec):
+class SetStateSpec:
     """Assign one capability field after point-local parameter overlays."""
 
     resource_target: LogicalStateResourceTarget
@@ -69,18 +58,6 @@ class SetStateSpec(StateSpec):
     @property
     def field(self) -> str:
         return f"{self.capability_id}.{self.field_path}"
-
-
-@dataclass(frozen=True, slots=True)
-class ForEachStateSpec(StateSpec):
-    """Evaluate child state bindings for every row of one relation."""
-
-    relation_use: RelationUse[TableValueExpr]
-    state: tuple[StateSpecVariant, ...]
-    row_scope_id: RowScopeId
-
-
-type StateSpecVariant = SetStateSpec | ForEachStateSpec
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,83 +75,41 @@ class StateRecord:
 
 
 def evaluate_state_spec(
-    spec: StateSpecVariant,
+    spec: SetStateSpec,
     *,
     point_index: int,
     ctx: EvalContext,
     relation_plan: RelationPlanResolver,
-    location: ModelLocation,
 ) -> list[StateRecord]:
     """Materialize one data-only state plan."""
 
-    if isinstance(spec, SetStateSpec):
-        value_use = spec.value_use
-        return [
-            StateRecord(
-                point_index=point_index,
-                resource_target=spec.resource_target.port_id,
-                capability_id=spec.capability_id,
-                field_path=spec.field_path,
-                value=(
-                    value_use
-                    if isinstance(value_use, ComputeResultRef)
-                    else evaluate_scalar(
-                        cast(
-                            "VerifiedRelationPlan[ScalarExpr]",
-                            relation_plan(value_use.id),
-                        ),
-                        ctx,
-                    )
-                ),
-                target_entities=tuple(
-                    _evaluate_target_entities(
-                        spec.target_entity_uses,
-                        ctx,
-                        relation_plan=relation_plan,
-                    )
-                ),
-            )
-        ]
-    records: list[StateRecord] = []
-    relation_ctx = EvalContext(
-        params=ctx.params,
-        point_row=ctx.point_row,
-        row_scopes=ctx.row_scopes,
-        inputs=ctx.inputs,
-    )
-    relation_use = spec.relation_use
-    for row in evaluate_relation(
-        cast(
-            "VerifiedRelationPlan[RelationExpr]",
-            relation_plan(relation_use.id),
-        ),
-        relation_ctx,
-    ):
-        child_ctx = EvalContext(
-            params=ctx.params,
-            point_row=ctx.point_row,
-            row_scopes={
-                **ctx.row_scopes,
-                spec.row_scope_id: row,
-            },
-            inputs=ctx.inputs,
-        )
-        for child_index, child in enumerate(spec.state):
-            records.extend(
-                evaluate_state_spec(
-                    child,
-                    point_index=point_index,
-                    ctx=child_ctx,
-                    relation_plan=relation_plan,
-                    location=model_location(
-                        location.root,
-                        *location.path,
-                        "state",
-                        child_index,
+    value_use = spec.value_use
+    return [
+        StateRecord(
+            point_index=point_index,
+            resource_target=spec.resource_target.port_id,
+            capability_id=spec.capability_id,
+            field_path=spec.field_path,
+            value=(
+                value_use
+                if isinstance(value_use, ComputeResultRef)
+                else evaluate_scalar(
+                    cast(
+                        "VerifiedRelationPlan[ScalarExpr]",
+                        relation_plan(value_use.id),
                     ),
+                    ctx,
                 )
-            )
-    return records
+            ),
+            target_entities=tuple(
+                _evaluate_target_entities(
+                    spec.target_entity_uses,
+                    ctx,
+                    relation_plan=relation_plan,
+                )
+            ),
+        )
+    ]
 
 
 def _evaluate_target_entities(

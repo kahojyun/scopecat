@@ -19,7 +19,6 @@ from scopecat.kernel.value_types import (
 )
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.records.artifact import RunContentEntry
-from scopecat.records.config import TopologyLine
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import (
     ParameterCatalog,
@@ -43,12 +42,6 @@ from tests.testkit.records import assert_model_round_trip
 type _MetadataModelFactory = Callable[[object], BaseModel]
 
 
-def _topology_line_with_metadata(value: object) -> TopologyLine:
-    return TopologyLine.model_validate(
-        {"id": "line", "kind": "signal", "metadata": {"value": value}}
-    )
-
-
 def _artifact_with_metadata(value: object) -> RunContentEntry:
     return RunContentEntry.model_validate(
         {"id": "artifact", "kind": "attachment", "metadata": {"value": value}}
@@ -56,7 +49,6 @@ def _artifact_with_metadata(value: object) -> RunContentEntry:
 
 
 _METADATA_MODEL_FACTORIES: tuple[_MetadataModelFactory, ...] = (
-    _topology_line_with_metadata,
     _artifact_with_metadata,
 )
 
@@ -80,26 +72,24 @@ def test_config_profile_snapshot_round_trip() -> None:
 
     assert restored.parameter_snapshot.get("drive_frequency") is not None
     assert restored.topology.entity("q0") is not None
-    connection = restored.connection_profile.connections[0]
-    assert connection.kind == "offline"
 
 
-def test_run_request_records_config_source() -> None:
+def test_run_request_records_operator_metadata() -> None:
     request = RunRequest(
-        id="request-001",
-        template_id="test.template",
-        config_source="active",
+        experiment_id="test.template",
+        operator="alice",
+        metadata={"sample": "q0"},
     )
     restored = assert_model_round_trip(
         request,
     )
 
-    assert restored.config_source == "active"
+    assert restored.operator == "alice"
+    assert restored.metadata == {"sample": "q0"}
 
 
 def test_run_request_records_canonical_scans_only() -> None:
     request = RunRequest(
-        id="request-001",
         scans=[
             PointScanRecord(
                 target_id="drive_frequency",
@@ -127,7 +117,6 @@ def test_run_request_records_canonical_scans_only() -> None:
     with pytest.raises(ValidationError):
         RunRequest.model_validate(
             {
-                "id": "request-002",
                 "scans": [
                     {
                         "kind": "point",
@@ -142,7 +131,6 @@ def test_run_request_records_canonical_scans_only() -> None:
     with pytest.raises(ValidationError):
         RunRequest.model_validate(
             {
-                "id": "request-003",
                 "scans": [
                     {
                         "kind": "point",
@@ -156,7 +144,6 @@ def test_run_request_records_canonical_scans_only() -> None:
     with pytest.raises(ValidationError):
         RunRequest.model_validate(
             {
-                "id": "request-004",
                 "scans": [
                     {
                         "kind": "unknown",
@@ -170,8 +157,7 @@ def test_run_request_records_canonical_scans_only() -> None:
 def test_run_request_values_have_a_closed_durable_domain() -> None:
     request = RunRequest.model_validate(
         {
-            "id": "request-001",
-            "template_inputs": {
+            "inputs": {
                 "subject": {
                     "kind": "entity",
                     "entity_id": "q0",
@@ -194,23 +180,22 @@ def test_run_request_values_have_a_closed_durable_domain() -> None:
                     "points": 3,
                 },
             ],
-            "segment_lineage": {"parent_ids": ["run-001"]},
             "metadata": {"notebook": "02_define_experiment"},
         }
     )
 
-    assert isinstance(request.template_inputs["subject"], RunRequestEntityRef)
-    assert request.template_inputs["subject"] == RunRequestEntityRef(
+    assert isinstance(request.inputs["subject"], RunRequestEntityRef)
+    assert request.inputs["subject"] == RunRequestEntityRef(
         entity_id="q0",
         entity_kind="qubit",
     )
-    assert request.model_dump(mode="json")["template_inputs"]["subject"] == {
+    assert request.model_dump(mode="json")["inputs"]["subject"] == {
         "kind": "entity",
         "entity_id": "q0",
         "entity_kind": "qubit",
         "metadata": {},
     }
-    assert isinstance(request.template_inputs["frequency"], Quantity)
+    assert isinstance(request.inputs["frequency"], Quantity)
     scan = request.scans[0]
     assert isinstance(scan, AroundScanRecord)
     assert scan.center == RunRequestParameterValue(parameter_id="drive_frequency")
@@ -221,13 +206,12 @@ def test_run_request_values_have_a_closed_durable_domain() -> None:
 def test_run_request_does_not_guess_entities_from_business_mappings() -> None:
     request = RunRequest.model_validate(
         {
-            "id": "request-001",
-            "template_inputs": {"settings": {"id": "business-object"}},
+            "inputs": {"settings": {"id": "business-object"}},
         }
     )
 
-    assert request.template_inputs["settings"] == {"id": "business-object"}
-    assert request.model_dump(mode="json")["template_inputs"]["settings"] == {
+    assert request.inputs["settings"] == {"id": "business-object"}
+    assert request.model_dump(mode="json")["inputs"]["settings"] == {
         "id": "business-object"
     }
 
@@ -253,8 +237,7 @@ def test_run_request_does_not_duck_project_semantic_python_objects() -> None:
         ):
             RunRequest.model_validate(
                 {
-                    "id": "request-001",
-                    "template_inputs": {"value": value},
+                    "inputs": {"value": value},
                 }
             )
 
@@ -290,9 +273,8 @@ def test_run_request_symbolic_values_are_closed_and_recursive() -> None:
 @pytest.mark.parametrize(
     ("field", "value"),
     [
-        ("template_inputs", {"opaque": object()}),
+        ("inputs", {"opaque": object()}),
         ("metadata", {"opaque": object()}),
-        ("segment_lineage", {"opaque": object()}),
     ],
 )
 def test_run_request_rejects_opaque_values_early(
@@ -300,7 +282,7 @@ def test_run_request_rejects_opaque_values_early(
     value: object,
 ) -> None:
     with pytest.raises(ValidationError, match=r"unsupported .*run request"):
-        RunRequest.model_validate({"id": "request-001", field: value})
+        RunRequest.model_validate({field: value})
 
 
 def test_scan_records_reject_unknown_or_structured_scalar_values() -> None:
@@ -395,15 +377,9 @@ def test_parameter_snapshot_is_recursively_immutable_and_durable() -> None:
     table = TableParameterValue(
         id="durable",
         rows=[{"value": 1.0}],
-        metadata={"labels": ["data"]},
     )
 
     assert table.rows == ({"value": 1.0},)
-    assert table.metadata == {"labels": ("data",)}
-    with pytest.raises(ValidationError):
-        TableParameterValue(id="invalid", metadata={"value": object()})
-    with pytest.raises(ValidationError):
-        TableParameterValue(id="invalid", metadata={"value": float("nan")})
 
     snapshot = ParameterSnapshot(id="snapshot", values=[table])
     assert ParameterSnapshot.model_validate_json(snapshot.model_dump_json()) == snapshot

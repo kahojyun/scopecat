@@ -6,7 +6,6 @@ import scopecat as sc
 from scopecat.kernel.state import StateLiteral
 from scopecat.records.config import (
     ConfigProfileSnapshot,
-    Device,
     InstrumentSpec,
     RoutingEndpointBinding,
 )
@@ -68,11 +67,6 @@ def fake_bias_source():
 @sc.template(
     id="quantum_lab_demo.workflows.fake_x_count.bias",
     kind="fake-x-count-bias",
-    label="Fake AWG X-count scan with DC bias",
-    description=(
-        "Cross a point-local scalar voltage source with a programmable fake "
-        "AWG list while retaining one logical measurement record per point."
-    ),
 )
 def fake_x_count_bias_template() -> sc.ExperimentBody:
     capture = fake_x_count_capture(x_count=X_COUNT)
@@ -121,8 +115,6 @@ class FakeBiasVoltageProvider:
         return InstrumentProviderDescription(
             provider_id=self.provider_id,
             instruments=(self._driver().describe(),),
-            label="Fake scalar DC voltage source",
-            description="Callback-backed point-local voltage source and readback.",
         )
 
     def provide(
@@ -153,10 +145,8 @@ class FakeBiasVoltageProvider:
                             read=lambda: self.voltage,
                         ),
                     ),
-                    metadata={"submission_scope": "point"},
                 ),
             ),
-            metadata={"mode": "test_offline"},
         )
 
     def _write_voltage(self, value: StateLiteral) -> None:
@@ -177,14 +167,6 @@ def fake_x_count_bias_config() -> ConfigProfileSnapshot:
         update={
             "system": system.model_copy(
                 update={
-                    "topology": system.topology.model_copy(
-                        update={
-                            "devices": [
-                                *system.topology.devices,
-                                Device(id=BIAS_SOURCE_ID, kind="dc_voltage_source"),
-                            ]
-                        }
-                    ),
                     "instrument_registry": system.instrument_registry.model_copy(
                         update={
                             "instruments": [

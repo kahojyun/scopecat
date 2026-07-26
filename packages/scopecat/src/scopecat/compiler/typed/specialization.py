@@ -13,17 +13,7 @@ from scopecat.compiler.relations.model import (
     lit,
 )
 from scopecat.compiler.relations.point_domain import (
-    POINT_UNIT,
-    PointAxis,
-    PointAxisLinear,
-    PointDependentProduct,
-    PointDomainExpr,
-    PointProduct,
-    PointRows,
-    PointUnit,
-    PointZip,
-    point_product,
-    point_zip,
+    map_point_axis_centers,
 )
 from scopecat.compiler.relations.specialization import (
     BindingTime,
@@ -36,7 +26,7 @@ from scopecat.compiler.relations.specialization import (
 )
 from scopecat.compiler.relations.uses import RelationUse
 from scopecat.compiler.semantic.compute_result import ComputeResultRef
-from scopecat.compiler.semantic.model import OperationId
+from scopecat.compiler.semantic.model import AcquireEffect, OperationId
 from scopecat.compiler.semantic.value_expressions import (
     ScalarValueExpr,
     SeriesValueExpr,
@@ -46,14 +36,12 @@ from scopecat.compiler.semantic.value_expressions import (
     verify_series_value_expr,
     verify_table_value_expr,
 )
-from scopecat.compiler.typed.action import ActionFieldSpec, ActionSpec
 from scopecat.compiler.typed.parameter_overlays import (
     PointParameterOverlay,
     resolve_parameter_cell_bindings,
 )
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
-    AcquireSpec,
     ComputeEdge,
     ComputeInput,
     CoreEffect,
@@ -63,11 +51,7 @@ from scopecat.compiler.typed.program import (
     TypedDomainExecution,
     ValueInput,
 )
-from scopecat.compiler.typed.state import (
-    ForEachStateSpec,
-    SetStateSpec,
-    StateSpecVariant,
-)
+from scopecat.compiler.typed.state import SetStateSpec
 
 
 def specialize_core_program(
@@ -144,7 +128,7 @@ def _specialize_point_domain(
     *,
     known: EvalContext,
 ) -> PointDomain:
-    """Materialize axes from base configuration before point-local overlays.
+    """Materialize axis centers from base configuration before point overlays.
 
     Parameter overlays consume coordinates produced by the point domain. If an
     overlay's residual cell binding were fed back into an around-axis center,
@@ -152,63 +136,32 @@ def _specialize_point_domain(
     accepted snapshot.
     """
 
-    def visit(
-        node: PointDomainExpr[RelationUse[ScalarValueExpr]],
-    ) -> PointDomainExpr[RelationUse[ScalarValueExpr]]:
-        if isinstance(node, PointUnit):
-            return POINT_UNIT
-        if isinstance(node, PointRows):
-            return node
-        if isinstance(node, PointAxis):
-            source = node.source
-            if not isinstance(source, PointAxisLinear):
-                return node
-            value, _binding_time = specialize_value_expression(
-                source.center.value,
-                known=known,
-                parameter_cells=(),
-            )
-            return PointAxis(
-                node.id,
-                node.value_type,
-                PointAxisLinear(
-                    RelationUse(value, id=source.center.id),
-                    source.span,
-                    source.count,
-                ),
-            )
-        if isinstance(node, PointProduct):
-            return point_product(*(visit(factor) for factor in node.factors))
-        if isinstance(node, PointZip):
-            return point_zip(*(visit(source) for source in node.sources))
-        left = visit(node.left)
-        right = visit(node.right)
-        return PointDependentProduct(left, right)
+    def specialize_center(
+        center: RelationUse[ScalarValueExpr],
+        _path: tuple[str | int, ...],
+    ) -> RelationUse[ScalarValueExpr]:
+        value, _binding_time = specialize_value_expression(
+            center.value,
+            known=known,
+            parameter_cells=(),
+        )
+        return RelationUse(value, id=center.id)
 
-    return replace(domain, root=visit(domain.root))
+    return replace(
+        domain,
+        root=map_point_axis_centers(domain.root, specialize_center),
+    )
 
 
 def _live_compute_nodes(program: CoreProgram) -> tuple[TypedComputeNode, ...]:
     """Keep the dependency closure of compute results observed by effects."""
 
     demanded = {
-        field.value_use.value_id
+        effect.value_use.value_id
         for effect in program.effects
-        if isinstance(effect, ActionSpec)
-        for field in effect.fields
-        if isinstance(field.value_use, ComputeResultRef)
+        if isinstance(effect, SetStateSpec)
+        and isinstance(effect.value_use, ComputeResultRef)
     }
-
-    def demand_state(state: StateSpecVariant) -> None:
-        if isinstance(state, ForEachStateSpec):
-            for child in state.state:
-                demand_state(child)
-        elif isinstance(state.value_use, ComputeResultRef):
-            demanded.add(state.value_use.value_id)
-
-    for effect in program.effects:
-        if isinstance(effect, ForEachStateSpec | SetStateSpec):
-            demand_state(effect)
 
     owners = {node.result.id: node for node in program.compute_nodes}
     live_ids: set[OperationId] = set()
@@ -403,7 +356,7 @@ def _specialize_effect(
     known: EvalContext,
     parameter_cells: tuple[ParameterCellBinding, ...],
 ) -> CoreEffect:
-    if isinstance(effect, AcquireSpec):
+    if isinstance(effect, AcquireEffect):
         return effect
     if isinstance(effect, TypedDomainExecution):
         return replace(
@@ -425,18 +378,6 @@ def _specialize_effect(
                 for name, value in effect.compiler_inputs.items()
             },
         )
-    if isinstance(effect, ActionSpec):
-        return replace(
-            effect,
-            fields=tuple(
-                _specialize_action_field(
-                    field,
-                    known=known,
-                    parameter_cells=parameter_cells,
-                )
-                for field in effect.fields
-            ),
-        )
     return _specialize_state(
         effect,
         known=known,
@@ -444,40 +385,12 @@ def _specialize_effect(
     )
 
 
-def _specialize_action_field(
-    field: ActionFieldSpec,
-    *,
-    known: EvalContext,
-    parameter_cells: tuple[ParameterCellBinding, ...],
-) -> ActionFieldSpec:
-    return replace(
-        field,
-        value_use=_specialize_value_use(
-            field.value_use,
-            known=known,
-            parameter_cells=parameter_cells,
-        ),
-    )
-
-
 def _specialize_state(
-    state: StateSpecVariant,
+    state: SetStateSpec,
     *,
     known: EvalContext,
     parameter_cells: tuple[ParameterCellBinding, ...],
-) -> StateSpecVariant:
-    if isinstance(state, ForEachStateSpec):
-        return replace(
-            state,
-            state=tuple(
-                _specialize_state(
-                    child,
-                    known=known,
-                    parameter_cells=parameter_cells,
-                )
-                for child in state.state
-            ),
-        )
+) -> SetStateSpec:
     return replace(
         state,
         value_use=_specialize_value_use(

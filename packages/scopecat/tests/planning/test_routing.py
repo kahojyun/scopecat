@@ -286,14 +286,21 @@ def test_one_capability_can_bind_multiple_explicit_channels() -> None:
     assert [item.channel_id for item in binding.channel_bindings] == ["i0", "q0"]
 
 
-def test_topology_owns_resolved_line_and_group_metadata() -> None:
+def test_endpoint_owns_resolved_line_and_group_identity() -> None:
     config = load_config()
-    channel = config.topology.channels[0].model_copy(
+    endpoint = config.routing.bindings[0].model_copy(
         update={"line_id": "drive-line", "group_ids": ["drive-group"]}
     )
-    topology = config.topology.model_copy(update={"channels": [channel]})
     selected = config.model_copy(
-        update={"system": config.system.model_copy(update={"topology": topology})}
+        update={
+            "system": config.system.model_copy(
+                update={
+                    "routing": config.routing.model_copy(
+                        update={"bindings": [endpoint]}
+                    )
+                }
+            )
+        }
     )
 
     manifest = RoutingView.from_config(selected).bind_port(
@@ -319,4 +326,26 @@ def test_duplicate_endpoint_binding_fails_model_validation() -> None:
             {
                 "bindings": [duplicate, duplicate],
             }
+        )
+
+
+def test_one_channel_has_one_resource_identity_across_capabilities() -> None:
+    with pytest.raises(ValidationError, match="must share line and group ids"):
+        RoutingGraph(
+            bindings=[
+                RoutingEndpointBinding(
+                    instrument_id="source-0",
+                    capability="set_frequency",
+                    entity_id="q0",
+                    channel_id="drive-q0",
+                    line_id="line-0",
+                ),
+                RoutingEndpointBinding(
+                    instrument_id="source-0",
+                    capability="set_power",
+                    entity_id="q0",
+                    channel_id="drive-q0",
+                    line_id="line-1",
+                ),
+            ]
         )

@@ -15,7 +15,6 @@ from typing import cast
 from scopecat.compiler.relations.model import (
     BinaryScalarExpr,
     ColumnScalarExpr,
-    FilterRelationExpr,
     InputRelationExpr,
     InputScalarExpr,
     InputSeriesExpr,
@@ -139,10 +138,6 @@ def iter_plan_children(node: PlanNode) -> Iterator[PlanNode]:
     if isinstance(relation, SelectRelationExpr):
         yield relation.source
         return
-    if isinstance(relation, FilterRelationExpr):
-        yield relation.source
-        yield relation.condition
-        return
     yield relation.source
     yield from relation.new_columns.values()
 
@@ -205,12 +200,6 @@ def rewrite_plan[NodeT: PlanNode](
             rewritten = replace(
                 relation,
                 source=cast("RelationExpression", visit(relation.source)),
-            )
-        elif isinstance(relation, FilterRelationExpr):
-            rewritten = replace(
-                relation,
-                source=cast("RelationExpression", visit(relation.source)),
-                condition=cast("ScalarExpression", visit(relation.condition)),
             )
         elif isinstance(relation, WithColumnsRelationExpr):
             rewritten = replace(
@@ -293,10 +282,7 @@ def verify_plan_scopes(
             if node.row_scope_id not in active:
                 raise RelationPlanScopeError(reference)
             continue
-        if (
-            isinstance(node, FilterRelationExpr | WithColumnsRelationExpr)
-            and node.row_scope_id in external
-        ):
+        if isinstance(node, WithColumnsRelationExpr) and node.row_scope_id in external:
             raise RelationPlanBinderError(node.row_scope_id)
 
 
@@ -304,8 +290,8 @@ def free_row_references(root: PlanNode) -> PlanReferences:
     """Return row uses not closed by a binder declared inside ``root``.
 
     This is lexical dependency analysis, not a list of every column node.  A
-    filter/with-columns callback closes its own row argument. Any remaining
-    use must be supplied by an enclosing semantic region.
+    A with-columns callback closes its own row argument. Any remaining use must
+    be supplied by an enclosing semantic region.
     """
 
     references = {
@@ -341,16 +327,6 @@ def _walk_lexical_plan(
         return
 
     relation = cast("RelationExpression", node)
-    if isinstance(relation, FilterRelationExpr):
-        yield from _walk_lexical_plan(
-            relation.source,
-            active=active,
-        )
-        yield from _walk_lexical_plan(
-            relation.condition,
-            active=active | {relation.row_scope_id},
-        )
-        return
     if isinstance(relation, WithColumnsRelationExpr):
         yield from _walk_lexical_plan(
             relation.source,
@@ -383,7 +359,7 @@ def prefix_plan_row_scopes[NodeT: PlanNode](
             replace(node, row_scope_id=node.row_scope_id.prefixed(*scope))
             if isinstance(
                 node,
-                ColumnScalarExpr | FilterRelationExpr | WithColumnsRelationExpr,
+                ColumnScalarExpr | WithColumnsRelationExpr,
             )
             else node
         ),

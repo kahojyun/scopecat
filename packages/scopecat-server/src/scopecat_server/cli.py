@@ -121,14 +121,13 @@ def config_check(
         bootstrap_config = selected.load_application().bootstrap_config
         if bootstrap_config is None:
             raise ValueError("project application does not define bootstrap_config")
-        result = validate_config_profile(bootstrap_config())
+        config = validate_config_profile(bootstrap_config())
     except _PROJECT_CONFIG_ERRORS as error:
         _fail(error)
 
     console.print(
-        f"[green]valid[/green] snapshot={result.config.id} "
-        f"content_hash={config_content_hash(result.config)} "
-        f"warnings={len(result.problems)}",
+        f"[green]valid[/green] snapshot={config.id} "
+        f"content_hash={config_content_hash(config)}",
         soft_wrap=True,
     )
 

@@ -7,7 +7,7 @@ import type {
   StoredParameterValue,
   TableParameterType,
   TableParameterValue,
-} from "./config-types";
+} from "../../api-contract";
 
 export type ParameterDiffStatus = "unchanged" | "changed" | "added" | "removed" | "schema-changed";
 
@@ -48,24 +48,28 @@ export function diffConfigParameters(
   active: ConfigProfileSnapshot,
   selected: ConfigProfileSnapshot,
 ): ParameterDiff[] {
-  const beforeDefinitions = byId(active.system.parameterCatalog.definitions);
-  const afterDefinitions = byId(selected.system.parameterCatalog.definitions);
-  const beforeValues = byId(active.parameterSnapshot.values);
-  const afterValues = byId(selected.parameterSnapshot.values);
+  const beforeDefinitions = active.system.parameter_catalog.definitions ?? [];
+  const afterDefinitions = selected.system.parameter_catalog.definitions ?? [];
+  const beforeValues = active.parameter_snapshot.values ?? [];
+  const afterValues = selected.parameter_snapshot.values ?? [];
+  const beforeDefinitionsById = byId(beforeDefinitions);
+  const afterDefinitionsById = byId(afterDefinitions);
+  const beforeValuesById = byId(beforeValues);
+  const afterValuesById = byId(afterValues);
   const order = unique([
-    ...selected.system.parameterCatalog.definitions.map((item) => item.id),
-    ...selected.parameterSnapshot.values.map((item) => item.id),
-    ...active.system.parameterCatalog.definitions.map((item) => item.id),
-    ...active.parameterSnapshot.values.map((item) => item.id),
+    ...afterDefinitions.map((item) => item.id),
+    ...afterValues.map((item) => item.id),
+    ...beforeDefinitions.map((item) => item.id),
+    ...beforeValues.map((item) => item.id),
   ]);
 
   return order.map((parameterId) =>
     diffParameter(
       parameterId,
-      beforeDefinitions.get(parameterId),
-      afterDefinitions.get(parameterId),
-      beforeValues.get(parameterId),
-      afterValues.get(parameterId),
+      beforeDefinitionsById.get(parameterId),
+      afterDefinitionsById.get(parameterId),
+      beforeValuesById.get(parameterId),
+      afterValuesById.get(parameterId),
     ),
   );
 }
@@ -87,14 +91,14 @@ function diffParameter(
   if (!beforeDefinition || !before) return { ...common, status: "added" };
   if (!afterDefinition || !after) return { ...common, status: "removed" };
   if (
-    !equal(beforeDefinition.valueType, afterDefinition.valueType) ||
+    !equal(beforeDefinition.value_type, afterDefinition.value_type) ||
     before.shape !== after.shape
   ) {
     return { ...common, status: "schema-changed" };
   }
   const status = equal(before, after) ? "unchanged" : "changed";
   if (
-    afterDefinition.valueType.shape !== "table" ||
+    afterDefinition.value_type.shape !== "table" ||
     before.shape !== "table" ||
     after.shape !== "table"
   ) {
@@ -103,7 +107,7 @@ function diffParameter(
   return {
     ...common,
     status,
-    table: diffTable(afterDefinition.valueType, before, after),
+    table: diffTable(afterDefinition.value_type, before, after),
   };
 }
 
@@ -112,11 +116,12 @@ function diffTable(
   before: TableParameterValue,
   after: TableParameterValue,
 ): TableParameterDiff {
-  if (valueType.primaryKey.length === 0) {
+  const primaryKey = valueType.primary_key ?? [];
+  if (primaryKey.length === 0) {
     return { mode: "complete-replacement", rows: [] };
   }
-  const beforeRows = keyedRows(valueType, before.rows);
-  const afterRows = keyedRows(valueType, after.rows);
+  const beforeRows = keyedRows(valueType, before.rows ?? []);
+  const afterRows = keyedRows(valueType, after.rows ?? []);
   const identities = unique([...afterRows.keys(), ...beforeRows.keys()]);
   return {
     mode: "keyed",
@@ -126,7 +131,7 @@ function diffTable(
       const keySource = afterRow ?? beforeRow;
       if (!keySource) throw new Error("parameter table row identity disappeared");
       const key = Object.fromEntries(
-        valueType.primaryKey.map((columnId) => [columnId, keySource[columnId]!]),
+        primaryKey.map((columnId) => [columnId, keySource[columnId]!]),
       );
       const cells = valueType.columns.map(({ id }) =>
         diffCell(id, beforeRow?.[id], afterRow?.[id]),
@@ -174,7 +179,9 @@ function keyedRows(
 ): Map<string, Record<string, ParameterAtom>> {
   return new Map(
     rows.map((row) => [
-      JSON.stringify(valueType.primaryKey.map((columnId) => parameterAtomIdentity(row[columnId]!))),
+      JSON.stringify(
+        (valueType.primary_key ?? []).map((columnId) => parameterAtomIdentity(row[columnId]!)),
+      ),
       row,
     ]),
   );
@@ -199,11 +206,11 @@ export function parameterAtomLabel(value: ParameterAtom | undefined): string {
 
 export function parameterTypeLabel(definition: ParameterDefinition | undefined): string {
   if (!definition) return "Not defined";
-  const valueType = definition.valueType;
+  const valueType = definition.value_type;
   if (valueType.shape === "table") {
     return `Table · ${valueType.columns.length} columns`;
   }
-  const scalar = valueType.shape === "series" ? valueType.itemType : valueType.atom;
+  const scalar = valueType.shape === "series" ? valueType.item_type : valueType.atom;
   const suffix = scalar.type === "quantity" && scalar.unit ? ` · ${scalar.unit}` : "";
   return `${title(valueType.shape)} · ${title(scalar.type)}${suffix}`;
 }

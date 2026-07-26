@@ -7,16 +7,16 @@ from pathlib import Path
 import pytest
 import scopecat as sc
 from scopecat import Quantity
-from scopecat.compiler.linking.linked import LinkedPointMaterializer
 from scopecat.config.registry import CandidateConfigRegistrySource
 from scopecat.kernel.errors import Conflict
 from scopecat.records.parameter import TableParameterValue
 from scopecat.records.run import ConfigRegistryRunConfigSource
 from scopecat_quantum import authoring as quantum
+from tests.testkit.runtime import sqlite_execution_session
 
 import quantum_lab_demo.workflows.drag_beta_analysis as analysis_module
 from quantum_lab_demo import quantum_lab_compiler
-from quantum_lab_demo.targets.fake_list_mode import default_fake_list_target
+from quantum_lab_demo.targets.fake_list_mode import configured_fake_list_target
 from quantum_lab_demo.virtual_lab.parameters import (
     DRAG_BETA_PARAMETER_COLUMN,
     QUBIT_PARAMETER_TABLE,
@@ -25,6 +25,7 @@ from quantum_lab_demo.virtual_lab.parameters import (
 from quantum_lab_demo.virtual_lab.responses.drag_beta import (
     synthetic_drag_beta_response,
 )
+from quantum_lab_demo.virtual_lab.wiring import quantum_wiring_config_profile
 from quantum_lab_demo.workflows.drag_beta_analysis import (
     DRAG_BETA_PROPOSAL_ID,
     DragBetaFit,
@@ -45,7 +46,6 @@ from quantum_lab_demo.workflows.drag_beta_experiment import (
 
 from .demo_lab_experiment_testkit import (
     in_process_quantum_lab,
-    reject_program_input_binding,
 )
 
 
@@ -120,13 +120,7 @@ def test_drag_beta_template_and_scratch_share_the_2d_point_model(
 
 def test_drag_beta_in_process_analysis_authors_typed_native_proposal(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        LinkedPointMaterializer,
-        "bind_domain_inputs",
-        reject_program_input_binding,
-    )
     compiler = quantum_lab_compiler()
     lab = in_process_quantum_lab(project_root=tmp_path, compiler=compiler)
     experiment = lab.prepare(drag_beta_template)
@@ -144,13 +138,16 @@ def test_drag_beta_in_process_analysis_authors_typed_native_proposal(
         assert isinstance(probability_1, Quantity)
         assert probability_0.value + probability_1.value == pytest.approx(1.0)
     analysis = analyze_drag_beta_run(run)
+    journal = sqlite_execution_session(lab.project_root, run.id).journal
 
     assert run.manifest.status == "completed"
-    assert compiler.trace.physical_execution_count == 1
-    [evidence] = compiler.trace.preparations(drag_beta_program.id)
-    assert evidence.program_id == drag_beta_program.id
-    assert len(evidence.points) == len(evidence.entries) == 15
-    assert evidence.artifact_fingerprint.startswith("sha256:")
+    assert (
+        sum(
+            entry.stage == "domain_submit" and entry.state == "started"
+            for entry in journal.entries()
+        )
+        == 1
+    )
     assert len(records) == 15
     assert len(analysis.observations) == 15
     assert float(analysis.fit.beta_hat.to("ns").value) == pytest.approx(0.765)
@@ -410,17 +407,27 @@ def test_drag_beta_review_activate_active_replay_and_rollback(
     )
 
 
-def test_drag_beta_response_and_evidence_remain_batch_local(tmp_path: Path) -> None:
-    target = replace(default_fake_list_target(), max_list_entries=4)
+def test_drag_beta_response_remains_batch_local(tmp_path: Path) -> None:
+    target = replace(
+        configured_fake_list_target(quantum_wiring_config_profile()),
+        max_list_entries=4,
+    )
     compiler = quantum_lab_compiler(target=target)
     lab = in_process_quantum_lab(project_root=tmp_path, compiler=compiler)
 
     run = lab.prepare(drag_beta_template).run()
     analysis = analyze_drag_beta_run(run)
+    journal = sqlite_execution_session(lab.project_root, run.id).journal
 
     assert run.manifest.status == "completed"
     assert len(run.data().measurements().dataset.records) == 15
-    assert compiler.trace.physical_execution_count == 5
+    assert (
+        sum(
+            entry.stage == "domain_submit" and entry.state == "started"
+            for entry in journal.entries()
+        )
+        == 5
+    )
     assert float(analysis.fit.beta_hat.to("ns").value) == pytest.approx(0.765)
     assert analysis.assessment.eligible
     assert analysis.proposal_id == DRAG_BETA_PROPOSAL_ID

@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from scopecat.config.registry.ports import ConfigRegistryUnitOfWorkFactory
-from scopecat.execution.services import ExecutionServices
 from scopecat.runs.repository import RunRepository
 
 
@@ -15,10 +14,3 @@ class ProjectStateServices:
 
     runs: RunRepository
     config_registry: ConfigRegistryUnitOfWorkFactory
-
-
-@dataclass(frozen=True, slots=True)
-class ProjectServices(ProjectStateServices):
-    """Project state plus the effects required for local execution."""
-
-    execution: ExecutionServices

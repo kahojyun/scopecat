@@ -20,7 +20,6 @@ from __future__ import annotations
 import scopecat as sc
 from scopecat.records.config import (
     ConfigProfileSnapshot,
-    EnvironmentSpec,
     InstrumentRegistry,
     SystemSpec,
     Topology,
@@ -47,7 +46,6 @@ def bootstrap_config() -> ConfigProfileSnapshot:
             primary_entity_id="sample",
             topology=Topology(
                 entities=[EntityRef(id="sample", kind="sample")],
-                devices=[],
             ),
             instrument_registry=InstrumentRegistry(instruments=[]),
             domain_target=None,
@@ -61,9 +59,6 @@ def bootstrap_config() -> ConfigProfileSnapshot:
                     ),
                 ),
             ),
-        ),
-        environment=EnvironmentSpec(
-            id="local",
         ),
         parameter_snapshot=ParameterSnapshot(
             id="default-values",

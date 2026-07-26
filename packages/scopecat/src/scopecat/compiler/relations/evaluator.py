@@ -10,7 +10,6 @@ from scopecat.compiler.relations.model import (
     BinaryScalarExpr,
     CellValue,
     ColumnScalarExpr,
-    FilterRelationExpr,
     InputRelationExpr,
     InputScalarExpr,
     InputSeriesExpr,
@@ -120,17 +119,6 @@ def evaluate_relation_expression(
                 }
                 for source_row in evaluate_relation_expression(relation.source, ctx)
             ]
-        case FilterRelationExpr():
-            selected: list[Row] = []
-            for source_row in evaluate_relation_expression(relation.source, ctx):
-                child_ctx = _child_context(
-                    ctx,
-                    row=source_row,
-                    row_scope_id=relation.row_scope_id,
-                )
-                if evaluate_scalar_expression(relation.condition, child_ctx) is True:
-                    selected.append(source_row)
-            return selected
         case WithColumnsRelationExpr():
             derived: list[Row] = []
             for source_row in evaluate_relation_expression(relation.source, ctx):

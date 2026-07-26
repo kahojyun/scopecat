@@ -12,15 +12,13 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
+from scopecat.compiler.semantic.compute_result import ComputeOutput
 from scopecat.compiler.semantic.model import ValueId
-from scopecat.compiler.semantic.operation_contract import OperationContract
-from scopecat.kernel.product_identity import ProductId, ProductUseId
+from scopecat.kernel.product_identity import ProductUseId
 from scopecat.kernel.state import StateValue
-from scopecat.kernel.value_types import ValueType
 from scopecat.records.instrument import CommandChannelBinding
 from scopecat.sdk.instruments.contracts import (
     CollectCommand,
-    InstrumentActionCommandField,
     InstrumentStateCommandField,
 )
 
@@ -57,25 +55,15 @@ class PayloadSlot:
 
 
 @dataclass(frozen=True, slots=True)
-class ComputeResultSlot:
-    """Semantic result produced by one point-local compute invocation."""
-
-    id: ValueId
-    value_type: ValueType
-
-
-@dataclass(frozen=True, slots=True)
 class ComputeOperation:
     """One point-local pure compute kernel invocation."""
 
     operation_id: str
     semantic_operation_id: str
     implementation_id: str
-    contract: OperationContract
     kernel: ComputeKernel
     inputs: Mapping[str, ComputeInput]
-    result: ComputeResultSlot
-    binding_signature: str | None = None
+    result: ComputeOutput
     dependencies: Mapping[str, tuple[str, ...]] = field(
         default_factory=_empty_dependencies
     )
@@ -113,40 +101,11 @@ class ApplyStateOperation:
 
 
 @dataclass(frozen=True, slots=True)
-class ActionField:
-    """One concrete field supplied to a one-shot action."""
-
-    id: str
-    value: StateValue
-    entity_ids: tuple[str, ...] = ()
-    channel_bindings: tuple[CommandChannelBinding, ...] = ()
-
-    def command_field(self) -> InstrumentActionCommandField:
-        return InstrumentActionCommandField(
-            field_path=self.id,
-            value=self.value,
-            entity_ids=list(self.entity_ids),
-            channel_bindings=list(self.channel_bindings),
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class InstrumentActionOperation:
-    """One action attempt that is always delivered when its stage executes."""
-
-    operation_id: str
-    instrument_id: str
-    capability_id: str
-    fields: tuple[ActionField, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
 class CollectionResultBinding:
     """Map one provider response key to every logical use of that result."""
 
     provider_key: str
     product_use_ids: tuple[ProductUseId, ...]
-    product_id: ProductId
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,16 +118,10 @@ class CollectOperation:
     result_bindings: tuple[CollectionResultBinding, ...]
 
 
-type LocalOperation = (
-    ComputeOperation
-    | ApplyStateOperation
-    | InstrumentActionOperation
-    | CollectOperation
-)
+type LocalOperation = ComputeOperation | ApplyStateOperation | CollectOperation
 
 
 __all__ = [
-    "ActionField",
     "ApplyStateOperation",
     "BoundInput",
     "CollectOperation",
@@ -176,8 +129,6 @@ __all__ = [
     "ComputeInput",
     "ComputeKernel",
     "ComputeOperation",
-    "ComputeResultSlot",
-    "InstrumentActionOperation",
     "LocalOperation",
     "OutputInput",
     "PayloadSlot",

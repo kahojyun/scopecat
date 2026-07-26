@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import timedelta
 from hashlib import sha256
 from pathlib import Path
-from threading import Lock
 from typing import Self
 
 from fastapi import FastAPI
@@ -19,9 +18,7 @@ from scopecat.adapters.sqlite import (
 from scopecat.application.lab import BootstrapConfigFactory
 from scopecat.application.services import ProjectStateServices
 from scopecat.config.resolution import ConfigProfileInput, validate_config_profile
-from scopecat.daemon.catalog import RegisteredExperimentCatalog
 from scopecat.daemon.wire import DirectConfigDefaultCommand
-from scopecat.planning.system import ExperimentSystemBuilder
 from scopecat.project import LabApplicationFactory
 from scopecat.records.config import config_content_hash
 
@@ -29,8 +26,8 @@ from .services import (
     AdmissionService,
     ConfigService,
     DaemonApplication,
+    ExecutorLeaseSupervisor,
     ExecutorService,
-    ManagedRunSupervisor,
     RunService,
 )
 from .transport import create_app
@@ -43,8 +40,6 @@ class LocalDaemonRuntime:
         self,
         project_root: str | Path,
         *,
-        catalog: RegisteredExperimentCatalog | None = None,
-        build_system: ExperimentSystemBuilder | None = None,
         bootstrap_config: ConfigProfileInput | None = None,
         application_factory: LabApplicationFactory | None = None,
         lease_ttl: timedelta | None = None,
@@ -69,14 +64,7 @@ class LocalDaemonRuntime:
 
         try:
             if application_factory is not None:
-                if catalog is not None or build_system is not None:
-                    raise ValueError(
-                        "application_factory cannot be combined with catalog or "
-                        "build_system"
-                    )
                 application = application_factory(self.project_root)
-                catalog = application.catalog
-                build_system = application.build_system
                 application_bootstrap = application.bootstrap_config
 
             control = SQLiteControlPlane(database)
@@ -89,7 +77,6 @@ class LocalDaemonRuntime:
             project_store = SQLiteProjectStore(database, objects)
             project_store.bootstrap()
 
-            selected_catalog = catalog or RegisteredExperimentCatalog()
             executor = ExecutorService(
                 control=control,
                 runs=runs,
@@ -99,44 +86,33 @@ class LocalDaemonRuntime:
                 runs=runs,
                 config_registry=config_registry.unit_of_work,
             )
-            content_lock = Lock()
             config_service = ConfigService(
                 control=control,
                 config_registry=config_registry,
                 services=services,
-                run_content_lock=content_lock,
             )
             run_service = RunService(
                 control=control,
                 runs=runs,
                 services=services,
-                content_lock=content_lock,
             )
             admission = AdmissionService(
                 control=control,
                 runs=runs,
-                services=services,
-                catalog=selected_catalog,
-                build_system=build_system,
             )
             project_id = _project_id(self.project_root)
-            managed = ManagedRunSupervisor(
-                project_id=project_id,
+            lease_supervisor = ExecutorLeaseSupervisor(
                 control=control,
-                runs=runs,
-                admission=admission,
-                executor=executor,
             )
             application = DaemonApplication(
                 project_root=self.project_root,
                 project_id=project_id,
                 project_store=project_store,
-                catalog=selected_catalog,
                 config=config_service,
                 runs=run_service,
                 admission=admission,
                 executor=executor,
-                managed=managed,
+                lease_supervisor=lease_supervisor,
             )
             try:
                 bootstrap_source = (
@@ -188,7 +164,7 @@ def _bootstrap_config_registry(
         return
     # Resolve application-owned inputs only for a genuinely empty registry.
     selected = config() if callable(config) else config
-    validated = validate_config_profile(selected).config
+    validated = validate_config_profile(selected)
     digest = config_content_hash(validated).removeprefix("sha256:")
     config_service.set_direct_config_default(
         DirectConfigDefaultCommand(

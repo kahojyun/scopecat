@@ -8,29 +8,24 @@ from scopecat.execution.local.program import (
     ApplyStateOperation,
     CollectOperation,
     ComputeOperation,
-    InstrumentActionOperation,
     LocalOperation,
 )
 from scopecat.kernel.problems import (
     LocationPathItem,
     Problem,
-    ProblemCategory,
     ProblemPhase,
-    blocking_problem,
     model_location,
+    problem,
 )
 from scopecat.kernel.state import PayloadRef
 from scopecat.kernel.units import compatible_units
 from scopecat.records.artifact import CommandPayload
 from scopecat.sdk.instruments.contracts import (
     CollectProductRequest,
-    InstrumentActionCommand,
-    InstrumentActionCommandField,
     InstrumentDescription,
     InstrumentStateCommand,
     InstrumentStateCommandField,
     ProductDescription,
-    validate_action_command,
     validate_state_command,
 )
 
@@ -52,9 +47,7 @@ def validate_local_effect_block_instruments(
                     for operation in operations
                     if isinstance(
                         operation,
-                        ApplyStateOperation
-                        | InstrumentActionOperation
-                        | CollectOperation,
+                        ApplyStateOperation | CollectOperation,
                     )
                 ),
             )
@@ -86,24 +79,6 @@ def validate_local_effect_block_instruments(
                     command=InstrumentStateCommand(
                         operation_id=operation.operation_id,
                         instrument_id=operation.instrument_id,
-                        fields=fields,
-                        payloads=_referenced_payloads(fields, payloads),
-                    ),
-                    description=description,
-                    payloads=payloads,
-                )
-            )
-        elif isinstance(operation, InstrumentActionOperation):
-            description = descriptions.get(operation.instrument_id)
-            if description is None:
-                continue
-            fields = [field.command_field() for field in operation.fields]
-            problems.extend(
-                validate_action_command(
-                    command=InstrumentActionCommand(
-                        operation_id=operation.operation_id,
-                        instrument_id=operation.instrument_id,
-                        capability_id=operation.capability_id,
                         fields=fields,
                         payloads=_referenced_payloads(fields, payloads),
                     ),
@@ -182,7 +157,7 @@ def _payload_stubs(
 
 
 def _referenced_payloads(
-    fields: Sequence[InstrumentStateCommandField | InstrumentActionCommandField],
+    fields: Sequence[InstrumentStateCommandField],
     payloads: Mapping[str, CommandPayload],
 ) -> dict[str, CommandPayload]:
     selected: dict[str, CommandPayload] = {}
@@ -307,10 +282,9 @@ def _problem(
     message: str,
     *path: LocationPathItem,
 ) -> Problem:
-    return blocking_problem(
+    return problem(
         code,
         message,
-        category=ProblemCategory.PROVIDER_CONTRACT,
         phase=ProblemPhase.PROVIDER_PREFLIGHT,
         location=model_location("execution_program", *path),
     )

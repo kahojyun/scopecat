@@ -6,19 +6,17 @@ import pytest
 
 import scopecat as sc
 from scopecat.compiler.linking.linked import (
-    LinkedPointMaterializer,
-    link_verified_program,
+    materialize_linked_points,
 )
 from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.program import core_domain_executions
 from scopecat.execution.points import RunPoint
 from scopecat.measurements.host_transforms import HostMeasurementTransformCall
 from scopecat.measurements.semantics import MeasurementTransformSemanticContract
-from scopecat.planning.authoring import resolve_experiment
 from scopecat.records.parameter import Quantity
 from scopecat.sdk.domain._bridge import (
     make_domain_batch_context,
-    make_domain_compile_request,
+    make_domain_compile_template,
     point_id,
     product_use_id,
 )
@@ -33,7 +31,7 @@ from scopecat.sdk.domain.measurements import (
     DomainHostTransformImplementation,
     DomainMeasurementTransform,
 )
-from tests.testkit.authoring import load_config
+from tests.testkit.authoring import link_invocation, load_config
 
 
 def _context(tmp_path: Path, *, namespace: str) -> DomainBatchContext:
@@ -52,7 +50,6 @@ def _context(tmp_path: Path, *, namespace: str) -> DomainBatchContext:
         semantic=MeasurementTransformSemanticContract(
             id="test.summarize",
             version="1",
-            portability="host_only",
         ),
         inputs={"raw": "raw"},
         outputs={"summary": "summary"},
@@ -61,14 +58,13 @@ def _context(tmp_path: Path, *, namespace: str) -> DomainBatchContext:
         sc.module_body(id=f"test.sdk.measurements.{namespace}")
         .product("raw", "summary", unit="count", dtype="int64")
         .measurement_transforms(transform)
-        .build()
     )
     execution = sc.domain_execution(
         program,
         inputs={"count": count},
         results={"raw": module.products["raw"]},
     )
-    module_call = module.domain(execution)()
+    module_call = module.domain(execution).build()()
     body = (
         sc.experiment(module_call)
         .scan(count, (1, 3))
@@ -79,28 +75,28 @@ def _context(tmp_path: Path, *, namespace: str) -> DomainBatchContext:
         id=f"test.sdk.measurements.{namespace}",
         kind="domain_measurements",
     )(lambda: body)
-    resolved = resolve_experiment(
+    resolved = link_invocation(
         template.bind(),
         config_profile=load_config(),
     )
-    linked = link_verified_program(resolved.verified_program, resolved.environment)
-    materializer = LinkedPointMaterializer(linked)
-    linked_points = materializer.materialize()
+    linked = resolved
+    linked_points = materialize_linked_points(linked)
     execution_id = core_domain_executions(linked.program)[0].id
     closure = domain_result_closure(linked.program, execution_id)
-    request = make_domain_compile_request(
+    request = make_domain_compile_template(
         linked,
         execution_id,
         closure,
+    ).bind_coverage(
         ((0, 1),),
-        lambda input_ids, ordinals, max_points: materializer.bind_domain_inputs(
+        lambda input_ids, ordinals, max_points: linked_points.bind_domain_inputs(
             execution_id,
             "program",
             input_ids,
             ordinals,
             max_points=max_points,
         ),
-        lambda input_ids, ordinals, max_points: materializer.bind_domain_inputs(
+        lambda input_ids, ordinals, max_points: linked_points.bind_domain_inputs(
             execution_id,
             "compiler",
             input_ids,
@@ -163,7 +159,6 @@ def test_lowered_host_kernel_recovers_original_context_point_ref(
             id="test.summarize.python",
             semantic_id=transform.semantic.id,
             semantic_version=transform.semantic.version,
-            implementation_fingerprint="test.summarize.python.v1",
             validate_transform=validate,
             kernel=kernel,
         ),

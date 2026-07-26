@@ -2,7 +2,7 @@ from dataclasses import replace
 
 import pytest
 
-from scopecat.compiler.frontend.environment import validate_config_environment
+from scopecat.compiler.frontend.environment import build_config_environment
 from scopecat.compiler.relations.evaluation import ParameterRelationData
 from scopecat.compiler.relations.model import (
     lit,
@@ -12,8 +12,8 @@ from scopecat.compiler.relations.model import (
 )
 from scopecat.compiler.relations.point_domain import POINT_UNIT
 from scopecat.compiler.relations.verification import RelationTypeBindings
+from scopecat.compiler.semantic.compute_result import ComputeOutput
 from scopecat.compiler.semantic.model import (
-    ImplementationCatalog,
     ImplementationId,
     LocalPythonImplementation,
     OperationId,
@@ -25,7 +25,6 @@ from scopecat.compiler.semantic.operation_contract import (
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     TypedComputeNode,
-    TypedComputeOutput,
     ValueInput,
 )
 from scopecat.kernel.content_identity import content_fingerprint
@@ -53,6 +52,10 @@ def test_bound_compute_call_carries_dependency_provenance() -> None:
     node = TypedComputeNode(
         id=operation_id,
         contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
+        implementation=LocalPythonImplementation(
+            id=ImplementationId("python.consume-parameters.v1"),
+            kernel=_true_kernel,
+        ),
         inputs={
             "gain": ValueInput(
                 value=value_expr(
@@ -83,7 +86,7 @@ def test_bound_compute_call_carries_dependency_provenance() -> None:
                 origin_input_ids=("runtime_value",),
             ),
         },
-        result=TypedComputeOutput(
+        result=ComputeOutput(
             id=operation_result_id(operation_id),
             value_type=Scalar(Bool()),
         ),
@@ -93,16 +96,6 @@ def test_bound_compute_call_carries_dependency_provenance() -> None:
         kind="compiler_test",
         point_domain=PointDomain(root=POINT_UNIT),
         compute_nodes=(node,),
-        implementation_catalog=ImplementationCatalog(
-            local_python=(
-                LocalPythonImplementation(
-                    id=ImplementationId("python.consume-parameters.v1"),
-                    operation_id=operation_id,
-                    operation_contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-                    kernel=_true_kernel,
-                ),
-            )
-        ),
     )
     parameters = ParameterRelationData(
         scalars={"gain": 1.0},
@@ -110,7 +103,7 @@ def test_bound_compute_call_carries_dependency_provenance() -> None:
         tables={"calibrations": [{"gain": 1.0}]},
     )
     environment = replace(
-        validate_config_environment(load_config()),
+        build_config_environment(load_config()),
         parameters=parameters,
     )
 

@@ -6,18 +6,18 @@ from typing import Annotated
 
 import scopecat as sc
 from scopecat import Quantity, QuantityType
-from scopecat_quantum import (
+from scopecat_quantum import authoring as quantum
+from scopecat_quantum._ids import GateId, PulseEventId, QubitId
+from scopecat_quantum.measurement_transforms import (
     BinaryIqDiscriminator,
-    CircuitPulseEventProvenance,
-    GateId,
-    ImplementedGatePulseEventProvenance,
     IqCentroid,
-    PreparedQuantumTargetEntry,
-    PulseEventId,
-    QubitId,
     binary_iq_probability_transform,
 )
-from scopecat_quantum import authoring as quantum
+from scopecat_quantum.program_targets import PreparedQuantumTargetEntry
+from scopecat_quantum.programs import (
+    CircuitPulseEventProvenance,
+    ImplementedGatePulseEventProvenance,
+)
 from scopecat_quantum.standard_gates import X90, XM90
 
 from quantum_lab_demo.virtual_lab.parameters import (
@@ -101,11 +101,6 @@ def production_drag_capture():
 @sc.template(
     id=PRODUCTION_DRAG_GATE_TEMPLATE_ID,
     kind=PRODUCTION_DRAG_GATE_EXPERIMENT_ID,
-    label="Production DRAG X90",
-    description=(
-        "Compile the active q0 DRAG beta into both the production input and "
-        "the accepted Xm90 calibration collection."
-    ),
 )
 def production_drag_template() -> sc.ExperimentBody:
     capture = production_drag_capture()

@@ -2,20 +2,20 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import dataclass, replace
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
-from scopecat.compiler.frontend.environment import validate_config_environment
-from scopecat.compiler.linking.linked import specialize_linked_program
+from scopecat.authoring.templates import ExperimentInvocation
+from scopecat.compiler.frontend.environment import build_config_environment
 from scopecat.compiler.typed.program import CoreProgram
-from scopecat.execution.interpreter import admit_run, execute_admitted_run
+from scopecat.execution.interpreter import execute_admitted_run
 from scopecat.execution.observation import RuntimeEventSink, RuntimePayloadObserver
-from scopecat.execution.ports.resources import ResourceLeaseManager
 from scopecat.planning.system import ExperimentSystem
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run import RunConfigSource, RunManifest
 from scopecat.records.run_request import RunRequest
+from scopecat.runs.service import plan_scratch_experiment
 from scopecat.sdk.instruments.contracts import (
     InstrumentDriver,
     InstrumentProvider,
@@ -23,8 +23,9 @@ from scopecat.sdk.instruments.contracts import (
     InstrumentProviderDescription,
     InstrumentProviderResult,
 )
-from scopecat.testing import (
-    sqlite_execution_services,
+from tests.testkit.runtime import (
+    admit_test_run,
+    sqlite_execution_session,
     sqlite_run_repository,
 )
 from tests.testkit.typed_program import link_program
@@ -64,7 +65,6 @@ def execute_bound_run(
     project_root: str | Path,
     event_sink: RuntimeEventSink | None = None,
     payload_observer: RuntimePayloadObserver | None = None,
-    resource_leases: ResourceLeaseManager | None = None,
 ) -> RunManifest:
     """Bind a typed test program, then exercise the production executor boundary."""
 
@@ -76,7 +76,50 @@ def execute_bound_run(
         project_root=project_root,
         event_sink=event_sink,
         payload_observer=payload_observer,
-        resource_leases=resource_leases,
+    )
+
+
+def execute_invocation_run(
+    *,
+    config: ConfigProfileSnapshot,
+    experiment: ExperimentInvocation,
+    system: ExperimentSystem,
+    project_root: str | Path,
+    config_source: RunConfigSource | None = None,
+    metadata: Mapping[str, object] | None = None,
+    operator: str | None = None,
+    event_sink: RuntimeEventSink | None = None,
+    payload_observer: RuntimePayloadObserver | None = None,
+) -> RunManifest:
+    """Execute an authored invocation through test-local SQLite ports."""
+
+    planned = plan_scratch_experiment(
+        experiment,
+        config=config,
+        system=system,
+        config_source=config_source,
+        metadata=metadata,
+        operator=operator,
+    )
+    repository = sqlite_run_repository(project_root)
+    accepted = admit_test_run(
+        config=planned.config,
+        request=planned.request,
+        repository=repository,
+        config_source=planned.config_source,
+    )
+    return execute_admitted_run(
+        program=planned.program,
+        session=sqlite_execution_session(
+            project_root,
+            accepted.run_id,
+            runs=repository,
+        ),
+        instrument_provider=(
+            planned.system.provider if planned.system is not None else None
+        ),
+        event_sink=event_sink,
+        payload_observer=payload_observer,
     )
 
 
@@ -90,30 +133,26 @@ def execute_program_run(
     config_source: RunConfigSource | None = None,
     event_sink: RuntimeEventSink | None = None,
     payload_observer: RuntimePayloadObserver | None = None,
-    resource_leases: ResourceLeaseManager | None = None,
 ) -> RunManifest:
     """Execute a typed test program through the unified production boundary."""
 
-    environment = validate_config_environment(config)
-    linked = specialize_linked_program(link_program(experiment, environment))
-    program = ExperimentSystem(provider=instrument_provider).compile(
-        linked,
-        config=config,
-    )
+    environment = build_config_environment(config)
+    linked = link_program(experiment, environment)
+    program = ExperimentSystem(provider=instrument_provider).compile(linked)
     repository = sqlite_run_repository(project_root)
-    services = sqlite_execution_services(project_root, runs=repository)
-    if resource_leases is not None:
-        services = replace(services, resources=resource_leases)
-    accepted = admit_run(
+    accepted = admit_test_run(
         config=config,
-        request=request,
+        request=request or RunRequest(experiment_id=program.experiment_id),
         repository=repository,
         config_source=config_source,
     )
     manifest = execute_admitted_run(
-        run_id=accepted.run_id,
         program=program,
-        services=services,
+        session=sqlite_execution_session(
+            project_root,
+            accepted.run_id,
+            runs=repository,
+        ),
         instrument_provider=instrument_provider,
         event_sink=event_sink,
         payload_observer=payload_observer,
@@ -121,4 +160,4 @@ def execute_program_run(
     return manifest
 
 
-__all__ = ["execute_bound_run", "execute_program_run"]
+__all__ = ["execute_bound_run", "execute_invocation_run", "execute_program_run"]

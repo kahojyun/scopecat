@@ -5,14 +5,13 @@ import pytest
 import scopecat as sc
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
-from scopecat.planning.authoring import resolve_experiment
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter import (
     ParameterDefinition,
     SeriesParameterValue,
     TableParameterValue,
 )
-from tests.testkit.authoring import load_config, template_fixture
+from tests.testkit.authoring import link_invocation, load_config, template_fixture
 from tests.testkit.materialized_effects import materialized_effects_contract
 
 
@@ -43,7 +42,7 @@ def _resolve_dependency(
 
 
 def _resolve_module(
-    module: sc.ExperimentModule,
+    module: sc.ExperimentModule[...],
     config: ConfigProfileSnapshot,
     *,
     inputs: dict[str, sc.RuntimeInput] | None = None,
@@ -53,7 +52,7 @@ def _resolve_module(
         id="test.parameter-contract",
         kind="parameter_contract",
     ).bind(**(inputs or {}))
-    resolve_experiment(
+    link_invocation(
         invocation,
         config_profile=config,
     )
@@ -279,7 +278,7 @@ def test_parameter_contract_survives_scan_lowering() -> None:
     ).bind()
 
     with pytest.raises(CheckFailed) as error:
-        resolve_experiment(
+        link_invocation(
             invocation,
             config_profile=load_config(),
         )
@@ -312,8 +311,12 @@ def test_parameter_scan_target_is_checked_against_catalog_column(
 ) -> None:
     scan = sc.param_axis(
         sc.coordinate("scanned_value", point_type),
-        sc.param_row("device_parameters", device="q0"),
-        column,
+        sc.parameter_lookup(
+            "device_parameters",
+            key={"device": "q0"},
+            column=column,
+            value_type=point_type,
+        ),
         values,
     )
     module = sc.module_body(id="test.parameter-contract-scan-target").build()
@@ -325,7 +328,7 @@ def test_parameter_scan_target_is_checked_against_catalog_column(
     ).bind()
 
     with pytest.raises(CheckFailed) as error:
-        resolve_experiment(
+        link_invocation(
             invocation,
             config_profile=_config_with_parameter_table(),
         )
@@ -339,14 +342,17 @@ def test_parameter_scan_retains_row_key_parameter_contracts() -> None:
             "scanned_frequency",
             sc.ScalarType(sc.QuantityType(unit="GHz")),
         ),
-        sc.param_row(
+        sc.parameter_lookup(
             "device_parameters",
-            device=sc.parameter(
-                "drive_frequency",
-                sc.ScalarType(sc.StringType()),
-            ),
+            key={
+                "device": sc.parameter(
+                    "drive_frequency",
+                    sc.ScalarType(sc.StringType()),
+                )
+            },
+            column="frequency",
+            value_type=sc.ScalarType(sc.QuantityType(unit="GHz")),
         ),
-        "frequency",
         [5.0],
         unit="GHz",
     )
@@ -359,20 +365,20 @@ def test_parameter_scan_retains_row_key_parameter_contracts() -> None:
     ).bind()
 
     with pytest.raises(CheckFailed) as error:
-        resolve_experiment(
+        link_invocation(
             invocation,
             config_profile=_config_with_parameter_table(),
         )
 
-    assert error.value.problems[0].code == "authoring_parameter_type_mismatch"
+    assert (
+        error.value.problems[0].code == "authoring_parameter_lookup_key_type_mismatch"
+    )
 
 
 def test_parameter_around_scan_materializes_about_the_current_table_cell() -> None:
     config = _config_with_parameter_table()
-    frequency = sc.coordinate(
-        "scanned_frequency",
-        sc.ScalarType(sc.QuantityType(unit="GHz")),
-    )
+    frequency_type = sc.ScalarType(sc.QuantityType(unit="GHz"))
+    frequency = sc.coordinate("scanned_frequency", frequency_type)
     module = sc.module_body(id="test.parameter-around-scan").build()
     invocation = template_fixture(
         module,
@@ -381,18 +387,22 @@ def test_parameter_around_scan_materializes_about_the_current_table_cell() -> No
         scans=(
             sc.param_axis(
                 frequency,
-                sc.param_row("device_parameters", device="q0"),
-                "frequency",
+                sc.parameter_lookup(
+                    "device_parameters",
+                    key={"device": "q0"},
+                    column="frequency",
+                    value_type=frequency_type,
+                ),
                 span="200 MHz",
                 points=3,
             ),
         ),
     ).bind()
 
-    resolved = resolve_experiment(invocation, config_profile=config)
+    resolved = link_invocation(invocation, config_profile=config)
     materialized = materialized_effects_contract(
-        resolved.experiment,
-        resolved.parameters,
+        resolved.program,
+        resolved.environment.parameters,
         config=config,
     )
 
@@ -402,7 +412,7 @@ def test_parameter_around_scan_materializes_about_the_current_table_cell() -> No
         sc.Quantity(5.0, "GHz"),
         sc.Quantity(5.1, "GHz"),
     ]
-    assert len(resolved.experiment.parameter_overlays) == 1
+    assert len(resolved.program.parameter_overlays) == 1
     stored = config.parameter_snapshot.get("device_parameters")
     assert isinstance(stored, TableParameterValue)
     assert stored.rows[0]["frequency"] == sc.Quantity(5.0, "GHz")
@@ -495,7 +505,7 @@ def test_parameter_lookup_checks_primary_key_shape_and_typed_key_values() -> Non
         id="test.typed-parameter-key",
         kind="parameter_contract",
     ).bind(device="q0")
-    resolve_experiment(
+    link_invocation(
         invocation,
         config_profile=config,
     )

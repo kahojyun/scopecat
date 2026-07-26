@@ -8,7 +8,6 @@ import sqlite3
 from collections.abc import Generator, Iterable
 from contextlib import closing, contextmanager
 from dataclasses import dataclass, replace
-from datetime import UTC
 from pathlib import Path, PurePosixPath
 from typing import cast
 
@@ -31,17 +30,16 @@ from scopecat.kernel.errors import (
 )
 from scopecat.kernel.problems import (
     ModelLocation,
-    ProblemCategory,
     ProblemPhase,
     StorageLocation,
-    blocking_problem,
+    problem,
 )
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.measurement_recording import MeasurementDatasetAppend
 from scopecat.records.run import RunManifest
-from scopecat.records.run_request import RunRequest
 from scopecat.runs.access import upsert_contents
+from scopecat.runs.admission import RunSkeleton
 from scopecat.runs.provenance import validate_run_config_provenance
 from scopecat.runs.refs import (
     CONFIG_PROFILE_SNAPSHOT_REF,
@@ -49,6 +47,7 @@ from scopecat.runs.refs import (
     RUN_REQUEST_REF,
 )
 from scopecat.runs.repository import RunContentPublication, TerminalRunCommit
+from scopecat.runs.terminal import merge_terminal_manifest
 
 _SAFE_RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 
@@ -74,7 +73,6 @@ class PreparedRunSkeleton:
 
     manifest: RunManifest
     refs: tuple[_PreparedRef, ...]
-    manifest_digest: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,97 +138,24 @@ class SQLiteRunRepository:
         _validate_run_id(run_id)
         return self._read_manifest_with_connection(connection, run_id)
 
-    def write_manifest(self, manifest: RunManifest) -> None:
-        _validate_run_id(manifest.run_id)
-        try:
-            with self._transaction() as connection:
-                self.write_manifest_in_transaction(connection, manifest)
-        except sqlite3.Error as error:
-            raise _storage_failure(
-                run_id=manifest.run_id,
-                ref=MANIFEST_REF,
-            ) from error
-
-    def write_manifest_in_transaction(
-        self,
-        connection: sqlite3.Connection,
-        manifest: RunManifest,
-    ) -> None:
-        """Publish a manifest through an existing daemon write transaction."""
-
-        prepared = self._prepare_model(
-            manifest.run_id,
-            MANIFEST_REF,
-            manifest,
-        )
-        self._publish_refs(connection, manifest.run_id, (prepared,))
-        self._publish_manifest(connection, manifest, prepared.object.digest)
-
-    def list_runs(self) -> list[RunManifest]:
-        try:
-            with closing(self._connect()) as connection:
-                rows = _all(
-                    connection.execute(
-                        """
-                        SELECT run_id FROM run_repository_manifests
-                        ORDER BY created_at, run_id
-                        """
-                    )
-                )
-        except sqlite3.Error as error:
-            raise _storage_failure(ref=MANIFEST_REF) from error
-        return [self.read_manifest(_text(row, "run_id")) for row in rows]
-
-    def write_run_skeleton(
-        self,
-        *,
-        manifest: RunManifest,
-        request: RunRequest | None,
-        config: ConfigProfileSnapshot,
-    ) -> None:
-        prepared = self.prepare_run_skeleton(
-            manifest=manifest,
-            request=request,
-            config=config,
-        )
-        try:
-            with self._transaction() as connection:
-                self.commit_run_skeleton_in_transaction(connection, prepared)
-        except sqlite3.Error as error:
-            raise _storage_failure(
-                run_id=manifest.run_id,
-                ref=MANIFEST_REF,
-            ) from error
-
-    def prepare_run_skeleton(
-        self,
-        *,
-        manifest: RunManifest,
-        request: RunRequest | None,
-        config: ConfigProfileSnapshot,
-    ) -> PreparedRunSkeleton:
+    def prepare_run_skeleton(self, skeleton: RunSkeleton) -> PreparedRunSkeleton:
         """Write immutable admission objects before acquiring the SQLite writer."""
 
-        if manifest.lifecycle != "accepted":
-            msg = "run skeleton manifest must be accepted"
-            raise ValueError(msg)
-        validate_run_config_provenance(manifest=manifest, config=config)
+        manifest = skeleton.manifest
         run_id = manifest.run_id
         prepared = [
             self._prepare_model(
                 run_id,
                 CONFIG_PROFILE_SNAPSHOT_REF,
-                config,
-            )
+                skeleton.config,
+            ),
+            self._prepare_model(run_id, RUN_REQUEST_REF, skeleton.request),
         ]
-        if request is not None:
-            prepared.append(self._prepare_model(run_id, RUN_REQUEST_REF, request))
         manifest_ref = self._prepare_model(run_id, MANIFEST_REF, manifest)
         prepared.append(manifest_ref)
         return PreparedRunSkeleton(
             manifest=manifest,
             refs=tuple(prepared),
-            manifest_digest=manifest_ref.object.digest,
         )
 
     def commit_run_skeleton_in_transaction(
@@ -241,14 +166,9 @@ class SQLiteRunRepository:
         """Publish a prebuilt run skeleton in the caller's transaction."""
 
         self._publish_refs(connection, prepared.manifest.run_id, prepared.refs)
-        self._publish_manifest(
-            connection,
-            prepared.manifest,
-            prepared.manifest_digest,
-        )
 
     def commit_terminal(self, commit: TerminalRunCommit) -> RunManifest:
-        run_id = commit.manifest.run_id
+        run_id = commit.run_id
         prepared = self.prepare_terminal_commit(commit)
         try:
             with self._transaction() as connection:
@@ -265,28 +185,12 @@ class SQLiteRunRepository:
     ) -> PreparedTerminalCommit:
         """Write immutable terminal payloads before acquiring the SQLite writer."""
 
-        run_id = commit.manifest.run_id
+        run_id = commit.run_id
         refs = [
             self._prepare_model(run_id, write.ref, write.value)
             for write in commit.models
         ]
-        refs.extend(
-            self._prepare_jsonl(run_id, write.ref, write.records)
-            for write in commit.record_sets
-        )
         return PreparedTerminalCommit(commit=commit, refs=tuple(refs))
-
-    def commit_terminal_in_transaction(
-        self,
-        connection: sqlite3.Connection,
-        commit: TerminalRunCommit,
-    ) -> RunManifest:
-        """Prepare and publish a terminal commit in the caller's transaction."""
-
-        return self.commit_prepared_terminal_in_transaction(
-            connection,
-            self.prepare_terminal_commit(commit),
-        )
 
     def commit_prepared_terminal_in_transaction(
         self,
@@ -300,23 +204,16 @@ class SQLiteRunRepository:
         """
 
         commit = prepared.commit
-        run_id = commit.manifest.run_id
+        run_id = commit.run_id
         current = self._read_manifest_with_connection(connection, run_id)
-        manifest = commit.manifest.model_copy(
-            update={
-                "contents": upsert_contents(
-                    current.contents,
-                    commit.manifest.contents,
-                )
-            }
+        manifest = merge_terminal_manifest(
+            current,
+            run_id=run_id,
+            outcome=commit.outcome,
+            contents=commit.contents,
         )
         manifest_ref = self._prepare_model(run_id, MANIFEST_REF, manifest)
         self._publish_refs(connection, run_id, (*prepared.refs, manifest_ref))
-        self._publish_manifest(
-            connection,
-            manifest,
-            manifest_ref.object.digest,
-        )
         return manifest
 
     def publish_content(
@@ -384,7 +281,6 @@ class SQLiteRunRepository:
         )
         manifest_ref = self._prepare_model(run_id, MANIFEST_REF, manifest)
         self._publish_refs(connection, run_id, (*prepared.refs, manifest_ref))
-        self._publish_manifest(connection, manifest, manifest_ref.object.digest)
         return manifest
 
     def read_config_profile_snapshot(self, run_id: str) -> ConfigProfileSnapshot:
@@ -409,58 +305,12 @@ class SQLiteRunRepository:
         except ValidationError as error:
             raise _invalid_ref(run_id, ref) from error
 
-    def write_model(self, run_id: str, ref: str, model: BaseModel) -> None:
-        self._write_prepared(run_id, self._prepare_model(run_id, ref, model))
-
-    def write_model_if_absent(
-        self,
-        run_id: str,
-        ref: str,
-        model: BaseModel,
-    ) -> bool:
-        prepared = self._prepare_model(run_id, ref, model)
-        try:
-            with self._transaction() as connection:
-                cursor = connection.execute(
-                    """
-                    INSERT INTO run_repository_refs(run_id, ref, digest, size)
-                    VALUES (?, ?, ?, ?)
-                    ON CONFLICT(run_id, ref) DO NOTHING
-                    """,
-                    (
-                        run_id,
-                        ref,
-                        prepared.object.digest,
-                        prepared.object.size,
-                    ),
-                )
-                return cursor.rowcount == 1
-        except sqlite3.Error as error:
-            raise _storage_failure(run_id=run_id, ref=ref) from error
-
-    def read_jsonl[TModel: BaseModel](
-        self,
-        run_id: str,
-        ref: str,
-        model_type: type[TModel],
-    ) -> list[TModel]:
-        try:
-            return [
-                model_type.model_validate_json(line)
-                for line in self.read_text(run_id, ref).splitlines()
-                if line.strip()
-            ]
-        except ValidationError as error:
-            raise _invalid_ref(run_id, ref) from error
-
     def read_measurement_records(
         self,
         run_id: str,
         ref: str,
     ) -> list[MeasurementRecord]:
         _validate_identity(run_id, ref)
-        if self._digest(run_id, ref) is not None:
-            return self.read_jsonl(run_id, ref, MeasurementRecord)
         prefix = f"{ref}/chunks/"
         try:
             with closing(self._connect()) as connection:
@@ -486,14 +336,6 @@ class SQLiteRunRepository:
             ).records
         ]
 
-    def write_jsonl(
-        self,
-        run_id: str,
-        ref: str,
-        records: Iterable[BaseModel],
-    ) -> None:
-        self._write_prepared(run_id, self._prepare_jsonl(run_id, ref, records))
-
     def read_text(self, run_id: str, ref: str) -> str:
         content = self._read_ref(run_id, ref)
         try:
@@ -504,19 +346,6 @@ class SQLiteRunRepository:
     def read_bytes(self, run_id: str, ref: str) -> bytes:
         return self._read_ref(run_id, ref)
 
-    def write_text(self, run_id: str, ref: str, content: str) -> None:
-        if content and not content.endswith("\n"):
-            content = f"{content}\n"
-        self.write_bytes(run_id, ref, content.encode())
-
-    def write_bytes(self, run_id: str, ref: str, content: bytes) -> None:
-        _validate_identity(run_id, ref)
-        try:
-            stored = self.objects.put(content)
-        except ObjectStoreError as error:
-            raise _storage_failure(run_id=run_id, ref=ref) from error
-        self._write_prepared(run_id, _PreparedRef(ref=ref, object=stored))
-
     def _prepare_model(
         self,
         run_id: str,
@@ -526,22 +355,6 @@ class SQLiteRunRepository:
         _validate_identity(run_id, ref)
         try:
             content = _encode_model(model) + b"\n"
-            stored = self.objects.put(content)
-        except ObjectStoreError as error:
-            raise _storage_failure(run_id=run_id, ref=ref) from error
-        except (PydanticSerializationError, TypeError, ValueError) as error:
-            raise _serialization_failure(run_id, ref) from error
-        return _PreparedRef(ref=ref, object=stored)
-
-    def _prepare_jsonl(
-        self,
-        run_id: str,
-        ref: str,
-        records: Iterable[BaseModel],
-    ) -> _PreparedRef:
-        _validate_identity(run_id, ref)
-        try:
-            content = b"".join(_encode_model(record) + b"\n" for record in records)
             stored = self.objects.put(content)
         except ObjectStoreError as error:
             raise _storage_failure(run_id=run_id, ref=ref) from error
@@ -564,13 +377,6 @@ class SQLiteRunRepository:
             raise _storage_failure(run_id=run_id, ref=ref) from error
         return _PreparedRef(ref=ref, object=stored, replace=replace)
 
-    def _write_prepared(self, run_id: str, prepared: _PreparedRef) -> None:
-        try:
-            with self._transaction() as connection:
-                self._publish_refs(connection, run_id, (prepared,))
-        except sqlite3.Error as error:
-            raise _storage_failure(run_id=run_id, ref=prepared.ref) from error
-
     @staticmethod
     def _publish_refs(
         connection: sqlite3.Connection,
@@ -581,22 +387,21 @@ class SQLiteRunRepository:
             if item.replace:
                 connection.execute(
                     """
-                    INSERT INTO run_repository_refs(run_id, ref, digest, size)
-                    VALUES (?, ?, ?, ?)
+                    INSERT INTO run_repository_refs(run_id, ref, digest)
+                    VALUES (?, ?, ?)
                     ON CONFLICT(run_id, ref) DO UPDATE SET
-                        digest = excluded.digest,
-                        size = excluded.size
+                        digest = excluded.digest
                     """,
-                    (run_id, item.ref, item.object.digest, item.object.size),
+                    (run_id, item.ref, item.object.digest),
                 )
                 continue
             inserted = connection.execute(
                 """
-                INSERT INTO run_repository_refs(run_id, ref, digest, size)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO run_repository_refs(run_id, ref, digest)
+                VALUES (?, ?, ?)
                 ON CONFLICT(run_id, ref) DO NOTHING
                 """,
-                (run_id, item.ref, item.object.digest, item.object.size),
+                (run_id, item.ref, item.object.digest),
             )
             if inserted.rowcount == 1:
                 continue
@@ -611,27 +416,6 @@ class SQLiteRunRepository:
             )
             if existing is None or _text(existing, "digest") != item.object.digest:
                 raise _ref_conflict(run_id, item.ref)
-
-    @staticmethod
-    def _publish_manifest(
-        connection: sqlite3.Connection,
-        manifest: RunManifest,
-        digest: str,
-    ) -> None:
-        connection.execute(
-            """
-            INSERT INTO run_repository_manifests(run_id, digest, created_at)
-            VALUES (?, ?, ?)
-            ON CONFLICT(run_id) DO UPDATE SET
-                digest = excluded.digest,
-                created_at = excluded.created_at
-            """,
-            (
-                manifest.run_id,
-                digest,
-                manifest.created_at.astimezone(UTC).isoformat(),
-            ),
-        )
 
     def _read_ref(self, run_id: str, ref: str) -> bytes:
         _validate_identity(run_id, ref)
@@ -653,19 +437,18 @@ class SQLiteRunRepository:
         row = _one(
             connection.execute(
                 """
-                SELECT digest FROM run_repository_manifests
-                WHERE run_id = ?
+                SELECT digest FROM run_repository_refs
+                WHERE run_id = ? AND ref = ?
                 """,
-                (run_id,),
+                (run_id, MANIFEST_REF),
             )
         )
         if row is None:
             raise NotFound(
                 [
-                    blocking_problem(
+                    problem(
                         "run.not_found",
                         "run was not found",
-                        category=ProblemCategory.NOT_FOUND,
                         phase=ProblemPhase.PERSISTENCE,
                         location=StorageLocation(
                             run_id=run_id,
@@ -750,10 +533,9 @@ def _validate_identity(run_id: str, ref: str) -> None:
     if not relative.parts or relative.is_absolute() or ".." in relative.parts:
         raise CheckFailed(
             [
-                blocking_problem(
+                problem(
                     "run.ref_path_escape",
                     "run ref must stay within the run directory",
-                    category=ProblemCategory.INVALID_INPUT,
                     phase=ProblemPhase.PERSISTENCE,
                     location=ModelLocation(root="run_ref", path=("ref",)),
                     details={"ref": ref},
@@ -767,10 +549,9 @@ def _validate_run_id(run_id: str) -> None:
         return
     raise CheckFailed(
         [
-            blocking_problem(
+            problem(
                 "run.id_invalid",
                 "run id is not safe for storage access",
-                category=ProblemCategory.INVALID_INPUT,
                 phase=ProblemPhase.PERSISTENCE,
                 location=ModelLocation(root="run", path=("run_id",)),
                 details={"run_id": run_id},
@@ -800,10 +581,9 @@ def _invalid_ref(run_id: str, ref: str) -> DataIntegrityError:
 def _ref_conflict(run_id: str, ref: str) -> Conflict:
     return Conflict(
         [
-            blocking_problem(
+            problem(
                 "run.ref_conflict",
                 "immutable run content already contains different data",
-                category=ProblemCategory.CONFLICT,
                 phase=ProblemPhase.PERSISTENCE,
                 location=StorageLocation(run_id=run_id, ref=ref),
             )
@@ -820,10 +600,9 @@ def _integrity_failure(
 ) -> DataIntegrityError:
     return DataIntegrityError(
         [
-            blocking_problem(
+            problem(
                 code,
                 message,
-                category=ProblemCategory.DATA_INTEGRITY,
                 phase=ProblemPhase.PERSISTENCE,
                 location=StorageLocation(run_id=run_id, ref=ref),
             )
@@ -834,10 +613,9 @@ def _integrity_failure(
 def _storage_failure(*, ref: str, run_id: str | None = None) -> StorageError:
     return StorageError(
         [
-            blocking_problem(
+            problem(
                 "storage.operation_failed",
                 "storage could not complete the run repository operation",
-                category=ProblemCategory.STORAGE,
                 phase=ProblemPhase.PERSISTENCE,
                 location=StorageLocation(run_id=run_id, ref=ref),
             )

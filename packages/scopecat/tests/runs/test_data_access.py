@@ -4,40 +4,28 @@ from pathlib import Path
 
 import pytest
 
-import scopecat as sc
 from scopecat.kernel.errors import CheckFailed, DataIntegrityError, NotFound
-from scopecat.records.config import config_content_hash
 from scopecat.records.measurement_recording import MeasurementDatasetAppend
-from scopecat.records.run import RunManifest
 from scopecat.runs.access import (
     dataset_storage_ref,
+    list_payload_entries,
 )
-from scopecat.runs.refs import CONFIG_PROFILE_SNAPSHOT_REF
 from scopecat.runs.service import (
-    list_run_artifacts,
-    list_run_payload_entries,
-    list_runs,
-    load_run,
-    load_run_config,
     load_run_request,
     read_run_artifact_bytes,
     read_run_artifact_text,
-    read_run_data_array,
-    read_run_data_table,
     read_run_measurement_dataset,
-    start_run,
 )
-from scopecat.testing import (
+from tests.testkit.runtime import (
+    list_test_runs,
     sqlite_project_services,
     sqlite_run_repository,
 )
-from tests.testkit.in_process_lab import in_process_lab
-from tests.testkit.signal_instruments import TestSignalInstrumentProvider
+from tests.testkit.signal_testkit import execute_signal_run
 from tests.testkit.workflow_fixtures import (
     attach_binary_artifact,
-    attach_typed_data_artifacts,
     load_config,
-    load_prepared_invocation,
+    load_invocation,
 )
 
 
@@ -45,136 +33,59 @@ def test_workflow_run_data_access_reads_runs_artifacts_and_datasets(
     tmp_path: Path,
 ) -> None:
     config = load_config()
-    experiment = load_prepared_invocation()
-    baseline = start_run(
-        system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
+    experiment = load_invocation()
+    baseline = execute_signal_run(
         config=config,
         experiment=experiment,
-        services=sqlite_project_services(tmp_path),
+        project_root=tmp_path,
     )
-    candidate = start_run(
-        system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
+    candidate = execute_signal_run(
         config=config,
         experiment=experiment,
-        services=sqlite_project_services(tmp_path),
+        project_root=tmp_path,
     )
-    attach_typed_data_artifacts(tmp_path, candidate.run_id)
-
-    runs = list_runs(services=sqlite_project_services(tmp_path))
-    details = load_run(
-        run_id=candidate.run_id, services=sqlite_project_services(tmp_path)
-    )
-    run_config = load_run_config(
-        run_id=candidate.run_id, services=sqlite_project_services(tmp_path)
-    )
+    services = sqlite_project_services(tmp_path)
+    runs = list_test_runs(services.runs)
+    details = services.runs.read_manifest(candidate.run_id)
+    run_config = services.runs.read_config_profile_snapshot(candidate.run_id)
     run_request = load_run_request(
         run_id=candidate.run_id, services=sqlite_project_services(tmp_path)
     )
-    artifacts = list_run_artifacts(
-        run_id=candidate.run_id,
-        services=sqlite_project_services(tmp_path),
-    )
-    payload_entries = list_run_payload_entries(
-        run_id=candidate.run_id,
-        services=sqlite_project_services(tmp_path),
-    )
-    measurement_datasets = list_run_payload_entries(
-        run_id=candidate.run_id,
-        services=sqlite_project_services(tmp_path),
-        kind="measurement_dataset",
-    )
+    artifacts = details.artifacts
+    payload_entries = list_payload_entries(details)
+    measurement_datasets = list_payload_entries(details, kind="measurement_dataset")
     raw_dataset = read_run_measurement_dataset(
         run_id=candidate.run_id,
         services=sqlite_project_services(tmp_path),
     )
-    metrics = read_run_data_table(
-        run_id=candidate.run_id,
-        selector="metrics",
-        services=sqlite_project_services(tmp_path),
-    )
-    matrix = read_run_data_array(
-        run_id=candidate.run_id,
-        selector="readout-matrix",
-        services=sqlite_project_services(tmp_path),
-    )
-
     assert [run.run_id for run in runs] == [
         baseline.run_id,
         candidate.run_id,
     ]
     assert details.run_id == candidate.run_id
-    assert {dataset.id for dataset in details.datasets} >= {
-        "raw-measurements",
-        "metrics",
-        "readout-matrix",
-    }
+    assert [dataset.id for dataset in details.datasets] == ["raw-measurements"]
     assert details.outcome is not None
     assert details.outcome.result == "succeeded"
     assert run_config.id == "simple-scan-profile"
-    assert run_request is not None
-    assert run_request.id == "test.workflow_scan.request"
+    assert run_request.experiment_id == "test.workflow_scan"
     assert artifacts == ()
-    assert {entry.id for entry in payload_entries} >= {
-        "raw-measurements",
-        "metrics",
-        "readout-matrix",
-    }
+    assert [entry.id for entry in payload_entries] == ["raw-measurements"]
     assert [dataset.id for dataset in measurement_datasets] == ["raw-measurements"]
     assert raw_dataset.dataset_entry.id == "raw-measurements"
     assert raw_dataset.dataset.dataset_schema.dataset_id == "raw-measurements"
     assert len(raw_dataset.dataset.records) == 3
-    assert metrics.table.rows[0]["metric"] == "visibility"
-    assert matrix.array.variables["readout_probability"] == [
-        [0.99, 0.03],
-        [0.01, 0.97],
-    ]
-
-
-def test_run_inputs_are_loaded_independently_for_capture_runs(tmp_path: Path) -> None:
-    manifest = RunManifest(
-        run_id="run_capture",
-        lifecycle="accepted",
-        config_content_hash=config_content_hash(load_config()),
-    )
-    config = load_config()
-    storage = sqlite_run_repository(tmp_path)
-    storage.write_manifest(manifest)
-    storage.write_model(
-        manifest.run_id,
-        CONFIG_PROFILE_SNAPSHOT_REF,
-        config,
-    )
-
-    details = load_run(
-        run_id=manifest.run_id, services=sqlite_project_services(tmp_path)
-    )
-    loaded_config = load_run_config(
-        run_id=manifest.run_id, services=sqlite_project_services(tmp_path)
-    )
-    loaded_request = load_run_request(
-        run_id=manifest.run_id, services=sqlite_project_services(tmp_path)
-    )
-    assert details == manifest
-    assert loaded_config == config
-    assert loaded_request is None
-
-    project_root = in_process_lab(tmp_path, config_profile=config)
-    handle = project_root.get_run(manifest.run_id)
-    assert handle.config == config
-    assert handle.request is None
 
 
 def test_workflow_run_data_access_rejects_invalid_reads(tmp_path: Path) -> None:
-    run = start_run(
-        system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
+    run = execute_signal_run(
         config=load_config(),
-        experiment=load_prepared_invocation(),
-        services=sqlite_project_services(tmp_path),
+        experiment=load_invocation(),
+        project_root=tmp_path,
     )
     attach_binary_artifact(tmp_path, run.run_id)
 
     with pytest.raises(NotFound) as missing_run:
-        load_run(run_id="run_missing", services=sqlite_project_services(tmp_path))
+        sqlite_project_services(tmp_path).runs.read_manifest("run_missing")
     with pytest.raises(NotFound) as missing_artifact:
         read_run_artifact_text(
             run_id=run.run_id,
@@ -203,14 +114,11 @@ def test_workflow_run_data_access_rejects_invalid_reads(tmp_path: Path) -> None:
 def test_workflow_run_data_access_rejects_invalid_typed_storage_rows(
     tmp_path: Path,
 ) -> None:
-    run = start_run(
-        system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
+    run = execute_signal_run(
         config=load_config(),
-        experiment=load_prepared_invocation(),
-        services=sqlite_project_services(tmp_path),
+        experiment=load_invocation(),
+        project_root=tmp_path,
     )
-    attach_typed_data_artifacts(tmp_path, run.run_id)
-
     raw_dataset = read_run_measurement_dataset(
         run_id=run.run_id,
         services=sqlite_project_services(tmp_path),

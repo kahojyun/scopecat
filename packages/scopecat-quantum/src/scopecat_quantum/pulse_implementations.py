@@ -9,7 +9,6 @@ from enum import StrEnum
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 
 from scopecat_quantum._ids import (
-    CircuitId,
     CircuitOperationId,
     CouplerId,
     GateId,
@@ -195,51 +194,6 @@ class GatePulseImplementationBinding:
 
 
 @dataclass(frozen=True, slots=True)
-class GatePulseImplementationBindings:
-    """Resolved implementation bindings for the gate calls in one circuit."""
-
-    circuit_id: CircuitId
-    bindings: tuple[GatePulseImplementationBinding, ...]
-
-    @property
-    def gate_call_ids(self) -> tuple[CircuitOperationId, ...]:
-        return tuple(binding.call_id for binding in self.bindings)
-
-    def binding_for(
-        self, call_id: CircuitOperationId
-    ) -> GatePulseImplementationBinding:
-        for binding in self.bindings:
-            if binding.call_id == call_id:
-                return binding
-        msg = f"gate call {call_id.value!r} has no pulse implementation binding"
-        raise KeyError(msg)
-
-
-@dataclass(frozen=True, slots=True)
-class MeasurementPulseImplementationBindings:
-    """Resolved implementation bindings for the measurements in one circuit."""
-
-    circuit_id: CircuitId
-    bindings: tuple[MeasurementPulseImplementationBinding, ...]
-
-    @property
-    def measurement_ids(self) -> tuple[CircuitOperationId, ...]:
-        return tuple(binding.measurement_id for binding in self.bindings)
-
-    def binding_for(
-        self,
-        measurement_id: CircuitOperationId,
-    ) -> MeasurementPulseImplementationBinding:
-        for binding in self.bindings:
-            if binding.measurement_id == measurement_id:
-                return binding
-        msg = (
-            f"measurement {measurement_id.value!r} has no pulse implementation binding"
-        )
-        raise KeyError(msg)
-
-
-@dataclass(frozen=True, slots=True)
 class ResolvedPulseImplementations:
     """Point-effective gate and measurement implementations, unique by key."""
 
@@ -330,34 +284,7 @@ class PulseImplementationBindingError(ValueError):
 class PulseImplementationBindings:
     """Resolved pulse implementations for every operation in one circuit."""
 
-    circuit_id: CircuitId
     bindings: tuple[PulseImplementationBinding, ...]
-
-    @property
-    def operation_ids(self) -> tuple[CircuitOperationId, ...]:
-        return tuple(_binding_operation_id(binding) for binding in self.bindings)
-
-    @property
-    def gates(self) -> GatePulseImplementationBindings:
-        return GatePulseImplementationBindings(
-            self.circuit_id,
-            tuple(
-                binding
-                for binding in self.bindings
-                if isinstance(binding, GatePulseImplementationBinding)
-            ),
-        )
-
-    @property
-    def measurements(self) -> MeasurementPulseImplementationBindings:
-        return MeasurementPulseImplementationBindings(
-            self.circuit_id,
-            tuple(
-                binding
-                for binding in self.bindings
-                if isinstance(binding, MeasurementPulseImplementationBinding)
-            ),
-        )
 
     def binding_for(
         self, operation_id: CircuitOperationId
@@ -455,22 +382,16 @@ def bind_pulse_implementations(
     if issues:
         raise PulseImplementationBindingError(tuple(issues))
 
-    circuit_id = program.program.id
-    return PulseImplementationBindings(
-        circuit_id,
-        tuple(bindings),
-    )
+    return PulseImplementationBindings(tuple(bindings))
 
 
 __all__ = [
     "GatePulseImplementation",
     "GatePulseImplementationArgument",
     "GatePulseImplementationBinding",
-    "GatePulseImplementationBindings",
     "GatePulseImplementationKey",
     "MeasurementPulseImplementation",
     "MeasurementPulseImplementationBinding",
-    "MeasurementPulseImplementationBindings",
     "MeasurementPulseImplementationKey",
     "PulseImplementationBinding",
     "PulseImplementationBindingError",

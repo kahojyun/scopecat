@@ -9,17 +9,14 @@ from typing import Literal
 import pytest
 
 import scopecat.config.resolution as config_workflow
-from scopecat.application.services import ProjectServices
+from scopecat.application.services import ProjectStateServices
 from scopecat.config.candidates import (
     CandidateConfig,
     resolve_candidate_config_snapshot,
 )
 from scopecat.config.changes import (
-    decide_parameter_change_proposal,
-    invalidate_parameter_change_proposal,
     list_parameter_change_decisions,
     load_parameter_change_proposal,
-    review_parameter_change_proposal,
 )
 from scopecat.config.parameter_updates import ParameterUpdate
 from scopecat.config.parameters import replace_scalar_parameter
@@ -36,12 +33,9 @@ from scopecat.config.registry import (
     load_active_config_registry_config,
     load_active_config_registry_entry,
     load_active_config_registry_state,
-    load_config_registry_config,
-    load_config_registry_entry,
     preview_manual_config_draft,
     register_and_activate_config_profile,
     register_and_activate_manual_config_draft,
-    register_candidate_config,
     register_config_profile,
     register_manual_config_draft,
     resolve_config_registry_config_source,
@@ -58,19 +52,24 @@ from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.parameter import Quantity, ScalarParameterValue
 from scopecat.records.parameter_change import (
     AutomaticPolicyDecisionAuthority,
-    ParameterChangeDecisionRecord,
     ParameterChangeProposal,
 )
 from scopecat.records.run import ConfigRegistryRunConfigSource
 from scopecat.runs.refs import record_content_ref
-from scopecat.testing import (
+from tests.testkit.config_registry import (
+    decide_parameter_change_proposal,
+    invalidate_parameter_change_proposal,
+    load_config,
+    load_config_registry_config,
+    load_config_registry_entry,
+    register_candidate_config,
+    review_parameter_change_proposal,
+    signal_run_with_parameter_change,
+)
+from tests.testkit.runtime import (
     sqlite_config_registry_unit_of_work,
     sqlite_project_services,
     sqlite_run_repository,
-)
-from tests.testkit.config_registry import (
-    load_config,
-    signal_run_with_parameter_change,
 )
 
 
@@ -643,7 +642,7 @@ def test_candidate_registration_requires_latest_approval(
     )
 
 
-def test_candidate_invalidation_after_registration_blocks_load_and_activation(
+def test_later_invalidation_does_not_revoke_registered_candidate(
     tmp_path: Path,
 ) -> None:
     _base, active_state, _activation = register_and_activate_config_profile(
@@ -671,35 +670,34 @@ def test_candidate_invalidation_after_registration_blocks_load_and_activation(
         invalidated_by="reviewer",
     )
 
-    with pytest.raises(Conflict) as load_error:
-        load_config_registry_entry(
-            entry_id=entry.id,
-            unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
-        )
-    with pytest.raises(Conflict) as activation_error:
-        activate_config_registry_entry(
-            entry_id=entry.id,
-            unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
-            operator="operator",
-            expected_generation=active_state.generation,
-        )
+    loaded = load_config_registry_entry(
+        entry_id=entry.id,
+        unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
+    )
+    listed = list_config_registry_entries(
+        unit_of_work=sqlite_config_registry_unit_of_work(tmp_path)
+    )
+    config, source = resolve_config_registry_config_source(
+        selector=entry.id,
+        unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
+    )
+    activated, _record = activate_config_registry_entry(
+        entry_id=entry.id,
+        unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
+        operator="operator",
+        expected_generation=active_state.generation,
+    )
 
-    assert load_error.value.problems[0].code == (
-        "config_registry.candidate_proposal_not_approved"
-    )
-    assert activation_error.value.problems[0].code == (
-        "config_registry.candidate_proposal_not_approved"
-    )
-    assert (
-        load_active_config_registry_state(
-            unit_of_work=sqlite_config_registry_unit_of_work(tmp_path)
-        )
-        == active_state
-    )
+    assert loaded == entry
+    assert entry in listed
+    assert config == resolved.config
+    assert isinstance(source, ConfigRegistryRunConfigSource)
+    assert source.entry_id == entry.id
+    assert activated.active_entry_id == entry.id
 
 
 @pytest.mark.parametrize("later_decision", ("rejected", "invalidated"))
-def test_rollback_can_leave_an_active_candidate_after_later_review(
+def test_later_decision_does_not_break_active_candidate_rollback(
     tmp_path: Path,
     later_decision: Literal["rejected", "invalidated"],
 ) -> None:
@@ -736,11 +734,17 @@ def test_rollback_can_leave_an_active_candidate_after_later_review(
             invalidated_by="reviewer",
         )
 
+    assert (
+        load_active_config_registry_entry(
+            unit_of_work=sqlite_config_registry_unit_of_work(tmp_path)
+        )
+        == candidate.entry
+    )
     restored, record = rollback_config_registry(
         unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
         operator="operator",
         expected_generation=candidate.active_state.generation,
-        note="leave disallowed candidate",
+        note="return to base",
     )
 
     assert restored.generation == candidate.active_state.generation + 1
@@ -749,7 +753,7 @@ def test_rollback_can_leave_an_active_candidate_after_later_review(
     assert record.previous_entry_id == candidate.entry.id
 
 
-def test_rollback_still_requires_complete_evidence_for_candidate_target(
+def test_rollback_can_restore_candidate_after_later_invalidation(
     tmp_path: Path,
 ) -> None:
     _base, base_state, _activation = register_and_activate_config_profile(
@@ -768,7 +772,7 @@ def test_rollback_still_requires_complete_evidence_for_candidate_target(
         operator="operator",
         expected_generation=base_state.generation,
     )
-    _current, current_state, _current_activation = register_and_activate_config_profile(
+    current, current_state, _current_activation = register_and_activate_config_profile(
         config=load_config().model_copy(update={"id": "target-current"}),
         unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
         entry_id="target-current",
@@ -784,22 +788,16 @@ def test_rollback_still_requires_complete_evidence_for_candidate_target(
         invalidated_by="reviewer",
     )
 
-    with pytest.raises(Conflict) as error:
-        rollback_config_registry(
-            unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
-            operator="operator",
-            expected_generation=current_state.generation,
-        )
+    restored, record = rollback_config_registry(
+        unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
+        operator="operator",
+        expected_generation=current_state.generation,
+    )
 
-    assert error.value.problems[0].code == (
-        "config_registry.candidate_proposal_not_approved"
-    )
-    assert (
-        load_active_config_registry_state(
-            unit_of_work=sqlite_config_registry_unit_of_work(tmp_path)
-        )
-        == current_state
-    )
+    assert restored.active_entry_id == candidate.entry.id
+    assert restored.generation == current_state.generation + 1
+    assert record.entry_id == candidate.entry.id
+    assert record.previous_entry_id == current.id
 
 
 def test_activation_generation_is_append_only_and_rejects_stale_writes(
@@ -872,15 +870,15 @@ def test_activation_generation_is_append_only_and_rejects_stale_writes(
 
 def test_activation_runs_full_config_semantic_validation(tmp_path: Path) -> None:
     config = load_config()
-    invalid_connection = config.connection_profile.connections[0].model_copy(
+    invalid_binding = config.routing.bindings[0].model_copy(
         update={"instrument_id": "missing-source"}
     )
     invalid_config = config.model_copy(
         update={
-            "environment": config.environment.model_copy(
+            "system": config.system.model_copy(
                 update={
-                    "connection_profile": config.connection_profile.model_copy(
-                        update={"connections": [invalid_connection]}
+                    "routing": config.routing.model_copy(
+                        update={"bindings": [invalid_binding]}
                     )
                 }
             )
@@ -902,7 +900,7 @@ def test_activation_runs_full_config_semantic_validation(tmp_path: Path) -> None
         )
 
     assert error.value.problems[0].code == (
-        "configuration.unknown_connection_instrument"
+        "configuration.unknown_routing_binding_instrument"
     )
     assert (
         current_config_registry_generation(
@@ -980,7 +978,7 @@ def test_candidate_registration_rejects_changes_not_derived_from_proposals(
     run_id, _proposal, resolved = _resolved_candidate(tmp_path)
     forged = resolved.config.model_copy(
         update={
-            "environment": resolved.config.environment.model_copy(
+            "system": resolved.config.system.model_copy(
                 update={"id": "not-derived-from-proposals"}
             )
         }
@@ -1046,72 +1044,6 @@ def test_candidate_registration_validates_durable_proposal_source(
     )
 
 
-@pytest.mark.parametrize(
-    ("target", "expected_code"),
-    (
-        ("proposal", "config_registry.candidate_evidence_mismatch"),
-        ("approval", "config_registry.candidate_evidence_mismatch"),
-    ),
-)
-def test_candidate_load_revalidates_content_addressed_evidence(
-    tmp_path: Path,
-    target: str,
-    expected_code: str,
-) -> None:
-    run_id, proposal, resolved = _resolved_candidate(tmp_path)
-    entry = register_candidate_config(
-        config=resolved.config,
-        unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
-        entry_id="candidate-evidence",
-        registered_by="operator",
-        run_id=run_id,
-        proposal_ids=resolved.candidate.proposal_ids,
-        base_config_content_hash=resolved.candidate.base_config_content_hash,
-    )
-    assert isinstance(entry.source, CandidateConfigRegistrySource)
-    storage = sqlite_run_repository(tmp_path)
-    if target == "proposal":
-        storage.write_model(
-            run_id,
-            record_content_ref(
-                record_id=proposal.id,
-                kind="parameter_change_proposal",
-            ),
-            proposal.model_copy(update={"reason": "tampered"}),
-        )
-    else:
-        evidence = entry.source.proposal_evidence[0]
-        decision_entry_id = f"{proposal.id}-decision-{evidence.approval_event_id}"
-        decision_ref = record_content_ref(
-            record_id=decision_entry_id,
-            kind="parameter_change_decision_record",
-        )
-        decision = storage.read_model(
-            run_id,
-            decision_ref,
-            ParameterChangeDecisionRecord,
-        )
-        storage.write_model(
-            run_id,
-            decision_ref,
-            decision.model_copy(
-                update={
-                    "authority": decision.authority.model_copy(
-                        update={"actor": "tampered"}
-                    )
-                }
-            ),
-        )
-
-    with pytest.raises((Conflict, DataIntegrityError)) as error:
-        load_config_registry_entry(
-            entry_id=entry.id,
-            unit_of_work=sqlite_config_registry_unit_of_work(tmp_path),
-        )
-
-    assert error.value.problems[0].code == expected_code
-
-
 def test_candidate_registration_does_not_ignore_operator_metadata(
     tmp_path: Path,
 ) -> None:
@@ -1167,7 +1099,7 @@ def test_candidate_workflow_captures_generation_before_resolution(
     def resolve_with_intervening_activation(
         selected: CandidateConfig,
         *,
-        services: ProjectServices,
+        services: ProjectStateServices,
     ) -> ConfigProfileSnapshot:
         resolved = original_resolve(selected, services=services)
         register_and_activate_config_profile(

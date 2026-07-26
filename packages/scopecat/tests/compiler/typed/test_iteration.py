@@ -10,19 +10,15 @@ from scopecat.compiler.relations.model import (
     ScalarExpr,
     lit,
     param,
-    point_col,
 )
 from scopecat.compiler.relations.point_domain import (
     PointAxis,
     point_axis_linear,
     point_axis_values,
-    point_dependent_product,
-    point_literal_rows,
     point_product,
-    point_zip,
 )
 from scopecat.compiler.relations.uses import RelationUse, relation_use
-from scopecat.compiler.relations.verification import RelationTypeBindings, RowType
+from scopecat.compiler.relations.verification import RelationTypeBindings
 from scopecat.compiler.semantic.value_expressions import (
     ScalarValueExpr,
     verify_scalar_value_expr,
@@ -40,8 +36,6 @@ from scopecat.compiler.typed.point_domain import (
 from scopecat.kernel.value_types import (
     Int,
     Scalar,
-    Table,
-    TableColumn,
 )
 from scopecat.kernel.value_types import (
     Quantity as QuantityType,
@@ -110,39 +104,6 @@ def test_explicit_axes_project_exact_product_strides_and_partitions() -> None:
     assert layout.partition(("slow",), range(6)) == ((0, 1, 2), (3, 4, 5))
 
 
-def test_literal_rows_project_each_coordinate_column_as_an_exact_axis() -> None:
-    rows_type = Table(
-        (
-            TableColumn("slow", _INT),
-            TableColumn("fast", _INT),
-        ),
-        min_rows=3,
-        max_rows=3,
-    )
-    verified = _verify(
-        point_literal_rows(
-            rows_type.columns,
-            (
-                (10, 1),
-                (10, 2),
-                (20, 1),
-            ),
-        ),
-        program_id="literal-rows",
-    )
-
-    layout = analyze_point_iteration_layout(verified)
-
-    assert layout.preferred_tile_size == 3
-    assert tuple(axis.id for axis in layout.axes) == ("slow", "fast")
-    slow = layout.axis("slow")
-    fast = layout.axis("fast")
-    assert slow is not None and slow.values == (10, 10, 20)
-    assert fast is not None and fast.values == (1, 2, 1)
-    assert slow.repeat_each == fast.repeat_each == 1
-    assert layout.partition(("slow",), range(3)) == ((0, 1), (2,))
-
-
 def test_literal_center_linear_axis_has_lazy_known_exact_values() -> None:
     verified = _verify(
         point_axis_linear(
@@ -201,73 +162,4 @@ def test_parameter_center_linear_axis_uses_materialized_partition_fallback() -> 
         (0,),
         (1,),
         (2,),
-    )
-
-
-def test_zip_layout_and_partition_preserve_positional_axes() -> None:
-    verified = _verify(
-        point_zip(
-            _values_axis("left", _INT, (1, 1, 2)),
-            _values_axis("right", _INT, (10, 20, 20)),
-        ),
-        program_id="zip-layout",
-    )
-
-    layout = analyze_point_iteration_layout(verified)
-
-    assert layout.preferred_tile_size == 3
-    assert tuple(axis.id for axis in layout.axes) == ("left", "right")
-    assert layout.axis("left") is not None
-    assert layout.axis("right") is not None
-    assert layout.partition(("left",), range(3)) == ((0, 1), (2,))
-    assert layout.partition(("right",), range(3)) == ((0,), (1, 2))
-
-
-def test_dependent_layout_uses_outer_stride_and_materialized_inner_axis() -> None:
-    center_axis = _values_axis(
-        "center",
-        _FREQUENCY,
-        (
-            Quantity(value=5.0, unit="GHz"),
-            Quantity(value=7.0, unit="GHz"),
-        ),
-    )
-    center_row = RowType.from_table(
-        Table(
-            (TableColumn("center", _FREQUENCY),),
-            min_rows=2,
-            max_rows=2,
-        )
-    )
-    frequency_axis = point_axis_linear(
-        "frequency",
-        _FREQUENCY,
-        _center(
-            point_col("center"),
-            bindings=RelationTypeBindings(point_row=center_row),
-        ),
-        _SPAN,
-        2,
-    )
-    verified = _verify(
-        point_dependent_product(center_axis, frequency_axis),
-        program_id="dependent-layout",
-    )
-
-    layout = analyze_point_iteration_layout(verified)
-
-    assert layout.preferred_tile_size == 2
-    assert tuple(axis.id for axis in layout.axes) == ("center",)
-    center = layout.axis("center")
-    assert center is not None and center.repeat_each == 2
-    assert layout.axis("frequency") is None
-
-    materialized = materialize_point_domain(verified, ParameterRelationData())
-    rows = {point.logical_ordinal: point.row for point in materialized.points}
-
-    assert layout.partition(("center",), range(4)) == ((0, 1), (2, 3))
-    assert layout.partition(("frequency",), range(4), rows=rows) == (
-        (0,),
-        (1, 2),
-        (3,),
     )

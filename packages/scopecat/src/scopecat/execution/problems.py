@@ -8,8 +8,6 @@ from collections.abc import Mapping, Sequence
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.problems import (
     Problem,
-    ProblemCategory,
-    ProblemImpact,
     ProblemPhase,
     RuntimeLocation,
 )
@@ -27,14 +25,11 @@ def runtime_problem(
     point_index: int | None = None,
     instrument_id: str | None = None,
     phase: ProblemPhase = ProblemPhase.EXECUTION,
-    category: ProblemCategory = ProblemCategory.OPERATION,
     details: Mapping[str, object] | None = None,
     occurrence_index: int = 0,
 ) -> Problem:
     return Problem(
         code=code,
-        impact=ProblemImpact.BLOCKING,
-        category=category,
         phase=phase,
         message=message,
         location=RuntimeLocation(
@@ -127,7 +122,6 @@ def problem_from_exception(
     point_index: int | None = None,
     instrument_id: str | None = None,
     phase: ProblemPhase = ProblemPhase.EXECUTION,
-    category: ProblemCategory = ProblemCategory.EXTERNAL_FAILURE,
 ) -> Problem:
     if isinstance(error, DriverFault):
         return contextualize_problem(
@@ -155,7 +149,6 @@ def problem_from_exception(
         point_index=point_index,
         instrument_id=instrument_id,
         phase=phase,
-        category=category,
         details={
             "exception_type": f"{type(error).__module__}.{type(error).__qualname__}"
         },

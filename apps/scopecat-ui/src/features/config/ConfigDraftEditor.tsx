@@ -8,21 +8,26 @@ import { deriveConfigDraftUpdates } from "./config-draft";
 import { ConfigParameters } from "./ConfigParameters";
 import { ParameterEditor } from "./ConfigValueEditors";
 import type {
-  ActiveConfigState,
   ConfigDraftCommand,
   ConfigDraftDefaultReceipt,
   ConfigDraftPreview,
   ConfigDraftRegistrationReceipt,
   ConfigProfileSnapshot,
+  ConfigRegistryActiveState,
   ConfigRegistryEntry,
+  ParameterUpdate,
   StoredParameterValue,
-} from "./config-types";
+} from "../../api-contract";
 
 export interface ConfigDraftSeed {
   entry: ConfigRegistryEntry;
-  active: ActiveConfigState;
+  active: ConfigRegistryActiveState;
   config: ConfigProfileSnapshot;
 }
+
+type PendingConfigDraft = Omit<ConfigDraftCommand, "updates"> & {
+  updates: ParameterUpdate[];
+};
 
 export function ConfigDraftEditor({
   seed,
@@ -32,16 +37,16 @@ export function ConfigDraftEditor({
   onRegistered,
 }: {
   seed: ConfigDraftSeed;
-  currentActive?: ActiveConfigState;
+  currentActive?: ConfigRegistryActiveState;
   operator: string;
   onCancel: () => void;
   onRegistered: (
     receipt: ConfigDraftRegistrationReceipt | ConfigDraftDefaultReceipt,
   ) => void | Promise<void>;
 }) {
-  const definitions = seed.config.system.parameterCatalog.definitions;
+  const definitions = seed.config.system.parameter_catalog.definitions ?? [];
   const baseValues = useMemo(
-    () => new Map(seed.config.parameterSnapshot.values.map((value) => [value.id, value])),
+    () => new Map((seed.config.parameter_snapshot.values ?? []).map((value) => [value.id, value])),
     [seed.config],
   );
   const [selectedId, setSelectedId] = useState(definitions[0]?.id);
@@ -56,12 +61,12 @@ export function ConfigDraftEditor({
     () => deriveConfigDraftUpdates(seed.config, editedValues),
     [editedValues, seed.config],
   );
-  const draft = useMemo<ConfigDraftCommand>(
+  const draft = useMemo<PendingConfigDraft>(
     () => ({
-      baseEntryId: seed.entry.id,
-      baseContentHash: seed.active.contentHash,
-      baseGeneration: seed.active.generation,
-      candidateId: `${seed.config.id}-edit`,
+      base_entry_id: seed.entry.id,
+      base_content_hash: seed.active.active_entry_content_hash,
+      base_generation: seed.active.generation,
+      candidate_id: `${seed.config.id}-edit`,
       updates,
     }),
     [seed.active, seed.config.id, seed.entry.id, updates],
@@ -72,8 +77,8 @@ export function ConfigDraftEditor({
     : undefined;
   const stale =
     !currentActive ||
-    currentActive.entryId !== seed.active.entryId ||
-    currentActive.contentHash !== seed.active.contentHash ||
+    currentActive.active_entry_id !== seed.active.active_entry_id ||
+    currentActive.active_entry_content_hash !== seed.active.active_entry_content_hash ||
     currentActive.generation !== seed.active.generation;
 
   const previewMutation = useMutation({
@@ -106,23 +111,23 @@ export function ConfigDraftEditor({
       auditNote: string;
     }) => {
       const checked =
-        reviewed?.valid && reviewed.resultContentHash
+        reviewed?.valid && reviewed.result_content_hash
           ? reviewed
           : await previewConfigDraft(command);
-      if (!checked.valid || !checked.resultContentHash) {
+      if (!checked.valid || !checked.result_content_hash) {
         return { preview: checked, revision };
       }
       const receipt = await setConfigDraftDefault({
         registration: {
           draft: command,
-          expectedResultContentHash: checked.resultContentHash,
-          entryId:
-            customEntryId || defaultDraftEntryId(command.candidateId, checked.resultContentHash),
-          registeredBy: operatorName,
+          expected_result_content_hash: checked.result_content_hash,
+          entry_id:
+            customEntryId || defaultDraftEntryId(command.candidate_id, checked.result_content_hash),
+          registered_by: operatorName,
           note: auditNote,
         },
         operator: operatorName,
-        activationNote: auditNote || undefined,
+        activation_note: auditNote || undefined,
       });
       return { preview: checked, receipt, revision };
     },
@@ -180,27 +185,30 @@ export function ConfigDraftEditor({
     defaultMutation.reset();
   };
   const runPreview = () => {
+    const command = draftCommand(draft);
     setPreview(undefined);
     registrationMutation.reset();
     defaultMutation.reset();
     previewMutation.mutate({
-      command: draft,
+      command,
       revision: draftRevision.current,
     });
   };
   const runRegistration = () => {
-    if (!preview?.valid || !preview.resultContentHash) return;
+    if (!preview?.valid || !preview.result_content_hash) return;
+    const command = draftCommand(draft);
     registrationMutation.mutate({
-      draft,
-      expectedResultContentHash: preview.resultContentHash,
-      entryId: entryId.trim() || defaultDraftEntryId(draft.candidateId, preview.resultContentHash),
-      registeredBy: operator.trim(),
+      draft: command,
+      expected_result_content_hash: preview.result_content_hash,
+      entry_id:
+        entryId.trim() || defaultDraftEntryId(command.candidate_id, preview.result_content_hash),
+      registered_by: operator.trim(),
       note: note.trim(),
     });
   };
   const runSetDefault = () => {
     defaultMutation.mutate({
-      command: draft,
+      command: draftCommand(draft),
       reviewed: preview,
       revision: draftRevision.current,
       customEntryId: entryId.trim(),
@@ -258,7 +266,7 @@ export function ConfigDraftEditor({
             >
               <span>
                 <strong>{definition.id}</strong>
-                <small>{definition.valueType.shape}</small>
+                <small>{definition.value_type.shape}</small>
               </span>
               {editedValues[definition.id] && (
                 <span className="draft-edited-dot" aria-label="Edited" />
@@ -271,7 +279,7 @@ export function ConfigDraftEditor({
             <>
               <header>
                 <div>
-                  <span className="parameter-shape">{selectedDefinition.valueType.shape}</span>
+                  <span className="parameter-shape">{selectedDefinition.value_type.shape}</span>
                   <h4>{selectedDefinition.id}</h4>
                   <p>{selectedDefinition.description ?? "No parameter description."}</p>
                 </div>
@@ -290,7 +298,7 @@ export function ConfigDraftEditor({
                 definition={selectedDefinition}
                 value={selectedValue}
                 baseValue={baseValues.get(selectedDefinition.id)}
-                entities={seed.config.system.topology.entities}
+                entities={seed.config.system.topology.entities ?? []}
                 onChange={changeValue}
                 onFieldValidityChange={setFieldValidity}
                 tableRowOrigins={tableRowOrigins[selectedDefinition.id]}
@@ -354,8 +362,8 @@ export function ConfigDraftEditor({
                       value={entryId}
                       onChange={(event) => changeEntryId(event.target.value)}
                       placeholder={
-                        preview?.resultContentHash
-                          ? defaultDraftEntryId(draft.candidateId, preview.resultContentHash)
+                        preview?.result_content_hash
+                          ? defaultDraftEntryId(draft.candidate_id, preview.result_content_hash)
                           : "Generated after validation"
                       }
                     />
@@ -462,11 +470,7 @@ function DraftPreview({
               <strong>{problem.message}</strong>
               <small>
                 {problem.code}
-                {problem.location
-                  ? ` · ${problem.location.root ?? problem.location.kind}${
-                      problem.location.path.length ? `.${problem.location.path.join(".")}` : ""
-                    }`
-                  : ""}
+                {problem.location ? ` · ${problemLocationLabel(problem.location)}` : ""}
               </small>
             </li>
           ))}
@@ -481,6 +485,21 @@ function DraftPreview({
       )}
     </section>
   );
+}
+
+function draftCommand(draft: PendingConfigDraft): ConfigDraftCommand {
+  const [first, ...rest] = draft.updates;
+  if (!first) throw new Error("A config draft requires at least one update.");
+  return { ...draft, updates: [first, ...rest] };
+}
+
+function problemLocationLabel(
+  location: NonNullable<ConfigDraftPreview["problems"][number]["location"]>,
+): string {
+  const prefix = "root" in location ? location.root : location.kind;
+  return "path" in location && location.path.length > 0
+    ? `${prefix}.${location.path.join(".")}`
+    : prefix;
 }
 
 function draftErrorMessage(error: unknown): string {

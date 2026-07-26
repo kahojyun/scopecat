@@ -23,9 +23,9 @@ from scopecat.compiler.typed.program import (
 )
 from scopecat.execution.local.program import CollectOperation
 from scopecat.kernel.errors import CheckFailed
-from scopecat.kernel.problems import ProblemCategory, model_location
+from scopecat.kernel.problems import model_location
 from scopecat.kernel.resource_identity import logical_resource_port_id
-from scopecat.kernel.value_types import Float, Int, Scalar, String
+from scopecat.kernel.value_types import Int, Scalar, String
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.records.parameter import Quantity
 from tests.testkit.local_materialization import operations_of_type
@@ -68,103 +68,6 @@ def _point_bindings(points: PointDomain) -> RelationTypeBindings:
         parameters=PARAMETER_TYPES,
         point_row=RowType.from_table(points.value_type),
     )
-
-
-def test_materialized_effects_rejects_record_output_shape_problems() -> None:
-    shaped_product = observable_product(
-        "signal-shaped",
-        unit="ratio",
-        axes=[
-            product_axis("shot", size=3),
-            product_axis("shot", size=3),
-        ],
-    )
-    plain_product = observable_product("signal-plain", unit="ratio")
-    acquisitions = instrument_acquisitions(
-        shaped_product,
-        plain_product,
-        capability="scalar_signal",
-    )
-    shaped_use, shaped_record = record_product(shaped_product, record_id="signal")
-    plain_use, plain_record = record_product(plain_product, record_id="signal")
-    spec = typed_program(
-        id="bad-record-shape",
-        kind="problem",
-        point_domain=_point_domain("index", Scalar(Int()), (0,)),
-        resource_requirements=_SOURCE_REQUIREMENTS,
-        product_defs=[shaped_product, plain_product],
-        instrument_acquisitions=acquisitions,
-        product_uses=[shaped_use, plain_use],
-        record_uses=[shaped_record, plain_record],
-    )
-
-    with pytest.raises(CheckFailed) as failure:
-        materialized_effects_contract(spec, parameters())
-
-    assert [problem.code for problem in failure.value.problems] == [
-        "product_axis_duplicate",
-        "experiment_record_duplicate",
-    ]
-
-
-def test_materialized_effects_rejects_record_schema_problems_without_model_errors() -> (
-    None
-):
-    products = (
-        observable_product("bad-unit", unit="not-a-unit"),
-        observable_product(
-            "bad-axis-unit",
-            axes=[product_axis("sample", size=2, unit="not-a-unit")],
-        ),
-        observable_product(
-            "reserved-axis",
-            axes=[product_axis("point", size=2)],
-        ),
-    )
-    uses_and_records = tuple(record_product(product) for product in products)
-    acquisitions = instrument_acquisitions(*products, capability="scalar_signal")
-    spec = typed_program(
-        id="invalid-record-schema",
-        kind="problem",
-        point_domain=_point_domain("index", Scalar(Int()), (0,)),
-        resource_requirements=_SOURCE_REQUIREMENTS,
-        product_defs=products,
-        instrument_acquisitions=acquisitions,
-        product_uses=[item[0] for item in uses_and_records],
-        record_uses=[item[1] for item in uses_and_records],
-    )
-
-    with pytest.raises(CheckFailed) as failure:
-        materialized_effects_contract(spec, parameters())
-
-    assert [problem.code for problem in failure.value.problems] == [
-        "product_unit_unsupported",
-        "product_axis_unit_unsupported",
-        "product_axis_reserved",
-    ]
-
-
-def test_materialized_effects_rejects_coordinate_and_record_id_collision() -> None:
-    product = observable_product("signal", unit="ratio")
-    acquisition = instrument_acquisition(product, capability="scalar_signal")
-    product_use, record_use = record_product(product)
-    spec = typed_program(
-        id="coordinate-record-collision",
-        kind="problem",
-        point_domain=_point_domain("signal", Scalar(Float()), (1.0,)),
-        resource_requirements=_SOURCE_REQUIREMENTS,
-        product_defs=[product],
-        instrument_acquisitions=[acquisition],
-        product_uses=[product_use],
-        record_uses=[record_use],
-    )
-
-    with pytest.raises(CheckFailed) as failure:
-        materialized_effects_contract(spec, parameters())
-
-    assert [problem.code for problem in failure.value.problems] == [
-        "experiment_record_coordinate_collision"
-    ]
 
 
 def test_materialized_effects_allows_provider_key_reuse_across_acquisitions() -> None:
@@ -287,7 +190,6 @@ def test_materialized_effects_rejects_conflicting_shared_record_axes(
 
     problems = failure.value.problems
     assert [problem.code for problem in problems] == ["experiment_record_axis_conflict"]
-    assert problems[0].category is ProblemCategory.CONFLICT
     assert problems[0].related_locations == (
         model_location("records", "i", "axes", "shot"),
     )

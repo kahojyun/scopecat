@@ -6,7 +6,6 @@ from pathlib import Path
 
 from scopecat.records.config import (
     ConfigProfileSnapshot,
-    EnvironmentSpec,
     SystemSpec,
     snapshot_config_profile,
 )
@@ -29,13 +28,9 @@ def quantum_lab_bootstrap_config(
     system = SystemSpec.model_validate_json(
         (root / "system-spec.json").read_text(encoding="utf-8")
     )
-    environment = EnvironmentSpec.model_validate_json(
-        (root / "environment-spec.json").read_text(encoding="utf-8")
-    )
     return snapshot_config_profile(
         profile_id="templates-profile",
         system=system,
-        environment=environment,
         parameter_snapshot=quantum_lab_parameter_snapshot(),
     )
 

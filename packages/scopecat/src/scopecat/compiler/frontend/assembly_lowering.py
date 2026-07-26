@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import replace
 from typing import cast
 
 from scopecat.authoring._intents import ModuleInputPort, ParameterScanOverlayIntent
@@ -15,7 +14,6 @@ from scopecat.authoring._value_refs import (
     ValueRef,
     internal_lower_scalar_value_ref,
     internal_lower_value_ref,
-    internal_value_ref_scalar_input_ids,
 )
 from scopecat.authoring.value_types import Table as TableType
 from scopecat.authoring.value_types import (
@@ -56,60 +54,42 @@ from scopecat.compiler.relations.point_domain import (
     PointAxis,
     PointAxisLinear,
     PointAxisValues,
-    PointDependentProduct,
-    PointDomainAnalysis,
     PointDomainExpr,
-    PointDomainPath,
     PointProduct,
-    PointRows,
     PointUnit,
-    PointZip,
-    analyze_point_domain,
 )
 from scopecat.compiler.relations.uses import RelationUse, relation_use
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
-    RowType,
 )
-from scopecat.compiler.semantic.compute_result import ComputeResultRef
+from scopecat.compiler.semantic.compute_result import ComputeOutput, ComputeResultRef
 from scopecat.compiler.semantic.model import (
-    ImplementationCatalog,
-    InstrumentActionEffect,
-    LiteralValueSource,
+    LocalPythonImplementation,
     OperationId,
     PlanExpressionSource,
+    SemanticDomainExecution,
     SemanticOperation,
-    StateEachRegion,
     ValueDef,
     ValueId,
-    ValueUse,
 )
 from scopecat.compiler.semantic.operation_contract import ScalarBinarySemantics
 from scopecat.compiler.semantic.value_expressions import (
-    ScalarOrSeriesValueExpr,
     ScalarValueExpr,
-    TableValueExpr,
-    ValueExpr,
     verify_scalar_value_expr,
     verify_value_expr,
 )
 from scopecat.compiler.semantic.verification import VerifiedSemanticGraph
-from scopecat.compiler.typed.action import ActionSpec
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     ComputeEdge,
     TypedComputeNode,
-    TypedComputeOutput,
     TypedDomainExecution,
-    TypedDomainProgram,
     TypedDomainResultBinding,
     ValueInput,
-    bind_each,
-    invoke_action,
     set_state_field,
 )
-from scopecat.compiler.typed.state import ForEachStateSpec, SetStateSpec
+from scopecat.compiler.typed.state import SetStateSpec
 from scopecat.kernel.problems import ProblemPhase
 from scopecat.kernel.product_identity import (
     ProductId,
@@ -202,21 +182,22 @@ def validate_entity_inputs(
 
 def lower_semantic_compute_graph(
     graph: VerifiedSemanticGraph,
-    catalog: ImplementationCatalog,
+    implementations: Mapping[OperationId, LocalPythonImplementation],
     inputs: Mapping[str, object],
     *,
     type_bindings: RelationTypeBindings,
-) -> tuple[tuple[TypedComputeNode, ...], ImplementationCatalog]:
+) -> tuple[TypedComputeNode, ...]:
     """Lower implementation-defined operations to the local residual artifact."""
 
-    operations = graph.operations
     residual_operations = graph.residual_operation_ids
     residual_values = graph.residual_value_ids
     nodes = tuple(
         _lower_semantic_operation(
             operation,
+            implementation=implementations[operation.id],
             definitions=graph.value_defs,
-            operations=operations,
+            operation_results=graph.operation_results,
+            value_types=graph.value_types,
             residual_values=residual_values,
             inputs=inputs,
             type_bindings=type_bindings,
@@ -224,19 +205,12 @@ def lower_semantic_compute_graph(
         for operation in graph.graph.operations
         if operation.id in residual_operations
     )
-    node_ids = {node.id for node in nodes}
-    selected_catalog = ImplementationCatalog(
-        local_python=tuple(
-            implementation
-            for implementation in catalog.local_python
-            if implementation.operation_id in node_ids
-        )
-    )
-    return nodes, selected_catalog
+    return nodes
 
 
 def lower_semantic_domain_graph(
     graph: VerifiedSemanticGraph,
+    executions: Sequence[SemanticDomainExecution],
     inputs: Mapping[str, object],
     *,
     type_bindings: RelationTypeBindings,
@@ -244,30 +218,19 @@ def lower_semantic_domain_graph(
 ) -> tuple[TypedDomainExecution, ...]:
     """Lower ordered prepare-stage domain effects and their product uses."""
 
-    operations = graph.operations
     residual_values = graph.residual_value_ids
     uses_by_product: dict[ProductId, list[ProductUseId]] = {}
     for use in product_uses:
         uses_by_product.setdefault(use.product_id, []).append(use.id)
     typed_executions: list[TypedDomainExecution] = []
-    for execution in graph.graph.domain_executions:
-        semantic_program = execution.program
-        program = TypedDomainProgram(
-            id=semantic_program.id,
-            dialect_id=semantic_program.dialect_id,
-            dialect_version=semantic_program.dialect_version,
-            body=semantic_program.body,
-            input_ports=semantic_program.input_ports,
-            compiler_input_ports=semantic_program.compiler_input_ports,
-            result_ports=semantic_program.result_ports,
-            resource_ports=semantic_program.resource_ports,
-        )
+    for execution in executions:
         lowered_inputs: dict[str, ValueInput] = {}
         for name, use in execution.inputs:
             lowered = _lower_semantic_input(
                 use.value_id,
                 definitions=graph.value_defs,
-                operations=operations,
+                operation_results=graph.operation_results,
+                value_types=graph.value_types,
                 residual_values=residual_values,
                 inputs=inputs,
                 type_bindings=type_bindings,
@@ -282,7 +245,8 @@ def lower_semantic_domain_graph(
             lowered = _lower_semantic_input(
                 use.value_id,
                 definitions=graph.value_defs,
-                operations=operations,
+                operation_results=graph.operation_results,
+                value_types=graph.value_types,
                 residual_values=residual_values,
                 inputs=inputs,
                 type_bindings=type_bindings,
@@ -304,7 +268,7 @@ def lower_semantic_domain_graph(
         typed_executions.append(
             TypedDomainExecution(
                 id=execution.id,
-                program=program,
+                program=execution.program,
                 inputs=lowered_inputs,
                 compiler_inputs=lowered_compiler_inputs,
                 results=tuple(result_bindings),
@@ -317,31 +281,33 @@ def lower_semantic_domain_graph(
 def _lower_semantic_operation(
     operation: SemanticOperation,
     *,
+    implementation: LocalPythonImplementation,
     definitions: Mapping[ValueId, ValueDef],
-    operations: Mapping[OperationId, SemanticOperation],
+    operation_results: Mapping[ValueId, SemanticOperation],
+    value_types: Mapping[ValueId, ValueType],
     residual_values: frozenset[ValueId],
     inputs: Mapping[str, object],
     type_bindings: RelationTypeBindings,
 ) -> TypedComputeNode:
-    outputs = dict(operation.outputs)
-    output = definitions[outputs["result"]]
     return TypedComputeNode(
         id=operation.id,
         contract=operation.contract,
+        implementation=implementation,
         inputs={
             name: _lower_semantic_input(
                 use.value_id,
                 definitions=definitions,
-                operations=operations,
+                operation_results=operation_results,
+                value_types=value_types,
                 residual_values=residual_values,
                 inputs=inputs,
                 type_bindings=type_bindings,
             )
             for name, use in operation.inputs
         },
-        result=TypedComputeOutput(
-            id=output.id,
-            value_type=output.value_type,
+        result=ComputeOutput(
+            id=operation.result_id,
+            value_type=operation.result_type,
         ),
     )
 
@@ -350,21 +316,21 @@ def _lower_semantic_input(
     value_id: ValueId,
     *,
     definitions: Mapping[ValueId, ValueDef],
-    operations: Mapping[OperationId, SemanticOperation],
+    operation_results: Mapping[ValueId, SemanticOperation],
+    value_types: Mapping[ValueId, ValueType],
     residual_values: frozenset[ValueId],
     inputs: Mapping[str, object],
     type_bindings: RelationTypeBindings,
 ) -> ValueInput | ComputeEdge:
-    definition = definitions[value_id]
     if value_id in residual_values:
         return ComputeEdge(
-            value_id=definition.id,
-            expected_type=definition.value_type,
+            value_id=value_id,
+            expected_type=value_types[value_id],
         )
     expression = _semantic_plan_expression(
         value_id,
         definitions=definitions,
-        operations=operations,
+        operation_results=operation_results,
         active=frozenset(),
     )
     origin_input_ids = tuple(value_input_refs(expression))
@@ -372,7 +338,7 @@ def _lower_semantic_input(
         value=verify_value_expr(
             bind_value_input_refs(expression, inputs),
             bindings=type_bindings,
-            expected_type=definition.value_type,
+            expected_type=value_types[value_id],
         ),
         origin_input_ids=origin_input_ids,
     )
@@ -382,187 +348,40 @@ def _semantic_plan_expression(
     value_id: ValueId,
     *,
     definitions: Mapping[ValueId, ValueDef],
-    operations: Mapping[OperationId, SemanticOperation],
+    operation_results: Mapping[ValueId, SemanticOperation],
     active: frozenset[ValueId],
 ) -> ScalarExpr | SeriesExpr | RelationExpr:
     if value_id in active:
         raise AssertionError("verified semantic graph contains a plan-value cycle")
-    definition = definitions[value_id]
-    source = definition.source
-    if isinstance(source, PlanExpressionSource):
-        return source.expression
-    if isinstance(source, LiteralValueSource):
+    definition = definitions.get(value_id)
+    if definition is not None:
+        source = definition.source
+        if isinstance(source, PlanExpressionSource):
+            return source.expression
         return literal_data_expr(source.value)
-    operation = operations[source.operation_id]
-    if not isinstance(operation.contract.semantics, ScalarBinarySemantics):
+    operation = operation_results[value_id]
+    if not isinstance(operation.contract, ScalarBinarySemantics):
         raise AssertionError("only core scalar operations can be plan-inlined")
     uses = dict(operation.inputs)
     nested_active = active | {value_id}
     left = _semantic_plan_expression(
         uses["left"].value_id,
         definitions=definitions,
-        operations=operations,
+        operation_results=operation_results,
         active=nested_active,
     )
     right = _semantic_plan_expression(
         uses["right"].value_id,
         definitions=definitions,
-        operations=operations,
+        operation_results=operation_results,
         active=nested_active,
     )
     if not isinstance(left, ScalarExpr) or not isinstance(right, ScalarExpr):
         raise AssertionError("scalar semantic operands must lower to scalar plans")
     return BinaryScalarExpr(
-        op=operation.contract.semantics.operator,
+        op=operation.contract.operator,
         left=cast("ScalarExpression", left),
         right=cast("ScalarExpression", right),
-    )
-
-
-def lower_state_region(
-    region: StateEachRegion,
-    graph: VerifiedSemanticGraph,
-    inputs: Mapping[str, object],
-    *,
-    type_bindings: RelationTypeBindings,
-) -> ForEachStateSpec:
-    operations = graph.operations
-    residual_values = graph.residual_value_ids
-    row_type = RowType.from_table(region.row_argument.value_type)
-    body_bindings = replace(
-        type_bindings,
-        row_arguments={**type_bindings.row_arguments, region.row_argument.id: row_type},
-    )
-
-    relation = _lower_state_region_plan_value(
-        region.relation,
-        graph=graph,
-        operations=operations,
-        inputs=inputs,
-        type_bindings=type_bindings,
-    )
-    if not isinstance(relation, TableValueExpr):
-        raise AssertionError("verified state region relation must be table-shaped")
-    state_value = _lower_state_region_value(
-        region.value,
-        graph=graph,
-        operations=operations,
-        residual_values=residual_values,
-        inputs=inputs,
-        type_bindings=body_bindings,
-    )
-    return bind_each(
-        relation,
-        set_state_field(
-            resource_port_id=region.resource_port,
-            capability_id=region.capability_id,
-            field_path=region.field_path,
-            value=state_value,
-            target_entities=tuple(
-                _lower_state_region_target(
-                    target,
-                    graph=graph,
-                    operations=operations,
-                    inputs=inputs,
-                    type_bindings=body_bindings,
-                )
-                for target in region.target_entities
-            ),
-        ),
-        row_scope_id=region.row_argument.id,
-    )
-
-
-def lower_action_effect(
-    action: InstrumentActionEffect,
-    graph: VerifiedSemanticGraph,
-    inputs: Mapping[str, object],
-    *,
-    type_bindings: RelationTypeBindings,
-) -> ActionSpec:
-    operations = graph.operations
-    residual_values = graph.residual_value_ids
-    return invoke_action(
-        action.id,
-        resource_port_id=action.resource_port_id,
-        capability_id=action.capability_id,
-        fields={
-            field_name: _lower_state_region_value(
-                use,
-                graph=graph,
-                operations=operations,
-                residual_values=residual_values,
-                inputs=inputs,
-                type_bindings=type_bindings,
-            )
-            for field_name, use in action.fields
-        },
-    )
-
-
-def _lower_state_region_value(
-    use: ValueUse,
-    *,
-    graph: VerifiedSemanticGraph,
-    operations: Mapping[OperationId, SemanticOperation],
-    residual_values: frozenset[ValueId],
-    inputs: Mapping[str, object],
-    type_bindings: RelationTypeBindings,
-) -> ScalarValueExpr | ComputeResultRef:
-    definition = graph.value_defs[use.value_id]
-    if definition.id in residual_values:
-        return ComputeResultRef(value_id=definition.id)
-    value = _lower_state_region_plan_value(
-        use,
-        graph=graph,
-        operations=operations,
-        inputs=inputs,
-        type_bindings=type_bindings,
-    )
-    if not isinstance(value, ScalarValueExpr):
-        raise AssertionError("verified state region value must be scalar-shaped")
-    return value
-
-
-def _lower_state_region_target(
-    use: ValueUse,
-    *,
-    graph: VerifiedSemanticGraph,
-    operations: Mapping[OperationId, SemanticOperation],
-    inputs: Mapping[str, object],
-    type_bindings: RelationTypeBindings,
-) -> ScalarOrSeriesValueExpr:
-    value = _lower_state_region_plan_value(
-        use,
-        graph=graph,
-        operations=operations,
-        inputs=inputs,
-        type_bindings=type_bindings,
-    )
-    if isinstance(value, TableValueExpr):
-        raise AssertionError("verified state target must be scalar- or series-shaped")
-    return value
-
-
-def _lower_state_region_plan_value(
-    use: ValueUse,
-    *,
-    graph: VerifiedSemanticGraph,
-    operations: Mapping[OperationId, SemanticOperation],
-    inputs: Mapping[str, object],
-    type_bindings: RelationTypeBindings,
-) -> ValueExpr:
-    definition = graph.value_defs[use.value_id]
-    expression = _semantic_plan_expression(
-        use.value_id,
-        definitions=graph.value_defs,
-        operations=operations,
-        active=frozenset(),
-    )
-    return verify_value_expr(
-        bind_value_input_refs(expression, inputs),
-        bindings=type_bindings,
-        expected_type=definition.value_type,
     )
 
 
@@ -693,50 +512,24 @@ def point_domain_input_dependencies(
     *,
     inputs: Mapping[str, object],
 ) -> set[str]:
-    """Return imports not closed by directional point-domain composition."""
+    """Return runtime inputs consumed by closed linear-axis centers."""
 
-    def visit(node: PointDomainIntent) -> tuple[set[str], set[str]]:
-        if isinstance(node, PointUnit):
-            return set(), set()
-        if isinstance(node, PointRows):
-            return set(), set()
-        if isinstance(node, PointAxis):
-            source = node.source
-            if isinstance(source, PointAxisValues):
-                return set(), set()
-            center = source.center
-            return (
-                _nested_input_dependencies(center, inputs=inputs),
-                set(internal_value_ref_scalar_input_ids(center)),
-            )
-        if isinstance(node, PointProduct):
-            children = tuple(visit(factor) for factor in node.factors)
-        elif isinstance(node, PointZip):
-            children = tuple(visit(source) for source in node.sources)
-        else:
-            left_dependencies, left_point_inputs = visit(node.left)
-            right_dependencies, right_point_inputs = visit(node.right)
-            bound_ids = set(point_domain_intent_output_types(node.left))
-            closed_right_inputs = right_point_inputs & bound_ids
-            return (
-                left_dependencies | (right_dependencies - closed_right_inputs),
-                left_point_inputs | (right_point_inputs - bound_ids),
-            )
-        return (
-            {
-                input_id
-                for dependencies, _point_inputs in children
-                for input_id in dependencies
-            },
-            {
-                input_id
-                for _dependencies, point_inputs in children
-                for input_id in point_inputs
-            },
+    axes = (
+        ()
+        if isinstance(domain, PointUnit)
+        else (domain,)
+        if isinstance(domain, PointAxis)
+        else domain.factors
+    )
+    return {
+        input_id
+        for axis in axes
+        if isinstance(axis.source, PointAxisLinear)
+        for input_id in _nested_input_dependencies(
+            axis.source.center,
+            inputs=inputs,
         )
-
-    dependencies, _point_inputs = visit(domain)
-    return dependencies
+    }
 
 
 _EMPTY_VISITED_VALUE_IDS: frozenset[int] = frozenset()
@@ -799,149 +592,85 @@ def lower_point_domain(
     inputs: Mapping[str, object],
     type_bindings: RelationTypeBindings,
 ) -> PointDomain:
-    """Bind and verify each linear-axis center in its exact point scope."""
+    """Bind and verify each closed linear-axis center."""
 
-    analysis = analyze_point_domain(point_domain)
-    root = _lower_point_domain_node(
-        point_domain,
-        path=(),
-        ambient_row=type_bindings.point_row,
-        analysis=analysis,
-        inputs=inputs,
-        type_bindings=type_bindings,
-    )
+    if isinstance(point_domain, PointUnit):
+        root: PointDomainExpr[RelationUse[ScalarValueExpr]] = POINT_UNIT
+    elif isinstance(point_domain, PointAxis):
+        root = _lower_point_axis(
+            point_domain,
+            inputs=inputs,
+            type_bindings=type_bindings,
+        )
+    else:
+        root = PointProduct(
+            tuple(
+                _lower_point_axis(
+                    axis,
+                    inputs=inputs,
+                    type_bindings=type_bindings,
+                )
+                for axis in point_domain.factors
+            )
+        )
     return PointDomain(root=root)
 
 
-def _lower_point_domain_node(
-    node: PointDomainIntent,
+def _lower_point_axis(
+    axis: PointAxis[ValueRef],
     *,
-    path: PointDomainPath,
-    ambient_row: RowType | None,
-    analysis: PointDomainAnalysis,
     inputs: Mapping[str, object],
     type_bindings: RelationTypeBindings,
-) -> PointDomainExpr[RelationUse[ScalarValueExpr]]:
-    if isinstance(node, PointUnit):
-        return POINT_UNIT
-    if isinstance(node, PointRows):
-        return PointRows(
-            columns=tuple(node.columns),
-            rows=tuple(tuple(row) for row in node.rows),
-        )
-    if isinstance(node, PointAxis):
-        source = node.source
-        if isinstance(source, PointAxisValues):
-            return PointAxis(
-                id=node.id,
-                value_type=node.value_type,
-                source=PointAxisValues(values=tuple(source.values)),
-            )
-        center = relation_use(
-            verify_scalar_value_expr(
-                bind_scalar_input_refs(
-                    internal_lower_scalar_value_ref(source.center),
-                    inputs,
-                ),
-                bindings=replace(type_bindings, point_row=ambient_row),
-                expected_type=node.value_type,
-            )
-        )
+) -> PointAxis[RelationUse[ScalarValueExpr]]:
+    source = axis.source
+    if isinstance(source, PointAxisValues):
         return PointAxis(
-            id=node.id,
-            value_type=node.value_type,
-            source=PointAxisLinear(
-                center=center,
-                span=source.span,
-                count=source.count,
+            id=axis.id,
+            value_type=axis.value_type,
+            source=PointAxisValues(values=tuple(source.values)),
+        )
+    center = relation_use(
+        verify_scalar_value_expr(
+            bind_scalar_input_refs(
+                internal_lower_scalar_value_ref(source.center),
+                inputs,
             ),
+            bindings=type_bindings,
+            expected_type=axis.value_type,
         )
-    if isinstance(node, PointProduct):
-        return PointProduct(
-            tuple(
-                _lower_point_domain_node(
-                    factor,
-                    path=(*path, "factors", index),
-                    ambient_row=ambient_row,
-                    analysis=analysis,
-                    inputs=inputs,
-                    type_bindings=type_bindings,
-                )
-                for index, factor in enumerate(node.factors)
-            )
-        )
-    if isinstance(node, PointZip):
-        return PointZip(
-            tuple(
-                _lower_point_domain_node(
-                    source,
-                    path=(*path, "sources", index),
-                    ambient_row=ambient_row,
-                    analysis=analysis,
-                    inputs=inputs,
-                    type_bindings=type_bindings,
-                )
-                for index, source in enumerate(node.sources)
-            )
-        )
-    left_path = (*path, "left")
-    left = _lower_point_domain_node(
-        node.left,
-        path=left_path,
-        ambient_row=ambient_row,
-        analysis=analysis,
-        inputs=inputs,
-        type_bindings=type_bindings,
     )
-    right_ambient = _extend_point_row(
-        ambient_row,
-        analysis.facts[left_path].value_type,
-    )
-    right = _lower_point_domain_node(
-        node.right,
-        path=(*path, "right"),
-        ambient_row=right_ambient,
-        analysis=analysis,
-        inputs=inputs,
-        type_bindings=type_bindings,
-    )
-    return PointDependentProduct(left, right)
-
-
-def _extend_point_row(parent: RowType | None, child: TableType) -> RowType:
-    return RowType(
-        (*(() if parent is None else parent.columns), *child.columns),
-        (False if parent is None else parent.allow_extra_columns)
-        or child.allow_extra_columns,
+    return PointAxis(
+        id=axis.id,
+        value_type=axis.value_type,
+        source=PointAxisLinear(
+            center=center,
+            span=source.span,
+            count=source.count,
+        ),
     )
 
 
-def state_specs(
-    bindings: Sequence[BindingSpec],
+def state_spec(
+    binding: BindingSpec,
     *,
     inputs: Mapping[str, object],
     type_bindings: RelationTypeBindings,
-) -> list[SetStateSpec]:
-    specs: list[SetStateSpec] = []
-    for binding in bindings:
-        value = binding.value
-        specs.append(
-            set_state_field(
-                resource_port_id=binding.resource_port_id,
-                capability_id=binding.capability_id,
-                field_path=binding.field_path,
-                value=(
-                    value
-                    if isinstance(value, ComputeResultRef)
-                    else verify_scalar_value_expr(
-                        bind_scalar_input_refs(value, inputs),
-                        bindings=type_bindings,
-                        expected_type=binding.value_type,
-                    )
-                ),
+) -> SetStateSpec:
+    value = binding.value
+    return set_state_field(
+        resource_port_id=binding.resource_port_id,
+        capability_id=binding.capability_id,
+        field_path=binding.field_path,
+        value=(
+            value
+            if isinstance(value, ComputeResultRef)
+            else verify_scalar_value_expr(
+                bind_scalar_input_refs(value, inputs),
+                bindings=type_bindings,
+                expected_type=binding.value_type,
             )
-        )
-    return specs
+        ),
+    )
 
 
 def input_row(inputs: Mapping[str, object]) -> dict[str, CellValue]:

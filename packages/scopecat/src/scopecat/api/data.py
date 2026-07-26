@@ -14,8 +14,6 @@ from scopecat.runs.data import (
     RunArtifactBytesResult,
     RunArtifactJsonResult,
     RunArtifactTextResult,
-    RunDataArrayResult,
-    RunDataTableResult,
     RunMeasurementDatasetResult,
 )
 
@@ -80,12 +78,6 @@ class Data:
 
     def metadata(self, selector: str = "raw-measurements") -> dict[str, object]:
         return dict(self.measurements(selector).dataset.metadata)
-
-    def table(self, selector: str) -> RunDataTableResult:
-        return self.run.session.run_operations.data_table(self.run.id, selector)
-
-    def array(self, selector: str) -> RunDataArrayResult:
-        return self.run.session.run_operations.data_array(self.run.id, selector)
 
     def figure(
         self,

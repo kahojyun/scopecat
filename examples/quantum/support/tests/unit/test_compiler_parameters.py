@@ -2,17 +2,21 @@ from __future__ import annotations
 
 from scopecat import Quantity
 from scopecat.records.entity import EntityRef
-from scopecat_quantum import (
-    AcquisitionKind,
+from scopecat_quantum._ids import (
     AcquisitionSlotId,
     CircuitId,
     CircuitOperationId,
-    CircuitProgram,
-    CircuitSequence,
-    Measure,
     QubitId,
+)
+from scopecat_quantum.acquisitions import AcquisitionKind
+from scopecat_quantum.circuits import (
+    CircuitProgram,
+    Measure,
     VerifiedCircuitProgram,
     verify_circuit_program,
+)
+from scopecat_quantum.circuits import (
+    Sequence as CircuitSequence,
 )
 from scopecat_quantum.gates import GateCall
 from scopecat_quantum.standard_gates import X90, X

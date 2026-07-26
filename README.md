@@ -118,6 +118,8 @@ describe the smaller public entry points for
 
 ## Development
 
+Use `uv sync --group notebook` only when a local Jupyter kernel is needed.
+
 Run the repository checks from the repository root:
 
 ```sh

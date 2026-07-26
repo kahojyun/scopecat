@@ -24,12 +24,7 @@ _NEW_ADAPTER_VALUES = {
 
 def test_domain_facade_exports_curated_adapter_contracts() -> None:
     assert set(domain.__all__) >= _NEW_ADAPTER_VALUES
-    assert {
-        "DomainIterationLayout",
-        "DomainLiteral",
-        "DomainPointAffine",
-        "DomainPointAxis",
-    } <= set(domain.__all__)
+    assert "DomainIterationLayout" in domain.__all__
 
 
 def test_root_facade_does_not_duplicate_the_adapter_sdk() -> None:

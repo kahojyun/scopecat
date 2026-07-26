@@ -24,10 +24,10 @@ from scopecat.records.parameter import Quantity
 
 
 def project_run_request_inputs(inputs: Mapping[str, object]) -> dict[str, object]:
-    """Project bound template inputs into durable request values."""
+    """Project experiment inputs into durable request values."""
 
     return {
-        key: project_run_request_value(value, path=f"template_inputs.{key}")
+        key: project_run_request_value(value, path=f"inputs.{key}")
         for key, value in inputs.items()
     }
 

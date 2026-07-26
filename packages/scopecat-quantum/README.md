@@ -12,10 +12,15 @@ gate-and-pulse DSL. `sequence`, `parallel`, and `repeat` accept both logical
 gate calls and physical pulse statements. Logical-only and mixed work both use
 the same `Program` declaration and binding path:
 
+The package root intentionally exports only `authoring`. Compiler and target
+integrations import contracts from their owner submodules so layer boundaries
+remain visible.
+
 ```python
 from typing import Annotated
 
-from scopecat_quantum import GateParameterKind, authoring
+from scopecat_quantum import authoring
+from scopecat_quantum.gates import GateParameterKind
 
 x = authoring.single_qubit_gate("x")
 
@@ -91,12 +96,12 @@ pure pulse builder for one typed parameter row; the profile owns collection
 traversal and derives implementation keys and stable IDs:
 
 ```python
-from scopecat_quantum import (
+from scopecat_quantum import authoring
+from scopecat_quantum.pulse_recipes import (
     PulseRecipeProfile,
     gate_pulse_recipe,
     map_qubit_pulse_recipes,
 )
-from scopecat_quantum import authoring
 from my_lab import QuantumCompilerParameters, QubitPulseParameters
 
 

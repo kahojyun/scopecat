@@ -28,7 +28,6 @@ class ObjectCorruptError(ObjectStoreError):
 @dataclass(frozen=True, slots=True)
 class StoredObject:
     digest: str
-    size: int
 
 
 class ImmutableObjectStore:
@@ -45,7 +44,7 @@ class ImmutableObjectStore:
         digest = f"sha256:{hexdigest}"
         path = self.root / hexdigest[:2] / hexdigest[2:]
         if path.is_file():
-            return StoredObject(digest=digest, size=len(content))
+            return StoredObject(digest=digest)
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.parent / f".{hexdigest}.{uuid4().hex}.tmp"
         try:
@@ -61,7 +60,7 @@ class ImmutableObjectStore:
         finally:
             with suppress(OSError):
                 temporary.unlink(missing_ok=True)
-        return StoredObject(digest=digest, size=len(content))
+        return StoredObject(digest=digest)
 
     def read(self, digest: str) -> bytes:
         path = self.path_for(digest)

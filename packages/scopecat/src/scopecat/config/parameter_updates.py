@@ -1,9 +1,19 @@
-"""Transient user intents for deriving a candidate parameter snapshot."""
+"""Canonical parameter update intents and snapshot materialization."""
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from typing import Annotated, Literal
+
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 
 from scopecat.config.validation import (
     coerce_parameter_table_cell,
@@ -12,10 +22,12 @@ from scopecat.config.validation import (
 )
 from scopecat.kernel.frozen import FrozenMapping
 from scopecat.kernel.value_types import Scalar, Series, Table
+from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import (
     ParameterAtomValue,
     ParameterCatalog,
     ParameterSnapshot,
+    Quantity,
     ScalarParameterValue,
     SeriesParameterValue,
     StoredParameterValue,
@@ -23,53 +35,141 @@ from scopecat.records.parameter import (
 )
 from scopecat.records.parameter_change import ParameterValueDelta
 
+type _ParameterId = Annotated[str, Field(min_length=1)]
 
-@dataclass(frozen=True, slots=True)
-class ReplaceParameter:
-    """Transient intent to replace one complete typed parameter value."""
 
+def _freeze_parameter_atoms(
+    values: Mapping[str, ParameterAtomValue],
+) -> FrozenMapping[str, ParameterAtomValue]:
+    selected: list[tuple[str, ParameterAtomValue]] = []
+    for name, value in values.items():
+        number = value.value if isinstance(value, Quantity) else value
+        if isinstance(number, float) and not math.isfinite(number):
+            raise ValueError("parameter update atoms must be finite")
+        selected.append((name, value))
+    return FrozenMapping(selected)
+
+
+def _serialize_parameter_atoms(
+    values: Mapping[str, ParameterAtomValue],
+) -> dict[str, object]:
+    return {
+        name: (
+            value.model_dump(mode="json")
+            if isinstance(value, Quantity | EntityRef)
+            else value
+        )
+        for name, value in values.items()
+    }
+
+
+class _ParameterUpdateModel(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+        revalidate_instances="always",
+        allow_inf_nan=False,
+    )
+
+
+class ReplaceParameter(_ParameterUpdateModel):
+    """Replace one complete typed parameter value."""
+
+    kind: Literal["replace_parameter"] = "replace_parameter"
     value: StoredParameterValue
 
     @property
     def parameter_id(self) -> str:
         return self.value.id
 
-
-@dataclass(frozen=True, slots=True)
-class UpdateParameterRows:
-    """Transient intent to update one row selected by a table primary key."""
-
-    parameter_id: str
-    key: FrozenMapping[str, ParameterAtomValue]
-    values: FrozenMapping[str, ParameterAtomValue]
+    @model_validator(mode="after")
+    def validate_parameter_id(self) -> ReplaceParameter:
+        if not self.parameter_id:
+            raise ValueError("parameter id must be non-empty")
+        return self
 
 
-@dataclass(frozen=True, slots=True)
-class InsertParameterRows:
-    """Transient intent to append rows to a table-shaped parameter."""
+class UpdateParameterRows(_ParameterUpdateModel):
+    """Update one row selected by a table primary key."""
 
-    parameter_id: str
-    rows: tuple[FrozenMapping[str, ParameterAtomValue], ...]
+    kind: Literal["update_parameter_rows"] = "update_parameter_rows"
+    parameter_id: _ParameterId
+    key: Mapping[str, ParameterAtomValue] = Field(min_length=1)
+    values: Mapping[str, ParameterAtomValue] = Field(min_length=1)
+
+    @field_validator("key", "values")
+    @classmethod
+    def freeze_atoms(
+        cls,
+        value: Mapping[str, ParameterAtomValue],
+    ) -> Mapping[str, ParameterAtomValue]:
+        return _freeze_parameter_atoms(value)
+
+    @field_serializer("key", "values")
+    def serialize_atoms(
+        self,
+        value: Mapping[str, ParameterAtomValue],
+    ) -> dict[str, object]:
+        return _serialize_parameter_atoms(value)
 
 
-@dataclass(frozen=True, slots=True)
-class DeleteParameterRows:
-    """Transient intent to delete one row selected by a table primary key."""
+class InsertParameterRows(_ParameterUpdateModel):
+    """Append rows to a table-shaped parameter."""
 
-    parameter_id: str
-    key: FrozenMapping[str, ParameterAtomValue]
+    kind: Literal["insert_parameter_rows"] = "insert_parameter_rows"
+    parameter_id: _ParameterId
+    rows: Sequence[Mapping[str, ParameterAtomValue]] = Field(min_length=1)
+
+    @field_validator("rows")
+    @classmethod
+    def freeze_rows(
+        cls,
+        value: Sequence[Mapping[str, ParameterAtomValue]],
+    ) -> Sequence[Mapping[str, ParameterAtomValue]]:
+        return tuple(_freeze_parameter_atoms(row) for row in value)
+
+    @field_serializer("rows")
+    def serialize_rows(
+        self,
+        value: Sequence[Mapping[str, ParameterAtomValue]],
+    ) -> list[dict[str, object]]:
+        return [_serialize_parameter_atoms(row) for row in value]
 
 
-type ParameterUpdate = (
-    ReplaceParameter | UpdateParameterRows | InsertParameterRows | DeleteParameterRows
-)
+class DeleteParameterRows(_ParameterUpdateModel):
+    """Delete one row selected by a table primary key."""
+
+    kind: Literal["delete_parameter_rows"] = "delete_parameter_rows"
+    parameter_id: _ParameterId
+    key: Mapping[str, ParameterAtomValue] = Field(min_length=1)
+
+    @field_validator("key")
+    @classmethod
+    def freeze_key(
+        cls,
+        value: Mapping[str, ParameterAtomValue],
+    ) -> Mapping[str, ParameterAtomValue]:
+        return _freeze_parameter_atoms(value)
+
+    @field_serializer("key")
+    def serialize_key(
+        self,
+        value: Mapping[str, ParameterAtomValue],
+    ) -> dict[str, object]:
+        return _serialize_parameter_atoms(value)
+
+
+type ParameterUpdate = Annotated[
+    ReplaceParameter | UpdateParameterRows | InsertParameterRows | DeleteParameterRows,
+    Field(discriminator="kind"),
+]
 
 
 def replace_scalar_parameter(
     parameter_id: str,
     value: ParameterAtomValue,
 ) -> ReplaceParameter:
-    """Build a scalar replacement intent from a closed durable atom."""
+    """Build a scalar replacement update from a closed durable atom."""
 
     return ReplaceParameter(value=ScalarParameterValue(id=parameter_id, value=value))
 
@@ -78,7 +178,7 @@ def replace_series_parameter(
     parameter_id: str,
     items: Sequence[ParameterAtomValue],
 ) -> ReplaceParameter:
-    """Build a complete series replacement intent."""
+    """Build a complete series replacement update."""
 
     return ReplaceParameter(
         value=SeriesParameterValue(id=parameter_id, items=tuple(items))
@@ -89,7 +189,7 @@ def replace_table_parameter(
     parameter_id: str,
     rows: Sequence[Mapping[str, ParameterAtomValue]],
 ) -> ReplaceParameter:
-    """Build a complete table replacement intent."""
+    """Build a complete table replacement update."""
 
     return ReplaceParameter(
         value=TableParameterValue(id=parameter_id, rows=tuple(rows))
@@ -102,19 +202,16 @@ def update_parameter_rows(
     key: Mapping[str, ParameterAtomValue],
     values: Mapping[str, ParameterAtomValue],
 ) -> UpdateParameterRows:
-    """Build a keyed row update intent.
+    """Build a keyed row update.
 
     Parameter atoms are already immutable; catalog-dependent checks happen when
-    an analysis materializes the intent.
+    an analysis materializes the update.
     """
 
-    if not values:
-        msg = "parameter row update values must be non-empty"
-        raise ValueError(msg)
     return UpdateParameterRows(
         parameter_id=parameter_id,
-        key=FrozenMapping(key.items()),
-        values=FrozenMapping(values.items()),
+        key=key,
+        values=values,
     )
 
 
@@ -122,14 +219,11 @@ def insert_parameter_rows(
     parameter_id: str,
     rows: Sequence[Mapping[str, ParameterAtomValue]],
 ) -> InsertParameterRows:
-    """Build a table-row insertion intent."""
+    """Build a table-row insertion update."""
 
-    if not rows:
-        msg = "parameter row insertion requires at least one row"
-        raise ValueError(msg)
     return InsertParameterRows(
         parameter_id=parameter_id,
-        rows=tuple(FrozenMapping(row.items()) for row in rows),
+        rows=rows,
     )
 
 
@@ -138,11 +232,11 @@ def delete_parameter_rows(
     *,
     key: Mapping[str, ParameterAtomValue],
 ) -> DeleteParameterRows:
-    """Build a keyed row deletion intent."""
+    """Build a keyed row deletion update."""
 
     return DeleteParameterRows(
         parameter_id=parameter_id,
-        key=FrozenMapping(key.items()),
+        key=key,
     )
 
 
@@ -175,10 +269,7 @@ def materialize_parameter_updates(
         if parameter_id not in touched:
             touched.append(parameter_id)
         if isinstance(update, ReplaceParameter):
-            replacement = update.value.model_copy(
-                update={"metadata": current.metadata},
-                deep=True,
-            )
+            replacement = update.value.model_copy(deep=True)
             _require_matching_shape(
                 parameter_id=parameter_id,
                 expected=definition.value_type,
@@ -208,7 +299,6 @@ def materialize_parameter_updates(
     candidate = ParameterSnapshot(
         id=candidate_id,
         values=tuple(selected[value_id] for value_id in order),
-        metadata=base.metadata,
     )
     deltas = tuple(
         ParameterValueDelta(
@@ -268,7 +358,6 @@ def merge_parameter_change_deltas(
     return ParameterSnapshot(
         id=candidate_id,
         values=tuple(selected[value_id] for value_id in order),
-        metadata=base.metadata,
     )
 
 
@@ -301,7 +390,6 @@ def _apply_table_update(
         return TableParameterValue(
             id=current.id,
             rows=(*current.rows, *update.rows),
-            metadata=current.metadata,
         )
     _require_complete_key(
         parameter_id=current.id,
@@ -356,7 +444,6 @@ def _apply_table_update(
     return TableParameterValue(
         id=current.id,
         rows=rows,
-        metadata=current.metadata,
     )
 
 

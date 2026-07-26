@@ -4,23 +4,6 @@
  */
 
 export interface paths {
-    "/api/v1/catalog": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Catalog */
-        get: operations["catalog_api_v1_catalog_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/config-registry": {
         parameters: {
             query?: never;
@@ -399,6 +382,7 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        _ParameterId: string;
         /**
          * AnalysisCandidateRunConfigSource
          * @description Analysis candidate resolved for one run without becoming the default.
@@ -467,27 +451,16 @@ export interface components {
             /** Title */
             title: string;
         };
-        /** @enum {string} */
-        AttentionResolutionAction: "release" | "requeue" | "abort";
-        /**
-         * AttentionResolutionCommand
-         * @description Explicit operator decision for a quarantined run.
-         */
-        AttentionResolutionCommand: {
-            action: components["schemas"]["AttentionResolutionAction"];
-            run_id: components["schemas"]["NonEmptyText"];
-        };
         /** AttentionResolutionReceipt */
         AttentionResolutionReceipt: {
-            action: components["schemas"]["AttentionResolutionAction"];
             /** Released Resource Count */
             released_resource_count: number;
             run_id: components["schemas"]["NonEmptyText"];
             /**
              * State
-             * @enum {string}
+             * @constant
              */
-            state: "attention_required" | "accepted" | "terminal";
+            state: "closed";
         };
         /** AutomaticPolicyDecisionAuthority */
         AutomaticPolicyDecisionAuthority: {
@@ -558,46 +531,6 @@ export interface components {
             proposal_id: string;
             proposal_record_content_hash: components["schemas"]["EvidenceContentHash"];
         };
-        /** Channel */
-        "Channel-Input": {
-            /** Device Id */
-            device_id?: string | null;
-            /** Direction */
-            direction?: string | null;
-            /** Group Ids */
-            group_ids?: string[];
-            /** Id */
-            id: string;
-            /** Kind */
-            kind: string;
-            /** Line Id */
-            line_id?: string | null;
-            metadata?: components["schemas"]["JsonMetadata-Input"];
-            /** Port */
-            port?: string | null;
-            /** Signal */
-            signal?: string | null;
-        };
-        /** Channel */
-        "Channel-Output": {
-            /** Device Id */
-            device_id?: string | null;
-            /** Direction */
-            direction?: string | null;
-            /** Group Ids */
-            group_ids?: string[];
-            /** Id */
-            id: string;
-            /** Kind */
-            kind: string;
-            /** Line Id */
-            line_id?: string | null;
-            metadata?: components["schemas"]["JsonMetadata-Output"];
-            /** Port */
-            port?: string | null;
-            /** Signal */
-            signal?: string | null;
-        };
         /** ConfigActivationReceipt */
         ConfigActivationReceipt: {
             activation: components["schemas"]["ConfigRegistryActivationRecord"];
@@ -616,8 +549,8 @@ export interface components {
             candidate_id: components["schemas"]["NonEmptyText"];
             /** Updates */
             updates: [
-                components["schemas"]["ConfigParameterUpdate"],
-                ...components["schemas"]["ConfigParameterUpdate"][]
+                components["schemas"]["ParameterUpdate"],
+                ...components["schemas"]["ParameterUpdate"][]
             ];
         };
         /**
@@ -714,17 +647,11 @@ export interface components {
             config: components["schemas"]["ConfigProfileSnapshot-Output"];
             entry: components["schemas"]["ConfigRegistryEntry"];
         };
-        /** ConfigImportReceipt */
-        ConfigImportReceipt: {
-            entry: components["schemas"]["ConfigRegistryEntry"];
-        };
-        ConfigParameterUpdate: components["schemas"]["ReplaceConfigParameter"] | components["schemas"]["UpdateConfigParameterRows"] | components["schemas"]["InsertConfigParameterRows"] | components["schemas"]["DeleteConfigParameterRows"];
         /**
          * ConfigProfileSnapshot
          * @description Immutable config profile snapshot used by runs and ConfigRegistry entries.
          */
         "ConfigProfileSnapshot-Input": {
-            environment: components["schemas"]["EnvironmentSpec"];
             /** Id */
             id: string;
             parameter_snapshot: components["schemas"]["ParameterSnapshot-Input"];
@@ -735,7 +662,6 @@ export interface components {
          * @description Immutable config profile snapshot used by runs and ConfigRegistry entries.
          */
         "ConfigProfileSnapshot-Output": {
-            environment: components["schemas"]["EnvironmentSpec"];
             /** Id */
             id: string;
             parameter_snapshot: components["schemas"]["ParameterSnapshot-Output"];
@@ -857,25 +783,6 @@ export interface components {
             note: string;
             operator: components["schemas"]["NonEmptyText"];
         };
-        /** ConnectionProfile */
-        ConnectionProfile: {
-            /** Connections */
-            connections?: components["schemas"]["ConnectionResource"][];
-        };
-        /** ConnectionResource */
-        ConnectionResource: {
-            /** Id */
-            id: string;
-            /** Instrument Id */
-            instrument_id: string;
-            /**
-             * Kind
-             * @default offline
-             */
-            kind: string;
-            /** Resource Hint */
-            resource_hint?: string | null;
-        };
         /**
          * ControlRun
          * @description Current scheduler state plus the immutable admission record.
@@ -884,12 +791,9 @@ export interface components {
             admission: components["schemas"]["RunAdmissionRecord"];
             /** Attention Reason */
             attention_reason?: string | null;
-            outcome?: components["schemas"]["RunOutcome-Output"] | null;
             /** Sequence */
             sequence: number;
             state: components["schemas"]["ControlRunState"];
-            /** State Version */
-            state_version: number;
             /**
              * Updated At
              * Format: date-time
@@ -897,7 +801,7 @@ export interface components {
             updated_at: string;
         };
         /** @enum {string} */
-        ControlRunState: "accepted" | "running" | "terminal" | "attention_required";
+        ControlRunState: "queued" | "leased" | "attention_required" | "closed";
         /**
          * DaemonHealth
          * @description Daemon readiness and the one project owned by this process.
@@ -915,118 +819,11 @@ export interface components {
              */
             status: "ok" | "degraded";
         };
-        /** DataArrayArtifact */
-        DataArrayArtifact: {
-            /**
-             * Format Version
-             * @default scopecat.data_array.v0
-             * @constant
-             */
-            format_version: "scopecat.data_array.v0";
-            schema: components["schemas"]["DataArraySchema"];
-            /** Variables */
-            variables: {
-                [key: string]: unknown;
-            };
-        };
-        /** DataArrayDimension */
-        DataArrayDimension: {
-            /** Id */
-            id: string;
-            /** Kind */
-            kind: string;
-            /** Label */
-            label?: string | null;
-            metadata?: components["schemas"]["JsonMetadata-Output"];
-            /** Size */
-            size: number;
-            /** Unit */
-            unit?: string | null;
-        };
-        /** DataArraySchema */
-        DataArraySchema: {
-            /** Dimensions */
-            dimensions: components["schemas"]["DataArrayDimension"][];
-            metadata?: components["schemas"]["JsonMetadata-Output"];
-            /** Primary Variables */
-            primary_variables?: string[];
-            /** Variables */
-            variables: components["schemas"]["DataArrayVariable"][];
-        };
-        /** DataArrayVariable */
-        DataArrayVariable: {
-            /** Dims */
-            dims?: string[];
-            /**
-             * Dtype
-             * @enum {string}
-             */
-            dtype: "float64" | "int64" | "bool" | "string";
-            /** Id */
-            id: string;
-            /** Label */
-            label?: string | null;
-            /** Mask Of */
-            mask_of?: string | null;
-            metadata?: components["schemas"]["JsonMetadata-Output"];
-            /**
-             * Role
-             * @enum {string}
-             */
-            role: "identifier" | "coordinate" | "observable" | "auxiliary" | "uncertainty" | "status" | "mask" | "metadata";
-            /** Shape */
-            shape?: number[];
-            /** Status Of */
-            status_of?: string | null;
-            /** Uncertainty Of */
-            uncertainty_of?: string | null;
-            /** Unit */
-            unit?: string | null;
-        };
-        /** DataColumn */
-        DataColumn: {
-            /**
-             * Dtype
-             * @enum {string}
-             */
-            dtype: "float64" | "int64" | "bool" | "string";
-            /** Id */
-            id: string;
-            /** Label */
-            label?: string | null;
-            metadata?: components["schemas"]["JsonMetadata-Output"];
-            /**
-             * Role
-             * @enum {string}
-             */
-            role: "identifier" | "coordinate" | "observable" | "auxiliary" | "uncertainty" | "status" | "mask" | "metadata";
-            /** Unit */
-            unit?: string | null;
-        };
-        /** DataTableArtifact */
-        DataTableArtifact: {
-            /**
-             * Format Version
-             * @default scopecat.data_table.v0
-             * @constant
-             */
-            format_version: "scopecat.data_table.v0";
-            /** Rows */
-            rows: {
-                [key: string]: unknown;
-            }[];
-            schema: components["schemas"]["DataTableSchema"];
-        };
-        /** DataTableSchema */
-        DataTableSchema: {
-            /** Columns */
-            columns: components["schemas"]["DataColumn"][];
-            metadata?: components["schemas"]["JsonMetadata-Output"];
-            /** Primary Key */
-            primary_key?: string[];
-        };
-        /** DeleteConfigParameterRows */
-        DeleteConfigParameterRows: {
+        /**
+         * DeleteParameterRows
+         * @description Delete one row selected by a table primary key.
+         */
+        DeleteParameterRows: {
             /** Key */
             key: {
                 [key: string]: components["schemas"]["ParameterAtomValue-Input"];
@@ -1036,19 +833,7 @@ export interface components {
              * @enum {string}
              */
             kind: "delete_parameter_rows";
-            parameter_id: components["schemas"]["NonEmptyText"];
-        };
-        /** Device */
-        Device: {
-            /** Channels */
-            channels?: string[];
-            /** Id */
-            id: string;
-            /**
-             * Kind
-             * @default device
-             */
-            kind: string;
+            parameter_id: components["schemas"]["_ParameterId"];
         };
         /**
          * DirectConfigImportCommand
@@ -1128,15 +913,6 @@ export interface components {
             /** Metadata */
             metadata?: unknown;
         };
-        /**
-         * EnvironmentSpec
-         * @description Environment-specific connection resources.
-         */
-        EnvironmentSpec: {
-            connection_profile?: components["schemas"]["ConnectionProfile"];
-            /** Id */
-            id: string;
-        };
         /** EventPage */
         EventPage: {
             /** Items */
@@ -1145,20 +921,6 @@ export interface components {
             next_cursor?: number | null;
         };
         EvidenceContentHash: string;
-        /** @enum {string} */
-        ExecutionMode: "managed" | "delegated";
-        /**
-         * ExperimentCatalog
-         * @description A complete catalog snapshot addressable by an opaque revision.
-         */
-        ExperimentCatalog: {
-            /**
-             * Experiments
-             * @default []
-             */
-            experiments: components["schemas"]["RegisteredExperimentDescriptor"][];
-            revision: components["schemas"]["NonEmptyText"];
-        };
         /**
          * ExternalLocation
          * @description A location in an imported document or other external source.
@@ -1198,14 +960,17 @@ export interface components {
              */
             kind: "human";
         };
-        /** InsertConfigParameterRows */
-        InsertConfigParameterRows: {
+        /**
+         * InsertParameterRows
+         * @description Append rows to a table-shaped parameter.
+         */
+        InsertParameterRows: {
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
             kind: "insert_parameter_rows";
-            parameter_id: components["schemas"]["NonEmptyText"];
+            parameter_id: components["schemas"]["_ParameterId"];
             /** Rows */
             rows: [
                 {
@@ -1235,22 +1000,6 @@ export interface components {
             [key: string]: components["schemas"]["pydantic__types__JsonValue"];
         };
         "JsonValue-Input": unknown;
-        /** Link */
-        Link: {
-            /** Endpoints */
-            endpoints: [
-                string,
-                string,
-                ...string[]
-            ];
-            /** Id */
-            id: string;
-            /**
-             * Kind
-             * @default link
-             */
-            kind: string;
-        };
         LocationPathItem: string | number;
         /**
          * ManualConfigDraftRegistrySource
@@ -1270,8 +1019,6 @@ export interface components {
         };
         /** MeasurementDataset */
         MeasurementDataset: {
-            /** Dataset Id */
-            dataset_id: string;
             metadata?: components["schemas"]["JsonMetadata-Output"];
             /** Records */
             records: components["schemas"]["MeasurementRecord-Output"][];
@@ -1337,8 +1084,6 @@ export interface components {
         "MeasurementRecord-Output": unknown;
         /** MeasurementVariable */
         MeasurementVariable: {
-            /** Allowed Units */
-            allowed_units?: string[];
             /** Dims */
             dims?: string[];
             /**
@@ -1350,28 +1095,16 @@ export interface components {
             id: string;
             /** Label */
             label?: string | null;
-            /** Mask Of */
-            mask_of?: string | null;
             metadata?: components["schemas"]["JsonMetadata-Output"];
             /**
              * Role
              * @enum {string}
              */
-            role: "coordinate" | "observable" | "auxiliary" | "uncertainty" | "status" | "mask";
+            role: "coordinate" | "observable";
             /** Shape */
             shape?: number[];
-            /** Status Of */
-            status_of?: string | null;
-            /** Uncertainty Of */
-            uncertainty_of?: string | null;
             /** Unit */
             unit?: string | null;
-            /**
-             * Unit Policy
-             * @default uniform
-             * @enum {string}
-             */
-            unit_policy: "uniform" | "per_record";
         };
         /**
          * ModelLocation
@@ -1398,27 +1131,11 @@ export interface components {
          * ParameterCatalog
          * @description Authored parameter schema in one shape-independent namespace.
          */
-        "ParameterCatalog-Input": {
+        ParameterCatalog: {
             /** Definitions */
-            definitions?: components["schemas"]["ParameterDefinition-Input"][];
+            definitions?: components["schemas"]["ParameterDefinition"][];
             /** Id */
             id: string;
-            /** Metadata */
-            metadata?: {
-                [key: string]: unknown;
-            };
-        };
-        /**
-         * ParameterCatalog
-         * @description Authored parameter schema in one shape-independent namespace.
-         */
-        "ParameterCatalog-Output": {
-            /** Definitions */
-            definitions?: components["schemas"]["ParameterDefinition-Output"][];
-            /** Id */
-            id: string;
-            /** Metadata */
-            metadata?: unknown;
         };
         ParameterChangeDecisionAuthority: components["schemas"]["HumanDecisionAuthority"] | components["schemas"]["AutomaticPolicyDecisionAuthority"];
         /**
@@ -1484,28 +1201,11 @@ export interface components {
          * ParameterDefinition
          * @description Stable type definition for one accepted parameter value.
          */
-        "ParameterDefinition-Input": {
+        ParameterDefinition: {
             /** Description */
             description?: string | null;
             /** Id */
             id: string;
-            /** Metadata */
-            metadata?: {
-                [key: string]: unknown;
-            };
-            value_type: components["schemas"]["PersistableValueType"];
-        };
-        /**
-         * ParameterDefinition
-         * @description Stable type definition for one accepted parameter value.
-         */
-        "ParameterDefinition-Output": {
-            /** Description */
-            description?: string | null;
-            /** Id */
-            id: string;
-            /** Metadata */
-            metadata?: unknown;
             value_type: components["schemas"]["PersistableValueType"];
         };
         /** ParameterProposalListView */
@@ -1530,13 +1230,7 @@ export interface components {
              * @default
              */
             note: string;
-            proposal_id: components["schemas"]["NonEmptyText"];
             reviewer: components["schemas"]["NonEmptyText"];
-            run_id: components["schemas"]["NonEmptyText"];
-        };
-        /** ParameterProposalReviewReceipt */
-        ParameterProposalReviewReceipt: {
-            decision: components["schemas"]["ParameterChangeDecisionRecord"];
         };
         /**
          * ParameterProposalView
@@ -1557,10 +1251,6 @@ export interface components {
         "ParameterSnapshot-Input": {
             /** Id */
             id: string;
-            /** Metadata */
-            metadata?: {
-                [key: string]: unknown;
-            };
             /** Values */
             values?: components["schemas"]["StoredParameterValue-Input"][];
         };
@@ -1571,11 +1261,10 @@ export interface components {
         "ParameterSnapshot-Output": {
             /** Id */
             id: string;
-            /** Metadata */
-            metadata?: unknown;
             /** Values */
             values?: components["schemas"]["StoredParameterValue-Output"][];
         };
+        ParameterUpdate: components["schemas"]["ReplaceParameter"] | components["schemas"]["UpdateParameterRows"] | components["schemas"]["InsertParameterRows"] | components["schemas"]["DeleteParameterRows"];
         /**
          * ParameterValueDelta
          * @description Durable before/after state for one proposed parameter change.
@@ -1748,12 +1437,10 @@ export interface components {
          * @description One expected, structured finding without presentation policy.
          */
         "Problem-Output": {
-            category: components["schemas"]["ProblemCategory"];
             /** Code */
             code: string;
             /** Details */
             details?: unknown;
-            impact: components["schemas"]["ProblemImpact"];
             location?: components["schemas"]["ProblemLocation"] | null;
             /** Message */
             message: string;
@@ -1766,49 +1453,19 @@ export interface components {
              */
             related_locations: components["schemas"]["ProblemLocation"][];
         };
-        /**
-         * ProblemCategory
-         * @description Stable machine-oriented classification independent of presentation.
-         * @enum {string}
-         */
-        ProblemCategory: "invalid_input" | "not_found" | "conflict" | "data_integrity" | "storage" | "provider_contract" | "unavailable" | "operation" | "external_failure" | "interrupted";
-        /**
-         * ProblemImpact
-         * @description Whether a problem only informs the caller or prevents an operation.
-         * @enum {string}
-         */
-        ProblemImpact: "advisory" | "blocking";
         ProblemLocation: components["schemas"]["ModelLocation"] | components["schemas"]["StorageLocation"] | components["schemas"]["ExternalLocation"] | components["schemas"]["RuntimeLocation"];
         /**
          * ProblemPhase
          * @description Pipeline boundary at which a problem was established.
          * @enum {string}
          */
-        ProblemPhase: "definition" | "authoring" | "configuration" | "planning" | "provider_preflight" | "execution" | "persistence" | "analysis" | "importing";
+        ProblemPhase: "definition" | "authoring" | "configuration" | "planning" | "provider_preflight" | "execution" | "persistence" | "analysis";
         pydantic__types__JsonValue: unknown;
         /**
-         * RegisteredExperimentDescriptor
-         * @description Public catalog metadata for one explicitly versioned registration.
+         * ReplaceParameter
+         * @description Replace one complete typed parameter value.
          */
-        RegisteredExperimentDescriptor: {
-            /** Description */
-            description?: string | null;
-            experiment_kind: components["schemas"]["NonEmptyText"];
-            id: components["schemas"]["NonEmptyText"];
-            /** Input Schema */
-            input_schema?: {
-                [key: string]: components["schemas"]["pydantic__types__JsonValue"];
-            };
-            /**
-             * Tags
-             * @default []
-             */
-            tags: components["schemas"]["NonEmptyText"][];
-            title?: components["schemas"]["NonEmptyText"] | null;
-            version: components["schemas"]["NonEmptyText"];
-        };
-        /** ReplaceConfigParameter */
-        ReplaceConfigParameter: {
+        ReplaceParameter: {
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -1827,14 +1484,15 @@ export interface components {
             kind: components["schemas"]["ResourceKind"];
         };
         /** @enum {string} */
-        ResourceKind: "target" | "instrument" | "channel" | "group";
+        ResourceKind: "target" | "instrument";
         /**
          * RoutingEndpointBinding
          * @description Accepted physical ownership fact for one instrument endpoint.
          *
          *     A binding is reproducible configuration, not a runtime alternative. Devices
          *     that change a physical path, such as switches or valves, are modeled as
-         *     explicit state or action effects instead of replacing this ownership fact.
+         *     explicit desired-state effects or domain programs instead of replacing this
+         *     ownership fact.
          */
         "RoutingEndpointBinding-Input": {
             /** Capability */
@@ -1843,8 +1501,12 @@ export interface components {
             channel_id?: string | null;
             /** Entity Id */
             entity_id?: string | null;
+            /** Group Ids */
+            group_ids?: string[];
             /** Instrument Id */
             instrument_id: string;
+            /** Line Id */
+            line_id?: string | null;
             metadata?: components["schemas"]["JsonMetadata-Input"];
         };
         /**
@@ -1853,7 +1515,8 @@ export interface components {
          *
          *     A binding is reproducible configuration, not a runtime alternative. Devices
          *     that change a physical path, such as switches or valves, are modeled as
-         *     explicit state or action effects instead of replacing this ownership fact.
+         *     explicit desired-state effects or domain programs instead of replacing this
+         *     ownership fact.
          */
         "RoutingEndpointBinding-Output": {
             /** Capability */
@@ -1862,8 +1525,12 @@ export interface components {
             channel_id?: string | null;
             /** Entity Id */
             entity_id?: string | null;
+            /** Group Ids */
+            group_ids?: string[];
             /** Instrument Id */
             instrument_id: string;
+            /** Line Id */
+            line_id?: string | null;
             metadata?: components["schemas"]["JsonMetadata-Output"];
         };
         /**
@@ -1892,7 +1559,7 @@ export interface components {
         };
         /**
          * RunAdmissionRecord
-         * @description Inputs that must become durable before an executor can touch hardware.
+         * @description Scheduler facts committed with an accepted run skeleton.
          */
         RunAdmissionRecord: {
             /**
@@ -1900,22 +1567,11 @@ export interface components {
              * Format: date-time
              */
             admitted_at?: string;
-            config_content_hash: components["schemas"]["ConfigContentHash"];
-            execution_mode: components["schemas"]["ExecutionMode"];
-            /** Experiment Id */
-            experiment_id: string;
-            /** Plan Summary */
-            plan_summary?: {
-                [key: string]: components["schemas"]["pydantic__types__JsonValue"];
-            };
-            request?: components["schemas"]["RunRequest-Output"] | null;
-            /**
-             * Resource Claims
-             * @default []
-             */
-            resource_claims: components["schemas"]["ResourceKey"][];
+            plan: components["schemas"]["RunPlanSummary"];
             /** Run Id */
             run_id: string;
+            /** Submission Content Hash */
+            submission_content_hash: string;
             /** Submission Id */
             submission_id: string;
         };
@@ -1939,23 +1595,19 @@ export interface components {
             /** Run Id */
             run_id: string;
         };
-        /** RunArtifactJsonView */
-        RunArtifactJsonView: {
+        /** RunArtifactJsonResult */
+        RunArtifactJsonResult: {
             artifact: components["schemas"]["RunContentEntry-Output"];
             /** Content */
             content: {
                 [key: string]: components["schemas"]["scopecat__kernel__json_types__JsonValue"];
             };
-            /** Run Id */
-            run_id: string;
         };
-        /** RunArtifactTextView */
-        RunArtifactTextView: {
+        /** RunArtifactTextResult */
+        RunArtifactTextResult: {
             artifact: components["schemas"]["RunContentEntry-Output"];
             /** Content */
             content: string;
-            /** Run Id */
-            run_id: string;
         };
         RunConfigSource: components["schemas"]["ConfigRegistryRunConfigSource"] | components["schemas"]["AnalysisCandidateRunConfigSource"];
         /**
@@ -1990,29 +1642,24 @@ export interface components {
             /** Title */
             title?: string | null;
         };
-        RunDatasetContent: components["schemas"]["MeasurementDataset"] | components["schemas"]["DataTableArtifact"] | components["schemas"]["DataArrayArtifact"];
-        /** RunDatasetContentView */
-        RunDatasetContentView: {
-            content: components["schemas"]["RunDatasetContent"];
-            dataset: components["schemas"]["RunContentEntry-Output"];
-            /** Run Id */
-            run_id: string;
-        };
         /**
          * RunDetail
-         * @description Control and content state read from the same daemon.
+         * @description Run summary with scheduler resource state.
          */
         RunDetail: {
             control: components["schemas"]["ControlRun"];
-            manifest: components["schemas"]["RunManifest-Output"];
+            manifest: components["schemas"]["RunManifest"];
             /**
              * Resources
              * @default []
              */
             resources: components["schemas"]["RunResourceView"][];
         };
-        /** RunManifest */
-        "RunManifest-Output": {
+        /**
+         * RunManifest
+         * @description Accepted snapshot plus content and an optional terminal outcome.
+         */
+        RunManifest: {
             config_content_hash: components["schemas"]["ConfigContentHash"];
             config_source?: components["schemas"]["RunConfigSource"] | null;
             /**
@@ -2025,14 +1672,14 @@ export interface components {
              * Format: date-time
              */
             created_at?: string;
-            /**
-             * Lifecycle
-             * @enum {string}
-             */
-            lifecycle: "accepted" | "running" | "terminal";
             outcome?: components["schemas"]["RunOutcome-Output"] | null;
             /** Run Id */
             run_id: string;
+        };
+        /** RunMeasurementDatasetResult */
+        RunMeasurementDatasetResult: {
+            dataset: components["schemas"]["MeasurementDataset"];
+            dataset_entry: components["schemas"]["RunContentEntry-Output"];
         };
         /**
          * RunOutcome
@@ -2061,32 +1708,42 @@ export interface components {
             result: "succeeded" | "failed" | "cancelled";
             /** Run Id */
             run_id: string;
+        };
+        /**
+         * RunPlanSummary
+         * @description Bounded scheduling and presentation facts for an in-process plan.
+         */
+        RunPlanSummary: {
             /**
-             * Termination Reason
-             * @enum {string}
+             * Coordinate Ids
+             * @default []
              */
-            termination_reason: "completed" | "blocking_problem" | "effect_outcome_unknown" | "interrupted";
+            coordinate_ids: string[];
+            /** Experiment Id */
+            experiment_id: string;
+            /** Experiment Kind */
+            experiment_kind: string;
+            /** Point Count */
+            point_count: number;
+            /**
+             * Record Ids
+             * @default []
+             */
+            record_ids: string[];
+            /**
+             * Run Resource Claims
+             * @default []
+             */
+            run_resource_claims: components["schemas"]["ResourceKey"][];
         };
-        /** RunPage */
-        RunPage: {
-            /** Items */
-            items: components["schemas"]["ControlRun"][];
-            /** Next Cursor */
-            next_cursor?: number | null;
-            /** Previous Cursor */
-            previous_cursor?: number | null;
-        };
-        /** RunRecordJsonView */
-        RunRecordJsonView: {
+        /** RunRecordJsonResult */
+        RunRecordJsonResult: {
             /** Content */
             content: {
                 [key: string]: components["schemas"]["scopecat__kernel__json_types__JsonValue"];
             };
             record: components["schemas"]["RunContentEntry-Output"];
-            /** Run Id */
-            run_id: string;
         };
-        "RunRequest-Output": unknown;
         /**
          * RunResourceView
          * @description Resource state without exposing an executor's authority token.
@@ -2100,6 +1757,29 @@ export interface components {
              * @enum {string}
              */
             status: "required" | "active" | "quarantined" | "released";
+        };
+        /**
+         * RunSummary
+         * @description Scheduler projection paired with the accepted run snapshot.
+         */
+        RunSummary: {
+            control: components["schemas"]["ControlRun"];
+            manifest: components["schemas"]["RunManifest"];
+        };
+        /**
+         * RunSummaryPage
+         * @description Keyset page retaining scheduler state and terminal outcomes.
+         */
+        RunSummaryPage: {
+            /**
+             * Items
+             * @default []
+             */
+            items: components["schemas"]["RunSummary"][];
+            /** Next Cursor */
+            next_cursor?: number | null;
+            /** Previous Cursor */
+            previous_cursor?: number | null;
         };
         /**
          * RuntimeLocation
@@ -2127,16 +1807,11 @@ export interface components {
         "ScalarParameterValue-Input": {
             /** Id */
             id: string;
-            /** Metadata */
-            metadata?: {
-                [key: string]: unknown;
-            };
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
             shape: "scalar";
-            source_location?: components["schemas"]["ExternalLocation"] | null;
             value: components["schemas"]["ParameterAtomValue-Input"];
         };
         /**
@@ -2146,14 +1821,11 @@ export interface components {
         "ScalarParameterValue-Output": {
             /** Id */
             id: string;
-            /** Metadata */
-            metadata?: unknown;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
             shape: "scalar";
-            source_location?: components["schemas"]["ExternalLocation"] | null;
             value: components["schemas"]["ParameterAtomValue-Output"];
         };
         scopecat__kernel__json_types__JsonValue: unknown;
@@ -2174,20 +1846,13 @@ export interface components {
         "SeriesParameterValue-Input": {
             /** Id */
             id: string;
-            /** Item Locations */
-            item_locations?: components["schemas"]["ExternalLocation"][];
             /** Items */
             items?: components["schemas"]["ParameterAtomValue-Input"][];
-            /** Metadata */
-            metadata?: {
-                [key: string]: unknown;
-            };
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
             shape: "series";
-            source_location?: components["schemas"]["ExternalLocation"] | null;
         };
         /**
          * SeriesParameterValue
@@ -2196,38 +1861,13 @@ export interface components {
         "SeriesParameterValue-Output": {
             /** Id */
             id: string;
-            /** Item Locations */
-            item_locations?: unknown[];
             /** Items */
             items?: unknown[];
-            /** Metadata */
-            metadata?: unknown;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
             shape: "series";
-            source_location?: components["schemas"]["ExternalLocation"] | null;
-        };
-        /** SharedResourceGroup */
-        "SharedResourceGroup-Input": {
-            /** Id */
-            id: string;
-            /** Kind */
-            kind: string;
-            /** Members */
-            members?: string[];
-            metadata?: components["schemas"]["JsonMetadata-Input"];
-        };
-        /** SharedResourceGroup */
-        "SharedResourceGroup-Output": {
-            /** Id */
-            id: string;
-            /** Kind */
-            kind: string;
-            /** Members */
-            members?: string[];
-            metadata?: components["schemas"]["JsonMetadata-Output"];
         };
         /**
          * StorageLocation
@@ -2260,7 +1900,7 @@ export interface components {
             /** Id */
             id: string;
             instrument_registry: components["schemas"]["InstrumentRegistry"];
-            parameter_catalog: components["schemas"]["ParameterCatalog-Input"];
+            parameter_catalog: components["schemas"]["ParameterCatalog"];
             /** Primary Entity Id */
             primary_entity_id: string;
             routing?: components["schemas"]["RoutingGraph-Input"];
@@ -2275,7 +1915,7 @@ export interface components {
             /** Id */
             id: string;
             instrument_registry: components["schemas"]["InstrumentRegistry"];
-            parameter_catalog: components["schemas"]["ParameterCatalog-Output"];
+            parameter_catalog: components["schemas"]["ParameterCatalog"];
             /** Primary Entity Id */
             primary_entity_id: string;
             routing?: components["schemas"]["RoutingGraph-Output"];
@@ -2288,12 +1928,6 @@ export interface components {
         "TableParameterValue-Input": {
             /** Id */
             id: string;
-            /** Metadata */
-            metadata?: {
-                [key: string]: unknown;
-            };
-            /** Row Locations */
-            row_locations?: components["schemas"]["ExternalLocation"][];
             /** Rows */
             rows?: {
                 [key: string]: components["schemas"]["ParameterAtomValue-Input"];
@@ -2303,7 +1937,6 @@ export interface components {
              * @enum {string}
              */
             shape: "table";
-            source_location?: components["schemas"]["ExternalLocation"] | null;
         };
         /**
          * TableParameterValue
@@ -2312,10 +1945,6 @@ export interface components {
         "TableParameterValue-Output": {
             /** Id */
             id: string;
-            /** Metadata */
-            metadata?: unknown;
-            /** Row Locations */
-            row_locations?: unknown[];
             /** Rows */
             rows?: {
                 [key: string]: unknown;
@@ -2325,64 +1954,22 @@ export interface components {
              * @enum {string}
              */
             shape: "table";
-            source_location?: components["schemas"]["ExternalLocation"] | null;
         };
         /** Topology */
         "Topology-Input": {
-            /** Channels */
-            channels?: components["schemas"]["Channel-Input"][];
-            /** Devices */
-            devices: components["schemas"]["Device"][];
             /** Entities */
             entities?: components["schemas"]["EntityRef-Input"][];
-            /** Groups */
-            groups?: components["schemas"]["SharedResourceGroup-Input"][];
-            /** Lines */
-            lines?: components["schemas"]["TopologyLine-Input"][];
-            /** Links */
-            links?: components["schemas"]["Link"][];
         };
         /** Topology */
         "Topology-Output": {
-            /** Channels */
-            channels?: components["schemas"]["Channel-Output"][];
-            /** Devices */
-            devices: components["schemas"]["Device"][];
             /** Entities */
             entities?: components["schemas"]["EntityRef-Output"][];
-            /** Groups */
-            groups?: components["schemas"]["SharedResourceGroup-Output"][];
-            /** Lines */
-            lines?: components["schemas"]["TopologyLine-Output"][];
-            /** Links */
-            links?: components["schemas"]["Link"][];
         };
-        /** TopologyLine */
-        "TopologyLine-Input": {
-            /** Endpoints */
-            endpoints?: string[];
-            /** Id */
-            id: string;
-            /** Kind */
-            kind: string;
-            metadata?: components["schemas"]["JsonMetadata-Input"];
-            /** Signal */
-            signal?: string | null;
-        };
-        /** TopologyLine */
-        "TopologyLine-Output": {
-            /** Endpoints */
-            endpoints?: string[];
-            /** Id */
-            id: string;
-            /** Kind */
-            kind: string;
-            metadata?: components["schemas"]["JsonMetadata-Output"];
-            /** Signal */
-            signal?: string | null;
-        };
-        /** UpdateConfigParameterRows */
-        UpdateConfigParameterRows: {
+        /**
+         * UpdateParameterRows
+         * @description Update one row selected by a table primary key.
+         */
+        UpdateParameterRows: {
             /** Key */
             key: {
                 [key: string]: components["schemas"]["ParameterAtomValue-Input"];
@@ -2392,7 +1979,7 @@ export interface components {
              * @enum {string}
              */
             kind: "update_parameter_rows";
-            parameter_id: components["schemas"]["NonEmptyText"];
+            parameter_id: components["schemas"]["_ParameterId"];
             /** Values */
             values: {
                 [key: string]: components["schemas"]["ParameterAtomValue-Input"];
@@ -2420,26 +2007,6 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    catalog_api_v1_catalog_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ExperimentCatalog"];
-                };
-            };
-        };
-    };
     get_config_registry_api_v1_config_registry_get: {
         parameters: {
             query?: never;
@@ -2644,7 +2211,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ConfigImportReceipt"];
+                    "application/json": components["schemas"]["ConfigRegistryEntry"];
                 };
             };
             /** @description Validation Error */
@@ -2797,7 +2364,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RunPage"];
+                    "application/json": components["schemas"]["RunSummaryPage"];
                 };
             };
             /** @description Validation Error */
@@ -2893,7 +2460,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RunArtifactJsonView"];
+                    "application/json": components["schemas"]["RunArtifactJsonResult"];
                 };
             };
             /** @description Validation Error */
@@ -2927,7 +2494,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RunArtifactTextView"];
+                    "application/json": components["schemas"]["RunArtifactTextResult"];
                 };
             };
             /** @description Validation Error */
@@ -2950,11 +2517,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AttentionResolutionCommand"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -2994,7 +2557,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RunDatasetContentView"];
+                    "application/json": components["schemas"]["RunMeasurementDatasetResult"];
                 };
             };
             /** @description Validation Error */
@@ -3095,7 +2658,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ParameterProposalReviewReceipt"];
+                    "application/json": components["schemas"]["ParameterChangeDecisionRecord"];
                 };
             };
             /** @description Validation Error */
@@ -3129,7 +2692,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RunRecordJsonView"];
+                    "application/json": components["schemas"]["RunRecordJsonResult"];
                 };
             };
             /** @description Validation Error */

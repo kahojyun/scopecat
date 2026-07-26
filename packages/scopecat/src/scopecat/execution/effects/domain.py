@@ -13,7 +13,6 @@ from scopecat.kernel.errors import (
 )
 from scopecat.kernel.problems import (
     Problem,
-    ProblemCategory,
     ProblemPhase,
 )
 from scopecat.measurements.host_transforms import execute_host_measurement_transforms
@@ -65,7 +64,7 @@ def execute_domain_job_values(
             transforms,
             source,
             points=prepared.points,
-        ).values
+        )
     )
 
 
@@ -78,24 +77,17 @@ def domain_runtime_terminal_problem(
 
     details: dict[str, object] = {
         "phase": error.phase,
-        "attempt": error.attempt,
+        "certainty": error.certainty,
         "invocation_id": error.invocation_id,
         "submission_key": error.submission_key,
-        "retry_contract": error.retry,
-        "reconciliation": error.reconciliation,
-        "automatic_resume": False,
     }
     if error.job_id is not None:
         details["job_id"] = error.job_id
     return runtime_problem(
         "domain_runtime_terminalized",
-        (
-            "the unified run was terminalized with domain target "
-            "correlation retained; automatic resume is not available"
-        ),
+        "the unified run was terminalized with domain target correlation retained",
         run_id=run_id,
         operation_id=error.operation_id,
-        category=ProblemCategory.OPERATION,
         details=details,
     )
 
@@ -123,6 +115,5 @@ def measurement_recording_terminal_problem(
         run_id=run_id,
         operation_id=error.operation_id,
         phase=ProblemPhase.PERSISTENCE,
-        category=ProblemCategory.STORAGE,
         details=details,
     )

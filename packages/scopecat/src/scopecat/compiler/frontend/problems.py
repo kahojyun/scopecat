@@ -10,7 +10,6 @@ from scopecat.compiler.entity_resolution import EntityResolutionError
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
     Problem,
-    ProblemCategory,
     ProblemPhase,
     model_location,
 )
@@ -22,7 +21,6 @@ def frontend_problem(
     root: str,
     *,
     path: Sequence[str | int] = (),
-    category: ProblemCategory = ProblemCategory.INVALID_INPUT,
     phase: ProblemPhase = ProblemPhase.AUTHORING,
     details: Mapping[str, object] | None = None,
 ) -> Problem:
@@ -33,7 +31,6 @@ def frontend_problem(
         message,
         model_location(root, *path),
         phase=phase,
-        category=category,
         details=details,
     )
 
@@ -44,7 +41,6 @@ def raise_frontend_problem(
     root: str,
     *,
     path: Sequence[str | int] = (),
-    category: ProblemCategory = ProblemCategory.INVALID_INPUT,
     phase: ProblemPhase = ProblemPhase.PLANNING,
     details: Mapping[str, object] | None = None,
 ) -> NoReturn:
@@ -56,7 +52,6 @@ def raise_frontend_problem(
                 root,
                 path=path,
                 phase=phase,
-                category=category,
                 details=details,
             ),
         )
@@ -73,7 +68,6 @@ def raise_entity_resolution_problem(error: EntityResolutionError) -> NoReturn:
             f"experiment authoring references unknown entity {issue.entity_id}",
             "entity",
             path=(issue.entity_id,),
-            category=ProblemCategory.NOT_FOUND,
             details={"entity_id": issue.entity_id},
         )
     raise_frontend_problem(

@@ -3,29 +3,13 @@
   "id": "quantum_lab_demo.virtual_lab",
   "devices": [
     {
-      "id": "drive-stack",
-      "kind": "drive_stack",
-      "metadata": {
-        "boundary": "virtual_hardware"
-      }
+      "id": "drive-stack"
     },
     {
-      "id": "readout-stack",
-      "kind": "readout_stack",
-      "metadata": {
-        "boundary": "virtual_hardware"
-      }
+      "id": "readout-stack"
     },
     {
-      "id": "coupler-stack",
-      "kind": "coupler_stack",
-      "metadata": {
-        "boundary": "virtual_hardware"
-      }
+      "id": "coupler-stack"
     }
-  ],
-  "response_models": [],
-  "metadata": {
-    "category": "experiment_system"
-  }
+  ]
 }

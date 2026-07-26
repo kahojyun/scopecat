@@ -71,13 +71,12 @@ describe("RunProposals", () => {
     });
     vi.mocked(getRunParameterProposals).mockResolvedValue(proposalList(older, latest));
     vi.mocked(getConfigRegistry).mockResolvedValue({
-      active: {
+      active_state: {
         generation: 3,
-        entryId: "baseline",
-        contentHash: "sha256:base",
+        active_entry_id: "baseline",
+        active_entry_content_hash: "sha256:base",
       },
       entries: [],
-      history: [],
     });
     vi.mocked(activateProposalCandidate).mockResolvedValue();
     renderProposals();
@@ -111,13 +110,12 @@ describe("RunProposals", () => {
     vi.mocked(getRunParameterProposals).mockResolvedValue(proposalList(pendingProposal()));
     vi.mocked(reviewParameterProposal).mockResolvedValue();
     vi.mocked(getConfigRegistry).mockResolvedValue({
-      active: {
+      active_state: {
         generation: 3,
-        entryId: "baseline",
-        contentHash: "sha256:base",
+        active_entry_id: "baseline",
+        active_entry_content_hash: "sha256:base",
       },
       entries: [],
-      history: [],
     });
     vi.mocked(activateProposalCandidate).mockRejectedValue(new Error("generation conflict"));
     renderProposals();

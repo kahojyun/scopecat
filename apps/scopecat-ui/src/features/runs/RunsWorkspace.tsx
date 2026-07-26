@@ -10,7 +10,6 @@ import {
   Unplug,
 } from "lucide-react";
 import {
-  getCatalog,
   getMeasurementPreview,
   getOlderRuns,
   getRun,
@@ -18,7 +17,6 @@ import {
   getRunEvents,
   getRuns,
   resolveAttention,
-  type AttentionAction,
 } from "../../api";
 import { errorMessage, formatRelative, shorten, titleCase } from "../../lib/presentation";
 import type { MeasurementPreview, ProjectHealth, ProjectRun, ProjectRunPage } from "../../types";
@@ -81,11 +79,6 @@ export function RunsWorkspace({
       );
     },
   });
-  const catalogQuery = useQuery({
-    queryKey: ["catalog"],
-    queryFn: ({ signal }) => getCatalog(signal),
-    refetchInterval: 30_000,
-  });
   const runDetailQuery = useQuery({
     queryKey: ["run", selectedRunId],
     queryFn: ({ signal }) => getRun(selectedRunId!, signal),
@@ -109,8 +102,7 @@ export function RunsWorkspace({
     enabled: selectedRunId !== undefined,
   });
   const attentionMutation = useMutation({
-    mutationFn: ({ runId, action }: { runId: string; action: AttentionAction }) =>
-      resolveAttention(runId, action),
+    mutationFn: (runId: string) => resolveAttention(runId),
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["runs"] }),
@@ -142,7 +134,6 @@ export function RunsWorkspace({
     () => mergeMeasurementPages(measurementsQuery.data?.pages ?? []),
     [measurementsQuery.data?.pages],
   );
-  const catalog = catalogQuery.data;
   const filteredRuns = useMemo(() => filterRuns(runs, filter, search), [runs, filter, search]);
 
   useEffect(() => {
@@ -205,14 +196,6 @@ export function RunsWorkspace({
                 : "No flagged runs"
           }
           tone={attentionCount > 0 ? "warning" : previousRunCursor !== undefined ? "muted" : "good"}
-        />
-        <StatusItem
-          label="Catalog"
-          value={catalogQuery.isSuccess ? String(catalog?.experiments.length ?? 0) : "—"}
-          detail={
-            catalog?.revision ? `Revision ${shorten(catalog.revision, 10)}` : "No revision reported"
-          }
-          tone="muted"
         />
       </section>
 
@@ -336,8 +319,6 @@ export function RunsWorkspace({
               events={selectedEvents}
               eventsError={selectedEventsQuery.error}
               eventsPending={selectedEventsQuery.isPending}
-              catalog={catalog}
-              catalogError={catalogQuery.error}
               measurements={measurements}
               measurementsError={measurementsQuery.error}
               measurementsPending={measurementsQuery.isPending}
@@ -349,18 +330,13 @@ export function RunsWorkspace({
               analyses={analysesQuery.data}
               analysesError={analysesQuery.error}
               analysesPending={analysesQuery.isPending}
-              attentionAction={attentionMutation.variables?.action}
               attentionError={attentionMutation.error}
               attentionPending={attentionMutation.isPending}
-              onResolveAttention={(action) => {
-                const confirmation = attentionConfirmation(action);
+              onResolveAttention={() => {
+                const confirmation = attentionConfirmation();
                 requestConfirmation({
                   ...confirmation,
-                  onConfirm: () =>
-                    attentionMutation.mutate({
-                      runId: selectedRun.runId,
-                      action,
-                    }),
+                  onConfirm: () => attentionMutation.mutate(selectedRun.runId),
                 });
               }}
             />
@@ -431,8 +407,6 @@ function RunListItem({
         </span>
         <span className="run-item-meta">
           <code>{shorten(run.runId, 18)}</code>
-          <span>·</span>
-          <span>{titleCase(run.executionMode)}</span>
         </span>
         <span className={`run-state status-${run.status}`}>{run.stateLabel}</span>
       </span>
@@ -494,7 +468,6 @@ function filterRuns(runs: ProjectRun[], filter: FilterKey, search: string): Proj
     return [
       run.runId,
       run.experimentId,
-      run.executionMode,
       ...run.resources.flatMap((resource) => [resource.id, resource.kind]),
     ]
       .join(" ")
@@ -508,24 +481,12 @@ function healthDetail(health?: ProjectHealth): string {
   return `Project ${shorten(health.projectId, 18)}`;
 }
 
-function attentionConfirmation(action: AttentionAction): Omit<ConfirmationRequest, "onConfirm"> {
-  const confirmations: Record<AttentionAction, Omit<ConfirmationRequest, "onConfirm">> = {
-    release: {
-      title: "Release quarantined resources?",
-      description: "Reconcile external hardware state before releasing this run's resources.",
-      confirmLabel: "Release resources",
-    },
-    requeue: {
-      title: "Requeue this run?",
-      description: "Release quarantined resources and allow this run to execute again.",
-      confirmLabel: "Requeue run",
-    },
-    abort: {
-      title: "Abort this run?",
-      description: "Abort this run and release its quarantined resources. This cannot be resumed.",
-      confirmLabel: "Abort run",
-      intent: "danger",
-    },
+function attentionConfirmation(): Omit<ConfirmationRequest, "onConfirm"> {
+  return {
+    title: "Resolve and close this run?",
+    description:
+      "Confirm the external hardware state is reconciled, release its resources, and close the run.",
+    confirmLabel: "Resolve and close",
+    intent: "danger",
   };
-  return confirmations[action];
 }

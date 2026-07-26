@@ -10,7 +10,6 @@ from scopecat.measurements.projection import (
 )
 from scopecat.measurements.values import (
     seal_measurement_values,
-    select_measurement_values,
 )
 from scopecat.records.parameter import Quantity
 from tests.testkit.measurement_assembly import (
@@ -20,15 +19,11 @@ from tests.testkit.measurement_assembly import (
 )
 
 
-def test_projection_selects_record_backed_uses_without_changing_assembly() -> None:
+def test_projection_keeps_all_records_without_narrowing_the_value_catalog() -> None:
     scenario = measurement_assembly_scenario(use_count=3)
     projection = select_measurement_projection(scenario.catalog, scenario.records)
 
-    assert projection.required_product_use_ids == (
-        scenario.uses[0].id,
-        scenario.uses[1].id,
-    )
-    assert scenario.uses[2].id not in projection.required_product_use_ids
+    assert projection.catalog.product_use_ids == tuple(use.id for use in scenario.uses)
     assert tuple(record.id for record in projection.records) == (
         "primary",
         "alias",
@@ -49,7 +44,10 @@ def test_projection_selects_only_the_linked_point_batch() -> None:
     ordinals = tuple(point.ordinal for point in selected_points)
     assert ordinals == (1, 2)
     assert projection.coordinate_ids == ("x",)
-    assert projection.catalog_fingerprint == complete_projection.catalog_fingerprint
+    assert (
+        projection.catalog.contract_fingerprint
+        == complete_projection.catalog.contract_fingerprint
+    )
     assert projection.contract_fingerprint == complete_projection.contract_fingerprint
     schema = projection.schema_for(selected_points)
     assert schema is not None
@@ -61,28 +59,8 @@ def test_projection_selects_only_the_linked_point_batch() -> None:
     )
 
 
-def test_explicit_record_subset_keeps_projection_separate_from_value_assembly() -> None:
-    scenario, _, assembled = assembled_measurement_values_for_all_uses()
-    projection = select_measurement_projection(
-        scenario.catalog,
-        scenario.records,
-        record_ids=("alias",),
-    )
-
-    projected = project_measurement_records(
-        projection,
-        assembled,
-        run_id="record-subset-run",
-        points=scenario.points,
-    )
-
-    assert projection.required_product_use_ids == (scenario.uses[0].id,)
-    assert len(assembled.values) == 6
-    assert all(set(record.observables) == {"alias"} for record in projected.records)
-
-
 def test_record_aliases_project_one_value_twice_without_expanding_assembly() -> None:
-    scenario, _, assembled = assembled_measurement_values_for_all_uses()
+    scenario, assembled = assembled_measurement_values_for_all_uses()
     projection = select_measurement_projection(scenario.catalog, scenario.records)
 
     projected = project_measurement_records(
@@ -101,7 +79,7 @@ def test_record_aliases_project_one_value_twice_without_expanding_assembly() -> 
 
 
 def test_projection_filters_non_coordinate_point_values() -> None:
-    scenario, _, assembled = assembled_measurement_values_for_all_uses()
+    scenario, assembled = assembled_measurement_values_for_all_uses()
     projection = select_measurement_projection(scenario.catalog, scenario.records)
 
     projected = project_measurement_records(
@@ -119,7 +97,7 @@ def test_projection_filters_non_coordinate_point_values() -> None:
 
 
 def test_record_metadata_changes_schema_not_product_value_assembly() -> None:
-    scenario, _, assembled = assembled_measurement_values_for_all_uses()
+    scenario, assembled = assembled_measurement_values_for_all_uses()
     projection = select_measurement_projection(scenario.catalog, scenario.records)
     projected = project_measurement_records(
         projection,
@@ -145,7 +123,7 @@ def test_record_metadata_changes_schema_not_product_value_assembly() -> None:
 
 
 def test_duplicate_coordinate_rows_keep_distinct_canonical_point_indices() -> None:
-    scenario, _, assembled = assembled_measurement_values_for_all_uses(
+    scenario, assembled = assembled_measurement_values_for_all_uses(
         point_values=(4.0, 4.0)
     )
     projection = select_measurement_projection(scenario.catalog, scenario.records)
@@ -170,13 +148,9 @@ def test_duplicate_coordinate_rows_keep_distinct_canonical_point_indices() -> No
 
 def test_projection_snapshots_values_and_emits_complete_run_records() -> None:
     scenario = measurement_assembly_scenario(point_values=(0.0,), use_count=2)
-    selected = select_measurement_values(
-        scenario.catalog,
-        required_product_use_ids=tuple(use.id for use in scenario.uses),
-    )
     candidates = list(measurement_value_candidates(scenario, scenario.uses))
     assembled = seal_measurement_values(
-        selected,
+        scenario.catalog,
         candidates,
         points=scenario.points,
     )
@@ -210,12 +184,8 @@ def test_projection_snapshots_values_and_emits_complete_run_records() -> None:
 
 def test_zero_points_and_no_record_projection_produce_no_measurement_records() -> None:
     zero = measurement_assembly_scenario(point_values=(), use_count=1)
-    zero_selected = select_measurement_values(
-        zero.catalog,
-        required_product_use_ids=(zero.uses[0].id,),
-    )
     zero_values = seal_measurement_values(
-        zero_selected,
+        zero.catalog,
         (),
         points=zero.points,
     )
@@ -232,11 +202,11 @@ def test_zero_points_and_no_record_projection_produce_no_measurement_records() -
     )
 
     no_records = measurement_assembly_scenario(point_values=(0.0, 1.0), use_count=0)
-    empty_selected = select_measurement_values(
+    empty_values = seal_measurement_values(
         no_records.catalog,
-        required_product_use_ids=(),
+        (),
+        points=no_records.points,
     )
-    empty_values = seal_measurement_values(empty_selected, (), points=no_records.points)
     empty_projection = select_measurement_projection(
         no_records.catalog, no_records.records
     )
@@ -253,7 +223,7 @@ def test_zero_points_and_no_record_projection_produce_no_measurement_records() -
 
 
 def test_projected_recording_contract_matches_bound_projection() -> None:
-    _scenario_value, _, assembled = assembled_measurement_values_for_all_uses()
+    _scenario_value, assembled = assembled_measurement_values_for_all_uses()
     projection = select_measurement_projection(
         _scenario_value.catalog, _scenario_value.records
     )

@@ -7,7 +7,7 @@ from typing import Literal
 from fastapi.testclient import TestClient
 from scopecat.config.changes import parameter_change_proposal_from_updates
 from scopecat.config.drafts import ConfigDraft
-from scopecat.config.parameters import replace_scalar_parameter
+from scopecat.config.parameters import ReplaceParameter, replace_scalar_parameter
 from scopecat.config.profiles import load_config_profile
 from scopecat.config.registry.records import (
     ConfigRegistryActivationRecord,
@@ -21,7 +21,7 @@ from scopecat.control.models import (
     DurableEvent,
     EventPage,
     RunAdmissionRecord,
-    RunPage,
+    RunPlanSummary,
 )
 from scopecat.daemon.views import (
     ActiveConfigView,
@@ -34,26 +34,19 @@ from scopecat.daemon.views import (
     RunAnalysisListView,
     RunAnalysisView,
     RunArtifactBytesView,
-    RunArtifactJsonView,
-    RunArtifactTextView,
     RunConfigView,
-    RunDatasetContentView,
     RunDetail,
-    RunRecordJsonView,
     RunRequestView,
+    RunSummary,
+    RunSummaryPage,
 )
 from scopecat.daemon.wire import (
     AnalysisNoteOutputPayload,
     AnalysisSaveCommand,
     AnalysisSaveReceipt,
-    AttentionResolutionCommand,
     AttentionResolutionReceipt,
     CandidateConfigActivationCommand,
     CandidateConfigActivationReceipt,
-    CollectionCommitCommand,
-    CollectionCommitReceipt,
-    CollectionResolveCommand,
-    CollectionResolveReceipt,
     ConfigActivationReceipt,
     ConfigDefaultReceipt,
     ConfigDraftCommand,
@@ -62,46 +55,28 @@ from scopecat.daemon.wire import (
     ConfigDraftRegistrationCommand,
     ConfigDraftRegistrationReceipt,
     ConfigEntryActivationCommand,
-    ConfigImportReceipt,
     ConfigRollbackCommand,
     DirectConfigDefaultCommand,
     DirectConfigImportCommand,
-    ExecutionRecoveryRequest,
-    ExecutionRecoverySnapshot,
-    ExecutionTransitionBatch,
-    ExecutionTransitionBatchReceipt,
+    ExecutionTransitionAppend,
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
-    ExperimentCatalog,
-    ManagedRunSubmission,
     MeasurementAppendCommand,
-    MeasurementAppendReceipt,
     MeasurementSealCommand,
-    MeasurementSealReceipt,
     ParameterProposalDecisionCommand,
     ParameterProposalReviewCommand,
-    ParameterProposalReviewReceipt,
-    PayloadCommitCommand,
-    PayloadCommitReceipt,
-    RegisteredExperimentDescriptor,
-    ReplaceConfigParameter,
     RunAdmission,
     RunAttachmentCommand,
-    RunAttachmentReceipt,
     RunSubmission,
-    RuntimeEventPublishCommand,
-    RuntimeEventPublishReceipt,
-    RuntimeProgressPayload,
-    RuntimeTransitionEventPayload,
     TerminalRunCommitCommand,
-    TerminalRunCommitReceipt,
 )
 from scopecat.measurements.results import MeasurementDataset, MeasurementDatasetSchema
 from scopecat.records.analysis import AnalysisRecord
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.execution_journal import ExecutionTransition
+from scopecat.records.measurement_recording import MeasurementDatasetReceipt
 from scopecat.records.parameter import Quantity, ScalarParameterValue
 from scopecat.records.parameter_change import (
     HumanDecisionAuthority,
@@ -109,6 +84,12 @@ from scopecat.records.parameter_change import (
 )
 from scopecat.records.run import RunManifest, RunOutcome
 from scopecat.records.run_request import RunRequest
+from scopecat.runs.data import (
+    RunArtifactJsonResult,
+    RunArtifactTextResult,
+    RunMeasurementDatasetResult,
+    RunRecordJsonResult,
+)
 
 from scopecat_server import (
     BackendConflict,
@@ -120,7 +101,7 @@ from scopecat_server.transport import DaemonApplicationContract
 
 _NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
 _HASH = f"sha256:{'a' * 64}"
-_REQUEST = RunRequest(id="request-1")
+_REQUEST = RunRequest(experiment_id="request-1")
 _CONFIG_FIXTURE = (
     Path(__file__).parents[3]
     / "fixtures"
@@ -169,7 +150,7 @@ class FakeApplication:
         self.runs = FakeRuns(run=self.run, events=events)
         self.executor = FakeExecutor(run=self.run)
         self.last_submission: RunSubmission | None = None
-        self.last_attention: AttentionResolutionCommand | None = None
+        self.last_attention_run_id: str | None = None
 
     def health(self) -> DaemonHealth:
         return DaemonHealth(
@@ -177,19 +158,6 @@ class FakeApplication:
             project_id="test-project",
             project_name="test-lab",
             project_root="/projects/test-lab",
-        )
-
-    def catalog(self) -> ExperimentCatalog:
-        return ExperimentCatalog(
-            revision="catalog-1",
-            experiments=(
-                RegisteredExperimentDescriptor(
-                    id="ramsey",
-                    version="1",
-                    experiment_kind="quantum.ramsey",
-                    title="Ramsey",
-                ),
-            ),
         )
 
     def submit_run(self, submission: RunSubmission) -> RunAdmission:
@@ -201,14 +169,12 @@ class FakeApplication:
     def resolve_attention(
         self,
         run_id: str,
-        command: AttentionResolutionCommand,
     ) -> AttentionResolutionReceipt:
         assert run_id == self.run.run_id
-        self.last_attention = command
+        self.last_attention_run_id = run_id
         return AttentionResolutionReceipt(
             run_id=run_id,
-            action=command.action,
-            state="accepted",
+            state="closed",
             released_resource_count=1,
         )
 
@@ -246,10 +212,10 @@ class FakeConfig:
     def import_direct_config(
         self,
         command: DirectConfigImportCommand,
-    ) -> ConfigImportReceipt:
+    ) -> ConfigRegistryEntry:
         self.last_config_import = command
         entry, _state = _config_registry_records()
-        return ConfigImportReceipt(entry=entry)
+        return entry
 
     def set_direct_config_default(
         self,
@@ -356,9 +322,13 @@ class FakeRuns:
         self.events = events
         self.event_afters: list[int | None] = []
         self.last_analysis: AnalysisSaveCommand | None = None
+        self.last_analysis_run_id: str | None = None
         self.last_attachment: RunAttachmentCommand | None = None
+        self.last_attachment_run_id: str | None = None
         self.last_review: ParameterProposalReviewCommand | None = None
+        self.last_review_scope: tuple[str, str] | None = None
         self.last_decision: ParameterProposalDecisionCommand | None = None
+        self.last_decision_scope: tuple[str, str] | None = None
 
     def list_runs(
         self,
@@ -368,15 +338,17 @@ class FakeRuns:
         before: int | None,
         state: str | None,
         latest: bool,
-    ) -> RunPage:
+    ) -> RunSummaryPage:
         del latest
         if state is not None and state != self.run.state:
-            return RunPage(items=())
+            return RunSummaryPage(items=())
         if after is not None and after >= self.run.sequence:
-            return RunPage(items=())
+            return RunSummaryPage(items=())
         if before is not None and before <= self.run.sequence:
-            return RunPage(items=())
-        return RunPage(items=(self.run,)[:limit])
+            return RunSummaryPage(items=())
+        return RunSummaryPage(
+            items=(RunSummary(control=self.run, manifest=_accepted_manifest()),)[:limit]
+        )
 
     def get_run(self, run_id: str) -> RunDetail:
         if run_id != self.run.run_id:
@@ -422,6 +394,7 @@ class FakeRuns:
         command: AnalysisSaveCommand,
     ) -> AnalysisSaveReceipt:
         assert run_id == self.run.run_id
+        self.last_analysis_run_id = run_id
         self.last_analysis = command
         return AnalysisSaveReceipt(
             record=RunContentEntry(
@@ -455,11 +428,10 @@ class FakeRuns:
         selector: str,
         *,
         expected_kind: str | None,
-    ) -> RunArtifactTextView:
+    ) -> RunArtifactTextResult:
         assert run_id == self.run.run_id
         assert expected_kind == "attachment"
-        return RunArtifactTextView(
-            run_id=run_id,
+        return RunArtifactTextResult(
             artifact=_content_entry("artifact", selector, "attachment"),
             content="hello",
         )
@@ -470,11 +442,10 @@ class FakeRuns:
         selector: str,
         *,
         expected_kind: str | None,
-    ) -> RunArtifactJsonView:
+    ) -> RunArtifactJsonResult:
         assert run_id == self.run.run_id
         assert expected_kind == "result"
-        return RunArtifactJsonView(
-            run_id=run_id,
+        return RunArtifactJsonResult(
             artifact=_content_entry("artifact", selector, "result"),
             content={"ok": True},
         )
@@ -485,11 +456,10 @@ class FakeRuns:
         selector: str,
         *,
         expected_kind: str | None,
-    ) -> RunRecordJsonView:
+    ) -> RunRecordJsonResult:
         assert run_id == self.run.run_id
         assert expected_kind == "analysis"
-        return RunRecordJsonView(
-            run_id=run_id,
+        return RunRecordJsonResult(
             record=_content_entry("record", selector, "analysis"),
             content={"run_id": run_id},
         )
@@ -498,37 +468,37 @@ class FakeRuns:
         self,
         run_id: str,
         selector: str,
-    ) -> RunDatasetContentView:
+    ) -> RunMeasurementDatasetResult:
         assert run_id == self.run.run_id
         dataset = MeasurementDataset(
-            dataset_id=selector,
             schema=MeasurementDatasetSchema(
                 dataset_id=selector,
                 dataset_role="raw",
             ),
             records=[],
         )
-        return RunDatasetContentView(
-            run_id=run_id,
-            dataset=_content_entry("dataset", selector, "measurement_dataset"),
-            content=dataset,
+        return RunMeasurementDatasetResult(
+            dataset_entry=_content_entry(
+                "dataset",
+                selector,
+                "measurement_dataset",
+            ),
+            dataset=dataset,
         )
 
     def attach_run_content(
         self,
         run_id: str,
         command: RunAttachmentCommand,
-    ) -> RunAttachmentReceipt:
+    ) -> RunContentEntry:
         assert run_id == self.run.run_id
+        self.last_attachment_run_id = run_id
         self.last_attachment = command
-        return RunAttachmentReceipt(
-            run_id=run_id,
-            artifact=_content_entry(
-                "artifact",
-                command.key,
-                command.kind,
-                filename=command.filename,
-            ),
+        return _content_entry(
+            "artifact",
+            command.key,
+            command.kind,
+            filename=command.filename,
         )
 
     def list_parameter_proposals(self, run_id: str) -> ParameterProposalListView:
@@ -541,35 +511,35 @@ class FakeRuns:
     def review_parameter_proposal(
         self,
         run_id: str,
+        proposal_id: str,
         command: ParameterProposalReviewCommand,
-    ) -> ParameterProposalReviewReceipt:
+    ) -> ParameterChangeDecisionRecord:
         assert run_id == self.run.run_id
+        self.last_review_scope = (run_id, proposal_id)
         self.last_review = command
-        return ParameterProposalReviewReceipt(
-            decision=ParameterChangeDecisionRecord(
-                event_id="decision-1",
-                run_id=run_id,
-                proposal_id=command.proposal_id,
-                decision=command.decision,
-                authority=HumanDecisionAuthority(actor=command.reviewer),
-            )
+        return ParameterChangeDecisionRecord(
+            event_id="decision-1",
+            run_id=run_id,
+            proposal_id=proposal_id,
+            decision=command.decision,
+            authority=HumanDecisionAuthority(actor=command.reviewer),
         )
 
     def decide_parameter_proposal(
         self,
         run_id: str,
+        proposal_id: str,
         command: ParameterProposalDecisionCommand,
-    ) -> ParameterProposalReviewReceipt:
+    ) -> ParameterChangeDecisionRecord:
         assert run_id == self.run.run_id
+        self.last_decision_scope = (run_id, proposal_id)
         self.last_decision = command
-        return ParameterProposalReviewReceipt(
-            decision=ParameterChangeDecisionRecord(
-                event_id="decision-1",
-                run_id=run_id,
-                proposal_id=command.proposal_id,
-                decision=command.decision,
-                authority=command.authority,
-            )
+        return ParameterChangeDecisionRecord(
+            event_id="decision-1",
+            run_id=run_id,
+            proposal_id=proposal_id,
+            decision=command.decision,
+            authority=command.authority,
         )
 
     def measurements(
@@ -608,8 +578,7 @@ class FakeExecutor:
         self.run = run
         self.last_start: ExecutorStartRequest | None = None
         self.last_heartbeat: ExecutorHeartbeat | None = None
-        self.last_batch: ExecutionTransitionBatch | None = None
-        self.last_runtime_event: RuntimeEventPublishCommand | None = None
+        self.last_transition: ExecutionTransitionAppend | None = None
         self.last_terminal: TerminalRunCommitCommand | None = None
 
     def start_executor(
@@ -628,104 +597,57 @@ class FakeExecutor:
         heartbeat: ExecutorHeartbeat,
     ) -> ExecutorLease:
         assert run_id == self.run.run_id
-        if heartbeat.generation != 1:
+        if heartbeat.lease_id != "lease-1":
             raise BackendConflict("executor lease is stale")
         self.last_heartbeat = heartbeat
         return _executor_lease()
 
-    def append_transitions(
+    def append_transition(
         self,
         run_id: str,
-        batch: ExecutionTransitionBatch,
-    ) -> ExecutionTransitionBatchReceipt:
+        command: ExecutionTransitionAppend,
+    ) -> ExecutionTransition:
         assert run_id == self.run.run_id
-        self.last_batch = batch
-        committed = tuple(
-            transition.model_copy(update={"sequence": index})
-            for index, transition in enumerate(batch.transitions, start=1)
-        )
-        return ExecutionTransitionBatchReceipt(
-            batch_id=batch.batch_id,
-            committed=committed,
-        )
-
-    def publish_runtime_event(
-        self,
-        run_id: str,
-        command: RuntimeEventPublishCommand,
-    ) -> RuntimeEventPublishReceipt:
-        assert run_id == self.run.run_id
-        self.last_runtime_event = command
-        return RuntimeEventPublishReceipt(
-            event_id=3,
-            run_id=run_id,
-            kind=command.event.kind,
-        )
-
-    def recover_execution(
-        self,
-        run_id: str,
-        request: ExecutionRecoveryRequest,
-    ) -> ExecutionRecoverySnapshot:
-        assert run_id == request.run_id
-        return ExecutionRecoverySnapshot()
+        self.last_transition = command
+        return command.transition.model_copy(update={"sequence": 1})
 
     def append_measurements(
         self,
         run_id: str,
         command: MeasurementAppendCommand,
-    ) -> MeasurementAppendReceipt:
+    ) -> MeasurementDatasetReceipt:
         raise AssertionError((run_id, command))
 
     def seal_measurements(
         self,
         run_id: str,
         command: MeasurementSealCommand,
-    ) -> MeasurementSealReceipt:
-        raise AssertionError((run_id, command))
-
-    def commit_collection(
-        self,
-        run_id: str,
-        command: CollectionCommitCommand,
-    ) -> CollectionCommitReceipt:
-        raise AssertionError((run_id, command))
-
-    def resolve_collection(
-        self,
-        run_id: str,
-        command: CollectionResolveCommand,
-    ) -> CollectionResolveReceipt:
-        raise AssertionError((run_id, command))
-
-    def commit_payload(
-        self,
-        run_id: str,
-        command: PayloadCommitCommand,
-    ) -> PayloadCommitReceipt:
+    ) -> MeasurementDatasetReceipt:
         raise AssertionError((run_id, command))
 
     def commit_terminal(
         self,
         run_id: str,
         command: TerminalRunCommitCommand,
-    ) -> TerminalRunCommitReceipt:
+    ) -> RunManifest:
         assert run_id == self.run.run_id
         self.last_terminal = command
-        return TerminalRunCommitReceipt(
-            command_id=command.command_id,
-            manifest=command.manifest,
+        manifest = _terminal_manifest().model_copy(
+            update={
+                "outcome": command.outcome,
+                "contents": command.contents,
+            }
         )
+        return manifest
 
 
-def test_health_catalog_and_run_queries() -> None:
+def test_health_and_run_queries() -> None:
     backend = FakeApplication()
     checked_backend: DaemonApplicationContract = backend
     client = TestClient(create_app(checked_backend))
 
     health = client.get("/api/v1/health")
-    catalog = client.get("/api/v1/catalog")
-    runs = client.get("/api/v1/runs", params={"state": "accepted"})
+    runs = client.get("/api/v1/runs", params={"state": "queued"})
     older_runs = client.get("/api/v1/runs", params={"before": 1})
     run = client.get("/api/v1/runs/run-1")
     measurements = client.get(
@@ -740,10 +662,10 @@ def test_health_catalog_and_run_queries() -> None:
         "project_name": "test-lab",
         "project_root": "/projects/test-lab",
     }
-    assert catalog.json()["experiments"][0]["id"] == "ramsey"
-    assert runs.json()["items"][0]["admission"]["run_id"] == "run-1"
+    assert runs.json()["items"][0]["control"]["admission"]["run_id"] == "run-1"
+    assert "lifecycle" not in runs.json()["items"][0]["manifest"]
     assert older_runs.json()["items"] == []
-    assert run.json()["control"]["state"] == "accepted"
+    assert run.json()["control"]["state"] == "queued"
     assert measurements.json()["items"] == []
 
 
@@ -788,7 +710,7 @@ def test_config_registry_routes_use_typed_commands_and_views() -> None:
         base_generation=base_state.generation,
         candidate_id="manual-tuning",
         updates=(
-            ReplaceConfigParameter(
+            ReplaceParameter(
                 value=ScalarParameterValue(
                     id="drive_frequency",
                     value=Quantity(value=5.1, unit="GHz"),
@@ -838,7 +760,7 @@ def test_config_registry_routes_use_typed_commands_and_views() -> None:
     assert entry.json()["entry"]["id"] == "baseline"
     assert entry.json()["config"]["id"] == config.id
     assert imported.status_code == 201
-    assert imported.json()["entry"]["id"] == "baseline"
+    assert imported.json()["id"] == "baseline"
     assert previewed.status_code == 200
     assert previewed.json()["config"]["id"] == "manual-tuning"
     assert registered.status_code == 201
@@ -856,28 +778,27 @@ def test_run_submission_and_backend_error_mapping() -> None:
     backend = FakeApplication()
     client = TestClient(create_app(backend))
 
-    response = client.post("/api/v1/runs", json=_managed_submission("submission-1"))
-    conflict = client.post("/api/v1/runs", json=_managed_submission("duplicate"))
+    response = client.post("/api/v1/runs", json=_submission("submission-1"))
+    conflict = client.post("/api/v1/runs", json=_submission("duplicate"))
     missing = client.get("/api/v1/runs/missing")
     invalid = client.post(
         "/api/v1/runs",
-        json={**_managed_submission("invalid"), "unexpected": True},
+        json={**_submission("invalid"), "unexpected": True},
     )
 
     assert response.status_code == 201
-    assert response.json()["run_id"] == "run-1"
-    assert isinstance(backend.last_submission, ManagedRunSubmission)
+    assert response.json()["manifest"]["run_id"] == "run-1"
+    assert isinstance(backend.last_submission, RunSubmission)
     assert conflict.status_code == 409
     assert conflict.json() == {"detail": "submission already exists"}
     assert missing.status_code == 404
     assert invalid.status_code == 422
 
 
-def test_post_run_routes_use_typed_commands_and_views() -> None:
+def test_post_run_routes_use_typed_commands_and_results() -> None:
     backend = FakeApplication()
     client = TestClient(create_app(backend))
     analysis = AnalysisSaveCommand(
-        run_id="run-1",
         title="fit",
         analysis_key="fit",
         outputs=(
@@ -889,8 +810,6 @@ def test_post_run_routes_use_typed_commands_and_views() -> None:
         ),
     )
     review = ParameterProposalReviewCommand(
-        run_id="run-1",
-        proposal_id="drive-frequency",
         decision="approved",
         reviewer="operator",
     )
@@ -917,18 +836,16 @@ def test_post_run_routes_use_typed_commands_and_views() -> None:
         "/api/v1/config-registry/candidates/activate",
         json=candidate.model_dump(mode="json"),
     )
-    mismatch = client.post(
-        "/api/v1/runs/other/analyses",
-        json=analysis.model_dump(mode="json"),
-    )
 
     assert config.json()["config"]["id"] == _config().id
     assert saved.status_code == 201
     assert proposals.json()["items"][0]["proposal"]["id"] == "drive-frequency"
-    assert reviewed.json()["decision"]["decision"] == "approved"
+    assert reviewed.json()["decision"] == "approved"
+    assert reviewed.json()["proposal_id"] == "drive-frequency"
     assert activated.json()["entry"]["id"] == "baseline"
-    assert mismatch.status_code == 422
+    assert backend.runs.last_analysis_run_id == "run-1"
     assert backend.runs.last_analysis == analysis
+    assert backend.runs.last_review_scope == ("run-1", "drive-frequency")
     assert backend.runs.last_review == review
     assert backend.config.last_candidate == candidate
 
@@ -937,7 +854,6 @@ def test_run_content_routes_are_typed_and_run_scoped() -> None:
     backend = FakeApplication()
     client = TestClient(create_app(backend))
     attachment = RunAttachmentCommand(
-        run_id="run-1",
         key="notes",
         text="hello",
         filename="notes.txt",
@@ -967,38 +883,31 @@ def test_run_content_routes_are_typed_and_run_scoped() -> None:
         "/api/v1/runs/run-1/attachments",
         json=attachment.model_dump(mode="json"),
     )
-    mismatch = client.post(
-        "/api/v1/runs/other/attachments",
-        json=attachment.model_dump(mode="json"),
-    )
 
-    assert request.json()["request"]["id"] == _REQUEST.id
+    assert RunRequest.model_validate(request.json()["request"]) == _REQUEST
     assert analyses.json()["items"][0]["analysis"]["key"] == "fit"
     assert analysis.json()["entry"]["id"] == "analysis-fit"
     assert artifact_bytes.json()["content_base64"] == "aGVsbG8="
     assert artifact_text.json()["content"] == "hello"
     assert artifact_json.json()["content"] == {"ok": True}
     assert record.json()["content"] == {"run_id": "run-1"}
-    assert dataset.json()["content"]["dataset_id"] == "raw-measurements"
+    assert dataset.json()["dataset"]["schema"]["dataset_id"] == "raw-measurements"
+    assert dataset.json()["dataset_entry"]["id"] == "raw-measurements"
     assert attached.status_code == 201
-    assert attached.json()["artifact"]["filename"] == "notes.txt"
-    assert mismatch.status_code == 422
+    assert attached.json()["filename"] == "notes.txt"
+    assert backend.runs.last_attachment_run_id == "run-1"
     assert backend.runs.last_attachment == attachment
 
 
 def test_attention_resolution_route() -> None:
     backend = FakeApplication()
     client = TestClient(create_app(backend))
-    command = AttentionResolutionCommand(run_id="run-1", action="requeue")
 
-    response = client.post(
-        "/api/v1/runs/run-1/attention",
-        json=command.model_dump(mode="json"),
-    )
+    response = client.post("/api/v1/runs/run-1/attention")
 
     assert response.status_code == 200
-    assert response.json()["state"] == "accepted"
-    assert backend.last_attention == command
+    assert response.json()["state"] == "closed"
+    assert backend.last_attention_run_id == "run-1"
 
 
 def test_event_replay_and_sse_resume_from_durable_event_id() -> None:
@@ -1025,64 +934,37 @@ def test_event_replay_and_sse_resume_from_durable_event_id() -> None:
     assert backend.runs.event_afters[-1] == 2
 
 
-def test_delegated_executor_routes() -> None:
+def test_executor_routes() -> None:
     backend = FakeApplication()
     client = TestClient(create_app(backend))
     transition = _transition()
-    runtime_event = RuntimeEventPublishCommand(
-        run_id="run-1",
-        lease_id="lease-1",
-        generation=1,
-        event=RuntimeTransitionEventPayload(
-            run_id="run-1",
-            experiment_id="scratch",
-            observed_at=_NOW + timedelta(seconds=2),
-            occurred_at=_NOW + timedelta(seconds=1),
-            operation_id="point-1",
-            stage="point",
-            effect="acquisition",
-            state="completed",
-            progress=RuntimeProgressPayload(
-                completed_points=1,
-                total_points=2,
-            ),
-            point_index=0,
-            point_indices=(0,),
-            instrument_id="scope-1",
-            metrics={"measurement_count": 1},
-        ),
-    )
     terminal = _terminal_command()
 
     lease = client.post(
         "/api/v1/runs/run-1/executor/start",
         json=ExecutorStartRequest(
-            run_id="run-1",
             executor_id="notebook-1",
-            manifest=_running_manifest(),
         ).model_dump(mode="json"),
     )
     heartbeat = client.post(
         "/api/v1/runs/run-1/executor/heartbeat",
         json=ExecutorHeartbeat(
-            run_id="run-1",
             lease_id="lease-1",
-            generation=1,
         ).model_dump(mode="json"),
     )
     transitions = client.post(
         "/api/v1/runs/run-1/transitions",
-        json=ExecutionTransitionBatch(
-            batch_id="batch-1",
+        json=ExecutionTransitionAppend(
             lease_id="lease-1",
-            generation=1,
-            run_id="run-1",
-            transitions=(transition,),
+            transition=transition,
         ).model_dump(mode="json"),
     )
-    published = client.post(
-        "/api/v1/runs/run-1/runtime-events",
-        json=runtime_event.model_dump(mode="json"),
+    removed_recovery = client.post(
+        "/api/v1/runs/run-1/execution/recovery",
+        json={
+            "run_id": "run-1",
+            "lease_id": "lease-1",
+        },
     )
     completed = client.post(
         "/api/v1/runs/run-1/terminal",
@@ -1090,32 +972,29 @@ def test_delegated_executor_routes() -> None:
     )
 
     assert lease.status_code == 200
+    assert lease.json()["lease_id"] == "lease-1"
     assert heartbeat.status_code == 200
-    assert transitions.json()["committed"][0]["sequence"] == 1
-    assert published.status_code == 200
-    assert published.json()["event_id"] == 3
-    assert completed.json()["manifest"]["lifecycle"] == "terminal"
+    assert transitions.json()["sequence"] == 1
+    assert removed_recovery.status_code == 404
+    assert completed.json()["outcome"]["result"] == "succeeded"
     assert backend.executor.last_start is not None
     assert backend.executor.last_heartbeat is not None
-    assert backend.executor.last_batch is not None
-    assert backend.executor.last_runtime_event == runtime_event
+    assert backend.executor.last_transition is not None
     assert backend.executor.last_terminal == terminal
 
 
-def test_delegated_path_and_body_run_ids_must_match() -> None:
+def test_executor_path_is_the_start_request_run_identity() -> None:
     backend = FakeApplication()
     client = TestClient(create_app(backend))
 
     response = client.post(
         "/api/v1/runs/other/executor/start",
         json=ExecutorStartRequest(
-            run_id="run-1",
             executor_id="notebook-1",
-            manifest=_running_manifest(),
         ).model_dump(mode="json"),
     )
 
-    assert response.status_code == 422
+    assert response.status_code == 404
     assert backend.executor.last_start is None
 
 
@@ -1138,15 +1017,16 @@ def _control_run() -> ControlRun:
         sequence=1,
         admission=RunAdmissionRecord(
             submission_id="submission-1",
+            submission_content_hash="1" * 64,
             run_id="run-1",
-            execution_mode="delegated",
-            experiment_id="scratch",
-            config_content_hash=_HASH,
-            request=_REQUEST,
+            plan=RunPlanSummary(
+                experiment_id="scratch",
+                experiment_kind="scratch",
+                point_count=1,
+            ),
             admitted_at=_NOW,
         ),
-        state="accepted",
-        state_version=1,
+        state="queued",
         updated_at=_NOW,
     )
 
@@ -1231,28 +1111,27 @@ def _proposal():
 
 def _wire_admission(submission_id: str) -> RunAdmission:
     return RunAdmission(
-        run_id="run-1",
         submission_id=submission_id,
-        execution_mode="managed",
-        config_content_hash=_HASH,
-        accepted_at=_NOW,
-        event_cursor=1,
+        manifest=_accepted_manifest(),
     )
 
 
-def _managed_submission(submission_id: str) -> dict[str, object]:
-    return ManagedRunSubmission(
+def _submission(submission_id: str) -> dict[str, object]:
+    return RunSubmission(
         submission_id=submission_id,
-        registration_id="ramsey",
-        registration_version="1",
+        config=_config(),
         request=_REQUEST,
+        plan=RunPlanSummary(
+            experiment_id="scratch",
+            experiment_kind="scratch",
+            point_count=1,
+        ),
     ).model_dump(mode="json")
 
 
 def _executor_lease() -> ExecutorLease:
     return ExecutorLease(
         lease_id="lease-1",
-        generation=1,
         run_id="run-1",
         executor_id="notebook-1",
         issued_at=_NOW,
@@ -1271,20 +1150,10 @@ def _transition() -> ExecutionTransition:
     )
 
 
-def _running_manifest() -> RunManifest:
-    return RunManifest(
-        run_id="run-1",
-        created_at=_NOW,
-        lifecycle="running",
-        config_content_hash=_HASH,
-    )
-
-
 def _accepted_manifest() -> RunManifest:
     return RunManifest(
         run_id="run-1",
         created_at=_NOW,
-        lifecycle="accepted",
         config_content_hash=_HASH,
     )
 
@@ -1294,23 +1163,21 @@ def _terminal_manifest() -> RunManifest:
         run_id="run-1",
         result="succeeded",
         certainty="known",
-        termination_reason="completed",
         finished_at=_NOW + timedelta(seconds=2),
     )
     return RunManifest(
         run_id="run-1",
         created_at=_NOW,
-        lifecycle="terminal",
         config_content_hash=_HASH,
         outcome=outcome,
     )
 
 
 def _terminal_command() -> TerminalRunCommitCommand:
+    terminal = _terminal_manifest()
+    assert terminal.outcome is not None
     return TerminalRunCommitCommand(
-        command_id="terminal:run-1",
-        run_id="run-1",
         lease_id="lease-1",
-        generation=1,
-        manifest=_terminal_manifest(),
+        outcome=terminal.outcome,
+        contents=terminal.contents,
     )

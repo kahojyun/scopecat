@@ -1,21 +1,24 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import cast
 
 import pytest
+from pydantic import TypeAdapter, ValidationError
 
 import scopecat as sc
 from scopecat.config.parameters import (
     DeleteParameterRows,
     InsertParameterRows,
+    ParameterUpdate,
     ReplaceParameter,
     UpdateParameterRows,
 )
 from scopecat.kernel.frozen import FrozenMapping
 
 
-def test_public_parameter_update_builders_return_transient_typed_intents() -> None:
+def test_public_parameter_update_builders_return_canonical_models() -> None:
     updates = (
         sc.replace_scalar_parameter("enabled", True),
         sc.replace_series_parameter("thresholds", [1, 2]),
@@ -56,7 +59,7 @@ def test_public_parameter_update_builders_return_transient_typed_intents() -> No
     assert isinstance(updates[5].key, FrozenMapping)
 
 
-def test_parameter_update_intents_are_not_durable_wire_models() -> None:
+def test_parameter_updates_are_json_round_trippable_and_recursively_immutable() -> None:
     key = {"channel": "q0"}
     values = {"gain": 0.5}
     update = sc.update_parameter_rows(
@@ -67,8 +70,17 @@ def test_parameter_update_intents_are_not_durable_wire_models() -> None:
 
     assert isinstance(update.key, FrozenMapping)
     assert isinstance(update.values, FrozenMapping)
-    with pytest.raises(TypeError, match="JSON serializable"):
-        json.dumps(update)
+    payload = update.model_dump_json()
+    assert json.loads(payload) == {
+        "kind": "update_parameter_rows",
+        "parameter_id": "channels",
+        "key": {"channel": "q0"},
+        "values": {"gain": 0.5},
+    }
+    assert TypeAdapter(ParameterUpdate).validate_json(payload) == update
+
+    with pytest.raises(ValidationError, match="frozen"):
+        update.parameter_id = "other"
     with pytest.raises(TypeError, match="immutable"):
         cast("dict[str, object]", cast("object", update.values))["gain"] = 0.75
 
@@ -76,3 +88,20 @@ def test_parameter_update_intents_are_not_durable_wire_models() -> None:
     values["gain"] = 0.75
     assert update.key == {"channel": "q0"}
     assert update.values == {"gain": 0.5}
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda: sc.replace_scalar_parameter("", True),
+        lambda: sc.update_parameter_rows("channels", key={}, values={"gain": 0.5}),
+        lambda: sc.update_parameter_rows("channels", key={"id": "q0"}, values={}),
+        lambda: sc.insert_parameter_rows("channels", []),
+        lambda: sc.delete_parameter_rows("channels", key={}),
+    ],
+)
+def test_parameter_updates_reject_empty_identity_or_payload(
+    build: Callable[[], object],
+) -> None:
+    with pytest.raises(ValueError, match=r"non-empty|at least 1"):
+        build()

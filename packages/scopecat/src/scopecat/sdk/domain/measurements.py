@@ -81,7 +81,6 @@ class DomainHostTransformImplementation:
     id: str
     semantic_id: str
     semantic_version: str
-    implementation_fingerprint: str
     validate_transform: DomainHostTransformValidator = field(
         repr=False,
         compare=False,
@@ -93,7 +92,6 @@ class DomainHostTransformImplementation:
             self.id,
             self.semantic_id,
             self.semantic_version,
-            self.implementation_fingerprint,
         )
         if not all(text_fields):
             msg = "domain host transform implementation fields must be non-empty"

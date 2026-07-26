@@ -16,11 +16,9 @@ from scopecat.kernel.errors import ProviderContractError
 from scopecat.kernel.problems import (
     LocationPathItem,
     Problem,
-    ProblemCategory,
     ProblemPhase,
-    blocking_problem,
-    has_blocking_problems,
     model_location,
+    problem,
 )
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.sdk.instruments.contracts import (
@@ -133,7 +131,7 @@ def validate_run_host_binding(
             available_payloads={},
         )
     )
-    if has_blocking_problems(selected):
+    if bool(selected):
         raise ProviderContractError(selected)
     return host
 
@@ -196,10 +194,9 @@ def _preflight_problem(
     message: str,
     *path: LocationPathItem,
 ) -> Problem:
-    return blocking_problem(
+    return problem(
         code,
         message,
-        category=ProblemCategory.PROVIDER_CONTRACT,
         phase=ProblemPhase.PROVIDER_PREFLIGHT,
         location=model_location("instrument_provider", *path),
     )

@@ -9,8 +9,8 @@ from typing import Self
 
 from scopecat.api._config import LabConfigOperations
 from scopecat.api._control import LabControlOperations
-from scopecat.api._delegated import _DelegatedRunner
 from scopecat.api._remote import RemoteRunOperations
+from scopecat.api._runner import _DaemonRunner
 from scopecat.api.run import RunHandle, run_handle_id
 from scopecat.authoring._value_refs import ValueRef
 from scopecat.authoring.scans import Scan, ScanCenter, ScanValue
@@ -29,7 +29,7 @@ from scopecat.runs.selectors import RunSelector
 
 @dataclass(frozen=True, slots=True)
 class PreparedLabExperiment:
-    """A config-bound invocation ready for local planning and delegated execution."""
+    """A config-bound invocation ready for local planning and daemon execution."""
 
     lab: LabClient
     invocation: ExperimentInvocation
@@ -121,7 +121,7 @@ class LabClient:
             operator=operator,
         )
         self._control = LabControlOperations(self._client)
-        self._delegated = _DelegatedRunner(self._client, build_system)
+        self._runner = _DaemonRunner(self._client, build_system)
 
     def __enter__(self) -> Self:
         return self
@@ -173,7 +173,7 @@ class LabClient:
 
     def prepare(
         self,
-        experiment: ExperimentInvocation | ExperimentTemplate,
+        experiment: ExperimentInvocation | ExperimentTemplate[...],
         *,
         config: str | ConfigProfileSnapshot | CandidateConfig | None = None,
     ) -> PreparedLabExperiment:
@@ -201,7 +201,7 @@ class LabClient:
         metadata: Mapping[str, MetadataValue] | None = None,
         operator: str | None = None,
     ) -> ExperimentPreview:
-        return self._delegated.preview(
+        return self._runner.preview(
             invocation,
             config=config,
             name=name,
@@ -223,7 +223,7 @@ class LabClient:
         metadata: Mapping[str, MetadataValue] | None = None,
         operator: str | None = None,
     ) -> RunHandle:
-        manifest = self._delegated.run(
+        manifest = self._runner.run(
             invocation,
             config=config,
             config_source=config_source,

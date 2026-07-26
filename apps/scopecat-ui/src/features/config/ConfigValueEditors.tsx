@@ -9,7 +9,7 @@ import type {
   StoredParameterValue,
   TableParameterType,
   TableParameterValue,
-} from "./config-types";
+} from "../../api-contract";
 
 export function ParameterEditor({
   definition,
@@ -30,7 +30,7 @@ export function ParameterEditor({
   tableRowOrigins?: Array<"base" | "new">;
   onTableRowOriginsChange: (origins: Array<"base" | "new">) => void;
 }) {
-  if (definition.valueType.shape === "series") {
+  if (definition.value_type.shape === "series") {
     return (
       <div className="config-draft-empty">
         Series editing stays in Python for now. Scalar values and table rows have structured browser
@@ -38,12 +38,12 @@ export function ParameterEditor({
       </div>
     );
   }
-  if (definition.valueType.shape === "scalar" && value.shape === "scalar") {
+  if (definition.value_type.shape === "scalar" && value.shape === "scalar") {
     return (
       <div className="config-scalar-editor">
         <AtomInput
           label={definition.id}
-          type={definition.valueType.atom}
+          type={definition.value_type.atom}
           value={value.value}
           entities={entities}
           onValidityChange={onFieldValidityChange}
@@ -52,18 +52,17 @@ export function ParameterEditor({
               id: value.id,
               shape: "scalar",
               value: next,
-              metadata: value.metadata,
             })
           }
         />
       </div>
     );
   }
-  if (definition.valueType.shape === "table" && value.shape === "table") {
+  if (definition.value_type.shape === "table" && value.shape === "table") {
     return (
       <TableEditor
         parameterId={definition.id}
-        type={definition.valueType}
+        type={definition.value_type}
         value={value}
         baseValue={baseValue?.shape === "table" ? baseValue : undefined}
         entities={entities}
@@ -100,33 +99,30 @@ function TableEditor({
   rowOrigins?: Array<"base" | "new">;
   onRowOriginsChange: (origins: Array<"base" | "new">) => void;
 }) {
-  const origins =
-    rowOrigins ??
-    value.rows.map((_, index) => (index < (baseValue?.rows.length ?? 0) ? "base" : "new"));
-  const setRows = (rows: Array<Record<string, ParameterAtom>>) =>
+  const rows = value.rows ?? [];
+  const baseRows = baseValue?.rows ?? [];
+  const primaryKey = type.primary_key ?? [];
+  const origins = rowOrigins ?? rows.map((_, index) => (index < baseRows.length ? "base" : "new"));
+  const setRows = (nextRows: Array<Record<string, ParameterAtom>>) =>
     onChange({
       id: value.id,
       shape: "table",
-      rows,
-      rowLocations: [],
-      metadata: value.metadata,
+      rows: nextRows,
     });
   const updateCell = (rowIndex: number, columnId: string, next: ParameterAtom) => {
-    setRows(
-      value.rows.map((row, index) => (index === rowIndex ? { ...row, [columnId]: next } : row)),
-    );
+    setRows(rows.map((row, index) => (index === rowIndex ? { ...row, [columnId]: next } : row)));
   };
   const addRow = () => {
-    setRows([...value.rows, defaultTableRow(type, entities)]);
+    setRows([...rows, defaultTableRow(type, entities)]);
     onRowOriginsChange([...origins, "new"]);
   };
   const deleteRow = (rowIndex: number) => {
-    setRows(value.rows.filter((_, index) => index !== rowIndex));
+    setRows(rows.filter((_, index) => index !== rowIndex));
     onRowOriginsChange(origins.filter((_, index) => index !== rowIndex));
   };
   return (
     <div className="config-table-editor">
-      {type.primaryKey.length === 0 && (
+      {primaryKey.length === 0 && (
         <div className="parameter-diff-note">
           This table has no primary key. The daemon will validate it as one complete replacement.
         </div>
@@ -139,8 +135,8 @@ function TableEditor({
                 <th key={column.id}>
                   <span>{column.id}</span>
                   <small>
-                    {column.valueType.type}
-                    {type.primaryKey.includes(column.id) ? " · key" : ""}
+                    {column.value_type.type}
+                    {primaryKey.includes(column.id) ? " · key" : ""}
                   </small>
                 </th>
               ))}
@@ -150,7 +146,7 @@ function TableEditor({
             </tr>
           </thead>
           <tbody>
-            {value.rows.map((row, rowIndex) => {
+            {rows.map((row, rowIndex) => {
               const existing = origins[rowIndex] === "base";
               return (
                 <tr key={rowIndex}>
@@ -158,10 +154,10 @@ function TableEditor({
                     <td key={column.id}>
                       <AtomInput
                         label={`${parameterId} row ${rowIndex + 1} ${column.id}`}
-                        type={column.valueType}
+                        type={column.value_type}
                         value={row[column.id] ?? null}
                         entities={entities}
-                        disabled={existing && type.primaryKey.includes(column.id)}
+                        disabled={existing && primaryKey.includes(column.id)}
                         onValidityChange={onFieldValidityChange}
                         onChange={(next) => updateCell(rowIndex, column.id, next)}
                       />
@@ -171,7 +167,7 @@ function TableEditor({
                     <button
                       className="icon-button"
                       type="button"
-                      disabled={value.rows.length <= type.minRows}
+                      disabled={rows.length <= (type.min_rows ?? 0)}
                       onClick={() => deleteRow(rowIndex)}
                       aria-label={`Delete ${parameterId} row ${rowIndex + 1}`}
                     >
@@ -187,7 +183,7 @@ function TableEditor({
       <button
         className="secondary-button"
         type="button"
-        disabled={type.maxRows !== undefined && value.rows.length >= type.maxRows}
+        disabled={type.max_rows != null && rows.length >= type.max_rows}
         onClick={addRow}
       >
         <Plus size={15} />
@@ -319,8 +315,8 @@ function ConcreteAtomInput({
         aria-label={label}
         type="text"
         value={typeof value === "string" ? value : ""}
-        minLength={type.minLength}
-        maxLength={type.maxLength}
+        minLength={type.min_length}
+        maxLength={type.max_length}
         pattern={type.pattern}
         disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
@@ -352,7 +348,9 @@ function ConcreteAtomInput({
       </span>
     );
   }
-  const choices = entities.filter((entity) => !type.entityKind || entity.kind === type.entityKind);
+  const choices = entities.filter(
+    (entity) => !type.entity_kind || entity.kind === type.entity_kind,
+  );
   const entity = typeof value === "object" && "id" in value ? value : { id: "", metadata: {} };
   const selected = entityKey(entity);
   return (

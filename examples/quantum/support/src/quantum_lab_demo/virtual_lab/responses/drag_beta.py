@@ -16,10 +16,7 @@ from types import MappingProxyType
 from typing import override
 
 from scopecat import Quantity
-from scopecat_quantum import (
-    AcquisitionKind,
-    TargetAcquisitionAddress,
-)
+from scopecat_quantum.targets import TargetAcquisitionAddress
 
 from quantum_lab_demo.targets.fake_list_mode.model import (
     FakeAcquisitionWindow,
@@ -239,9 +236,6 @@ class DragBetaAcquisitionResponse(FakeAcquisitionResponse):
     ) -> FakeDigitizerValue:
         """Generate one deterministic integrated-IQ frame."""
 
-        if window.kind is not AcquisitionKind.INTEGRATED_IQ:
-            msg = "DRAG response plans only implement integrated-IQ acquisitions"
-            raise ValueError(msg)
         address = TargetAcquisitionAddress(
             entry_id=playback.entry_id,
             slot_id=window.slot_id,

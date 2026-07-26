@@ -21,8 +21,7 @@ Inside `src/quantum_lab_demo/`:
 - `configuration.py`: combine schema-checked infrastructure with Python values.
 - `parameters.py`: compact Python source for initial scalar and table values.
 - `compiler.py`: the unified `QuantumLabCompiler` domain boundary.
-- `response_registry.py` and `trace.py`: fake-response selection and observable
-  preparation evidence kept outside compiler policy.
+- `response_registry.py`: deterministic fake-response selection by program.
 - `targets/`: fake target lowering and execution.
 - `virtual_lab/`: wiring, typed parameter collections, instrument providers,
   compiler parameter materialization, pulse implementation resolution, and

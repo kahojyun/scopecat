@@ -1,31 +1,33 @@
-"""Config-free validation for experiment templates and invocations.
+"""Config-free validation for experiment definitions and invocations.
 
 This module deliberately depends only on source authoring handles.  It keeps
-template-shape and closed-literal checks ahead of config validation and the
+definition-shape and closed-literal checks ahead of config validation and the
 config-dependent assembly linker.
 """
 
 from __future__ import annotations
 
-from collections import Counter
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from typing import Protocol
 
-from scopecat.authoring._module_handles import ExperimentModule
+from scopecat.authoring._module_ir import ModuleIR
 from scopecat.authoring._problems import authoring_problem as problem
-from scopecat.authoring._products import RecordSelection
 from scopecat.authoring._scan_intents import (
+    CenteredParameterScanIntent,
+    CenteredPointScanIntent,
+    ExplicitParameterScanIntent,
+    ExplicitPointScanIntent,
+    ImplicitScanCenter,
     ParameterScanIntent,
     PointScanIntent,
     Scan,
-    ScanGroupIntent,
     iter_scan_leaves,
+    parameter_scan_lookup,
     scan_point_id,
 )
 from scopecat.authoring._value_refs import (
     ValueRef,
     internal_value_ref_input_id,
-    internal_value_ref_requires_execution,
 )
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
@@ -34,67 +36,68 @@ from scopecat.kernel.problems import (
     ProblemPhase,
     model_location,
 )
-from scopecat.kernel.product_identity import ProductId
 from scopecat.kernel.value_type_compatibility import is_assignable
 from scopecat.kernel.value_types import ValueType
 from scopecat.kernel.value_validation import ValueValidationError, validate_literal
 
 
-class TemplateInputDescription(Protocol):
-    """The fields needed from the public ``InputDescription`` value."""
+class ExperimentInputDefinition(Protocol):
+    """Normalized experiment input fields needed when binding an invocation."""
 
     @property
     def id(self) -> str: ...
 
     @property
-    def default(self) -> object: ...
-
-    @property
-    def has_default(self) -> bool: ...
+    def value_type(self) -> ValueType | None: ...
 
 
-def validate_template_definition(
+def validate_experiment_definition(
     *,
-    module: ExperimentModule,
-    inputs: Sequence[TemplateInputDescription],
+    module: ModuleIR,
+    defaults: Mapping[str, object],
     default_scans: Sequence[Scan],
-    record_selections: Sequence[RecordSelection],
-) -> None:
-    """Validate one closed template definition without consulting config."""
+) -> dict[str, ValueType]:
+    """Validate one closed experiment definition without consulting config."""
 
     problems: list[Problem] = []
-    input_types, input_type_problems = _template_input_types(
+    input_types, input_type_problems = _definition_input_types(
         module,
         default_scans,
     )
     problems.extend(input_type_problems)
-    problems.extend(_validate_input_descriptions(inputs, input_types))
-    problems.extend(_validate_default_scans(default_scans, input_types))
-    problems.extend(_validate_record_selections(module, record_selections))
+    problems.extend(
+        _literal_type_problems(
+            defaults,
+            input_types,
+            location=model_location("definition", "inputs"),
+            path_suffix=("default",),
+        )
+    )
     _raise_problems(problems, phase=ProblemPhase.DEFINITION)
+    return input_types
 
 
-def validate_template_bound_inputs(
+def validate_experiment_inputs(
     *,
-    module: ExperimentModule,
-    descriptions: Sequence[TemplateInputDescription],
-    default_scans: Sequence[Scan],
+    definitions: Sequence[ExperimentInputDefinition],
     inputs: Mapping[str, object],
 ) -> None:
     """Reject known invocation input errors while leaving missing values open."""
 
-    input_types, type_problems = _template_input_types(module, default_scans)
-    allowed = {description.id for description in descriptions} | {
-        port.id for port in module.ir.interface.imports
+    allowed = {definition.id for definition in definitions}
+    input_types = {
+        definition.id: definition.value_type
+        for definition in definitions
+        if definition.value_type is not None
     }
     unknown = sorted(set(inputs) - allowed)
-    problems = list(type_problems)
+    problems: list[Problem] = []
     if unknown:
         problems.append(
             problem(
-                "experiment_template_unknown_input",
-                "experiment template received unknown input: " + ", ".join(unknown),
-                "template",
+                "experiment_unknown_input",
+                "experiment received unknown input: " + ", ".join(unknown),
+                "experiment",
                 path=("inputs",),
             )
         )
@@ -108,30 +111,11 @@ def validate_template_bound_inputs(
     _raise_problems(problems)
 
 
-def validate_invocation_scans(
-    scans: Sequence[Scan],
-) -> None:
-    """Check invocation scan values before semantic or relation lowering."""
-
-    problems = _scan_dependency_problems(
-        scans,
-        location=model_location("scans"),
-    )
-    for index, scan in enumerate(scans):
-        problems.extend(
-            _scan_length_problems(
-                scan,
-                location=model_location("scans", index),
-            )[1]
-        )
-    _raise_problems(problems)
-
-
-def _template_input_types(
-    module: ExperimentModule,
+def _definition_input_types(
+    module: ModuleIR,
     default_scans: Sequence[Scan],
 ) -> tuple[dict[str, ValueType], list[Problem]]:
-    selected = {port.id: port.value_type for port in module.ir.interface.imports}
+    selected = {port.id: port.value_type for port in module.interface.imports}
     problems: list[Problem] = []
 
     for scan in default_scans:
@@ -144,7 +128,7 @@ def _template_input_types(
                     problems.append(
                         problem(
                             "module_input_type_conflict",
-                            f"template input {input_id} has incompatible value types",
+                            f"experiment input {input_id} has incompatible value types",
                             "inputs",
                             path=(input_id,),
                         )
@@ -156,13 +140,17 @@ def _direct_scan_input_types(
     scan: PointScanIntent | ParameterScanIntent,
 ) -> tuple[tuple[str, ValueType], ...]:
     selected: list[tuple[str, ValueType]] = []
-    values: tuple[object, ...]
-    if isinstance(scan, PointScanIntent):
-        values = () if scan.center is None else (scan.center,)
-        if scan.implicit_center:
-            selected.append((scan.point_id, scan.target.value_type))
-    else:
-        values = tuple(value for _name, value in scan.key)
+    match scan:
+        case ExplicitPointScanIntent():
+            values: tuple[object, ...] = ()
+        case CenteredPointScanIntent(center=ImplicitScanCenter()):
+            selected.append((scan_point_id(scan), scan.target.value_type))
+            values = ()
+        case CenteredPointScanIntent():
+            values = (scan.center,)
+        case ExplicitParameterScanIntent() | CenteredParameterScanIntent():
+            _lookup, key = parameter_scan_lookup(scan)
+            values = tuple(value for _name, value in key)
     for value in values:
         if not isinstance(value, ValueRef):
             continue
@@ -170,38 +158,6 @@ def _direct_scan_input_types(
         if input_id is not None:
             selected.append((input_id, value.value_type))
     return tuple(selected)
-
-
-def _validate_input_descriptions(
-    descriptions: Sequence[TemplateInputDescription],
-    input_types: Mapping[str, ValueType],
-) -> list[Problem]:
-    problems: list[Problem] = []
-    duplicate_ids = _duplicates(description.id for description in descriptions)
-    if duplicate_ids:
-        problems.append(
-            problem(
-                "experiment_template_input_duplicate",
-                "experiment template defines duplicate inputs: "
-                + ", ".join(duplicate_ids),
-                "template",
-                path=("inputs",),
-            )
-        )
-    defaults = {
-        description.id: description.default
-        for description in descriptions
-        if description.has_default and description.id not in duplicate_ids
-    }
-    problems.extend(
-        _literal_type_problems(
-            defaults,
-            input_types,
-            location=model_location("template", "inputs"),
-            path_suffix=("default",),
-        )
-    )
-    return problems
 
 
 def _literal_type_problems(
@@ -235,238 +191,6 @@ def _literal_type_problems(
                 )
             )
     return problems
-
-
-def _validate_default_scans(
-    scans: Sequence[Scan],
-    input_types: Mapping[str, ValueType],
-) -> list[Problem]:
-    problems: list[Problem] = []
-    axis_ids = [
-        scan_point_id(leaf) for scan in scans for leaf in iter_scan_leaves(scan)
-    ]
-    duplicate_axes = _duplicates(axis_ids)
-    if duplicate_axes:
-        problems.append(
-            problem(
-                "scan_axis_duplicate",
-                "duplicate scan axis: " + ", ".join(duplicate_axes),
-                "template",
-                path=("default_scans",),
-            )
-        )
-
-    problems.extend(
-        _scan_dependency_problems(
-            scans,
-            location=model_location("template", "default_scans"),
-        )
-    )
-
-    for index, scan in enumerate(scans):
-        problems.extend(
-            _scan_length_problems(
-                scan,
-                location=model_location("template", "default_scans", index),
-            )[1]
-        )
-        for leaf in iter_scan_leaves(scan):
-            expected = input_types.get(scan_point_id(leaf))
-            if expected is None or is_assignable(leaf.target.value_type, expected):
-                continue
-            input_id = scan_point_id(leaf)
-            problems.append(
-                problem(
-                    "module_input_type_mismatch",
-                    f"scan {input_id!r} has a value type incompatible with "
-                    "the exposed module input",
-                    "template",
-                    path=("default_scans", input_id),
-                )
-            )
-    return problems
-
-
-def _scan_dependency_problems(
-    scans: Sequence[Scan],
-    *,
-    location: ModelLocation,
-) -> list[Problem]:
-    problems: list[Problem] = []
-    for index, scan in enumerate(scans):
-        _scan_value_dependency_problems(
-            scan,
-            location=model_location(location.root, *location.path, index),
-            problems=problems,
-        )
-    return problems
-
-
-def _scan_value_dependency_problems(
-    scan: Scan,
-    *,
-    location: ModelLocation,
-    problems: list[Problem],
-) -> None:
-    if isinstance(scan, ScanGroupIntent):
-        for index, child in enumerate(scan.scans):
-            _scan_value_dependency_problems(
-                child,
-                location=model_location(
-                    location.root,
-                    *location.path,
-                    "scans",
-                    index,
-                ),
-                problems=problems,
-            )
-        return
-    if isinstance(scan, PointScanIntent):
-        values = () if scan.center is None else (("center", scan.center),)
-        context = "scan center"
-    elif isinstance(scan, ParameterScanIntent):
-        values = scan.key
-        context = "parameter scan key"
-    else:
-        return
-    for value_id, value in values:
-        if not isinstance(value, ValueRef):
-            continue
-        value_location = model_location(
-            location.root,
-            *location.path,
-            value_id,
-        )
-        if internal_value_ref_requires_execution(value):
-            problems.append(
-                problem(
-                    "value_requires_execution",
-                    f"{context} cannot depend on an external operation",
-                    value_location.root,
-                    path=value_location.path,
-                )
-            )
-
-
-def _scan_length_problems(
-    scan: Scan,
-    *,
-    location: ModelLocation,
-) -> tuple[int, list[Problem]]:
-    if isinstance(scan, PointScanIntent):
-        return (
-            len(scan.point_values) if scan.point_values else scan.point_count or 0,
-            [],
-        )
-    if isinstance(scan, ParameterScanIntent):
-        return len(scan.values) if scan.values else scan.point_count or 0, []
-    if not isinstance(scan, ScanGroupIntent):
-        return 0, []
-
-    problems: list[Problem] = []
-    lengths: list[int] = []
-    for index, child in enumerate(scan.scans):
-        length, child_problems = _scan_length_problems(
-            child,
-            location=model_location(
-                location.root,
-                *location.path,
-                "scans",
-                index,
-            ),
-        )
-        lengths.append(length)
-        problems.extend(child_problems)
-    if scan.kind == "zip":
-        if len(set(lengths)) != 1:
-            problems.append(
-                problem(
-                    "scan_zip_length_mismatch",
-                    "zip scan group requires scans with equal length; got "
-                    + ", ".join(str(length) for length in lengths),
-                    location.root,
-                    path=location.path,
-                )
-            )
-        return (lengths[0] if lengths else 0), problems
-    length = 1
-    for child_length in lengths:
-        length *= child_length
-    return length, problems
-
-
-def _validate_record_selections(
-    module: ExperimentModule,
-    selections: Sequence[RecordSelection],
-) -> list[Problem]:
-    problems: list[Problem] = []
-    products = module.ir.interface.products
-    product_ids = [product.symbol_id for product in products]
-    duplicate_products = {
-        product_id for product_id in product_ids if product_ids.count(product_id) > 1
-    }
-    if duplicate_products:
-        problems.append(
-            problem(
-                "module_product_duplicate",
-                "experiment assembly defines duplicate products: "
-                + ", ".join(sorted(item.qualified_name for item in duplicate_products)),
-                "products",
-            )
-        )
-
-    selected_product_ids = [selection.product_id for selection in selections]
-    unknown_products = set(selected_product_ids) - set(product_ids)
-    if unknown_products:
-        problems.append(
-            problem(
-                "module_product_unknown",
-                "experiment selects unknown products: "
-                + ", ".join(sorted(item.qualified_name for item in unknown_products)),
-                "record_selections",
-            )
-        )
-    product_origins_by_id: dict[ProductId, list[tuple[object, ...]]] = {}
-    for product in products:
-        product_origins_by_id.setdefault(product.symbol_id, []).append(
-            product.target_origin
-        )
-    for selection in selections:
-        if selection.product_origin is None:
-            continue
-        matching = product_origins_by_id.get(selection.product_id, ())
-        if selection.product_origin in matching:
-            continue
-        if matching:
-            problems.append(
-                problem(
-                    "module_product_foreign_instance",
-                    "experiment selects product "
-                    f"{selection.product_id.qualified_name!r} from "
-                    "another module instance",
-                    "record_selections",
-                )
-            )
-    selected_record_ids = [
-        selection.record_id or selection.product_id.qualified_name
-        for selection in selections
-    ]
-    duplicate_records = _duplicates(selected_record_ids)
-    if duplicate_records:
-        problems.append(
-            problem(
-                "template_record_duplicate",
-                "experiment template selects duplicate record ids: "
-                + ", ".join(duplicate_records),
-                "record_selections",
-            )
-        )
-    return problems
-
-
-def _duplicates(values: Iterable[str]) -> list[str]:
-    counts = Counter(values)
-    return sorted(value for value, count in counts.items() if count > 1)
 
 
 def _raise_problems(

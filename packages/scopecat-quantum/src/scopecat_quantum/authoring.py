@@ -87,7 +87,6 @@ from scopecat_quantum._ids import (
     PulseProgramId,
     QuantumProgramId,
     QubitId,
-    RealtimeStateId,
     RealtimeValueId,
 )
 from scopecat_quantum.acquisitions import AcquisitionKind
@@ -115,21 +114,6 @@ from scopecat_quantum.programs import (
     verify_quantum_program,
 )
 from scopecat_quantum.programs import Parallel as IrQuantumParallel
-from scopecat_quantum.programs import (
-    RealtimeBitStateInit as IrRealtimeBitStateInit,
-)
-from scopecat_quantum.programs import (
-    RealtimeBitStateRead as IrRealtimeBitStateRead,
-)
-from scopecat_quantum.programs import (
-    RealtimeBitStateWrite as IrRealtimeBitStateWrite,
-)
-from scopecat_quantum.programs import (
-    RealtimeBitXor as IrRealtimeBitXor,
-)
-from scopecat_quantum.programs import (
-    RealtimeResultEmit as IrRealtimeResultEmit,
-)
 from scopecat_quantum.programs import (
     Repeat as IrQuantumRepeat,
 )
@@ -222,18 +206,16 @@ class QuantumResultAxis:
 
 @dataclass(frozen=True, slots=True, repr=False)
 class QuantumResultContract:
-    """Product schema and per-acquisition shape for one quantum result.
+    """Product schema for one integrated-IQ quantum result.
 
-    ``axes`` follow the automatic shot axis. ``acquisition_shape`` identifies
-    which of those axes are realized inside one physical acquisition frame;
-    other axes may later index recursively repeated or composite addresses.
+    ``axes`` follow the automatic shot axis and index recursively repeated or
+    composite acquisition addresses.
     """
 
     acquisition_kind: AcquisitionKind
     dtype: MeasurementDType
     unit: str | None
     axes: tuple[QuantumResultAxis, ...] = ()
-    acquisition_shape: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         axis_ids = tuple(axis.id for axis in self.axes)
@@ -243,73 +225,13 @@ class QuantumResultContract:
         if duplicates:
             rendered = ", ".join(repr(item) for item in duplicates)
             raise ValueError(f"quantum result has duplicate axes: {rendered}")
-        unknown_shape = tuple(
-            axis_id for axis_id in self.acquisition_shape if axis_id not in axis_ids
-        )
-        if unknown_shape:
-            rendered = ", ".join(repr(item) for item in unknown_shape)
-            raise ValueError(f"quantum acquisition shape uses unknown axes: {rendered}")
-        if self.acquisition_kind is AcquisitionKind.INTEGRATED_IQ:
-            if self.acquisition_shape:
-                raise ValueError("integrated-IQ acquisitions are scalar per shot")
-            return
-        if self.acquisition_shape != ("sample",):
-            raise ValueError("raw-trace acquisition shape must be ('sample',)")
-        sample_axis = next(axis for axis in self.axes if axis.id == "sample")
-        if sample_axis.kind != "sample" or sample_axis.unit != "count":
-            raise ValueError("raw-trace results require a canonical sample/count axis")
 
 
-@dataclass(frozen=True, slots=True, repr=False)
-class RealtimeResultContract:
-    """Product schema for one value emitted by target-local realtime logic."""
-
-    dtype: MeasurementDType = "int64"
-    unit: str | None = "count"
-    axes: tuple[QuantumResultAxis, ...] = ()
-
-    def __post_init__(self) -> None:
-        axis_ids = tuple(axis.id for axis in self.axes)
-        if len(axis_ids) != len(set(axis_ids)):
-            raise ValueError("realtime result axes must be unique")
-
-
-REALTIME_BIT_RESULT = RealtimeResultContract()
-
-
-def integrated_iq_result(
-    *,
-    dtype: MeasurementDType = "complex128",
-    unit: str | None = "ratio",
-) -> QuantumResultContract:
-    """Describe one scalar integrated-IQ value per shot."""
-
-    return QuantumResultContract(
-        acquisition_kind=AcquisitionKind.INTEGRATED_IQ,
-        dtype=dtype,
-        unit=unit,
-    )
-
-
-INTEGRATED_IQ_RESULT = integrated_iq_result()
-
-
-def raw_trace_result(
-    samples: int | ProgramInput,
-    /,
-    *,
-    dtype: MeasurementDType = "complex128",
-    unit: str | None = "ratio",
-) -> QuantumResultContract:
-    """Describe complex raw-trace shots with one explicit sample dimension."""
-
-    return QuantumResultContract(
-        acquisition_kind=AcquisitionKind.RAW_TRACE,
-        dtype=dtype,
-        unit=unit,
-        axes=(QuantumResultAxis("sample", samples, "sample"),),
-        acquisition_shape=("sample",),
-    )
+INTEGRATED_IQ_RESULT = QuantumResultContract(
+    acquisition_kind=AcquisitionKind.INTEGRATED_IQ,
+    dtype="complex128",
+    unit="ratio",
+)
 
 
 @dataclass(frozen=True, slots=True, repr=False, eq=False)
@@ -345,27 +267,7 @@ class MeasurementResult:
         return AcquisitionSlotId(self._id)
 
 
-@dataclass(frozen=True, slots=True, repr=False, eq=False)
-class RealtimeResult:
-    """One typed result emitted from target-local realtime computation."""
-
-    _id: str
-    contract: RealtimeResultContract = REALTIME_BIT_RESULT
-
-    @property
-    def id(self) -> str:
-        """Return the stable result-port identity."""
-
-        return self._id
-
-    @property
-    def result_slot_id(self) -> AcquisitionSlotId:
-        """Return the target result identity used by retained control IR."""
-
-        return AcquisitionSlotId(self._id)
-
-
-type ProgramResult = MeasurementResult | RealtimeResult
+type ProgramResult = MeasurementResult
 
 
 @dataclass(frozen=True, slots=True, repr=False, eq=False)
@@ -694,51 +596,6 @@ class Measurement(CircuitFragment):
         """Return the optional realtime output without requiring one."""
 
         return self._bit
-
-
-@dataclass(frozen=True, slots=True, repr=False, eq=False)
-class RealtimeBitState(QuantumFragment):
-    """Authored target-local bit state carried explicitly across loop rounds."""
-
-    _id: str
-    initial: Literal[0, 1]
-
-    @property
-    def id(self) -> str:
-        return self._id
-
-
-@dataclass(frozen=True, slots=True, repr=False)
-class RealtimeBitRead(QuantumFragment):
-    """Read one state cell into an exact realtime value."""
-
-    state: RealtimeBitState
-    bit: RealtimeBit
-
-
-@dataclass(frozen=True, slots=True, repr=False)
-class RealtimeXor(QuantumFragment):
-    """Define one realtime bit as the XOR of two exact values."""
-
-    left: RealtimeBit
-    right: RealtimeBit
-    bit: RealtimeBit
-
-
-@dataclass(frozen=True, slots=True, repr=False)
-class RealtimeBitStore(QuantumFragment):
-    """Store a realtime value into explicit loop-carried state."""
-
-    state: RealtimeBitState
-    source: RealtimeBit
-
-
-@dataclass(frozen=True, slots=True, repr=False)
-class RealtimeBitEmit(QuantumFragment):
-    """Emit a realtime value under one target result id."""
-
-    source: RealtimeBit
-    result: RealtimeResult
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -1086,7 +943,7 @@ class ProgramDefinition(Program):
 
     __slots__ = ("_call_module", "_contract", "_definition")
 
-    _call_module: ExperimentModule
+    _call_module: ExperimentModule[...]
     _contract: _QuantumFunctionContract
     _definition: ProgramFunction
 
@@ -1259,18 +1116,6 @@ def _inspection_node(fragment: QuantumFragment) -> _InspectionNode:
     if isinstance(fragment, Measurement):
         result = fragment.result
         return _InspectionNode(f"measure {result.qubit.id} -> {result.id}")
-    if isinstance(fragment, RealtimeBitState):
-        return _InspectionNode(f"bit_state {fragment.id} initial={fragment.initial}")
-    if isinstance(fragment, RealtimeBitRead):
-        return _InspectionNode(f"read_bit {fragment.state.id} -> {fragment.bit.id}")
-    if isinstance(fragment, RealtimeXor):
-        return _InspectionNode(
-            f"xor_bits {fragment.left.id}, {fragment.right.id} -> {fragment.bit.id}"
-        )
-    if isinstance(fragment, RealtimeBitStore):
-        return _InspectionNode(f"store_bit {fragment.source.id} -> {fragment.state.id}")
-    if isinstance(fragment, RealtimeBitEmit):
-        return _InspectionNode(f"emit_bit {fragment.source.id} -> {fragment.result.id}")
     if isinstance(fragment, Acquisition):
         return _InspectionNode(
             f"acquire {fragment.result.qubit.id} "
@@ -1439,8 +1284,6 @@ def _describe_result(result: ProgramResult) -> str:
     axes = ["shot"]
     axes.extend(f"{axis.id}[{_inspection_value(axis.size)}]" for axis in contract.axes)
     unit = "" if contract.unit is None else f" {contract.unit}"
-    if isinstance(result, RealtimeResult):
-        return f"realtime {contract.dtype}{unit}; axes={' x '.join(axes)}"
     return (
         f"{result.acquisition_kind.value} {contract.dtype}{unit} "
         f"on {result.qubit.id}; axes={' x '.join(axes)}"
@@ -1597,65 +1440,6 @@ def measure(
         result=result_handle,
         _bit=None if bit is None else RealtimeBit(bit),
     )
-
-
-def bit_state(
-    id: str,  # noqa: A002
-    /,
-    *,
-    initial: Literal[0, 1] = 0,
-) -> RealtimeBitState:
-    """Initialize one explicit target-local bit-state cell."""
-
-    if not id.strip():
-        raise ValueError("realtime bit state id must be a non-empty string")
-    return RealtimeBitState(id, initial)
-
-
-def read_bit(
-    state: RealtimeBitState,
-    /,
-    *,
-    id: str,  # noqa: A002
-) -> RealtimeBitRead:
-    """Read explicit state into a new exact realtime bit."""
-
-    return RealtimeBitRead(state, RealtimeBit(id))
-
-
-def xor_bits(
-    left: RealtimeBit,
-    right: RealtimeBit,
-    /,
-    *,
-    id: str,  # noqa: A002
-) -> RealtimeXor:
-    """Define one exact realtime XOR value."""
-
-    return RealtimeXor(left, right, RealtimeBit(id))
-
-
-def store_bit(
-    state: RealtimeBitState,
-    source: RealtimeBit,
-    /,
-) -> RealtimeBitStore:
-    """Carry a realtime bit through an explicit state cell."""
-
-    return RealtimeBitStore(state, source)
-
-
-def emit_bit(
-    source: RealtimeBit,
-    /,
-    *,
-    result: str,
-) -> RealtimeBitEmit:
-    """Emit a realtime bit as a target result record."""
-
-    if not result.strip():
-        raise ValueError("realtime emitted result id must be a non-empty string")
-    return RealtimeBitEmit(source, RealtimeResult(result))
 
 
 def acquire(
@@ -1815,8 +1599,6 @@ def materialize_pulse_recipe_body(
             msg = "measurement pulse recipes must acquire exactly one result"
             raise ValueError(msg)
         result = facts.results[0]
-        if not isinstance(result, MeasurementResult):
-            raise ValueError("measurement pulse recipes must physically acquire")
         if result.qubit.ir_id != qubit_id:
             msg = "measurement pulse recipe result must belong to its mapped qubit"
             raise ValueError(msg)
@@ -2090,8 +1872,6 @@ def _prepend_result_axis(
     if isinstance(fragment, Measurement):
         return replace(fragment, result=_result_with_axis(fragment.result, axis))
     if isinstance(fragment, Acquisition):
-        return replace(fragment, result=_result_with_axis(fragment.result, axis))
-    if isinstance(fragment, RealtimeBitEmit):
         return replace(fragment, result=_result_with_axis(fragment.result, axis))
     if isinstance(fragment, _ExpandedFragment):
         return replace(fragment, body=_prepend_result_axis(fragment.body, axis))
@@ -2849,7 +2629,6 @@ def bind(
     expanded_body = _expand_fragment_calls(declaration.body, concrete_bindings)
     gate_definitions = _bound_gate_definitions(expanded_body, concrete_bindings)
     realtime_values = _realtime_value_bindings(expanded_body, path=("body",))
-    realtime_states = _realtime_state_bindings(expanded_body, path=("body",))
     concrete = QuantumProgramIR(
         id=declaration.ir_id,
         body=_bind_quantum_fragment(
@@ -2857,7 +2636,6 @@ def bind(
             concrete_bindings,
             element_bindings=element_bindings,
             realtime_values=realtime_values,
-            realtime_states=realtime_states,
             path=("body",),
         ),
     )
@@ -2974,7 +2752,7 @@ def _program_call_module(
     program: Program,
     *,
     compiler_input_types: Mapping[str, ValueType] | None = None,
-) -> ExperimentModule:
+) -> ExperimentModule[...]:
     """Build the reusable core module owned by one program definition."""
 
     selected_compiler_input_types = compiler_input_types or {}
@@ -3035,7 +2813,7 @@ def _program_call(
     instance_id: str,
     /,
     *,
-    module: ExperimentModule,
+    module: ExperimentModule[...],
     inputs: Mapping[str, ComputeInput],
     compiler_inputs: Mapping[str, ValueRef],
     shots: ComputeInput,
@@ -3209,7 +2987,6 @@ def _bind_quantum_fragment(
     *,
     element_bindings: ElementBindings,
     realtime_values: Mapping[RealtimeBit, RealtimeValueId],
-    realtime_states: Mapping[RealtimeBitState, RealtimeStateId],
     path: tuple[str, ...],
 ) -> QuantumNode:
     if isinstance(fragment, _ExpandedFragment):
@@ -3218,7 +2995,6 @@ def _bind_quantum_fragment(
             bindings,
             element_bindings=element_bindings,
             realtime_values=realtime_values,
-            realtime_states=realtime_states,
             path=(*path, f"fragment[{fragment.definition_id}]"),
         )
     if isinstance(fragment, _FragmentCall):
@@ -3266,45 +3042,6 @@ def _bind_quantum_fragment(
                 ),
             ),
             candidate_id=fragment.candidate_id,
-        )
-    if isinstance(fragment, RealtimeBitState):
-        return IrRealtimeBitStateInit(
-            id=CircuitOperationId(_operation_id(path, "bit-state-init")),
-            state_id=_bound_realtime_state_id(fragment, realtime_states),
-            value=fragment.initial,
-        )
-    if isinstance(fragment, RealtimeBitRead):
-        return IrRealtimeBitStateRead(
-            id=CircuitOperationId(_operation_id(path, "bit-state-read")),
-            state_id=_bound_realtime_state_id(fragment.state, realtime_states),
-            output_id=_bound_realtime_value_id(fragment.bit, realtime_values),
-        )
-    if isinstance(fragment, RealtimeBitStore):
-        return IrRealtimeBitStateWrite(
-            id=CircuitOperationId(_operation_id(path, "bit-state-write")),
-            state_id=_bound_realtime_state_id(fragment.state, realtime_states),
-            source=RealtimeBitRef(
-                _bound_realtime_value_id(fragment.source, realtime_values)
-            ),
-        )
-    if isinstance(fragment, RealtimeXor):
-        return IrRealtimeBitXor(
-            id=CircuitOperationId(_operation_id(path, "bit-xor")),
-            output_id=_bound_realtime_value_id(fragment.bit, realtime_values),
-            left=RealtimeBitRef(
-                _bound_realtime_value_id(fragment.left, realtime_values)
-            ),
-            right=RealtimeBitRef(
-                _bound_realtime_value_id(fragment.right, realtime_values)
-            ),
-        )
-    if isinstance(fragment, RealtimeBitEmit):
-        return IrRealtimeResultEmit(
-            id=CircuitOperationId(_operation_id(path, "bit-emit")),
-            result_id=_physical_result_slot_id(fragment.result, path),
-            source=RealtimeBitRef(
-                _bound_realtime_value_id(fragment.source, realtime_values)
-            ),
         )
     if isinstance(fragment, Acquisition):
         slot_id = _physical_result_slot_id(fragment.result, path)
@@ -3370,7 +3107,6 @@ def _bind_quantum_fragment(
                     bindings,
                     element_bindings=element_bindings,
                     realtime_values=realtime_values,
-                    realtime_states=realtime_states,
                     path=(*path, f"sequence[{index}]"),
                 )
                 for index, operation in enumerate(fragment.operations)
@@ -3384,7 +3120,6 @@ def _bind_quantum_fragment(
                     bindings,
                     element_bindings=element_bindings,
                     realtime_values=realtime_values,
-                    realtime_states=realtime_states,
                     path=(*path, f"parallel[{index}]"),
                 )
                 for index, branch in enumerate(fragment.branches)
@@ -3401,7 +3136,6 @@ def _bind_quantum_fragment(
                     bindings,
                     element_bindings=element_bindings,
                     realtime_values=realtime_values,
-                    realtime_states=realtime_states,
                     path=(*path, "repeat-body"),
                 )
             ),
@@ -3419,7 +3153,6 @@ def _bind_quantum_fragment(
                 bindings,
                 element_bindings=element_bindings,
                 realtime_values=realtime_values,
-                realtime_states=realtime_states,
                 path=(*path, "when-true"),
             ),
             when_false=_bind_quantum_fragment(
@@ -3427,7 +3160,6 @@ def _bind_quantum_fragment(
                 bindings,
                 element_bindings=element_bindings,
                 realtime_values=realtime_values,
-                realtime_states=realtime_states,
                 path=(*path, "when-false"),
             ),
         )
@@ -3554,20 +3286,8 @@ def _physical_result_slot_id(
     result: ProgramResult,
     path: tuple[str, ...],
 ) -> AcquisitionSlotId:
-    acquisition_shape = (
-        result.contract.acquisition_shape
-        if isinstance(result, MeasurementResult)
-        else ()
-    )
-    collection_axes = tuple(
-        axis for axis in result.contract.axes if axis.id not in acquisition_shape
-    )
-    if not collection_axes:
-        return (
-            result.acquisition_slot_id
-            if isinstance(result, MeasurementResult)
-            else result.result_slot_id
-        )
+    if not result.contract.axes:
+        return result.acquisition_slot_id
     return AcquisitionSlotId(result.id, scope=path)
 
 
@@ -3675,13 +3395,7 @@ def _realtime_value_bindings(
         if isinstance(node, _ExpandedFragment):
             collect(node.body, (*node_path, f"fragment[{node.definition_id}]"))
             return
-        bit = (
-            node.realtime_bit
-            if isinstance(node, Measurement)
-            else node.bit
-            if isinstance(node, RealtimeBitRead | RealtimeXor)
-            else None
-        )
+        bit = node.realtime_bit if isinstance(node, Measurement) else None
         if bit is not None:
             if bit in selected:
                 raise ProgramBindingError(
@@ -3711,45 +3425,6 @@ def _realtime_value_bindings(
     return selected
 
 
-def _realtime_state_bindings(
-    fragment: QuantumFragment,
-    *,
-    path: tuple[str, ...],
-) -> dict[RealtimeBitState, RealtimeStateId]:
-    """Resolve authored state handles to exact initialization identities."""
-
-    selected: dict[RealtimeBitState, RealtimeStateId] = {}
-
-    def collect(node: QuantumFragment, node_path: tuple[str, ...]) -> None:
-        if isinstance(node, _ExpandedFragment):
-            collect(node.body, (*node_path, f"fragment[{node.definition_id}]"))
-            return
-        if isinstance(node, RealtimeBitState):
-            if node in selected:
-                raise ProgramBindingError(
-                    f"realtime state {node.id!r} has more than one initializer"
-                )
-            selected[node] = RealtimeStateId(node.id, scope=node_path)
-            return
-        if isinstance(node, _SequenceFragment | _QuantumSequenceFragment):
-            for index, operation in enumerate(node.operations):
-                collect(operation, (*node_path, f"sequence[{index}]"))
-            return
-        if isinstance(node, _ParallelFragment | _QuantumParallelFragment):
-            for index, branch in enumerate(node.branches):
-                collect(branch, (*node_path, f"parallel[{index}]"))
-            return
-        if isinstance(node, _RepeatFragment | _QuantumRepeatFragment):
-            collect(node.operation, (*node_path, "repeat-body"))
-            return
-        if isinstance(node, _QuantumConditionalFragment):
-            collect(node.when_true, (*node_path, "when-true"))
-            collect(node.when_false, (*node_path, "when-false"))
-
-    collect(fragment, path)
-    return selected
-
-
 def _bound_realtime_value_id(
     bit: RealtimeBit,
     bindings: Mapping[RealtimeBit, RealtimeValueId] | None,
@@ -3758,17 +3433,6 @@ def _bound_realtime_value_id(
         return bindings[bit]
     raise ProgramBindingError(
         f"realtime bit {bit.id!r} is not produced by this quantum program"
-    )
-
-
-def _bound_realtime_state_id(
-    state: RealtimeBitState,
-    bindings: Mapping[RealtimeBitState, RealtimeStateId],
-) -> RealtimeStateId:
-    if state in bindings:
-        return bindings[state]
-    raise ProgramBindingError(
-        f"realtime state {state.id!r} is not initialized by this quantum program"
     )
 
 
@@ -4275,20 +3939,6 @@ def _summarize_fragment(fragment: QuantumFragment) -> _FragmentFacts:
             ),
             results=(fragment.result,),
         )
-    if isinstance(
-        fragment,
-        RealtimeBitState | RealtimeBitRead | RealtimeXor | RealtimeBitStore,
-    ):
-        return _FragmentFacts()
-    if isinstance(fragment, RealtimeBitEmit):
-        return _FragmentFacts(
-            inputs=tuple(
-                axis.size
-                for axis in fragment.result.contract.axes
-                if isinstance(axis.size, ProgramInput)
-            ),
-            results=(fragment.result,),
-        )
     if isinstance(fragment, Acquisition):
         return _FragmentFacts(
             pulse_only=True,
@@ -4526,7 +4176,6 @@ __all__ = [
     "INTEGRATED_IQ_RESULT",
     "QUANTUM_PROGRAM_DIALECT_ID",
     "QUANTUM_PROGRAM_DIALECT_VERSION",
-    "REALTIME_BIT_RESULT",
     "Acquisition",
     "BoundProgram",
     "CircuitArgument",
@@ -4557,20 +4206,12 @@ __all__ = [
     "Qubit",
     "QubitInput",
     "RealtimeBit",
-    "RealtimeBitEmit",
-    "RealtimeBitRead",
-    "RealtimeBitState",
-    "RealtimeBitStore",
-    "RealtimeResult",
-    "RealtimeResultContract",
-    "RealtimeXor",
     "RepeatCount",
     "SingleQubitGate",
     "TwoQubitGate",
     "acquire",
     "barrier",
     "bind",
-    "bit_state",
     "constant",
     "coupler",
     "delay",
@@ -4578,14 +4219,12 @@ __all__ = [
     "drag",
     "draw",
     "drive",
-    "emit_bit",
     "flux",
     "fragment",
     "gate",
     "gaussian",
     "implementation",
     "input",
-    "integrated_iq_result",
     "measure",
     "parallel",
     "play",
@@ -4593,16 +4232,12 @@ __all__ = [
     "program_port_type",
     "pulse_template",
     "qubit",
-    "raw_trace_result",
-    "read_bit",
     "readout",
     "repeat",
     "scalar_input",
     "sequence",
     "shift_phase",
     "single_qubit_gate",
-    "store_bit",
     "two_qubit_gate",
     "when",
-    "xor_bits",
 ]

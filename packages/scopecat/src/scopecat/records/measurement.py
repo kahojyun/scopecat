@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
 from typing import Literal, cast
 
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    JsonValue,
     ValidationError,
     field_validator,
     model_validator,
@@ -18,10 +16,9 @@ from pydantic import (
 
 from scopecat.kernel.problems import (
     Problem,
-    ProblemCategory,
     ProblemPhase,
-    blocking_problem,
     model_location,
+    problem,
 )
 from scopecat.kernel.units import compatible_units
 from scopecat.records._metadata import JsonMetadata
@@ -38,14 +35,7 @@ MEASUREMENT_RECORD_SCHEMA_VERSION = "scopecat.measurement_record.v1"
 MEASUREMENT_DATASET_FORMAT_VERSION = "scopecat.measurement_dataset_schema.v1"
 MeasurementDatasetRole = Literal["raw", "derived"]
 
-MeasurementVariableRole = Literal[
-    "coordinate",
-    "observable",
-    "auxiliary",
-    "uncertainty",
-    "status",
-    "mask",
-]
+MeasurementVariableRole = Literal["coordinate", "observable"]
 MeasurementDType = Literal["float64", "int64", "complex128", "bool", "string"]
 MeasurementArrayData = list[object]
 
@@ -73,14 +63,9 @@ class MeasurementVariable(BaseModel):
     role: MeasurementVariableRole
     dtype: MeasurementDType
     unit: str | None = None
-    unit_policy: Literal["uniform", "per_record"] = "uniform"
-    allowed_units: list[str] = Field(default_factory=list)
     dims: list[str] = Field(default_factory=list)
     shape: list[int] = Field(default_factory=list)
     label: str | None = None
-    uncertainty_of: str | None = None
-    status_of: str | None = None
-    mask_of: str | None = None
     metadata: JsonMetadata = Field(default_factory=dict)
 
     @field_validator("unit")
@@ -96,20 +81,6 @@ class MeasurementVariable(BaseModel):
             dims=self.dims,
             message=message,
         )
-        return self
-
-    @model_validator(mode="after")
-    def validate_unit_policy(self) -> MeasurementVariable:
-        if self.unit_policy == "per_record":
-            if self.unit is not None or not self.allowed_units:
-                msg = (
-                    "per-record measurement units require allowed_units and no "
-                    "uniform unit"
-                )
-                raise ValueError(msg)
-        elif self.allowed_units:
-            msg = "uniform measurement units must not declare allowed_units"
-            raise ValueError(msg)
         return self
 
 
@@ -271,87 +242,9 @@ class MeasurementRecord(BaseModel):
 class MeasurementDataset(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    dataset_id: str
     dataset_schema: MeasurementDatasetSchema = Field(alias="schema")
     records: list[MeasurementRecord]
     metadata: JsonMetadata = Field(default_factory=dict)
-
-
-@dataclass(frozen=True)
-class MeasurementDatasetReadContract:
-    """Caller-specific codes and wording for a stored measurement dataset."""
-
-    missing_code: str
-    empty_code: str
-    invalid_code: str
-    missing_schema_code: str
-    invalid_schema_code: str
-    noun: str
-
-
-def infer_measurement_dataset_schema(
-    *,
-    dataset_id: str,
-    dataset_role: MeasurementDatasetRole,
-    records: Sequence[MeasurementRecord],
-    dimension_id: str = "point",
-    dimension_label: str | None = "Point",
-    metadata: Mapping[str, JsonValue] | None = None,
-) -> MeasurementDatasetSchema:
-    """Infer the compatible point-table dataset schema for record JSONL data."""
-
-    coordinate_values = _values_by_id(
-        records=records,
-        select=lambda record: record.coordinates,
-    )
-    observable_values = _values_by_id(
-        records=records,
-        select=lambda record: record.observables,
-    )
-    point_shape = [len(records)]
-    variables: list[MeasurementVariable] = []
-    dimensions = [
-        MeasurementDimension(
-            id=dimension_id,
-            kind="point",
-            label=dimension_label,
-            size=len(records),
-        )
-    ]
-    for variable_id, values in coordinate_values.items():
-        variable, extra_dimensions = _measurement_variable(
-            variable_id=variable_id,
-            role="coordinate",
-            values=values,
-            dimension_id=dimension_id,
-            shape=point_shape,
-        )
-        variables.append(variable)
-        dimensions.extend(extra_dimensions)
-    for variable_id, values in observable_values.items():
-        variable, extra_dimensions = _measurement_variable(
-            variable_id=variable_id,
-            role="observable",
-            values=values,
-            dimension_id=dimension_id,
-            shape=point_shape,
-        )
-        variables.append(variable)
-        dimensions.extend(
-            dimension
-            for dimension in extra_dimensions
-            if dimension.id not in {existing.id for existing in dimensions}
-        )
-    return MeasurementDatasetSchema(
-        dataset_id=dataset_id,
-        dataset_role=dataset_role,
-        record_schema=MEASUREMENT_RECORD_SCHEMA_VERSION,
-        dimensions=dimensions,
-        variables=variables,
-        primary_coordinates=list(coordinate_values),
-        primary_observables=list(observable_values),
-        metadata=dict(metadata or {}),
-    )
 
 
 def validate_measurement_records_against_schema(
@@ -401,16 +294,7 @@ def validate_measurement_records_against_schema(
         if variable.role == "observable"
     }
     for variable in schema.variables:
-        if variable.role not in {"coordinate", "observable"}:
-            problems.append(
-                _problem(
-                    "measurement_dataset_unsupported_variable_role",
-                    "measurement records support coordinate and observable "
-                    f"variables only, got {variable.role} for {variable.id}",
-                    ("dataset_schema", "variables", variable.id, "role"),
-                )
-            )
-        if variable.role != "coordinate" and variable.dtype in {"bool", "string"}:
+        if variable.role == "observable" and variable.dtype in {"bool", "string"}:
             problems.append(
                 _problem(
                     "measurement_dataset_unsupported_dtype",
@@ -580,106 +464,18 @@ def _problem(
     message: str,
     path: tuple[str | int, ...],
 ) -> Problem:
-    return blocking_problem(
+    return problem(
         code,
         message,
-        category=ProblemCategory.DATA_INTEGRITY,
         phase=ProblemPhase.ANALYSIS,
         location=model_location("measurement_dataset", *path),
     )
-
-
-def _values_by_id[T](
-    *,
-    records: Sequence[MeasurementRecord],
-    select: Callable[[MeasurementRecord], Mapping[str, T]],
-) -> dict[str, list[T]]:
-    values_by_id: dict[str, list[T]] = {}
-    for record in records:
-        values = select(record)
-        for variable_id, value in values.items():
-            values_by_id.setdefault(variable_id, []).append(value)
-    return values_by_id
-
-
-def _measurement_variable(
-    *,
-    variable_id: str,
-    role: Literal["coordinate", "observable"],
-    values: Sequence[MeasurementValue | CoordinateValue],
-    dimension_id: str,
-    shape: list[int],
-) -> tuple[MeasurementVariable, list[MeasurementDimension]]:
-    units = _measurement_value_units(values)
-    unit: str | None = None
-    unit_policy: Literal["uniform", "per_record"] = "uniform"
-    allowed_units: list[str] = []
-    if len(units) == 1:
-        unit = units[0]
-    elif units:
-        unit_policy = "per_record"
-        allowed_units = list(units)
-    dtype = _common_dtype(values)
-    value_shape = _common_value_shape(values)
-    dimensions: list[MeasurementDimension] = []
-    dims = [dimension_id]
-    variable_shape = list(shape)
-    if role == "observable" and value_shape:
-        for index, size in enumerate(value_shape):
-            array_dimension_id = f"{variable_id}_dim_{index}"
-            dims.append(array_dimension_id)
-            variable_shape.append(size)
-            dimensions.append(
-                MeasurementDimension(
-                    id=array_dimension_id,
-                    kind="array",
-                    size=size,
-                )
-            )
-    return MeasurementVariable(
-        id=variable_id,
-        role=role,
-        dtype=dtype,
-        unit=unit,
-        unit_policy=unit_policy,
-        allowed_units=allowed_units,
-        dims=dims,
-        shape=variable_shape,
-    ), dimensions
-
-
-def _measurement_value_units(
-    values: Sequence[MeasurementValue | CoordinateValue],
-) -> tuple[str, ...]:
-    units: list[str] = []
-    for value in values:
-        unit = _measurement_value_unit(value)
-        if unit is not None and unit not in units:
-            units.append(unit)
-    return tuple(units)
 
 
 def _measurement_value_unit(value: MeasurementValue | CoordinateValue) -> str | None:
     if isinstance(value, Quantity | ComplexQuantity | MeasurementArray):
         return value.unit
     return None
-
-
-def _common_dtype(
-    values: Sequence[MeasurementValue | CoordinateValue],
-) -> MeasurementDType:
-    dtypes: list[MeasurementDType] = []
-    for value in values:
-        dtype = _measurement_value_dtype(value)
-        if dtype not in dtypes:
-            dtypes.append(dtype)
-    if dtypes == ["int64"]:
-        return "int64"
-    if "complex128" in dtypes:
-        return "complex128"
-    if all(dtype in {"float64", "int64"} for dtype in dtypes):
-        return "float64"
-    return dtypes[0] if dtypes else "float64"
 
 
 def _measurement_value_dtype(
@@ -709,17 +505,6 @@ def _dtype_compatible(
     if dtype == "int64" and isinstance(value, Quantity):
         return int(value.value) == value.value
     return False
-
-
-def _common_value_shape(
-    values: Sequence[MeasurementValue | CoordinateValue],
-) -> list[int]:
-    shapes: list[list[int]] = []
-    for value in values:
-        shape = _measurement_value_shape(value)
-        if shape not in shapes:
-            shapes.append(shape)
-    return shapes[0] if len(shapes) == 1 else []
 
 
 def _measurement_value_shape(value: MeasurementValue | CoordinateValue) -> list[int]:

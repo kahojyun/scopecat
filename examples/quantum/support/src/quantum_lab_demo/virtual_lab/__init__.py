@@ -3,7 +3,6 @@
 from quantum_lab_demo.virtual_lab.models import (
     VirtualDeviceProfile,
     VirtualLabProfile,
-    VirtualResponseProfile,
 )
 from quantum_lab_demo.virtual_lab.parameters import (
     CZ_AMPLITUDE_PARAMETER_COLUMN,
@@ -11,11 +10,9 @@ from quantum_lab_demo.virtual_lab.parameters import (
     QUBIT_PARAMETER_TABLE,
     TWO_QUBIT_GATE_PARAMETER_TABLE,
     q0_drag_beta_lookup,
-    q0_drag_beta_row,
     q0_parameter_key,
     q0_q1_cz_amplitude_lookup,
     q0_q1_cz_parameter_key,
-    q0_q1_cz_row,
 )
 from quantum_lab_demo.virtual_lab.profiles import (
     VirtualLabProfileInput,
@@ -52,16 +49,13 @@ __all__ = [
     "VirtualDeviceProfile",
     "VirtualLabProfile",
     "VirtualLabProfileInput",
-    "VirtualResponseProfile",
     "compile_quantum_wiring_system",
     "default_quantum_wiring",
     "load_virtual_lab_profile",
     "q0_drag_beta_lookup",
-    "q0_drag_beta_row",
     "q0_parameter_key",
     "q0_q1_cz_amplitude_lookup",
     "q0_q1_cz_parameter_key",
-    "q0_q1_cz_row",
     "quantum_wiring",
     "quantum_wiring_config_profile",
 ]

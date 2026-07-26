@@ -1,7 +1,7 @@
 """Exception boundaries for expected Scopecat operation failures.
 
-``ProblemFailure`` turns one or more structured findings, including at least
-one blocking problem, into Python control flow at an operation boundary.
+``ProblemFailure`` turns one or more structured findings into Python control
+flow at an operation boundary.
 Programming errors and violated internal invariants are not normalized into
 expected problems. External-effect uncertainty retains its execution context
 rather than pretending to be an ordinary validation failure or safely retryable
@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Literal, Protocol
 
-from scopecat.kernel.problems import Problem, ProblemImpact
+from scopecat.kernel.problems import Problem
 from scopecat.records.run import RunCertainty, RunOutcome
 
 
@@ -22,15 +22,12 @@ class ScopecatError(Exception):
 
 
 class ProblemFailure(ScopecatError):
-    """Base for expected failures described by structured blocking problems."""
+    """Base for expected failures described by structured problems."""
 
     def __init__(self, problems: Sequence[Problem]) -> None:
         selected = tuple(problems)
         if not selected:
             msg = "problem failure requires at least one problem"
-            raise ValueError(msg)
-        if not any(problem.impact is ProblemImpact.BLOCKING for problem in selected):
-            msg = "problem failure requires at least one blocking problem"
             raise ValueError(msg)
         self.problems = selected
         summary = "; ".join(
@@ -103,9 +100,6 @@ class RunIndeterminate(RunFailure):
         super().__init__(run_id=run_id, outcome=outcome)
 
 
-DomainRuntimeRetry = Literal["safe", "not_retryable"]
-
-
 class MeasurementDatasetReceiptEvidence(Protocol):
     """Runtime-resolvable boundary for one durable dataset receipt."""
 
@@ -120,7 +114,7 @@ class MeasurementDatasetReceiptEvidence(Protocol):
 
 
 class MeasurementRecordingError(StorageError):
-    """A projected record write or its journal evidence did not complete cleanly."""
+    """A projected record write or its ledger evidence did not complete cleanly."""
 
     def __init__(
         self,
@@ -165,33 +159,27 @@ class DomainRuntimeFailure(OperationFailure):
         invocation_id: str,
         submission_key: str,
         phase: Literal["submit", "fetch"],
-        retry: DomainRuntimeRetry,
-        operator_action: str,
+        certainty: RunCertainty,
         job_id: str | None = None,
     ) -> None:
         if not run_id or not operation_id or not invocation_id or not submission_key:
             msg = "domain runtime failure identity fields must be non-empty"
-            raise ValueError(msg)
-        if not operator_action:
-            msg = "domain runtime failure requires operator guidance"
             raise ValueError(msg)
         if job_id is not None and not job_id:
             msg = "domain runtime failure job_id must be non-empty when present"
             raise ValueError(msg)
         self.run_id = run_id
         self.operation_id = operation_id
-        self.attempt = 1
         self.invocation_id = invocation_id
         self.submission_key = submission_key
         self.phase = phase
-        self.retry = retry
-        self.reconciliation = operator_action
+        self.certainty = certainty
         self.job_id = job_id
         super().__init__(problems)
 
 
 class DomainSubmissionIndeterminate(DomainRuntimeFailure):
-    """Submission may have reached the target and must be reconciled."""
+    """Submission may have reached the target, so its outcome is indeterminate."""
 
     def __init__(
         self,
@@ -210,8 +198,7 @@ class DomainSubmissionIndeterminate(DomainRuntimeFailure):
             invocation_id=invocation_id,
             submission_key=submission_key,
             phase="submit",
-            retry="not_retryable",
-            operator_action="inspect the target using the retained submission key",
+            certainty="indeterminate",
             job_id=job_id,
         )
 
@@ -235,8 +222,7 @@ class DomainSubmissionFailed(DomainRuntimeFailure):
             invocation_id=invocation_id,
             submission_key=submission_key,
             phase="submit",
-            retry="safe",
-            operator_action="correct the rejected request before starting another run",
+            certainty="known",
         )
 
 
@@ -254,7 +240,6 @@ class DomainFetchFailed(DomainRuntimeFailure):
         job_id: str,
         certainty: RunCertainty,
     ) -> None:
-        self.certainty = certainty
         super().__init__(
             problems,
             run_id=run_id,
@@ -262,14 +247,13 @@ class DomainFetchFailed(DomainRuntimeFailure):
             invocation_id=invocation_id,
             submission_key=submission_key,
             phase="fetch",
-            retry="safe",
-            operator_action="inspect the retained target job",
+            certainty=certainty,
             job_id=job_id,
         )
 
 
 class DomainRuntimePersistenceError(StorageError):
-    """Domain effect intent or receipt evidence could not be journaled."""
+    """Domain effect intent or receipt evidence could not enter the ledger."""
 
     def __init__(
         self,
@@ -297,12 +281,9 @@ class DomainRuntimePersistenceError(StorageError):
             raise ValueError(msg)
         self.run_id = run_id
         self.operation_id = operation_id
-        self.attempt = 1
         self.invocation_id = invocation_id
         self.submission_key = submission_key
         self.phase = phase
-        self.retry: DomainRuntimeRetry = "not_retryable"
         self.certainty = certainty
-        self.reconciliation = "inspect durable journal and target state"
         self.job_id = job_id
         super().__init__(problems)

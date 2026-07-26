@@ -6,13 +6,11 @@ import pytest
 
 import scopecat as sc
 from scopecat.compiler.linking.linked import (
-    LinkedPointMaterializer,
-    link_verified_program,
+    materialize_linked_points,
 )
 from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.program import core_domain_executions
 from scopecat.kernel.errors import ProviderContractError
-from scopecat.planning.authoring import resolve_experiment
 from scopecat.records.parameter import Quantity
 from scopecat.sdk.domain import (
     DomainBatchContext,
@@ -21,7 +19,7 @@ from scopecat.sdk.domain import (
 )
 from scopecat.sdk.domain._bridge import (
     make_domain_batch_context,
-    make_domain_compile_request,
+    make_domain_compile_template,
 )
 from scopecat.sdk.domain.execution import PreparedDomainExecution
 from scopecat.sdk.domain.invocation import DomainOutputValue, seal_domain_output_values
@@ -42,7 +40,7 @@ from scopecat.sdk.domain.runtime import (
     DomainSubmitReceipt,
     DomainSubmitRequest,
 )
-from tests.testkit.authoring import load_config
+from tests.testkit.authoring import link_invocation, load_config
 
 type _ResultBinding = DomainResultBinding[str]
 
@@ -86,7 +84,6 @@ def _preparation_context(
         semantic=MeasurementTransformSemanticContract(
             id="test.summarize",
             version="1",
-            portability="host_only",
         ),
         inputs={"raw": "raw"},
         outputs={"summary": "summary"},
@@ -95,14 +92,13 @@ def _preparation_context(
         sc.module_body(id=f"test.sdk.preparation.{namespace}")
         .product("raw", "summary", unit="count", dtype="int64")
         .measurement_transforms(transform)
-        .build()
     )
     execution = sc.domain_execution(
         program,
         inputs={"count": count},
         results={"raw": module.products["raw"]},
     )
-    module_call = module.domain(execution)()
+    module_call = module.domain(execution).build()()
     body = sc.experiment(module_call).scan(count, (1, 3))
     if shared_product_uses:
         body = body.record_product(
@@ -124,28 +120,28 @@ def _preparation_context(
         id=f"test.sdk.preparation.{namespace}",
         kind="domain_preparation",
     )(lambda: body)
-    resolved = resolve_experiment(
+    resolved = link_invocation(
         selected.bind(),
         config_profile=load_config(),
     )
-    linked = link_verified_program(resolved.verified_program, resolved.environment)
-    materializer = LinkedPointMaterializer(linked)
-    linked_points = materializer.materialize()
+    linked = resolved
+    linked_points = materialize_linked_points(linked)
     execution_id = core_domain_executions(linked.program)[0].id
     closure = domain_result_closure(linked.program, execution_id)
-    request = make_domain_compile_request(
+    request = make_domain_compile_template(
         linked,
         execution_id,
         closure,
+    ).bind_coverage(
         ((0, 1),),
-        lambda input_ids, ordinals, max_points: materializer.bind_domain_inputs(
+        lambda input_ids, ordinals, max_points: linked_points.bind_domain_inputs(
             execution_id,
             "program",
             input_ids,
             ordinals,
             max_points=max_points,
         ),
-        lambda input_ids, ordinals, max_points: materializer.bind_domain_inputs(
+        lambda input_ids, ordinals, max_points: linked_points.bind_domain_inputs(
             execution_id,
             "compiler",
             input_ids,
@@ -186,7 +182,6 @@ def test_map_measurements_closes_exact_direct_product_cover(
 
     assert isinstance(mapping, DomainResultMapping)
     assert mapping.context is context
-    assert mapping.product_uses == context.direct_product_uses
     assert len(context.product_uses) == 3
     assert len(context.direct_product_uses) == 2
     assert tuple(result.point for result in mapping.results) == context.points
@@ -205,8 +200,6 @@ def test_map_measurements_closes_exact_direct_product_cover(
                 strict=True,
             )
         )
-        assert mapping.result_for_address(result.result_address) is result
-        assert mapping.result_for(point, context.direct_product_uses[0]) is result
 
     non_direct_use = next(
         product_use
@@ -285,24 +278,6 @@ def test_map_measurements_rejects_foreign_point_and_product_use(
         preparation.map_measurements(results=foreign_results)
 
 
-def test_public_mapping_lookups_require_exact_context_refs(tmp_path: Path) -> None:
-    context = _preparation_context(tmp_path, namespace="lookup")
-    foreign = _preparation_context(tmp_path, namespace="lookup")
-    results = _valid_mapping_inputs(context)
-    mapping = context.new_preparation().map_measurements(
-        results=tuple(reversed(results)),
-    )
-
-    assert tuple(result.point for result in mapping.results) == context.points
-
-    with pytest.raises(KeyError, match="result address"):
-        mapping.result_for_address("unknown-result")
-    with pytest.raises(KeyError, match="logical output is not in"):
-        mapping.result_for(foreign.points[0], context.direct_product_uses[0])
-    with pytest.raises(KeyError, match="logical output is not in"):
-        mapping.result_for(context.points[0], foreign.direct_product_uses[0])
-
-
 def test_map_measurements_rejects_missing_and_duplicate_logical_output(
     tmp_path: Path,
 ) -> None:
@@ -360,16 +335,12 @@ def test_map_measurements_fans_one_physical_result_out_to_two_uses_of_product(
 
     mapping = preparation.map_measurements(results=results)
     assert mapping.context is context
-    assert mapping.product_uses == context.direct_product_uses
-    for point in context.points:
-        first = mapping.result_for(point, context.direct_product_uses[0])
-        second = mapping.result_for(point, context.direct_product_uses[1])
-        assert first is second
-        assert first.point is point
+    for result, point in zip(mapping.results, context.points, strict=True):
+        assert result.point is point
         assert all(
             actual is expected
             for actual, expected in zip(
-                first.product_uses,
+                result.product_uses,
                 context.direct_product_uses,
                 strict=True,
             )
@@ -390,7 +361,6 @@ def test_measurement_plan_and_build_close_the_complete_public_sdk_declaration(
             id="test.summarize.python",
             semantic_id=transform.semantic.id,
             semantic_version=transform.semantic.version,
-            implementation_fingerprint="test.summarize.python.v1",
             validate_transform=lambda _candidate: None,
             kernel=lambda call: {
                 "summary": tuple(

@@ -15,14 +15,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
-from scopecat_quantum import (
-    AcquisitionKind,
+from scopecat_quantum._ids import (
     AcquisitionSlotId,
-    CompiledTargetArtifact,
-    TargetAcquisitionAddress,
     TargetArtifactId,
     TargetCompileEntryId,
 )
+from scopecat_quantum.targets import CompiledTargetArtifact, TargetAcquisitionAddress
 
 from quantum_lab_demo.targets.fake_list_mode.model import (
     FakeAcquisitionWindow,
@@ -34,7 +32,7 @@ from quantum_lab_demo.targets.fake_list_mode.model import (
     signal_key,
 )
 
-type FakeDigitizerValue = complex | tuple[complex, ...]
+type FakeDigitizerValue = complex
 
 
 def _require_non_negative_int(value: int, *, field_name: str) -> None:
@@ -129,7 +127,6 @@ class FakeDigitizerFrame:
     entry_id: TargetCompileEntryId
     slot_id: AcquisitionSlotId
     channel_id: FakeDigitizerChannelId
-    kind: AcquisitionKind
     value: FakeDigitizerValue
 
     def __post_init__(self) -> None:
@@ -144,23 +141,9 @@ class FakeDigitizerFrame:
                 field_name=f"digitizer {field_name}",
             )
 
-        value = self.value
-        if self.kind is AcquisitionKind.INTEGRATED_IQ:
-            if not isinstance(value, complex) or not _is_finite_complex(value):
-                msg = "integrated-IQ frames require one finite complex value"
-                raise TypeError(msg)
-            return
-        if self.kind is AcquisitionKind.RAW_TRACE:
-            if (
-                not isinstance(value, tuple)
-                or not value
-                or not all(_is_finite_complex(sample) for sample in value)
-            ):
-                msg = "raw-trace frames require a non-empty tuple of complex samples"
-                raise TypeError(msg)
-            return
-        msg = f"unsupported acquisition kind: {self.kind!r}"
-        raise ValueError(msg)
+        if not isinstance(self.value, complex) or not _is_finite_complex(self.value):
+            msg = "integrated-IQ frames require one finite complex value"
+            raise TypeError(msg)
 
     @property
     def address(self) -> TargetAcquisitionAddress:
@@ -184,66 +167,6 @@ class FakeListRun:
         default_factory=DeterministicFakeAcquisitionResponse
     )
 
-    def __post_init__(self) -> None:
-        if not self.playbacks:
-            msg = "fake list runs require at least one AWG playback"
-            raise ValueError(msg)
-
-        selected_playbacks = self.playbacks
-        selected_frames = self.frames
-        if tuple(frame.frame_index for frame in selected_frames) != tuple(
-            range(len(selected_frames))
-        ):
-            msg = "fake digitizer frame indices must be contiguous and ordered"
-            raise ValueError(msg)
-
-        playback_addresses = {
-            (playback.shot_index, playback.list_index, playback.entry_id)
-            for playback in selected_playbacks
-        }
-        if len(playback_addresses) != len(selected_playbacks):
-            msg = "fake list run playback addresses must be unique"
-            raise ValueError(msg)
-        if any(
-            (frame.shot_index, frame.list_index, frame.entry_id)
-            not in playback_addresses
-            for frame in selected_frames
-        ):
-            msg = "fake digitizer frames must reference a run playback"
-            raise ValueError(msg)
-        frame_addresses = {
-            (
-                frame.shot_index,
-                frame.list_index,
-                frame.entry_id,
-                frame.segment_index,
-                frame.slot_id,
-            )
-            for frame in selected_frames
-        }
-        if len(frame_addresses) != len(selected_frames):
-            msg = "fake digitizer frame addresses must be unique"
-            raise ValueError(msg)
-
-        response = _validated_response(self.response)
-        _validate_artifact(self.artifact)
-        resolved = _resolve_playbacks(self.artifact, selected_playbacks)
-        _validate_frame_coverage(
-            resolved=resolved,
-            frames=selected_frames,
-            response=response,
-        )
-        _require_text(self.fingerprint, field_name="run fingerprint")
-        expected_fingerprint = _run_fingerprint(
-            artifact=self.artifact,
-            playbacks=selected_playbacks,
-            frames=selected_frames,
-            response=response,
-        )
-        if self.fingerprint != expected_fingerprint:
-            msg = "fake list run fingerprint does not cover its artifact and frames"
-            raise ValueError(msg)
-
     @property
     def artifact_id(self) -> TargetArtifactId:
         return self.artifact.id
@@ -254,7 +177,6 @@ class FakeListAwg:
     """Stateless fake AWG that loops the complete list for every shot."""
 
     def play(self, artifact: FakeListArtifact) -> tuple[FakeAwgPlayback, ...]:
-        _validate_artifact(artifact)
         return tuple(
             FakeAwgPlayback(
                 shot_index=shot_index,
@@ -283,7 +205,6 @@ class FakeSegmentedDigitizer:
         artifact: FakeListArtifact,
         playbacks: tuple[FakeAwgPlayback, ...],
     ) -> tuple[FakeDigitizerFrame, ...]:
-        _validate_artifact(artifact)
         resolved = _resolve_playbacks(artifact, playbacks)
         frames: list[FakeDigitizerFrame] = []
         for playback, entry in resolved:
@@ -297,7 +218,6 @@ class FakeSegmentedDigitizer:
                         entry_id=playback.entry_id,
                         slot_id=window.slot_id,
                         channel_id=window.channel_id,
-                        kind=window.kind,
                         value=self.response.value_for(
                             playback=playback,
                             window=window,
@@ -318,7 +238,7 @@ class FakeListRuntime:
         self,
         compiled: CompiledTargetArtifact[FakeListArtifact],
     ) -> FakeListRun:
-        artifact = _verified_fake_artifact(compiled)
+        artifact = compiled.artifact
         playbacks = self.awg.play(artifact)
         frames = self.digitizer.capture(artifact, playbacks)
         return FakeListRun(
@@ -333,78 +253,6 @@ class FakeListRuntime:
                 response=self.digitizer.response,
             ),
         )
-
-
-def _verified_fake_artifact(
-    compiled: CompiledTargetArtifact[FakeListArtifact],
-) -> FakeListArtifact:
-    artifact = compiled.artifact
-
-    mismatches: list[str] = []
-    if compiled.artifact_id != artifact.id:
-        mismatches.append("artifact id")
-    if compiled.target_id != artifact.target_id:
-        mismatches.append("target id")
-    if compiled.compiler_id != artifact.compiler_id:
-        mismatches.append("compiler id")
-    if compiled.capability_fingerprint != artifact.capability_fingerprint:
-        mismatches.append("capability fingerprint")
-    if compiled.artifact_fingerprint != artifact.artifact_fingerprint:
-        mismatches.append("artifact fingerprint")
-    if compiled.source_entry_ids != artifact.source_entry_ids:
-        mismatches.append("source entry coverage")
-    if compiled.repetitions != artifact.repetitions:
-        mismatches.append("repetitions")
-    if mismatches:
-        msg = "compiled fake artifact correlation mismatch: " + ", ".join(mismatches)
-        raise ValueError(msg)
-    _validate_artifact(artifact)
-    return artifact
-
-
-def _validate_artifact(artifact: FakeListArtifact) -> None:
-    if not artifact.entries:
-        msg = "fake list artifacts require at least one entry at runtime"
-        raise ValueError(msg)
-    if tuple(entry.list_index for entry in artifact.entries) != tuple(
-        range(len(artifact.entries))
-    ):
-        msg = "fake list artifact indices are not contiguous and ordered"
-        raise ValueError(msg)
-    if tuple(entry.entry_id for entry in artifact.entries) != artifact.source_entry_ids:
-        msg = "fake list artifact entry coverage does not match source_entry_ids"
-        raise ValueError(msg)
-    if artifact.repetitions <= 0:
-        msg = "fake list artifact repetitions must be positive"
-        raise ValueError(msg)
-    if artifact.sample_rate_hz <= 0:
-        msg = "fake list artifact sample_rate_hz must be positive"
-        raise ValueError(msg)
-
-    for entry in artifact.entries:
-        if entry.sample_count <= 0:
-            msg = f"fake list entry {entry.entry_id.value!r} has no samples"
-            raise ValueError(msg)
-        for waveform in entry.waveforms:
-            if len(waveform.samples) != entry.sample_count:
-                msg = (
-                    f"fake list entry {entry.entry_id.value!r} has a malformed "
-                    "waveform buffer"
-                )
-                raise ValueError(msg)
-            if any(not _is_finite_complex(sample) for sample in waveform.samples):
-                msg = (
-                    f"fake list entry {entry.entry_id.value!r} has non-finite "
-                    "waveform samples"
-                )
-                raise ValueError(msg)
-        for window in entry.acquisitions:
-            if window.start_sample + window.sample_count > entry.sample_count:
-                msg = (
-                    f"fake list entry {entry.entry_id.value!r} has an acquisition "
-                    "window outside its sample buffer"
-                )
-                raise ValueError(msg)
 
 
 def _waveform_fingerprint(entry: FakeListEntry) -> str:
@@ -473,45 +321,6 @@ def _resolve_playbacks(
     return tuple(resolved)
 
 
-def _validate_frame_coverage(
-    *,
-    resolved: tuple[tuple[FakeAwgPlayback, FakeListEntry], ...],
-    frames: tuple[FakeDigitizerFrame, ...],
-    response: FakeAcquisitionResponse,
-) -> None:
-    expected = tuple(
-        (playback, entry, segment_index, window)
-        for playback, entry in resolved
-        for segment_index, window in enumerate(entry.acquisitions)
-    )
-    if len(frames) != len(expected):
-        msg = "fake digitizer frames do not exactly cover artifact acquisition windows"
-        raise ValueError(msg)
-    for frame_index, (frame, expected_item) in enumerate(
-        zip(frames, expected, strict=True)
-    ):
-        playback, entry, segment_index, window = expected_item
-        if (
-            frame.frame_index != frame_index
-            or frame.segment_index != segment_index
-            or frame.shot_index != playback.shot_index
-            or frame.list_index != entry.list_index
-            or frame.entry_id != entry.entry_id
-            or frame.slot_id != window.slot_id
-            or frame.channel_id != window.channel_id
-            or frame.kind is not window.kind
-        ):
-            msg = "fake digitizer frame does not match its artifact acquisition window"
-            raise ValueError(msg)
-        expected_value = response.value_for(
-            playback=playback,
-            window=window,
-        )
-        if frame.value != expected_value:
-            msg = "fake digitizer frame value does not match its logical address"
-            raise ValueError(msg)
-
-
 def _capture_value(
     *,
     playback: FakeAwgPlayback,
@@ -525,17 +334,8 @@ def _capture_value(
         "channel_id": window.channel_id.value,
         "start_sample": window.start_sample,
         "sample_count": window.sample_count,
-        "kind": window.kind.value,
     }
-    if window.kind is AcquisitionKind.INTEGRATED_IQ:
-        return _deterministic_complex(address=address, sample_index=None)
-    if window.kind is AcquisitionKind.RAW_TRACE:
-        return tuple(
-            _deterministic_complex(address=address, sample_index=sample_index)
-            for sample_index in range(window.sample_count)
-        )
-    msg = f"unsupported acquisition kind: {window.kind!r}"
-    raise ValueError(msg)
+    return _deterministic_complex(address=address)
 
 
 def _validated_response(response: object) -> FakeAcquisitionResponse:
@@ -549,10 +349,9 @@ def _validated_response(response: object) -> FakeAcquisitionResponse:
 def _deterministic_complex(
     *,
     address: Mapping[str, object],
-    sample_index: int | None,
 ) -> complex:
     encoded = json.dumps(
-        {**address, "sample_index": sample_index},
+        address,
         allow_nan=False,
         ensure_ascii=True,
         separators=(",", ":"),
@@ -596,7 +395,6 @@ def _run_fingerprint(
                     "entry_id": frame.entry_id.value,
                     "slot_id": acquisition_slot_identity_payload(frame.slot_id),
                     "channel_id": frame.channel_id.value,
-                    "kind": frame.kind.value,
                     "value": _value_payload(frame.value),
                 }
                 for frame in frames
@@ -606,10 +404,6 @@ def _run_fingerprint(
 
 
 def _value_payload(value: FakeDigitizerValue) -> object:
-    if isinstance(value, tuple):
-        return [
-            [float(sample.real).hex(), float(sample.imag).hex()] for sample in value
-        ]
     return [float(value.real).hex(), float(value.imag).hex()]
 
 

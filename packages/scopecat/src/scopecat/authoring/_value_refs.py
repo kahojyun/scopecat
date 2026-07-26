@@ -27,6 +27,7 @@ from scopecat.compiler.relations.analysis import (
 )
 from scopecat.compiler.relations.model import (
     BinaryScalarExpr,
+    ParameterLookupUse,
     RelationExpr,
     RowScopeId,
     ScalarExpr,
@@ -38,6 +39,7 @@ from scopecat.compiler.relations.model import (
     input_series,
     input_table,
     lit,
+    parameter_lookup,
     point_col,
 )
 from scopecat.compiler.relations.operators import (
@@ -58,7 +60,6 @@ from scopecat.kernel.value_type_compatibility import (
     literal_scalar_type as _literal_scalar_type,
 )
 from scopecat.kernel.value_types import (
-    Bool,
     Entity,
     Scalar,
     Series,
@@ -84,6 +85,12 @@ type FrozenScalarLiteral = (
     Quantity | EntityRef | PayloadValue | str | int | float | bool | None
 )
 type ScalarOperationOperand = ValueRef | FrozenScalarLiteral
+
+
+@dataclass(frozen=True, slots=True)
+class _ParameterLookupDescriptor:
+    use: ParameterLookupUse
+    key: tuple[tuple[str, ScalarOperationOperand], ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -260,6 +267,11 @@ class ValueRef:
     declaration_scope: tuple[str, ...] = ()
     parameter_contracts: tuple[ParameterContract, ...] = ()
     point_dependencies: tuple[PointValueDependency, ...] = ()
+    parameter_lookup_descriptor: _ParameterLookupDescriptor | None = field(
+        default=None,
+        compare=False,
+        repr=False,
+    )
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -372,53 +384,6 @@ class ValueRef:
             ),
             parameter_contracts=self.parameter_contracts,
             point_dependencies=self.point_dependencies,
-        )
-
-    def filter(self, predicate: Callable[[TableRow], ValueRef]) -> ValueRef:
-        """Filter rows using a schema-bound typed predicate callback."""
-
-        table_type = _require_table_type(self, operation="filter")
-        declaration_key = ValueDeclarationKey.fresh()
-        row = TableRow(
-            self,
-            scope_id=RowScopeId(SymbolId(local_id=f"row_{declaration_key.value.hex}")),
-        )
-        condition = cast(
-            "object",
-            predicate(row),
-        )
-        if not isinstance(condition, ValueRef):
-            msg = "filter callback must return a typed value"
-            raise TypeError(msg)
-        condition_type = condition.value_type
-        if not isinstance(condition_type, Scalar) or not isinstance(
-            condition_type.atom, Bool
-        ):
-            msg = "filter callback must return a bool scalar"
-            raise TypeError(msg)
-        expression = internal_lower_table_value_ref(self).filter(
-            internal_lower_scalar_value_ref(condition),
-            row_scope_id=row.scope_id,
-        )
-        verify_plan_scopes(expression)
-        return internal_value_ref_from_expression(
-            expression,
-            Table(
-                columns=table_type.columns,
-                primary_key=table_type.primary_key,
-                min_rows=0,
-                max_rows=table_type.max_rows,
-                allow_extra_columns=table_type.allow_extra_columns,
-            ),
-            parameter_contracts=merge_parameter_contracts(
-                self.parameter_contracts,
-                internal_value_ref_parameter_contracts(condition),
-            ),
-            point_dependencies=_merge_point_dependencies(
-                self.point_dependencies,
-                internal_value_ref_point_dependencies(condition),
-            ),
-            declaration_key=declaration_key,
         )
 
     def with_columns(
@@ -541,14 +506,6 @@ class ValueRef:
         )
 
 
-def _require_table_type(value: ValueRef, *, operation: str) -> Table:
-    value_type = value.value_type
-    if not isinstance(value_type, Table):
-        msg = f"{operation} requires table values"
-        raise TypeError(msg)
-    return value_type
-
-
 def internal_input_value_ref(input_id: str, value_type: ValueType) -> ValueRef:
     return ValueRef(
         source=_InputValueSource(id=input_id),
@@ -587,6 +544,57 @@ def internal_point_value_ref(point_id: str, value_type: Scalar) -> ValueRef:
         value_type=value_type,
         point_dependencies=point_dependencies,
     )
+
+
+def internal_parameter_lookup_value_ref(
+    use: ParameterLookupUse,
+    *,
+    key: Mapping[str, ScalarOperationOperand],
+) -> ValueRef:
+    """Create a direct parameter-cell reference retained by parameter scans."""
+
+    captured_key = tuple(key.items())
+    expression_key = {
+        name: (
+            internal_lower_scalar_value_ref(value)
+            if isinstance(value, ValueRef)
+            else value
+        )
+        for name, value in captured_key
+    }
+    return ValueRef(
+        source=_ExpressionValueSource(
+            expression=parameter_lookup(use, key=expression_key),
+        ),
+        value_type=use.result_type,
+        parameter_contracts=merge_parameter_contracts(
+            (use,),
+            *(
+                internal_value_ref_parameter_contracts(value)
+                for _name, value in captured_key
+                if isinstance(value, ValueRef)
+            ),
+        ),
+        point_dependencies=_merge_point_dependencies(
+            *(
+                internal_value_ref_point_dependencies(value)
+                for _name, value in captured_key
+                if isinstance(value, ValueRef)
+            ),
+        ),
+        parameter_lookup_descriptor=_ParameterLookupDescriptor(use, captured_key),
+    )
+
+
+def internal_value_ref_parameter_lookup(
+    value: ValueRef,
+) -> tuple[ParameterLookupUse, tuple[tuple[str, ScalarOperationOperand], ...]] | None:
+    """Return the cell locator only for a direct parameter lookup."""
+
+    descriptor = value.parameter_lookup_descriptor
+    if descriptor is None:
+        return None
+    return descriptor.use, descriptor.key
 
 
 def internal_module_export_value_ref(
@@ -654,27 +662,6 @@ def internal_value_ref_operation_origin(value: ValueRef) -> tuple[object, ...]:
     return source.origin if isinstance(source, _ComputeValueSource) else ()
 
 
-def internal_value_ref_expression(value: ValueRef) -> _ValueExpression | None:
-    source = value.source
-    return source.expression if isinstance(source, _ExpressionValueSource) else None
-
-
-def internal_value_ref_source_kind(value: ValueRef) -> str:
-    source = value.source
-    if isinstance(source, _InputValueSource):
-        return "input"
-    if isinstance(source, _ComputeValueSource):
-        return "compute"
-    if isinstance(source, _PointValueSource):
-        return "point"
-    if isinstance(source, _ExpressionValueSource):
-        return "expression"
-    if isinstance(source, _ModuleExportSource):
-        return "module_export"
-    assert isinstance(source, _ScalarOperationValueSource)  # noqa: S101
-    return "scalar_operation"
-
-
 def internal_value_ref_module_export(
     value: ValueRef,
 ) -> tuple[InvocationKey, str] | None:
@@ -684,12 +671,6 @@ def internal_value_ref_module_export(
     if not isinstance(source, _ModuleExportSource):
         return None
     return source.invocation_key, source.export_id
-
-
-def internal_value_ref_has_module_export(value: ValueRef) -> bool:
-    """Return whether an export use occurs anywhere in a typed value edge."""
-
-    return _first_module_export(value, seen=frozenset()) is not None
 
 
 def internal_require_resolved_value_ref(
@@ -1056,7 +1037,7 @@ def _value_ref_requires_execution(
 
 
 def internal_value_ref_is_row_dependent(value: ValueRef) -> bool:
-    """Return whether a value is lexically bound by a row region."""
+    """Return whether a value is lexically bound by a row scope."""
 
     return _value_ref_is_row_dependent(value, seen=frozenset())
 
@@ -1096,7 +1077,7 @@ def internal_lower_value_ref(value: ValueRef) -> _ValueExpression | ComputeResul
     source = value.source
     if isinstance(source, _ComputeValueSource):
         operation_id = OperationId(source.operation_id)
-        return ComputeResultRef(value_id=operation_result_id(operation_id, "result"))
+        return ComputeResultRef(value_id=operation_result_id(operation_id))
     if isinstance(source, _ModuleExportSource):
         msg = (
             f"cannot lower unresolved module export {source.export_id!r}; "
@@ -1418,11 +1399,11 @@ def _capture_scalar_operation_operand(value: object) -> ScalarOperationOperand:
         return value
     if isinstance(value, PayloadValue):
         return value
-    from scopecat.authoring._frozen_values import freeze_runtime_input
+    from scopecat.authoring._frozen_values import capture_runtime_input
 
     try:
-        captured = freeze_runtime_input(value)
-    except AssertionError as error:
+        captured = capture_runtime_input(value)
+    except TypeError as error:
         msg = "scalar operations require typed values or closed scalar literals"
         raise TypeError(msg) from error
     return cast("FrozenScalarLiteral", captured)

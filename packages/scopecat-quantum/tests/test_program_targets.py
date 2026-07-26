@@ -17,10 +17,6 @@ from scopecat_quantum._ids import (
     TargetId,
 )
 from scopecat_quantum.acquisitions import AcquisitionKind
-from scopecat_quantum.circuit_pulses import (
-    CircuitPulseAcquisitionProvenance,
-    CircuitPulseEventProvenance,
-)
 from scopecat_quantum.circuits import Measure
 from scopecat_quantum.gates import GateCall, GateDefinition
 from scopecat_quantum.measurement_implementations import (
@@ -38,6 +34,8 @@ from scopecat_quantum.program_targets import (
 from scopecat_quantum.programs import (
     AuthoredPulseAcquisitionProvenance,
     AuthoredPulseEventProvenance,
+    CircuitPulseAcquisitionProvenance,
+    CircuitPulseEventProvenance,
     ImplementedGate,
     ImplementedGatePulseEventProvenance,
     LoweredQuantumPulseProgram,
@@ -67,7 +65,6 @@ from scopecat_quantum.pulses import (
 from scopecat_quantum.pulses import Parallel as PulseParallel
 from scopecat_quantum.targets import (
     TargetAcquisitionAddress,
-    TargetEventAddress,
 )
 
 X90 = GateDefinition(GateId("x90"), qubit_arity=1)
@@ -196,7 +193,6 @@ def test_preparation_exposes_one_scheduled_only_target_entry_with_total_origins(
     assert isinstance(prepared.target_entry.program, ScheduledPulseProgram)
     assert prepared.target_entry.program is prepared.scheduled
     assert prepared.scheduled.id == prepared.lowered.program.id
-    assert prepared.event_addresses == prepared.target_entry.event_addresses
     assert prepared.acquisition_addresses == (
         prepared.target_entry.acquisition_addresses
     )
@@ -225,7 +221,6 @@ def test_preparation_exposes_one_scheduled_only_target_entry_with_total_origins(
     )
     for origin in prepared.event_origins:
         assert origin.source_program_id == prepared.source_program_id
-        assert prepared.event_origin_for(origin.address) is origin
     for origin in prepared.acquisition_origins:
         assert origin.source_program_id == prepared.source_program_id
         assert prepared.acquisition_origin_for(origin.address) is origin
@@ -277,16 +272,9 @@ def test_origins_reject_wrong_address_identity() -> None:
         )
 
 
-def test_entry_lookups_reject_foreign_addresses() -> None:
+def test_entry_acquisition_lookup_rejects_foreign_address() -> None:
     lowered = _lowered_mixed_program()
     prepared = prepare_quantum_target_entry(TargetCompileEntryId("point"), lowered)
-    with pytest.raises(KeyError, match="does not belong"):
-        prepared.event_origin_for(
-            TargetEventAddress(
-                TargetCompileEntryId("foreign"),
-                prepared.event_addresses[0].event_id,
-            )
-        )
     with pytest.raises(KeyError, match="does not belong"):
         prepared.acquisition_origin_for(
             TargetAcquisitionAddress(
@@ -308,35 +296,21 @@ def test_batch_preserves_entry_order_and_total_qualified_origin_coverage() -> No
     assert batch.request.compiler_id == TargetCompilerId("compiler.v1")
     assert batch.request.capability_fingerprint == "capabilities:v1"
     assert batch.request.repetitions == 7
-    assert batch.event_addresses == tuple(
-        address for entry in (second, first) for address in entry.event_addresses
-    )
     assert batch.acquisition_addresses == tuple(
         address for entry in (second, first) for address in entry.acquisition_addresses
-    )
-    assert tuple(origin.address for origin in batch.event_origins) == (
-        batch.request.event_addresses
     )
     assert tuple(origin.address for origin in batch.acquisition_origins) == (
         batch.request.acquisition_addresses
     )
-    assert len(set(batch.event_addresses)) == len(batch.event_addresses)
     assert len(set(batch.acquisition_addresses)) == len(batch.acquisition_addresses)
-    assert len({address.event_id for address in batch.event_addresses}) == len(
-        first.event_addresses
-    )
     assert len({address.slot_id for address in batch.acquisition_addresses}) == len(
         first.acquisition_addresses
     )
-    for entry in batch.entries:
-        assert batch.entry_for(entry.id) is entry
-    for origin in batch.event_origins:
-        assert batch.event_origin_for(origin.address) is origin
     for origin in batch.acquisition_origins:
         assert batch.acquisition_origin_for(origin.address) is origin
 
 
-def test_batch_factory_and_lookups_reject_duplicate_or_foreign_identities() -> None:
+def test_batch_factory_and_acquisition_lookup_reject_invalid_identities() -> None:
     prepared = _prepared("point")
     with pytest.raises(ValueError, match="at least one"):
         _batch(())
@@ -344,15 +318,6 @@ def test_batch_factory_and_lookups_reject_duplicate_or_foreign_identities() -> N
         _batch((prepared, prepared))
 
     batch = _batch((prepared,))
-    with pytest.raises(KeyError, match="not in this batch"):
-        batch.entry_for(TargetCompileEntryId("foreign"))
-    with pytest.raises(KeyError, match="not in this batch"):
-        batch.event_origin_for(
-            TargetEventAddress(
-                TargetCompileEntryId("foreign"),
-                batch.event_addresses[0].event_id,
-            )
-        )
     with pytest.raises(KeyError, match="not in this batch"):
         batch.acquisition_origin_for(
             TargetAcquisitionAddress(

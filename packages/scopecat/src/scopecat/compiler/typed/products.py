@@ -4,14 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Literal
 
 from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.product_identity import ProductId
 from scopecat.measurements.results import MeasurementDType
-
-type ProductKind = Literal["observable", "artifact", "readback", "expression"]
 
 
 def _empty_metadata() -> FrozenMapping[str, JsonValue]:
@@ -46,7 +43,6 @@ class ProductDef:
     """Available logical product independent of recording and target realization."""
 
     id: ProductId
-    kind: ProductKind = "observable"
     unit: str | None = None
     dtype: MeasurementDType = "float64"
     axes: tuple[ProductAxisDef, ...] = ()

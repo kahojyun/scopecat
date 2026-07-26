@@ -1,5 +1,3 @@
-import pytest
-
 from scopecat.compiler.relations.model import (
     CellValue,
     parameter_lookup,
@@ -10,8 +8,8 @@ from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
     RowType,
 )
+from scopecat.compiler.semantic.compute_result import ComputeOutput
 from scopecat.compiler.semantic.model import (
-    ImplementationCatalog,
     ImplementationId,
     LocalPythonImplementation,
     OperationId,
@@ -24,7 +22,6 @@ from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     LogicalResourceRequirement,
     TypedComputeNode,
-    TypedComputeOutput,
     product_axis,
     record_product,
 )
@@ -35,7 +32,6 @@ from scopecat.execution.local.program import (
     ApplyStateOperation,
     CollectOperation,
 )
-from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.state import PayloadRef
 from scopecat.kernel.symbols import SymbolId
@@ -193,23 +189,17 @@ def test_materialized_effects_contract_summarizes_compute_payload_boundary() -> 
             TypedComputeNode(
                 id=operation_id,
                 contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-                result=TypedComputeOutput(
+                implementation=LocalPythonImplementation(
+                    id=ImplementationId("python.build-waveform.v1"),
+                    kernel=build_waveform,
+                ),
+                result=ComputeOutput(
                     id=result_id,
                     value_type=Scalar(Payload("waveform_bundle")),
                 ),
                 inputs={},
             )
         ],
-        implementation_catalog=ImplementationCatalog(
-            local_python=(
-                LocalPythonImplementation(
-                    id=ImplementationId("python.build-waveform.v1"),
-                    operation_id=operation_id,
-                    operation_contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-                    kernel=build_waveform,
-                ),
-            )
-        ),
     )
 
     preview = materialized_effects_contract(
@@ -274,22 +264,16 @@ def test_materialized_effects_groups_shared_typed_compute_result() -> None:
             TypedComputeNode(
                 id=operation_id,
                 contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-                result=TypedComputeOutput(
+                implementation=LocalPythonImplementation(
+                    id=ImplementationId("python.build-waveform.v1"),
+                    kernel=build_waveform,
+                ),
+                result=ComputeOutput(
                     id=result_id,
                     value_type=Scalar(Payload("waveform_bundle")),
                 ),
             )
         ],
-        implementation_catalog=ImplementationCatalog(
-            local_python=(
-                LocalPythonImplementation(
-                    id=ImplementationId("python.build-waveform.v1"),
-                    operation_id=operation_id,
-                    operation_contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-                    kernel=build_waveform,
-                ),
-            )
-        ),
     )
 
     preview = materialized_effects_contract(
@@ -310,39 +294,6 @@ def test_materialized_effects_groups_shared_typed_compute_result() -> None:
     ] == [
         ("play_waveforms", "program"),
         ("play_waveforms", "preview"),
-    ]
-
-
-def test_materialized_effects_contract_rejects_unknown_compute_payload_nodes() -> None:
-    spec = typed_program(
-        id="preview-unknown-payload-node",
-        kind="problem",
-        point_domain=_point_domain("index", Scalar(Int()), (0,)),
-        resource_requirements=(
-            LogicalResourceRequirement(
-                port_id=logical_resource_port_id("drive-a"),
-                capabilities=("play_waveforms",),
-            ),
-        ),
-        state=[
-            set_state_field(
-                "drive-a",
-                capability_id="play_waveforms",
-                field_path="program",
-                value=compute_result("missing-node"),
-            )
-        ],
-    )
-
-    with pytest.raises(CheckFailed) as failure:
-        materialized_effects_contract(
-            spec,
-            _parameters(),
-            config=config_with_physical_resources({"drive-a": ("play_waveforms",)}),
-        )
-
-    assert [problem.code for problem in failure.value.problems] == [
-        "compute_payload_unknown_output"
     ]
 
 

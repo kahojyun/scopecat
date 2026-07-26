@@ -147,11 +147,6 @@ def interaction_tomography_program(
 @sc.template(
     id=INTERACTION_TOMOGRAPHY_TEMPLATE_ID,
     kind=INTERACTION_TOMOGRAPHY_EXPERIMENT_ID,
-    label="direct interaction tomography",
-    description=(
-        "Combine standard state-preparation and analysis gates with a direct "
-        "multi-channel interaction pulse layout."
-    ),
 )
 def interaction_tomography_template(
     control: q.QubitInput = "q0",

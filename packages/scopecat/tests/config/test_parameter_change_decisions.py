@@ -8,21 +8,23 @@ import pytest
 from pydantic import ValidationError
 
 from scopecat.config.changes import (
-    decide_parameter_change_proposal,
-    invalidate_parameter_change_proposal,
     list_parameter_change_decisions,
     load_parameter_change_proposal,
     prepare_parameter_change_proposal_contents,
-    review_parameter_change_proposal,
 )
 from scopecat.kernel.errors import Conflict, DataIntegrityError
 from scopecat.records.parameter_change import AutomaticPolicyDecisionAuthority
 from scopecat.runs.refs import record_content_ref
-from scopecat.testing import (
+from tests.testkit.config_registry import (
+    decide_parameter_change_proposal,
+    invalidate_parameter_change_proposal,
+    review_parameter_change_proposal,
+    signal_run_with_parameter_change,
+)
+from tests.testkit.runtime import (
     sqlite_project_services,
     sqlite_run_repository,
 )
-from tests.testkit.config_registry import signal_run_with_parameter_change
 
 
 def test_same_proposal_intent_retry_reuses_durable_entry_hash(

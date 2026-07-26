@@ -1,3 +1,5 @@
+# ruff: noqa: F401
+# pyright: reportUnusedImport=false, reportUnsupportedDunderAll=false
 """Application-level composition and service bundles."""
 
 from __future__ import annotations
@@ -25,4 +27,4 @@ def __dir__() -> list[str]:
     return sorted(set(globals()) | set(_EXPORTS))
 
 
-__all__ = ["LabApplication"]
+__all__ = sorted(_EXPORTS)

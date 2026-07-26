@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Literal, cast, override
+from typing import cast, override
 
 from scopecat.authoring._frozen_values import (
+    capture_runtime_input,
     empty_frozen_mapping,
-    freeze_runtime_input,
 )
 from scopecat.authoring._value_refs import ValueRef
 from scopecat.authoring.values import MetadataValue
@@ -24,7 +24,6 @@ from scopecat.measurements.results import MeasurementDType
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import Quantity
 
-type ProductKind = Literal["observable", "artifact", "readback", "expression"]
 type AxisSizeInput = ValueRef | Quantity | float | tuple[EntityRef | str, ...]
 type LocalizeValueRef = Callable[[ValueRef, Mapping[str, object]], ValueRef]
 
@@ -53,7 +52,6 @@ class ModuleProductDecl:
     id: str
     scope: tuple[str, ...] = ()
     origin: tuple[object, ...] = field(default=(), repr=False, compare=False)
-    kind: ProductKind = "observable"
     unit: str | None = None
     dtype: MeasurementDType = "float64"
     axes: tuple[ProductAxis, ...] = ()
@@ -163,7 +161,7 @@ def product_axis(
     kind: str | None = None,
     unit: str | None = None,
 ) -> ProductAxis:
-    selected_size = size if isinstance(size, ValueRef) else freeze_runtime_input(size)
+    selected_size = size if isinstance(size, ValueRef) else capture_runtime_input(size)
     return ProductAxis(
         id=id,
         size=cast("AxisSizeInput", selected_size),
@@ -177,7 +175,7 @@ def entity_axis(
     entities: ValueRef | Sequence[EntityRef | str],
 ) -> ProductAxis:
     selected_entities = (
-        entities if isinstance(entities, ValueRef) else freeze_runtime_input(entities)
+        entities if isinstance(entities, ValueRef) else capture_runtime_input(entities)
     )
     return ProductAxis(
         id=id,

@@ -32,11 +32,11 @@ def test_module_decorator_closes_a_symbolic_function_once() -> None:
         return (
             sc.module_body()
             .resource("counter")
-            .action(
-                "set-count",
-                resource="counter",
+            .bind_field(
+                "counter",
                 capability="counter",
-                fields={"count": count_ref},
+                field="count",
+                value=count_ref,
             )
         )
 
@@ -48,7 +48,7 @@ def test_module_decorator_closes_a_symbolic_function_once() -> None:
     assert tuple(signature.parameters) == ("count",)
     assert signature.return_annotation is sc.ModuleInvocation
     assert count_source.__wrapped__.__name__ == "count_source"
-    assert isinstance(count_source, sc.ModuleDefinition)
+    assert isinstance(count_source, sc.ExperimentModule)
     invocation = assert_type(count_source(2), sc.ModuleInvocation)
     assert invocation.instance_id == "count_source"
 
@@ -57,17 +57,30 @@ def test_module_decorator_closes_a_symbolic_function_once() -> None:
         count_source(unknown=2)  # pyright: ignore[reportCallIssue]
 
 
+def test_builder_module_call_flattens_only_supplied_extra_inputs() -> None:
+    count = sc.input("count", sc.ScalarType(_COUNT_TYPE))
+    module = sc.module_body(id="test.builder-call").inputs(count).build()
+
+    signature = inspect.signature(module)
+    assert signature.parameters["count"].kind is inspect.Parameter.KEYWORD_ONLY
+    invocation = module(count=2)
+    assert tuple(invocation.inputs) == ("count",)
+
+    with pytest.raises(ValueError, match="received undeclared inputs: 'extra'"):
+        module(count=2, extra=3)
+
+
 def test_template_infers_identity_description_and_defaults() -> None:
     @sc.module
     def count_source(count: Annotated[sc.Input[int], _COUNT_TYPE]):
         return (
             sc.module_body()
             .resource("counter")
-            .action(
-                "set-count",
-                resource="counter",
+            .bind_field(
+                "counter",
                 capability="counter",
-                fields={"count": count},
+                field="count",
+                value=count,
             )
         )
 
@@ -77,17 +90,16 @@ def test_template_infers_identity_description_and_defaults() -> None:
 
         return sc.experiment(count_source(count=count))
 
-    assert count_experiment.id.endswith(".count_experiment")
-    assert count_experiment.kind == "count_experiment"
-    assert count_experiment.description == "Run one count experiment."
-    assert count_experiment.inputs[0].default == 2
+    assert count_experiment.definition.id.endswith(".count_experiment")
+    assert count_experiment.definition.kind == "count_experiment"
+    assert count_experiment.definition.inputs[0].default == 2
     default_invocation = count_experiment()
-    assert default_invocation.template is count_experiment
+    assert default_invocation.definition is count_experiment.definition
     assert default_invocation.inputs == {}
     signature = inspect.signature(count_experiment)
     assert signature.parameters["count"].default == 2
     assert signature.return_annotation is sc.ExperimentInvocation
-    assert isinstance(count_experiment, sc.TemplateDefinition)
+    assert isinstance(count_experiment, sc.ExperimentTemplate)
     invocation = assert_type(count_experiment(3), sc.ExperimentInvocation)
     assert invocation.inputs == {"count": 3}
 
@@ -126,45 +138,6 @@ def test_analysis_decorator_preserves_configuration_signature() -> None:
         readout_fit(unknown="q0")  # pyright: ignore[reportCallIssue]
 
 
-def test_template_body_enriches_signature_input_metadata() -> None:
-    @sc.module
-    def count_source(count: Annotated[sc.Input[int], _COUNT_TYPE]):
-        return (
-            sc.module_body()
-            .resource("counter")
-            .action(
-                "set-count",
-                resource="counter",
-                capability="counter",
-                fields={"count": count},
-            )
-        )
-
-    @sc.template
-    def count_experiment(count: Annotated[sc.Input[int], _COUNT_TYPE] = 2):
-        call = count_source(count=count)
-        return sc.experiment(call).describe_input(
-            "count",
-            label="Count",
-            description="Number of increments.",
-            metadata={"group": "counter"},
-        )
-
-    [description] = count_experiment.inputs
-    assert description.default == 2
-    assert description.label == "Count"
-    assert description.description == "Number of increments."
-    assert description.metadata == {"group": "counter"}
-
-
-def test_template_input_descriptions_require_signature_ports() -> None:
-    with pytest.raises(ValueError, match="require signature ports: 'missing'"):
-
-        @sc.template
-        def invalid():  # pyright: ignore[reportUnusedFunction]
-            return sc.experiment().describe_input("missing")
-
-
 def test_template_functions_require_explicit_experiment_bodies() -> None:
     def raw_module_body() -> sc.ModuleBuilder:
         return sc.module_body()
@@ -183,11 +156,11 @@ def test_template_and_scratch_share_the_experiment_body_protocol() -> None:
         return (
             sc.module_body()
             .resource("counter")
-            .action(
-                "set-count",
-                resource="counter",
+            .bind_field(
+                "counter",
                 capability="counter",
-                fields={"count": value},
+                field="count",
+                value=value,
             )
         )
 
@@ -201,14 +174,15 @@ def test_template_and_scratch_share_the_experiment_body_protocol() -> None:
     template_invocation = template()
     scratch_invocation = scratch()
     assert (
-        template_invocation.template.default_scans
-        == scratch_invocation.template.default_scans
+        template_invocation.definition.default_scans
+        == scratch_invocation.definition.default_scans
     )
     assert tuple(
-        instance.module.id for instance in template.module.ir.body.instances
+        instance.module.id
+        for instance in template.definition.module.body.child_instances
     ) == tuple(
         instance.module.id
-        for instance in scratch_invocation.template.module.ir.body.instances
+        for instance in scratch_invocation.definition.module.body.child_instances
     )
     assert inspect.signature(scratch).parameters == inspect.signature(body).parameters
     assert scratch.__wrapped__ is body
@@ -227,7 +201,7 @@ def test_scratch_preserves_typed_call_contract() -> None:
     assert signature.parameters["count"].default == 2
     assert signature.return_annotation is sc.ExperimentInvocation
     invocation = assert_type(count_scratch(3), sc.ExperimentInvocation)
-    [instance] = invocation.template.module.ir.body.instances
+    [instance] = invocation.definition.module.body.child_instances
     assert [binding.import_id for binding in instance.input_bindings] == ["count"]
 
     if TYPE_CHECKING:
@@ -254,14 +228,18 @@ def test_repeated_default_module_calls_require_explicit_instances() -> None:
     def source():
         return sc.module_body()
 
-    with pytest.raises(ValueError, match="duplicate instance ids"):
-        sc.experiment(source(), source())
+    with pytest.raises(ValueError, match="duplicate module instance ids"):
+        sc.experiment(source(), source()).module.build(id="test.repeated-defaults")
 
     body = sc.experiment(
         source.instantiate("left"),
         source.instantiate("right"),
     )
-    assert tuple(call.instance_id for call in body.module.invocations) == (
+    assert tuple(
+        call.instance_id
+        for call in body.module.procedure
+        if isinstance(call, sc.ModuleInvocation)
+    ) == (
         "left",
         "right",
     )
@@ -277,12 +255,14 @@ def test_module_calls_compose_through_builders_and_function_sequences() -> None:
 
     @sc.module
     def combined():
-        return (left, right)
+        return sc.module_body().use(left, right)
 
-    assert tuple(call.instance_id for call in combined.ir.body.instances) == (
+    assert tuple(call.instance_id for call in combined.ir.body.child_instances) == (
         "left",
         "right",
     )
     assert tuple(
-        call.instance_id for call in sc.module_body().use(left, right).invocations
+        call.instance_id
+        for call in sc.module_body().use(left, right).procedure
+        if isinstance(call, sc.ModuleInvocation)
     ) == ("left", "right")

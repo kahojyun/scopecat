@@ -12,12 +12,12 @@ from collections.abc import Sequence
 from typing import Annotated, cast
 
 import scopecat as sc
-from scopecat_quantum import (
+from scopecat_quantum import authoring as q
+from scopecat_quantum.measurement_transforms import (
     BinaryIqDiscriminator,
     IqCentroid,
     binary_iq_probability_transform,
 )
-from scopecat_quantum import authoring as q
 from scopecat_quantum.standard_gates import X90, XM90, Y90, YM90
 
 from quantum_lab_demo.virtual_lab.parameters import qubit_parameters
@@ -239,7 +239,6 @@ def _single_qubit_rb_body(
 @sc.template(
     id=SINGLE_QUBIT_RB_TEMPLATE_ID,
     kind="single_qubit_rb",
-    label="single-qubit Clifford RB",
 )
 def single_qubit_rb_template() -> sc.ExperimentBody:
     """Scan Clifford length and random seed for the calibrated q0 gate set."""
@@ -250,7 +249,6 @@ def single_qubit_rb_template() -> sc.ExperimentBody:
 @sc.scratch(
     id="quantum_lab_demo.workflows.single_qubit_rb.scratch",
     kind="single_qubit_rb",
-    label="single-qubit Clifford RB scratch",
 )
 def single_qubit_rb_scratch(
     *,

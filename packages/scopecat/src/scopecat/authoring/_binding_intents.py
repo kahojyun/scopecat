@@ -51,12 +51,6 @@ class BindingIntent:
     field_path: str
     value: BindingValue
 
-    @property
-    def port_path(self) -> str:
-        """Human-readable projection; compilation uses the structured fields."""
-
-        return f"{self.port_id.qualified_name}.{self.capability_id}.{self.field_path}"
-
 
 ExperimentBindingIntent = BindingIntent
 

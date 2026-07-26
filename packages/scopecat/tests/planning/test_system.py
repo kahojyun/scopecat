@@ -1,16 +1,18 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Literal, Never
+from typing import Literal, Never, cast, override
 
 import pytest
 
-from scopecat.compiler.frontend.environment import validate_config_environment
+import scopecat.compiler.linking.linked as linking
+import scopecat.planning.system as planning_system
+from scopecat.compiler.frontend.environment import build_config_environment
 from scopecat.compiler.linking.linked import (
     LinkedPlan,
-    LinkedPointMaterializer,
-    specialize_linked_program,
+    MaterializedLinkedPoints,
+    materialize_linked_points,
 )
 from scopecat.compiler.relations.evaluation import ParameterRelationData
 from scopecat.compiler.relations.model import (
@@ -24,27 +26,27 @@ from scopecat.compiler.relations.verification import (
     RowType,
 )
 from scopecat.compiler.semantic.model import (
-    DomainInputPortDef,
-    DomainProgramId,
-    DomainResourcePortDef,
-    DomainResultPortDef,
     MeasurementTransformId,
 )
 from scopecat.compiler.typed.parameter_overlays import PointParameterOverlay
-from scopecat.compiler.typed.point_domain import MaterializedPointDomain, PointDomain
+from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     CoreProgram,
     LogicalResourceRequirement,
     TypedDomainExecution,
-    TypedDomainProgram,
     TypedDomainResultBinding,
     TypedMeasurementTransform,
     TypedMeasurementTransformInput,
     TypedMeasurementTransformOutput,
     ValueInput,
-    product_output,
     record_product,
     set_state_field,
+)
+from scopecat.domain.program import (
+    DomainInputPort,
+    DomainProgramDef,
+    DomainResourcePort,
+    DomainResultPort,
 )
 from scopecat.execution.local.program import ApplyStateOperation, CollectOperation
 from scopecat.execution.program import (
@@ -101,7 +103,6 @@ from scopecat.sdk.domain.runtime import (
     DomainSubmitReceipt,
     DomainSubmitRequest,
 )
-from scopecat.sdk.domain.view import DomainCallView
 from scopecat.sdk.instruments import (
     InstrumentProviderContext,
     InstrumentProviderDescription,
@@ -120,6 +121,7 @@ from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 from tests.testkit.typed_program import (
     instrument_acquisition,
     link_program,
+    observable_product,
     overlay_parameter_cell,
 )
 
@@ -151,7 +153,6 @@ class _DomainCompiler:
     compiler_id: str
     max_points_per_job: int = 100
     runtime: _EffectProbeRuntime = field(default_factory=_EffectProbeRuntime)
-    support_calls: int = 0
     compile_calls: int = 0
     compile_requests: list[DomainCompileRequest] = field(default_factory=list)
     prepare_calls: int = 0
@@ -165,11 +166,6 @@ class _DomainCompiler:
     @property
     def target_kind(self) -> str:
         return "tests.domain"
-
-    def supports(self, call: DomainCallView) -> bool:
-        del call
-        self.support_calls += 1
-        return True
 
     def compile(
         self,
@@ -250,39 +246,6 @@ class _DomainCompiler:
 
 
 @dataclass
-class _BindingProbeCompiler:
-    bound_ordinals: tuple[int, ...] = ()
-    compile_request: DomainCompileRequest | None = field(default=None, init=False)
-
-    @property
-    def target_id(self) -> str:
-        return "tests.domain.target"
-
-    @property
-    def target_kind(self) -> str:
-        return "tests.domain"
-
-    def supports(self, call: DomainCallView) -> bool:
-        del call
-        return False
-
-    def compile(self, request: DomainCompileRequest) -> None:
-        self.compile_request = request
-        self.bound_ordinals = request.resolve_program_inputs(
-            ("drive_frequency",), (1,), max_points=1
-        ).ordinals
-        return None
-
-    def prepare(
-        self,
-        job: DomainCompiledJob,
-        context: DomainBatchContext,
-    ) -> PreparedDomainExecution:
-        del job, context
-        raise AssertionError("an unselected compiler cannot prepare jobs")
-
-
-@dataclass
 class _TrackingProvider:
     delegate: TestSignalInstrumentProvider = field(
         default_factory=TestSignalInstrumentProvider
@@ -308,6 +271,24 @@ class _TrackingProvider:
         del context
         self.provide_calls += 1
         raise AssertionError("planning must not request effect-capable drivers")
+
+
+@dataclass
+class _BroadTrackingProvider(_TrackingProvider):
+    @override
+    def describe(
+        self,
+        context: InstrumentProviderContext,
+    ) -> InstrumentProviderDescription:
+        description = super().describe(context)
+        [source] = description.instruments
+        return replace(
+            description,
+            instruments=(
+                source,
+                source.model_copy(update={"instrument_id": "unused-0"}),
+            ),
+        )
 
 
 def _reject_realization(
@@ -361,7 +342,7 @@ def _linked_program(
         )
     )
     products = tuple(
-        product_output(f"signal-{index}", unit="ratio")
+        observable_product(f"signal-{index}", unit="ratio")
         for index in range(product_count)
     )
     selections = tuple(
@@ -373,7 +354,7 @@ def _linked_program(
     )
     domain_executions: tuple[TypedDomainExecution, ...] = ()
     if selected_domain_product_count:
-        program_id = DomainProgramId(SymbolId(local_id="program"))
+        program_id = "program"
         selected = tuple(
             zip(
                 products[:selected_domain_product_count],
@@ -411,18 +392,18 @@ def _linked_program(
         domain_executions = tuple(
             TypedDomainExecution(
                 id=execution_id,
-                program=TypedDomainProgram(
+                program=DomainProgramDef(
                     id=(
                         program_id
                         if domain_call_count == 1
-                        else DomainProgramId(SymbolId(local_id=f"program-{call_index}"))
+                        else f"program-{call_index}"
                     ),
                     dialect_id="tests.domain",
                     dialect_version="1",
                     body=("test-program", call_index),
                     input_ports=(
                         (
-                            DomainInputPortDef(
+                            DomainInputPort(
                                 "drive_frequency",
                                 domain_input.value_type,
                             ),
@@ -431,10 +412,10 @@ def _linked_program(
                         else ()
                     ),
                     result_ports=tuple(
-                        DomainResultPortDef(binding.id) for binding in bindings
+                        DomainResultPort(binding.id) for binding in bindings
                     ),
                     resource_ports=(
-                        (DomainResourcePortDef("drive", ("domain.drive",)),)
+                        (DomainResourcePort("drive", ("domain.drive",)),)
                         if domain_resource
                         else ()
                     ),
@@ -456,7 +437,11 @@ def _linked_program(
             )
         )
     instrument_acquisitions = tuple(
-        instrument_acquisition(product, capability="scalar_signal")
+        instrument_acquisition(
+            product,
+            capability="scalar_signal",
+            provider_key="signal",
+        )
         for product in products[selected_domain_product_count:]
     )
     bindings = RelationTypeBindings(point_row=RowType.from_table(point_type))
@@ -535,12 +520,10 @@ def _linked_program(
         product_uses=tuple(use for use, _record in recorded_selections),
         record_uses=tuple(record for _use, record in recorded_selections),
     )
-    environment = validate_config_environment(
-        load_config() if config is None else config
-    )
+    environment = build_config_environment(load_config() if config is None else config)
     if parameter_data is not None:
         environment = replace(environment, parameters=parameter_data)
-    return specialize_linked_program(link_program(program, environment))
+    return link_program(program, environment)
 
 
 def _point_frequency_domain_input() -> ValueInput:
@@ -560,8 +543,8 @@ def _point_frequency_domain_input() -> ValueInput:
 
 
 def _linked_instrument_fed_transform_program() -> LinkedPlan:
-    source = product_output("source", unit="ratio")
-    derived = product_output("derived", unit="ratio")
+    source = observable_product("source", unit="ratio")
+    derived = observable_product("derived", unit="ratio")
     source_use = product_use(source.id)
     derived_use, derived_record = record_product(derived)
     transform_id = MeasurementTransformId(SymbolId(local_id="normalize"))
@@ -570,7 +553,6 @@ def _linked_instrument_fed_transform_program() -> LinkedPlan:
         semantic=MeasurementTransformSemanticContract(
             id="tests.normalize",
             version="1",
-            portability="host_only",
         ),
         inputs=(
             TypedMeasurementTransformInput(
@@ -609,11 +591,9 @@ def _linked_instrument_fed_transform_program() -> LinkedPlan:
         product_uses=(source_use, derived_use),
         record_uses=(derived_record,),
     )
-    return specialize_linked_program(
-        link_program(
-            program,
-            validate_config_environment(load_config()),
-        )
+    return link_program(
+        program,
+        build_config_environment(load_config()),
     )
 
 
@@ -670,10 +650,7 @@ def test_unified_planning_rejects_missing_local_provider_before_effects() -> Non
     compiler = _DomainCompiler("tests.missing-claim")
 
     with pytest.raises(CheckFailed) as captured:
-        ExperimentSystem(domain_compiler=compiler).compile(
-            linked,
-            config=load_config(),
-        )
+        ExperimentSystem(domain_compiler=compiler).compile(linked)
 
     assert _problem_codes(captured.value) == {"local_instrument_provider_missing"}
     assert captured.value.problems[0].details == {}
@@ -685,33 +662,13 @@ def test_unified_planning_rejects_missing_local_provider_before_effects() -> Non
     _assert_no_domain_effects(compiler)
 
 
-def test_execution_config_must_match_linked_snapshot_before_adapter_effects() -> None:
-    linked = _linked_program()
-    compiler = _DomainCompiler("tests.config-mismatch")
-    different_config = load_config().model_copy(update={"id": "different-config"})
-
-    with pytest.raises(CheckFailed) as captured:
-        ExperimentSystem(domain_compiler=compiler).compile(
-            linked,
-            config=different_config,
-        )
-
-    assert _problem_codes(captured.value) == {"execution_config_snapshot_mismatch"}
-    assert compiler.compile_calls == 0
-    assert compiler.prepare_calls == 0
-    _assert_no_domain_effects(compiler)
-
-
 def test_planning_reports_unplaced_transform_as_a_capability_boundary() -> None:
     linked = _linked_instrument_fed_transform_program()
     [transform] = linked.program.measurement_transforms
     [output_use_id] = transform.outputs[0].product_use_ids
 
     with pytest.raises(CheckFailed) as captured:
-        ExperimentSystem(provider=TestSignalInstrumentProvider()).compile(
-            linked,
-            config=load_config(),
-        )
+        ExperimentSystem(provider=TestSignalInstrumentProvider()).compile(linked)
 
     assert _problem_codes(captured.value) == {
         "measurement_transform_implementation_missing"
@@ -724,37 +681,67 @@ def test_planning_reports_unplaced_transform_as_a_capability_boundary() -> None:
     assert captured.value.problems[0].phase is ProblemPhase.PLANNING
 
 
-def test_run_compilation_materializes_large_space_in_bounded_blocks() -> None:
+def test_domain_target_partitions_complete_point_space_by_capacity() -> None:
     linked = _linked_program(point_count=2)
-    compiler = _DomainCompiler("tests.materialization-budget")
+    compiler = _DomainCompiler(
+        "tests.target-capacity",
+        max_points_per_job=1,
+    )
 
-    plan = ExperimentSystem(
-        domain_compiler=compiler,
-        coverage_block_size=1,
-    ).compile(linked, config=load_config())
+    plan = ExperimentSystem(domain_compiler=compiler).compile(linked)
 
     assert len(plan.points.points) == 2
+    [block] = plan.coverage
+    assert block.point_indices == (0, 1)
     assert [
-        operation.point_indices
-        for operation in plan.coverage
-        if isinstance(operation, RunCoverageBlock)
+        operation.point_ordinals
+        for operation in block.operations
+        if isinstance(operation, RunDomainJob)
     ] == [(0,), (1,)]
-    assert compiler.compile_calls == 2
+    assert compiler.compile_calls == 1
+    assert compiler.compile_requests[0].barrier_regions == ((0, 1),)
 
 
-def test_local_resource_manifest_is_reused_across_coverage_blocks(
+def test_local_resource_manifest_is_selected_once_for_complete_point_space(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     linked = _linked_program(domain_product_count=0, point_count=2)
     calls = _track_bound_resource_ports(monkeypatch)
-    plan = ExperimentSystem(
-        provider=TestSignalInstrumentProvider(),
-        coverage_block_size=1,
-    ).compile(linked, config=load_config())
+    plan = ExperimentSystem(provider=TestSignalInstrumentProvider()).compile(linked)
 
     assert calls == [logical_resource_port_id("source")]
-    assert len(tuple(plan.coverage)) == 2
+    assert len(tuple(plan.coverage)) == 1
     assert calls == [logical_resource_port_id("source")]
+
+
+def test_run_claims_and_host_order_include_only_used_local_instruments() -> None:
+    config = load_config()
+    seed_instrument = config.instrument_registry.instruments[0]
+    config = config.model_copy(
+        update={
+            "system": config.system.model_copy(
+                update={
+                    "instrument_registry": config.instrument_registry.model_copy(
+                        update={
+                            "instruments": [
+                                seed_instrument,
+                                seed_instrument.model_copy(update={"id": "unused-0"}),
+                            ]
+                        }
+                    )
+                }
+            )
+        }
+    )
+    provider = _BroadTrackingProvider()
+    linked = _linked_program(domain_product_count=0, config=config)
+
+    plan = ExperimentSystem(provider=provider).compile(linked)
+
+    assert plan.resource_claims == (ResourceClaim("source-0"),)
+    assert plan.host is not None
+    assert plan.host.resource_order == ("source-0",)
+    assert set(plan.host.advertised_descriptions) == {"source-0", "unused-0"}
 
 
 def test_domain_only_resource_does_not_require_a_local_manifest(
@@ -764,10 +751,7 @@ def test_domain_only_resource_does_not_require_a_local_manifest(
     compiler = _DomainCompiler("tests.domain-only-resource")
     calls = _track_bound_resource_ports(monkeypatch)
 
-    plan = ExperimentSystem(domain_compiler=compiler).compile(
-        linked,
-        config=load_config(),
-    )
+    plan = ExperimentSystem(domain_compiler=compiler).compile(linked)
 
     [block] = plan.coverage
     assert block.point_indices == (0, 1)
@@ -776,7 +760,6 @@ def test_domain_only_resource_does_not_require_a_local_manifest(
     resource = compiler.compile_requests[0].call.resource("drive")
     assert resource.resource_port_id == "domain-drive"
     assert resource.capabilities == ("domain.drive",)
-    assert block.resource_claims == ()
     assert plan.resource_claims == (ResourceClaim("tests.domain.target", "target"),)
 
 
@@ -793,7 +776,7 @@ def test_mixed_target_builds_manifests_only_for_local_resources(
     plan = ExperimentSystem(
         provider=TestSignalInstrumentProvider(),
         domain_compiler=compiler,
-    ).compile(linked, config=load_config())
+    ).compile(linked)
 
     assert calls == [logical_resource_port_id("source")]
     assert len(tuple(plan.coverage)) == 1
@@ -837,10 +820,7 @@ def test_parameter_scan_binding_is_shared_with_domain_inputs() -> None:
     )
     compiler = _DomainCompiler("tests.parameter-binding")
 
-    plan = ExperimentSystem(domain_compiler=compiler).compile(
-        linked,
-        config=load_config(),
-    )
+    plan = ExperimentSystem(domain_compiler=compiler).compile(linked)
 
     assert plan.host is None
     [block] = plan.coverage
@@ -852,7 +832,7 @@ def test_parameter_scan_binding_is_shared_with_domain_inputs() -> None:
         if isinstance(operation, RunDomainJob)
     )
     assert isinstance(domain_job, RunDomainJob)
-    domain_job.prepare()
+    assert isinstance(domain_job.execution, PreparedDomainExecution)
     assert compiler.prepared_inputs == [
         (
             Quantity(value=4.9, unit="GHz"),
@@ -870,7 +850,7 @@ def test_unclaimed_local_state_does_not_fragment_domain_jobs() -> None:
         domain_compiler=compiler,
     )
 
-    plan = system.compile(linked, config=load_config())
+    plan = system.compile(linked)
 
     [block] = plan.coverage
     assert block.point_indices == (0, 1)
@@ -885,15 +865,14 @@ def test_unclaimed_local_state_does_not_fragment_domain_jobs() -> None:
         if isinstance(operation, RunCoverageEffect)
     ] == [(0,), (1,)]
     assert [
-        operation.point_indices
+        operation.point_index
         for operation in block.operations
         if isinstance(operation, RunCoverageCheckpoint)
-    ] == [(0,), (1,)]
+    ] == [0, 1]
     assert provider.describe_calls == 1
     assert provider.provide_calls == 0
     assert compiler.compile_calls == 1
-    assert compiler.support_calls == 1
-    assert compiler.prepare_calls == 0
+    assert compiler.prepare_calls == 1
     _assert_no_domain_effects(compiler)
 
 
@@ -905,7 +884,7 @@ def test_domain_and_local_state_retain_declared_effect_order() -> None:
     plan = ExperimentSystem(
         provider=_TrackingProvider(),
         domain_compiler=_DomainCompiler("tests.declared-effect-order"),
-    ).compile(linked, config=load_config())
+    ).compile(linked)
 
     [block] = plan.coverage
     consequential = tuple(
@@ -931,7 +910,7 @@ def test_local_acquisition_before_domain_is_ordered_per_point() -> None:
     plan = ExperimentSystem(
         provider=_TrackingProvider(),
         domain_compiler=compiler,
-    ).compile(linked, config=config)
+    ).compile(linked)
 
     [block] = plan.coverage
 
@@ -945,10 +924,9 @@ def test_local_acquisition_before_domain_is_ordered_per_point() -> None:
         assert isinstance(domain, RunDomainJob)
         assert domain.point_ordinals == (ordinal,)
         assert isinstance(checkpoint, RunCoverageCheckpoint)
-        assert checkpoint.point_indices == (ordinal,)
+        assert checkpoint.point_index == ordinal
     assert [request.barrier_regions for request in compiler.compile_requests] == [
-        ((0,),),
-        ((1,),),
+        ((0,), (1,)),
     ]
 
 
@@ -963,7 +941,7 @@ def test_domain_before_local_acquisition_is_ordered_per_point() -> None:
     plan = ExperimentSystem(
         provider=_TrackingProvider(),
         domain_compiler=compiler,
-    ).compile(linked, config=config)
+    ).compile(linked)
 
     [block] = plan.coverage
 
@@ -978,7 +956,7 @@ def test_domain_before_local_acquisition_is_ordered_per_point() -> None:
         assert acquisition.point_indices == (ordinal,)
         assert isinstance(acquisition.operation, CollectOperation)
         assert isinstance(checkpoint, RunCoverageCheckpoint)
-        assert checkpoint.point_indices == (ordinal,)
+        assert checkpoint.point_index == ordinal
     assert [request.barrier_regions for request in compiler.compile_requests] == [
         ((0, 1),),
     ]
@@ -991,10 +969,7 @@ def test_unused_local_acquisition_does_not_fragment_domain_coverage() -> None:
         record_instrument_products=False,
     )
     compiler = _DomainCompiler("tests.unused-acquisition")
-    plan = ExperimentSystem(domain_compiler=compiler).compile(
-        linked,
-        config=load_config(),
-    )
+    plan = ExperimentSystem(domain_compiler=compiler).compile(linked)
 
     [block] = plan.coverage
     [domain] = (
@@ -1018,7 +993,7 @@ def test_conflicting_local_state_refines_domain_jobs_by_exact_coverage() -> None
     plan = ExperimentSystem(
         provider=_TrackingProvider(),
         domain_compiler=compiler,
-    ).compile(linked, config=config)
+    ).compile(linked)
 
     [block] = plan.coverage
     assert block.point_indices == (0, 1)
@@ -1027,11 +1002,9 @@ def test_conflicting_local_state_refines_domain_jobs_by_exact_coverage() -> None
         for operation in block.operations
         if isinstance(operation, RunDomainJob)
     ] == [(0,), (1,)]
-    assert compiler.compile_calls == 2
-    assert compiler.support_calls == 1
+    assert compiler.compile_calls == 1
     assert [request.barrier_regions for request in compiler.compile_requests] == [
-        ((0,),),
-        ((1,),),
+        ((0,), (1,)),
     ]
 
 
@@ -1042,7 +1015,7 @@ def test_equal_materialized_state_values_share_one_domain_region() -> None:
     plan = ExperimentSystem(
         provider=_TrackingProvider(),
         domain_compiler=compiler,
-    ).compile(linked, config=load_config())
+    ).compile(linked)
 
     blocks = tuple(plan.coverage)
     jobs = tuple(
@@ -1052,7 +1025,7 @@ def test_equal_materialized_state_values_share_one_domain_region() -> None:
         if isinstance(operation, RunDomainJob)
     )
     assert tuple(job.point_ordinals for job in jobs) == ((0, 1),)
-    assert compiler.prepare_calls == 0
+    assert compiler.prepare_calls == 1
 
 
 def test_domain_compiler_batches_one_state_stable_region() -> None:
@@ -1064,7 +1037,7 @@ def test_domain_compiler_batches_one_state_stable_region() -> None:
         domain_compiler=compiler,
     )
 
-    plan = system.compile(linked, config=load_config())
+    plan = system.compile(linked)
     local_effects = plan.host
     assert local_effects is not None
     point_catalog = plan.points
@@ -1084,7 +1057,7 @@ def test_domain_compiler_batches_one_state_stable_region() -> None:
     )
     assert tuple(job.point_ordinals for job in domain_jobs) == ((0, 1),)
     [domain_job] = domain_jobs
-    domain_job.prepare()
+    assert isinstance(domain_job.execution, PreparedDomainExecution)
     assert provider.describe_calls == 1
     assert provider.provide_calls == 0
     assert compiler.compile_calls == 1
@@ -1101,10 +1074,7 @@ def test_ordered_domain_calls_share_one_target_resource_and_keep_job_identity() 
     )
     compiler = _DomainCompiler("tests.multi-call")
 
-    plan = ExperimentSystem(domain_compiler=compiler).compile(
-        linked,
-        config=load_config(),
-    )
+    plan = ExperimentSystem(domain_compiler=compiler).compile(linked)
 
     blocks = tuple(plan.coverage)
     jobs = tuple(
@@ -1114,10 +1084,9 @@ def test_ordered_domain_calls_share_one_target_resource_and_keep_job_identity() 
         if isinstance(operation, RunDomainJob)
     )
     assert len({job.id for job in jobs}) == 2
-    assert all(block.resource_claims == () for block in blocks)
     assert plan.resource_claims == (ResourceClaim("tests.domain.target", "target"),)
     assert compiler.compile_calls == 2
-    assert compiler.prepare_calls == 0
+    assert compiler.prepare_calls == 2
     _assert_no_domain_effects(compiler)
 
 
@@ -1138,10 +1107,7 @@ def test_system_rejects_a_compiler_for_a_different_target() -> None:
     )
 
     with pytest.raises(CheckFailed) as captured:
-        ExperimentSystem(domain_compiler=compiler).compile(
-            linked,
-            config=mismatched_config,
-        )
+        ExperimentSystem(domain_compiler=compiler).compile(linked)
 
     assert _problem_codes(captured.value) == {"domain_target_mismatch"}
 
@@ -1166,83 +1132,57 @@ def test_system_rejects_a_compiler_for_a_different_target_kind() -> None:
     )
 
     with pytest.raises(CheckFailed) as captured:
-        ExperimentSystem(domain_compiler=compiler).compile(
-            linked,
-            config=mismatched_config,
-        )
+        ExperimentSystem(domain_compiler=compiler).compile(linked)
 
     assert _problem_codes(captured.value) == {"domain_target_kind_mismatch"}
 
 
-def test_point_inventory_closes_before_first_streaming_domain_block(
+def test_point_inventory_and_domain_compilation_close_before_program_returns(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     linked = _linked_program(domain_input=_point_frequency_domain_input())
     events: list[str] = []
     compiler = _DomainCompiler("tests.symbolic-first", events=events)
-    original_materialize = LinkedPointMaterializer.materialize_point_domain
+    original_materialize = cast(
+        "Callable[[LinkedPlan], MaterializedLinkedPoints]",
+        planning_system.__dict__["materialize_linked_points"],
+    )
 
     def track_materialization(
-        materializer: LinkedPointMaterializer,
-    ) -> MaterializedPointDomain:
+        selected: LinkedPlan,
+    ) -> MaterializedLinkedPoints:
         events.append("materialize")
-        return original_materialize(materializer)
+        return original_materialize(selected)
 
     monkeypatch.setattr(
-        LinkedPointMaterializer,
-        "materialize_point_domain",
+        planning_system,
+        "materialize_linked_points",
         track_materialization,
     )
 
-    plan = ExperimentSystem(domain_compiler=compiler).compile(
-        linked,
-        config=load_config(),
-    )
+    plan = ExperimentSystem(domain_compiler=compiler).compile(linked)
 
-    assert events == ["materialize"]
-    tuple(plan.coverage)
     assert events == ["materialize", "compile"]
-
-
-def test_rejected_domain_call_does_not_bind_point_inputs() -> None:
-    linked = _linked_program(domain_input=_point_frequency_domain_input())
-    compiler = _BindingProbeCompiler()
-
-    with pytest.raises(CheckFailed) as captured:
-        ExperimentSystem(domain_compiler=compiler).compile(
-            linked,
-            config=load_config(),
-        )
-
-    assert _problem_codes(captured.value) == {"domain_compiler_missing"}
-    assert compiler.compile_request is None
-    assert compiler.bound_ordinals == ()
+    assert isinstance(plan.coverage, tuple)
+    first_inspection = tuple(block.point_indices for block in plan.coverage)
+    second_inspection = tuple(block.point_indices for block in plan.coverage)
+    assert first_inspection == second_inspection == ((0, 1),)
 
 
 def test_complete_point_materialization_does_not_evaluate_domain_inputs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    materializer = LinkedPointMaterializer(
-        _linked_program(domain_input=_point_frequency_domain_input())
-    )
-
-    materializer.bind_domain_inputs(
-        "domain",
-        "program",
-        ("drive_frequency",),
-        (1,),
-        max_points=1,
-    )
-
     def reject_domain_inputs(*_args: object, **_kwargs: object) -> Never:
         raise AssertionError("point materialization must not evaluate domain inputs")
 
     monkeypatch.setattr(
-        LinkedPointMaterializer,
-        "_domain_inputs",
+        linking,
+        "_materialize_domain_execution_input",
         reject_domain_inputs,
     )
-    linked_points = materializer.materialize()
+    linked_points = materialize_linked_points(
+        _linked_program(domain_input=_point_frequency_domain_input())
+    )
 
     assert len(linked_points.point_domain.points) == 2
 
@@ -1254,7 +1194,7 @@ def test_mixed_plan_preview_combines_domain_records_with_local_runtime() -> None
     plan = ExperimentSystem(
         provider=provider,
         domain_compiler=compiler,
-    ).compile(linked, config=load_config())
+    ).compile(linked)
 
     assert [record.id for record in plan.measurements.records] == ["record-0"]
     local_effects = plan.host
@@ -1274,12 +1214,9 @@ def test_zero_point_domain_plan_retains_direct_product_ownership() -> None:
     linked = _linked_program(point_count=0)
     compiler = _DomainCompiler("tests.zero-point")
 
-    plan = ExperimentSystem(domain_compiler=compiler).compile(
-        linked,
-        config=load_config(),
-    )
+    plan = ExperimentSystem(domain_compiler=compiler).compile(linked)
     assert tuple(plan.coverage) == ()
-    assert plan.measurements.product_values.product_use_ids == tuple(
+    assert plan.measurements.catalog.product_use_ids == tuple(
         use.id for use in linked.program.product_uses
     )
     assert compiler.compile_calls == 0

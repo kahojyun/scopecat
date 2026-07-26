@@ -62,20 +62,19 @@ The manifest names one importable application factory:
 application = "my_lab.application:create_application"
 ```
 
-Managed experiments need a process-local catalog and a system builder.
-Notebook scratch execution imports the same user-owned composition root:
+Notebook execution imports the user-owned composition root for its
+configuration-aware system builder:
 
 ```python
 from pathlib import Path
 
 from scopecat.application import LabApplication
-from my_lab import build_catalog, build_initial_config, build_system
+from my_lab import build_initial_config, build_system
 
 
 def create_application(project: Path) -> LabApplication:
     return LabApplication(
         bootstrap_config=lambda: build_initial_config(project),
-        catalog=build_catalog(),
         build_system=lambda accepted_config: build_system(
             accepted_config,
             project=project,
@@ -86,12 +85,11 @@ def create_application(project: Path) -> LabApplication:
 The named callable must accept the resolved project `Path` and return
 `LabApplication`. The daemon adds both the project root and its optional `src/`
 directory to the import path, so flat modules and standard `src` layouts work
-without an editable install. Catalog identities are explicit `(id, version)`
-pairs.
+without an editable install.
 
-The builder receives the exact accepted snapshot selected for each run. The
-application's `bootstrap_config` seeds daemon state once, and the daemon
-registry is authoritative afterward. Notebook code discovers the same
+The notebook-side builder receives the exact accepted snapshot selected for
+each run. The application's `bootstrap_config` seeds daemon state once, and the
+daemon registry is authoritative afterward. Notebook code discovers the
 application with `sc.open_project("./my-lab").connect()`.
 
 `LabApplication.bootstrap_config` is a seed, not a mutable runtime setting. The
@@ -102,12 +100,14 @@ restarting the daemon preserves that selection.
 
 Only one daemon can own a lab instance. A process-owner lock rejects a second
 daemon. SQLite transactions serialize durable changes inside the owner process,
-and delegated executors use renewable, generation-fenced leases.
+and executors use renewable leases with unique fencing identities.
 
 The default server is intentionally local and same-user: it binds to loopback,
 checks trusted host names, and does not provide remote authentication. Lost
 executors are fenced on restart and their resources stay quarantined until an
-operator releases, requeues, or aborts the run from the GUI or Python client.
+operator releases or aborts the run from the GUI or Python client. An abandoned
+run is not resumed: after reconciling external state, the operator submits a
+new run.
 
 Tests can construct `LocalDaemonRuntime` with a temporary project directory or
 pass another `DaemonApplication` to `create_app`, exposing separate

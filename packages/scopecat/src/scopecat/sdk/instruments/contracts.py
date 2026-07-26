@@ -56,15 +56,12 @@ from scopecat.records.instrument import (
 from scopecat.records.instrument import (
     validate_entity_target as _validate_entity_target,
 )
-from scopecat.sdk.instruments.provider_options import ProviderOptionDescription
 from scopecat.sdk.problems import (
     LocationPathItem,
     Problem,
-    ProblemCategory,
     ProblemPhase,
-    blocking_problem,
-    has_blocking_problems,
     model_location,
+    problem,
 )
 
 type _NonEmptyId = Annotated[str, Field(min_length=1)]
@@ -87,7 +84,6 @@ class CapabilityField(BaseModel):
 
     id: str
     value_type: CapabilityFieldScalar
-    metadata: JsonMetadata = Field(default_factory=dict)
 
     @field_validator("value_type")
     @classmethod
@@ -117,18 +113,15 @@ class ProductAxisDescription(BaseModel):
     kind: str
     size: int | None = None
     unit: str | None = None
-    metadata: JsonMetadata = Field(default_factory=dict)
 
 
 class ProductDescription(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     key: str
-    kind: Literal["observable", "artifact", "readback", "expression"] = "observable"
     dtype: MeasurementDType = "float64"
     unit: str | None = None
     axes: list[ProductAxisDescription] = Field(default_factory=list)
-    metadata: JsonMetadata = Field(default_factory=dict)
 
 
 class CapabilityDescription(BaseModel):
@@ -137,7 +130,6 @@ class CapabilityDescription(BaseModel):
     id: str
     fields: list[CapabilityField] = Field(default_factory=list)
     products: list[ProductDescription] = Field(default_factory=list)
-    metadata: JsonMetadata = Field(default_factory=dict)
 
 
 class InstrumentDescription(BaseModel):
@@ -147,7 +139,6 @@ class InstrumentDescription(BaseModel):
     implementation_id: str
     implementation_version: str
     capabilities: list[CapabilityDescription] = Field(default_factory=list)
-    metadata: JsonMetadata = Field(default_factory=dict)
 
 
 class InstrumentStateCommandField(BaseModel):
@@ -170,7 +161,6 @@ class InstrumentStateCommand(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     operation_id: str | None = None
-    attempt: int = Field(default=1, ge=1)
     instrument_id: str
     fields: list[InstrumentStateCommandField] = Field(default_factory=list)
     payloads: dict[str, CommandPayload] = Field(default_factory=dict)
@@ -209,83 +199,11 @@ class ApplyReceipt(BaseModel):
 
     @model_validator(mode="after")
     def validate_outcome_truth_table(self) -> ApplyReceipt:
-        blocking = has_blocking_problems(self.problems)
-        if self.status == "applied" and blocking:
-            msg = "an applied receipt cannot contain blocking problems"
+        if self.status == "applied" and self.problems:
+            msg = "an applied receipt cannot contain problems"
             raise ValueError(msg)
-        if self.status != "applied" and not blocking:
-            msg = "a negative or unknown apply receipt requires a blocking problem"
-            raise ValueError(msg)
-        return self
-
-
-class InstrumentActionCommandField(BaseModel):
-    """One typed argument supplied to a one-shot instrument action."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    field_path: _NonEmptyId
-    value: StateValue
-    entity_ids: list[_NonEmptyId] = Field(default_factory=list)
-    channel_bindings: list[_CommandChannelBinding] = Field(default_factory=list)
-
-    @model_validator(mode="after")
-    def validate_target(self) -> InstrumentActionCommandField:
-        _validate_entity_target(self.entity_ids, self.channel_bindings)
-        return self
-
-
-class InstrumentActionCommand(BaseModel):
-    """A one-shot effect command that is never state-diffed or deduplicated."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    operation_id: _NonEmptyId
-    attempt: int = Field(default=1, ge=1)
-    instrument_id: _NonEmptyId
-    capability_id: _NonEmptyId
-    fields: list[InstrumentActionCommandField] = Field(default_factory=list)
-    payloads: dict[str, CommandPayload] = Field(default_factory=dict)
-
-    @model_validator(mode="after")
-    def validate_unique_fields(self) -> InstrumentActionCommand:
-        identities = [
-            _state_target_identity(
-                self.capability_id,
-                field.field_path,
-                field.entity_ids,
-                field.channel_bindings,
-            )
-            for field in self.fields
-        ]
-        if len(identities) != len(set(identities)):
-            msg = "instrument action command field targets must be unique"
-            raise ValueError(msg)
-        return self
-
-
-class ActionReceipt(BaseModel):
-    """Explicit outcome of a one-shot action attempt.
-
-    ``not_performed`` proves the action had no effect and is therefore safe for
-    a caller to retry deliberately. ``unknown`` means it may have happened and
-    must never be retried automatically.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    status: Literal["performed", "not_performed", "unknown"] = "performed"
-    problems: tuple[Problem, ...] = ()
-    metadata: JsonMetadata = Field(default_factory=dict)
-
-    @model_validator(mode="after")
-    def validate_outcome_truth_table(self) -> ActionReceipt:
-        blocking = has_blocking_problems(self.problems)
-        if self.status == "performed" and blocking:
-            msg = "a performed action receipt cannot contain blocking problems"
-            raise ValueError(msg)
-        if self.status != "performed" and not blocking:
-            msg = "a negative or unknown action receipt requires a blocking problem"
+        if self.status != "applied" and not self.problems:
+            msg = "a negative or unknown apply receipt requires a problem"
             raise ValueError(msg)
         return self
 
@@ -329,7 +247,6 @@ class CollectCommand(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     operation_id: str | None = None
-    attempt: int = Field(default=1, ge=1)
     instrument_id: str
     point_index: int
     point_count: int
@@ -368,12 +285,11 @@ class CollectReceipt(BaseModel):
         if self.status == "not_collected" and self.readback is not None:
             msg = "a not_collected receipt must not contain a readback"
             raise ValueError(msg)
-        blocking = has_blocking_problems(self.problems)
-        if self.status == "collected" and blocking:
-            msg = "a collected receipt cannot contain blocking problems"
+        if self.status == "collected" and self.problems:
+            msg = "a collected receipt cannot contain problems"
             raise ValueError(msg)
-        if self.status != "collected" and not blocking:
-            msg = "a negative or unknown collect receipt requires a blocking problem"
+        if self.status != "collected" and not self.problems:
+            msg = "a negative or unknown collect receipt requires a problem"
             raise ValueError(msg)
         return self
 
@@ -382,9 +298,6 @@ class DriverFault(Exception):
     """Exceptional driver control flow carrying one stable public problem."""
 
     def __init__(self, problem: Problem) -> None:
-        if not has_blocking_problems((problem,)):
-            msg = "driver fault requires a blocking problem"
-            raise ValueError(msg)
         self.problem = problem
         super().__init__(problem.message)
 
@@ -401,8 +314,6 @@ class InstrumentDriver(Protocol):
     def read_state(self) -> _InstrumentStateSnapshot: ...
 
     def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt: ...
-
-    def action(self, command: InstrumentActionCommand) -> ActionReceipt: ...
 
     def collect(self, command: CollectCommand) -> CollectReceipt: ...
 
@@ -430,10 +341,6 @@ class InstrumentProviderDescription:
     provider_id: str
     instruments: tuple[InstrumentDescription, ...] = ()
     problems: tuple[Problem, ...] = ()
-    label: str | None = None
-    description: str | None = None
-    options: tuple[ProviderOptionDescription, ...] = ()
-    metadata: dict[str, JsonValue] = dc_field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.provider_id:
@@ -471,13 +378,11 @@ def capability(
     *,
     fields: list[CapabilityField] | tuple[CapabilityField, ...] = (),
     products: list[ProductDescription] | tuple[ProductDescription, ...] = (),
-    metadata: JsonMetadata | None = None,
 ) -> CapabilityDescription:
     return CapabilityDescription(
         id=id,
         fields=list(fields),
         products=list(products),
-        metadata=dict(metadata or {}),
     )
 
 
@@ -487,33 +392,27 @@ def product_axis(
     size: int | None = None,
     kind: str | None = None,
     unit: str | None = None,
-    metadata: JsonMetadata | None = None,
 ) -> ProductAxisDescription:
     return ProductAxisDescription(
         id=id,
         kind=kind or id,
         size=size,
         unit=unit,
-        metadata=dict(metadata or {}),
     )
 
 
 def product(
     key: str,
     *,
-    kind: Literal["observable", "artifact", "readback", "expression"] = "observable",
     dtype: MeasurementDType = "float64",
     unit: str | None = None,
     axes: list[ProductAxisDescription] | tuple[ProductAxisDescription, ...] = (),
-    metadata: JsonMetadata | None = None,
 ) -> ProductDescription:
     return ProductDescription(
         key=key,
-        kind=kind,
         dtype=dtype,
         unit=unit,
         axes=list(axes),
-        metadata=dict(metadata or {}),
     )
 
 
@@ -521,24 +420,19 @@ def quantity_field(
     id: str,  # noqa: A002
     *,
     unit: str,
-    metadata: JsonMetadata | None = None,
 ) -> CapabilityField:
     return CapabilityField(
         id=id,
         value_type=Scalar(QuantityType(unit=unit)),
-        metadata=dict(metadata or {}),
     )
 
 
 def bool_field(
     id: str,  # noqa: A002
-    *,
-    metadata: JsonMetadata | None = None,
 ) -> CapabilityField:
     return CapabilityField(
         id=id,
         value_type=Scalar(BoolType()),
-        metadata=dict(metadata or {}),
     )
 
 
@@ -547,24 +441,19 @@ def int_field(
     *,
     minimum: int | None = None,
     maximum: int | None = None,
-    metadata: JsonMetadata | None = None,
 ) -> CapabilityField:
     return CapabilityField(
         id=id,
         value_type=Scalar(IntType(minimum=minimum, maximum=maximum)),
-        metadata=dict(metadata or {}),
     )
 
 
 def float_field(
     id: str,  # noqa: A002
-    *,
-    metadata: JsonMetadata | None = None,
 ) -> CapabilityField:
     return CapabilityField(
         id=id,
         value_type=Scalar(FloatType()),
-        metadata=dict(metadata or {}),
     )
 
 
@@ -575,7 +464,6 @@ def string_field(
     max_length: int | None = None,
     pattern: str | None = None,
     choices: tuple[str, ...] | None = None,
-    metadata: JsonMetadata | None = None,
 ) -> CapabilityField:
     return CapabilityField(
         id=id,
@@ -587,7 +475,6 @@ def string_field(
                 choices=choices,
             )
         ),
-        metadata=dict(metadata or {}),
     )
 
 
@@ -595,21 +482,18 @@ def enum_field(
     id: str,  # noqa: A002
     *,
     choices: tuple[str, ...],
-    metadata: JsonMetadata | None = None,
 ) -> CapabilityField:
-    return string_field(id, choices=choices, metadata=metadata)
+    return string_field(id, choices=choices)
 
 
 def payload_field(
     id: str,  # noqa: A002
     *,
     schema_id: str,
-    metadata: JsonMetadata | None = None,
 ) -> CapabilityField:
     return CapabilityField(
         id=id,
         value_type=Scalar(PayloadType(schema_id=schema_id)),
-        metadata=dict(metadata or {}),
     )
 
 
@@ -670,65 +554,6 @@ def validate_state_command(
                 field_path=field.field_path,
                 value=field.value,
                 spec=field_spec,
-                payloads=available_payloads,
-            )
-        )
-    return problems
-
-
-def validate_action_command(
-    *,
-    command: InstrumentActionCommand,
-    description: InstrumentDescription,
-    payloads: dict[str, CommandPayload] | None = None,
-) -> list[Problem]:
-    """Validate an action against the same typed capability field contract."""
-
-    if command.instrument_id != description.instrument_id:
-        return [
-            _problem(
-                "instrument_driver_mismatch",
-                f"{description.instrument_id} cannot perform action for "
-                f"{command.instrument_id}",
-                "instrument_id",
-            )
-        ]
-    capability = next(
-        (
-            candidate
-            for candidate in description.capabilities
-            if candidate.id == command.capability_id
-        ),
-        None,
-    )
-    if capability is None:
-        return [
-            _problem(
-                "instrument_driver_unsupported_capability",
-                f"{command.instrument_id} does not support {command.capability_id}",
-                "capability_id",
-            )
-        ]
-    specs = {field.id: field for field in capability.fields}
-    available_payloads = {**command.payloads, **(payloads or {})}
-    problems: list[Problem] = []
-    for field in command.fields:
-        spec = specs.get(field.field_path)
-        if spec is None:
-            problems.append(
-                _problem(
-                    "instrument_driver_unsupported_field",
-                    f"{command.instrument_id} does not support {field.field_path}",
-                    "fields",
-                    field.field_path,
-                )
-            )
-            continue
-        problems.extend(
-            _validate_state_value(
-                field_path=field.field_path,
-                value=field.value,
-                spec=spec,
                 payloads=available_payloads,
             )
         )
@@ -829,10 +654,9 @@ def _field_value_mismatch(
 
 
 def _problem(code: str, message: str, *path: LocationPathItem) -> Problem:
-    return blocking_problem(
+    return problem(
         code,
         message,
-        category=ProblemCategory.PROVIDER_CONTRACT,
         phase=ProblemPhase.EXECUTION,
         location=model_location("instrument_state_command", *path),
     )

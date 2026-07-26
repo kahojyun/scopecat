@@ -7,22 +7,22 @@ from pathlib import Path
 import pytest
 import scopecat as sc
 from scopecat import IntType, Quantity, QuantityType, ScalarType
-from scopecat_quantum import (
-    DRAG,
+from scopecat.sdk.domain import DomainCompilation, DomainCompileRequest
+from scopecat_quantum._ids import QubitId
+from scopecat_quantum.authoring import program_port_type
+from scopecat_quantum.programs import (
     AuthoredPulseAcquisitionProvenance,
     AuthoredPulseEventProvenance,
     CircuitPulseEventProvenance,
     ImplementedGatePulseEventProvenance,
-    Play,
-    QubitId,
-    program_port_type,
 )
+from scopecat_quantum.pulse_implementations import GatePulseImplementationBinding
+from scopecat_quantum.pulses import DRAG, Play
 
 from quantum_lab_demo import quantum_lab_compiler
+from quantum_lab_demo.compiler import QuantumLabCompiler, _ListQuantumLabArtifact
 from quantum_lab_demo.virtual_lab.parameters import (
-    DRAG_BETA_PARAMETER_COLUMN,
     q0_drag_beta_lookup,
-    q0_drag_beta_row,
 )
 from quantum_lab_demo.virtual_lab.pulse_profile import (
     x90_pulse_recipe,
@@ -45,22 +45,26 @@ from quantum_lab_demo.workflows.drag_beta_experiment import (
 from .demo_lab_experiment_testkit import in_process_quantum_lab
 
 
-def _golden_point(tmp_path: Path):
+def _golden_point(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     compiler = quantum_lab_compiler()
+    compilations = _capture_compilations(compiler, monkeypatch)
     lab = in_process_quantum_lab(project_root=tmp_path, compiler=compiler)
     scan = sc.cartesian(
         sc.param_axis(
             BETA,
-            q0_drag_beta_row(),
-            DRAG_BETA_PARAMETER_COLUMN,
+            q0_drag_beta_lookup(),
             (Quantity(0.75, "ns"),),
         ),
         sc.axis(AMPLIFICATION, (3,)),
     )
     lab.prepare(drag_beta_template).scan(scan).run()
-    [preparation] = compiler.trace.preparations(drag_beta_program.id)
-    [prepared] = preparation.entries
-    return drag_beta_program, prepared, preparation.artifact
+    [compilation] = compilations
+    [job] = compilation.jobs
+    artifact = job.artifact
+    assert isinstance(artifact, _ListQuantumLabArtifact)
+    assert artifact.program.id == drag_beta_program.id
+    [prepared] = artifact.entries
+    return drag_beta_program, prepared, artifact.compiled.artifact
 
 
 def _nanoseconds(seconds: Decimal) -> Decimal:
@@ -79,8 +83,11 @@ def test_drag_beta_capture_binds_the_accepted_parameter_cell() -> None:
     assert capture.inputs["beta"] == q0_drag_beta_lookup()
 
 
-def test_n3_golden_schedule_and_implementation_bindings(tmp_path: Path) -> None:
-    declaration, prepared, _artifact = _golden_point(tmp_path)
+def test_n3_golden_schedule_and_implementation_bindings(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    declaration, prepared, _artifact = _golden_point(tmp_path, monkeypatch)
 
     assert [port.id for port in declaration.inputs] == ["amplification", "beta"]
     assert program_port_type(declaration.inputs[0]) == ScalarType(IntType(minimum=1))
@@ -141,14 +148,22 @@ def test_n3_golden_schedule_and_implementation_bindings(tmp_path: Path) -> None:
     assert all(envelope.beta == Quantity(0.75e-9, "s") for envelope in drag_envelopes)
 
     selected = prepared.lowered.implementation_bindings
-    assert len(selected.operation_ids) == 2
-    assert tuple(binding.implementation_id for binding in selected.gates.bindings) == (
+    assert len(selected.bindings) == 2
+    assert all(
+        isinstance(binding, GatePulseImplementationBinding)
+        for binding in selected.bindings
+    )
+    assert tuple(binding.implementation_id for binding in selected.bindings) == (
         _X90_IMPLEMENTATION_ID,
         _XM90_IMPLEMENTATION_ID,
     )
-    assert selected.measurements.bindings == ()
+    selected_operation_ids = tuple(
+        binding.call_id
+        for binding in selected.bindings
+        if isinstance(binding, GatePulseImplementationBinding)
+    )
     assert all(
-        provenance.operation_id not in selected.operation_ids
+        provenance.operation_id not in selected_operation_ids
         for provenance in candidate_origins
     )
 
@@ -200,8 +215,11 @@ def test_n3_golden_schedule_and_implementation_bindings(tmp_path: Path) -> None:
     } == {candidate_x90.id, candidate_xm90.id}
 
 
-def test_n3_point_compiles_to_complex_drag_samples(tmp_path: Path) -> None:
-    _declaration, _prepared, artifact = _golden_point(tmp_path)
+def test_n3_point_compiles_to_complex_drag_samples(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _declaration, _prepared, artifact = _golden_point(tmp_path, monkeypatch)
     [entry] = artifact.entries
     drive_waveform = next(
         waveform
@@ -216,3 +234,19 @@ def test_n3_point_compiles_to_complex_drag_samples(tmp_path: Path) -> None:
     assert positive == pytest.approx(tuple(-sample for sample in negative))
     assert positive[0].real == pytest.approx(positive[-1].real)
     assert positive[0].imag == pytest.approx(-positive[-1].imag)
+
+
+def _capture_compilations(
+    compiler: QuantumLabCompiler,
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[DomainCompilation]:
+    compilations: list[DomainCompilation] = []
+    compile_domain = compiler.compile
+
+    def compile_and_capture(request: DomainCompileRequest) -> DomainCompilation:
+        compilation = compile_domain(request)
+        compilations.append(compilation)
+        return compilation
+
+    monkeypatch.setattr(compiler, "compile", compile_and_capture)
+    return compilations

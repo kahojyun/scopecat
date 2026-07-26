@@ -14,28 +14,27 @@ from typing import (
     get_origin,
     get_type_hints,
     overload,
-    override,
 )
 
 from scopecat.authoring._frozen_values import empty_frozen_mapping
 from scopecat.authoring._module_construction import (
-    build_module_from_builder,
+    build_module_ir,
     module_use_invocation,
 )
 from scopecat.authoring._module_handles import (
     ExperimentModule,
     ModuleBuilder,
-    ModuleCall,
     ModuleInvocation,
+    create_experiment_module_internal,
 )
 from scopecat.authoring._products import ProductRef, RecordSelection, record_product
-from scopecat.authoring._validation import validate_template_definition
 from scopecat.authoring._value_refs import ValueRef
 from scopecat.authoring.scans import Scan, ScanCenter, ScanValue, build_scan
 from scopecat.authoring.templates import (
+    ExperimentDefinition,
     ExperimentInvocation,
     ExperimentTemplate,
-    InputDescription,
+    create_experiment_definition_internal,
 )
 from scopecat.authoring.value_types import (
     Bool,
@@ -51,7 +50,7 @@ from scopecat.authoring.value_types import (
     Table,
     ValueType,
 )
-from scopecat.authoring.values import MetadataValue, ModuleInput, RuntimeInput
+from scopecat.authoring.values import MetadataValue, RuntimeInput
 from scopecat.authoring.values import input as authoring_input
 from scopecat.kernel.frozen import freeze_json_mapping
 from scopecat.records.entity import EntityRef
@@ -59,14 +58,6 @@ from scopecat.records.parameter import Quantity as QuantityValue
 
 type DefinitionFunction = Callable[..., object]
 type Input[T] = T | ValueRef
-type ModuleBodyResult = (
-    ModuleBuilder
-    | ExperimentModule
-    | ModuleInvocation
-    | ModuleCall
-    | Sequence[ModuleInvocation | ModuleCall]
-    | None
-)
 
 
 def input_ref[T](value: Input[T]) -> ValueRef:
@@ -100,7 +91,6 @@ class ExperimentBody:
     module: ModuleBuilder = field(default_factory=ModuleBuilder)
     scans: tuple[Scan, ...] = ()
     record_selections: tuple[RecordSelection, ...] = ()
-    inputs: tuple[InputDescription, ...] = ()
 
     def scan(
         self,
@@ -156,115 +146,6 @@ class ExperimentBody:
             record_selections=(*self.record_selections, *selections),
         )
 
-    def describe_input(
-        self,
-        id: str,  # noqa: A002
-        *,
-        label: str | None = None,
-        description: str | None = None,
-        metadata: Mapping[str, MetadataValue] | None = None,
-    ) -> ExperimentBody:
-        """Add presentation metadata to an input declared in the signature."""
-
-        selected = InputDescription(
-            id=id,
-            label=label,
-            description=description,
-            metadata=metadata or {},
-        )
-        return replace(self, inputs=(*self.inputs, selected))
-
-
-class ModuleDefinition[**P](ExperimentModule):
-    """A closed module retaining its Python definition's call contract."""
-
-    __slots__ = ("_contract", "_definition", "_signature")
-
-    _contract: _DefinitionContract
-    _definition: Callable[P, ModuleBodyResult]
-    _signature: inspect.Signature
-
-    def __init__(
-        self,
-        module: ExperimentModule,
-        definition: Callable[P, ModuleBodyResult],
-        contract: _DefinitionContract,
-    ) -> None:
-        super().__init__(_ir=module.ir)
-        self._definition = definition
-        self._contract = contract
-        self._signature = contract.signature.replace(return_annotation=ModuleInvocation)
-
-    @property
-    def __wrapped__(self) -> Callable[P, ModuleBodyResult]:
-        return self._definition
-
-    @property
-    def __name__(self) -> str:
-        return self._definition.__name__
-
-    @property
-    def __signature__(self) -> inspect.Signature:
-        return self._signature
-
-    @override
-    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> ModuleInvocation:
-        bound = self._contract.signature.bind(*args, **kwargs)
-        return self.instantiate(
-            self.id.rsplit(".", maxsplit=1)[-1],
-            cast("Mapping[str, ModuleInput]", bound.arguments),
-        )
-
-
-class TemplateDefinition[**P](ExperimentTemplate):
-    """A closed template retaining its Python definition's call contract."""
-
-    __slots__ = ("_contract", "_definition", "_signature")
-
-    _contract: _DefinitionContract
-    _definition: Callable[P, ExperimentBody]
-    _signature: inspect.Signature
-
-    def __init__(
-        self,
-        template: ExperimentTemplate,
-        definition: Callable[P, ExperimentBody],
-        contract: _DefinitionContract,
-    ) -> None:
-        super().__init__(
-            id=template.id,
-            kind=template.kind,
-            module=template.module,
-            record_selections=template.record_selections,
-            inputs=template.inputs,
-            default_scans=template.default_scans,
-            label=template.label,
-            description=template.description,
-            metadata=template.metadata,
-        )
-        self._definition = definition
-        self._contract = contract
-        self._signature = contract.signature.replace(
-            return_annotation=ExperimentInvocation
-        )
-
-    @property
-    def __wrapped__(self) -> Callable[P, ExperimentBody]:
-        return self._definition
-
-    @property
-    def __name__(self) -> str:
-        return self._definition.__name__
-
-    @property
-    def __signature__(self) -> inspect.Signature:
-        return self._signature
-
-    @override
-    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> ExperimentInvocation:
-        bound = self._contract.signature.bind(*args, **kwargs)
-        return self.bind(**cast("dict[str, RuntimeInput]", dict(bound.arguments)))
-
 
 @dataclass(frozen=True, slots=True, repr=False)
 class ScratchDefinition[**P]:
@@ -274,8 +155,6 @@ class ScratchDefinition[**P]:
     _signature: inspect.Signature = field(repr=False, compare=False)
     id: str
     kind: str
-    label: str | None = None
-    description: str | None = None
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
 
     @property
@@ -293,25 +172,29 @@ class ScratchDefinition[**P]:
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> ExperimentInvocation:
         result = self.fn(*args, **kwargs)
         body = _experiment_body(result)
-        template = _close_experiment_body(
+        definition = _close_experiment_body(
             body,
             id=self.id,
             kind=self.kind,
-            label=self.label,
-            description=self.description,
             metadata=self.metadata,
+            input_defaults={},
+            required_inputs=(),
         )
-        return template.bind()
+        return ExperimentInvocation(
+            definition=definition,
+            inputs=empty_frozen_mapping(),
+            scans=(),
+        )
 
 
 @overload
 def module[**P](
-    definition: Callable[P, ModuleBodyResult],
+    definition: Callable[P, ModuleBuilder],
     /,
     *,
     id: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
-) -> ModuleDefinition[P]: ...
+) -> ExperimentModule[P]: ...
 
 
 @overload
@@ -321,18 +204,16 @@ def module[**P](
     *,
     id: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
-) -> Callable[[Callable[P, ModuleBodyResult]], ModuleDefinition[P]]: ...
+) -> Callable[[Callable[P, ModuleBuilder]], ExperimentModule[P]]: ...
 
 
 def module[**P](
-    definition: Callable[P, ModuleBodyResult] | None = None,
+    definition: Callable[P, ModuleBuilder] | None = None,
     /,
     *,
     id: str | None = None,  # noqa: A002
     metadata: Mapping[str, MetadataValue] | None = None,
-) -> (
-    ModuleDefinition[P] | Callable[[Callable[P, ModuleBodyResult]], ModuleDefinition[P]]
-):
+) -> ExperimentModule[P] | Callable[[Callable[P, ModuleBuilder]], ExperimentModule[P]]:
     """Define a closed module from a Python function."""
 
     if definition is None:
@@ -370,10 +251,8 @@ def template[**P](
     *,
     id: str | None = None,
     kind: str | None = None,
-    label: str | None = None,
-    description: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
-) -> TemplateDefinition[P]: ...
+) -> ExperimentTemplate[P]: ...
 
 
 @overload
@@ -383,10 +262,8 @@ def template[**P](
     *,
     id: str | None = None,
     kind: str | None = None,
-    label: str | None = None,
-    description: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
-) -> Callable[[Callable[P, ExperimentBody]], TemplateDefinition[P]]: ...
+) -> Callable[[Callable[P, ExperimentBody]], ExperimentTemplate[P]]: ...
 
 
 def template[**P](
@@ -395,22 +272,18 @@ def template[**P](
     *,
     id: str | None = None,  # noqa: A002
     kind: str | None = None,
-    label: str | None = None,
-    description: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> (
-    TemplateDefinition[P]
-    | Callable[[Callable[P, ExperimentBody]], TemplateDefinition[P]]
+    ExperimentTemplate[P]
+    | Callable[[Callable[P, ExperimentBody]], ExperimentTemplate[P]]
 ):
     """Close a symbolic Python function as an experiment template."""
 
-    def decorate(fn: Callable[P, ExperimentBody]) -> TemplateDefinition[P]:
+    def decorate(fn: Callable[P, ExperimentBody]) -> ExperimentTemplate[P]:
         return _template_from_function(
             fn,
             id=id,
             kind=kind,
-            label=label,
-            description=description,
             metadata=metadata,
         )
 
@@ -424,8 +297,6 @@ def scratch[**P](
     *,
     id: str | None = None,
     kind: str | None = None,
-    label: str | None = None,
-    description: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> ScratchDefinition[P]: ...
 
@@ -437,8 +308,6 @@ def scratch[**P](
     *,
     id: str | None = None,
     kind: str | None = None,
-    label: str | None = None,
-    description: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> Callable[[Callable[P, ExperimentBody]], ScratchDefinition[P]]: ...
 
@@ -449,8 +318,6 @@ def scratch[**P](
     *,
     id: str | None = None,  # noqa: A002
     kind: str | None = None,
-    label: str | None = None,
-    description: str | None = None,
     metadata: Mapping[str, MetadataValue] | None = None,
 ) -> (
     ScratchDefinition[P] | Callable[[Callable[P, ExperimentBody]], ScratchDefinition[P]]
@@ -465,8 +332,6 @@ def scratch[**P](
             ),
             id=id or _definition_id(fn),
             kind=kind or fn.__name__,
-            label=label,
-            description=description or inspect.getdoc(fn),
             metadata=freeze_json_mapping(metadata or {}),
         )
 
@@ -474,11 +339,11 @@ def scratch[**P](
 
 
 def _module_from_function[**P](
-    fn: Callable[P, ModuleBodyResult],
+    fn: Callable[P, ModuleBuilder],
     *,
     id: str | None,  # noqa: A002
     metadata: Mapping[str, MetadataValue] | None,
-) -> ModuleDefinition[P]:
+) -> ExperimentModule[P]:
     source = cast("DefinitionFunction", fn)
     contract = _definition_contract(source, defaults=False)
     values = contract.values
@@ -496,7 +361,12 @@ def _module_from_function[**P](
         input_ports=tuple(_input_port(name, value) for name, value in values.items()),
         metadata=freeze_json_mapping({**body.metadata, **selected_metadata}),
     )
-    return ModuleDefinition(build_module_from_builder(builder), fn, contract)
+    module_ir = build_module_ir(builder)
+    return create_experiment_module_internal(
+        module_ir,
+        definition=fn,
+        signature=contract.signature,
+    )
 
 
 def _template_from_function[**P](
@@ -504,10 +374,8 @@ def _template_from_function[**P](
     *,
     id: str | None,  # noqa: A002
     kind: str | None,
-    label: str | None,
-    description: str | None,
     metadata: Mapping[str, MetadataValue] | None,
-) -> TemplateDefinition[P]:
+) -> ExperimentTemplate[P]:
     source = cast("DefinitionFunction", fn)
     contract = _definition_contract(source, defaults=True)
     signature = contract.signature
@@ -517,29 +385,6 @@ def _template_from_function[**P](
         raise ValueError(
             "@template function bodies must declare inputs in the signature"
         )
-    inferred_inputs = tuple(
-        _input_description(parameter) for parameter in signature.parameters.values()
-    )
-    descriptions_by_id = {item.id: item for item in body.inputs}
-    if len(descriptions_by_id) != len(body.inputs):
-        duplicates = sorted(
-            input_id
-            for input_id in descriptions_by_id
-            if sum(item.id == input_id for item in body.inputs) > 1
-        )
-        rendered = ", ".join(repr(item) for item in duplicates)
-        raise ValueError(f"template inputs are declared twice: {rendered}")
-    inferred_ids = {item.id for item in inferred_inputs}
-    unknown_descriptions = sorted(set(descriptions_by_id) - inferred_ids)
-    if unknown_descriptions:
-        rendered = ", ".join(repr(item) for item in unknown_descriptions)
-        raise ValueError(
-            f"template input descriptions require signature ports: {rendered}"
-        )
-    selected_inputs = tuple(
-        _merge_input_description(item, descriptions_by_id.get(item.id))
-        for item in inferred_inputs
-    )
     selected_body = replace(
         body,
         module=replace(
@@ -548,19 +393,33 @@ def _template_from_function[**P](
                 _input_port(name, value) for name, value in values.items()
             ),
         ),
-        inputs=selected_inputs,
     )
-    return TemplateDefinition(
-        _close_experiment_body(
-            selected_body,
-            id=id or _definition_id(source),
-            kind=kind or source.__name__,
-            label=label,
-            description=description or inspect.getdoc(source),
-            metadata=metadata,
+    defaults = tuple(
+        (parameter.name, cast("object", parameter.default))
+        for parameter in signature.parameters.values()
+    )
+    input_defaults = {
+        name: cast("RuntimeInput", default)
+        for name, default in defaults
+        if default is not inspect.Parameter.empty
+    }
+    required_inputs = tuple(
+        name for name, default in defaults if default is inspect.Parameter.empty
+    )
+    definition = _close_experiment_body(
+        selected_body,
+        id=id or _definition_id(source),
+        kind=kind or source.__name__,
+        metadata=metadata,
+        input_defaults=input_defaults,
+        required_inputs=required_inputs,
+    )
+    return ExperimentTemplate(
+        definition=definition,
+        _callable=fn,
+        _signature=contract.signature.replace(
+            return_annotation=ExperimentInvocation,
         ),
-        fn,
-        contract,
     )
 
 
@@ -569,29 +428,21 @@ def _close_experiment_body(
     *,
     id: str,  # noqa: A002
     kind: str,
-    label: str | None,
-    description: str | None,
     metadata: Mapping[str, MetadataValue] | None,
-) -> ExperimentTemplate:
-    module_handle = body.module.build(id=f"{id}.module")
-    template_handle = ExperimentTemplate(
+    input_defaults: Mapping[str, RuntimeInput],
+    required_inputs: Sequence[str],
+) -> ExperimentDefinition:
+    module_ir = build_module_ir(body.module, id=f"{id}.module")
+    return create_experiment_definition_internal(
         id=id,
         kind=kind,
-        module=module_handle,
+        module=module_ir,
         record_selections=body.record_selections,
-        inputs=body.inputs,
+        input_defaults=input_defaults,
+        required_inputs=required_inputs,
         default_scans=body.scans,
-        label=label,
-        description=description,
-        metadata=freeze_json_mapping(metadata or {}),
+        metadata=metadata,
     )
-    validate_template_definition(
-        module=template_handle.module,
-        inputs=template_handle.inputs,
-        default_scans=template_handle.default_scans,
-        record_selections=template_handle.record_selections,
-    )
-    return template_handle
 
 
 def _definition_contract(
@@ -738,52 +589,10 @@ def _input_port(name: str, value: ValueRef):
     return ModuleInputPort(id=name, value_type=value.value_type)
 
 
-def _input_description(parameter: inspect.Parameter) -> InputDescription:
-    default = cast("object", parameter.default)
-    if default is inspect.Parameter.empty:
-        return InputDescription(id=parameter.name)
-    return InputDescription(
-        id=parameter.name,
-        default=cast("RuntimeInput", default),
-    )
-
-
-def _merge_input_description(
-    inferred: InputDescription,
-    declared: InputDescription | None,
-) -> InputDescription:
-    if declared is None:
-        return inferred
-    return replace(
-        inferred,
-        label=declared.label,
-        description=declared.description,
-        metadata=freeze_json_mapping({**inferred.metadata, **declared.metadata}),
-    )
-
-
-def _module_body(value: ModuleBodyResult | object) -> ModuleBuilder:
-    if value is None:
-        return ModuleBuilder()
+def _module_body(value: object) -> ModuleBuilder:
     if isinstance(value, ModuleBuilder):
         return value
-    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
-        invocations: list[ModuleInvocation] = []
-        for item in cast("Sequence[object]", value):
-            try:
-                invocation = module_use_invocation(item)
-            except TypeError:
-                break
-            invocations.append(invocation)
-        else:
-            return ModuleBuilder().use(*invocations)
-    try:
-        return ModuleBuilder().use(_module_invocation(cast("object", value)))
-    except TypeError:
-        pass
-    raise TypeError(
-        "@module functions must return a module body, module call, or module calls"
-    )
+    raise TypeError("@module functions must return module_body()")
 
 
 def _experiment_body(value: object) -> ExperimentBody:
@@ -810,9 +619,7 @@ def _definition_id(fn: DefinitionFunction) -> str:
 __all__ = [
     "ExperimentBody",
     "Input",
-    "ModuleDefinition",
     "ScratchDefinition",
-    "TemplateDefinition",
     "experiment",
     "module",
     "module_body",

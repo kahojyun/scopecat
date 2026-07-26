@@ -14,10 +14,9 @@ from scopecat.kernel.content_identity import content_fingerprint, stable_content
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
     LocationPathItem,
-    ProblemCategory,
     ProblemPhase,
-    blocking_problem,
     model_location,
+    problem,
 )
 from scopecat.records.artifact import RunContentEntry
 from scopecat.runs.refs import artifact_content_ref
@@ -123,10 +122,9 @@ def _raise_run_problem(
 ) -> NoReturn:
     raise CheckFailed(
         [
-            blocking_problem(
+            problem(
                 code,
                 message,
-                category=ProblemCategory.INVALID_INPUT,
                 phase=ProblemPhase.ANALYSIS,
                 location=model_location("run_attachment", *path),
             )

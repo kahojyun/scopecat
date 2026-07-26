@@ -16,7 +16,6 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_requires_execution,
     internal_value_ref_scalar_input_ids,
     internal_value_ref_scalar_operation,
-    internal_value_ref_source_kind,
 )
 
 
@@ -77,7 +76,6 @@ def test_direct_execute_scalar_operation_remains_symbolic_until_graph_lowering()
     expression = produced + 1.0
 
     operation = internal_value_ref_scalar_operation(expression)
-    assert internal_value_ref_source_kind(expression) == "scalar_operation"
     assert operation is not None
     assert operation.operator == "+"
     assert operation.left is produced

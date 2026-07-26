@@ -62,14 +62,14 @@ def test_python_implementation_identity_changes_with_its_declaration() -> None:
     second = sc.compute("produce", fn=lambda: 2.0, output_type=value_type)
 
     first_ir = elaborate_module(
-        sc.module_body(id="test.impl.first").computes(first).build()
+        sc.module_body(id="test.impl.first").computes(first).build().ir
     )
     second_ir = elaborate_module(
-        sc.module_body(id="test.impl.second").computes(second).build()
+        sc.module_body(id="test.impl.second").computes(second).build().ir
     )
 
-    first_id = first_ir.implementation_catalog.local_python[0].id
-    second_id = second_ir.implementation_catalog.local_python[0].id
+    first_id = next(iter(first_ir.implementations.values())).id
+    second_id = next(iter(second_ir.implementations.values())).id
     assert first_id != second_id
     assert first_id.value.startswith("python:")
     assert first_id.value.endswith(":produce")

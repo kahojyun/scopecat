@@ -74,7 +74,6 @@ def readout_module(
 @sc.template(
     id=READOUT_TEMPLATE_ID,
     kind="readout_frequency",
-    label="readout frequency",
 )
 def readout_frequency_template(
     qubit: q.QubitInput,

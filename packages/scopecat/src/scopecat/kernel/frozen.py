@@ -50,9 +50,6 @@ class FrozenMapping(Mapping[_K, _V]):
         msg = "frozen mapping is immutable"
         raise TypeError(msg)
 
-    def copy(self) -> FrozenMapping[_K, _V]:
-        return self
-
     def __copy__(self) -> FrozenMapping[_K, _V]:
         return self
 

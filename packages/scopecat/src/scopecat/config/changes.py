@@ -19,12 +19,11 @@ from scopecat.kernel.errors import CheckFailed, Conflict, DataIntegrityError, No
 from scopecat.kernel.ids import artifact_slug
 from scopecat.kernel.problems import (
     Problem,
-    ProblemCategory,
     ProblemLocation,
     ProblemPhase,
     StorageLocation,
-    blocking_problem,
     model_location,
+    problem,
 )
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
@@ -82,7 +81,6 @@ def parameter_change_proposal_from_updates(
                 _parameter_problem(
                     "parameter_change_invalid_id",
                     "parameter change proposal id is not safe for record paths",
-                    category=ProblemCategory.INVALID_INPUT,
                     phase=ProblemPhase.ANALYSIS,
                     location=model_location("parameter_change_proposal", "id"),
                     details={"proposal_id": selected_id},
@@ -146,27 +144,6 @@ def list_parameter_change_proposals(
     )
 
 
-def review_parameter_change_proposal(
-    *,
-    run_id: str,
-    selector: str,
-    services: ProjectStateServices,
-    state: ParameterChangeReviewState,
-    reviewer: str,
-    note: str = "",
-) -> ParameterChangeDecisionRecord:
-    prepared = prepare_parameter_change_review(
-        run_id=run_id,
-        selector=selector,
-        services=services,
-        state=state,
-        reviewer=reviewer,
-        note=note,
-    )
-    services.runs.publish_content(prepared.publication)
-    return prepared.decision
-
-
 def prepare_parameter_change_review(
     *,
     run_id: str,
@@ -184,29 +161,6 @@ def prepare_parameter_change_review(
         authority=HumanDecisionAuthority(actor=reviewer),
         note=note,
     )
-
-
-def decide_parameter_change_proposal(
-    *,
-    run_id: str,
-    selector: str,
-    services: ProjectStateServices,
-    decision: ParameterChangeReviewState,
-    authority: ParameterChangeDecisionAuthority,
-    note: str = "",
-) -> ParameterChangeDecisionRecord:
-    """Record a human or automatic-policy acceptance decision."""
-
-    prepared = prepare_parameter_change_decision(
-        run_id=run_id,
-        selector=selector,
-        services=services,
-        decision=decision,
-        authority=authority,
-        note=note,
-    )
-    services.runs.publish_content(prepared.publication)
-    return prepared.decision
 
 
 def prepare_parameter_change_decision(
@@ -228,29 +182,6 @@ def prepare_parameter_change_decision(
         authority=authority,
         note=note,
     )
-
-
-def invalidate_parameter_change_proposal(
-    *,
-    run_id: str,
-    selector: str,
-    services: ProjectStateServices,
-    reason: str,
-    invalidated_by: str,
-    invalidated_by_refs: list[str] | None = None,
-) -> ParameterChangeDecisionRecord:
-    related_refs = list(invalidated_by_refs or [])
-    prepared = _prepare_parameter_change_decision(
-        run_id=run_id,
-        selector=selector,
-        services=services,
-        decision="invalidated",
-        authority=HumanDecisionAuthority(actor=invalidated_by),
-        note=reason,
-        related_refs=related_refs,
-    )
-    services.runs.publish_content(prepared.publication)
-    return prepared.decision
 
 
 def _prepare_parameter_change_decision(
@@ -330,7 +261,6 @@ def list_parameter_change_decisions(
                     _parameter_problem(
                         "invalid_parameter_change_decision",
                         "parameter change decision record is invalid",
-                        category=ProblemCategory.DATA_INTEGRITY,
                         phase=ProblemPhase.PERSISTENCE,
                         location=StorageLocation(
                             run_id=run_id,
@@ -351,7 +281,6 @@ def list_parameter_change_decisions(
                         "invalid_parameter_change_decision_identity",
                         "parameter change decision identity does not match its "
                         "run record",
-                        category=ProblemCategory.DATA_INTEGRITY,
                         phase=ProblemPhase.PERSISTENCE,
                         location=StorageLocation(
                             run_id=run_id,
@@ -422,7 +351,6 @@ def prepare_parameter_change_proposal_contents(
                     _parameter_problem(
                         "parameter_change_proposal_source_run_mismatch",
                         "parameter change proposal belongs to a different source run",
-                        category=ProblemCategory.INVALID_INPUT,
                         phase=ProblemPhase.PERSISTENCE,
                         location=model_location(
                             "parameter_change_proposal", "source_run_id"
@@ -452,7 +380,6 @@ def prepare_parameter_change_proposal_contents(
                             "parameter_change_proposal_conflict",
                             "parameter change proposal record is immutable and "
                             "already contains different content",
-                            category=ProblemCategory.CONFLICT,
                             phase=ProblemPhase.PERSISTENCE,
                             location=StorageLocation(run_id=run_id, ref=proposal_ref),
                             details={"proposal_id": proposal.id},
@@ -522,7 +449,6 @@ def _resolve_proposal_ref(
             _parameter_problem(
                 "parameter_change_proposal_not_found",
                 "parameter change proposal was not found",
-                category=ProblemCategory.NOT_FOUND,
                 phase=ProblemPhase.ANALYSIS,
                 location=model_location("parameter_change_selector"),
                 details={"selector": selector, "run_id": run_id},
@@ -544,7 +470,6 @@ def _load_proposal_record(
                 _parameter_problem(
                     "parameter_change_proposal_record_missing",
                     "run manifest references a missing parameter change proposal",
-                    category=ProblemCategory.DATA_INTEGRITY,
                     phase=ProblemPhase.PERSISTENCE,
                     location=StorageLocation(run_id=run_id, ref=proposal_ref),
                     details={"record_id": proposal_record.id},
@@ -563,7 +488,6 @@ def _load_proposal_record(
                 _parameter_problem(
                     "invalid_parameter_change_proposal",
                     "parameter change proposal record is invalid",
-                    category=ProblemCategory.DATA_INTEGRITY,
                     phase=ProblemPhase.PERSISTENCE,
                     location=StorageLocation(run_id=run_id, ref=proposal_ref),
                     details={"record_id": proposal_record.id},
@@ -576,7 +500,6 @@ def _load_proposal_record(
                 _parameter_problem(
                     "invalid_parameter_change_proposal_identity",
                     "parameter change proposal identity does not match its run record",
-                    category=ProblemCategory.DATA_INTEGRITY,
                     phase=ProblemPhase.PERSISTENCE,
                     location=StorageLocation(run_id=run_id, ref=proposal_ref),
                     details={
@@ -602,7 +525,6 @@ def _validate_selector_path(value: str) -> None:
                 _parameter_problem(
                     "parameter_change_path_escape",
                     "parameter change selector escapes the run directory",
-                    category=ProblemCategory.INVALID_INPUT,
                     phase=ProblemPhase.ANALYSIS,
                     location=model_location("parameter_change_selector"),
                     details={"selector": value},
@@ -615,15 +537,13 @@ def _parameter_problem(
     code: str,
     message: str,
     *,
-    category: ProblemCategory,
     phase: ProblemPhase,
     location: ProblemLocation,
     details: dict[str, object] | None = None,
 ) -> Problem:
-    return blocking_problem(
+    return problem(
         code,
         message,
-        category=category,
         phase=phase,
         location=location,
         details=details,

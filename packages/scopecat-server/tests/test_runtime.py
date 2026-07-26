@@ -1,29 +1,28 @@
 from __future__ import annotations
 
 import sqlite3
-import time
-from datetime import UTC, datetime
+from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from threading import Barrier
 from typing import Literal, Never
 
 import pytest
 from fastapi.testclient import TestClient
 from scopecat.adapters.sqlite import SQLiteControlPlane, SQLiteRunRepository
 from scopecat.application import LabApplication
-from scopecat.authoring import ExperimentBody, experiment, template
 from scopecat.config.changes import parameter_change_proposal_from_updates
-from scopecat.config.parameters import replace_scalar_parameter
+from scopecat.config.parameters import ReplaceParameter, replace_scalar_parameter
 from scopecat.config.profiles import load_config_profile
+from scopecat.config.registry.records import ConfigRegistryEntry
 from scopecat.control.models import (
     ControlRun,
     DurableEvent,
     DurableEventInput,
     EventPage,
+    ResourceKey,
     ResourceLease,
-)
-from scopecat.daemon.catalog import (
-    RegisteredExperiment,
-    RegisteredExperimentCatalog,
+    RunPlanSummary,
 )
 from scopecat.daemon.views import (
     ActiveConfigView,
@@ -40,7 +39,6 @@ from scopecat.daemon.wire import (
     AnalysisParameterProposalOutputPayload,
     AnalysisSaveCommand,
     AnalysisSaveReceipt,
-    AttentionResolutionCommand,
     CandidateConfigActivationCommand,
     CandidateConfigActivationReceipt,
     ConfigActivationReceipt,
@@ -50,31 +48,20 @@ from scopecat.daemon.wire import (
     ConfigDraftDefaultReceipt,
     ConfigDraftRegistrationCommand,
     ConfigEntryActivationCommand,
-    ConfigImportReceipt,
     ConfigRollbackCommand,
-    DelegatedPlanSummary,
-    DelegatedRunSubmission,
     DirectConfigDefaultCommand,
     DirectConfigImportCommand,
-    ExecutionRecoveryRequest,
-    ExecutionTransitionBatch,
+    ExecutionTransitionAppend,
+    ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
-    ManagedRunSubmission,
     MeasurementAppendCommand,
     ParameterProposalDecisionCommand,
-    ParameterProposalReviewReceipt,
-    RegisteredExperimentDescriptor,
-    ReplaceConfigParameter,
-    ResourceClaimDescriptor,
     RunAdmission,
     RunAttachmentCommand,
-    RuntimeEventPublishCommand,
-    RuntimeProgressPayload,
-    RuntimeTransitionEventPayload,
+    RunSubmission,
     TerminalRunCommitCommand,
 )
-from scopecat.planning.system import ExperimentSystem
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.measurement import MeasurementRecord
@@ -82,16 +69,13 @@ from scopecat.records.measurement_recording import MeasurementDatasetAppend
 from scopecat.records.parameter import Quantity, ScalarParameterValue
 from scopecat.records.parameter_change import (
     AutomaticPolicyDecisionAuthority,
+    ParameterChangeDecisionRecord,
     ParameterChangeProposal,
 )
 from scopecat.records.run import RunManifest, RunOutcome
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.refs import artifact_content_ref, record_content_ref
-from scopecat.sdk.instruments import (
-    InstrumentProviderContext,
-    InstrumentProviderDescription,
-    InstrumentProviderResult,
-)
+from tests.testkit.runtime import list_test_runs
 
 import scopecat_server.services as daemon_services
 from scopecat_server import BackendConflict, LocalDaemonRuntime
@@ -134,9 +118,9 @@ def _events(
 
 
 def _resource_leases(project_root: Path) -> tuple[ResourceLease, ...]:
-    return SQLiteControlPlane(
-        project_root / ".scopecat" / "control.sqlite3"
-    ).list_resource_leases()
+    control = SQLiteControlPlane(project_root / ".scopecat" / "control.sqlite3")
+    with control.transaction() as connection:
+        return control.list_resource_leases_in_transaction(connection)
 
 
 def _run_repository(project_root: Path) -> SQLiteRunRepository:
@@ -144,72 +128,18 @@ def _run_repository(project_root: Path) -> SQLiteRunRepository:
     return SQLiteRunRepository(state / "control.sqlite3", state / "objects")
 
 
-def _managed_components(
-    runtime: LocalDaemonRuntime,
-) -> tuple[daemon_services.ManagedRunSupervisor, daemon_services.AdmissionService]:
-    """Reach private collaborators only for supervisor lifecycle fault tests."""
-
-    return runtime.application._managed, runtime.application._admission
-
-
-class _EmptyInstrumentProvider:
-    @property
-    def provider_id(self) -> str:
-        return "tests.empty"
-
-    def describe(
-        self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderDescription:
-        del context
-        return InstrumentProviderDescription(provider_id=self.provider_id)
-
-    def provide(
-        self,
-        context: InstrumentProviderContext,
-    ) -> InstrumentProviderResult:
-        del context
-        return InstrumentProviderResult(drivers=())
-
-
-@template(id="tests.managed", kind="managed")
-def _managed_experiment() -> ExperimentBody:
-    return experiment()
-
-
-def _managed_catalog() -> RegisteredExperimentCatalog:
-    return RegisteredExperimentCatalog(
-        (
-            RegisteredExperiment(
-                id="simple-scan",
-                version="1",
-                descriptor=RegisteredExperimentDescriptor(
-                    id="simple-scan",
-                    version="1",
-                    experiment_kind="managed",
-                    title="Managed smoke test",
-                ),
-                factory=lambda _request: _managed_experiment(),
-            ),
-        )
-    )
-
-
 def _submission(
     submission_id: str = "submission-1",
-) -> DelegatedRunSubmission:
-    return DelegatedRunSubmission(
+) -> RunSubmission:
+    return RunSubmission(
         submission_id=submission_id,
-        executor_id="notebook-1",
         config=_config(),
-        request=RunRequest(id="scratch-request"),
-        plan=DelegatedPlanSummary(
+        request=RunRequest(experiment_id="scratch"),
+        plan=RunPlanSummary(
             experiment_id="scratch",
             experiment_kind="scratch",
             point_count=1,
-            run_resource_claims=(
-                ResourceClaimDescriptor(id="scope-1", kind="instrument"),
-            ),
+            run_resource_claims=(ResourceKey(id="scope-1", kind="instrument"),),
         ),
     )
 
@@ -232,12 +162,8 @@ def _analysis_proposal(run_id: str) -> ParameterChangeProposal:
     )
 
 
-def _analysis_command(
-    run_id: str,
-    proposal: ParameterChangeProposal,
-) -> AnalysisSaveCommand:
+def _analysis_command(proposal: ParameterChangeProposal) -> AnalysisSaveCommand:
     return AnalysisSaveCommand(
-        run_id=run_id,
         title="fit",
         analysis_key="fit",
         outputs=(
@@ -267,8 +193,8 @@ def _analysis_command(
                 artifact_kind="fit_report",
                 artifact_id="fit-report",
                 content_base64="eyJvayI6IHRydWV9Cg==",
-                source_default_extension=".json",
-                source_default_media_type="application/json",
+                filename="fit-report.json",
+                media_type="application/json",
             ),
             AnalysisArtifactOutputPayload(
                 kind="artifact",
@@ -276,8 +202,8 @@ def _analysis_command(
                 artifact_kind="fit_summary",
                 artifact_id="fit-summary",
                 content_base64="Zml0IGNvbnZlcmdlZAo=",
-                source_default_extension=".txt",
-                source_default_media_type="text/plain",
+                filename="fit-summary.txt",
+                media_type="text/plain",
             ),
         ),
     )
@@ -302,38 +228,13 @@ def test_runtime_cleans_up_partially_started_supervisor(
     monkeypatch: pytest.MonkeyPatch,
     failure_point: Literal["reconciliation", "thread"],
 ) -> None:
-    class TrackingWorkers:
-        def __init__(self) -> None:
-            self.shutdown_called = False
-
-        def shutdown(self, *, wait: bool, cancel_futures: bool) -> None:
-            assert wait
-            assert not cancel_futures
-            self.shutdown_called = True
-
-    workers = TrackingWorkers()
-
-    def build_workers(
-        *,
-        max_workers: int,
-        thread_name_prefix: str,
-    ) -> TrackingWorkers:
-        del max_workers, thread_name_prefix
-        return workers
-
-    monkeypatch.setattr(
-        daemon_services,
-        "ThreadPoolExecutor",
-        build_workers,
-    )
-
     if failure_point == "reconciliation":
 
         def fail_reconciliation(_supervisor: object) -> Never:
             raise RuntimeError("startup reconciliation failed")
 
         monkeypatch.setattr(
-            daemon_services.ManagedRunSupervisor,
+            daemon_services.ExecutorLeaseSupervisor,
             "_reconcile_startup",
             fail_reconciliation,
         )
@@ -357,7 +258,9 @@ def test_runtime_cleans_up_partially_started_supervisor(
     with pytest.raises(RuntimeError, match=r"(reconciliation|thread) failed"):
         LocalDaemonRuntime(tmp_path)
 
-    assert workers.shutdown_called
+    monkeypatch.undo()
+    with LocalDaemonRuntime(tmp_path):
+        pass
 
 
 def test_runtime_exclusively_owns_one_project(tmp_path: Path) -> None:
@@ -532,8 +435,7 @@ def test_config_registry_http_workflow_persists_and_publishes_events(
         assert baseline_import.status_code == 201
         assert updated_import.status_code == 201
         assert (
-            ConfigImportReceipt.model_validate(baseline_import.json()).entry.id
-            == "baseline"
+            ConfigRegistryEntry.model_validate(baseline_import.json()).id == "baseline"
         )
         assert (
             ConfigActivationReceipt.model_validate(
@@ -723,7 +625,7 @@ def test_config_draft_http_workflow_previews_and_atomically_sets_default(
             base_generation=active.active_state.generation,
             candidate_id="manual-tuning",
             updates=(
-                ReplaceConfigParameter(
+                ReplaceParameter(
                     value=ScalarParameterValue(
                         id="drive_frequency",
                         value=Quantity(value=5.1, unit="GHz"),
@@ -768,14 +670,28 @@ def test_config_draft_http_workflow_previews_and_atomically_sets_default(
         assert parameter.value == Quantity(value=5.1, unit="GHz")
 
 
-def test_delegated_admission_is_durably_idempotent(tmp_path: Path) -> None:
+def test_admission_is_durably_idempotent(tmp_path: Path) -> None:
     submission = _submission()
+    state = tmp_path / ".scopecat"
+    database = state / "control.sqlite3"
     with LocalDaemonRuntime(tmp_path) as runtime:
         client = TestClient(runtime.app())
-        first = client.post(
-            "/api/v1/runs",
-            json=submission.model_dump(mode="json"),
+        services = tuple(
+            daemon_services.AdmissionService(
+                control=SQLiteControlPlane(database),
+                runs=SQLiteRunRepository(database, state / "objects"),
+            )
+            for _ in range(2)
         )
+        barrier = Barrier(len(services))
+
+        def submit(service: daemon_services.AdmissionService) -> RunAdmission:
+            barrier.wait()
+            return service.submit_run(submission)
+
+        with ThreadPoolExecutor(max_workers=len(services)) as pool:
+            admissions = tuple(pool.map(submit, services))
+
         retry = client.post(
             "/api/v1/runs",
             json=submission.model_dump(mode="json"),
@@ -783,16 +699,24 @@ def test_delegated_admission_is_durably_idempotent(tmp_path: Path) -> None:
         changed = client.post(
             "/api/v1/runs",
             json=submission.model_copy(
-                update={"executor_id": "other-notebook"}
+                update={"request": RunRequest(metadata={"changed": True})}
             ).model_dump(mode="json"),
         )
 
-        assert first.status_code == 201
+        assert admissions[0] == admissions[1]
         assert retry.status_code == 201
-        assert retry.json() == first.json()
+        assert RunAdmission.model_validate(retry.json()) == admissions[0]
         assert changed.status_code == 409
-        run_id = RunAdmission.model_validate(first.json()).run_id
-        assert _manifest(runtime, run_id).lifecycle == "accepted"
+        run_id = admissions[0].run_id
+        published_run_ids = [
+            manifest.run_id for manifest in list_test_runs(_run_repository(tmp_path))
+        ]
+        assert published_run_ids == [run_id]
+        assert _manifest(runtime, run_id).outcome is None
+        listed = client.get("/api/v1/runs", params={"latest": "true"}).json()
+        assert len(listed["items"]) == 1
+        assert listed["items"][0]["control"]["state"] == "queued"
+        assert "lifecycle" not in listed["items"][0]["manifest"]
         assert [
             event.kind
             for event in _events(runtime, run_id=run_id).items
@@ -811,7 +735,7 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
         client = TestClient(runtime.app())
         admission = runtime.application.submit_run(_submission("post-run-loop"))
         proposal = _analysis_proposal(admission.run_id)
-        analysis_command = _analysis_command(admission.run_id, proposal)
+        analysis_command = _analysis_command(proposal)
         analysis_url = f"/api/v1/runs/{admission.run_id}/analyses"
         first_save = client.post(
             analysis_url,
@@ -839,7 +763,6 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
             params={"expected_kind": "fit_summary"},
         )
         attachment_command = RunAttachmentCommand(
-            run_id=admission.run_id,
             key="notebook-notes",
             text="operator notes",
             filename="notes.md",
@@ -860,8 +783,6 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
             client.get(f"/api/v1/runs/{admission.run_id}/parameter-proposals").json()
         )
         decision_command = ParameterProposalDecisionCommand(
-            run_id=admission.run_id,
-            proposal_id=proposal.id,
             decision="approved",
             authority=AutomaticPolicyDecisionAuthority(
                 actor="nightly-calibration",
@@ -892,7 +813,7 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
 
         saved = AnalysisSaveReceipt.model_validate(first_save.json())
         retry = AnalysisSaveReceipt.model_validate(retry_save.json())
-        decision = ParameterProposalReviewReceipt.model_validate(decided.json())
+        decision = ParameterChangeDecisionRecord.model_validate(decided.json())
         activation = CandidateConfigActivationReceipt.model_validate(activated.json())
         events = _events(runtime, run_id=admission.run_id).items
 
@@ -911,14 +832,14 @@ def test_post_run_analysis_policy_acceptance_and_candidate_activation_closed_loo
             "text/plain",
         ]
         assert analysis_summary.json()["content"] == "fit converged\n"
-        assert attachment.json()["artifact"]["filename"] == "notes.md"
+        assert attachment.json()["filename"] == "notes.md"
         assert attachment_text.json()["content"] == "operator notes\n"
         assert config.config == _config()
         assert proposals.items[0].proposal == proposal
         assert proposals.items[0].decisions == ()
-        assert decision.decision.decision == "approved"
-        assert decision.decision.authority == decision_command.authority
-        assert decided_proposals.items[0].decisions == (decision.decision,)
+        assert decision.decision == "approved"
+        assert decision.authority == decision_command.authority
+        assert decided_proposals.items[0].decisions == (decision,)
         assert activation.entry.id == "candidate-fit"
         assert activation.active_state.generation == 2
         assert [
@@ -944,7 +865,7 @@ def test_analysis_publication_rolls_back_refs_manifest_and_event_together(
     with LocalDaemonRuntime(tmp_path) as runtime:
         admission = runtime.application.submit_run(_submission("analysis-atomic"))
         proposal = _analysis_proposal(admission.run_id)
-        command = _analysis_command(admission.run_id, proposal)
+        command = _analysis_command(proposal)
         before = _manifest(runtime, admission.run_id)
         append_event = SQLiteControlPlane.append_event_in_transaction
 
@@ -1018,11 +939,9 @@ def test_parameter_decision_publication_rolls_back_with_event(
         proposal = _analysis_proposal(admission.run_id)
         runtime.application.runs.save_run_analysis(
             admission.run_id,
-            _analysis_command(admission.run_id, proposal),
+            _analysis_command(proposal),
         )
         command = ParameterProposalDecisionCommand(
-            run_id=admission.run_id,
-            proposal_id=proposal.id,
             decision="approved",
             authority=AutomaticPolicyDecisionAuthority(
                 actor="nightly-calibration",
@@ -1054,6 +973,7 @@ def test_parameter_decision_publication_rolls_back_with_event(
             ):
                 runtime.application.runs.decide_parameter_proposal(
                     admission.run_id,
+                    proposal.id,
                     command,
                 )
 
@@ -1068,11 +988,12 @@ def test_parameter_decision_publication_rolls_back_with_event(
 
         receipt = runtime.application.runs.decide_parameter_proposal(
             admission.run_id,
+            proposal.id,
             command,
         )
         proposals = runtime.application.runs.list_parameter_proposals(admission.run_id)
 
-        assert proposals.items[0].decisions == (receipt.decision,)
+        assert proposals.items[0].decisions == (receipt,)
         assert [
             event.kind
             for event in _events(runtime, run_id=admission.run_id).items
@@ -1085,17 +1006,23 @@ def test_executor_start_is_atomic_idempotent_and_quiet_when_resources_busy(
 ) -> None:
     with LocalDaemonRuntime(tmp_path) as runtime:
         first = runtime.application.submit_run(_submission("executor-first"))
-        first_manifest = _manifest(runtime, first.run_id)
         request = ExecutorStartRequest(
-            run_id=first.run_id,
             executor_id="notebook-1",
-            manifest=first_manifest.model_copy(update={"lifecycle": "running"}),
         )
 
-        lease = runtime.application.executor.start_executor(first.run_id, request)
+        started = runtime.application.executor.start_executor(first.run_id, request)
         retry = runtime.application.executor.start_executor(first.run_id, request)
+        events_before_heartbeat = _events(runtime, run_id=first.run_id).items
+        renewed = runtime.application.executor.heartbeat_executor(
+            first.run_id,
+            ExecutorHeartbeat(
+                lease_id=started.lease_id,
+            ),
+        )
 
-        assert retry == lease
+        assert retry == started
+        assert renewed.expires_at > started.expires_at
+        assert _events(runtime, run_id=first.run_id).items == events_before_heartbeat
         assert (
             len(
                 [
@@ -1108,364 +1035,22 @@ def test_executor_start_is_atomic_idempotent_and_quiet_when_resources_busy(
         )
 
         waiting = runtime.application.submit_run(_submission("executor-waiting"))
-        waiting_manifest = _manifest(runtime, waiting.run_id)
         with pytest.raises(BackendConflict, match="resources are busy"):
             runtime.application.executor.start_executor(
                 waiting.run_id,
                 ExecutorStartRequest(
-                    run_id=waiting.run_id,
                     executor_id="notebook-2",
-                    manifest=waiting_manifest.model_copy(
-                        update={"lifecycle": "running"}
-                    ),
                 ),
             )
 
-        assert _control_run(runtime, waiting.run_id).state == "accepted"
-        assert _manifest(runtime, waiting.run_id).lifecycle == "accepted"
+        assert _control_run(runtime, waiting.run_id).state == "queued"
+        assert _manifest(runtime, waiting.run_id).outcome is None
         assert [
             event.kind for event in _events(runtime, run_id=waiting.run_id).items
         ] == ["run_admitted"]
 
 
-def test_executor_start_preserves_content_published_after_manifest_read(
-    tmp_path: Path,
-) -> None:
-    with LocalDaemonRuntime(tmp_path) as runtime:
-        admission = runtime.application.submit_run(_submission("executor-content-race"))
-        stale = _manifest(runtime, admission.run_id)
-        attachment = runtime.application.runs.attach_run_content(
-            admission.run_id,
-            RunAttachmentCommand(
-                run_id=admission.run_id,
-                key="operator-notes",
-                text="keep me",
-            ),
-        )
-        running = stale.model_copy(update={"lifecycle": "running"})
-
-        lease = runtime.application.executor.start_execution(
-            admission.run_id,
-            executor_id="notebook-1",
-            manifest=running,
-        )
-        retry = runtime.application.executor.start_execution(
-            admission.run_id,
-            executor_id="notebook-1",
-            manifest=running,
-        )
-
-        manifest = _manifest(runtime, admission.run_id)
-        assert retry == lease
-        assert manifest.lifecycle == "running"
-        assert attachment.artifact in manifest.artifacts
-
-
-def test_managed_submission_executes_registered_experiment(tmp_path: Path) -> None:
-    with LocalDaemonRuntime(
-        tmp_path,
-        catalog=_managed_catalog(),
-        build_system=lambda _config: ExperimentSystem(
-            provider=_EmptyInstrumentProvider()
-        ),
-        bootstrap_config=_config(),
-    ) as runtime:
-        client = TestClient(runtime.app())
-        response = client.post(
-            "/api/v1/runs",
-            json=ManagedRunSubmission(
-                submission_id="managed-1",
-                registration_id="simple-scan",
-                registration_version="1",
-                request=RunRequest(id="managed-request"),
-            ).model_dump(mode="json"),
-        )
-
-        assert response.status_code == 201
-        run_id = RunAdmission.model_validate(response.json()).run_id
-        deadline = time.monotonic() + 3
-        while (
-            _control_run(runtime, run_id).state != "terminal"
-            and time.monotonic() < deadline
-        ):
-            time.sleep(0.01)
-
-        run = _control_run(runtime, run_id)
-        assert run.state == "terminal"
-        assert run.outcome is not None
-        assert run.outcome.result == "succeeded"
-        assert (
-            client.get(f"/api/v1/runs/{run_id}").json()["manifest"]["lifecycle"]
-            == "terminal"
-        )
-        assert client.get(f"/api/v1/runs/{run_id}/measurements").json() == {
-            "items": [],
-            "next_offset": None,
-        }
-
-
-def test_managed_worker_manifest_read_failure_releases_active_slot(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    with LocalDaemonRuntime(
-        tmp_path,
-        catalog=_managed_catalog(),
-        build_system=lambda _config: ExperimentSystem(
-            provider=_EmptyInstrumentProvider()
-        ),
-        bootstrap_config=_config(),
-    ) as runtime:
-        managed, admission = _managed_components(runtime)
-        managed.close()
-        admitted = admission.submit_run(
-            ManagedRunSubmission(
-                submission_id="managed-retry",
-                registration_id="simple-scan",
-                registration_version="1",
-                request=RunRequest(id="managed-request"),
-            )
-        )
-        planned = admitted.managed_plan
-        assert planned is not None
-        run_id = admitted.receipt.run_id
-        managed._managed_plans[run_id] = planned
-        managed._managed_active.add(run_id)
-
-        def fail_read(
-            _repository: SQLiteRunRepository,
-            _run_id: str,
-        ) -> RunManifest:
-            raise RuntimeError("manifest read failure")
-
-        with monkeypatch.context() as patch:
-            patch.setattr(SQLiteRunRepository, "read_manifest", fail_read)
-            managed._execute_managed(run_id, planned)
-
-        assert run_id not in managed._managed_active
-        assert managed._managed_plans[run_id] is planned
-        assert _control_run(runtime, run_id).state == "accepted"
-        assert "managed worker stopped unexpectedly" in caplog.text
-
-
-def test_supervisor_forgets_terminal_plan_after_worker_cleanup_failure(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    with LocalDaemonRuntime(
-        tmp_path,
-        catalog=_managed_catalog(),
-        build_system=lambda _config: ExperimentSystem(
-            provider=_EmptyInstrumentProvider()
-        ),
-        bootstrap_config=_config(),
-    ) as runtime:
-        managed, admission = _managed_components(runtime)
-        managed.close()
-        admitted = admission.submit_run(
-            ManagedRunSubmission(
-                submission_id="managed-cleanup",
-                registration_id="simple-scan",
-                registration_version="1",
-                request=RunRequest(id="managed-request"),
-            )
-        )
-        planned = admitted.managed_plan
-        assert planned is not None
-        run_id = admitted.receipt.run_id
-        managed._managed_plans[run_id] = planned
-        managed._managed_active.add(run_id)
-        read_attempts = 0
-
-        def fail_post_run_read(
-            _control: SQLiteControlPlane,
-            _run_id: str,
-        ) -> Never:
-            nonlocal read_attempts
-            read_attempts += 1
-            raise RuntimeError("post-run read failure")
-
-        with monkeypatch.context() as patch:
-            patch.setattr(SQLiteControlPlane, "get_run", fail_post_run_read)
-            managed._execute_managed(run_id, planned)
-
-        assert read_attempts == 1
-        assert _control_run(runtime, run_id).state == "terminal"
-        manifest = _manifest(runtime, run_id)
-        assert manifest.lifecycle == "terminal"
-        assert run_id not in managed._managed_active
-        assert run_id not in managed._managed_plans
-        assert "managed worker stopped unexpectedly" in caplog.text
-
-
-def test_unbuildable_managed_run_is_failed_durably_on_restart(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    descriptor = RegisteredExperimentDescriptor(
-        id="simple-scan",
-        version="1",
-        experiment_kind="managed",
-    )
-    catalog = RegisteredExperimentCatalog(
-        (
-            RegisteredExperiment(
-                id="simple-scan",
-                version="1",
-                descriptor=descriptor,
-                factory=lambda _request: _managed_experiment(),
-            ),
-        )
-    )
-    with LocalDaemonRuntime(
-        tmp_path,
-        catalog=catalog,
-        build_system=lambda _config: ExperimentSystem(
-            provider=_EmptyInstrumentProvider()
-        ),
-        bootstrap_config=_config(),
-    ) as runtime:
-
-        def skip_schedule(
-            _supervisor: daemon_services.ManagedRunSupervisor,
-            _run_id: str,
-            _managed: object,
-        ) -> None:
-            return
-
-        with monkeypatch.context() as patch:
-            patch.setattr(
-                daemon_services.ManagedRunSupervisor,
-                "schedule",
-                skip_schedule,
-            )
-            admission = runtime.application.submit_run(
-                ManagedRunSubmission(
-                    submission_id="managed-restart",
-                    registration_id="simple-scan",
-                    registration_version="1",
-                    request=RunRequest(id="managed-request"),
-                )
-            )
-        assert _control_run(runtime, admission.run_id).state == "accepted"
-
-    def unavailable_factory(_request: RunRequest) -> Never:
-        raise RuntimeError("definition is unavailable")
-
-    broken_catalog = RegisteredExperimentCatalog(
-        (
-            RegisteredExperiment(
-                id="simple-scan",
-                version="1",
-                descriptor=descriptor,
-                factory=unavailable_factory,
-            ),
-        )
-    )
-    with LocalDaemonRuntime(
-        tmp_path,
-        catalog=broken_catalog,
-        build_system=lambda _config: ExperimentSystem(
-            provider=_EmptyInstrumentProvider()
-        ),
-    ) as reopened:
-        control = _control_run(reopened, admission.run_id)
-
-        assert control.state == "terminal"
-        assert control.outcome is not None
-        assert control.outcome.problems[0].code == "daemon.managed_plan_unavailable"
-        assert _manifest(reopened, admission.run_id).lifecycle == "terminal"
-
-
-def test_restarted_managed_run_builds_from_its_admitted_config(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    accepted_config = _config().model_copy(update={"id": "accepted-config"})
-    later_config = accepted_config.model_copy(update={"id": "later-config"})
-    catalog = RegisteredExperimentCatalog(
-        (
-            RegisteredExperiment(
-                id="simple-scan",
-                version="1",
-                descriptor=RegisteredExperimentDescriptor(
-                    id="simple-scan",
-                    version="1",
-                    experiment_kind="managed",
-                ),
-                factory=lambda _request: _managed_experiment(),
-            ),
-        )
-    )
-    with LocalDaemonRuntime(
-        tmp_path,
-        catalog=catalog,
-        build_system=lambda _config: ExperimentSystem(
-            provider=_EmptyInstrumentProvider()
-        ),
-        bootstrap_config=accepted_config,
-    ) as runtime:
-
-        def skip_schedule(
-            _supervisor: daemon_services.ManagedRunSupervisor,
-            _run_id: str,
-            _planned: object,
-        ) -> None:
-            return
-
-        with monkeypatch.context() as patch:
-            patch.setattr(
-                daemon_services.ManagedRunSupervisor,
-                "schedule",
-                skip_schedule,
-            )
-            admission = runtime.application.submit_run(
-                ManagedRunSubmission(
-                    submission_id="managed-config-restart",
-                    registration_id="simple-scan",
-                    registration_version="1",
-                    request=RunRequest(id="managed-request"),
-                )
-            )
-        runtime.application.config.set_direct_config_default(
-            DirectConfigDefaultCommand(
-                config=later_config,
-                entry_id="later-config",
-                registered_by="operator",
-                operator="operator",
-                expected_generation=1,
-            )
-        )
-
-    built_from: list[ConfigProfileSnapshot] = []
-
-    def build_system(config: ConfigProfileSnapshot) -> ExperimentSystem:
-        built_from.append(config)
-        return ExperimentSystem(provider=_EmptyInstrumentProvider())
-
-    with LocalDaemonRuntime(
-        tmp_path,
-        catalog=catalog,
-        build_system=build_system,
-    ) as reopened:
-        deadline = time.monotonic() + 3
-        while (
-            _control_run(reopened, admission.run_id).state != "terminal"
-            and time.monotonic() < deadline
-        ):
-            time.sleep(0.01)
-
-        assert _control_run(reopened, admission.run_id).state == "terminal"
-        assert built_from == [accepted_config]
-        assert (
-            reopened.application.config.get_active_config().active_state.active_entry_id
-            == "later-config"
-        )
-
-
-def test_delegated_effect_is_fenced_and_terminal_updates_control(
+def test_effect_is_fenced_and_terminal_updates_control(
     tmp_path: Path,
 ) -> None:
     with LocalDaemonRuntime(tmp_path) as runtime:
@@ -1479,9 +1064,7 @@ def test_delegated_effect_is_fenced_and_terminal_updates_control(
         lease_response = client.post(
             f"/api/v1/runs/{run_id}/executor/start",
             json=ExecutorStartRequest(
-                run_id=run_id,
                 executor_id="notebook-1",
-                manifest=accepted.model_copy(update={"lifecycle": "running"}),
             ).model_dump(mode="json"),
         )
         lease = ExecutorLease.model_validate(lease_response.json())
@@ -1494,7 +1077,6 @@ def test_delegated_effect_is_fenced_and_terminal_updates_control(
         )
         measurement_append = MeasurementDatasetAppend(
             run_id=run_id,
-            dataset_id="raw-measurements",
             recording_contract_fingerprint="test.recording.v1",
             start_index=0,
             records=(measurement,),
@@ -1502,10 +1084,7 @@ def test_delegated_effect_is_fenced_and_terminal_updates_control(
         measurement_response = client.post(
             f"/api/v1/runs/{run_id}/measurements/append",
             json=MeasurementAppendCommand(
-                command_id=measurement_append.operation_id,
-                run_id=run_id,
                 lease_id=lease.lease_id,
-                generation=lease.generation,
                 append=measurement_append,
             ).model_dump(mode="json"),
         )
@@ -1516,189 +1095,136 @@ def test_delegated_effect_is_fenced_and_terminal_updates_control(
         )
         transition = ExecutionTransition(
             run_id=run_id,
-            operation_id="compute-1",
-            stage="compute",
-            effect="pure",
+            operation_id="collect-1",
+            stage="collect",
+            effect="acquisition",
             state="completed",
+            timestamp=datetime(2026, 7, 23, 9, 0, 1, tzinfo=UTC),
+            point_index=0,
+            instrument_id="scope-1",
+            evidence={"measurement_count": 1},
         )
-        batch = ExecutionTransitionBatch(
-            batch_id="batch-1",
-            run_id=run_id,
+        command = ExecutionTransitionAppend(
             lease_id=lease.lease_id,
-            generation=lease.generation,
-            transitions=(transition,),
+            transition=transition,
         )
 
         committed = client.post(
             f"/api/v1/runs/{run_id}/transitions",
-            json=batch.model_dump(mode="json"),
+            json=command.model_dump(mode="json"),
         )
         retry = client.post(
             f"/api/v1/runs/{run_id}/transitions",
-            json=batch.model_dump(mode="json"),
+            json=command.model_copy(
+                update={
+                    "transition": transition.model_copy(
+                        update={
+                            "timestamp": transition.timestamp + timedelta(seconds=1)
+                        }
+                    )
+                }
+            ).model_dump(mode="json"),
+        )
+        changed = client.post(
+            f"/api/v1/runs/{run_id}/transitions",
+            json=command.model_copy(
+                update={"transition": transition.model_copy(update={"state": "failed"})}
+            ).model_dump(mode="json"),
         )
         stale = client.post(
             f"/api/v1/runs/{run_id}/transitions",
-            json=batch.model_copy(
+            json=command.model_copy(
                 update={
-                    "batch_id": "batch-stale",
-                    "generation": lease.generation + 1,
+                    "lease_id": "stale-lease",
                 }
             ).model_dump(mode="json"),
         )
 
         assert measurement_response.status_code == 200
-        assert detail.json()["manifest"]["lifecycle"] == "running"
+        assert detail.json()["control"]["state"] == "leased"
+        assert detail.json()["manifest"]["outcome"] is None
         assert detail.json()["resources"][0]["status"] == "active"
         assert measurements.json()["items"][0]["point_index"] == 0
         assert committed.status_code == 200
-        assert committed.json()["committed"][0]["sequence"] == 0
+        assert committed.json()["sequence"] == 0
+        committed_transition = ExecutionTransition.model_validate(committed.json())
         assert retry.json() == committed.json()
+        assert changed.status_code == 200
+        assert changed.json()["sequence"] == 1
         assert stale.status_code == 409
-        assert (
-            len(
-                runtime.application.executor.recover_execution(
-                    run_id,
-                    request=ExecutionRecoveryRequest(
-                        run_id=run_id,
-                        lease_id=lease.lease_id,
-                        generation=lease.generation,
-                    ),
-                ).transitions
-            )
-            == 1
-        )
-        assert (
-            len(
-                [
-                    event
-                    for event in _events(runtime, run_id=run_id).items
-                    if event.kind == "execution_transition_committed"
-                ]
-            )
-            == 1
-        )
+        transition_events = [
+            event
+            for event in _events(runtime, run_id=run_id).items
+            if event.kind == "execution_transition_committed"
+        ]
+        transition_event = transition_events[0]
+        assert len(transition_events) == 2
+        assert transition_event.occurred_at == committed_transition.timestamp
+        assert transition_event.payload == {
+            "sequence": 0,
+            "operation_id": "collect-1",
+            "stage": "collect",
+            "effect": "acquisition",
+            "state": "completed",
+            "point_index": 0,
+            "instrument_id": "scope-1",
+            "evidence": {"measurement_count": 1},
+        }
 
         outcome = RunOutcome(
             run_id=run_id,
             result="succeeded",
             certainty="known",
-            termination_reason="completed",
             finished_at=datetime.now(tz=UTC),
         )
         terminal = accepted.model_copy(
             update={
-                "lifecycle": "terminal",
                 "outcome": outcome,
             }
         )
+        terminal_command = TerminalRunCommitCommand(
+            lease_id=lease.lease_id,
+            outcome=outcome,
+        )
+        terminal_run_mismatch = client.post(
+            f"/api/v1/runs/{run_id}/terminal",
+            json=terminal_command.model_copy(
+                update={"outcome": outcome.model_copy(update={"run_id": "another-run"})}
+            ).model_dump(mode="json"),
+        )
         completed = client.post(
             f"/api/v1/runs/{run_id}/terminal",
-            json=TerminalRunCommitCommand(
-                command_id=f"terminal:{run_id}",
-                run_id=run_id,
-                lease_id=lease.lease_id,
-                generation=lease.generation,
-                manifest=terminal,
+            json=terminal_command.model_dump(mode="json"),
+        )
+        terminal_retry = client.post(
+            f"/api/v1/runs/{run_id}/terminal",
+            json=terminal_command.model_dump(mode="json"),
+        )
+        terminal_conflict = client.post(
+            f"/api/v1/runs/{run_id}/terminal",
+            json=terminal_command.model_copy(
+                update={
+                    "outcome": outcome.model_copy(
+                        update={"finished_at": datetime(2026, 7, 23, 10, tzinfo=UTC)}
+                    )
+                }
             ).model_dump(mode="json"),
         )
 
+        assert terminal_run_mismatch.status_code == 422
+        assert terminal_run_mismatch.json() == {
+            "detail": "path run_id must match request body"
+        }
         assert completed.status_code == 200
-        assert completed.json()["manifest"]["lifecycle"] == "terminal"
+        assert completed.json()["outcome"]["result"] == "succeeded"
+        assert terminal_retry.json() == completed.json()
+        assert terminal_conflict.status_code == 409
         control_run = _control_run(runtime, run_id)
-        assert control_run.state == "terminal"
-        assert control_run.outcome == outcome
+        assert control_run.state == "closed"
         assert _manifest(runtime, run_id) == terminal
         assert _resource_leases(tmp_path) == ()
         terminal_detail = client.get(f"/api/v1/runs/{run_id}").json()
         assert terminal_detail["resources"][0]["status"] == "released"
-
-
-def test_delegated_runtime_event_is_fenced_and_durable(tmp_path: Path) -> None:
-    with LocalDaemonRuntime(tmp_path) as runtime:
-        client = TestClient(runtime.app())
-        admission_response = client.post(
-            "/api/v1/runs",
-            json=_submission().model_dump(mode="json"),
-        )
-        run_id = RunAdmission.model_validate(admission_response.json()).run_id
-        accepted = _manifest(runtime, run_id)
-        lease_response = client.post(
-            f"/api/v1/runs/{run_id}/executor/start",
-            json=ExecutorStartRequest(
-                run_id=run_id,
-                executor_id="notebook-1",
-                manifest=accepted.model_copy(update={"lifecycle": "running"}),
-            ).model_dump(mode="json"),
-        )
-        lease = ExecutorLease.model_validate(lease_response.json())
-        observed_at = datetime(2026, 7, 23, 9, 0, 2, tzinfo=UTC)
-        occurred_at = datetime(2026, 7, 23, 9, 0, 1, tzinfo=UTC)
-        command = RuntimeEventPublishCommand(
-            run_id=run_id,
-            lease_id=lease.lease_id,
-            generation=lease.generation,
-            event=RuntimeTransitionEventPayload(
-                run_id=run_id,
-                experiment_id="scratch",
-                observed_at=observed_at,
-                occurred_at=occurred_at,
-                operation_id="point-1",
-                stage="point",
-                effect="acquisition",
-                state="completed",
-                progress=RuntimeProgressPayload(
-                    completed_points=1,
-                    total_points=2,
-                ),
-                point_index=0,
-                point_indices=(0,),
-                instrument_id="scope-1",
-                metrics={"measurement_count": 1},
-            ),
-        )
-
-        published = client.post(
-            f"/api/v1/runs/{run_id}/runtime-events",
-            json=command.model_dump(mode="json"),
-        )
-        stale = client.post(
-            f"/api/v1/runs/{run_id}/runtime-events",
-            json=command.model_copy(
-                update={"generation": lease.generation + 1}
-            ).model_dump(mode="json"),
-        )
-
-        assert published.status_code == 200
-        assert published.json()["kind"] == "transition"
-        assert stale.status_code == 409
-        events = tuple(
-            event
-            for event in _events(runtime, run_id=run_id).items
-            if event.kind == "runtime_transition"
-        )
-        assert len(events) == 1
-        assert events[0].occurred_at == observed_at
-        assert events[0].payload == {
-            "run_id": run_id,
-            "experiment_id": "scratch",
-            "observed_at": "2026-07-23T09:00:02Z",
-            "occurred_at": "2026-07-23T09:00:01Z",
-            "operation_id": "point-1",
-            "stage": "point",
-            "effect": "acquisition",
-            "state": "completed",
-            "progress": {
-                "completed_points": 1,
-                "total_points": 2,
-            },
-            "sequence": None,
-            "point_index": 0,
-            "point_indices": [0],
-            "instrument_id": "scope-1",
-            "metrics": {"measurement_count": 1},
-            "kind": "transition",
-        }
 
 
 def test_effect_and_terminal_publication_roll_back_with_control(
@@ -1708,13 +1234,10 @@ def test_effect_and_terminal_publication_roll_back_with_control(
     with LocalDaemonRuntime(tmp_path) as runtime:
         submission = _submission()
         admission = runtime.application.submit_run(submission)
-        accepted = _manifest(runtime, admission.run_id)
         lease = runtime.application.executor.start_executor(
             admission.run_id,
             ExecutorStartRequest(
-                run_id=admission.run_id,
-                executor_id=submission.executor_id,
-                manifest=accepted.model_copy(update={"lifecycle": "running"}),
+                executor_id="notebook-1",
             ),
         )
         measurement = MeasurementRecord(
@@ -1726,7 +1249,6 @@ def test_effect_and_terminal_publication_roll_back_with_control(
         )
         append = MeasurementDatasetAppend(
             run_id=admission.run_id,
-            dataset_id="raw-measurements",
             recording_contract_fingerprint="test.recording.v1",
             start_index=0,
             records=(measurement,),
@@ -1746,10 +1268,7 @@ def test_effect_and_terminal_publication_roll_back_with_control(
                 runtime.application.executor.append_measurements(
                     admission.run_id,
                     MeasurementAppendCommand(
-                        command_id=append.operation_id,
-                        run_id=admission.run_id,
                         lease_id=lease.lease_id,
-                        generation=lease.generation,
                         append=append,
                     ),
                 )
@@ -1767,50 +1286,40 @@ def test_effect_and_terminal_publication_roll_back_with_control(
             run_id=admission.run_id,
             result="succeeded",
             certainty="known",
-            termination_reason="completed",
-        )
-        terminal = accepted.model_copy(
-            update={"lifecycle": "terminal", "outcome": outcome}
         )
         with monkeypatch.context() as patch:
 
-            def fail_transition(*_args: object, **_kwargs: object) -> Never:
-                raise RuntimeError("control transition failed")
+            def fail_close(*_args: object, **_kwargs: object) -> Never:
+                raise RuntimeError("control close failed")
 
             patch.setattr(
                 SQLiteControlPlane,
-                "transition_run_in_transaction",
-                fail_transition,
+                "close_run_in_transaction",
+                fail_close,
             )
-            with pytest.raises(RuntimeError, match="control transition failed"):
+            with pytest.raises(RuntimeError, match="control close failed"):
                 runtime.application.executor.commit_terminal(
                     admission.run_id,
                     TerminalRunCommitCommand(
-                        command_id=f"terminal:{admission.run_id}",
-                        run_id=admission.run_id,
                         lease_id=lease.lease_id,
-                        generation=lease.generation,
-                        manifest=terminal,
+                        outcome=outcome,
                     ),
                 )
 
-        assert _manifest(runtime, admission.run_id).lifecycle == "running"
-        assert _control_run(runtime, admission.run_id).state == "running"
+        assert _manifest(runtime, admission.run_id).outcome is None
+        assert _control_run(runtime, admission.run_id).state == "leased"
 
 
-def test_restart_quarantines_executor_and_operator_can_requeue_or_abort(
+def test_restart_quarantines_executor_until_operator_reconciles(
     tmp_path: Path,
 ) -> None:
     with LocalDaemonRuntime(tmp_path) as runtime:
         submission = _submission("operator-recovery")
         admission = runtime.application.submit_run(submission)
-        accepted = _manifest(runtime, admission.run_id)
         runtime.application.executor.start_executor(
             admission.run_id,
             ExecutorStartRequest(
-                run_id=admission.run_id,
-                executor_id=submission.executor_id,
-                manifest=accepted.model_copy(update={"lifecycle": "running"}),
+                executor_id="notebook-1",
             ),
         )
         run_id = admission.run_id
@@ -1821,33 +1330,13 @@ def test_restart_quarantines_executor_and_operator_can_requeue_or_abort(
         assert attention.attention_reason == "daemon_restarted"
         assert _resource_leases(tmp_path)[0].status == "quarantined"
 
-        requeued = reopened.application.resolve_attention(
-            run_id,
-            AttentionResolutionCommand(run_id=run_id, action="requeue"),
-        )
-        assert requeued.state == "accepted"
-        assert requeued.released_resource_count == 1
-        accepted = _manifest(reopened, run_id)
-        assert accepted.lifecycle == "accepted"
-        reopened.application.executor.start_executor(
-            run_id,
-            ExecutorStartRequest(
-                run_id=run_id,
-                executor_id=submission.executor_id,
-                manifest=accepted.model_copy(update={"lifecycle": "running"}),
-            ),
-        )
-
-    with LocalDaemonRuntime(tmp_path) as reopened:
-        aborted = reopened.application.resolve_attention(
-            run_id,
-            AttentionResolutionCommand(run_id=run_id, action="abort"),
-        )
-
-        assert aborted.state == "terminal"
-        assert aborted.released_resource_count == 1
+        resolved = reopened.application.resolve_attention(run_id)
+        assert resolved.state == "closed"
+        assert resolved.released_resource_count == 1
         control = _control_run(reopened, run_id)
-        assert control.outcome is not None
-        assert control.outcome.problems[0].code == "daemon.operator_aborted"
-        assert _manifest(reopened, run_id).lifecycle == "terminal"
+        assert control.state == "closed"
+        manifest = _manifest(reopened, run_id)
+        assert manifest.outcome is not None
+        assert manifest.outcome.certainty == "indeterminate"
+        assert manifest.outcome.problems[0].code == "daemon.executor_loss_reconciled"
         assert _resource_leases(tmp_path) == ()

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from pathlib import Path
+from dataclasses import replace
+from typing import cast
 
 import pytest
 
 import scopecat as sc
 import scopecat.authoring as authoring
+from scopecat.authoring import ExperimentModule
 from scopecat.authoring._binding_intents import (
     ExperimentBindingIntent,
     ResourcePort,
@@ -14,22 +16,18 @@ from scopecat.authoring._binding_intents import (
     requires,
     resource_port,
 )
-from scopecat.authoring._intents import (
-    ExperimentStateIntent,
-    ModuleInputPort,
-)
-from scopecat.authoring._module_construction import module_from_parts_internal
+from scopecat.authoring._intents import ModuleInputPort
 from scopecat.authoring._module_ir import (
     ModuleAcquireEffect,
     ModuleAcquireProduct,
     ModuleBindingEffect,
-    ModuleStateEffect,
 )
 from scopecat.authoring._point_domain_intents import PointDomainIntent
 from scopecat.authoring._products import (
     ModuleProductDecl,
     ProductRef,
 )
+from scopecat.authoring._scan_intents import ScanLeafIntent
 from scopecat.authoring._value_refs import (
     ValueRef,
     internal_bind_value_ref_inputs,
@@ -39,26 +37,24 @@ from scopecat.authoring._value_refs import (
     internal_value_ref_parameter_contracts,
     internal_value_ref_point_dependencies,
 )
-from scopecat.authoring.assembly import ExperimentModule
+from scopecat.compiler.frontend.assembly_linking import bind_verified_assembly
 from scopecat.compiler.frontend.assembly_verification import verify_assembly
 from scopecat.compiler.frontend.elaboration import (
     SemanticExperimentIR,
     elaborate_module,
-    merge_semantic_experiments,
 )
-from scopecat.compiler.frontend.environment import validate_config_environment
-from scopecat.compiler.frontend.invocation import prepare_invocation
+from scopecat.compiler.frontend.environment import build_config_environment
 from scopecat.compiler.frontend.request_values import (
     project_run_request_inputs,
 )
 from scopecat.compiler.frontend.resolution import (
-    compile_prepared_invocation,
-    link_assembly,
+    compile_invocation,
 )
 from scopecat.compiler.frontend.scan_lowering import (
     lower_scan_points,
     project_scan_record,
 )
+from scopecat.compiler.linking.linked import link_program
 from scopecat.compiler.relations.evaluation import EvalContext
 from scopecat.compiler.relations.model import (
     InputScalarExpr,
@@ -75,21 +71,15 @@ from scopecat.compiler.semantic.model import (
     ValueUse,
     operation_result_id,
 )
-from scopecat.config.resolution import register_and_activate_config_profile
 from scopecat.execution.local.program import CollectOperation
 from scopecat.execution.points import RunPoint
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.symbols import SymbolId
-from scopecat.planning.authoring import (
-    resolve_experiment,
-    resolve_experiment_with_config,
-)
 from scopecat.records.config import (
     RoutingEndpointBinding,
     RoutingGraph,
-    config_content_hash,
 )
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import (
@@ -97,21 +87,13 @@ from scopecat.records.parameter import (
     Quantity,
     TableParameterValue,
 )
-from scopecat.records.run import ConfigRegistryRunConfigSource
-from scopecat.records.run_request import RunRequest
-from scopecat.testing import (
-    sqlite_config_registry_unit_of_work,
-    sqlite_project_services,
-)
 from tests.testkit.authoring import (
     DRIVE_FREQUENCY_POINT,
     SIMPLE_MODULE,
+    link_invocation,
     load_config,
     simple_template,
     template_fixture,
-)
-from tests.testkit.authoring import (
-    parameters as _parameters,
 )
 from tests.testkit.local_materialization import operations_of_type
 from tests.testkit.materialized_effects import (
@@ -156,11 +138,14 @@ def _around_parameter_points(
 ) -> PointDomainIntent:
     point_type = authoring.ScalarType(authoring.QuantityType(unit="GHz"))
     return lower_scan_points(
-        sc.axis(
-            sc.coordinate(parameter_id, point_type),
-            center=sc.parameter(parameter_id, _QUANTITY_VALUE),
-            span=Quantity(value=200.0, unit="MHz"),
-            points=points,
+        cast(
+            "ScanLeafIntent",
+            sc.axis(
+                sc.coordinate(parameter_id, point_type),
+                center=sc.parameter(parameter_id, _QUANTITY_VALUE),
+                span=Quantity(value=200.0, unit="MHz"),
+                points=points,
+            ),
         )
     )
 
@@ -171,10 +156,9 @@ def _module_fixture(
     entity_inputs: Sequence[str] = (),
     resources: Sequence[ResourcePort] = (),
     bindings: Sequence[ExperimentBindingIntent] = (),
-    state_intents: Sequence[ExperimentStateIntent] = (),
     products: Sequence[ModuleProductDecl] = (),
-) -> ExperimentModule:
-    return module_from_parts_internal(
+) -> ExperimentModule[...]:
+    return authoring.ModuleBuilder(
         id=id,
         input_ports=tuple(
             ModuleInputPort(
@@ -186,7 +170,6 @@ def _module_fixture(
         resources=tuple(resources),
         procedure=(
             *(ModuleBindingEffect(binding) for binding in bindings),
-            *(ModuleStateEffect(intent) for intent in state_intents),
             *(
                 (
                     ModuleAcquireEffect(
@@ -209,8 +192,8 @@ def _module_fixture(
                 else ()
             ),
         ),
-        product_declarations=products,
-    )
+        product_declarations=tuple(products),
+    ).build()
 
 
 def _observable_product(
@@ -227,7 +210,7 @@ def _observable_product(
 
 
 def _template_invocation(
-    *modules: ExperimentModule,
+    *modules: ExperimentModule[...],
     id: str,  # noqa: A002
     kind: str,
     inputs: Mapping[str, authoring.RuntimeInput] | None = None,
@@ -275,22 +258,23 @@ def _template_invocation(
     return template.bind(**dict(inputs or {}))
 
 
-def test_module_invocation_resolves_roles_scans_bindings_and_metadata() -> None:
-    resolved = resolve_experiment(
-        simple_template().bind(subject="q0"),
+def test_module_invocation_resolves_roles_scans_and_bindings() -> None:
+    template = simple_template()
+    assert template.definition.metadata == {"assembled_by": "template"}
+
+    resolved = link_invocation(
+        template.bind(subject="q0"),
         config_profile=load_config(),
     )
 
-    assert resolved.template_id == "test.simple_scan"
-    experiment = resolved.experiment
+    experiment = resolved.program
     assert experiment.id == "test.simple_scan"
     assert experiment.kind == "simple_scan"
-    assert experiment.metadata == {"assembled_by": "template"}
     preview = materialized_effects_contract(
-        experiment, resolved.parameters, config=load_config()
+        experiment, resolved.environment.parameters, config=load_config()
     )
     projection = measurement_projection_contract(
-        experiment, resolved.parameters, config=load_config()
+        experiment, resolved.environment.parameters, config=load_config()
     )
 
     assert projection.coordinate_ids == ("drive_frequency",)
@@ -338,22 +322,22 @@ def test_template_selects_module_products_as_records() -> None:
         records=(authoring.record_product(module.products.signal),),
     )
 
-    unselected = resolve_experiment(
+    unselected = link_invocation(
         without_selection.bind(subject="q0"),
         config_profile=load_config(),
     )
-    selected = resolve_experiment(
+    selected = link_invocation(
         with_selection.bind(subject="q0"),
         config_profile=load_config(),
     )
 
-    assert unselected.experiment.record_uses == ()
+    assert unselected.program.record_uses == ()
     assert [
-        product.id.qualified_name for product in unselected.experiment.product_defs
+        product.id.qualified_name for product in unselected.program.product_defs
     ] == ["signal"]
-    assert [record.id for record in selected.experiment.record_uses] == ["signal"]
-    assert selected.experiment.record_uses[0].metadata == {}
-    assert selected.experiment.product_uses[0].product_id.qualified_name == "signal"
+    assert [record.id for record in selected.program.record_uses] == ["signal"]
+    assert selected.program.record_uses[0].metadata == {}
+    assert selected.program.product_uses[0].product_id.qualified_name == "signal"
 
 
 def test_compute_inputs_keep_template_input_provenance() -> None:
@@ -409,16 +393,9 @@ def test_compute_inputs_keep_template_input_provenance() -> None:
         module,
         id="test.compute_provenance",
         kind="compute_provenance",
-        inputs=(
-            authoring.InputDescription(
-                "pulse_length",
-                default=Quantity(value=20.0, unit="ns"),
-            ),
-        ),
+        defaults={"pulse_length": Quantity(value=20.0, unit="ns")},
     )
-    compiled = compile_prepared_invocation(
-        prepare_invocation(template.bind(qubit="q0"))
-    )
+    compiled = compile_invocation(template.bind(qubit="q0"))
     graph = compiled.assembly.source.semantic_graph
     operation = next(
         operation
@@ -438,10 +415,7 @@ def test_compute_inputs_keep_template_input_provenance() -> None:
     assert qubit_source.source_inputs == ("qubit",)
     assert length_source.source_inputs == ("pulse_length",)
     assert frequency_source.source_inputs == ("qubit",)
-    output_id = dict(operation.outputs)["result"]
-    assert definitions[output_id].value_type == authoring.ScalarType(
-        authoring.PayloadType("pulse")
-    )
+    assert operation.result_type == authoring.ScalarType(authoring.PayloadType("pulse"))
 
 
 def test_compute_function_signature_must_match_explicit_inputs() -> None:
@@ -494,14 +468,17 @@ def test_template_can_scan_any_entity_input() -> None:
         records=(authoring.record_product(module.products.signal),),
     )
 
-    resolved = resolve_experiment(
+    resolved = link_invocation(
         template.bind(),
         config_profile=load_config(),
     )
-    preview = materialized_effects_contract(resolved.experiment, resolved.parameters)
+    preview = materialized_effects_contract(
+        resolved.program,
+        resolved.environment.parameters,
+    )
     projection = measurement_projection_contract(
-        resolved.experiment,
-        resolved.parameters,
+        resolved.program,
+        resolved.environment.parameters,
     )
 
     assert preview.points[0].coordinates["qubit"] == EntityRef(
@@ -531,7 +508,7 @@ def test_entity_scan_captures_an_immutable_durable_snapshot() -> None:
 
     scan = sc.axis(subject, [entity])
     labels.append("changed")
-    request = project_scan_record(scan)
+    request = project_scan_record(cast("ScanLeafIntent", scan))
 
     assert request.model_dump(mode="json")["values"] == [
         {
@@ -545,23 +522,12 @@ def test_entity_scan_captures_an_immutable_durable_snapshot() -> None:
 
 def test_entity_scan_selects_resource_entities_per_point() -> None:
     seed_config = load_config()
-    q0 = seed_config.topology.devices[0]
-    drive_q0 = seed_config.topology.channels[0]
     source_0 = seed_config.instrument_registry.instruments[0]
     topology = seed_config.topology.model_copy(
         update={
             "entities": [
                 *seed_config.topology.entities,
                 EntityRef(id="q1", kind="logical_device"),
-                EntityRef(id="drive-q1", kind="drive_channel"),
-            ],
-            "devices": [
-                *seed_config.topology.devices,
-                q0.model_copy(update={"id": "q1", "channels": ["drive-q1"]}),
-            ],
-            "channels": [
-                *seed_config.topology.channels,
-                drive_q0.model_copy(update={"id": "drive-q1", "device_id": "q1"}),
             ],
         }
     )
@@ -638,13 +604,13 @@ def test_entity_scan_selects_resource_entities_per_point() -> None:
         records=(authoring.record_product(module.products.signal),),
     )
 
-    resolved = resolve_experiment(
+    resolved = link_invocation(
         template.bind(),
         config_profile=config,
     )
     preview = materialized_effects_contract(
-        resolved.experiment,
-        resolved.parameters,
+        resolved.program,
+        resolved.environment.parameters,
         config=config,
     )
 
@@ -678,23 +644,12 @@ def test_entity_scan_selects_resource_entities_per_point() -> None:
 
 def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> None:
     seed_config = load_config()
-    q0 = seed_config.topology.devices[0]
-    drive_q0 = seed_config.topology.channels[0]
     source_0 = seed_config.instrument_registry.instruments[0]
     topology = seed_config.topology.model_copy(
         update={
             "entities": [
                 *seed_config.topology.entities,
                 EntityRef(id="q1", kind="logical_device"),
-                EntityRef(id="drive-q1", kind="drive_channel"),
-            ],
-            "devices": [
-                *seed_config.topology.devices,
-                q0.model_copy(update={"id": "q1", "channels": ["drive-q1"]}),
-            ],
-            "channels": [
-                *seed_config.topology.channels,
-                drive_q0.model_copy(update={"id": "drive-q1", "device_id": "q1"}),
             ],
         }
     )
@@ -813,7 +768,7 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
         records=(authoring.record_product(module.products.signal),),
     )
 
-    resolved = resolve_experiment(
+    resolved = link_invocation(
         template.bind().scan(
             sc.coordinate(
                 "qubit",
@@ -826,8 +781,8 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
         config_profile=config,
     )
     preview = materialized_effects_contract(
-        resolved.experiment,
-        resolved.parameters,
+        resolved.program,
+        resolved.environment.parameters,
         config=config,
     )
 
@@ -844,18 +799,13 @@ def test_runtime_entity_scan_feeds_resource_selection_and_parameter_lookup() -> 
     ]
 
 
-def test_runtime_entity_scan_can_drive_dependent_default_scan() -> None:
+def test_bound_entity_input_can_center_a_default_parameter_scan() -> None:
     seed_config = load_config()
-    q0 = seed_config.topology.devices[0]
     topology = seed_config.topology.model_copy(
         update={
             "entities": [
                 *seed_config.topology.entities,
                 EntityRef(id="q1", kind="logical_device"),
-            ],
-            "devices": [
-                *seed_config.topology.devices,
-                q0.model_copy(update={"id": "q1", "channels": []}),
             ],
         }
     )
@@ -945,34 +895,17 @@ def test_runtime_entity_scan_can_drive_dependent_default_scan() -> None:
         records=(authoring.record_product(module.products.signal),),
     )
 
-    resolved = resolve_experiment(
-        template.bind().scan(
-            sc.coordinate(
-                "qubit",
-                authoring.ScalarType(
-                    authoring.EntityType(entity_kind="logical_device")
-                ),
-            ),
-            ["q0", "q1"],
-        ),
-        config_profile=config,
-    )
+    resolved = link_invocation(template.bind(qubit="q0"), config_profile=config)
     preview = materialized_effects_contract(
-        resolved.experiment,
-        resolved.parameters,
+        resolved.program,
+        resolved.environment.parameters,
         config=config,
     )
 
-    assert [
-        (point.coordinates["qubit"], point.coordinates["drive_length"])
-        for point in preview.points
-    ] == [
-        (EntityRef(id="q0", kind="logical_device"), Quantity(value=30.0, unit="ns")),
-        (EntityRef(id="q0", kind="logical_device"), Quantity(value=40.0, unit="ns")),
-        (EntityRef(id="q0", kind="logical_device"), Quantity(value=50.0, unit="ns")),
-        (EntityRef(id="q1", kind="logical_device"), Quantity(value=70.0, unit="ns")),
-        (EntityRef(id="q1", kind="logical_device"), Quantity(value=80.0, unit="ns")),
-        (EntityRef(id="q1", kind="logical_device"), Quantity(value=90.0, unit="ns")),
+    assert [point.coordinates["drive_length"] for point in preview.points] == [
+        Quantity(value=30.0, unit="ns"),
+        Quantity(value=40.0, unit="ns"),
+        Quantity(value=50.0, unit="ns"),
     ]
 
 
@@ -1005,12 +938,12 @@ def test_entity_series_input_can_define_product_axis() -> None:
         records=(authoring.record_product(module.products.iq),),
     )
 
-    resolved = resolve_experiment(
+    resolved = link_invocation(
         template.bind(qubits=("q0",)),
         config_profile=load_config(),
     )
 
-    axis = resolved.experiment.product_defs[0].axes[0]
+    axis = resolved.program.product_defs[0].axes[0]
     assert axis.id == "qubit"
     assert axis.kind == "entity"
     assert axis.size == 1
@@ -1020,21 +953,21 @@ def test_entity_series_input_can_define_product_axis() -> None:
     }
 
     with pytest.raises(CheckFailed) as error:
-        resolve_experiment(
+        link_invocation(
             template.bind(qubits=("missing",)),
             config_profile=load_config(),
         )
     assert error.value.problems[0].code == "unknown_authoring_entity"
 
     with pytest.raises(CheckFailed) as error:
-        resolve_experiment(
+        link_invocation(
             template.bind(qubits=("q0", "q0")),
             config_profile=load_config(),
         )
     assert error.value.problems[0].code == "product_entity_axis_duplicate"
 
     with pytest.raises(CheckFailed) as error:
-        resolve_experiment(
+        link_invocation(
             template.bind(qubits=()),
             config_profile=load_config(),
         )
@@ -1076,15 +1009,15 @@ def test_non_entity_string_series_defines_categorical_product_axis() -> None:
         records=(authoring.record_product(module.products.iq),),
     )
 
-    resolved = resolve_experiment(
+    resolved = link_invocation(
         template.bind(),
         config_profile=load_config(),
     )
 
-    axis = resolved.experiment.product_defs[0].axes[0]
+    axis = resolved.program.product_defs[0].axes[0]
     assert axis.size == 2
     assert axis.metadata == {}
-    role_axis = resolved.experiment.product_defs[0].axes[1]
+    role_axis = resolved.program.product_defs[0].axes[1]
     assert role_axis.kind == "entity"
     assert role_axis.size == 2
     assert role_axis.metadata == {}
@@ -1121,26 +1054,7 @@ def test_entity_series_selection_keeps_one_point_and_ordered_product_axis() -> N
             ),
         }
     )
-    environment = seed_config.environment.model_copy(
-        update={
-            "connection_profile": seed_config.connection_profile.model_copy(
-                update={
-                    "connections": [
-                        connection.model_copy(
-                            update={
-                                "id": "readout-array-offline",
-                                "instrument_id": "readout-array",
-                            }
-                        )
-                        for connection in seed_config.connection_profile.connections
-                    ]
-                }
-            )
-        }
-    )
-    config = seed_config.model_copy(
-        update={"system": system, "environment": environment}
-    )
+    config = seed_config.model_copy(update={"system": system})
     qubits = sc.input(
         "qubits",
         authoring.SeriesType(authoring.ScalarType(authoring.EntityType())),
@@ -1173,13 +1087,13 @@ def test_entity_series_selection_keeps_one_point_and_ordered_product_axis() -> N
         records=(authoring.record_product(module.products.iq),),
     )
 
-    resolved = resolve_experiment(
+    resolved = link_invocation(
         template.bind(qubits=("q0", "q1")),
         config_profile=config,
     )
     preview = materialized_effects_contract(
-        resolved.experiment,
-        resolved.parameters,
+        resolved.program,
+        resolved.environment.parameters,
         config=config,
     )
 
@@ -1240,50 +1154,40 @@ def test_request_projection_rejects_transient_typed_and_compiler_values() -> Non
             project_run_request_inputs({"nested": {"value": value}})
 
 
-def test_link_assembly_resolves_config_dependent_fragments() -> None:
-    source = elaborate_module(SIMPLE_MODULE, subject="q0")
-    points = SemanticExperimentIR(point_domain=_around_parameter_points())
-    assembly = merge_semantic_experiments(
+def test_link_resolves_config_dependent_assembly_fragments() -> None:
+    source = elaborate_module(SIMPLE_MODULE.ir, subject="q0")
+    assembly = replace(
+        source,
         experiment_id="authored-simple-scan",
         kind="simple_scan",
-        fragments=(points, source),
+        point_domain=_around_parameter_points(),
     )
-    request = RunRequest(
-        id="simple.request",
-        template_id="test.simple_scan",
-        template_inputs={"subject": "q0"},
-    )
-
-    resolved = link_assembly(
-        verify_assembly(assembly),
-        request=request,
-        environment=validate_config_environment(load_config()),
-        config_source=None,
+    environment = build_config_environment(load_config())
+    resolved = link_program(
+        bind_verified_assembly(verify_assembly(assembly), environment),
+        environment,
     )
 
-    assert resolved.experiment.id == "authored-simple-scan"
-    assert resolved.config.id == load_config().id
-    preview = materialized_effects_contract(resolved.experiment, resolved.parameters)
+    assert resolved.program.id == "authored-simple-scan"
+    assert resolved.environment.config.id == load_config().id
+    preview = materialized_effects_contract(
+        resolved.program,
+        resolved.environment.parameters,
+    )
     assert materialized_state_fields(preview)[0][1].instrument_id == "source-0"
 
 
-def test_link_assembly_validates_parameter_contracts_owned_by_point_source() -> None:
+def test_link_validates_parameter_contracts_owned_by_point_source() -> None:
     assembly = SemanticExperimentIR(
         experiment_id="missing-parameter-scan",
         kind="simple_scan",
         point_domain=_around_parameter_points("missing_frequency"),
     )
-    request = RunRequest(
-        id="missing-parameter.request",
-        template_id="test.simple_scan",
-    )
-
+    environment = build_config_environment(load_config())
     with pytest.raises(CheckFailed) as caught:
-        link_assembly(
-            verify_assembly(assembly),
-            request=request,
-            environment=validate_config_environment(load_config()),
-            config_source=None,
+        link_program(
+            bind_verified_assembly(verify_assembly(assembly), environment),
+            environment,
         )
 
     assert caught.value.problems[0].code == "unknown_authoring_parameter"
@@ -1320,7 +1224,7 @@ def test_explicit_instances_keep_same_named_resource_ports_isolated() -> None:
         .build()
     )
 
-    assembly = elaborate_module(root)
+    assembly = elaborate_module(root.ir)
     assert [port.symbol_id for port in assembly.resource_ports] == [
         logical_resource_port_id(SymbolId(scope=("pulse",), local_id="source")),
         logical_resource_port_id(SymbolId(scope=("records",), local_id="source")),
@@ -1360,7 +1264,7 @@ def test_template_composition_rejects_duplicate_record_ids() -> None:
     )
 
     with pytest.raises(CheckFailed) as error:
-        resolve_experiment(
+        link_invocation(
             _template_invocation(
                 first,
                 second,
@@ -1370,7 +1274,7 @@ def test_template_composition_rejects_duplicate_record_ids() -> None:
             config_profile=load_config(),
         )
 
-    assert error.value.problems[0].code == "template_record_duplicate"
+    assert error.value.problems[0].code == "experiment_record_duplicate"
 
 
 def test_elaboration_invocation_literals_bind_local_inputs() -> None:
@@ -1402,7 +1306,7 @@ def test_elaboration_invocation_literals_bind_local_inputs() -> None:
     )
 
     assembly = elaborate_module(
-        parent,
+        parent.ir,
     )
 
     assert "drive_frequency" not in assembly.inputs
@@ -1455,7 +1359,7 @@ def test_elaboration_invocation_expressions_bind_local_inputs() -> None:
     )
 
     assembly = elaborate_module(
-        parent,
+        parent.ir,
     )
 
     assert "drive_frequency" not in assembly.inputs
@@ -1511,7 +1415,7 @@ def test_elaboration_defers_nested_expression_and_literal_bindings() -> None:
         .build()
     )
 
-    assembly = elaborate_module(root)
+    assembly = elaborate_module(root.ir)
 
     assert isinstance(assembly.bindings[0].value, ValueRef)
     expression = internal_lower_scalar_value_ref(assembly.bindings[0].value)
@@ -1557,7 +1461,7 @@ def test_module_provenance_follows_only_reachable_input_bindings() -> None:
     unused_point = authoring.coordinate("phantom_point", value_type)
 
     assembly = elaborate_module(
-        module,
+        module.ir,
         used_parameter=used_parameter,
         unused_parameter=unused_parameter,
         used_point=used_point,
@@ -1640,7 +1544,9 @@ def test_elaboration_invocation_input_refs_bind_to_parent_inputs() -> None:
         .build()
     )
 
-    assembly = elaborate_module(parent, outer_frequency=Quantity(value=5.2, unit="GHz"))
+    assembly = elaborate_module(
+        parent.ir, outer_frequency=Quantity(value=5.2, unit="GHz")
+    )
 
     assert "drive_frequency" not in assembly.inputs
     assert isinstance(assembly.bindings[0].value, ValueRef)
@@ -1699,7 +1605,7 @@ def test_elaboration_does_not_merge_sibling_invocation_inputs() -> None:
     )
 
     assembly = elaborate_module(
-        module,
+        module.ir,
     )
 
     assert "drive_frequency" not in assembly.inputs
@@ -1751,7 +1657,7 @@ def test_elaboration_localizes_invocation_entity_inputs() -> None:
     )
 
     assembly = elaborate_module(
-        parent,
+        parent.ir,
     )
 
     assert "qubit" not in assembly.inputs
@@ -1786,7 +1692,7 @@ def test_template_invocation_runs_composed_modules_directly() -> None:
         products=[_observable_product("signal", unit="ratio")],
     )
 
-    resolved = resolve_experiment(
+    resolved = link_invocation(
         _template_invocation(
             prelude,
             scan,
@@ -1801,12 +1707,11 @@ def test_template_invocation_runs_composed_modules_directly() -> None:
         config_profile=load_config(),
     )
     preview = materialized_effects_contract(
-        resolved.experiment,
-        resolved.parameters,
+        resolved.program,
+        resolved.environment.parameters,
     )
 
-    assert resolved.template_id == "test.scripted_scan"
-    assert resolved.request.template_inputs == {}
+    assert resolved.program.id == "test.scripted_scan"
     assert preview.points[0].coordinates["drive_frequency"] == Quantity(
         value=4.9, unit="GHz"
     )
@@ -1844,7 +1749,7 @@ def test_product_declaration_uses_axes() -> None:
         ],
     )
 
-    resolved = resolve_experiment(
+    resolved = link_invocation(
         _template_invocation(
             module,
             id="test.record_axes",
@@ -1858,8 +1763,8 @@ def test_product_declaration_uses_axes() -> None:
         config_profile=load_config(),
     )
 
-    assert len(resolved.experiment.record_uses) == 1
-    product = resolved.experiment.product_defs[0]
+    assert len(resolved.program.record_uses) == 1
+    product = resolved.program.product_defs[0]
     assert product.id.local_id == "signal"
     assert [axis.id for axis in product.axes] == ["shot", "repetition"]
     assert [axis.size for axis in product.axes] == [2, 3]
@@ -1871,7 +1776,7 @@ def test_module_invocation_resolves_multiple_entity_inputs() -> None:
         entity_inputs=("device", "drive_channel"),
     )
 
-    resolved = resolve_experiment(
+    resolved = link_invocation(
         _template_invocation(
             module,
             id="authored-multi-entity",
@@ -1881,28 +1786,17 @@ def test_module_invocation_resolves_multiple_entity_inputs() -> None:
         config_profile=load_config(),
     )
 
-    assert resolved.experiment.id == "authored-multi-entity"
+    assert resolved.program.id == "authored-multi-entity"
 
 
 def test_resource_port_can_select_by_fixed_entity_input() -> None:
     seed_config = load_config()
-    q0 = seed_config.topology.devices[0]
-    drive_q0 = seed_config.topology.channels[0]
     source_0 = seed_config.instrument_registry.instruments[0]
     topology = seed_config.topology.model_copy(
         update={
             "entities": [
                 *seed_config.topology.entities,
                 EntityRef(id="q1", kind="logical_device"),
-                EntityRef(id="drive-q1", kind="drive_channel"),
-            ],
-            "devices": [
-                *seed_config.topology.devices,
-                q0.model_copy(update={"id": "q1", "channels": ["drive-q1"]}),
-            ],
-            "channels": [
-                *seed_config.topology.channels,
-                drive_q0.model_copy(update={"id": "drive-q1", "device_id": "q1"}),
             ],
         }
     )
@@ -1960,7 +1854,7 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
         .build()
     )
 
-    resolved = resolve_experiment(
+    resolved = link_invocation(
         template_fixture(
             module,
             id="test.entity_selected_resource",
@@ -1970,22 +1864,16 @@ def test_resource_port_can_select_by_fixed_entity_input() -> None:
     )
 
     preview = materialized_effects_contract(
-        resolved.experiment,
-        resolved.parameters,
+        resolved.program,
+        resolved.environment.parameters,
         config=config,
     )
     assert materialized_state_fields(preview)[0][1].instrument_id == "source-1"
 
 
-def test_explicit_config_source_survives_experiment_resolution() -> None:
+def test_explicit_config_links_experiment() -> None:
     selected_instrument = "spare-awg"
     config = config_with_physical_resources({selected_instrument: ("drive.frequency",)})
-    source = ConfigRegistryRunConfigSource(
-        selector=selected_instrument,
-        entry_id="entry-spare-awg",
-        config_ref="configs/spare-awg.json",
-        content_hash=config_content_hash(config),
-    )
     module = (
         authoring.module_body(id="test.explicit-config-source")
         .resource("drive", requires=("drive.frequency",))
@@ -1998,127 +1886,22 @@ def test_explicit_config_source_survives_experiment_resolution() -> None:
         .build()
     )
 
-    resolved = resolve_experiment_with_config(
+    resolved = link_invocation(
         template_fixture(
             module,
             id="test.explicit-config-source",
             kind="config-source",
         ).bind(),
-        config=config,
-        config_source=source,
+        config_profile=config,
     )
     preview = materialized_effects_contract(
-        resolved.experiment,
-        resolved.parameters,
+        resolved.program,
+        resolved.environment.parameters,
         config=config,
     )
 
     assert materialized_state_fields(preview)[0][1].instrument_id == selected_instrument
-    assert resolved.config_source == source
-    assert source.content_hash == config_content_hash(resolved.config)
-
-
-def test_module_can_materialize_background_state_from_parameter_table() -> None:
-    seed_config = config_with_physical_resources(
-        {
-            "flux-source": ("set_offset",),
-        }
-    )
-    catalog = seed_config.parameter_catalog.model_copy(
-        update={
-            "definitions": [
-                *seed_config.parameter_catalog.definitions,
-                _table_definition(
-                    id="flux_bias",
-                    primary_key=["slot"],
-                    columns=[
-                        sc.TableColumn(
-                            id="slot",
-                            value_type=sc.ScalarType(sc.IntType()),
-                        ),
-                        sc.TableColumn(
-                            id="offset",
-                            value_type=sc.ScalarType(sc.QuantityType(unit="arb")),
-                        ),
-                    ],
-                ),
-            ]
-        }
-    )
-    system = seed_config.system.model_copy(
-        update={"parameter_catalog": catalog},
-    )
-    parameter_snapshot = seed_config.parameter_snapshot.model_copy(
-        update={
-            "values": [
-                *seed_config.parameter_snapshot.values,
-                TableParameterValue(
-                    id="flux_bias",
-                    rows=[
-                        {
-                            "slot": 0,
-                            "offset": Quantity(value=0.1, unit="arb"),
-                        },
-                    ],
-                ),
-            ]
-        }
-    )
-    config = seed_config.model_copy(
-        update={"system": system, "parameter_snapshot": parameter_snapshot}
-    )
-    flux_bias = sc.parameter(
-        "flux_bias",
-        sc.TableType(
-            columns=(
-                sc.TableColumn(
-                    "slot",
-                    sc.ScalarType(sc.IntType()),
-                ),
-                sc.TableColumn(
-                    "offset",
-                    sc.ScalarType(sc.QuantityType(unit="arb")),
-                ),
-            )
-        ),
-    )
-    background = (
-        authoring.module_body(id="test.background_flux")
-        .resource("flux", requires=("set_offset",))
-        .state_each(
-            flux_bias,
-            resource_port="flux",
-            capability="set_offset",
-            field="offset",
-            value=lambda row: row["offset"],
-        )
-        .build()
-    )
-
-    resolved = resolve_experiment(
-        template_fixture(
-            background,
-            id="test.background_flux",
-            kind="background_flux",
-        ).bind(),
-        config_profile=config,
-    )
-    preview = materialized_effects_contract(
-        resolved.experiment,
-        resolved.parameters,
-        config=config,
-    )
-
-    assert [
-        (
-            state.instrument_id,
-            f"{field.capability_id}.{field.field_path}",
-            field.value.root,
-        )
-        for _, state, field in materialized_state_fields(preview)
-    ] == [
-        ("flux-source", "set_offset.offset", Quantity(value=0.1, unit="arb")),
-    ]
+    assert resolved.environment.config is config
 
 
 def test_module_assembler_reports_ambiguous_resource_port() -> None:
@@ -2149,46 +1932,15 @@ def test_module_assembler_reports_ambiguous_resource_port() -> None:
     )
     config = seed_config.model_copy(update={"system": system})
 
-    resolved = resolve_experiment(
+    resolved = link_invocation(
         simple_template().bind(subject="q0"),
         config_profile=config,
     )
     with pytest.raises(CheckFailed) as failure:
         materialized_effects_contract(
-            resolved.experiment,
-            resolved.parameters,
+            resolved.program,
+            resolved.environment.parameters,
             config=config,
         )
 
     assert failure.value.problems[0].code == "module_resource_port_ambiguous"
-
-
-def test_resolve_experiment_uses_active_config_and_input_defaults(
-    tmp_path: Path,
-) -> None:
-    register_and_activate_config_profile(
-        config=load_config(),
-        services=sqlite_project_services(tmp_path),
-        entry_id="seed",
-        registered_by="operator",
-        operator="operator",
-    )
-    invocation = simple_template().bind(subject="q0")
-
-    resolved = resolve_experiment(
-        invocation,
-        config_registry=sqlite_config_registry_unit_of_work(tmp_path),
-    )
-
-    assert resolved.template_id == "test.simple_scan"
-    assert resolved.config.id == load_config().id
-    assert resolved.request.config_source == "active"
-    experiment = resolved.experiment
-    preview = materialized_effects_contract(experiment, _parameters())
-
-    assert preview.points[0].coordinates["drive_frequency"] == Quantity(
-        value=4.9, unit="GHz"
-    )
-    assert preview.points[-1].coordinates["drive_frequency"] == Quantity(
-        value=5.1, unit="GHz"
-    )

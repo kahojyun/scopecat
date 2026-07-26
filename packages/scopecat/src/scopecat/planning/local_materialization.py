@@ -1,8 +1,8 @@
 """Specialize linked host semantics into final local operations.
 
-Preparation selects implementations and run-invariant compute once. Bounded
-materialization selects logical entities and binds state, actions, compute, and
-collection to the static resource manifests prepared for the local target.
+Preparation binds run-invariant compute once. Bounded materialization selects
+logical entities and binds state, compute, and collection to the static
+resource manifests prepared for the local target.
 """
 
 from __future__ import annotations
@@ -11,16 +11,11 @@ import math
 from collections.abc import Mapping, Sequence
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, replace
-from dataclasses import field as dataclass_field
 from typing import Protocol, cast
 
 from pydantic import JsonValue
 
 from scopecat.compiler.diagnostics import compiler_problem
-from scopecat.compiler.linking.implementations import (
-    SelectedLocalImplementations,
-    select_local_implementations,
-)
 from scopecat.compiler.linking.linked import (
     LinkedPlan,
     MaterializedLinkedPoints,
@@ -30,12 +25,7 @@ from scopecat.compiler.relations.evaluation import (
     ParameterRelationData,
 )
 from scopecat.compiler.semantic.compute_result import ComputeResultRef
-from scopecat.compiler.semantic.model import ValueId
-from scopecat.compiler.typed.action import (
-    ActionRecord,
-    ActionSpec,
-    evaluate_action_spec,
-)
+from scopecat.compiler.semantic.model import AcquireEffect, ValueId
 from scopecat.compiler.typed.dependencies import (
     ComputePlan,
     PointVariationSupport,
@@ -43,31 +33,21 @@ from scopecat.compiler.typed.dependencies import (
 from scopecat.compiler.typed.point_domain import (
     MaterializedPoint,
 )
-from scopecat.compiler.typed.products import ProductAxisDef, ProductDef
-from scopecat.compiler.typed.program import (
-    AcquireSpec,
-    CoreProgram,
-    TypedDomainExecution,
-)
-from scopecat.compiler.typed.records import (
-    point_coordinate_ids,
-)
+from scopecat.compiler.typed.products import ProductDef
+from scopecat.compiler.typed.program import CoreProgram, TypedDomainExecution
 from scopecat.compiler.typed.state import (
     SetStateSpec,
     StateRecord,
-    StateSpecVariant,
     evaluate_state_spec,
 )
 from scopecat.compiler.typed.verification import (
     VerifiedCoreProgram,
 )
 from scopecat.execution.local.program import (
-    ActionField,
     ApplyStateOperation,
     CollectionResultBinding,
     CollectOperation,
     ComputeOperation,
-    InstrumentActionOperation,
     StateTarget,
 )
 from scopecat.execution.program import RunCoverageEffect
@@ -77,15 +57,11 @@ from scopecat.kernel.frozen import thaw_json_value
 from scopecat.kernel.problems import (
     ModelLocation,
     Problem,
-    ProblemCategory,
-    ProblemPhase,
-    has_blocking_problems,
     model_location,
 )
 from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
 from scopecat.kernel.resource_identity import LogicalResourcePortId
 from scopecat.kernel.state import PayloadRef, StateValue
-from scopecat.measurements.results import MeasurementDType
 from scopecat.planning.local_compute import (
     bind_compute_operations as _bind_compute_operations,
 )
@@ -158,45 +134,6 @@ def _normalize_entity_ids(values: Sequence[object]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(entity_ids))
 
 
-def _empty_metadata() -> dict[str, object]:
-    return {}
-
-
-@dataclass(frozen=True, slots=True)
-class _PendingStateField:
-    field_path: str
-    value: StateValue
-    entity_ids: tuple[str, ...] = ()
-    channel_bindings: tuple[CommandChannelBinding, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class _PendingResourceState:
-    instrument_id: str
-    capability_id: str
-    fields: tuple[_PendingStateField, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class _PendingCollectionRequest:
-    product_use_ids: tuple[ProductUseId, ...]
-    product_id: ProductId
-    provider_key: str
-    capability: str
-    unit: str | None
-    dtype: MeasurementDType
-    entity_ids: tuple[str, ...] = ()
-    channel_bindings: tuple[CommandChannelBinding, ...] = ()
-    axes: tuple[ProductAxisDef, ...] = ()
-    metadata: Mapping[str, object] = dataclass_field(default_factory=_empty_metadata)
-
-
-@dataclass(frozen=True, slots=True)
-class _PendingCollect:
-    instrument_id: str
-    requests: tuple[_PendingCollectionRequest, ...]
-
-
 def _collection_channel_bindings(
     bindings: Sequence[CommandChannelBinding],
     *,
@@ -214,7 +151,6 @@ def materialize_local_execution(
     linked_points: MaterializedLinkedPoints,
     *,
     target: LocalTargetPlan,
-    point_count: int,
 ) -> MaterializedLocalEffects:
     """Lower one bounded point coverage into final ordered local effects.
 
@@ -222,30 +158,16 @@ def materialize_local_execution(
     exact coverage preserves logical ownership of every resulting operation.
     """
 
-    linked = linked_points.linked_plan
     program = target.program
-    if linked.program.id != program.id:
-        raise ValueError("local target plan belongs to a different program")
-    environment = linked.environment
-    problems = list(environment.problems)
+    problems: list[Problem] = []
     verified_program = linked_points.linked_plan.verified_program
-    implementations = target.implementations
     selected_compute_plan = verified_program.compute_plan
     variation = verified_program.variation_analysis
     selected_instrument_order = target.instrument_order
     compute_seed = target.compute_seed
     materialized_domain = linked_points.point_domain
     planner_points = materialized_domain.points
-    try:
-        point_coordinate_ids(planner_points)
-    except ValueError as error:
-        problems.append(
-            _problem(
-                "experiment_point_schema_invalid",
-                f"experiment point schema is invalid: {error}",
-                model_location("points"),
-            )
-        )
+    point_count = len(planner_points)
     point_by_ordinal = {point.logical_ordinal: point for point in planner_points}
     params_by_ordinal = {
         point.logical_ordinal: params
@@ -292,7 +214,6 @@ def materialize_local_execution(
                         point_row=representative.row,
                     ),
                     compute_plan=selected_compute_plan,
-                    implementations=implementations,
                     demanded_payload_results=set(
                         selected_compute_plan.demanded_payload_results
                     ),
@@ -314,92 +235,49 @@ def materialize_local_execution(
     effect_operations: list[list[RunCoverageEffect]] = [
         [] for _effect in program.effects
     ]
-    state_support_by_effect: dict[int, PointVariationSupport] = {}
-    state_index = 0
-    for effect_index, effect in enumerate(program.effects):
-        if isinstance(effect, TypedDomainExecution | ActionSpec | AcquireSpec):
-            continue
-        state_support_by_effect[effect_index] = variation.state[state_index]
-        state_index += 1
     known_compute_results = {node.result.id for node in program.compute_nodes}
     for effect_index, effect in enumerate(program.effects):
         if isinstance(effect, TypedDomainExecution):
             continue
-        if isinstance(effect, AcquireSpec):
+        if isinstance(effect, AcquireEffect):
             for ordinal in ordinals:
                 point = point_by_ordinal[ordinal]
                 resources = resources_by_ordinal[ordinal]
                 collect = _bind_collect(
                     program.product_defs,
-                    program.product_uses,
+                    target.product_uses,
                     effect,
                     resources,
+                    point_uid=point.logical_id.value,
                     point_index=ordinal,
+                    point_count=point_count,
                     problems=problems,
                 )
                 if collect is not None:
-                    operation = _collect_operation(
-                        point.logical_id.value,
-                        acquisition_id=effect.id.qualified_name,
-                        point_index=ordinal,
-                        point_count=point_count,
-                        collect=collect,
-                    )
                     effect_operations[effect_index].append(
-                        RunCoverageEffect.at_point(ordinal, operation)
+                        RunCoverageEffect.at_point(ordinal, collect)
                     )
             continue
-        if isinstance(effect, ActionSpec):
-            for ordinal in ordinals:
-                point = point_by_ordinal[ordinal]
-                params = params_by_ordinal[ordinal]
-                resources = resources_by_ordinal[ordinal]
-                actions = _bind_actions(
-                    _evaluate_action_records(
-                        effect,
-                        effect_index,
-                        point,
-                        params,
-                        verified_program=verified_program,
-                        problems=problems,
-                    ),
-                    resources=resources,
-                    payload_ids=payload_ids_by_ordinal[ordinal],
-                    known_compute_results=known_compute_results,
-                    point_index=ordinal,
-                    point_uid=point.logical_id.value,
-                    problems=problems,
-                )
-                ordered = _order_instrument_operations(
-                    actions,
-                    instrument_order=selected_instrument_order,
-                )
-                effect_operations[effect_index].extend(
-                    RunCoverageEffect.at_point(ordinal, operation)
-                    for operation in ordered
-                )
-            continue
-
         if effect_index and not isinstance(
             program.effects[effect_index - 1],
-            TypedDomainExecution | ActionSpec | AcquireSpec,
+            TypedDomainExecution | AcquireEffect,
         ):
             continue
         state_end = effect_index + 1
         while state_end < len(program.effects) and not isinstance(
             program.effects[state_end],
-            TypedDomainExecution | ActionSpec | AcquireSpec,
+            TypedDomainExecution | AcquireEffect,
         ):
             state_end += 1
-        state_group: list[tuple[int, StateSpecVariant]] = []
+        state_group: list[tuple[int, SetStateSpec]] = []
         for index in range(effect_index, state_end):
             state = program.effects[index]
-            if isinstance(state, TypedDomainExecution | ActionSpec | AcquireSpec):
-                raise AssertionError("state region contains a non-state effect")
+            if isinstance(state, TypedDomainExecution | AcquireEffect):
+                raise AssertionError("state group contains a non-state effect")
             state_group.append((index, state))
         support = PointVariationSupport()
         for index, _state in state_group:
-            support = support.merged(state_support_by_effect[index])
+            support = support.merged(variation.state[index])
         for state_coverage in layout.partition(
             support.point_columns,
             ordinals,
@@ -421,6 +299,7 @@ def materialize_local_execution(
                         problems=problems,
                     )
                 ),
+                point_uid=representative.logical_id.value,
                 resources=resources,
                 payload_ids=payload_ids_by_ordinal[representative.logical_ordinal],
                 known_compute_results=known_compute_results,
@@ -428,13 +307,13 @@ def materialize_local_execution(
                 problems=problems,
             )
             ordered = _order_instrument_operations(
-                _state_operations(representative.logical_id.value, desired),
+                desired,
                 instrument_order=selected_instrument_order,
             )
             effect_operations[state_end - 1].extend(
                 RunCoverageEffect(state_coverage, operation) for operation in ordered
             )
-    if has_blocking_problems(problems):
+    if bool(problems):
         raise CheckFailed(problems)
     return MaterializedLocalEffects(
         compute_operations=tuple(compute_effects),
@@ -461,27 +340,14 @@ def prepare_local_target(
     if unknown:
         msg = "local product selection contains unknown uses: " + ", ".join(unknown)
         raise ValueError(msg)
-    program = replace(
+    product_uses = tuple(
+        use for use in linked.program.product_uses if use.id in requested
+    )
+    problems: list[Problem] = []
+    active_resource_ports = _active_resource_port_ids(
         linked.program,
-        product_uses=tuple(
-            use for use in linked.program.product_uses if use.id in requested
-        ),
-        record_uses=tuple(
-            record
-            for record in linked.program.record_uses
-            if record.product_use_id in requested
-        ),
+        product_uses=product_uses,
     )
-    problems = list(linked.environment.problems)
-    implementations, implementation_problems = select_local_implementations(
-        program.compute_nodes,
-        program.implementation_catalog,
-        phase=ProblemPhase.PLANNING,
-    )
-    problems.extend(implementation_problems)
-    if implementations is None or has_blocking_problems(problems):
-        raise CheckFailed(problems)
-    active_resource_ports = _active_resource_port_ids(program)
     resource_ports: dict[LogicalResourcePortId, ResourcePortManifest] = {}
     if active_resource_ports:
         physical_resources = RoutingView.from_config(linked.environment.config)
@@ -490,21 +356,20 @@ def prepare_local_target(
                 port_id=requirement.port_id,
                 capabilities=requirement.capabilities,
             )
-            for requirement in program.resource_requirements
+            for requirement in linked.program.resource_requirements
             if requirement.port_id in active_resource_ports
         }
     compute_plan = linked.verified_program.compute_plan
     run_operations, compute_seed = _bind_run_compute(
         linked,
         compute_plan,
-        implementations=implementations,
         problems=problems,
     )
-    if has_blocking_problems(problems):
+    if bool(problems):
         raise CheckFailed(problems)
     return LocalTargetPlan(
-        program=program,
-        implementations=implementations,
+        program=linked.program,
+        product_uses=product_uses,
         instrument_order=_validate_instrument_order(instrument_order),
         resource_ports=resource_ports,
         run_operations=run_operations,
@@ -513,7 +378,7 @@ def prepare_local_target(
 
 
 def _evaluate_state_records(
-    state: StateSpecVariant,
+    state: SetStateSpec,
     effect_index: int,
     point: MaterializedPoint,
     params: ParameterRelationData,
@@ -529,7 +394,6 @@ def _evaluate_state_records(
                 point_index=point.logical_ordinal,
                 ctx=ctx,
                 relation_plan=verified_program.relation_plan,
-                location=model_location("effects", effect_index),
             )
         )
     except (ArithmeticError, KeyError, TypeError, ValueError) as error:
@@ -543,41 +407,10 @@ def _evaluate_state_records(
         return ()
 
 
-def _evaluate_action_records(
-    action: ActionSpec,
-    effect_index: int,
-    point: MaterializedPoint,
-    params: ParameterRelationData,
-    *,
-    verified_program: VerifiedCoreProgram,
-    problems: list[Problem],
-) -> tuple[ActionRecord, ...]:
-    ctx = EvalContext(params=params, point_row=point.row)
-    try:
-        return (
-            evaluate_action_spec(
-                action,
-                point_index=point.logical_ordinal,
-                ctx=ctx,
-                relation_plan=verified_program.relation_plan,
-            ),
-        )
-    except (ArithmeticError, KeyError, TypeError, ValueError) as error:
-        problems.append(
-            _problem(
-                "experiment_action_evaluation_failed",
-                f"action binding failed for point {point.logical_ordinal}: {error}",
-                model_location("effects", effect_index),
-            )
-        )
-        return ()
-
-
 def _bind_run_compute(
     linked: LinkedPlan,
     compute_plan: ComputePlan,
     *,
-    implementations: SelectedLocalImplementations,
     problems: list[Problem],
 ) -> tuple[tuple[ComputeOperation, ...], ComputeBindingSeed]:
     operations, payload_ids, signatures = _bind_compute_operations(
@@ -585,7 +418,6 @@ def _bind_run_compute(
         operation_prefix="run",
         ctx=EvalContext(params=linked.environment.parameters),
         compute_plan=compute_plan,
-        implementations=implementations,
         demanded_payload_results=set(compute_plan.demanded_payload_results),
         problems=problems,
         verified_program=linked.verified_program,
@@ -736,11 +568,6 @@ def _select_point_resources(
                         "resources",
                         requirement.port_id.qualified_name,
                     ),
-                    category=(
-                        ProblemCategory.CONFLICT
-                        if error.code.endswith("_ambiguous")
-                        else ProblemCategory.UNAVAILABLE
-                    ),
                 )
             )
             cache[key] = None
@@ -752,6 +579,8 @@ def _select_point_resources(
 
 def _active_resource_port_ids(
     program: CoreProgram,
+    *,
+    product_uses: Sequence[ProductUse],
 ) -> frozenset[LogicalResourcePortId]:
     """Return ports consumed by effects that survive product demand closure.
 
@@ -759,158 +588,41 @@ def _active_resource_port_ids(
     acquisition could still make unavailable or ambiguous hardware block a run.
     """
 
-    demanded_products = {use.product_id for use in program.product_uses}
+    demanded_products = {use.product_id for use in product_uses}
     selected: set[LogicalResourcePortId] = set()
     for effect in program.effects:
-        if isinstance(effect, AcquireSpec):
+        if isinstance(effect, AcquireEffect):
             if any(
                 product_id in demanded_products for product_id in effect.product_ids
             ):
                 selected.add(effect.resource_port_id)
-        elif isinstance(effect, ActionSpec):
-            selected.add(effect.resource_port_id)
         elif not isinstance(effect, TypedDomainExecution):
             selected.update(_state_resource_port_ids(effect))
     return frozenset(selected)
 
 
 def _state_resource_port_ids(
-    state: StateSpecVariant,
+    state: SetStateSpec,
 ) -> tuple[LogicalResourcePortId, ...]:
-    if isinstance(state, SetStateSpec):
-        return (state.resource_target.port_id,)
-    return tuple(
-        port_id for child in state.state for port_id in _state_resource_port_ids(child)
-    )
-
-
-def _bind_actions(
-    records: Sequence[ActionRecord],
-    *,
-    resources: Mapping[LogicalResourcePortId, _ResourceEntitySelection],
-    payload_ids: Mapping[ValueId, str],
-    known_compute_results: set[ValueId],
-    point_index: int,
-    point_uid: str,
-    problems: list[Problem],
-) -> tuple[InstrumentActionOperation, ...]:
-    bound: list[InstrumentActionOperation] = []
-    for record in records:
-        try:
-            binding = _bind_single_resource(
-                record.resource_port_id,
-                resources=resources,
-                missing_code="action_resource_port_unbound",
-            )
-            entity_ids, channel_bindings, _unbound = _logical_state_target(
-                binding=binding,
-                capability_id=record.capability_id,
-                target_entities=(),
-            )
-        except ResourceBindingError as error:
-            problems.append(
-                _problem(
-                    error.code,
-                    str(error),
-                    model_location(
-                        "points",
-                        point_index,
-                        "actions",
-                        record.id.qualified_name,
-                        "resource",
-                    ),
-                    category=(
-                        ProblemCategory.CONFLICT
-                        if error.code.endswith("ambiguous")
-                        else ProblemCategory.NOT_FOUND
-                        if error.code.endswith("not_found")
-                        or error.code.endswith("unbound")
-                        else ProblemCategory.UNAVAILABLE
-                    ),
-                )
-            )
-            continue
-        fields: list[ActionField] = []
-        for field in record.fields:
-            if isinstance(field.value, ComputeResultRef):
-                if field.value.value_id not in known_compute_results:
-                    problems.append(
-                        _problem(
-                            "compute_payload_unknown_output",
-                            "action references unknown compute result "
-                            f"{field.value.value_id.qualified_name!r}",
-                            model_location(
-                                "actions",
-                                record.id.qualified_name,
-                                "fields",
-                                field.id,
-                            ),
-                            category=ProblemCategory.NOT_FOUND,
-                        )
-                    )
-                    continue
-                if field.value.value_id not in payload_ids:
-                    problems.append(
-                        _problem(
-                            "compute_payload_unavailable",
-                            "action compute output is not an available payload: "
-                            f"{field.value.value_id.qualified_name!r}",
-                            model_location(
-                                "actions",
-                                record.id.qualified_name,
-                                "fields",
-                                field.id,
-                            ),
-                        )
-                    )
-                    continue
-            value = _state_value(field.value, payload_ids=payload_ids)
-            if value is None:
-                problems.append(
-                    _problem(
-                        "action_value_unsupported",
-                        "action values must be primitive scalars, finite quantities, "
-                        "or payload outputs",
-                        model_location(
-                            "actions",
-                            record.id.qualified_name,
-                            "fields",
-                            field.id,
-                        ),
-                    )
-                )
-                continue
-            fields.append(
-                ActionField(
-                    id=field.id,
-                    value=value,
-                    entity_ids=entity_ids,
-                    channel_bindings=channel_bindings,
-                )
-            )
-        bound.append(
-            InstrumentActionOperation(
-                operation_id=f"{point_uid}.action.{record.id.qualified_name}",
-                instrument_id=binding.instrument_id,
-                capability_id=record.capability_id,
-                fields=tuple(fields),
-            )
-        )
-    return tuple(bound)
+    return (state.resource_target.port_id,)
 
 
 def _bind_desired_state(
     records: Sequence[StateRecord],
     *,
+    point_uid: str,
     resources: Mapping[LogicalResourcePortId, _ResourceEntitySelection],
     payload_ids: Mapping[ValueId, str],
     known_compute_results: set[ValueId],
     point_index: int,
     problems: list[Problem],
-) -> tuple[_PendingResourceState, ...]:
+) -> tuple[ApplyStateOperation, ...]:
     grouped: dict[
-        tuple[str, str],
-        dict[tuple[str, tuple[str, ...], _ChannelSignature], _PendingStateField],
+        str,
+        dict[
+            tuple[str, str, tuple[str, ...], _ChannelSignature],
+            StateTarget,
+        ],
     ] = {}
     signatures: dict[
         tuple[str, str, str, tuple[str, ...], _ChannelSignature],
@@ -931,7 +643,6 @@ def _bind_desired_state(
                         "state references unknown compute result "
                         f"{record.value.value_id.qualified_name!r}",
                         model_location("desired_state", "value"),
-                        category=ProblemCategory.NOT_FOUND,
                     )
                 )
                 continue
@@ -972,21 +683,13 @@ def _bind_desired_state(
                         "desired_state",
                         "resource_port_id",
                     ),
-                    category=(
-                        ProblemCategory.CONFLICT
-                        if error.code.endswith("ambiguous")
-                        else ProblemCategory.NOT_FOUND
-                        if error.code.endswith("not_found")
-                        or error.code.endswith("unbound")
-                        else ProblemCategory.UNAVAILABLE
-                    ),
                 )
             )
             continue
         for binding in bound_targets:
             channel_key = channel_signature(binding.channel_bindings)
-            group = grouped.setdefault((binding.instrument_id, capability_id), {})
-            key = (field_path, binding.entity_ids, channel_key)
+            group = grouped.setdefault(binding.instrument_id, {})
+            key = (capability_id, field_path, binding.entity_ids, channel_key)
             signature_key = (
                 binding.instrument_id,
                 capability_id,
@@ -1000,7 +703,8 @@ def _bind_desired_state(
             owners.setdefault(signature_key, set()).add(record.resource_target)
             group.setdefault(
                 key,
-                _PendingStateField(
+                StateTarget(
+                    capability_id=capability_id,
                     field_path=field_path,
                     value=state_value,
                     entity_ids=binding.entity_ids,
@@ -1021,7 +725,6 @@ def _bind_desired_state(
                     f"{resource}.{capability}.{field_path} receives multiple values "
                     f"at point {point_index}",
                     model_location("points", point_index, "desired_state"),
-                    category=ProblemCategory.CONFLICT,
                 )
             )
     for (
@@ -1038,43 +741,15 @@ def _bind_desired_state(
                     f"{resource}.{capability}.{field_path} is owned by multiple "
                     f"resource targets at point {point_index}",
                     model_location("points", point_index, "desired_state"),
-                    category=ProblemCategory.CONFLICT,
                 )
             )
-    return tuple(
-        _PendingResourceState(
-            instrument_id=resource,
-            capability_id=capability,
-            fields=tuple(fields.values()),
-        )
-        for (resource, capability), fields in grouped.items()
-    )
-
-
-def _state_operations(
-    point_uid: str,
-    states: Sequence[_PendingResourceState],
-) -> tuple[ApplyStateOperation, ...]:
-    grouped: dict[str, list[_PendingResourceState]] = {}
-    for state in states:
-        grouped.setdefault(state.instrument_id, []).append(state)
     return tuple(
         ApplyStateOperation(
             operation_id=f"{point_uid}.state.{instrument_id}",
             instrument_id=instrument_id,
-            targets=tuple(
-                StateTarget(
-                    capability_id=state.capability_id,
-                    field_path=field.field_path,
-                    value=field.value,
-                    entity_ids=field.entity_ids,
-                    channel_bindings=field.channel_bindings,
-                )
-                for state in instrument_states
-                for field in state.fields
-            ),
+            targets=tuple(targets.values()),
         )
-        for instrument_id, instrument_states in grouped.items()
+        for instrument_id, targets in grouped.items()
     )
 
 
@@ -1246,12 +921,14 @@ def channel_signature(
 def _bind_collect(
     products: Sequence[ProductDef],
     product_uses: Sequence[ProductUse],
-    acquire: AcquireSpec,
+    acquire: AcquireEffect,
     resources: Mapping[LogicalResourcePortId, _ResourceEntitySelection],
     *,
+    point_uid: str,
     point_index: int,
+    point_count: int,
     problems: list[Problem],
-) -> _PendingCollect | None:
+) -> CollectOperation | None:
     products_by_id = {product.id: product for product in products}
     uses_by_product: dict[ProductId, list[ProductUse]] = {}
     for use in product_uses:
@@ -1281,52 +958,22 @@ def _bind_collect(
                     acquire.id.qualified_name,
                     "resource_port_id",
                 ),
-                category=(
-                    ProblemCategory.CONFLICT
-                    if error.code.endswith("ambiguous")
-                    else ProblemCategory.NOT_FOUND
-                    if error.code.endswith("not_found")
-                    or error.code.endswith("unbound")
-                    else ProblemCategory.UNAVAILABLE
-                ),
             )
         )
         return None
-    requests = tuple(
-        _PendingCollectionRequest(
-            product_use_ids=tuple(
-                use.id for use in uses_by_product[acquired.product_id]
-            ),
-            product_id=product.id,
-            provider_key=acquired.provider_key,
-            capability=acquire.capability_id,
-            unit=product.unit,
-            dtype=product.dtype,
-            entity_ids=entity_ids,
-            channel_bindings=channel_bindings,
-            axes=product.axes,
-            metadata=dict(acquired.metadata),
+    selected = tuple(
+        (
+            acquired,
+            products_by_id[acquired.product_id],
+            tuple(use.id for use in uses_by_product[acquired.product_id]),
         )
         for acquired in requested
-        for product in (products_by_id[acquired.product_id],)
     )
-    return _PendingCollect(instrument_id=instrument_id, requests=requests)
-
-
-def _collect_operation(
-    point_uid: str,
-    *,
-    acquisition_id: str,
-    point_index: int,
-    point_count: int,
-    collect: _PendingCollect,
-) -> CollectOperation:
-    instrument_id = collect.instrument_id
     operation_id = "collect-" + stable_content_hash(
         {
             "kind": "scopecat.collect_operation.v1",
             "point_id": point_uid,
-            "acquisition_id": acquisition_id,
+            "acquisition_id": acquire.id.qualified_name,
             "instrument_id": instrument_id,
         }
     )
@@ -1335,11 +982,10 @@ def _collect_operation(
         instrument_id=instrument_id,
         result_bindings=tuple(
             CollectionResultBinding(
-                provider_key=request.provider_key,
-                product_use_ids=request.product_use_ids,
-                product_id=request.product_id,
+                provider_key=acquired.provider_key,
+                product_use_ids=product_use_ids,
             )
-            for request in collect.requests
+            for acquired, _product, product_use_ids in selected
         ),
         command=CollectCommand(
             operation_id=operation_id,
@@ -1348,10 +994,10 @@ def _collect_operation(
             point_count=point_count,
             requests=[
                 CollectProductRequest(
-                    id=request.provider_key,
-                    capability_id=request.capability,
-                    unit=request.unit,
-                    dtype=request.dtype,
+                    id=acquired.provider_key,
+                    capability_id=acquire.capability_id,
+                    unit=product.unit,
+                    dtype=product.dtype,
                     dimensions=[
                         CollectAxisRequest(
                             id=axis.id,
@@ -1363,16 +1009,16 @@ def _collect_operation(
                                 thaw_json_value(axis.metadata),
                             ),
                         )
-                        for axis in request.axes
+                        for axis in product.axes
                     ],
-                    entity_ids=list(request.entity_ids),
-                    channel_bindings=list(request.channel_bindings),
+                    entity_ids=list(entity_ids),
+                    channel_bindings=list(channel_bindings),
                     metadata=cast(
                         "dict[str, JsonValue]",
-                        thaw_json_value(request.metadata),
+                        thaw_json_value(acquired.metadata),
                     ),
                 )
-                for request in collect.requests
+                for acquired, product, _product_use_ids in selected
             ],
         ),
     )
@@ -1418,7 +1064,5 @@ def _problem(
     code: str,
     message: str,
     location: ModelLocation,
-    *,
-    category: ProblemCategory = ProblemCategory.INVALID_INPUT,
 ) -> Problem:
-    return compiler_problem(code, message, location, category=category)
+    return compiler_problem(code, message, location)

@@ -5,22 +5,19 @@ from pathlib import Path
 
 import pytest
 import scopecat as sc
-from scopecat.compiler.linking.linked import (
-    link_verified_program,
-    specialize_linked_program,
+from scopecat.compiler.frontend.environment import build_config_environment
+from scopecat.compiler.frontend.resolution import (
+    compile_invocation,
+    resolve_compiled_invocation,
 )
-from scopecat.config.profiles import load_config_profile
-from scopecat.execution.interpreter import admit_run, execute_admitted_run
+from scopecat.execution.interpreter import execute_admitted_run
 from scopecat.kernel.resource_identity import logical_resource_port_id
-from scopecat.planning.authoring import resolve_experiment
 from scopecat.planning.routing import RoutingView
-from scopecat.planning.validation import validate_config
+from scopecat.planning.validation import validate_config_profile
 from scopecat.sdk.instruments import (
-    ActionReceipt,
     ApplyReceipt,
     CollectCommand,
     CollectReceipt,
-    InstrumentActionCommand,
     InstrumentDescription,
     InstrumentDriver,
     InstrumentProvider,
@@ -30,18 +27,23 @@ from scopecat.sdk.instruments import (
     InstrumentStateCommand,
     InstrumentStateSnapshot,
 )
-from scopecat.testing import (
-    sqlite_execution_services,
+from scopecat_quantum._ids import QubitId
+from scopecat_quantum.pulses import AcquireSignal, DriveSignal
+from tests.testkit.runtime import (
+    admit_test_run,
+    sqlite_execution_session,
     sqlite_run_repository,
 )
-from scopecat_quantum import AcquireSignal, DriveSignal, QubitId
 
+from quantum_lab_demo.configuration import quantum_lab_bootstrap_config
 from quantum_lab_demo.scenarios.opaque_collection import (
     GATE_DURATION,
     parallel_gate_set_template,
 )
 from quantum_lab_demo.targets.fake_list_mode import configured_fake_list_target
-from quantum_lab_demo.targets.fake_realtime import configured_fake_realtime_target
+from quantum_lab_demo.targets.fake_realtime.defaults import (
+    configured_fake_realtime_target,
+)
 from quantum_lab_demo.virtual_lab.provider import QuantumLabVirtualProvider
 from quantum_lab_demo.virtual_lab.wiring import (
     compile_quantum_wiring_system,
@@ -49,14 +51,11 @@ from quantum_lab_demo.virtual_lab.wiring import (
     quantum_wiring_config_profile,
 )
 
-from .demo_lab_test_paths import (
-    EXPERIMENT_FIXTURE_DIR,
-    EXPERIMENT_VIRTUAL_LAB_PROFILE,
-)
+from .demo_lab_test_paths import EXPERIMENT_VIRTUAL_LAB_PROFILE
 
 
 def test_quantum_wiring_builder_compiles_lab_vocabulary_to_core_config() -> None:
-    base = load_config_profile(EXPERIMENT_FIXTURE_DIR / "config-profile.json")
+    base = quantum_lab_bootstrap_config()
     wiring = (
         quantum_wiring()
         .drive_line(
@@ -80,16 +79,9 @@ def test_quantum_wiring_builder_compiles_lab_vocabulary_to_core_config() -> None
         update={"system": compile_quantum_wiring_system(base.system, wiring)}
     )
 
-    assert not validate_config(config)
+    assert not validate_config_profile(config)
     assert [(entity.id, entity.kind) for entity in config.topology.entities] == [
         ("q0", "logical_qubit")
-    ]
-    topology_lines = [
-        (line.id, line.signal, line.endpoints) for line in config.topology.lines
-    ]
-    assert topology_lines == [
-        ("q0.xy", "drive", ["q0", "drive-stack"]),
-        ("ro.mux0", "readout", ["q0", "readout-stack"]),
     ]
 
     routing = RoutingView.from_config(config)
@@ -139,16 +131,20 @@ def test_default_quantum_wiring_config_describes_lines_groups_and_channel_routes
 ):
     config = quantum_wiring_config_profile()
 
-    assert not validate_config(config)
+    assert not validate_config_profile(config)
     assert config.domain_target is not None
     assert config.domain_target.kind == "quantum_lab_demo.fake-list-mode"
-    assert {line.id for line in config.topology.lines} >= {
+    assert {binding.line_id for binding in config.routing.bindings} >= {
         "q0.xy",
         "q1.xy",
         "ro.mux0",
         "c01.z",
     }
-    assert {group.id for group in config.topology.groups} >= {"lo.xy0", "lo.ro0"}
+    assert {
+        group_id
+        for binding in config.routing.bindings
+        for group_id in binding.group_ids
+    } >= {"lo.xy0", "lo.ro0"}
 
     routing = RoutingView.from_config(config)
     drive_manifest = routing.bind_port(
@@ -233,7 +229,7 @@ def test_default_quantum_wiring_runtime_commands_include_channel_bindings(
     tmp_path: Path,
 ) -> None:
     config = quantum_wiring_config_profile()
-    resolved = resolve_experiment(
+    compiled = compile_invocation(
         parallel_gate_set_template.bind(
             gates=(
                 {
@@ -242,29 +238,31 @@ def test_default_quantum_wiring_runtime_commands_include_channel_bindings(
                     "gate": "cz",
                 },
             )
-        ).scan(GATE_DURATION, [28], unit="ns"),
-        config_profile=config,
+        ).scan(GATE_DURATION, [28], unit="ns")
+    )
+    linked = resolve_compiled_invocation(
+        compiled,
+        environment=build_config_environment(config),
     )
     provider = _RecordingProvider(
         QuantumLabVirtualProvider(profile=EXPERIMENT_VIRTUAL_LAB_PROFILE)
     )
-    linked = specialize_linked_program(
-        link_verified_program(resolved.verified_program, resolved.environment)
-    )
-    program = sc.ExperimentSystem(provider=provider).compile(linked, config=config)
+    program = sc.ExperimentSystem(provider=provider).compile(linked)
 
     repository = sqlite_run_repository(tmp_path)
-    services = sqlite_execution_services(tmp_path, runs=repository)
-    accepted = admit_run(
+    accepted = admit_test_run(
         config=config,
-        request=resolved.request,
+        request=compiled.request,
         repository=repository,
-        config_source=resolved.config_source,
+        config_source=None,
     )
     manifest = execute_admitted_run(
-        run_id=accepted.run_id,
         program=program,
-        services=services,
+        session=sqlite_execution_session(
+            tmp_path,
+            accepted.run_id,
+            runs=repository,
+        ),
         instrument_provider=provider,
     )
 
@@ -311,7 +309,6 @@ class _RecordingDriver:
     implementation_id: str = field(init=False)
     implementation_version: str = field(init=False)
     applied_commands: list[InstrumentStateCommand] = field(default_factory=list)
-    action_commands: list[InstrumentActionCommand] = field(default_factory=list)
     collect_commands: list[CollectCommand] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -328,10 +325,6 @@ class _RecordingDriver:
     def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
         self.applied_commands.append(command)
         return self.wrapped.apply_state(command)
-
-    def action(self, command: InstrumentActionCommand) -> ActionReceipt:
-        self.action_commands.append(command)
-        return self.wrapped.action(command)
 
     def collect(self, command: CollectCommand) -> CollectReceipt:
         self.collect_commands.append(command)

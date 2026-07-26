@@ -6,7 +6,6 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from scopecat.daemon.catalog import RegisteredExperimentCatalog
 from scopecat.planning.system import ExperimentSystemBuilder
 from scopecat.records.config import ConfigProfileSnapshot
 
@@ -26,9 +25,6 @@ class LabApplication:
     to the daemon.
     """
 
-    catalog: RegisteredExperimentCatalog = field(
-        default_factory=RegisteredExperimentCatalog
-    )
     build_system: ExperimentSystemBuilder | None = field(
         default=None,
         repr=False,

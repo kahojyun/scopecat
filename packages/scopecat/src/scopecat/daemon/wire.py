@@ -1,7 +1,7 @@
 """Typed wire contracts shared by daemon servers and Python clients.
 
-The models contain durable data only. In particular, delegated execution keeps
-``RunProgram`` and its Python closures in the executor process.
+The models contain durable data only. In particular, execution keeps
+``RunProgram`` and its Python closures in the client process.
 """
 
 from __future__ import annotations
@@ -20,52 +20,34 @@ from pydantic import (
     model_validator,
 )
 
+from scopecat.config.parameter_updates import ParameterUpdate
 from scopecat.config.registry.records import (
     ConfigRegistryActivationRecord,
     ConfigRegistryActiveState,
     ConfigRegistryEntry,
 )
+from scopecat.control.models import RunPlanSummary
+from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.records.artifact import RunContentEntry
 from scopecat.records.config import (
     ConfigContentHash,
     ConfigProfileSnapshot,
-    config_content_hash,
 )
-from scopecat.records.execution_journal import (
-    CollectionChunk,
-    CollectionChunkReceipt,
-    CommittedPayloadEvidence,
-    ExecutionEffect,
-    ExecutionStage,
-    ExecutionTransition,
-    JournalEntryState,
-    PayloadEvidence,
-)
-from scopecat.records.measurement import MeasurementRecord
+from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
-    MeasurementDatasetAppendIndex,
-    MeasurementDatasetReceipt,
     MeasurementDatasetSeal,
-)
-from scopecat.records.parameter import (
-    ParameterAtomValue,
-    StoredParameterValue,
 )
 from scopecat.records.parameter_change import (
     ParameterChangeDecisionAuthority,
-    ParameterChangeDecisionRecord,
     ParameterChangeProposal,
     ParameterChangeReviewState,
     ParameterValueDelta,
 )
-from scopecat.records.run import RunConfigSource, RunManifest
+from scopecat.records.run import RunConfigSource, RunManifest, RunOutcome
 from scopecat.records.run_request import RunRequest
 
 type NonEmptyText = Annotated[str, Field(min_length=1)]
-type ExecutionMode = Literal["managed", "delegated"]
-type ResourceClaimKind = Literal["target", "instrument", "channel", "group"]
-type AttentionResolutionAction = Literal["release", "requeue", "abort"]
 
 
 class _WireModel(BaseModel):
@@ -77,43 +59,6 @@ class _WireModel(BaseModel):
     )
 
 
-class RegisteredExperimentDescriptor(_WireModel):
-    """Public catalog metadata for one explicitly versioned registration."""
-
-    id: NonEmptyText
-    version: NonEmptyText
-    experiment_kind: NonEmptyText
-    title: NonEmptyText | None = None
-    description: str | None = None
-    input_schema: dict[str, JsonValue] = Field(default_factory=dict)
-    tags: tuple[NonEmptyText, ...] = ()
-
-    @field_validator("tags")
-    @classmethod
-    def validate_tags(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        if len(value) != len(set(value)):
-            raise ValueError("registered experiment tags must be unique")
-        return value
-
-
-class ExperimentCatalog(_WireModel):
-    """A complete catalog snapshot addressable by an opaque revision."""
-
-    revision: NonEmptyText
-    experiments: tuple[RegisteredExperimentDescriptor, ...] = ()
-
-    @field_validator("experiments")
-    @classmethod
-    def validate_registrations(
-        cls,
-        value: tuple[RegisteredExperimentDescriptor, ...],
-    ) -> tuple[RegisteredExperimentDescriptor, ...]:
-        identities = tuple((item.id, item.version) for item in value)
-        if len(identities) != len(set(identities)):
-            raise ValueError("catalog experiment id and version pairs must be unique")
-        return value
-
-
 class DirectConfigImportCommand(_WireModel):
     """Import one direct configuration snapshot into the daemon registry."""
 
@@ -121,10 +66,6 @@ class DirectConfigImportCommand(_WireModel):
     config: ConfigProfileSnapshot
     registered_by: NonEmptyText
     note: str = ""
-
-
-class ConfigImportReceipt(_WireModel):
-    entry: ConfigRegistryEntry
 
 
 class DirectConfigDefaultCommand(_WireModel):
@@ -154,55 +95,6 @@ class ConfigDefaultReceipt(_WireModel):
         return self
 
 
-class ReplaceConfigParameter(_WireModel):
-    kind: Literal["replace_parameter"] = "replace_parameter"
-    value: StoredParameterValue
-
-
-class UpdateConfigParameterRows(_WireModel):
-    kind: Literal["update_parameter_rows"] = "update_parameter_rows"
-    parameter_id: NonEmptyText
-    key: dict[str, ParameterAtomValue]
-    values: dict[str, ParameterAtomValue]
-
-    @model_validator(mode="after")
-    def validate_values(self) -> UpdateConfigParameterRows:
-        if not self.key or not self.values:
-            raise ValueError("parameter row update requires key and values")
-        return self
-
-
-class InsertConfigParameterRows(_WireModel):
-    kind: Literal["insert_parameter_rows"] = "insert_parameter_rows"
-    parameter_id: NonEmptyText
-    rows: tuple[dict[str, ParameterAtomValue], ...] = Field(min_length=1)
-
-
-class DeleteConfigParameterRows(_WireModel):
-    kind: Literal["delete_parameter_rows"] = "delete_parameter_rows"
-    parameter_id: NonEmptyText
-    key: dict[str, ParameterAtomValue]
-
-    @field_validator("key")
-    @classmethod
-    def validate_key(
-        cls,
-        value: dict[str, ParameterAtomValue],
-    ) -> dict[str, ParameterAtomValue]:
-        if not value:
-            raise ValueError("parameter row deletion requires a key")
-        return value
-
-
-type ConfigParameterUpdate = Annotated[
-    ReplaceConfigParameter
-    | UpdateConfigParameterRows
-    | InsertConfigParameterRows
-    | DeleteConfigParameterRows,
-    Field(discriminator="kind"),
-]
-
-
 class ConfigDraftCommand(_WireModel):
     """Typed parameter edits against one observed active registry generation."""
 
@@ -210,7 +102,7 @@ class ConfigDraftCommand(_WireModel):
     base_content_hash: ConfigContentHash
     base_generation: int = Field(ge=1)
     candidate_id: NonEmptyText
-    updates: tuple[ConfigParameterUpdate, ...] = Field(min_length=1)
+    updates: tuple[ParameterUpdate, ...] = Field(min_length=1)
 
 
 class ConfigDraftRegistrationCommand(_WireModel):
@@ -316,12 +208,8 @@ class AnalysisArtifactOutputPayload(_WireModel):
     artifact_kind: NonEmptyText
     content_base64: str
     artifact_id: NonEmptyText | None = None
-    filename: NonEmptyText | None = None
-    media_type: NonEmptyText | None = None
-    source_default_filename: NonEmptyText | None = None
-    source_default_extension: str = ".bin"
-    source_default_media_type: NonEmptyText = "application/octet-stream"
-    source_content_hash: NonEmptyText | None = None
+    filename: NonEmptyText
+    media_type: NonEmptyText
     artifact_metadata: dict[str, JsonValue] = Field(default_factory=dict)
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
@@ -329,15 +217,6 @@ class AnalysisArtifactOutputPayload(_WireModel):
     @classmethod
     def validate_content_base64(cls, value: str) -> str:
         return _validated_base64(value)
-
-    @field_validator("source_default_extension")
-    @classmethod
-    def validate_source_default_extension(cls, value: str) -> str:
-        if value and (
-            not value.startswith(".") or "/" in value or "\\" in value or ".." in value
-        ):
-            raise ValueError("source_default_extension must be empty or a suffix")
-        return value
 
 
 class AnalysisParameterProposalOutputPayload(_WireModel):
@@ -359,7 +238,6 @@ type AnalysisOutputPayload = Annotated[
 class AnalysisSaveCommand(_WireModel):
     """Persist JSON analysis results against a daemon-owned run."""
 
-    run_id: NonEmptyText
     title: NonEmptyText
     analysis_key: NonEmptyText
     step_id: NonEmptyText | None = None
@@ -373,8 +251,6 @@ class AnalysisSaveCommand(_WireModel):
             for output in self.outputs
             if isinstance(output, AnalysisParameterProposalOutputPayload)
         )
-        if any(proposal.source_run_id != self.run_id for proposal in proposals):
-            raise ValueError("analysis proposal must belong to the command run")
         expected_analysis_record_id = f"analysis-{self.analysis_key}"
         if any(
             proposal.analysis_record_id != expected_analysis_record_id
@@ -397,7 +273,6 @@ class AnalysisSaveReceipt(_WireModel):
 class RunAttachmentCommand(_WireModel):
     """Ingest client-owned content without exposing a client filesystem path."""
 
-    run_id: NonEmptyText
     key: NonEmptyText
     kind: NonEmptyText = "attachment"
     text: str | None = None
@@ -420,32 +295,13 @@ class RunAttachmentCommand(_WireModel):
         return self
 
 
-class RunAttachmentReceipt(_WireModel):
-    run_id: NonEmptyText
-    artifact: RunContentEntry
-
-    @model_validator(mode="after")
-    def validate_artifact(self) -> RunAttachmentReceipt:
-        if self.artifact.role != "artifact":
-            raise ValueError("run attachment receipt requires an artifact")
-        return self
-
-
 class ParameterProposalReviewCommand(_WireModel):
-    run_id: NonEmptyText
-    proposal_id: NonEmptyText
     decision: ParameterChangeReviewState
     reviewer: NonEmptyText
     note: str = ""
 
 
-class ParameterProposalReviewReceipt(_WireModel):
-    decision: ParameterChangeDecisionRecord
-
-
 class ParameterProposalDecisionCommand(_WireModel):
-    run_id: NonEmptyText
-    proposal_id: NonEmptyText
     decision: ParameterChangeReviewState
     authority: ParameterChangeDecisionAuthority
     note: str = ""
@@ -487,111 +343,45 @@ class CandidateConfigActivationReceipt(_WireModel):
         return self
 
 
-class ResourceClaimDescriptor(_WireModel):
-    """JSON projection of a physical resource claim."""
+class RunSubmission(_WireModel):
+    """Admit a plan while retaining its executable Python in the client."""
 
-    id: NonEmptyText
-    kind: ResourceClaimKind = "instrument"
-
-
-class DelegatedPlanSummary(_WireModel):
-    """Bounded scheduling and presentation facts for an in-process plan."""
-
-    experiment_id: NonEmptyText
-    experiment_kind: NonEmptyText
-    point_count: int = Field(ge=0)
-    coordinate_ids: tuple[NonEmptyText, ...] = ()
-    record_ids: tuple[NonEmptyText, ...] = ()
-    run_resource_claims: tuple[ResourceClaimDescriptor, ...] = ()
-
-    @field_validator("coordinate_ids", "record_ids")
-    @classmethod
-    def validate_unique_ids(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        if len(value) != len(set(value)):
-            raise ValueError("delegated plan summary ids must be unique")
-        return value
-
-    @field_validator("run_resource_claims")
-    @classmethod
-    def validate_unique_claims(
-        cls,
-        value: tuple[ResourceClaimDescriptor, ...],
-    ) -> tuple[ResourceClaimDescriptor, ...]:
-        identities = tuple((claim.kind, claim.id) for claim in value)
-        if len(identities) != len(set(identities)):
-            raise ValueError("delegated plan resource claims must be unique")
-        return value
-
-
-class ManagedRunSubmission(_WireModel):
-    """Request that the daemon build and execute a registered experiment."""
-
-    execution_mode: Literal["managed"] = "managed"
     submission_id: NonEmptyText
-    registration_id: NonEmptyText
-    registration_version: NonEmptyText
-    request: RunRequest
-
-
-class DelegatedRunSubmission(_WireModel):
-    """Admit a scratch plan while retaining its executable Python locally."""
-
-    execution_mode: Literal["delegated"] = "delegated"
-    submission_id: NonEmptyText
-    executor_id: NonEmptyText
     config: ConfigProfileSnapshot
     config_source: RunConfigSource | None = None
     request: RunRequest
-    plan: DelegatedPlanSummary
+    plan: RunPlanSummary
 
     @property
-    def config_content_hash(self) -> ConfigContentHash:
-        return config_content_hash(self.config)
+    def intent_content_hash(self) -> str:
+        """Identify submission content independently of its retry key."""
 
-
-type RunSubmission = Annotated[
-    ManagedRunSubmission | DelegatedRunSubmission,
-    Field(discriminator="execution_mode"),
-]
+        return stable_content_hash(
+            self.model_dump(mode="json", exclude={"submission_id"})
+        )
 
 
 class RunAdmission(_WireModel):
-    """Identity returned after admission and its event commit are durable."""
+    """Canonical run manifest returned for an idempotent submission."""
 
-    run_id: NonEmptyText
     submission_id: NonEmptyText
-    execution_mode: ExecutionMode
-    config_content_hash: ConfigContentHash
-    accepted_at: datetime
-    event_cursor: int = Field(ge=1)
+    manifest: RunManifest
 
-    @field_validator("accepted_at")
-    @classmethod
-    def validate_accepted_at(cls, value: datetime) -> datetime:
-        return _aware_datetime(value, field_name="accepted_at")
+    @property
+    def run_id(self) -> str:
+        return self.manifest.run_id
 
 
 class ExecutorStartRequest(_WireModel):
-    """Publish the running manifest and fence one delegated executor."""
+    """Start one daemon-owned execution session."""
 
-    run_id: NonEmptyText
     executor_id: NonEmptyText
-    manifest: RunManifest
-
-    @model_validator(mode="after")
-    def validate_manifest(self) -> ExecutorStartRequest:
-        if self.manifest.run_id != self.run_id:
-            raise ValueError("executor start and manifest run ids must match")
-        if self.manifest.lifecycle != "running":
-            raise ValueError("executor start requires a running manifest")
-        return self
 
 
 class ExecutorLease(_WireModel):
-    """Renewable authority to report effects for one delegated run."""
+    """Renewable authority to report effects for one run."""
 
     lease_id: NonEmptyText
-    generation: int = Field(ge=1)
     run_id: NonEmptyText
     executor_id: NonEmptyText
     issued_at: datetime
@@ -608,208 +398,33 @@ class ExecutorLease(_WireModel):
 
 
 class ExecutorHeartbeat(_WireModel):
-    """Renew a lease using its generation as the fencing token."""
+    """Renew a lease using its unique identity as the fencing token."""
 
-    run_id: NonEmptyText
     lease_id: NonEmptyText
-    generation: int = Field(ge=1)
 
 
-class _FencedRunCommand(_WireModel):
-    run_id: NonEmptyText
+class _FencedCommand(_WireModel):
     lease_id: NonEmptyText
-    generation: int = Field(ge=1)
 
 
-class ExecutionTransitionBatch(_FencedRunCommand):
-    """Idempotent delegated journal append.
+class ExecutionTransitionAppend(_FencedCommand):
+    """Append one transition using its content hash as the retry identity."""
 
-    ``batch_id`` deduplicates a transport retry. Journal sequence numbers stay
-    daemon-owned and therefore must be absent from submitted transitions.
-    """
-
-    batch_id: NonEmptyText
-    lease_id: NonEmptyText
-    generation: int = Field(ge=1)
-    run_id: NonEmptyText
-    transitions: tuple[ExecutionTransition, ...] = Field(min_length=1)
+    transition: ExecutionTransition
 
     @model_validator(mode="after")
-    def validate_transitions(self) -> ExecutionTransitionBatch:
-        if any(item.run_id != self.run_id for item in self.transitions):
-            raise ValueError("transition batch and transition run ids must match")
-        if any(item.sequence is not None for item in self.transitions):
+    def validate_transition(self) -> ExecutionTransitionAppend:
+        if self.transition.sequence is not None:
             raise ValueError("submitted transition sequence must be daemon-assigned")
         return self
 
 
-class ExecutionTransitionBatchReceipt(_WireModel):
-    """Committed journal identities returned for one transition batch."""
-
-    batch_id: NonEmptyText
-    committed: tuple[ExecutionTransition, ...] = Field(min_length=1)
-
-    @model_validator(mode="after")
-    def validate_committed_transitions(self) -> ExecutionTransitionBatchReceipt:
-        sequences = tuple(item.sequence for item in self.committed)
-        if any(sequence is None for sequence in sequences):
-            raise ValueError("committed transition sequence must be assigned")
-        assigned = tuple(sequence for sequence in sequences if sequence is not None)
-        if assigned != tuple(range(assigned[0], assigned[0] + len(assigned))):
-            raise ValueError("committed transition sequences must be contiguous")
-        run_ids = {item.run_id for item in self.committed}
-        if len(run_ids) != 1:
-            raise ValueError("committed transition batch must belong to one run")
-        return self
-
-
-class RuntimeProgressPayload(_WireModel):
-    completed_points: int = Field(ge=0)
-    total_points: int | None = Field(default=None, ge=0)
-
-
-class RuntimeTransitionEventPayload(_WireModel):
-    """JSON projection shared by managed and delegated observations."""
-
-    run_id: NonEmptyText
-    experiment_id: NonEmptyText
-    observed_at: datetime
-    occurred_at: datetime
-    operation_id: NonEmptyText
-    stage: ExecutionStage
-    effect: ExecutionEffect
-    state: JournalEntryState
-    progress: RuntimeProgressPayload
-    sequence: int | None = Field(default=None, ge=0)
-    point_index: int | None = Field(default=None, ge=0)
-    point_indices: tuple[int, ...] = ()
-    instrument_id: str | None = None
-    metrics: dict[str, JsonValue] = Field(default_factory=dict)
-    kind: Literal["transition"] = "transition"
-
-    @field_validator("observed_at", "occurred_at")
-    @classmethod
-    def validate_datetimes(cls, value: datetime) -> datetime:
-        return _aware_datetime(value, field_name="runtime event datetime")
-
-
-class RuntimeEventPublishCommand(_FencedRunCommand):
-    """Publish one live observation under the delegated executor lease."""
-
-    event: RuntimeTransitionEventPayload
-
-    @model_validator(mode="after")
-    def validate_event(self) -> RuntimeEventPublishCommand:
-        if self.event.run_id != self.run_id:
-            raise ValueError("runtime event command and event run ids must match")
-        return self
-
-
-class RuntimeEventPublishReceipt(_WireModel):
-    event_id: int = Field(ge=1)
-    run_id: NonEmptyText
-    kind: Literal["transition"]
-
-
-class ExecutionRecoveryRequest(_FencedRunCommand):
-    """Read the canonical recovery views behind all delegated ports."""
-
-
-class ExecutionRecoverySnapshot(_WireModel):
-    transitions: tuple[ExecutionTransition, ...] = ()
-    measurements: tuple[MeasurementRecord, ...] = ()
-    measurement_append_indices: tuple[MeasurementDatasetAppendIndex, ...] = ()
-    collection_receipts: tuple[CollectionChunkReceipt, ...] = ()
-
-    @field_validator("transitions")
-    @classmethod
-    def validate_committed_transitions(
-        cls,
-        value: tuple[ExecutionTransition, ...],
-    ) -> tuple[ExecutionTransition, ...]:
-        if any(item.sequence is None for item in value):
-            raise ValueError("recovery transitions must have committed sequences")
-        return value
-
-
-class MeasurementAppendCommand(_FencedRunCommand):
-    command_id: NonEmptyText
+class MeasurementAppendCommand(_FencedCommand):
     append: MeasurementDatasetAppend
 
-    @model_validator(mode="after")
-    def validate_append(self) -> MeasurementAppendCommand:
-        if self.append.run_id != self.run_id:
-            raise ValueError("measurement append command run ids must match")
-        if self.command_id != self.append.operation_id:
-            raise ValueError("measurement append command id must match its operation")
-        return self
 
-
-class MeasurementAppendReceipt(_WireModel):
-    command_id: NonEmptyText
-    receipt: MeasurementDatasetReceipt
-
-
-class MeasurementSealCommand(_FencedRunCommand):
-    command_id: NonEmptyText
+class MeasurementSealCommand(_FencedCommand):
     seal: MeasurementDatasetSeal
-
-    @model_validator(mode="after")
-    def validate_seal(self) -> MeasurementSealCommand:
-        if self.seal.run_id != self.run_id:
-            raise ValueError("measurement seal command run ids must match")
-        if self.command_id != self.seal.operation_id:
-            raise ValueError("measurement seal command id must match its operation")
-        return self
-
-
-class MeasurementSealReceipt(_WireModel):
-    command_id: NonEmptyText
-    receipt: MeasurementDatasetReceipt
-
-
-class CollectionCommitCommand(_FencedRunCommand):
-    command_id: NonEmptyText
-    chunk: CollectionChunk
-
-    @model_validator(mode="after")
-    def validate_chunk(self) -> CollectionCommitCommand:
-        if self.chunk.run_id != self.run_id:
-            raise ValueError("collection commit command run ids must match")
-        if self.command_id != self.chunk.operation_id:
-            raise ValueError("collection commit command id must match its operation")
-        return self
-
-
-class CollectionCommitReceipt(_WireModel):
-    command_id: NonEmptyText
-    receipt: CollectionChunkReceipt
-
-
-class CollectionResolveCommand(_FencedRunCommand):
-    receipt: CollectionChunkReceipt
-
-
-class CollectionResolveReceipt(_WireModel):
-    chunk: CollectionChunk
-
-
-class PayloadCommitCommand(_FencedRunCommand):
-    command_id: NonEmptyText
-    evidence: PayloadEvidence
-
-    @model_validator(mode="after")
-    def validate_evidence(self) -> PayloadCommitCommand:
-        if self.evidence.run_id != self.run_id:
-            raise ValueError("payload commit command run ids must match")
-        if self.command_id != self.evidence.operation_id:
-            raise ValueError("payload commit command id must match its operation")
-        return self
-
-
-class PayloadCommitReceipt(_WireModel):
-    command_id: NonEmptyText
-    evidence: CommittedPayloadEvidence
 
 
 class TerminalModelWrite(_WireModel):
@@ -817,46 +432,17 @@ class TerminalModelWrite(_WireModel):
     value: dict[str, JsonValue]
 
 
-class TerminalRecordSetWrite(_WireModel):
-    ref: NonEmptyText
-    records: tuple[dict[str, JsonValue], ...]
+class TerminalRunCommitCommand(_FencedCommand):
+    """Lossless JSON projection of one interpreter terminal delta."""
 
-
-class TerminalRunCommitCommand(_FencedRunCommand):
-    """Lossless JSON projection of one interpreter terminal commit."""
-
-    command_id: NonEmptyText
-    manifest: RunManifest
+    outcome: RunOutcome
+    contents: tuple[RunContentEntry, ...] = ()
     models: tuple[TerminalModelWrite, ...] = ()
-    record_sets: tuple[TerminalRecordSetWrite, ...] = ()
-
-    @model_validator(mode="after")
-    def validate_manifest(self) -> TerminalRunCommitCommand:
-        if self.manifest.run_id != self.run_id:
-            raise ValueError("terminal commit and manifest run ids must match")
-        if self.manifest.lifecycle != "terminal":
-            raise ValueError("terminal commit requires a terminal manifest")
-        if self.command_id != f"terminal:{self.run_id}":
-            raise ValueError("terminal command id must match its run")
-        return self
-
-
-class TerminalRunCommitReceipt(_WireModel):
-    command_id: NonEmptyText
-    manifest: RunManifest
-
-
-class AttentionResolutionCommand(_WireModel):
-    """Explicit operator decision for a quarantined run."""
-
-    run_id: NonEmptyText
-    action: AttentionResolutionAction
 
 
 class AttentionResolutionReceipt(_WireModel):
     run_id: NonEmptyText
-    action: AttentionResolutionAction
-    state: Literal["attention_required", "accepted", "terminal"]
+    state: Literal["closed"]
     released_resource_count: int = Field(ge=0)
 
 
@@ -883,15 +469,9 @@ __all__ = [
     "AnalysisParameterProposalOutputPayload",
     "AnalysisSaveCommand",
     "AnalysisSaveReceipt",
-    "AttentionResolutionAction",
-    "AttentionResolutionCommand",
     "AttentionResolutionReceipt",
     "CandidateConfigActivationCommand",
     "CandidateConfigActivationReceipt",
-    "CollectionCommitCommand",
-    "CollectionCommitReceipt",
-    "CollectionResolveCommand",
-    "CollectionResolveReceipt",
     "ConfigActivationReceipt",
     "ConfigDefaultReceipt",
     "ConfigDraftCommand",
@@ -900,49 +480,20 @@ __all__ = [
     "ConfigDraftRegistrationCommand",
     "ConfigDraftRegistrationReceipt",
     "ConfigEntryActivationCommand",
-    "ConfigImportReceipt",
-    "ConfigParameterUpdate",
     "ConfigRollbackCommand",
-    "DelegatedPlanSummary",
-    "DelegatedRunSubmission",
-    "DeleteConfigParameterRows",
     "DirectConfigDefaultCommand",
     "DirectConfigImportCommand",
-    "ExecutionMode",
-    "ExecutionRecoveryRequest",
-    "ExecutionRecoverySnapshot",
-    "ExecutionTransitionBatch",
-    "ExecutionTransitionBatchReceipt",
+    "ExecutionTransitionAppend",
     "ExecutorHeartbeat",
     "ExecutorLease",
     "ExecutorStartRequest",
-    "ExperimentCatalog",
-    "InsertConfigParameterRows",
-    "ManagedRunSubmission",
     "MeasurementAppendCommand",
-    "MeasurementAppendReceipt",
     "MeasurementSealCommand",
-    "MeasurementSealReceipt",
     "ParameterProposalDecisionCommand",
     "ParameterProposalReviewCommand",
-    "ParameterProposalReviewReceipt",
-    "PayloadCommitCommand",
-    "PayloadCommitReceipt",
-    "RegisteredExperimentDescriptor",
-    "ReplaceConfigParameter",
-    "ResourceClaimDescriptor",
-    "ResourceClaimKind",
     "RunAdmission",
     "RunAttachmentCommand",
-    "RunAttachmentReceipt",
     "RunSubmission",
-    "RuntimeEventPublishCommand",
-    "RuntimeEventPublishReceipt",
-    "RuntimeProgressPayload",
-    "RuntimeTransitionEventPayload",
     "TerminalModelWrite",
-    "TerminalRecordSetWrite",
     "TerminalRunCommitCommand",
-    "TerminalRunCommitReceipt",
-    "UpdateConfigParameterRows",
 ]

@@ -3,19 +3,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from uuid import uuid4
 
-from scopecat.control.models import ControlRunState, EventPage, RunPage
+from scopecat.control.models import ControlRunState, EventPage
 from scopecat.daemon.client import DaemonClient
-from scopecat.daemon.views import DaemonHealth, MeasurementPage, RunDetail
-from scopecat.daemon.wire import (
-    AttentionResolutionAction,
-    AttentionResolutionReceipt,
-    ExperimentCatalog,
-    ManagedRunSubmission,
-    RunAdmission,
+from scopecat.daemon.views import (
+    DaemonHealth,
+    MeasurementPage,
+    RunDetail,
+    RunSummaryPage,
 )
-from scopecat.records.run_request import RunRequest
+from scopecat.daemon.wire import (
+    AttentionResolutionReceipt,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,9 +26,6 @@ class LabControlOperations:
     def health(self) -> DaemonHealth:
         return self.client.health()
 
-    def catalog(self) -> ExperimentCatalog:
-        return self.client.catalog()
-
     def runs(
         self,
         *,
@@ -38,7 +34,7 @@ class LabControlOperations:
         before: int | None = None,
         state: ControlRunState | None = None,
         latest: bool | None = None,
-    ) -> RunPage:
+    ) -> RunSummaryPage:
         return self.client.list_runs(
             limit=limit,
             after=after,
@@ -77,26 +73,8 @@ class LabControlOperations:
     def resolve_attention(
         self,
         run_id: str,
-        action: AttentionResolutionAction,
     ) -> AttentionResolutionReceipt:
-        return self.client.resolve_attention(run_id, action)
-
-    def submit_managed(
-        self,
-        registration_id: str,
-        registration_version: str,
-        request: RunRequest,
-        *,
-        submission_id: str | None = None,
-    ) -> RunAdmission:
-        return self.client.submit_managed(
-            ManagedRunSubmission(
-                submission_id=submission_id or uuid4().hex,
-                registration_id=registration_id,
-                registration_version=registration_version,
-                request=request,
-            )
-        )
+        return self.client.resolve_attention(run_id)
 
 
 __all__ = ["LabControlOperations"]

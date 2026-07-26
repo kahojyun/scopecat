@@ -12,10 +12,8 @@ from scopecat.adapters.sqlite.control_plane import (
     SQLiteControlPlane,
 )
 from scopecat.adapters.sqlite.execution import (
-    SQLiteCollectionRecordRepository,
     SQLiteExecutionJournal,
     SQLiteMeasurementDatasetRepository,
-    SQLitePayloadEvidenceCommitter,
 )
 from scopecat.adapters.sqlite.object_store import (
     ImmutableObjectStore,
@@ -34,14 +32,12 @@ __all__ = [
     "ExecutorLeaseNotHeld",
     "ImmutableObjectStore",
     "ProjectStoreError",
-    "SQLiteCollectionRecordRepository",
     "SQLiteConfigRegistryRepository",
     "SQLiteConfigRegistryStore",
     "SQLiteConfigRegistryUnitOfWork",
     "SQLiteControlPlane",
     "SQLiteExecutionJournal",
     "SQLiteMeasurementDatasetRepository",
-    "SQLitePayloadEvidenceCommitter",
     "SQLiteProjectStore",
     "SQLiteRunRepository",
     "SchemaVersionError",

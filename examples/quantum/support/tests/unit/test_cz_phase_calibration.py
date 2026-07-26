@@ -7,23 +7,22 @@ import pytest
 import scopecat as sc
 from scopecat import Quantity
 from scopecat.authoring._value_refs import internal_lower_scalar_value_ref
-from scopecat.compiler.linking.linked import LinkedPointMaterializer
 from scopecat.records.parameter import TableParameterValue
-from scopecat_quantum import (
-    CircuitPulseEventProvenance,
-    FluxSignal,
-    ImplementedGatePulseEventProvenance,
-    Play,
-    QubitId,
-)
+from scopecat.sdk.domain import DomainCompilation, DomainCompileRequest
 from scopecat_quantum import authoring as quantum
+from scopecat_quantum._ids import QubitId
+from scopecat_quantum.programs import (
+    CircuitPulseEventProvenance,
+    ImplementedGatePulseEventProvenance,
+)
+from scopecat_quantum.pulses import FluxSignal, Play
 
 from quantum_lab_demo import quantum_lab_compiler
+from quantum_lab_demo.compiler import QuantumLabCompiler, _ListQuantumLabArtifact
 from quantum_lab_demo.virtual_lab.parameters import (
     CZ_AMPLITUDE_PARAMETER_COLUMN,
     TWO_QUBIT_GATE_PARAMETER_TABLE,
     q0_q1_cz_amplitude_lookup,
-    q0_q1_cz_row,
 )
 from quantum_lab_demo.virtual_lab.pulse_profile import (
     x90_pulse_recipe,
@@ -48,7 +47,6 @@ from quantum_lab_demo.workflows.cz_phase_experiment import (
 
 from .demo_lab_experiment_testkit import (
     in_process_quantum_lab,
-    reject_program_input_binding,
 )
 
 
@@ -59,35 +57,42 @@ def _entity_id(value: object) -> str:
 
 def _compiled_cz_point(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     *,
     control_state: int,
     analyzer_phase: Quantity,
 ):
     compiler = quantum_lab_compiler()
+    compilations = _capture_compilations(compiler, monkeypatch)
     lab = in_process_quantum_lab(project_root=tmp_path, compiler=compiler)
     scan = sc.cartesian(
         sc.param_axis(
             CZ_AMPLITUDE,
-            q0_q1_cz_row(),
-            CZ_AMPLITUDE_PARAMETER_COLUMN,
+            q0_q1_cz_amplitude_lookup(),
             (Quantity(0.24, "arb"),),
         ),
         sc.axis(CONTROL_STATE, (control_state,)),
         sc.axis(ANALYZER_PHASE, (analyzer_phase,)),
     )
     lab.prepare(cz_phase_template).scan(scan).run()
-    [preparation] = compiler.trace.preparations(cz_conditional_phase.id)
-    [prepared] = preparation.entries
-    [artifact_entry] = preparation.artifact.entries
+    [compilation] = compilations
+    [job] = compilation.jobs
+    artifact = job.artifact
+    assert isinstance(artifact, _ListQuantumLabArtifact)
+    assert artifact.program.id == cz_conditional_phase.id
+    [prepared] = artifact.entries
+    [artifact_entry] = artifact.compiled.artifact.entries
     return prepared, artifact_entry
 
 
 def test_cz_phase_program_keeps_two_qubit_gate_and_coupler_pulse_provenance(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     declaration = cz_conditional_phase
     prepared, _artifact_entry = _compiled_cz_point(
         tmp_path,
+        monkeypatch,
         control_state=1,
         analyzer_phase=Quantity(math.pi / 2.0, "rad"),
     )
@@ -135,9 +140,11 @@ def test_cz_phase_program_keeps_two_qubit_gate_and_coupler_pulse_provenance(
 
 def test_cz_phase_point_compiles_coupler_flux_on_the_target_channel(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _prepared, entry = _compiled_cz_point(
         tmp_path,
+        monkeypatch,
         control_state=0,
         analyzer_phase=Quantity(0, "rad"),
     )
@@ -156,13 +163,7 @@ def test_cz_phase_point_compiles_coupler_flux_on_the_target_channel(
 
 def test_cz_phase_in_process_run_fits_pi_and_authors_candidate_proposal(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        LinkedPointMaterializer,
-        "bind_domain_inputs",
-        reject_program_input_binding,
-    )
     compiler = quantum_lab_compiler()
     lab = in_process_quantum_lab(project_root=tmp_path, compiler=compiler)
     prepared = lab.prepare(cz_phase_template)
@@ -179,11 +180,6 @@ def test_cz_phase_in_process_run_fits_pi_and_authors_candidate_proposal(
         "analyzer_phase",
     )
     assert run.manifest.status == "completed"
-    assert compiler.trace.physical_execution_count == 1
-    [evidence] = compiler.trace.preparations(cz_conditional_phase.id)
-    assert evidence.program_id == cz_conditional_phase.id
-    assert len(evidence.points) == len(evidence.entries) == 24
-    assert evidence.artifact_fingerprint.startswith("sha256:")
     assert len(records) == 24
     assert len(result.observations) == 24
     assert float(result.fit.selected.amplitude.to("arb").value) == pytest.approx(0.24)
@@ -212,7 +208,7 @@ def test_cz_phase_in_process_run_fits_pi_and_authors_candidate_proposal(
 
 def test_cz_phase_capture_uses_one_quantum_program_without_payload_compute() -> None:
     body = cz_phase_capture.ir.body
-    [call] = body.instances
+    [call] = body.child_instances
     [execution] = call.module.body.domain_executions
     program = execution.program
 
@@ -231,3 +227,19 @@ def test_cz_phase_capture_uses_one_quantum_program_without_payload_compute() -> 
         call_inputs["coupler_amplitude"]
     ) == internal_lower_scalar_value_ref(q0_q1_cz_amplitude_lookup())
     assert body.operations == ()
+
+
+def _capture_compilations(
+    compiler: QuantumLabCompiler,
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[DomainCompilation]:
+    compilations: list[DomainCompilation] = []
+    compile_domain = compiler.compile
+
+    def compile_and_capture(request: DomainCompileRequest) -> DomainCompilation:
+        compilation = compile_domain(request)
+        compilations.append(compilation)
+        return compilation
+
+    monkeypatch.setattr(compiler, "compile", compile_and_capture)
+    return compilations

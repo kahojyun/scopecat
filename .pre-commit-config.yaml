@@ -1,6 +1,3 @@
-ci:
-  skip: [basedpyright]
-
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # frozen: v6.0.0
@@ -22,10 +19,3 @@ repos:
         types_or: [python, pyi]
       - id: ruff-format
         types_or: [python, pyi]
-  - repo: local
-    hooks:
-      - id: basedpyright
-        name: basedpyright
-        entry: uv run basedpyright
-        language: system
-        pass_filenames: false

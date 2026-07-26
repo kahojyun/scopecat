@@ -8,18 +8,18 @@ import pytest
 
 from scopecat.compiler.typed.program import core_acquisitions, core_state
 from scopecat.compiler.typed.state import SetStateSpec
-from scopecat.kernel.errors import RunFailed, RunIndeterminate
+from scopecat.kernel.errors import ProviderContractError, RunFailed, RunIndeterminate
 from scopecat.records.instrument import InstrumentReadback
 from scopecat.records.parameter import Quantity
 from scopecat.sdk.instruments.contracts import (
     CollectCommand,
     CollectReceipt,
 )
-from scopecat.testing import (
-    sqlite_execution_services,
+from tests.testkit.execution import execute_bound_run
+from tests.testkit.runtime import (
+    sqlite_execution_session,
     sqlite_run_repository,
 )
-from tests.testkit.execution import execute_bound_run
 from tests.testkit.signal_instruments import TestSignalInstrument
 from tests.testkit.workflow_fixtures import load_config, load_experiment
 
@@ -81,8 +81,8 @@ class FailAfterFirstCollectInstrument(TestSignalInstrument):
         return super().collect(command)
 
 
-def test_run_rejects_missing_instrument(tmp_path: Path) -> None:
-    with pytest.raises(RunFailed) as error:
+def test_planning_rejects_missing_instrument(tmp_path: Path) -> None:
+    with pytest.raises(ProviderContractError) as error:
         execute_bound_run(
             config=load_config(),
             experiment=load_experiment(),
@@ -93,17 +93,16 @@ def test_run_rejects_missing_instrument(tmp_path: Path) -> None:
     assert "missing_instrument_description" in {
         problem.code for problem in error.value.problems
     }
-    assert sqlite_run_repository(tmp_path).list_runs()[0].lifecycle == "terminal"
 
 
-def test_run_rejects_unsupported_field(tmp_path: Path) -> None:
+def test_planning_rejects_unsupported_field(tmp_path: Path) -> None:
     experiment = load_experiment()
     selected_state = core_state(experiment)[0]
     assert isinstance(selected_state, SetStateSpec)
     state = replace(selected_state, field_path="amplitude")
     experiment = replace(experiment, effects=(state, *core_acquisitions(experiment)))
 
-    with pytest.raises(RunFailed) as error:
+    with pytest.raises(ProviderContractError) as error:
         execute_bound_run(
             config=load_config(),
             experiment=experiment,
@@ -114,10 +113,9 @@ def test_run_rejects_unsupported_field(tmp_path: Path) -> None:
     assert "instrument_driver_unsupported_field" in {
         problem.code for problem in error.value.problems
     }
-    assert sqlite_run_repository(tmp_path).list_runs()[0].lifecycle == "terminal"
 
 
-def test_run_rejects_unsupported_instrument_product(tmp_path: Path) -> None:
+def test_planning_rejects_unsupported_instrument_product(tmp_path: Path) -> None:
     experiment = load_experiment()
     acquisition = core_acquisitions(experiment)[0]
     unsupported_acquisition = replace(
@@ -132,7 +130,7 @@ def test_run_rejects_unsupported_instrument_product(tmp_path: Path) -> None:
         ),
     )
 
-    with pytest.raises(RunFailed) as error:
+    with pytest.raises(ProviderContractError) as error:
         execute_bound_run(
             config=load_config(),
             experiment=experiment,
@@ -143,17 +141,16 @@ def test_run_rejects_unsupported_instrument_product(tmp_path: Path) -> None:
     assert "instrument_product_unsupported" in {
         problem.code for problem in error.value.problems
     }
-    assert sqlite_run_repository(tmp_path).list_runs()[0].lifecycle == "terminal"
 
 
-def test_run_rejects_instrument_product_dtype_mismatch(tmp_path: Path) -> None:
+def test_planning_rejects_instrument_product_dtype_mismatch(tmp_path: Path) -> None:
     experiment = load_experiment()
     experiment = replace(
         experiment,
         product_defs=(replace(experiment.product_defs[0], dtype="int64"),),
     )
 
-    with pytest.raises(RunFailed) as error:
+    with pytest.raises(ProviderContractError) as error:
         execute_bound_run(
             config=load_config(),
             experiment=experiment,
@@ -164,7 +161,6 @@ def test_run_rejects_instrument_product_dtype_mismatch(tmp_path: Path) -> None:
     assert "instrument_product_dtype_mismatch" in {
         problem.code for problem in error.value.problems
     }
-    assert sqlite_run_repository(tmp_path).list_runs()[0].lifecycle == "terminal"
 
 
 def test_instrument_exception_keeps_unknown_run(tmp_path: Path) -> None:
@@ -224,9 +220,10 @@ def test_keyboard_interrupt_commits_interrupted_terminal_run(tmp_path: Path) -> 
     assert "execution_interrupted" in {
         problem.code for problem in manifest.outcome.problems
     }
-    journal_entries = (
-        sqlite_execution_services(tmp_path).journal_for(manifest.run_id).entries()
-    )
+    journal_entries = sqlite_execution_session(
+        tmp_path,
+        manifest.run_id,
+    ).journal.entries()
     collect_states = [
         entry.state for entry in journal_entries if entry.stage == "collect"
     ]
@@ -251,7 +248,3 @@ def test_failed_run_publishes_committed_prefix_as_incomplete_dataset(
     [dataset] = manifest.datasets
     assert dataset.metadata["partial"] is True
     assert dataset.metadata["expected_record_count"] == 3
-    receipts = (
-        sqlite_execution_services(tmp_path).collections_for(manifest.run_id).receipts()
-    )
-    assert len(receipts) == 1

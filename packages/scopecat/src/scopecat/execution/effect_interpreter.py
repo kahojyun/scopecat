@@ -12,23 +12,19 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Literal, cast
+from typing import Literal
 
 from pydantic import JsonValue
 
 from scopecat.compiler.semantic.model import ValueId
 from scopecat.execution.effects.domain import execute_domain_job_values
-from scopecat.execution.events import RuntimeTransitionProjector, payload_summary
+from scopecat.execution.events import TransitionRecorder, payload_summary
 from scopecat.execution.local.program import (
     ApplyStateOperation,
     BoundInput,
     CollectOperation,
     ComputeOperation,
-    InstrumentActionOperation,
     LocalOperation,
-)
-from scopecat.execution.local.receipts import (
-    action_receipt_evidence as _action_receipt_evidence,
 )
 from scopecat.execution.local.receipts import (
     apply_receipt_evidence as _apply_receipt_evidence,
@@ -40,37 +36,18 @@ from scopecat.execution.local.receipts import (
     command_evidence as _command_evidence,
 )
 from scopecat.execution.local.receipts import (
-    normalize_action_receipt as _normalize_action_receipt,
-)
-from scopecat.execution.local.receipts import (
-    normalize_apply_receipt as _normalize_apply_receipt,
-)
-from scopecat.execution.local.receipts import (
-    normalize_collect_receipt as _normalize_collect_receipt,
-)
-from scopecat.execution.local.receipts import (
-    validate_collection_chunk_receipt as _validate_collection_chunk_receipt,
-)
-from scopecat.execution.local.receipts import (
     validate_readback,
 )
-from scopecat.execution.local.validation import validate_local_effect_block_instruments
 from scopecat.execution.points import AdmittedPointLedger, RunPoint
 from scopecat.execution.ports.journal import (
-    CollectionRepository,
-    ExecutionJournal,
     ExecutionJournalError,
-    PayloadEvidenceCommitter,
-    commit_transition,
 )
-from scopecat.execution.ports.resources import ResourceLeaseManager
 from scopecat.execution.problems import (
     contextualize_problems,
     problem_from_exception,
     runtime_problem,
 )
 from scopecat.execution.program import (
-    RunCompute,
     RunCoverageBlock,
     RunCoverageCheckpoint,
     RunCoverageEffect,
@@ -86,9 +63,7 @@ from scopecat.kernel.payloads import unwrap_payload_values
 from scopecat.kernel.point_identity import LogicalPointId
 from scopecat.kernel.problems import (
     Problem,
-    ProblemCategory,
     ProblemPhase,
-    has_blocking_problems,
 )
 from scopecat.kernel.product_identity import ProductUseId
 from scopecat.kernel.state import PayloadRef
@@ -96,13 +71,10 @@ from scopecat.kernel.value_validation import coerce_literal
 from scopecat.measurements.values import MeasurementValueCandidate
 from scopecat.records.artifact import CommandPayload
 from scopecat.records.execution_journal import (
-    CollectionChunk,
-    CommittedPayloadEvidence,
     ExecutionEffect,
     ExecutionStage,
     ExecutionTransition,
     JournalEntryState,
-    PayloadEvidence,
 )
 from scopecat.records.instrument import (
     CommandChannelBinding,
@@ -111,15 +83,10 @@ from scopecat.records.instrument import (
 )
 from scopecat.sdk.instruments.contracts import (
     ApplyReceipt,
-    InstrumentActionCommand,
-    InstrumentActionCommandField,
-    InstrumentDescription,
     InstrumentDriver,
     InstrumentStateCommand,
     InstrumentStateCommandField,
     apply_state_command_to_snapshot,
-    validate_action_command,
-    validate_state_command,
 )
 
 logger = logging.getLogger(__name__)
@@ -143,13 +110,10 @@ type CoverageMeasurementObserver = Callable[
 class RunEffectResult:
     """Facts observed while interpreting effects; not a terminal run outcome."""
 
-    run_id: str
-    experiment_id: str
     problems: tuple[Problem, ...]
     initial_state: tuple[InstrumentStateSnapshot, ...]
     final_state: tuple[InstrumentStateSnapshot, ...]
     admitted_points: tuple[RunPoint, ...] = ()
-    measurement_values: tuple[MeasurementValueCandidate, ...] = ()
     indeterminate: bool = False
     domain_failure: tuple[RunDomainJob, BaseException] | None = field(
         default=None,
@@ -170,11 +134,6 @@ class RunEffectResult:
 
 @dataclass(slots=True)
 class _MutablePointStats:
-    changed_field_count: int = 0
-    skipped_field_count: int = 0
-    state_command_count: int = 0
-    state_payload_count: int = 0
-    action_command_count: int = 0
     compute_evaluated_node_count: int = 0
     compute_payload_count: int = 0
 
@@ -208,39 +167,23 @@ class RunEffectInterpreter:
         self,
         *,
         run_id: str,
-        experiment_id: str,
-        experiment_kind: str,
         coordinate_ids: Sequence[str],
         resource_order: Sequence[str],
         drivers: Mapping[str, InstrumentDriver],
-        journal: ExecutionJournal,
-        readbacks: CollectionRepository,
-        payloads: PayloadEvidenceCommitter,
-        descriptions: Mapping[str, InstrumentDescription] | None = None,
-        transition_observer: RuntimeTransitionProjector | None = None,
+        recorder: TransitionRecorder,
         payload_observer: Callable[[CommandPayload], None] | None = None,
         coverage_observer: CoverageMeasurementObserver | None = None,
-        resource_leases: ResourceLeaseManager | None = None,
     ) -> None:
         self.run_id = run_id
-        self.experiment_id = experiment_id
         self.point_ledger = AdmittedPointLedger(
-            experiment_id=experiment_id,
-            experiment_kind=experiment_kind,
             coordinate_ids=tuple(coordinate_ids),
         )
         self.logical_points: dict[int, LogicalPointId] = {}
         self.resource_order = tuple(resource_order)
         self.drivers = dict(drivers)
-        self.journal = journal
-        self.collection_repository = readbacks
-        self.payload_evidence_committer = payloads
-        self.descriptions = dict(descriptions or {})
-        self._validate_descriptions = descriptions is not None
-        self.transition_observer = transition_observer
+        self.recorder = recorder
         self.payload_observer = payload_observer
         self.coverage_observer = coverage_observer
-        self.resource_leases = resource_leases
         self.problems: list[Problem] = []
         self.initial_state: list[InstrumentStateSnapshot] = []
         self.final_state: list[InstrumentStateSnapshot] = []
@@ -265,19 +208,19 @@ class RunEffectInterpreter:
                 state.instrument_id: state for state in self.initial_state
             }
             for operation in operations:
-                if has_blocking_problems(self.problems):
+                if bool(self.problems):
                     break
                 match operation:
-                    case RunCompute():
-                        self._execute_run_compute(operation.operation)
+                    case ComputeOperation():
+                        self._execute_run_compute(operation)
                     case RunCoverageBlock():
                         admitted = self.point_ledger.admit(operation.points)
                         self.logical_points.update(
                             (point.ordinal, point.logical_id) for point in admitted
                         )
-                        self._execute_coverage_block(operation)
+                        self._execute_coverage_block_effects(operation)
             if (
-                not has_blocking_problems(self.problems)
+                not bool(self.problems)
                 and self.domain_failure is None
                 and self._terminal_point_indices != set(self.logical_points)
             ):
@@ -287,7 +230,6 @@ class RunEffectInterpreter:
                 self._problem(
                     "execution_journal_commit_failed",
                     str(error),
-                    category=ProblemCategory.STORAGE,
                     phase=ProblemPhase.PERSISTENCE,
                 )
             )
@@ -315,35 +257,13 @@ class RunEffectInterpreter:
             self._capture_terminal_states()
         return self._result()
 
-    def _execute_coverage_block(self, block: RunCoverageBlock) -> None:
-        if self.resource_leases is not None and block.resource_claims:
-            with self.resource_leases.acquire(block.resource_claims):
-                self._execute_coverage_block_effects(block)
-            return
-        self._execute_coverage_block_effects(block)
-
     def _execute_coverage_block_effects(self, block: RunCoverageBlock) -> None:
-        if self._validate_descriptions:
-            self.problems.extend(
-                validate_local_effect_block_instruments(
-                    resource_order=(),
-                    operations=tuple(
-                        operation.operation
-                        for operation in block.operations
-                        if isinstance(operation, RunCoverageEffect)
-                    ),
-                    descriptions=self.descriptions,
-                    available_payloads=self.run_payloads,
-                )
-            )
-        if has_blocking_problems(self.problems):
-            return
         for operation in block.operations:
             if isinstance(operation, RunCoverageCheckpoint):
                 self._commit_coverage_checkpoint(block, operation)
                 continue
             self._execute_covered_operation(operation)
-            if has_blocking_problems(self.problems):
+            if bool(self.problems):
                 return
         remaining = tuple(
             point_index
@@ -361,14 +281,11 @@ class RunEffectInterpreter:
         block: RunCoverageBlock,
         checkpoint: RunCoverageCheckpoint,
     ) -> None:
-        if any(
-            point_index not in block.point_indices
-            for point_index in checkpoint.point_indices
-        ):
+        if checkpoint.point_index not in block.point_indices:
             raise AssertionError("coverage checkpoint escapes its effect block")
         self._commit_coverage(
             block,
-            checkpoint.point_indices,
+            (checkpoint.point_index,),
         )
 
     def _commit_coverage(
@@ -412,7 +329,7 @@ class RunEffectInterpreter:
     def _execute_coverage_effect(self, covered: RunCoverageEffect) -> None:
         representative = self._point_state(covered.point_indices[0])
         self._execute_point_effect(representative, covered.operation)
-        if has_blocking_problems(self.problems):
+        if bool(self.problems):
             return
         if not isinstance(covered.operation, ComputeOperation):
             if len(covered.point_indices) > 1 and not isinstance(
@@ -443,12 +360,11 @@ class RunEffectInterpreter:
                 raise AssertionError("domain job references an unknown point")
             self._active_point_indices.add(point_index)
         try:
-            prepared = job.prepare()
             values = execute_domain_job_values(
-                prepared,
+                job.execution,
                 semantic_operation_id=job.id,
                 run_id=self.run_id,
-                journal=self.journal,
+                journal=self.recorder.journal,
             )
         except BaseException as error:
             self.domain_failure = (job, error)
@@ -498,8 +414,6 @@ class RunEffectInterpreter:
                 self._execute_compute_operations(frame, (operation,))
             case ApplyStateOperation():
                 self._apply_state_operation(frame, operation)
-            case InstrumentActionOperation():
-                self._execute_action(frame, operation)
             case CollectOperation():
                 self._collect_operation(frame, operation)
 
@@ -518,7 +432,7 @@ class RunEffectInterpreter:
             self._point_states.pop(point_index, None)
             self._active_point_indices.discard(point_index)
         self._terminal_point_indices.update(point_indices)
-        self._observe_transition(
+        self.recorder.observe(
             self._entry(
                 operation_id=f"coverage.{point_indices[0]}-{point_indices[-1]}",
                 stage="point",
@@ -546,7 +460,7 @@ class RunEffectInterpreter:
                     **_dependency_summary(operation.dependencies),
                 },
             )
-            self._observe_transition(entry)
+            self.recorder.observe(entry)
             try:
                 inputs = {
                     name: (
@@ -564,21 +478,9 @@ class RunEffectInterpreter:
                         path=("operations", operation.operation_id, "output"),
                     )
                 )
-                committed_payload: CommittedPayloadEvidence | None = None
                 if operation.payload_slot is not None:
                     fingerprint = content_fingerprint(result)
                     content_hash = stable_content_hash(fingerprint)
-                    committed_payload = self.payload_evidence_committer.commit(
-                        PayloadEvidence(
-                            run_id=self.run_id,
-                            operation_id=operation.operation_id,
-                            point_index=frame.event_point_index,
-                            payload_id=operation.payload_slot.id,
-                            schema_id=operation.payload_slot.schema_id,
-                            content_hash=content_hash,
-                            fingerprint=fingerprint,
-                        )
-                    )
                 else:
                     content_hash = None
             except Exception as error:
@@ -590,7 +492,7 @@ class RunEffectInterpreter:
                     point_index=frame.event_point_index,
                 )
                 self.problems.append(problem)
-                self._observe_transition(
+                self.recorder.observe(
                     entry.model_copy(update={"state": "failed", "problems": (problem,)})
                 )
                 return
@@ -601,9 +503,6 @@ class RunEffectInterpreter:
                 frame.payloads[slot.id] = CommandPayload(
                     id=slot.id,
                     schema_id=slot.schema_id,
-                    evidence_ref=committed_payload.ref
-                    if committed_payload is not None
-                    else None,
                     content_hash=content_hash,
                     operation_id=operation.operation_id,
                     semantic_operation_id=operation.semantic_operation_id,
@@ -613,7 +512,7 @@ class RunEffectInterpreter:
                 )
                 frame.stats.compute_payload_count += 1
                 self._observe_payload(frame.payloads[slot.id])
-            self._observe_transition(
+            self.recorder.observe(
                 entry.model_copy(
                     update={
                         "state": "completed",
@@ -626,11 +525,6 @@ class RunEffectInterpreter:
                                     "payload_id": operation.payload_slot.id,
                                     "schema_id": operation.payload_slot.schema_id,
                                     "content_hash": content_hash,
-                                    "payload_ref": (
-                                        committed_payload.ref
-                                        if committed_payload is not None
-                                        else None
-                                    ),
                                     **payload_summary(result),
                                 }
                                 if operation.payload_slot is not None
@@ -659,7 +553,6 @@ class RunEffectInterpreter:
             )
             return False
         fields, skipped_count = _changed_state_fields(operation, current=current)
-        frame.stats.skipped_field_count += skipped_count
         entry = self._entry(
             operation_id=operation.operation_id,
             stage="apply_state",
@@ -673,7 +566,7 @@ class RunEffectInterpreter:
             },
         )
         if not fields:
-            self._observe_transition(
+            self.recorder.observe(
                 entry.model_copy(
                     update={
                         "state": "skipped",
@@ -702,41 +595,10 @@ class RunEffectInterpreter:
                 }
             }
         )
-        description = self.descriptions.get(operation.instrument_id)
-        if description is not None:
-            command_problems = contextualize_problems(
-                validate_state_command(
-                    command=command,
-                    description=description,
-                    payloads=frame.payloads,
-                ),
-                run_id=self.run_id,
-                operation_id=operation.operation_id,
-                point_index=frame.point_index,
-                instrument_id=operation.instrument_id,
-            )
-            self.problems.extend(command_problems)
-            if has_blocking_problems(command_problems):
-                self._observe_transition(
-                    entry.model_copy(
-                        update={
-                            "state": "failed",
-                            "problems": command_problems,
-                            "evidence": self._state_event_summary(
-                                frame,
-                                entry.evidence,
-                                changed_field_count=0,
-                                state_command_count=0,
-                                payload_count=0,
-                            ),
-                        }
-                    )
-                )
-                return False
         driver = self.drivers[operation.instrument_id]
         receipt = self._invoke_journaled_effect(
             entry,
-            lambda: _normalize_apply_receipt(driver.apply_state(command)),
+            lambda: driver.apply_state(command),
             unknown_code="instrument_apply_unknown",
             unknown_message=(
                 f"instrument apply outcome is unknown for {operation.instrument_id}"
@@ -825,9 +687,6 @@ class RunEffectInterpreter:
             )
             return False
         self.current_states[operation.instrument_id] = next_state.model_copy(deep=True)
-        frame.stats.changed_field_count += len(fields)
-        frame.stats.state_command_count += 1
-        frame.stats.state_payload_count += len(command.payloads)
         self._commit_after_effect(
             entry.model_copy(
                 update={
@@ -868,98 +727,12 @@ class RunEffectInterpreter:
             "payload_count": payload_count,
         }
 
-    def _execute_action(
-        self,
-        frame: _PointEvaluationState,
-        operation: InstrumentActionOperation,
-    ) -> bool:
-        fields = [field.command_field() for field in operation.fields]
-        command = InstrumentActionCommand(
-            operation_id=operation.operation_id,
-            instrument_id=operation.instrument_id,
-            capability_id=operation.capability_id,
-            fields=fields,
-            payloads=_referenced_payloads(fields, frame.payloads),
-        )
-        entry = self._entry(
-            operation_id=operation.operation_id,
-            stage="action",
-            effect="action",
-            state="started",
-            point_index=frame.point_index,
-            instrument_id=operation.instrument_id,
-            evidence={
-                "capability_id": operation.capability_id,
-                "field_count": len(fields),
-                **_command_evidence(command),
-            },
-        )
-        description = self.descriptions.get(operation.instrument_id)
-        if description is not None:
-            command_problems = contextualize_problems(
-                validate_action_command(
-                    command=command,
-                    description=description,
-                    payloads=frame.payloads,
-                ),
-                run_id=self.run_id,
-                operation_id=operation.operation_id,
-                point_index=frame.point_index,
-                instrument_id=operation.instrument_id,
-            )
-            self.problems.extend(command_problems)
-            if has_blocking_problems(command_problems):
-                self._observe_transition(
-                    entry.model_copy(
-                        update={"state": "failed", "problems": command_problems}
-                    )
-                )
-                return False
-
-        receipt = self._invoke_journaled_effect(
-            entry,
-            lambda: _normalize_action_receipt(
-                self.drivers[operation.instrument_id].action(command)
-            ),
-            unknown_code="instrument_action_unknown",
-            unknown_message=(
-                f"instrument action outcome is unknown for {operation.instrument_id}"
-            ),
-            after_intent=lambda: setattr(
-                frame.stats,
-                "action_command_count",
-                frame.stats.action_command_count + 1,
-            ),
-        )
-        if receipt is None:
-            return False
-        receipt_evidence = _action_receipt_evidence(receipt)
-        accepted, receipt_problems = self._accept_receipt(
-            entry,
-            status=receipt.status,
-            success_status="performed",
-            problems=receipt.problems,
-            evidence={**entry.evidence, **receipt_evidence},
-        )
-        if not accepted:
-            return False
-        self._commit_after_effect(
-            entry.model_copy(
-                update={
-                    "state": "completed",
-                    "problems": receipt_problems,
-                    "evidence": {**entry.evidence, **receipt_evidence},
-                }
-            )
-        )
-        return True
-
     def _collect_operation(
         self,
         frame: _PointEvaluationState,
         operation: CollectOperation,
     ) -> bool:
-        command = operation.command.model_copy(update={"attempt": 1}, deep=True)
+        command = operation.command.model_copy(deep=True)
         command_evidence = _command_evidence(command)
         entry = self._entry(
             operation_id=operation.operation_id,
@@ -976,9 +749,7 @@ class RunEffectInterpreter:
         )
         receipt = self._invoke_journaled_effect(
             entry,
-            lambda: _normalize_collect_receipt(
-                self.drivers[operation.instrument_id].collect(command)
-            ),
+            lambda: self.drivers[operation.instrument_id].collect(command),
             unknown_code="instrument_collect_unknown",
             unknown_message=(
                 "instrument collection outcome is unknown for "
@@ -999,52 +770,6 @@ class RunEffectInterpreter:
             return False
         assert receipt.readback is not None  # noqa: S101
         readback = receipt.readback
-        try:
-            chunk = CollectionChunk(
-                run_id=self.run_id,
-                operation_id=operation.operation_id,
-                command_content_hash=cast(
-                    "str",
-                    command_evidence["command_content_hash"],
-                ),
-                attempt=command.attempt,
-                point_index=frame.point_index,
-                instrument_id=operation.instrument_id,
-                readback=readback,
-            )
-            chunk_receipt = _validate_collection_chunk_receipt(
-                self.collection_repository.commit(chunk),
-                chunk=chunk,
-            )
-        except Exception as error:
-            self._indeterminate = True
-            problem = self._problem_from_exception(
-                "collection_readback_commit_failed",
-                "collection completed but its readback could not be committed",
-                error,
-                operation_id=operation.operation_id,
-                point_index=frame.point_index,
-                instrument_id=operation.instrument_id,
-                phase=ProblemPhase.PERSISTENCE,
-                category=ProblemCategory.STORAGE,
-            )
-            self.problems.append(problem)
-            self._commit_transition_best_effort(
-                entry.model_copy(update={"state": "unknown", "problems": (problem,)})
-            )
-            return False
-        except BaseException as error:
-            self._indeterminate = True
-            problem = self._record_interruption(
-                error,
-                operation_id=operation.operation_id,
-                point_index=frame.point_index,
-                instrument_id=operation.instrument_id,
-            )
-            self._commit_transition_best_effort(
-                entry.model_copy(update={"state": "unknown", "problems": (problem,)})
-            )
-            return False
         validation_problems = contextualize_problems(
             validate_readback(operation, readback),
             run_id=self.run_id,
@@ -1054,9 +779,9 @@ class RunEffectInterpreter:
         )
         operation_problems = (*receipt_problems, *validation_problems)
         self.problems.extend(validation_problems)
-        if not has_blocking_problems(operation_problems):
+        if not bool(operation_problems):
             self._merge_readback(frame, operation, readback)
-        failed = has_blocking_problems(operation_problems)
+        failed = bool(operation_problems)
         self._commit_after_effect(
             entry.model_copy(
                 update={
@@ -1066,8 +791,6 @@ class RunEffectInterpreter:
                         **entry.evidence,
                         **receipt_evidence,
                         "value_count": len(readback.values),
-                        "readback_ref": chunk_receipt.ref,
-                        "readback_content_hash": chunk_receipt.content_hash,
                     },
                 }
             )
@@ -1137,7 +860,7 @@ class RunEffectInterpreter:
                 state="started",
                 instrument_id=instrument_id,
             )
-            self._observe_transition(entry)
+            self.recorder.observe(entry)
             try:
                 state = self.drivers[instrument_id].read_state().model_copy(deep=True)
                 if state.instrument_id != instrument_id:
@@ -1154,7 +877,7 @@ class RunEffectInterpreter:
                 failed_entry = entry.model_copy(
                     update={"state": "failed", "problems": (problem,)}
                 )
-                self._observe_transition(failed_entry)
+                self.recorder.observe(failed_entry)
                 continue
             except BaseException as error:
                 problem = self._record_interruption(
@@ -1162,17 +885,17 @@ class RunEffectInterpreter:
                     operation_id=operation_id,
                     instrument_id=instrument_id,
                 )
-                self._observe_transition(
+                self.recorder.observe(
                     entry.model_copy(update={"state": "failed", "problems": (problem,)})
                 )
                 continue
             states.append(state)
             completed_entry = entry.model_copy(update={"state": "completed"})
-            self._observe_transition(completed_entry)
+            self.recorder.observe(completed_entry)
         return states
 
     def _finalize_drivers(self) -> None:
-        action = "abort" if has_blocking_problems(self.problems) else "cleanup"
+        action = "abort" if bool(self.problems) else "cleanup"
         used = set(self.resource_order)
         extras = tuple(sorted(set(self.drivers) - used))
         managed_order = (
@@ -1249,14 +972,6 @@ class RunEffectInterpreter:
             evidence=dict(evidence or {}),
         )
 
-    def _observe_transition(self, entry: ExecutionTransition) -> None:
-        if self.transition_observer is not None:
-            self.transition_observer.observe(entry)
-
-    def _commit_transition(self, entry: ExecutionTransition) -> None:
-        committed = commit_transition(self.journal, entry)
-        self._observe_transition(committed)
-
     def _invoke_journaled_effect[ReceiptT](
         self,
         entry: ExecutionTransition,
@@ -1269,7 +984,7 @@ class RunEffectInterpreter:
     ) -> ReceiptT | None:
         """Persist an effect intent, invoke it once, and close unknown outcomes."""
 
-        self._commit_transition(entry)
+        self.recorder.commit(entry)
         if after_intent is not None:
             after_intent()
         try:
@@ -1340,7 +1055,7 @@ class RunEffectInterpreter:
 
     def _commit_after_effect(self, entry: ExecutionTransition) -> None:
         try:
-            self._commit_transition(entry)
+            self.recorder.commit(entry)
         except Exception:
             self._indeterminate = True
             raise
@@ -1349,7 +1064,7 @@ class RunEffectInterpreter:
         """Record a transition without allowing evidence failure to block safety."""
 
         try:
-            self._commit_transition(entry)
+            self.recorder.commit(entry)
         except Exception as error:
             self._indeterminate = True
             self.problems.append(
@@ -1361,7 +1076,6 @@ class RunEffectInterpreter:
                     point_index=entry.point_index,
                     instrument_id=entry.instrument_id,
                     phase=ProblemPhase.PERSISTENCE,
-                    category=ProblemCategory.STORAGE,
                 )
             )
         except BaseException as error:
@@ -1395,7 +1109,6 @@ class RunEffectInterpreter:
             operation_id=operation_id,
             point_index=point_index,
             instrument_id=instrument_id,
-            category=ProblemCategory.INTERRUPTED,
             details={
                 "exception_type": f"{type(error).__module__}.{type(error).__qualname__}"
             },
@@ -1412,7 +1125,6 @@ class RunEffectInterpreter:
         point_index: int | None = None,
         instrument_id: str | None = None,
         phase: ProblemPhase = ProblemPhase.EXECUTION,
-        category: ProblemCategory = ProblemCategory.OPERATION,
         details: Mapping[str, object] | None = None,
     ) -> Problem:
         return runtime_problem(
@@ -1423,7 +1135,6 @@ class RunEffectInterpreter:
             point_index=point_index,
             instrument_id=instrument_id,
             phase=phase,
-            category=category,
             details=details,
         )
 
@@ -1437,7 +1148,6 @@ class RunEffectInterpreter:
         point_index: int | None = None,
         instrument_id: str | None = None,
         phase: ProblemPhase = ProblemPhase.EXECUTION,
-        category: ProblemCategory = ProblemCategory.EXTERNAL_FAILURE,
     ) -> Problem:
         return problem_from_exception(
             code,
@@ -1448,18 +1158,14 @@ class RunEffectInterpreter:
             point_index=point_index,
             instrument_id=instrument_id,
             phase=phase,
-            category=category,
         )
 
     def _result(self) -> RunEffectResult:
         return RunEffectResult(
-            run_id=self.run_id,
-            experiment_id=self.experiment_id,
             problems=tuple(self.problems),
             initial_state=tuple(self.initial_state),
             final_state=tuple(self.final_state),
             admitted_points=self.point_ledger.points,
-            measurement_values=tuple(self.measurement_values),
             indeterminate=self._indeterminate,
             domain_failure=self.domain_failure,
             coverage_failure=self.coverage_failure,
@@ -1522,7 +1228,7 @@ def _execution_state_target_identity(
 
 
 def _referenced_payloads(
-    fields: Sequence[InstrumentStateCommandField | InstrumentActionCommandField],
+    fields: Sequence[InstrumentStateCommandField],
     payloads: Mapping[str, CommandPayload],
 ) -> dict[str, CommandPayload]:
     referenced: dict[str, CommandPayload] = {}

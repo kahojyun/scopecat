@@ -3,8 +3,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 
-from scopecat.compiler.frontend.environment import validate_config_environment
-from scopecat.compiler.linking.linked import LinkedPointMaterializer
+from scopecat.compiler.frontend.environment import build_config_environment
+from scopecat.compiler.linking.linked import link_program, materialize_linked_points
 from scopecat.compiler.relations.evaluation import ParameterRelationData
 from scopecat.compiler.typed.program import CoreProgram
 from scopecat.execution.local.program import (
@@ -25,7 +25,6 @@ from tests.testkit.local_materialization import (
     LocalEffectInspection,
     materialize_local_execution,
 )
-from tests.testkit.typed_program import link_program
 
 
 def config_with_physical_resources(
@@ -79,7 +78,7 @@ def materialized_effects_contract(
     config: ConfigProfileSnapshot | None = None,
 ) -> LocalEffectInspection:
     environment = replace(
-        validate_config_environment(config or load_config()),
+        build_config_environment(config or load_config()),
         parameters=parameters,
     )
     return materialize_local_execution(link_program(experiment, environment))
@@ -92,12 +91,10 @@ def measurement_projection_contract(
     config: ConfigProfileSnapshot | None = None,
 ) -> MeasurementProjection:
     environment = replace(
-        validate_config_environment(config or load_config()),
+        build_config_environment(config or load_config()),
         parameters=parameters,
     )
-    linked_points = LinkedPointMaterializer(
-        link_program(experiment, environment)
-    ).materialize()
+    linked_points = materialize_linked_points(link_program(experiment, environment))
     return select_measurement_projection(
         project_measurement_catalog(linked_points),
         linked_points.linked_plan.program.record_uses,

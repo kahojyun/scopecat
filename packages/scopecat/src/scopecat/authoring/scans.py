@@ -8,25 +8,27 @@ compiler relation graph and the durable ``RunRequest`` value domain.
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping, Sequence
-from typing import Literal, cast, overload
+from collections.abc import Sequence
+from typing import cast, overload
 
-from scopecat.authoring._frozen_values import freeze_runtime_input
-from scopecat.authoring._parameter_contracts import (
-    ParameterContract,
-    ParameterValueContract,
+from scopecat.authoring._frozen_values import capture_runtime_input
+from scopecat.authoring._scan_intents import (
+    CartesianScanIntent as _CartesianScanIntent,
 )
 from scopecat.authoring._scan_intents import (
-    ParameterRow as ParameterRow,
+    CenteredParameterScanIntent as _CenteredParameterScanIntent,
 )
 from scopecat.authoring._scan_intents import (
-    ParameterRowIntent as _ParameterRowIntent,
+    CenteredPointScanIntent as _CenteredPointScanIntent,
 )
 from scopecat.authoring._scan_intents import (
-    ParameterScanIntent as _ParameterScanIntent,
+    ExplicitParameterScanIntent as _ExplicitParameterScanIntent,
 )
 from scopecat.authoring._scan_intents import (
-    PointScanIntent as _PointScanIntent,
+    ExplicitPointScanIntent as _ExplicitPointScanIntent,
+)
+from scopecat.authoring._scan_intents import (
+    ImplicitScanCenter as _ImplicitScanCenter,
 )
 from scopecat.authoring._scan_intents import (
     Scan as Scan,
@@ -35,24 +37,18 @@ from scopecat.authoring._scan_intents import (
     ScanCenter as ScanCenter,
 )
 from scopecat.authoring._scan_intents import (
-    ScanGroupIntent as _ScanGroupIntent,
-)
-from scopecat.authoring._scan_intents import (
     ScanValue as ScanValue,
 )
+from scopecat.authoring._scan_intents import iter_scan_leaves
 from scopecat.authoring._value_refs import (
     ValueRef,
-    internal_value_ref_parameter_contracts,
+    internal_value_ref_parameter_lookup,
     internal_value_ref_point_id,
 )
-from scopecat.authoring.values import ParameterKeyInput
-from scopecat.compiler.relations.model import ParameterLookupUse
 from scopecat.kernel.units import compatible_units, unit_kind
-from scopecat.kernel.value_type_compatibility import literal_scalar_type
 from scopecat.kernel.value_types import Quantity as QuantityType
 from scopecat.kernel.value_types import Scalar
 from scopecat.kernel.value_validation import validate_literal
-from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import Quantity
 
 
@@ -67,47 +63,43 @@ def axis(
 ) -> Scan:
     """Scan one typed point value over explicit values or around a center."""
 
-    point_id = _point_target_id(target)
+    _point_target_id(target)
     selected_values = tuple(values)
     if selected_values and any(item is not None for item in (center, span, points)):
         msg = "scan axis accepts either values or center/span/points, not both"
         raise ValueError(msg)
     if selected_values:
         _validate_scan_values(target, selected_values, unit=unit)
-    elif any(item is not None for item in (center, span, points)):
-        if center is None or span is None or points is None:
+        return _ExplicitPointScanIntent(
+            target=target,
+            values=tuple(
+                cast("ScanValue", capture_runtime_input(value))
+                for value in selected_values
+            ),
+            unit=unit,
+        )
+    if center is None or span is None or points is None:
+        if any(item is not None for item in (center, span, points)):
             msg = "scan axis around form requires center, span, and points"
-            raise ValueError(msg)
-        _validate_around_scan(target, center=center, span=span, points=points)
-    else:
-        msg = "scan axis requires values or center/span/points"
+        else:
+            msg = "scan axis requires values or center/span/points"
         raise ValueError(msg)
-    captured_values = tuple(
-        cast("ScanValue", freeze_runtime_input(value)) for value in selected_values
+    captured_span = _validate_around_scan(
+        target,
+        center=center,
+        span=span,
+        points=points,
     )
     captured_center = (
         center
-        if center is None or isinstance(center, ValueRef)
-        else cast("Quantity", freeze_runtime_input(center))
+        if isinstance(center, ValueRef)
+        else cast("Quantity", capture_runtime_input(center))
     )
-    captured_span = (
-        cast("Quantity", freeze_runtime_input(span))
-        if isinstance(span, Quantity)
-        else span
-    )
-    return _PointScanIntent(
+    return _CenteredPointScanIntent(
         target=target,
-        point_id=point_id,
-        point_values=captured_values,
-        unit=unit,
         center=captured_center,
         span=captured_span,
-        point_count=points,
-        parameter_contracts=(
-            _value_parameter_contracts(captured_center)
-            if captured_center is not None
-            else ()
-        ),
+        points=points,
     )
 
 
@@ -140,8 +132,7 @@ def build_scan(
 @overload
 def param_axis(
     target: ValueRef,
-    row: ParameterRow,
-    column: str,
+    lookup: ValueRef,
     values: Sequence[ScanValue],
     *,
     unit: str | None = None,
@@ -151,8 +142,7 @@ def param_axis(
 @overload
 def param_axis(
     target: ValueRef,
-    row: ParameterRow,
-    column: str,
+    lookup: ValueRef,
     *,
     span: Quantity | str,
     points: int,
@@ -161,8 +151,7 @@ def param_axis(
 
 def param_axis(
     target: ValueRef,
-    row: ParameterRow,
-    column: str,
+    lookup: ValueRef,
     values: Sequence[ScanValue] = (),
     *,
     unit: str | None = None,
@@ -178,102 +167,56 @@ def param_axis(
     mutating accepted parameter state.
     """
 
-    point_id = _point_target_id(target)
-    if not isinstance(row, _ParameterRowIntent):
-        msg = "parameter scan row must be created with scopecat.param_row"
+    _point_target_id(target)
+    if internal_value_ref_parameter_lookup(lookup) is None:
+        msg = "parameter scan requires a direct scopecat.parameter_lookup"
         raise TypeError(msg)
-    if not column:
-        msg = "parameter scan column must be non-empty"
-        raise ValueError(msg)
+    if lookup.value_type != target.value_type:
+        msg = "parameter scan lookup and point must use the same value type"
+        raise TypeError(msg)
     selected_values = tuple(values)
     if selected_values and any(item is not None for item in (span, points)):
         msg = "parameter scan accepts either values or span/points, not both"
         raise ValueError(msg)
     if selected_values:
         _validate_scan_values(target, selected_values, unit=unit)
-    elif any(item is not None for item in (span, points)):
-        if span is None or points is None:
-            msg = "parameter scan around form requires span and points"
-            raise ValueError(msg)
-        if unit is not None:
-            msg = "parameter scan unit is only valid with explicit values"
-            raise ValueError(msg)
-        _validate_around_target(target, points=points)
-        _validate_scan_span(target, span)
-    else:
-        msg = "parameter scan requires values or span and points"
-        raise ValueError(msg)
-    captured_values = tuple(
-        cast("ScanValue", freeze_runtime_input(value)) for value in selected_values
-    )
-    captured_span = (
-        cast("Quantity", freeze_runtime_input(span))
-        if isinstance(span, Quantity)
-        else span
-    )
-    return _ParameterScanIntent(
-        target=target,
-        point_id=point_id,
-        table_id=row.table_id,
-        key=row.key,
-        column=column,
-        values=captured_values,
-        unit=unit,
-        span=captured_span,
-        point_count=points,
-        parameter_contracts=(
-            ParameterLookupUse(
-                table_id=row.table_id,
-                key_input_types=tuple(
-                    (name, _parameter_key_value_type(value)) for name, value in row.key
-                ),
-                literal_key_columns=frozenset(
-                    name for name, value in row.key if not isinstance(value, ValueRef)
-                ),
-                column_id=column,
-                result_type=cast("Scalar", target.value_type),
+        return _ExplicitParameterScanIntent(
+            target=target,
+            lookup=lookup,
+            values=tuple(
+                cast("ScanValue", capture_runtime_input(value))
+                for value in selected_values
             ),
-        ),
+            unit=unit,
+        )
+    if span is None or points is None:
+        if any(item is not None for item in (span, points)):
+            msg = "parameter scan around form requires span and points"
+        else:
+            msg = "parameter scan requires values or span and points"
+        raise ValueError(msg)
+    if unit is not None:
+        msg = "parameter scan unit is only valid with explicit values"
+        raise ValueError(msg)
+    target_type = _validate_around_target(target, points=points)
+    captured_span = _validate_scan_span(target_type, span)
+    return _CenteredParameterScanIntent(
+        target=target,
+        lookup=lookup,
+        span=captured_span,
+        points=points,
     )
 
 
 def cartesian(*scans: Scan) -> Scan:
-    """Compose scans by Cartesian product."""
+    """Compose scans by a flat Cartesian product."""
 
-    return _scan_group("cartesian", scans)
-
-
-def zip(*scans: Scan) -> Scan:  # noqa: A001
-    """Compose scans point-wise, requiring equal materialized lengths."""
-
-    return _scan_group("zip", scans)
-
-
-def param_row(table_id: str, **key: ParameterKeyInput) -> ParameterRow:
-    """Select one parameter-table row for a parameter scan."""
-
-    if not table_id:
-        msg = "parameter row table id must be non-empty"
+    if not scans:
+        msg = "cartesian scan group requires at least one scan"
         raise ValueError(msg)
-    selected = cast("Mapping[object, object]", key)
-    invalid = [
-        name
-        for name, value in selected.items()
-        if not isinstance(name, str) or not name or not _is_parameter_key(value)
-    ]
-    if invalid:
-        msg = "parameter row keys require non-empty names and typed scalar values"
-        raise TypeError(msg)
-    captured_key = tuple(
-        (
-            name,
-            value
-            if isinstance(value, ValueRef)
-            else cast("ParameterKeyInput", freeze_runtime_input(value)),
-        )
-        for name, value in key.items()
+    return _CartesianScanIntent(
+        scans=tuple(leaf for scan in scans for leaf in iter_scan_leaves(scan))
     )
-    return _ParameterRowIntent(table_id=table_id, key=captured_key)
 
 
 def _implicit_around_axis(
@@ -282,36 +225,15 @@ def _implicit_around_axis(
     span: Quantity | str,
     points: int,
 ) -> Scan:
-    point_id = _point_target_id(target)
-    _validate_around_target(target, points=points)
-    _validate_scan_span(target, span)
-    captured_span = (
-        cast("Quantity", freeze_runtime_input(span))
-        if isinstance(span, Quantity)
-        else span
-    )
-    return _PointScanIntent(
+    _point_target_id(target)
+    target_type = _validate_around_target(target, points=points)
+    captured_span = _validate_scan_span(target_type, span)
+    return _CenteredPointScanIntent(
         target=target,
-        point_id=point_id,
+        center=_ImplicitScanCenter(),
         span=captured_span,
-        point_count=points,
-        implicit_center=True,
-        parameter_contracts=(
-            ParameterValueContract(
-                parameter_id=point_id,
-                value_type=cast("Scalar", target.value_type),
-            ),
-        ),
+        points=points,
     )
-
-
-def _scan_group(kind: Literal["cartesian", "zip"], scans: Sequence[Scan]) -> Scan:
-    minimum = 2 if kind == "zip" else 1
-    if len(scans) < minimum:
-        count = "two" if minimum == 2 else "one"
-        msg = f"{kind} scan group requires at least {count} scans"
-        raise ValueError(msg)
-    return _ScanGroupIntent(kind=kind, scans=tuple(scans))
 
 
 def _point_target_id(target: ValueRef) -> str:
@@ -351,9 +273,9 @@ def _validate_around_scan(
     center: ScanCenter,
     span: Quantity | str,
     points: int,
-) -> None:
-    _validate_around_target(target, points=points)
-    _validate_scan_span(target, span)
+) -> Quantity:
+    target_type = _validate_around_target(target, points=points)
+    captured_span = _validate_scan_span(target_type, span)
     if isinstance(center, ValueRef):
         if not isinstance(center.value_type, Scalar) or not isinstance(
             center.value_type.atom, QuantityType
@@ -362,14 +284,15 @@ def _validate_around_scan(
             raise TypeError(msg)
         _require_compatible_quantity_types(
             center.value_type.atom,
-            cast("QuantityType", cast("Scalar", target.value_type).atom),
+            target_type,
             path="scan.center",
         )
-        return
+        return captured_span
     validate_literal(target.value_type, center, path=("scan", "center"))
+    return captured_span
 
 
-def _validate_around_target(target: ValueRef, *, points: int) -> None:
+def _validate_around_target(target: ValueRef, *, points: int) -> QuantityType:
     target_type = target.value_type
     if not isinstance(target_type, Scalar) or not isinstance(
         target_type.atom, QuantityType
@@ -379,18 +302,19 @@ def _validate_around_target(target: ValueRef, *, points: int) -> None:
     if points < 2:
         msg = "scan axis points must be at least 2"
         raise ValueError(msg)
+    return target_type.atom
 
 
-def _validate_scan_span(target: ValueRef, span: Quantity | str) -> None:
-    selected = _parse_scan_quantity(span, path="scan.span")
-    target_type = target.value_type
-    if not isinstance(target_type, Scalar) or not isinstance(
-        target_type.atom, QuantityType
-    ):
-        msg = "around scan target must be a typed quantity point"
-        raise TypeError(msg)
-    expected_dimension = target_type.atom.dimension or (
-        unit_kind(target_type.atom.unit) if target_type.atom.unit is not None else None
+def _validate_scan_span(
+    target_type: QuantityType,
+    span: Quantity | str,
+) -> Quantity:
+    selected = cast(
+        "Quantity",
+        capture_runtime_input(_parse_scan_quantity(span, path="scan.span")),
+    )
+    expected_dimension = target_type.dimension or (
+        unit_kind(target_type.unit) if target_type.unit is not None else None
     )
     if (
         expected_dimension is not None
@@ -401,6 +325,7 @@ def _validate_scan_span(target: ValueRef, span: Quantity | str) -> None:
             f"point dimension {expected_dimension!r}"
         )
         raise TypeError(msg)
+    return selected
 
 
 def _require_compatible_quantity_types(
@@ -441,36 +366,11 @@ def _parse_scan_quantity(value: Quantity | str, *, path: str) -> Quantity:
     raise TypeError(msg)
 
 
-def _is_parameter_key(value: object) -> bool:
-    return (
-        value is None
-        or isinstance(value, Quantity | EntityRef | str | int | float | bool)
-        or (isinstance(value, ValueRef) and isinstance(value.value_type, Scalar))
-    )
-
-
-def _parameter_key_value_type(value: ParameterKeyInput) -> Scalar:
-    if isinstance(value, ValueRef):
-        return cast("Scalar", value.value_type)
-    return literal_scalar_type(value)
-
-
-def _value_parameter_contracts(value: object) -> tuple[ParameterContract, ...]:
-    return (
-        internal_value_ref_parameter_contracts(value)
-        if isinstance(value, ValueRef)
-        else ()
-    )
-
-
 __all__ = [
-    "ParameterRow",
     "Scan",
     "ScanCenter",
     "ScanValue",
     "axis",
     "cartesian",
     "param_axis",
-    "param_row",
-    "zip",
 ]

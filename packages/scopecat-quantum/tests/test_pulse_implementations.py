@@ -36,6 +36,7 @@ from scopecat_quantum.gates import (
 from scopecat_quantum.pulse_implementations import (
     GatePulseImplementation,
     GatePulseImplementationArgument,
+    GatePulseImplementationBinding,
     GatePulseImplementationKey,
     MeasurementPulseImplementation,
     MeasurementPulseImplementationKey,
@@ -192,13 +193,18 @@ def test_bindings_have_exact_gate_call_coverage() -> None:
         _implementations(_implementation("x-q0", first, pulse_template=pulse)),
     )
 
-    assert bindings.operation_ids == (first.id, second.id)
-    assert bindings.gates.gate_call_ids == (first.id, second.id)
-    assert tuple(binding.call_id for binding in bindings.gates.bindings) == (
+    assert all(
+        isinstance(binding, GatePulseImplementationBinding)
+        for binding in bindings.bindings
+    )
+    assert tuple(
+        binding.call_id
+        for binding in bindings.bindings
+        if isinstance(binding, GatePulseImplementationBinding)
+    ) == (
         first.id,
         second.id,
     )
-    assert bindings.gates.binding_for(first.id).pulse_template is pulse
     assert bindings.binding_for(first.id).pulse_template is pulse
 
 
@@ -253,8 +259,9 @@ def test_named_argument_order_does_not_change_implementation_bindings() -> None:
         _implementations(_implementation("rotate", implementation_call)),
     )
 
-    assert bindings.gates.gate_call_ids == (program_call.id,)
-    assert bindings.gates.bindings[0].key.arguments == (
+    [binding] = bindings.bindings
+    assert isinstance(binding, GatePulseImplementationBinding)
+    assert binding.key.arguments == (
         GatePulseImplementationArgument(id="angle", value=Quantity(0.5, "rad")),
         GatePulseImplementationArgument(id="phase", value=Quantity(0.25, "rad")),
     )
@@ -280,7 +287,9 @@ def test_equivalent_angle_units_have_one_exact_implementation_key() -> None:
         _implementations(implementation),
     )
 
-    assert bindings.gates.bindings[0].key == implementation.key
+    [binding] = bindings.bindings
+    assert isinstance(binding, GatePulseImplementationBinding)
+    assert binding.key == implementation.key
     assert implementation.key.arguments[0].value == Quantity(
         3.14159265359,
         "rad",

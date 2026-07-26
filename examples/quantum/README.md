@@ -28,7 +28,7 @@ notebook process while all durable effects pass through the daemon. Set
 
 Keep infrastructure descriptions under `config/` and initial parameter tables
 in `quantum_lab_demo.parameters`. The project application parses the typed
-system and environment schemas, builds table values with Python, and combines
+system schema, builds table values with Python, and combines
 them into one immutable bootstrap snapshot before crossing the daemon boundary:
 
 ```python
@@ -47,8 +47,8 @@ active selection, activation history, and the exact snapshot accepted by each
 run. Restarting the daemon does not reapply the bootstrap profile over a later
 operator selection.
 
-System topology, connection resources, and virtual instrument behavior remain
-JSON assets because they are not the table-editing workflow demonstrated here.
+System entities, instrument routing, and virtual instrument behavior remain JSON
+assets because they are not the table-editing workflow demonstrated here.
 Scalar and table parameter values are ordinary reviewed Python source.
 After changing that source, use `scopecat config diff examples/quantum` and
 `scopecat config apply examples/quantum` to compare and publish it explicitly.
@@ -123,7 +123,7 @@ The support package separates code by why it exists:
 | `quantum_lab_demo.workflows` | Recommended, user-copyable vertical workflows. Import a specific workflow module rather than a package-wide barrel. |
 | `quantum_lab_demo.scenarios` | Integration boundaries that intentionally depart from normal domain authoring. |
 | `quantum_lab_demo.application` | Version-controlled daemon composition loaded from `scopecat.toml`. |
-| `scopecat.open_project` | Core notebook client discovery and delegated execution against the shared daemon. |
+| `scopecat.open_project` | Core notebook client discovery and execution against the shared daemon. |
 | `scopecat_quantum.standard_gates` | Opt-in conventional hardware-independent gate semantics. |
 | `quantum_lab_demo.virtual_lab.compiler_parameters` | Materialize typed point-effective compiler values from parameter collections. |
 | `quantum_lab_demo.virtual_lab.pulse_profile` | Declare compiler-owned recipes and map them over those values. |
@@ -170,8 +170,7 @@ objects.
 A program or circuit collection is not part of the normal model: static
 elements compose recursively, while experiment variation belongs to scan axes.
 The opaque collection notebook exists only for a target without a domain
-compiler. Raw-trace dtype and shape propagation similarly stay focused contract
-tests rather than another user-facing experiment.
+compiler.
 
 ## Checks
 

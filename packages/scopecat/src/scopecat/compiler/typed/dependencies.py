@@ -25,14 +25,9 @@ from scopecat.compiler.typed.program import (
     ComputeEdge,
     CoreProgram,
     TypedComputeNode,
-    core_actions,
     core_state,
 )
-from scopecat.compiler.typed.state import (
-    ForEachStateSpec,
-    SetStateSpec,
-    StateSpecVariant,
-)
+from scopecat.compiler.typed.state import SetStateSpec
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,7 +56,7 @@ class VariationAnalysis:
     parameters: PointVariationSupport
     resource_entities: Mapping[str, PointVariationSupport]
     compute: Mapping[OperationId, PointVariationSupport]
-    state: tuple[PointVariationSupport, ...]
+    state: Mapping[int, PointVariationSupport]
 
 
 class ComputeScope(StrEnum):
@@ -152,12 +147,6 @@ def analyze_compute_plan(program: CoreProgram) -> ComputePlan:
         for spec in core_state(program)
         for value_id in _state_compute_results(spec)
     }
-    demanded.update(
-        field.value_use.value_id
-        for action in core_actions(program)
-        for field in action.fields
-        if isinstance(field.value_use, ComputeResultRef)
-    )
     return ComputePlan(
         nodes=program.compute_nodes,
         scopes=MappingProxyType(scopes),
@@ -167,15 +156,11 @@ def analyze_compute_plan(program: CoreProgram) -> ComputePlan:
     )
 
 
-def _state_compute_results(spec: StateSpecVariant) -> tuple[ValueId, ...]:
-    if isinstance(spec, SetStateSpec):
-        return (
-            (spec.value_use.value_id,)
-            if isinstance(spec.value_use, ComputeResultRef)
-            else ()
-        )
-    return tuple(
-        value_id for child in spec.state for value_id in _state_compute_results(child)
+def _state_compute_results(spec: SetStateSpec) -> tuple[ValueId, ...]:
+    return (
+        (spec.value_use.value_id,)
+        if isinstance(spec.value_use, ComputeResultRef)
+        else ()
     )
 
 
@@ -279,12 +264,7 @@ def analyze_variation_support(
             )
         )
 
-    def spec_support(spec: StateSpecVariant) -> PointVariationSupport:
-        if isinstance(spec, ForEachStateSpec):
-            selected = value_support(spec.relation_use.value)
-            for child in spec.state:
-                selected = selected.merged(spec_support(child))
-            return selected
+    def spec_support(spec: SetStateSpec) -> PointVariationSupport:
         selected = PointVariationSupport()
         selected = selected.merged(
             resource_entity_support[spec.resource_target.port_id.qualified_name]
@@ -302,7 +282,13 @@ def analyze_variation_support(
         parameters=parameter_support,
         resource_entities=resource_entity_support,
         compute=compute_support,
-        state=tuple(spec_support(spec) for spec in core_state(program)),
+        state=MappingProxyType(
+            {
+                effect_index: spec_support(effect)
+                for effect_index, effect in enumerate(program.effects)
+                if isinstance(effect, SetStateSpec)
+            }
+        ),
     )
 
 

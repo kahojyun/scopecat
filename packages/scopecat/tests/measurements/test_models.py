@@ -8,9 +8,7 @@ from scopecat.records.measurement import (
     ComplexQuantity,
     MeasurementArray,
     MeasurementDataset,
-    MeasurementDatasetReadContract,
     MeasurementRecord,
-    infer_measurement_dataset_schema,
 )
 from scopecat.records.parameter import Quantity
 from tests.testkit.measurement_models import signal_point_schema, signal_record
@@ -96,7 +94,7 @@ def test_typed_measurement_array_leaves_survive_record_round_trip() -> None:
     assert probability.values == original_probability.values
 
 
-def test_complex_measurement_record_round_trip_and_infers_dtype() -> None:
+def test_complex_measurement_record_round_trip() -> None:
     measurement = MeasurementRecord(
         run_id="run-test",
         point_index=0,
@@ -108,17 +106,10 @@ def test_complex_measurement_record_round_trip_and_infers_dtype() -> None:
 
     restored = assert_model_round_trip(measurement)
     raw_iq = restored.observables["raw_iq"]
-    schema = infer_measurement_dataset_schema(
-        dataset_id="raw-measurements",
-        dataset_role="raw",
-        records=[restored],
-    )
-    variables = {variable.id: variable for variable in schema.variables}
 
     assert isinstance(raw_iq, ComplexQuantity)
     assert raw_iq.real == 0.3
     assert raw_iq.imag == -0.4
-    assert variables["raw_iq"].dtype == "complex128"
 
 
 def test_measurement_dataset_schema_round_trip() -> None:
@@ -132,93 +123,19 @@ def test_measurement_dataset_schema_round_trip() -> None:
     assert restored.primary_observables == ["signal"]
 
 
-def test_infer_measurement_dataset_schema_from_records() -> None:
-    records = [
-        signal_record(point_index=0, drive_frequency=5.0, signal=0.5),
-        signal_record(point_index=1, drive_frequency=5.1, signal=0.6),
-    ]
-
-    schema = infer_measurement_dataset_schema(
-        dataset_id="raw-measurements",
-        dataset_role="raw",
-        records=records,
-    )
-    variables = {variable.id: variable for variable in schema.variables}
-
-    assert schema.dimensions[0].id == "point"
-    assert schema.dimensions[0].size == 2
-    assert schema.primary_coordinates == ["drive_frequency"]
-    assert schema.primary_observables == ["signal"]
-    assert variables["drive_frequency"].role == "coordinate"
-    assert variables["drive_frequency"].unit == "GHz"
-    assert variables["drive_frequency"].shape == [2]
-    assert variables["signal"].role == "observable"
-    assert variables["signal"].unit == "ratio"
-
-
-def test_infer_measurement_dataset_schema_from_array_records() -> None:
-    records = [
-        MeasurementRecord(
-            run_id="run-test",
-            point_index=0,
-            coordinates={},
-            observables={
-                "i0": MeasurementArray(
-                    dtype="float64",
-                    unit="ratio",
-                    shape=[3],
-                    values=[0.1, 0.2, 0.3],
-                )
-            },
-        ),
-    ]
-
-    schema = infer_measurement_dataset_schema(
-        dataset_id="raw-measurements",
-        dataset_role="raw",
-        records=records,
-    )
-    variables = {variable.id: variable for variable in schema.variables}
-    dimensions = {dimension.id: dimension for dimension in schema.dimensions}
-
-    assert dimensions["point"].size == 1
-    assert dimensions["i0_dim_0"].kind == "array"
-    assert dimensions["i0_dim_0"].size == 3
-    assert variables["i0"].dims == ["point", "i0_dim_0"]
-    assert variables["i0"].shape == [1, 3]
-
-
 def test_measurement_dataset_round_trip() -> None:
     record = signal_record()
-    schema = infer_measurement_dataset_schema(
-        dataset_id="raw-measurements",
-        dataset_role="raw",
-        records=[record],
-    )
+    schema = signal_point_schema()
     dataset = MeasurementDataset(
-        dataset_id="raw-measurements",
         schema=schema,
         records=[record],
         metadata={"dataset_role": "raw"},
     )
     restored = assert_model_round_trip(dataset)
 
-    assert restored.dataset_id == "raw-measurements"
+    assert restored.dataset_schema.dataset_id == "raw-measurements"
     assert restored.dataset_schema.primary_observables == ["signal"]
     assert restored.records[0].point_index == 0
     assert dataset.model_dump(mode="json", by_alias=True)["schema"]["dataset_id"] == (
         "raw-measurements"
     )
-
-
-def test_measurement_dataset_read_contract_is_typed() -> None:
-    contract = MeasurementDatasetReadContract(
-        missing_code="missing",
-        empty_code="empty",
-        invalid_code="invalid",
-        missing_schema_code="missing_schema",
-        invalid_schema_code="invalid_schema",
-        noun="measurement dataset",
-    )
-
-    assert contract.missing_schema_code == "missing_schema"

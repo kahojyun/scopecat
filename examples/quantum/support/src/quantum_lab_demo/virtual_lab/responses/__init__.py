@@ -13,16 +13,11 @@ from scopecat.sdk.instruments import (
     CollectProductRequest,
 )
 
-from quantum_lab_demo.virtual_lab.devices import VirtualDevice
-
 
 def record_quantum_measurement(
     *,
     command: CollectCommand,
-    readout: VirtualDevice,
-    implementation_id: str,
 ) -> dict[str, MeasurementValue]:
-    del readout, implementation_id
     requested_keys = {request.id for request in command.requests}
     products: dict[str, MeasurementValue] = {}
     scalar_products = [

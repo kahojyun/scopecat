@@ -1,49 +1,52 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from copy import deepcopy
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Literal
 
 from scopecat.api.run import (
     RunHandle,
     RunOperations,
     run_handle_id,
 )
-from scopecat.application.services import ProjectServices
+from scopecat.application.services import ProjectStateServices
 from scopecat.authoring import ExperimentInvocation, ExperimentTemplate, ValueRef
 from scopecat.authoring.scans import Scan, ScanCenter, ScanValue
 from scopecat.compiler.frontend.environment import (
-    ValidatedConfigEnvironment,
-    validate_config_environment,
+    ConfigEnvironment,
+    build_config_environment,
 )
-from scopecat.compiler.frontend.invocation import prepare_invocation
+from scopecat.compiler.frontend.resolution import (
+    compile_invocation,
+    resolve_compiled_invocation,
+)
 from scopecat.compiler.linking.linked import (
     LinkedPlan,
-    LinkedPointMaterializer,
     MaterializedLinkedPoints,
-    link_verified_program,
+    materialize_linked_points,
+)
+from scopecat.compiler.linking.linked import (
+    link_program as link_core_program,
 )
 from scopecat.compiler.typed.program import CoreProgram
-from scopecat.compiler.typed.verification import seal_typed_program
 from scopecat.config.candidates import CandidateConfig
-from scopecat.config.changes import review_parameter_change_proposal
-from scopecat.config.profiles import load_config_profile
+from scopecat.config.changes import prepare_parameter_change_review
+from scopecat.config.registry import service as config_registry_service
+from scopecat.config.registry.records import (
+    ConfigRegistryActivationRecord,
+    ConfigRegistryActiveState,
+)
 from scopecat.config.resolution import (
-    ConfigActivation,
     ConfigProfileInput,
     RegisteredConfigActivation,
     register_and_activate_candidate_config,
-    register_and_activate_config_profile,
     resolve_experiment_config,
-    rollback_config,
 )
+from scopecat.execution.interpreter import execute_admitted_run
 from scopecat.execution.local.program import ComputeOperation, LocalOperation
 from scopecat.execution.observation import RuntimeEventSink, RuntimePayloadObserver
 from scopecat.execution.points import RunPoint
 from scopecat.execution.program import RunCoverageEffect
-from scopecat.kernel.problems import ProblemPhase
 from scopecat.kernel.resource_identity import ResourceClaim
 from scopecat.measurements._bridge import (
     project_measurement_catalog,
@@ -53,7 +56,6 @@ from scopecat.measurements.projection import (
     MeasurementProjection,
     select_measurement_projection,
 )
-from scopecat.planning.authoring import resolve_experiment
 from scopecat.planning.check_results import ExperimentCheckResult
 from scopecat.planning.local_effects import (
     MaterializedLocalEffects as LocalEffects,
@@ -72,18 +74,42 @@ from scopecat.records.parameter_change import (
     ParameterChangeReviewState,
 )
 from scopecat.runs.selectors import RunSelector
-from scopecat.runs.service import check_experiment, list_runs, run_experiment
-from scopecat.testing import ServiceRunOperations, sqlite_project_services
+from tests.testkit.runtime import (
+    ServiceRunOperations,
+    admit_test_run,
+    check_experiment,
+    list_test_runs,
+    plan_experiment,
+    sqlite_execution_session,
+    sqlite_project_services,
+)
 
 from quantum_lab_demo.compiler import QuantumLabCompiler, QuantumRealtimeLabCompiler
+from quantum_lab_demo.configuration import quantum_lab_bootstrap_config
 from quantum_lab_demo.lab import quantum_lab_config_profile, quantum_lab_system
 
-from .demo_lab_test_paths import EXPERIMENT_FIXTURE_DIR
 from .demo_lab_test_paths import (
     EXPERIMENT_VIRTUAL_LAB_PROFILE as TEST_VIRTUAL_LAB_PROFILE,
 )
 
 PathInput = str | Path
+
+
+@dataclass(frozen=True, slots=True)
+class _ConfigActivation:
+    active_state: ConfigRegistryActiveState
+    activation: ConfigRegistryActivationRecord
+
+
+def link_invocation(
+    invocation: ExperimentInvocation,
+    *,
+    config_profile: ConfigProfileSnapshot,
+) -> LinkedPlan:
+    return resolve_compiled_invocation(
+        compile_invocation(invocation),
+        environment=build_config_environment(config_profile),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,7 +146,7 @@ class InProcessPreparedExperiment:
 
     def check(self) -> ExperimentCheckResult:
         return check_experiment(
-            prepare_invocation(self.invocation),
+            self.invocation,
             services=self.lab.services,
             config=self.config,
             config_profile=self.config_profile,
@@ -138,12 +164,28 @@ class InProcessPreparedExperiment:
         event_sink: RuntimeEventSink | None = None,
         payload_observer: RuntimePayloadObserver | None = None,
     ) -> RunHandle:
-        manifest = run_experiment(
-            prepare_invocation(self.invocation),
+        planned = plan_experiment(
+            self.invocation,
             services=self.lab.services,
             config=self.config,
             config_profile=self.config_profile,
             system=self.system,
+        )
+        accepted = admit_test_run(
+            config=planned.config,
+            request=planned.request,
+            repository=self.lab.services.runs,
+            config_source=planned.config_source,
+        )
+        manifest = execute_admitted_run(
+            program=planned.program,
+            session=sqlite_execution_session(
+                self.lab.project_root,
+                accepted.run_id,
+            ),
+            instrument_provider=(
+                None if planned.system is None else planned.system.provider
+            ),
             event_sink=event_sink,
             payload_observer=payload_observer,
         )
@@ -155,7 +197,7 @@ class InProcessQuantumLab:
     """Quantum integration harness; user workflows use the project daemon."""
 
     project_root: Path
-    services: ProjectServices
+    services: ProjectStateServices
     config: str | ConfigProfileSnapshot
     config_profile: ConfigProfileInput | None
     system: ExperimentSystem | None
@@ -168,7 +210,7 @@ class InProcessQuantumLab:
 
     def prepare(
         self,
-        experiment: ExperimentInvocation | ExperimentTemplate,
+        experiment: ExperimentInvocation | ExperimentTemplate[...],
         *,
         config: str | ConfigProfileSnapshot | CandidateConfig | None = None,
         config_profile: ConfigProfileInput | None = None,
@@ -197,7 +239,7 @@ class InProcessQuantumLab:
     def runs(self) -> tuple[RunHandle, ...]:
         return tuple(
             RunHandle(session=self, id=manifest.run_id)
-            for manifest in list_runs(services=self.services)
+            for manifest in list_test_runs(self.services.runs)
         )
 
     def resolve_config(
@@ -221,7 +263,7 @@ class InProcessQuantumLab:
         decision: ParameterChangeReviewState = "approved",
         note: str = "",
     ) -> ParameterChangeDecisionRecord:
-        return review_parameter_change_proposal(
+        prepared = prepare_parameter_change_review(
             run_id=run_handle_id(run),
             selector=selector,
             services=self.services,
@@ -229,6 +271,8 @@ class InProcessQuantumLab:
             reviewer=reviewer or self.reviewer,
             note=note,
         )
+        self.services.runs.publish_content(prepared.publication)
+        return prepared.decision
 
     def activate(
         self,
@@ -263,15 +307,29 @@ class InProcessQuantumLab:
         activation_note: str | None = None,
         expected_generation: int | None = None,
     ) -> RegisteredConfigActivation:
-        return register_and_activate_config_profile(
-            config=config,
-            services=self.services,
-            entry_id=entry_id,
-            registered_by=registered_by or self.operator,
-            operator=operator or self.operator,
-            note=note,
-            activation_note=activation_note,
-            expected_generation=expected_generation,
+        selected_generation = (
+            config_registry_service.current_config_registry_generation(
+                unit_of_work=self.services.config_registry
+            )
+            if expected_generation is None
+            else expected_generation
+        )
+        entry, active_state, activation = (
+            config_registry_service.register_and_activate_config_profile(
+                config=config,
+                unit_of_work=self.services.config_registry,
+                entry_id=entry_id,
+                registered_by=registered_by or self.operator,
+                operator=operator or self.operator,
+                note=note,
+                activation_note=activation_note,
+                expected_generation=selected_generation,
+            )
+        )
+        return RegisteredConfigActivation(
+            entry=entry,
+            active_state=active_state,
+            activation=activation,
         )
 
     def rollback(
@@ -280,12 +338,16 @@ class InProcessQuantumLab:
         expected_generation: int,
         operator: str | None = None,
         note: str = "",
-    ) -> ConfigActivation:
-        return rollback_config(
-            services=self.services,
+    ) -> _ConfigActivation:
+        active_state, activation = config_registry_service.rollback_config_registry(
+            unit_of_work=self.services.config_registry,
             operator=operator or self.operator,
             expected_generation=expected_generation,
             note=note,
+        )
+        return _ConfigActivation(
+            active_state=active_state,
+            activation=activation,
         )
 
 
@@ -323,48 +385,17 @@ class LocalEffectInspection:
     preamble_operations: tuple[ComputeOperation, ...] = ()
 
 
-_BIND_DOMAIN_INPUTS = LinkedPointMaterializer.bind_domain_inputs
-
-
-def reject_program_input_binding(
-    materializer: LinkedPointMaterializer,
-    execution_id: str,
-    input_kind: Literal["program", "compiler"],
-    input_ids: Sequence[str],
-    ordinals: Sequence[int],
-    *,
-    max_points: int,
-    coverage: MaterializedLinkedPoints | None = None,
-) -> tuple[tuple[str, tuple[object, ...]], ...]:
-    """Assert program normal forms suffice while allowing compiler collections."""
-
-    if input_kind == "program":
-        raise AssertionError("finite point axes must not bind program inputs")
-    return _BIND_DOMAIN_INPUTS(
-        materializer,
-        execution_id,
-        input_kind,
-        input_ids,
-        ordinals,
-        max_points=max_points,
-        coverage=coverage,
-    )
-
-
 def load_experiment_config() -> ConfigProfileSnapshot:
-    return load_config_profile(EXPERIMENT_FIXTURE_DIR / "config-profile.json")
+    return quantum_lab_bootstrap_config()
 
 
 def link_program(
     program: CoreProgram,
-    environment: ValidatedConfigEnvironment,
+    environment: ConfigEnvironment,
 ) -> LinkedPlan:
-    """Snapshot, seal, and link an externally constructed test program."""
+    """Link an externally constructed test program."""
 
-    return link_verified_program(
-        seal_typed_program(deepcopy(program), phase=ProblemPhase.PLANNING),
-        environment,
-    )
+    return link_core_program(program, environment)
 
 
 def materialized_effects(
@@ -384,7 +415,6 @@ def materialized_effects(
     lowered: LocalEffects = materialize_local_execution(
         linked_points,
         target=target,
-        point_count=len(linked_points.point_domain.points),
     )
     ordered_effects = (
         *lowered.compute_operations,
@@ -462,11 +492,9 @@ def _materialized_linked_points(
     config: ConfigProfileSnapshot | None,
 ) -> MaterializedLinkedPoints:
     selected_config = config or load_experiment_config()
-    resolved = resolve_experiment(invocation, config_profile=selected_config)
+    resolved = link_invocation(invocation, config_profile=selected_config)
     environment = replace(
-        validate_config_environment(selected_config),
-        parameters=resolved.parameters,
+        build_config_environment(selected_config),
+        parameters=resolved.environment.parameters,
     )
-    return LinkedPointMaterializer(
-        link_program(resolved.experiment, environment)
-    ).materialize()
+    return materialize_linked_points(link_program(resolved.program, environment))

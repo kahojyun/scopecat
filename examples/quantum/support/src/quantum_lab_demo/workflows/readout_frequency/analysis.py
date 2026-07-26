@@ -13,10 +13,9 @@ from scopecat.records.parameter import Quantity
 from scopecat.runs.access import dataset_storage_ref
 from scopecat.sdk.problems import (
     Problem,
-    ProblemCategory,
     ProblemPhase,
-    blocking_problem,
     model_location,
+    problem,
 )
 
 from quantum_lab_demo.virtual_lab.responses.readout_frequency import (
@@ -320,10 +319,9 @@ def _problem(
     path: tuple[str | int, ...] = (input_ref,)
     if measurement is not None:
         path = (*path, "points", measurement.point_index)
-    return blocking_problem(
+    return problem(
         code,
         message,
-        category=ProblemCategory.INVALID_INPUT,
         phase=ProblemPhase.ANALYSIS,
         location=model_location("analysis_input", *path),
         details={"input_ref": input_ref},

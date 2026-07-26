@@ -32,9 +32,6 @@ _BINARY_IQ_SEMANTIC_VERSION = "1"
 _BINARY_IQ_IMPLEMENTATION_ID = (
     "scopecat_quantum.readout.binary_iq_discrimination.reference"
 )
-_BINARY_IQ_IMPLEMENTATION_FINGERPRINT = (
-    "scopecat-quantum.binary-iq-nearest-centroid.python.v1"
-)
 _IQ_SHOTS_ROLE = "iq_shots"
 _PROBABILITY_0_ROLE = "probability_0"
 _PROBABILITY_1_ROLE = "probability_1"
@@ -127,7 +124,6 @@ def _binary_iq_semantic(
     return MeasurementTransformSemanticContract(
         id=_BINARY_IQ_SEMANTIC_ID,
         version=_BINARY_IQ_SEMANTIC_VERSION,
-        portability="host_only",
         parameters={
             "discriminator": discriminator.model_dump(mode="json"),
         },
@@ -141,7 +137,6 @@ def binary_iq_probability_host_implementation() -> DomainHostTransformImplementa
         id=_BINARY_IQ_IMPLEMENTATION_ID,
         semantic_id=_BINARY_IQ_SEMANTIC_ID,
         semantic_version=_BINARY_IQ_SEMANTIC_VERSION,
-        implementation_fingerprint=_BINARY_IQ_IMPLEMENTATION_FINGERPRINT,
         validate_transform=_validate_binary_iq_probability_transform,
         kernel=_binary_iq_probability_kernel,
     )
@@ -213,9 +208,8 @@ def _discriminator_from_semantic(
     if (
         semantic.id != _BINARY_IQ_SEMANTIC_ID
         or semantic.version != _BINARY_IQ_SEMANTIC_VERSION
-        or semantic.portability != "host_only"
     ):
-        msg = "binary IQ semantics require the supported host-only semantic family"
+        msg = "binary IQ semantics require the supported semantic family"
         raise ValueError(msg)
     parameters = semantic.parameters
     if set(parameters) != {"discriminator"}:
@@ -315,16 +309,15 @@ def _validate_iq_shot_input(port: DomainTransformInputPort) -> None:
     product = port.product
     axes = product.axes
     if (
-        product.kind != "observable"
-        or product.dtype != "complex128"
+        product.dtype != "complex128"
         or product.unit != "ratio"
         or len(axes) != 1
         or axes[0].kind != "shot"
         or axes[0].size <= 0
     ):
         msg = (
-            "binary IQ input must be an observable complex128 ratio product "
-            "with one non-empty shot axis"
+            "binary IQ input must be a complex128 ratio product with one "
+            "non-empty shot axis"
         )
         raise ValueError(msg)
 
@@ -335,11 +328,6 @@ def _validate_probability_output(
     subject: str,
 ) -> None:
     product = port.product
-    if (
-        product.kind != "observable"
-        or product.dtype != "float64"
-        or product.unit != "ratio"
-        or product.axes
-    ):
-        msg = f"binary IQ {subject} must be a scalar float64 ratio observable"
+    if product.dtype != "float64" or product.unit != "ratio" or product.axes:
+        msg = f"binary IQ {subject} must be a scalar float64 ratio product"
         raise ValueError(msg)

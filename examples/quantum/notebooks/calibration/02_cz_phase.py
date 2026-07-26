@@ -6,8 +6,7 @@ from __future__ import annotations
 import scopecat as sc
 from quantum_lab_demo import EXAMPLE_ROOT
 from quantum_lab_demo.virtual_lab import (
-    CZ_AMPLITUDE_PARAMETER_COLUMN,
-    q0_q1_cz_row,
+    q0_q1_cz_amplitude_lookup,
 )
 from quantum_lab_demo.workflows.cz_phase_analysis import analyze_cz_phase_run
 from quantum_lab_demo.workflows.cz_phase_calibration import (
@@ -36,8 +35,7 @@ print(authoring_summary)
 lab = sc.open_project(EXAMPLE_ROOT).connect()
 cz_parameter_scan = sc.param_axis(
     CZ_AMPLITUDE,
-    q0_q1_cz_row(),
-    CZ_AMPLITUDE_PARAMETER_COLUMN,
+    q0_q1_cz_amplitude_lookup(),
     span=CZ_AMPLITUDE_SPAN,
     points=CZ_AMPLITUDE_POINTS,
 )

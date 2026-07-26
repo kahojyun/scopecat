@@ -50,15 +50,15 @@ def test_daemon_client_closes_config_provenance_loop(
 
     with sc.open_project(EXAMPLE_ROOT).connect(demo_daemon.url) as observer:
         detail = observer.control.run_detail(baseline.id)
+        request = observer.get_run(baseline.id).request
         candidate_detail = observer.control.run_detail(candidate_run.id)
         default_detail = observer.control.run_detail(default_run.id)
         proposals = observer.config.proposals(baseline.id)
         registry = observer.config.registry()
 
     assert detail.manifest.status == "completed"
-    assert detail.control.admission.request is not None
-    assert detail.control.admission.request.metadata["name"] == "first-use smoke"
-    assert detail.control.admission.request.metadata["tags"] == ["first-use"]
+    assert request.metadata["name"] == "first-use smoke"
+    assert request.metadata["tags"] == ["first-use"]
     assert saved.record.id == candidate.analysis_record_ids[0]
     candidate_source = candidate_detail.manifest.config_source
     assert isinstance(candidate_source, AnalysisCandidateRunConfigSource)

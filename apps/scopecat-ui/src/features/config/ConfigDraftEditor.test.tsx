@@ -4,13 +4,13 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { normalizeConfigProfileSnapshot } from "./config-api";
 import { ConfigDraftEditor, type ConfigDraftSeed } from "./ConfigDraftEditor";
 import type {
   ConfigDraftDefaultReceipt,
   ConfigDraftPreview,
   ConfigDraftRegistrationReceipt,
-} from "./config-types";
+  ConfigProfileSnapshot,
+} from "../../api-contract";
 
 const apiMocks = vi.hoisted(() => ({
   previewConfigDraft: vi.fn(),
@@ -59,10 +59,10 @@ describe("ConfigDraftEditor", () => {
 
     await waitFor(() => expect(apiMocks.previewConfigDraft).toHaveBeenCalled());
     expect(apiMocks.previewConfigDraft.mock.calls[0]?.[0]).toEqual({
-      baseEntryId: "config-a",
-      baseContentHash: HASH_A,
-      baseGeneration: 3,
-      candidateId: "profile-edit",
+      base_entry_id: "config-a",
+      base_content_hash: HASH_A,
+      base_generation: 3,
+      candidate_id: "profile-edit",
       updates: [
         {
           kind: "replace_parameter",
@@ -70,7 +70,6 @@ describe("ConfigDraftEditor", () => {
             id: "drive.frequency",
             shape: "scalar",
             value: { value: 5.2, unit: "GHz" },
-            metadata: {},
           },
         },
       ],
@@ -79,16 +78,16 @@ describe("ConfigDraftEditor", () => {
     expect(apiMocks.setConfigDraftDefault.mock.calls[0]?.[0]).toEqual({
       registration: {
         draft: expect.objectContaining({
-          baseEntryId: "config-a",
+          base_entry_id: "config-a",
           updates: expect.any(Array),
         }),
-        expectedResultContentHash: HASH_B,
-        entryId: "profile-edit-bbbbbbbbbbbb",
-        registeredBy: "Ada",
+        expected_result_content_hash: HASH_B,
+        entry_id: "profile-edit-bbbbbbbbbbbb",
+        registered_by: "Ada",
         note: "fresh calibration",
       },
       operator: "Ada",
-      activationNote: "fresh calibration",
+      activation_note: "fresh calibration",
     });
     expect(screen.getByText("Candidate is valid")).toBeInTheDocument();
     const comparison = screen.getByLabelText("Default to selected value");
@@ -117,10 +116,10 @@ describe("ConfigDraftEditor", () => {
 
     await waitFor(() => expect(apiMocks.registerConfigDraft).toHaveBeenCalled());
     expect(apiMocks.registerConfigDraft.mock.calls[0]?.[0]).toEqual({
-      draft: expect.objectContaining({ candidateId: "profile-edit" }),
-      expectedResultContentHash: HASH_B,
-      entryId: "calibration-candidate",
-      registeredBy: "Ada",
+      draft: expect.objectContaining({ candidate_id: "profile-edit" }),
+      expected_result_content_hash: HASH_B,
+      entry_id: "calibration-candidate",
+      registered_by: "Ada",
       note: "",
     });
     expect(apiMocks.setConfigDraftDefault).not.toHaveBeenCalled();
@@ -145,7 +144,7 @@ describe("ConfigDraftEditor", () => {
         updates: [
           {
             kind: "update_parameter_rows",
-            parameterId: "calibration",
+            parameter_id: "calibration",
             key: {
               entity: {
                 id: "q0",
@@ -199,8 +198,8 @@ describe("ConfigDraftEditor", () => {
 
     renderEditor(seed, undefined, {
       generation: 4,
-      entryId: "config-b",
-      contentHash: HASH_B,
+      active_entry_id: "config-b",
+      active_entry_content_hash: HASH_B,
     });
 
     expect(screen.getByText(/default configuration changed/i)).toBeInTheDocument();
@@ -230,16 +229,18 @@ function draftSeed(): ConfigDraftSeed {
   return {
     entry: {
       id: "config-a",
-      contentHash: HASH_A,
-      configRef: "entries/config-a.json",
-      registeredBy: "Ada",
-      registeredAt: "2026-07-24T08:00:00Z",
-      source: { kind: "direct_config_profile", proposalIds: [] },
+      content_hash: HASH_A,
+      config_ref: "entries/config-a.json",
+      registered_by: "Ada",
+      registered_at: "2026-07-24T08:00:00Z",
+      source: { kind: "direct_config_profile" },
+      note: "",
+      status: "registered",
     },
     active: {
       generation: 3,
-      entryId: "config-a",
-      contentHash: HASH_A,
+      active_entry_id: "config-a",
+      active_entry_content_hash: HASH_A,
     },
     config: snapshot(5, 6.5),
   };
@@ -249,18 +250,19 @@ function validPreview(
   seed: ConfigDraftSeed,
   config: ReturnType<typeof snapshot>,
 ): ConfigDraftPreview {
-  const before = seed.config.parameterSnapshot.values[0]!;
-  const after = config.parameterSnapshot.values[0]!;
+  const before = seed.config.parameter_snapshot.values?.[0];
+  const after = config.parameter_snapshot.values?.[0];
+  if (!before || !after) throw new Error("missing scalar fixture");
   return {
     valid: true,
-    baseEntry: seed.entry,
-    baseGeneration: seed.active.generation,
-    baseContentHash: seed.active.contentHash,
+    base_entry: seed.entry,
+    base_generation: seed.active.generation,
+    base_content_hash: seed.active.active_entry_content_hash,
     config,
-    resultContentHash: HASH_B,
+    result_content_hash: HASH_B,
     deltas: [
       {
-        parameterId: before.id,
+        parameter_id: before.id,
         before,
         after,
       },
@@ -273,19 +275,20 @@ function registrationReceipt(): ConfigDraftRegistrationReceipt {
   return {
     entry: {
       id: "config-a-edit",
-      contentHash: HASH_B,
-      configRef: "entries/config-a-edit.json",
-      registeredBy: "Ada",
-      registeredAt: "2026-07-24T08:10:00Z",
+      content_hash: HASH_B,
+      config_ref: "entries/config-a-edit.json",
+      registered_by: "Ada",
+      registered_at: "2026-07-24T08:10:00Z",
       source: {
         kind: "manual_parameter_updates",
-        proposalIds: [],
-        baseEntryId: "config-a",
-        baseContentHash: HASH_A,
-        baseGeneration: 3,
+        base_entry_id: "config-a",
+        base_config_content_hash: HASH_A,
+        base_registry_generation: 3,
       },
+      note: "",
+      status: "registered",
     },
-    resultContentHash: HASH_B,
+    result_content_hash: HASH_B,
     deltas: [],
   };
 }
@@ -296,28 +299,28 @@ function defaultReceipt(): ConfigDraftDefaultReceipt {
   return {
     ...registered,
     entry: { ...registered.entry, id: entryId },
-    activeState: {
+    active_state: {
       generation: 4,
-      entryId,
-      contentHash: HASH_B,
-      updatedAt: "2026-07-24T08:10:00Z",
+      active_entry_id: entryId,
+      active_entry_content_hash: HASH_B,
+      updated_at: "2026-07-24T08:10:00Z",
     },
     activation: {
       id: "activation-4",
       generation: 4,
       action: "activation",
-      entryId,
-      entryContentHash: HASH_B,
-      previousEntryId: "config-a",
+      entry_id: entryId,
+      entry_content_hash: HASH_B,
+      previous_entry_id: "config-a",
       operator: "Ada",
       note: "fresh calibration",
-      recordedAt: "2026-07-24T08:10:00Z",
+      recorded_at: "2026-07-24T08:10:00Z",
     },
   };
 }
 
-function snapshot(driveFrequency: number, readoutFrequency: number) {
-  return normalizeConfigProfileSnapshot({
+function snapshot(driveFrequency: number, readoutFrequency: number): ConfigProfileSnapshot {
+  return {
     id: "profile",
     system: {
       id: "system",
@@ -327,11 +330,6 @@ function snapshot(driveFrequency: number, readoutFrequency: number) {
           { id: "q0", kind: "logical_qubit", metadata: {} },
           { id: "q1", kind: "logical_qubit", metadata: {} },
         ],
-        devices: [],
-        links: [],
-        lines: [],
-        channels: [],
-        groups: [],
       },
       instrument_registry: { instruments: [] },
       routing: { bindings: [] },
@@ -371,10 +369,6 @@ function snapshot(driveFrequency: number, readoutFrequency: number) {
         ],
       },
     },
-    environment: {
-      id: "bench",
-      connection_profile: { connections: [] },
-    },
     parameter_snapshot: {
       id: "parameters",
       values: [
@@ -382,11 +376,6 @@ function snapshot(driveFrequency: number, readoutFrequency: number) {
           id: "drive.frequency",
           shape: "scalar",
           value: { value: driveFrequency, unit: "GHz" },
-          source_location: {
-            kind: "external",
-            uri: "old.xlsx",
-            path: [],
-          },
         },
         {
           id: "calibration",
@@ -404,5 +393,5 @@ function snapshot(driveFrequency: number, readoutFrequency: number) {
         },
       ],
     },
-  });
+  };
 }

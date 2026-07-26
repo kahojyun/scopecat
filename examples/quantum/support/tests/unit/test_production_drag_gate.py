@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from pathlib import Path
 
+import pytest
 from scopecat import Quantity
 from scopecat.authoring._value_refs import internal_lower_scalar_value_ref
 from scopecat.compiler.relations.model import LiteralScalarExpr
@@ -9,15 +11,23 @@ from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.entity import EntityRef
 from scopecat.records.parameter import TableParameterValue
 from scopecat.records.run import ConfigRegistryRunConfigSource
-from scopecat_quantum import (
-    CircuitPulseEventProvenance,
-    GateId,
-    ImplementedGatePulseEventProvenance,
-    QubitId,
-)
+from scopecat.sdk.domain import DomainCompilation, DomainCompileRequest
 from scopecat_quantum import authoring as quantum
+from scopecat_quantum._ids import GateId, PulseEventId, QubitId
+from scopecat_quantum.program_targets import PreparedQuantumTargetEntry
+from scopecat_quantum.programs import (
+    CircuitPulseEventProvenance,
+    ImplementedGatePulseEventProvenance,
+)
+from scopecat_quantum.pulses import Play
 
 from quantum_lab_demo import quantum_lab_compiler
+from quantum_lab_demo.compiler import QuantumLabCompiler, _ListQuantumLabArtifact
+from quantum_lab_demo.targets.fake_list_mode import (
+    FakeListArtifact,
+    FakeListTarget,
+    configured_fake_list_target,
+)
 from quantum_lab_demo.virtual_lab.parameters import q0_drag_beta_lookup
 from quantum_lab_demo.virtual_lab.pulse_profile import xm90_pulse_recipe
 from quantum_lab_demo.virtual_lab.wiring import quantum_wiring_config_profile
@@ -40,7 +50,7 @@ def _entity_id(value: object) -> str:
 
 def test_production_drag_gate_authors_config_lookup_into_program_input() -> None:
     declaration = production_drag_program
-    [call] = production_drag_capture.ir.body.instances
+    [call] = production_drag_capture.ir.body.child_instances
     [execution] = call.module.body.domain_executions
     program = execution.program
 
@@ -60,11 +70,14 @@ def test_production_drag_gate_authors_config_lookup_into_program_input() -> None
 
 def test_active_drag_beta_changes_program_and_compiler_segments(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     baseline_config = quantum_wiring_config_profile()
     active_beta = Quantity(0.8, "ns")
     active_config = _with_q0_drag_beta(baseline_config, active_beta)
-    compiler = quantum_lab_compiler()
+    target = configured_fake_list_target(baseline_config)
+    compiler = quantum_lab_compiler(config_profile=baseline_config, target=target)
+    compilations = _capture_compilations(compiler, monkeypatch)
     lab = in_process_quantum_lab(
         project_root=tmp_path,
         config_profile=baseline_config,
@@ -99,36 +112,50 @@ def test_active_drag_beta_changes_program_and_compiler_segments(
         config="active",
     ).run()
 
-    baseline, active, restored = compiler.trace.preparations(production_drag_program.id)
-    assert isinstance(
-        compiler.trace.preparations(production_drag_program.id),
-        tuple,
+    baseline, active, restored = tuple(
+        _list_artifact(compilation) for compilation in compilations
+    )
+    assert all(
+        artifact.program.id == production_drag_program.id
+        for artifact in (baseline, active, restored)
     )
     [baseline_entry] = baseline.entries
     [active_entry] = active.entries
     [restored_entry] = restored.entries
-    baseline_production = baseline.event_samples(
+    baseline_production = _event_samples(
         baseline_entry,
+        baseline.compiled.artifact,
+        target,
         production_x90_event_id(baseline_entry),
     )
-    active_production = active.event_samples(
+    active_production = _event_samples(
         active_entry,
+        active.compiled.artifact,
+        target,
         production_x90_event_id(active_entry),
     )
-    restored_production = restored.event_samples(
+    restored_production = _event_samples(
         restored_entry,
+        restored.compiled.artifact,
+        target,
         production_x90_event_id(restored_entry),
     )
-    baseline_reference = baseline.event_samples(
+    baseline_reference = _event_samples(
         baseline_entry,
+        baseline.compiled.artifact,
+        target,
         accepted_xm90_event_id(baseline_entry),
     )
-    active_reference = active.event_samples(
+    active_reference = _event_samples(
         active_entry,
+        active.compiled.artifact,
+        target,
         accepted_xm90_event_id(active_entry),
     )
-    restored_reference = restored.event_samples(
+    restored_reference = _event_samples(
         restored_entry,
+        restored.compiled.artifact,
+        target,
         accepted_xm90_event_id(restored_entry),
     )
     assert baseline.points[0].value("drag_beta") == Quantity(0.5, "ns")
@@ -140,7 +167,9 @@ def test_active_drag_beta_changes_program_and_compiler_segments(
         "drag_beta"
     )
     assert restored_production == baseline_production
-    assert restored.artifact_fingerprint == baseline.artifact_fingerprint
+    assert (
+        restored.compiled.artifact_fingerprint == baseline.compiled.artifact_fingerprint
+    )
     assert len(baseline_production) == 16
     assert len(baseline_reference) == 16
     assert tuple(sample.real for sample in baseline_production) == tuple(
@@ -173,7 +202,6 @@ def test_active_drag_beta_changes_program_and_compiler_segments(
     active_records = active_run.data().measurements().dataset.records
     assert [point.coordinates for point in baseline_records] == [{}]
     assert [point.coordinates for point in active_records] == [{}]
-    assert compiler.trace.physical_execution_count == 3
     baseline_source = baseline_run.manifest.config_source
     active_source = active_run.manifest.config_source
     assert isinstance(baseline_source, ConfigRegistryRunConfigSource)
@@ -192,7 +220,57 @@ def test_active_drag_beta_changes_program_and_compiler_segments(
     assert restored_source.entry_id == baseline_activation.entry.id
     assert restored_source.registry_generation == 3
     assert restored_run.manifest.config_content_hash == (restored_source.content_hash)
-    assert baseline.artifact_fingerprint != active.artifact_fingerprint
+    assert (
+        baseline.compiled.artifact_fingerprint != active.compiled.artifact_fingerprint
+    )
+
+
+def _capture_compilations(
+    compiler: QuantumLabCompiler,
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[DomainCompilation]:
+    compilations: list[DomainCompilation] = []
+    compile_domain = compiler.compile
+
+    def compile_and_capture(request: DomainCompileRequest) -> DomainCompilation:
+        compilation = compile_domain(request)
+        compilations.append(compilation)
+        return compilation
+
+    monkeypatch.setattr(compiler, "compile", compile_and_capture)
+    return compilations
+
+
+def _list_artifact(compilation: DomainCompilation) -> _ListQuantumLabArtifact:
+    [job] = compilation.jobs
+    artifact = job.artifact
+    assert isinstance(artifact, _ListQuantumLabArtifact)
+    return artifact
+
+
+def _event_samples(
+    entry: PreparedQuantumTargetEntry,
+    artifact: FakeListArtifact,
+    target: FakeListTarget,
+    event_id: PulseEventId,
+) -> tuple[complex, ...]:
+    [event] = tuple(item for item in entry.scheduled.events if item.id == event_id)
+    assert isinstance(event.instruction, Play)
+    channel = target.output_channel(event.instruction.signal)
+    assert channel is not None
+    [artifact_entry] = tuple(
+        item for item in artifact.entries if item.entry_id == entry.id
+    )
+    [waveform] = tuple(
+        item for item in artifact_entry.waveforms if item.channel_id == channel
+    )
+    rate = Decimal(artifact.sample_rate_hz)
+    start = event.start_seconds * rate
+    count = event.duration_seconds * rate
+    assert start == start.to_integral_value()
+    assert count == count.to_integral_value()
+    first = int(start)
+    return waveform.samples[first : first + int(count)]
 
 
 def _with_q0_drag_beta(
@@ -212,7 +290,6 @@ def _with_q0_drag_beta(
             }
             for row in qubits.rows
         ),
-        row_locations=qubits.row_locations,
     )
     values = tuple(
         updated_qubits if value.id == qubits.id else value

@@ -9,22 +9,16 @@ from math import prod
 from scopecat.compiler.relations.model import LiteralScalarExpr
 from scopecat.compiler.relations.point_domain import (
     PointAxis,
+    PointAxisLinear,
     PointAxisValues,
-    PointDependentProduct,
-    PointDomainPath,
     PointProduct,
-    PointRows,
     PointUnit,
-    PointZip,
     point_axis_linear_value,
 )
 from scopecat.compiler.relations.scalar_eval import read_path
 from scopecat.compiler.relations.uses import RelationUse
 from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
-from scopecat.compiler.typed.point_domain import (
-    CompilerPointDomainExpr,
-    VerifiedPointDomain,
-)
+from scopecat.compiler.typed.point_domain import VerifiedPointDomain
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.records.parameter import Quantity
 
@@ -120,96 +114,36 @@ class PointIterationLayout:
 def analyze_point_iteration_layout(
     point_domain: VerifiedPointDomain,
 ) -> PointIterationLayout:
-    """Project iteration directly from the exact point algebra."""
+    """Project iteration strides from a flat Cartesian point domain."""
 
     coordinate_ids = {column.id for column in point_domain.coordinate_columns}
-
-    def count(path: PointDomainPath) -> int:
-        return point_domain.analysis.facts[path].cardinality
-
-    def project(
-        node: CompilerPointDomainExpr,
-        path: PointDomainPath,
-        *,
-        repeat_each: int,
-    ) -> tuple[PointIterationAxis, ...]:
-        if isinstance(node, PointUnit):
-            return ()
-        if isinstance(node, PointRows):
-            column_ids = tuple(column.id for column in node.columns)
-            return tuple(
-                PointIterationAxis(
-                    column_id,
-                    tuple(row[index] for row in node.rows),
-                    repeat_each=repeat_each,
-                )
-                for index, column_id in enumerate(column_ids)
-                if column_id in coordinate_ids
-            )
-        if isinstance(node, PointAxis):
-            values = _known_axis_values(node)
-            return (
-                (
-                    PointIterationAxis(
-                        node.id,
-                        values,
-                        repeat_each=repeat_each,
-                    ),
-                )
-                if values is not None and node.id in coordinate_ids
-                else ()
-            )
-        if isinstance(node, PointZip):
-            return tuple(
-                axis
-                for index, source in enumerate(node.sources)
-                for axis in project(
-                    source,
-                    (*path, "sources", index),
-                    repeat_each=repeat_each,
-                )
-            )
-        if isinstance(node, PointProduct):
-            return tuple(
-                axis
-                for index, factor in enumerate(node.factors)
-                for axis in project(
-                    factor,
-                    (*path, "factors", index),
-                    repeat_each=repeat_each
-                    * prod(
-                        count((*path, "factors", suffix_index))
-                        for suffix_index in range(index + 1, len(node.factors))
-                    ),
-                )
-            )
-        right_count = count((*path, "right"))
-        return (
-            *project(
-                node.left,
-                (*path, "left"),
-                repeat_each=repeat_each * right_count,
-            ),
-            *project(
-                node.right,
-                (*path, "right"),
-                repeat_each=repeat_each,
+    root = point_domain.root
+    if isinstance(root, PointUnit):
+        return PointIterationLayout(preferred_tile_size=1)
+    axes = root.factors if isinstance(root, PointProduct) else (root,)
+    projected = tuple(
+        projected_axis
+        for index, axis in enumerate(axes)
+        if axis.id in coordinate_ids
+        for values in (_known_axis_values(axis),)
+        if values is not None
+        for projected_axis in (
+            PointIterationAxis(
+                axis.id,
+                values,
+                repeat_each=prod(_axis_count(suffix) for suffix in axes[index + 1 :]),
             ),
         )
-
-    root = point_domain.root
-    preferred_path = (
-        ("factors", len(root.factors) - 1)
-        if isinstance(root, PointProduct)
-        else ("right",)
-        if isinstance(root, PointDependentProduct)
-        else ()
     )
-    preferred_tile_size = count(preferred_path) or None
     return PointIterationLayout(
-        axes=project(root, (), repeat_each=1),
-        preferred_tile_size=preferred_tile_size,
+        axes=projected,
+        preferred_tile_size=_axis_count(axes[-1]) or None,
     )
+
+
+def _axis_count(axis: PointAxis[RelationUse[ScalarValueExpr]]) -> int:
+    source = axis.source
+    return source.count if isinstance(source, PointAxisLinear) else len(source.values)
 
 
 def _known_axis_values(

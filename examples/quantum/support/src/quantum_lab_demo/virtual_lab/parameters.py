@@ -1,9 +1,4 @@
-"""Accepted parameter schema shared by the demo lab's quantum workflows.
-
-The row and lookup helpers deliberately describe the same immutable cell. This
-keeps calibration scans, production programs, and analysis proposals aligned
-without giving the domain compiler access to mutable parameter state.
-"""
+"""Accepted parameter schema shared by the demo lab's quantum workflows."""
 
 from __future__ import annotations
 
@@ -71,14 +66,8 @@ _Q0_DRAG_BETA_LOOKUP = sc.parameter_lookup(
 )
 
 
-def q0_drag_beta_row() -> sc.ParameterRow:
-    """Select the q0 row whose accepted DRAG beta centers calibration scans."""
-
-    return sc.param_row(QUBIT_PARAMETER_TABLE, **q0_parameter_key())
-
-
 def q0_drag_beta_lookup() -> sc.ValueRef:
-    """Reference accepted q0 DRAG beta without reading live parameter state."""
+    """Reference the accepted q0 DRAG beta cell."""
 
     return _Q0_DRAG_BETA_LOOKUP
 
@@ -101,17 +90,8 @@ _Q0_Q1_CZ_AMPLITUDE_LOOKUP = sc.parameter_lookup(
 )
 
 
-def q0_q1_cz_row() -> sc.ParameterRow:
-    """Select the q0-q1 CZ row whose accepted amplitude centers scans."""
-
-    return sc.param_row(
-        TWO_QUBIT_GATE_PARAMETER_TABLE,
-        **q0_q1_cz_parameter_key(),
-    )
-
-
 def q0_q1_cz_amplitude_lookup() -> sc.ValueRef:
-    """Reference accepted q0-q1 CZ amplitude without reading live state."""
+    """Reference the accepted q0-q1 CZ amplitude cell."""
 
     return _Q0_Q1_CZ_AMPLITUDE_LOOKUP
 
@@ -122,10 +102,8 @@ __all__ = [
     "QUBIT_PARAMETER_TABLE",
     "TWO_QUBIT_GATE_PARAMETER_TABLE",
     "q0_drag_beta_lookup",
-    "q0_drag_beta_row",
     "q0_parameter_key",
     "q0_q1_cz_amplitude_lookup",
     "q0_q1_cz_parameter_key",
-    "q0_q1_cz_row",
     "qubit_parameters",
 ]

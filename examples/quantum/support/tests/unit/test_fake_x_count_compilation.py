@@ -9,28 +9,28 @@ from typing import override
 
 import pytest
 import scopecat as sc
-from scopecat.compiler.linking.linked import LinkedPointMaterializer
 from scopecat.kernel.content_identity import content_fingerprint
 from scopecat.kernel.errors import RunIndeterminate
-from scopecat.kernel.problems import ProblemCategory, ProblemPhase, blocking_problem
+from scopecat.kernel.problems import ProblemPhase, problem
 from scopecat.records.parameter import Quantity
 from scopecat.sdk.domain.runtime import (
     DomainFetchCandidate,
     DomainFetchReceipt,
     DomainFetchRequest,
 )
-from scopecat.testing import (
-    sqlite_execution_services,
+from scopecat_quantum import authoring as quantum
+from tests.testkit.runtime import (
+    sqlite_execution_session,
     sqlite_project_services,
 )
-from scopecat_quantum import authoring as quantum
 
 from quantum_lab_demo import QuantumLabCompiler, quantum_lab_compiler
 from quantum_lab_demo.targets.fake_list_mode import (
     FakeListDomainRuntime,
     FakeListRun,
-    default_fake_list_target,
+    configured_fake_list_target,
 )
+from quantum_lab_demo.virtual_lab.wiring import quantum_wiring_config_profile
 from quantum_lab_demo.workflows.fake_x_count_bias import (
     FakeBiasVoltageProvider,
     fake_x_count_bias_config,
@@ -39,7 +39,6 @@ from quantum_lab_demo.workflows.fake_x_count_bias import (
 
 from .demo_lab_experiment_testkit import (
     InProcessQuantumLab,
-    reject_program_input_binding,
 )
 
 
@@ -57,14 +56,13 @@ class _SecondBatchUnknownRuntime(FakeListDomainRuntime):
         if self._seen_fetches == 2:
             return DomainFetchCandidate(
                 receipt=DomainFetchReceipt(
-                    identity=request.identity,
+                    submission_key=request.submission_id.submission_key,
                     job_id=request.job_id,
                     status="unknown",
                     problems=(
-                        blocking_problem(
+                        problem(
                             "injected_second_batch_unknown",
                             "the second batch result is unknown",
-                            category=ProblemCategory.OPERATION,
                             phase=ProblemPhase.EXECUTION,
                         ),
                     ),
@@ -75,16 +73,10 @@ class _SecondBatchUnknownRuntime(FakeListDomainRuntime):
 
 def test_resource_independent_domain_spans_bias_state_coverage(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        LinkedPointMaterializer,
-        "bind_domain_inputs",
-        reject_program_input_binding,
-    )
     run, source, _compiler = _run_mixed_experiment(tmp_path)
     records = run.data().measurements().dataset.records
-    journal = sqlite_execution_services(tmp_path).journal_for(run.id).entries()
+    journal = sqlite_execution_session(tmp_path, run.id).journal.entries()
 
     assert run.manifest.status == "completed"
     assert len(records) == 8
@@ -111,7 +103,7 @@ def test_resource_independent_domain_spans_bias_state_coverage(
     assert "domain_submit" not in effect_stages[second_state + 1 :]
 
 
-def test_lazy_target_artifact_binds_each_selected_point_once(
+def test_eager_target_artifact_binds_each_selected_point_once(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -128,12 +120,10 @@ def test_lazy_target_artifact_binds_each_selected_point_once(
 
     monkeypatch.setattr(quantum, "bind", count_bind)
 
-    run, _source, compiler = _run_mixed_experiment(tmp_path)
+    run, _source, _compiler = _run_mixed_experiment(tmp_path)
 
     assert run.manifest.status == "completed"
-    assert bind_calls == sum(
-        len(preparation.points) for preparation in compiler.trace.all_preparations
-    )
+    assert bind_calls == len(run.data().measurements().dataset.records)
 
 
 def test_different_target_partitions_preserve_the_logical_dataset(
@@ -144,7 +134,7 @@ def test_different_target_partitions_preserve_the_logical_dataset(
     for max_list_entries in (256, 2):
         compiler = quantum_lab_compiler(
             target=replace(
-                default_fake_list_target(),
+                configured_fake_list_target(quantum_wiring_config_profile()),
                 max_list_entries=max_list_entries,
             )
         )
@@ -174,7 +164,13 @@ def test_different_target_partitions_preserve_the_logical_dataset(
                 )
             )
         )
-        execution_counts.append(compiler.trace.physical_execution_count)
+        journal = sqlite_execution_session(lab.project_root, run.id).journal
+        execution_counts.append(
+            sum(
+                entry.stage == "domain_submit" and entry.state == "started"
+                for entry in journal.entries()
+            )
+        )
 
     assert execution_counts[0] < execution_counts[1]
     assert logical_datasets[0] == logical_datasets[1]
@@ -185,7 +181,10 @@ def test_later_batch_failure_has_one_domain_problem_and_partial_dataset(
 ) -> None:
     source = FakeBiasVoltageProvider()
     compiler = quantum_lab_compiler(
-        target=replace(default_fake_list_target(), max_list_entries=4),
+        target=replace(
+            configured_fake_list_target(quantum_wiring_config_profile()),
+            max_list_entries=4,
+        ),
         runtime=_SecondBatchUnknownRuntime(),
     )
     lab = InProcessQuantumLab(
@@ -204,10 +203,17 @@ def test_later_batch_failure_has_one_domain_problem_and_partial_dataset(
 
     codes = [problem.code for problem in captured.value.outcome.problems]
     [persisted] = lab.runs()
+    journal = sqlite_execution_session(lab.project_root, captured.value.run_id).journal
 
     assert codes.count("injected_second_batch_unknown") == 1
     assert "execution_middle_effect_failed" not in codes
-    assert compiler.trace.physical_execution_count == 2
+    assert (
+        sum(
+            entry.stage == "domain_submit" and entry.state == "started"
+            for entry in journal.entries()
+        )
+        == 2
+    )
     [dataset] = persisted.manifest.datasets
     assert dataset.metadata["partial"] is True
     assert dataset.metadata["expected_record_count"] == 8

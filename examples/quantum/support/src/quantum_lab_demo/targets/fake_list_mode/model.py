@@ -13,20 +13,21 @@ import json
 import math
 from dataclasses import dataclass, field
 
-from scopecat_quantum import (
-    AcquireSignal,
-    AcquisitionKind,
+from scopecat_quantum._ids import (
     AcquisitionSlotId,
-    DriveSignal,
-    FluxSignal,
     PulseEventId,
     PulseProgramId,
     QubitId,
-    ReadoutSignal,
     TargetArtifactId,
     TargetCompileEntryId,
     TargetCompilerId,
     TargetId,
+)
+from scopecat_quantum.pulses import (
+    AcquireSignal,
+    DriveSignal,
+    FluxSignal,
+    ReadoutSignal,
 )
 
 
@@ -251,7 +252,6 @@ class FakeListTarget:
             "max_frames": self.max_frames,
             "max_abs_amplitude": float(self.max_abs_amplitude).hex(),
             "supported_envelopes": list(self.supported_envelopes),
-            "supported_acquisition_kinds": [kind.value for kind in AcquisitionKind],
             "output_bindings": [
                 {
                     "signal": signal_key(binding.signal),
@@ -287,7 +287,6 @@ class FakeAcquisitionWindow:
     channel_id: FakeDigitizerChannelId
     start_sample: int
     sample_count: int
-    kind: AcquisitionKind
 
     def __post_init__(self) -> None:
         if isinstance(self.start_sample, bool) or self.start_sample < 0:

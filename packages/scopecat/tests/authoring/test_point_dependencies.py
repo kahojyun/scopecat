@@ -6,8 +6,7 @@ import scopecat as sc
 from scopecat.compiler.frontend.elaboration import elaborate_module
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import model_location
-from scopecat.planning.authoring import resolve_experiment
-from tests.testkit.authoring import load_config
+from tests.testkit.authoring import link_invocation, load_config
 
 _FREQUENCY_TYPE = sc.ScalarType(sc.QuantityType(unit="GHz"))
 
@@ -20,7 +19,7 @@ def _point_module(
     point: sc.ValueRef,
     *,
     module_id: str,
-) -> sc.ExperimentModule:
+) -> sc.ExperimentModule[...]:
     consume = sc.compute(
         f"{module_id}.consume",
         fn=_identity,
@@ -30,7 +29,7 @@ def _point_module(
     return sc.module_body(id=module_id).computes(consume).build()
 
 
-def _resolve(module: sc.ExperimentModule, *, scan: sc.Scan | None = None) -> None:
+def _resolve(module: sc.ExperimentModule[...], *, scan: sc.Scan | None = None) -> None:
     call = module()
 
     @sc.template(id="test.point-dependency", kind="point_dependency")
@@ -38,7 +37,7 @@ def _resolve(module: sc.ExperimentModule, *, scan: sc.Scan | None = None) -> Non
         body = sc.experiment(call)
         return body if scan is None else body.scan(scan)
 
-    resolve_experiment(
+    link_invocation(
         template_definition(),
         config_profile=load_config(),
     )
@@ -102,7 +101,7 @@ def test_nested_module_preserves_bound_point_dependency() -> None:
         .build()
     )
 
-    assembly = elaborate_module(parent)
+    assembly = elaborate_module(parent.ir)
     assert tuple(
         (dependency.id, dependency.value_type)
         for dependency in assembly.point_dependencies

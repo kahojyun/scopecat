@@ -1,85 +1,65 @@
-"""Construction of opaque module handles from validated authoring parts."""
+"""Close module builders into IR and create reusable authoring handles."""
 
 from __future__ import annotations
 
+import inspect
+import keyword
 from collections.abc import Mapping, Sequence
 
-from scopecat.authoring._binding_intents import ResourcePort
-from scopecat.authoring._intents import (
-    ModuleInputPort,
-    ModuleOperationDecl,
-)
+from scopecat.authoring._intents import ModuleInputPort
 from scopecat.authoring._module_handles import (
     ExperimentModule,
     ModuleBuilder,
     ModuleCall,
     ModuleInvocation,
+    create_experiment_module_internal,
 )
 from scopecat.authoring._module_ir import (
     ModuleBodyIR,
-    ModuleEffectIR,
     ModuleImportBinding,
     ModuleInstanceIR,
     ModuleInstanceLookup,
     ModuleInterfaceIR,
     ModuleIR,
-    ModuleProductExport,
-    ModulePythonImplementation,
     ModuleResourceBinding,
-    ModuleValueExport,
 )
-from scopecat.authoring._products import (
-    ModuleProductDecl,
-)
-from scopecat.authoring.measurements import MeasurementTransform
 from scopecat.authoring.values import MetadataValue
 from scopecat.kernel.frozen import freeze_json_mapping
 
 
-def module_from_parts_internal(
+def build_module_ir(
+    builder: ModuleBuilder,
+    id: str | None = None,  # noqa: A002
     *,
-    id: str,  # noqa: A002
-    invocations: Sequence[ModuleInvocation] = (),
-    input_ports: Sequence[ModuleInputPort] = (),
-    output_ports: Sequence[ModuleValueExport] = (),
-    resources: Sequence[ResourcePort] = (),
-    procedure: Sequence[ModuleEffectIR] = (),
-    operations: Sequence[ModuleOperationDecl] = (),
-    python_implementations: Sequence[ModulePythonImplementation] = (),
-    measurement_transforms: Sequence[MeasurementTransform] = (),
-    product_declarations: Sequence[ModuleProductDecl] = (),
     metadata: Mapping[str, MetadataValue] | None = None,
-) -> ExperimentModule:
-    instances = tuple(_module_instance_ir(invocation) for invocation in invocations)
-    projected_products = tuple(
-        product.projected_by(instance.lookup)
-        for instance in instances
-        for product in instance.module.interface.products
+) -> ModuleIR:
+    """Close a builder at the single module-definition boundary."""
+
+    module_id = id or builder.id
+    if not module_id:
+        msg = "module builder requires an id before conversion to ModuleIR"
+        raise ValueError(msg)
+    merged_metadata: dict[str, MetadataValue] = dict(builder.metadata)
+    merged_metadata.update(dict(metadata or {}))
+    closed_procedure = tuple(
+        _module_instance_ir(effect) if isinstance(effect, ModuleInvocation) else effect
+        for effect in builder.procedure
     )
-    declared_products = tuple(
-        ModuleProductExport.from_declaration(product)
-        for product in product_declarations
-    )
-    module_ir = ModuleIR(
-        id=id,
+    return ModuleIR(
+        id=module_id,
         interface=ModuleInterfaceIR(
-            imports=tuple(input_ports),
-            exports=tuple(output_ports),
-            resources=tuple(resources),
-            products=(*projected_products, *declared_products),
+            imports=builder.input_ports,
+            exports=builder.output_ports,
+            resources=builder.resources,
         ),
         body=ModuleBodyIR(
-            instances=instances,
-            procedure=tuple(procedure),
-            operations=tuple(operations),
-            measurement_transforms=tuple(measurement_transforms),
-            products=tuple(product_declarations),
+            procedure=closed_procedure,
+            operations=builder.operations,
+            measurement_transforms=builder.measurement_transform_intents,
+            products=builder.product_declarations,
         ),
-        python_implementations=tuple(python_implementations),
-        metadata=freeze_json_mapping(metadata or {}),
-    )
-    return ExperimentModule(
-        _ir=module_ir,
+        python_implementations=builder.python_implementations,
+        metadata=freeze_json_mapping(merged_metadata),
     )
 
 
@@ -102,45 +82,42 @@ def _module_instance_ir(invocation: ModuleInvocation) -> ModuleInstanceIR:
     )
 
 
-def module(
-    id: str | None = None,  # noqa: A002
-    *,
-    metadata: Mapping[str, MetadataValue] | None = None,
-) -> ModuleBuilder:
-    return ModuleBuilder(
-        id=id,
-        invocations=(),
-        input_ports=(),
-        output_ports=(),
-        metadata=freeze_json_mapping(metadata or {}),
-    )
-
-
 def build_module_from_builder(
     builder: ModuleBuilder,
     id: str | None = None,  # noqa: A002
     *,
     metadata: Mapping[str, MetadataValue] | None = None,
-) -> ExperimentModule:
-    module_id = id or builder.id
-    if not module_id:
-        msg = "module builder requires an id before conversion to ExperimentModule"
-        raise ValueError(msg)
-    merged_metadata: dict[str, MetadataValue] = dict(builder.metadata)
-    merged_metadata.update(dict(metadata or {}))
-    return module_from_parts_internal(
-        id=module_id,
-        invocations=builder.invocations,
-        input_ports=builder.input_ports,
-        output_ports=builder.output_ports,
-        resources=builder.resources,
-        procedure=builder.procedure,
-        operations=builder.operations,
-        python_implementations=builder.python_implementations,
-        measurement_transforms=builder.measurement_transform_intents,
-        product_declarations=builder.product_declarations,
-        metadata=merged_metadata,
+) -> ExperimentModule[...]:
+    module_ir = build_module_ir(builder, id=id, metadata=metadata)
+    return create_experiment_module_internal(
+        module_ir,
+        signature=_module_signature(module_ir.interface.imports),
     )
+
+
+def _module_signature(
+    input_ports: Sequence[ModuleInputPort],
+) -> inspect.Signature:
+    input_ids = {port.id for port in input_ports}
+    extra_name = "_inputs"
+    while extra_name in input_ids:
+        extra_name = f"_{extra_name}"
+    parameters = [
+        inspect.Parameter(
+            port.id,
+            inspect.Parameter.KEYWORD_ONLY,
+            annotation=port.value_type,
+        )
+        for port in input_ports
+        if port.id.isidentifier() and not keyword.iskeyword(port.id)
+    ]
+    parameters.append(
+        inspect.Parameter(
+            extra_name,
+            inspect.Parameter.VAR_KEYWORD,
+        )
+    )
+    return inspect.Signature(parameters)
 
 
 def module_use_invocation(

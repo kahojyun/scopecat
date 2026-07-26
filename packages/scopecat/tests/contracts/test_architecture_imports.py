@@ -8,7 +8,6 @@ from pathlib import Path
 from tests.testkit.paths import REPO_ROOT
 
 CORE_SOURCE = REPO_ROOT / "packages" / "scopecat" / "src" / "scopecat"
-CORE_TESTS = REPO_ROOT / "packages" / "scopecat" / "tests"
 NOTEBOOK_FACADE_PATHS = (
     CORE_SOURCE / "api" / "analysis.py",
     CORE_SOURCE / "api" / "run.py",
@@ -27,14 +26,6 @@ APPLICATION_ROOTS = tuple(
         "runs",
     )
 )
-REPOSITORY_WRITE_METHODS = {
-    "write_bytes",
-    "write_json",
-    "write_jsonl",
-    "write_manifest",
-    "write_model",
-    "write_text",
-}
 
 
 @dataclass(frozen=True)
@@ -84,9 +75,6 @@ def _from_import_modules(path: Path, node: ast.ImportFrom) -> tuple[str, ...]:
 
 
 def _source_package(path: Path) -> str | None:
-    if path.is_relative_to(CORE_TESTS):
-        relative = path.relative_to(CORE_TESTS)
-        return ".".join(("tests", *relative.parts[:-1]))
     try:
         source_index = max(
             index for index, component in enumerate(path.parts) if component == "src"
@@ -117,10 +105,20 @@ def _assert_no_forbidden_imports(
     assert not violations, "\n".join(edge.display() for edge in violations)
 
 
-def test_core_remains_domain_neutral() -> None:
+def test_core_remains_domain_neutral_and_offline() -> None:
     _assert_no_forbidden_imports(
         (CORE_SOURCE,),
-        forbidden=("scopecat_quantum", "quantum_lab_demo"),
+        forbidden=(
+            "labrad",
+            "numpy",
+            "pandas",
+            "pyvisa",
+            "quantum_lab_demo",
+            "requests",
+            "scipy",
+            "scopecat_quantum",
+            "serial",
+        ),
     )
 
 
@@ -134,26 +132,9 @@ def test_extension_production_code_uses_only_public_scopecat_modules() -> None:
     )
 
 
-def test_test_modules_share_helpers_through_testkit() -> None:
-    violations = [
-        edge
-        for edge in _imports(CORE_TESTS)
-        if edge.path.name.startswith("test_")
-        and edge.module.startswith("tests.")
-        and any(part.startswith("test_") for part in edge.module.split("."))
-    ]
-    assert not violations, (
-        "test modules must not import other test modules; move shared helpers to "
-        "tests.testkit:\n" + "\n".join(edge.display() for edge in violations)
-    )
-
-
 def test_inward_layers_do_not_depend_on_application_or_storage() -> None:
     application_and_storage = (
-        "scopecat._storage",
-        "scopecat._workflows",
         "scopecat.adapters",
-        "scopecat.testing",
         "scopecat.config.registry",
         "scopecat.execution",
         "scopecat.runs",
@@ -191,38 +172,10 @@ def test_authoring_does_not_depend_on_later_compiler_or_planning_layers() -> Non
     )
 
 
-def test_relations_do_not_depend_on_semantic_ir() -> None:
-    _assert_no_forbidden_imports(
-        (CORE_SOURCE / "compiler" / "relations",),
-        forbidden=("scopecat.compiler.semantic",),
-    )
-
-
-def test_compiler_sublayers_remain_inward_only() -> None:
-    _assert_no_forbidden_imports(
-        (CORE_SOURCE / "compiler" / "typed",),
-        forbidden=(
-            "scopecat.compiler.frontend",
-            "scopecat.compiler.linking",
-        ),
-    )
-    _assert_no_forbidden_imports(
-        (
-            CORE_SOURCE / "compiler" / "relations",
-            CORE_SOURCE / "compiler" / "semantic",
-        ),
-        forbidden=(
-            "scopecat.compiler.frontend",
-            "scopecat.compiler.typed",
-            "scopecat.compiler.linking",
-        ),
-    )
-
-
 def test_application_layers_do_not_select_concrete_adapters() -> None:
     _assert_no_forbidden_imports(
         APPLICATION_ROOTS,
-        forbidden=("scopecat.adapters", "scopecat.testing"),
+        forbidden=("scopecat.adapters",),
     )
 
 
@@ -238,24 +191,7 @@ def test_notebook_facades_delegate_persistence_use_cases() -> None:
         NOTEBOOK_FACADE_PATHS,
         forbidden=(
             "scopecat.adapters",
-            "scopecat.testing",
             "scopecat.runs.access",
-            "scopecat.runs.manifest",
             "scopecat.runs.repository",
         ),
     )
-
-    violations: list[str] = []
-    for path in NOTEBOOK_FACADE_PATHS:
-        tree = ast.parse(path.read_text(), filename=str(path))
-        for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Attribute)
-                and node.func.attr in REPOSITORY_WRITE_METHODS
-            ):
-                violations.append(
-                    f"{path.relative_to(REPO_ROOT)}:{node.lineno} -> "
-                    f".{node.func.attr}()"
-                )
-    assert not violations, "\n".join(violations)

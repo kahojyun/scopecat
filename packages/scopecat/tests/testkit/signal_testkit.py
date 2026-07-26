@@ -14,17 +14,13 @@ from typing import Protocol, cast
 from pydantic import BaseModel, ConfigDict
 
 import scopecat as sc
-from scopecat.analysis.service import SavedAnalysis
-from scopecat.api.run import RunHandle
 from scopecat.authoring import ExperimentInvocation
-from scopecat.compiler.frontend.invocation import prepare_invocation
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import (
     Problem,
-    ProblemCategory,
     ProblemPhase,
     StorageLocation,
-    blocking_problem,
+    problem,
 )
 from scopecat.measurements.results import (
     MeasurementArray,
@@ -36,30 +32,17 @@ from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter import Quantity, ScalarParameterValue
 from scopecat.records.run import RunConfigSource, RunManifest
 from scopecat.runs.access import dataset_storage_ref
-from scopecat.runs.service import start_run
-from scopecat.testing import (
-    sqlite_project_services,
-)
-from tests.testkit.in_process_lab import in_process_lab
+from tests.testkit.execution import execute_invocation_run
 from tests.testkit.signal_instruments import TestSignalInstrumentProvider
 
 SUMMARY_STATS_STEP = "summary-stats"
-SUMMARY_STATS_INPUT_REF = "data/measurement_dataset/raw-measurements"
 SUMMARY_STATS_RESULT_REF = "artifacts/test_summary_stats_result/summary-stats-result"
 SUMMARY_STATS_SUMMARY_REF = "artifacts/summary/summary-stats-summary"
 BEST_SIGNAL_ANALYSIS_STEP = "best-signal-analysis"
 BEST_SIGNAL_INPUT_REF = "data/measurement_dataset/raw-measurements"
-BEST_SIGNAL_CONFIG_REF = "config-profile.snapshot.json"
 BEST_SIGNAL_SCHEMA_REF = "data/measurement_dataset/raw-measurements.schema"
 BEST_SIGNAL_ANALYSIS_RESULT_ARTIFACT_ID = "best-signal-analysis-result"
 BEST_SIGNAL_ANALYSIS_SUMMARY_ARTIFACT_ID = "best-signal-analysis-summary"
-BEST_SIGNAL_ANALYSIS_RESULT_REF = (
-    "artifacts/test_best_signal_analysis_result/"
-    f"{BEST_SIGNAL_ANALYSIS_RESULT_ARTIFACT_ID}"
-)
-BEST_SIGNAL_ANALYSIS_SUMMARY_REF = (
-    f"artifacts/summary/{BEST_SIGNAL_ANALYSIS_SUMMARY_ARTIFACT_ID}"
-)
 RAW_MEASUREMENTS_DATASET_ID = "raw-measurements"
 MEASUREMENT_DATASET_KIND = "measurement_dataset"
 TEST_STEP_METADATA = {"scope": "test"}
@@ -233,53 +216,6 @@ class BestSignalAnalysisStep:
         )
 
 
-@dataclass
-class TestSignalAnalysisStep:
-    __test__ = False
-
-    selector: str | None = None
-    id: str = BEST_SIGNAL_ANALYSIS_STEP
-
-    def run(self, context: sc.AnalysisContext) -> sc.Analysis:
-        raw = context.data.measurements(self.selector or RAW_MEASUREMENTS_DATASET_ID)
-        input_ref = dataset_storage_ref(raw.dataset_entry)
-        summary = _build_summary_result(
-            run_id=context.run.id,
-            step=BEST_SIGNAL_ANALYSIS_STEP,
-            input_ref=input_ref,
-            measurements=raw.dataset.records,
-        )
-        parameter_id = _scan_parameter_id(context.data.schema())
-        best_measurement = _best_signal_measurement(raw.dataset.records)
-        proposed_value = _proposed_value(
-            best_measurement,
-            parameter_id,
-            old_value=_old_parameter_value(context.config, parameter_id),
-        )
-        return (
-            context.result("best signal analysis")
-            .input(
-                raw.dataset_entry.id,
-                title="raw measurements",
-                expected_kind=MEASUREMENT_DATASET_KIND,
-            )
-            .table(
-                [
-                    {
-                        "measurement_count": summary.measurement_count,
-                        "best_point_index": best_measurement.point_index,
-                    }
-                ],
-                title="signal summary",
-            )
-            .propose(
-                parameter_id,
-                sc.replace_scalar_parameter(parameter_id, proposed_value),
-                reason=f"Best signal observed at point {best_measurement.point_index}.",
-            )
-        )
-
-
 def execute_signal_run(
     *,
     config: ConfigProfileSnapshot,
@@ -287,32 +223,13 @@ def execute_signal_run(
     project_root: str | Path,
     config_source: RunConfigSource | None = None,
 ) -> RunManifest:
-    return start_run(
+    return execute_invocation_run(
         config=config,
-        experiment=prepare_invocation(experiment),
-        services=sqlite_project_services(project_root),
+        experiment=experiment,
         system=sc.ExperimentSystem(provider=TestSignalInstrumentProvider()),
+        project_root=project_root,
         config_source=config_source,
     )
-
-
-def _analysis_run(*, run_id: str, project_root: str | Path) -> RunHandle:
-    lab = in_process_lab(project_root)
-    return lab.get_run(run_id)
-
-
-def execute_summary_stats_analysis(
-    *, run_id: str, project_root: str | Path, selector: str | None = None
-) -> SavedAnalysis:
-    run = _analysis_run(run_id=run_id, project_root=project_root)
-    return run.analyze(SummaryStatsAnalysisStep(selector=selector)).save()
-
-
-def execute_best_signal_analysis(
-    *, run_id: str, project_root: str | Path
-) -> sc.Analysis:
-    run = _analysis_run(run_id=run_id, project_root=project_root)
-    return run.analyze(BestSignalAnalysisStep())
 
 
 def render_summary_stats_summary(result: SummaryStatsResult) -> str:
@@ -620,10 +537,9 @@ def _proposed_value(
 
 
 def _problem(code: str, message: str, ref: str) -> Problem:
-    return blocking_problem(
+    return problem(
         code,
         message,
-        category=ProblemCategory.INVALID_INPUT,
         phase=ProblemPhase.ANALYSIS,
         location=StorageLocation(ref=ref),
     )

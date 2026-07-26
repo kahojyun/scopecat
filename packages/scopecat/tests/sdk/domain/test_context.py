@@ -6,14 +6,11 @@ import pytest
 
 import scopecat as sc
 from scopecat.compiler.linking.linked import (
-    LinkedPointMaterializer,
     MaterializedLinkedPoints,
-    link_verified_program,
+    materialize_linked_points,
 )
 from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.program import core_domain_executions
-from scopecat.measurements.semantics import MeasurementTransformPortability
-from scopecat.planning.authoring import resolve_experiment
 from scopecat.sdk.domain import (
     DomainBatchContext,
     DomainPointRef,
@@ -23,9 +20,9 @@ from scopecat.sdk.domain import (
 )
 from scopecat.sdk.domain._bridge import (
     make_domain_batch_context,
-    make_domain_compile_request,
+    make_domain_compile_template,
 )
-from tests.testkit.authoring import load_config
+from tests.testkit.authoring import link_invocation, load_config
 
 
 def _domain_scenario(
@@ -33,7 +30,6 @@ def _domain_scenario(
     *,
     namespace: str,
     record_raw: bool = True,
-    portability: MeasurementTransformPortability = "host_only",
 ) -> MaterializedLinkedPoints:
     count_type = sc.ScalarType(sc.IntType(minimum=0))
     count = sc.coordinate(f"{namespace}_count", count_type)
@@ -52,7 +48,6 @@ def _domain_scenario(
         semantic=MeasurementTransformSemanticContract(
             id="test.context.summarize",
             version="1",
-            portability=portability,
         ),
         inputs={"raw": "raw"},
         outputs={"summary": "summary"},
@@ -61,14 +56,13 @@ def _domain_scenario(
         sc.module_body(id=f"test.sdk.context.{namespace}")
         .product("raw", "summary", unit="count", dtype="int64")
         .measurement_transforms(transform)
-        .build()
     )
     execution = sc.domain_execution(
         program,
         inputs={"count": count},
         results={"raw": module.products["raw"]},
     )
-    module_call = module.domain(execution)()
+    module_call = module.domain(execution).build()()
     body = sc.experiment(module_call).scan(count, (1, 3, 5))
     if record_raw:
         body = body.record_product(module_call.products.raw, record_id="raw")
@@ -77,12 +71,12 @@ def _domain_scenario(
         id=f"test.sdk.context.{namespace}",
         kind="domain_context",
     )(lambda: body)
-    resolved = resolve_experiment(
+    resolved = link_invocation(
         template.bind(),
         config_profile=load_config(),
     )
-    linked = link_verified_program(resolved.verified_program, resolved.environment)
-    linked_points = LinkedPointMaterializer(linked).materialize()
+    linked = resolved
+    linked_points = materialize_linked_points(linked)
     return linked_points
 
 
@@ -92,24 +86,23 @@ def _batch_context(
     *,
     batch_ordinal: int = 0,
     absorbed_input_ids: tuple[str, ...] = (),
-    absorbed_transform_ids: tuple[str, ...] = (),
 ) -> DomainBatchContext:
     program = linked_points.linked_plan.program
     execution = core_domain_executions(program)[0]
-    materializer = LinkedPointMaterializer(linked_points.linked_plan)
-    request = make_domain_compile_request(
+    request = make_domain_compile_template(
         linked_points.linked_plan,
         execution.id,
         domain_result_closure(program, execution.id),
+    ).bind_coverage(
         (tuple(range(len(linked_points.point_domain.points))),),
-        lambda input_ids, ordinals, max_points: materializer.bind_domain_inputs(
+        lambda input_ids, ordinals, max_points: linked_points.bind_domain_inputs(
             execution.id,
             "program",
             input_ids,
             ordinals,
             max_points=max_points,
         ),
-        lambda input_ids, ordinals, max_points: materializer.bind_domain_inputs(
+        lambda input_ids, ordinals, max_points: linked_points.bind_domain_inputs(
             execution.id,
             "compiler",
             input_ids,
@@ -123,7 +116,6 @@ def _batch_context(
         point_ordinals,
         batch_ordinal=batch_ordinal,
         absorbed_input_ids=absorbed_input_ids,
-        absorbed_transform_ids=absorbed_transform_ids,
     )
 
 
@@ -214,36 +206,6 @@ def test_domain_batch_context_scopes_offer_points_and_product_uses(
     preparation = context.new_preparation()
     assert isinstance(preparation, DomainPreparationBuilder)
     assert preparation.context is context
-
-
-def test_absorbed_transform_outputs_become_direct_and_leave_no_host_residual(
-    tmp_path: Path,
-) -> None:
-    linked_points = _domain_scenario(
-        tmp_path,
-        namespace="absorbed",
-        portability="portable",
-    )
-    full = _batch_context(
-        linked_points,
-        (0, 1, 2),
-    )
-    execution = full.execution
-    [transform] = execution.measurement_transforms
-    raw_uses = execution.result("raw").product_uses
-    summary_uses = transform.outputs[0].product_uses
-
-    context = _batch_context(
-        linked_points,
-        (0, 1, 2),
-        absorbed_transform_ids=(transform.id,),
-    )
-
-    assert {use.id for use in context.direct_product_uses} == {
-        use.id for use in (*raw_uses, *summary_uses)
-    }
-    assert context.derived_product_uses == ()
-    assert context.measurement_transforms == ()
 
 
 def test_absorbed_inputs_are_not_reexposed_during_preparation(

@@ -7,6 +7,7 @@ from typing import Annotated
 
 import scopecat as sc
 from quantum_lab_demo import EXAMPLE_ROOT
+from quantum_lab_demo.virtual_lab.parameters import qubit_parameters
 from scopecat_quantum import authoring as q
 
 
@@ -32,11 +33,15 @@ def recursive_readout_template(
     rounds: Annotated[sc.Input[int], sc.IntType(minimum=1)] = 3,
     shots: Annotated[sc.Input[int], sc.IntType(minimum=1)] = 5,
 ) -> sc.ExperimentBody:
-    call = repeated_parallel_readout(
-        first="q0",
-        second="q1",
-        rounds=rounds,
-    ).with_shots(shots)
+    call = (
+        repeated_parallel_readout(
+            first="q0",
+            second="q1",
+            rounds=rounds,
+        )
+        .with_compiler_inputs(qubits=qubit_parameters())
+        .with_shots(shots)
+    )
     return sc.experiment(call).record_product(call.results.iq)
 
 

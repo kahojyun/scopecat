@@ -7,7 +7,6 @@ from scopecat.records.measurement import (
     CoordinateValue,
     MeasurementArray,
     MeasurementDataset,
-    MeasurementDatasetReadContract,
     MeasurementDatasetRole,
     MeasurementDatasetSchema,
     MeasurementDimension,
@@ -16,7 +15,6 @@ from scopecat.records.measurement import (
     MeasurementValue,
     MeasurementVariable,
     MeasurementVariableRole,
-    infer_measurement_dataset_schema,
     validate_measurement_records_against_schema,
 )
 
@@ -26,7 +24,6 @@ __all__ = [
     "MeasurementArray",
     "MeasurementDType",
     "MeasurementDataset",
-    "MeasurementDatasetReadContract",
     "MeasurementDatasetRole",
     "MeasurementDatasetSchema",
     "MeasurementDimension",
@@ -34,6 +31,5 @@ __all__ = [
     "MeasurementValue",
     "MeasurementVariable",
     "MeasurementVariableRole",
-    "infer_measurement_dataset_schema",
     "validate_measurement_records_against_schema",
 ]

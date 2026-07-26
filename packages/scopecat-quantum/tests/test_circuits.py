@@ -506,7 +506,7 @@ def test_measure_preserves_acquisition_contract_when_verified() -> None:
         CircuitOperationId("measure-q0"),
         QubitId("q0"),
         AcquisitionSlotId("readout", scope=("experiment",)),
-        AcquisitionKind.RAW_TRACE,
+        AcquisitionKind.INTEGRATED_IQ,
     )
 
     verified = verify_circuit_program(

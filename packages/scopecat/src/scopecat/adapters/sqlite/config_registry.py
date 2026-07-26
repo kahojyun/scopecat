@@ -22,16 +22,15 @@ from scopecat.kernel.errors import (
 )
 from scopecat.kernel.problems import (
     ModelLocation,
-    ProblemCategory,
     ProblemPhase,
     StorageLocation,
-    blocking_problem,
+    problem,
 )
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.runs.repository import RunRepository
 
 CONFIG_REGISTRY_ROOT = "config-registry"
-CONFIG_REGISTRY_ACTIVE_REF = f"{CONFIG_REGISTRY_ROOT}/active.json"
+CONFIG_REGISTRY_ACTIVATIONS_REF = f"{CONFIG_REGISTRY_ROOT}/activations"
 
 
 class SQLiteConfigRegistryRepository:
@@ -42,7 +41,7 @@ class SQLiteConfigRegistryRepository:
 
     @property
     def active_ref(self) -> str:
-        return CONFIG_REGISTRY_ACTIVE_REF
+        return CONFIG_REGISTRY_ACTIVATIONS_REF
 
     def entry_ref(self, entry_id: str) -> str:
         return f"{CONFIG_REGISTRY_ROOT}/entries/{entry_id}.json"
@@ -136,17 +135,14 @@ class SQLiteConfigRegistryRepository:
             code="config_registry.config_invalid",
         )
 
+    def current_generation(self) -> int:
+        try:
+            return _current_generation(self._connection)
+        except sqlite3.Error as error:
+            raise _storage_failure(self.active_ref) from error
+
     def read_active_state(self) -> ConfigRegistryActiveState | None:
         try:
-            selector = _one(
-                self._connection.execute(
-                    """
-                    SELECT generation, active_entry_id
-                    FROM config_registry_active
-                    WHERE singleton = 1
-                    """
-                )
-            )
             rows = _all(
                 self._connection.execute(
                     """
@@ -158,7 +154,7 @@ class SQLiteConfigRegistryRepository:
             )
         except sqlite3.Error as error:
             raise _storage_failure(self.active_ref) from error
-        if selector is None:
+        if not rows:
             return None
         history = tuple(
             _parse_model(
@@ -169,17 +165,11 @@ class SQLiteConfigRegistryRepository:
             )
             for row in rows
         )
-        if not history:
-            raise _integrity_failure(
-                self.active_ref,
-                code="config_registry.active_state_invalid",
-                message="config registry active selector has no activation history",
-            )
         latest = history[-1]
         return _validate_model(
             {
-                "generation": _integer(selector, "generation"),
-                "active_entry_id": _text(selector, "active_entry_id"),
+                "generation": latest.generation,
+                "active_entry_id": latest.entry_id,
                 "active_entry_content_hash": latest.entry_content_hash,
                 "history": history,
                 "updated_at": latest.recorded_at,
@@ -225,6 +215,8 @@ class SQLiteConfigRegistryRepository:
         expected_generation: int,
         record: ConfigRegistryActivationRecord,
     ) -> None:
+        """Append after CAS; the immediate unit of work serializes writers."""
+
         try:
             current_generation = _current_generation(self._connection)
             if current_generation != expected_generation:
@@ -254,40 +246,6 @@ class SQLiteConfigRegistryRepository:
                     _encode_model(record, ref=self.active_ref),
                 ),
             )
-            if expected_generation == 0:
-                self._connection.execute(
-                    """
-                    INSERT INTO config_registry_active(
-                        singleton,
-                        generation,
-                        active_entry_id
-                    )
-                    VALUES (1, ?, ?)
-                    """,
-                    (
-                        record.generation,
-                        record.entry_id,
-                    ),
-                )
-                return
-            cursor = self._connection.execute(
-                """
-                UPDATE config_registry_active
-                SET generation = ?,
-                    active_entry_id = ?
-                WHERE singleton = 1 AND generation = ?
-                """,
-                (
-                    record.generation,
-                    record.entry_id,
-                    expected_generation,
-                ),
-            )
-            if cursor.rowcount != 1:
-                raise _generation_conflict(
-                    expected=expected_generation,
-                    actual=_current_generation(self._connection),
-                )
         except (Conflict, DataIntegrityError):
             raise
         except sqlite3.Error as error:
@@ -463,28 +421,29 @@ def _current_generation(connection: sqlite3.Connection) -> int:
     row = _one(
         connection.execute(
             """
-            SELECT generation
-            FROM config_registry_active
-            WHERE singleton = 1
+            SELECT COALESCE(MAX(generation), 0) AS generation
+            FROM config_registry_activations
             """
         )
     )
-    return 0 if row is None else _integer(row, "generation")
+    assert row is not None  # noqa: S101
+    return _integer(row, "generation")
 
 
 def _generation_conflict(*, expected: int, actual: int) -> Conflict:
     return Conflict(
         [
-            blocking_problem(
+            problem(
                 "config_registry.conflict",
                 "config registry active state changed",
-                category=ProblemCategory.CONFLICT,
                 phase=ProblemPhase.CONFIGURATION,
                 location=ModelLocation(
                     root="config_registry",
                     path=("expected_generation",),
                 ),
-                related_locations=(StorageLocation(ref=CONFIG_REGISTRY_ACTIVE_REF),),
+                related_locations=(
+                    StorageLocation(ref=CONFIG_REGISTRY_ACTIVATIONS_REF),
+                ),
                 details={
                     "expected_generation": expected,
                     "actual_generation": actual,
@@ -510,10 +469,9 @@ def _integrity_failure(
 ) -> DataIntegrityError:
     return DataIntegrityError(
         [
-            blocking_problem(
+            problem(
                 code,
                 message,
-                category=ProblemCategory.DATA_INTEGRITY,
                 phase=ProblemPhase.CONFIGURATION,
                 location=StorageLocation(ref=ref),
             )
@@ -524,10 +482,9 @@ def _integrity_failure(
 def _storage_failure(ref: str) -> StorageError:
     return StorageError(
         [
-            blocking_problem(
+            problem(
                 "config_registry.storage_failed",
                 "storage could not complete the config registry operation",
-                category=ProblemCategory.STORAGE,
                 phase=ProblemPhase.CONFIGURATION,
                 location=StorageLocation(ref=ref),
             )

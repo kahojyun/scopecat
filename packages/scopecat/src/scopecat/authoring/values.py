@@ -2,27 +2,24 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from inspect import Parameter, signature
 from typing import cast
 from uuid import UUID, uuid4
 
-from scopecat.authoring._frozen_values import freeze_runtime_input
+from scopecat.authoring._frozen_values import capture_runtime_input
 from scopecat.authoring._parameter_contracts import (
     ParameterValueContract,
-    merge_parameter_contracts,
 )
 from scopecat.authoring._value_refs import (
     TableRow,
     ValueRef,
     internal_input_value_ref,
-    internal_lower_scalar_value_ref,
     internal_operation_result_value_ref,
+    internal_parameter_lookup_value_ref,
     internal_point_value_ref,
     internal_value_ref_from_expression,
-    internal_value_ref_parameter_contracts,
     internal_value_ref_point_dependencies,
 )
 from scopecat.compiler.relations.model import (
@@ -30,9 +27,6 @@ from scopecat.compiler.relations.model import (
     param,
     parameter_series,
     table,
-)
-from scopecat.compiler.relations.model import (
-    parameter_lookup as parameter_lookup_expr,
 )
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.payloads import PayloadValue
@@ -189,14 +183,8 @@ def parameter_lookup(
     captured_key = {
         name: value
         if isinstance(value, ValueRef)
-        else cast("ParameterKeyInput", freeze_runtime_input(value))
+        else cast("ParameterKeyInput", capture_runtime_input(value))
         for name, value in key.items()
-    }
-    expression_key = {
-        name: internal_lower_scalar_value_ref(value)
-        if isinstance(value, ValueRef)
-        else value
-        for name, value in captured_key.items()
     }
     lookup_use = ParameterLookupUse(
         table_id=table_id,
@@ -212,23 +200,9 @@ def parameter_lookup(
         column_id=column,
         result_type=value_type,
     )
-    return internal_value_ref_from_expression(
-        parameter_lookup_expr(lookup_use, key=expression_key),
-        value_type,
-        parameter_contracts=merge_parameter_contracts(
-            (lookup_use,),
-            *(
-                internal_value_ref_parameter_contracts(value)
-                for value in captured_key.values()
-                if isinstance(value, ValueRef)
-            ),
-        ),
-        point_dependencies=tuple(
-            dependency
-            for value in captured_key.values()
-            if isinstance(value, ValueRef)
-            for dependency in internal_value_ref_point_dependencies(value)
-        ),
+    return internal_parameter_lookup_value_ref(
+        lookup_use,
+        key=captured_key,
     )
 
 
@@ -265,7 +239,7 @@ def _capture_compute_input(value: ComputeInput) -> ComputeInput:
         return value
     if isinstance(value, PayloadValue):
         return value
-    return cast("ComputeInput", freeze_runtime_input(value))
+    return cast("ComputeInput", capture_runtime_input(value))
 
 
 def _is_compute_input(value: object) -> bool:
@@ -287,87 +261,6 @@ def _parameter_key_value_type(value: ParameterKeyInput) -> Scalar:
     if isinstance(value, ValueRef):
         return cast("Scalar", value.value_type)
     return literal_scalar_type(value)
-
-
-def module_input_is_valid(value: object) -> bool:
-    """Return whether a module edge is typed or a closed literal value."""
-
-    return _nested_input_is_valid(
-        value,
-        allow_value_ref=True,
-        allow_payload=True,
-        seen=set(),
-    )
-
-
-def runtime_input_is_valid(value: object) -> bool:
-    """Return whether a user input belongs to the closed runtime value domain."""
-
-    return _nested_input_is_valid(
-        value,
-        allow_value_ref=False,
-        allow_payload=False,
-        seen=set(),
-    )
-
-
-def _nested_input_is_valid(
-    value: object,
-    *,
-    allow_value_ref: bool,
-    allow_payload: bool,
-    seen: set[int],
-) -> bool:
-    if value is None or isinstance(value, str | int | bool):
-        return True
-    if isinstance(value, float):
-        return math.isfinite(value)
-    if isinstance(value, Quantity):
-        return math.isfinite(value.value)
-    if isinstance(value, EntityRef):
-        return _nested_input_is_valid(
-            value.metadata,
-            allow_value_ref=False,
-            allow_payload=False,
-            seen=seen,
-        )
-    if isinstance(value, PayloadValue):
-        return allow_payload
-    if isinstance(value, ValueRef):
-        return allow_value_ref
-    marker = id(value)
-    if marker in seen:
-        return False
-    if isinstance(value, Mapping):
-        selected = cast("Mapping[object, object]", value)
-        seen.add(marker)
-        valid = all(
-            isinstance(name, str)
-            and _nested_input_is_valid(
-                item,
-                allow_value_ref=allow_value_ref,
-                allow_payload=allow_payload,
-                seen=seen,
-            )
-            for name, item in selected.items()
-        )
-        seen.remove(marker)
-        return valid
-    if isinstance(value, list | tuple):
-        selected = cast("list[object] | tuple[object, ...]", value)
-        seen.add(marker)
-        valid = all(
-            _nested_input_is_valid(
-                item,
-                allow_value_ref=allow_value_ref,
-                allow_payload=allow_payload,
-                seen=seen,
-            )
-            for item in selected
-        )
-        seen.remove(marker)
-        return valid
-    return False
 
 
 def _validate_compute_function(

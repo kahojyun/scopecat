@@ -10,7 +10,6 @@ from scopecat.authoring._parameter_contracts import (
 )
 from scopecat.compiler.frontend.problems import raise_frontend_problem
 from scopecat.compiler.relations.model import ParameterLookupUse
-from scopecat.kernel.problems import ProblemCategory
 from scopecat.kernel.value_type_compatibility import describe_value_type, is_assignable
 from scopecat.kernel.value_types import Entity, String, Table, ValueType
 from scopecat.records.parameter import ParameterCatalog, ParameterDefinition
@@ -42,7 +41,6 @@ def _validate_parameter(
             f"{contract.parameter_id}",
             "parameters",
             path=path,
-            category=ProblemCategory.NOT_FOUND,
         )
     _require_declared_type(
         actual=definition.value_type,
@@ -65,7 +63,6 @@ def _validate_parameter_lookup(
             f"experiment authoring references unknown parameter {contract.table_id}",
             "parameters",
             path=table_path,
-            category=ProblemCategory.NOT_FOUND,
         )
     table_type = _require_table_definition(definition, table_path)
     _validate_parameter_lookup_key(contract, table_type)
@@ -84,7 +81,6 @@ def _validate_parameter_lookup(
             f"parameter table {contract.table_id} has no column {contract.column_id}",
             "parameters",
             path=column_path,
-            category=ProblemCategory.NOT_FOUND,
         )
     if not column.required:
         raise_frontend_problem(

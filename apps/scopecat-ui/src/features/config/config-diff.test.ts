@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeConfigProfileSnapshot } from "./config-api";
+import type { ConfigProfileSnapshot, ParameterAtom } from "../../api-contract";
 import { diffConfigParameters, parameterAtomLabel, parameterTypeLabel } from "./config-diff";
 
 describe("typed config parameter diff", () => {
@@ -66,7 +66,7 @@ describe("typed config parameter diff", () => {
       scalar: { value: 5, unit: "GHz" },
       table: [row("q0", 6.5)],
     });
-    const tableDefinition = config.system.parameterCatalog.definitions[1];
+    const tableDefinition = config.system.parameter_catalog.definitions?.[1];
 
     expect(parameterAtomLabel({ value: 6.5, unit: "GHz" })).toBe("6.5 GHz");
     expect(
@@ -86,21 +86,16 @@ function configSnapshot({
   primaryKey = ["qubit"],
 }: {
   scalar: { value: number; unit: string };
-  table: Array<Record<string, unknown>>;
+  table: Array<Record<string, ParameterAtom>>;
   primaryKey?: string[];
-}) {
-  return normalizeConfigProfileSnapshot({
+}): ConfigProfileSnapshot {
+  return {
     id: `profile-${scalar.value}-${table.length}`,
     system: {
       id: "system",
       primary_entity_id: "q0",
       topology: {
         entities: [],
-        devices: [],
-        links: [],
-        lines: [],
-        channels: [],
-        groups: [],
       },
       instrument_registry: { instruments: [] },
       routing: { bindings: [] },
@@ -138,10 +133,6 @@ function configSnapshot({
         ],
       },
     },
-    environment: {
-      id: "bench",
-      connection_profile: { connections: [] },
-    },
     parameter_snapshot: {
       id: "parameters",
       values: [
@@ -157,14 +148,14 @@ function configSnapshot({
         },
       ],
     },
-  });
+  };
 }
 
 function row(
   id: string,
   frequency: number,
   metadata: Record<string, string> = {},
-): Record<string, unknown> {
+): Record<string, ParameterAtom> {
   return {
     qubit: {
       id,

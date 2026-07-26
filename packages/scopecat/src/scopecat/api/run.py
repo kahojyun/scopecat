@@ -25,8 +25,6 @@ from scopecat.runs.data import (
     RunArtifactBytesResult,
     RunArtifactJsonResult,
     RunArtifactTextResult,
-    RunDataArrayResult,
-    RunDataTableResult,
     RunMeasurementDatasetResult,
     RunRecordJsonResult,
 )
@@ -40,7 +38,7 @@ class RunOperations(Protocol):
 
     def load_config(self, run_id: str) -> ConfigProfileSnapshot: ...
 
-    def load_request(self, run_id: str) -> RunRequest | None: ...
+    def load_request(self, run_id: str) -> RunRequest: ...
 
     def measurements(
         self,
@@ -107,10 +105,6 @@ class RunOperations(Protocol):
         expected_kind: str | None,
     ) -> RunRecordJsonResult: ...
 
-    def data_table(self, run_id: str, selector: str) -> RunDataTableResult: ...
-
-    def data_array(self, run_id: str, selector: str) -> RunDataArrayResult: ...
-
 
 class RunSession(Protocol):
     @property
@@ -135,8 +129,8 @@ class RunHandle:
         return self.session.run_operations.load_config(self.id)
 
     @property
-    def request(self) -> RunRequest | None:
-        """Load the independently persisted operator request, when present."""
+    def request(self) -> RunRequest:
+        """Load the operator request accepted with this run."""
 
         return self.session.run_operations.load_request(self.id)
 

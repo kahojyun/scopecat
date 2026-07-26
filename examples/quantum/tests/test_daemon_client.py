@@ -94,6 +94,6 @@ def test_demo_execution_round_trips_through_shared_daemon(
         detail = observer.control.run_detail(run.id)
         measurements = observer.control.measurements(run.id)
 
-    assert detail.control.state == "terminal"
+    assert detail.control.state == "closed"
     assert detail.manifest.status == "completed"
     assert len(measurements.items) == 5

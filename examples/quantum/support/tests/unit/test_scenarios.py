@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 from scopecat.authoring import ExperimentInvocation
 from scopecat.execution.observation import RuntimePayloadObservation
-from scopecat.planning.authoring import resolve_experiment
 from scopecat.records.artifact import CommandPayload
 from scopecat.records.parameter import Quantity
 
@@ -20,13 +19,14 @@ from quantum_lab_demo.scenarios.opaque_collection import (
 
 from .demo_lab_experiment_testkit import (
     in_process_quantum_lab,
+    link_invocation,
     load_experiment_config,
     measurement_projection_and_points,
 )
 
 
 def test_scenario_template_ids() -> None:
-    assert parallel_gate_set_template.id == PARALLEL_GATE_SET_TEMPLATE_ID
+    assert parallel_gate_set_template.definition.id == PARALLEL_GATE_SET_TEMPLATE_ID
 
 
 def test_opaque_collection_scenario_resolves_and_projects() -> None:
@@ -36,11 +36,11 @@ def test_opaque_collection_scenario_resolves_and_projects() -> None:
         unit="ns",
     )
     config = load_experiment_config()
-    resolved = resolve_experiment(invocation, config_profile=config)
+    resolved = link_invocation(invocation, config_profile=config)
     projection, points = measurement_projection_and_points(invocation, config=config)
 
-    assert resolved.template_id == PARALLEL_GATE_SET_TEMPLATE_ID
-    assert resolved.experiment.kind == "parallel_gate_set"
+    assert resolved.program.id == PARALLEL_GATE_SET_TEMPLATE_ID
+    assert resolved.program.kind == "parallel_gate_set"
     assert projection.schema_for(points) is not None
 
 
@@ -85,8 +85,6 @@ def test_parallel_gate_compute_accepts_arbitrary_table_cardinality(
             "partner_qubit": f"q{2 * index + 1}",
             "coupler": f"coupler-{index}",
             "coupler_parking_flux": Quantity(value=0.02 + index * 0.001, unit="arb"),
-            "control_frequency": Quantity(value=5.0 + index * 0.1, unit="GHz"),
-            "partner_frequency": Quantity(value=5.05 + index * 0.1, unit="GHz"),
         }
         for index in range(gate_count)
     ]

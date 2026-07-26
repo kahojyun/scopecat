@@ -4,12 +4,10 @@ from pathlib import Path
 
 import scopecat as sc
 from scopecat.compiler.linking.linked import (
-    LinkedPointMaterializer,
-    link_verified_program,
+    materialize_linked_points,
 )
 from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.program import core_domain_executions
-from scopecat.planning.authoring import resolve_experiment
 from scopecat.sdk.domain import (
     DomainPointRef,
     DomainProductAxisView,
@@ -18,9 +16,9 @@ from scopecat.sdk.domain import (
 )
 from scopecat.sdk.domain._bridge import (
     make_domain_batch_context,
-    make_domain_compile_request,
+    make_domain_compile_template,
 )
-from tests.testkit.authoring import load_config
+from tests.testkit.authoring import link_invocation, load_config
 
 
 def test_domain_batch_context_materializes_only_selected_residual_inputs(
@@ -30,24 +28,23 @@ def test_domain_batch_context_materializes_only_selected_residual_inputs(
     count = sc.coordinate("count", count_type)
     body = object()
     program = sc.domain_program(
-        "program",
+        "program/variant",
         dialect_id="test.domain",
         dialect_version="1",
         body=body,
         inputs={"count": count_type},
         results={"counts": ("counts", "v1")},
     )
-    module = (
-        sc.module_body(id="test.domain.view")
-        .product("counts", unit="count", dtype="int64")
-        .build()
+    module = sc.module_body(id="test.domain.view").product(
+        "counts", unit="count", dtype="int64"
     )
     execution = sc.domain_execution(
         program,
+        id="execution",
         inputs={"count": count},
         results={"counts": module.products["counts"]},
     )
-    module_call = module.domain(execution)()
+    module_call = module.domain(execution).build()()
     experiment_body = (
         sc.experiment(module_call)
         .scan(count, (1, 3, 5))
@@ -56,29 +53,29 @@ def test_domain_batch_context_materializes_only_selected_residual_inputs(
     template = sc.template(id="test.domain.view", kind="domain_view")(
         lambda: experiment_body
     )
-    resolved = resolve_experiment(
+    resolved = link_invocation(
         template.bind(),
         config_profile=load_config(),
     )
-    linked = link_verified_program(resolved.verified_program, resolved.environment)
-    materializer = LinkedPointMaterializer(linked)
-    linked_points = materializer.materialize()
+    linked = resolved
+    linked_points = materialize_linked_points(linked)
 
     execution_id = core_domain_executions(linked.program)[0].id
     closure = domain_result_closure(linked.program, execution_id)
-    request = make_domain_compile_request(
+    request = make_domain_compile_template(
         linked,
         execution_id,
         closure,
+    ).bind_coverage(
         ((0, 1, 2),),
-        lambda input_ids, ordinals, max_points: materializer.bind_domain_inputs(
+        lambda input_ids, ordinals, max_points: linked_points.bind_domain_inputs(
             execution_id,
             "program",
             input_ids,
             ordinals,
             max_points=max_points,
         ),
-        lambda input_ids, ordinals, max_points: materializer.bind_domain_inputs(
+        lambda input_ids, ordinals, max_points: linked_points.bind_domain_inputs(
             execution_id,
             "compiler",
             input_ids,
@@ -89,10 +86,6 @@ def test_domain_batch_context_materializes_only_selected_residual_inputs(
     layout = request.iteration_layout
     assert layout is not None
     assert layout.preferred_tile_size == 3
-    assert tuple(axis.id for axis in layout.axes) == ("count",)
-    count_axis = request.point_axis("count")
-    assert count_axis is not None
-    assert count_axis.values == (1, 3, 5)
     full = make_domain_batch_context(
         request,
         linked_points,
@@ -100,6 +93,7 @@ def test_domain_batch_context_materializes_only_selected_residual_inputs(
         batch_ordinal=0,
     )
     selected = full.execution
+    assert selected.program.id == "program%2Fvariant"
     assert selected.program.dialect_id == "test.domain"
     assert selected.program.dialect_version == "1"
     assert selected.program.body is body
@@ -155,7 +149,6 @@ def test_domain_product_contract_view_recursively_snapshots_metadata() -> None:
 
     contract = DomainProductContractView(
         id="capture/counts",
-        kind="observable",
         unit="count",
         dtype="int64",
         axes=(

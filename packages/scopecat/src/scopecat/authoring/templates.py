@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field, replace
-from pathlib import Path
-from typing import TYPE_CHECKING, cast
+import inspect
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
+from typing import cast
 
 from scopecat.authoring._frozen_values import (
+    capture_runtime_inputs,
     empty_frozen_mapping,
-    freeze_runtime_input,
-    freeze_runtime_inputs,
 )
-from scopecat.authoring._validation import validate_template_bound_inputs
+from scopecat.authoring._module_ir import ModuleIR
+from scopecat.authoring._products import RecordSelection
+from scopecat.authoring._validation import (
+    validate_experiment_definition,
+    validate_experiment_inputs,
+)
 from scopecat.authoring._value_refs import ValueRef
 from scopecat.authoring.scans import (
     Scan,
@@ -23,25 +27,10 @@ from scopecat.authoring.scans import (
 from scopecat.authoring.values import (
     MetadataValue,
     RuntimeInput,
-    runtime_input_is_valid,
 )
-from scopecat.kernel.frozen import freeze_json_mapping
-from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.kernel.frozen import FrozenMapping, freeze_json_mapping
+from scopecat.kernel.value_types import ValueType
 from scopecat.records.parameter import Quantity
-
-if TYPE_CHECKING:
-    from scopecat.authoring._products import (
-        RecordSelection,
-    )
-    from scopecat.authoring.assembly import ExperimentModule
-
-    type TemplateModule = ExperimentModule
-    type TemplateRecordSelection = RecordSelection
-else:
-    type TemplateModule = object
-    type TemplateRecordSelection = object
-
-type ConfigProfileInput = str | Path | ConfigProfileSnapshot
 
 
 class _InputDefaultMissing:
@@ -51,88 +40,93 @@ class _InputDefaultMissing:
 _INPUT_DEFAULT_MISSING = _InputDefaultMissing()
 
 
-@dataclass(frozen=True)
-class InputDescription:
-    id: str
-    default: RuntimeInput | _InputDefaultMissing = _INPUT_DEFAULT_MISSING
-    label: str | None = None
-    description: str | None = None
-    metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
+@dataclass(frozen=True, slots=True)
+class ExperimentInput:
+    """One normalized experiment input consumed by binding and compilation."""
 
-    def __post_init__(self) -> None:
-        if not self.id:
-            msg = "template input id must be non-empty"
-            raise ValueError(msg)
-        if self.has_default and not runtime_input_is_valid(self.default):
-            msg = f"template input {self.id!r} default is not closed runtime data"
-            raise TypeError(msg)
-        if self.has_default:
-            object.__setattr__(self, "default", freeze_runtime_input(self.default))
-        object.__setattr__(self, "metadata", freeze_json_mapping(self.metadata))
+    id: str
+    value_type: ValueType | None
+    required: bool = False
+    default: RuntimeInput | _InputDefaultMissing = _INPUT_DEFAULT_MISSING
 
     @property
     def has_default(self) -> bool:
         return self.default is not _INPUT_DEFAULT_MISSING
 
 
-@dataclass(frozen=True, slots=True, repr=False)
-class ExperimentTemplate:
+@dataclass(frozen=True, slots=True)
+class ExperimentDefinition:
+    """Canonical config-free definition shared by every invocation path."""
+
     id: str
     kind: str
-    module: TemplateModule
-    record_selections: tuple[TemplateRecordSelection, ...] = ()
-    inputs: tuple[InputDescription, ...] = ()
+    module: ModuleIR
+    inputs: tuple[ExperimentInput, ...] = ()
     default_scans: tuple[Scan, ...] = ()
-    label: str | None = None
-    description: str | None = None
+    record_selections: tuple[RecordSelection, ...] = ()
     metadata: Mapping[str, MetadataValue] = field(default_factory=empty_frozen_mapping)
 
-    def __post_init__(self) -> None:
-        if not self.id:
-            msg = "experiment template id must be non-empty"
-            raise ValueError(msg)
-        if not self.kind:
-            msg = "experiment template requires kind"
-            raise ValueError(msg)
 
-    def bind(self, **inputs: RuntimeInput) -> ExperimentInvocation:
-        _validate_runtime_inputs(inputs)
-        validate_template_bound_inputs(
-            module=self.module,
-            descriptions=self.inputs,
-            default_scans=self.default_scans,
-            inputs=inputs,
+@dataclass(frozen=True, slots=True, repr=False)
+class ExperimentTemplate[**P]:
+    """Callable UX for one canonical experiment definition."""
+
+    definition: ExperimentDefinition
+    _callable: Callable[P, object] = field(repr=False, compare=False)
+    _signature: inspect.Signature = field(repr=False, compare=False)
+
+    @property
+    def __wrapped__(self) -> Callable[P, object]:
+        return self._callable
+
+    @property
+    def __name__(self) -> str:
+        return self._callable.__name__
+
+    @property
+    def __signature__(self) -> inspect.Signature:
+        return self._signature
+
+    def bind(self, *args: P.args, **kwargs: P.kwargs) -> ExperimentInvocation:
+        """Bind any supplied inputs; scans may provide omitted inputs later."""
+
+        bound = self._signature.bind_partial(*args, **kwargs)
+        inputs = cast("dict[str, RuntimeInput]", dict(bound.arguments))
+        captured_inputs = _capture_experiment_inputs(inputs)
+        validate_experiment_inputs(
+            definitions=self.definition.inputs,
+            inputs=captured_inputs,
         )
         return ExperimentInvocation(
-            template=self,
-            inputs=cast("Mapping[str, RuntimeInput]", freeze_runtime_inputs(inputs)),
+            definition=self.definition,
+            inputs=captured_inputs,
+            scans=(),
         )
 
-    def __call__(self, **inputs: RuntimeInput) -> ExperimentInvocation:
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> ExperimentInvocation:
         """Bind this closed template through normal Python call syntax."""
 
-        return self.bind(**inputs)
+        return self.bind(*args, **kwargs)
 
 
 @dataclass(frozen=True, slots=True, repr=False)
 class ExperimentInvocation:
-    template: ExperimentTemplate
+    definition: ExperimentDefinition
     inputs: Mapping[str, RuntimeInput] = field(default_factory=empty_frozen_mapping)
     scans: tuple[Scan, ...] = ()
 
     def bind(self, **inputs: RuntimeInput) -> ExperimentInvocation:
-        _validate_runtime_inputs(inputs)
-        selected = dict(self.inputs)
-        selected.update(inputs)
-        validate_template_bound_inputs(
-            module=self.template.module,
-            descriptions=self.template.inputs,
-            default_scans=self.template.default_scans,
-            inputs=selected,
+        captured_inputs = _capture_experiment_inputs(inputs)
+        validate_experiment_inputs(
+            definitions=self.definition.inputs,
+            inputs=captured_inputs,
         )
-        return replace(
-            self,
-            inputs=freeze_runtime_inputs(selected),
+        selected = dict(self.inputs)
+        selected.update(captured_inputs)
+        return ExperimentInvocation(
+            definition=self.definition,
+            inputs=FrozenMapping(selected.items()),
+            scans=self.scans,
         )
 
     def scan(
@@ -153,19 +147,82 @@ class ExperimentInvocation:
             span=span,
             points=points,
         )
-        return replace(self, scans=(*self.scans, selected))
+        return ExperimentInvocation(
+            definition=self.definition,
+            inputs=self.inputs,
+            scans=(*self.scans, selected),
+        )
 
 
-def _validate_runtime_inputs(inputs: Mapping[str, RuntimeInput]) -> None:
-    invalid = sorted(
-        input_id
-        for input_id, value in inputs.items()
-        if not input_id or not runtime_input_is_valid(value)
+def create_experiment_definition_internal(
+    *,
+    id: str,  # noqa: A002
+    kind: str,
+    module: ModuleIR,
+    record_selections: Sequence[RecordSelection] = (),
+    input_defaults: Mapping[str, RuntimeInput] | None = None,
+    required_inputs: Sequence[str] = (),
+    default_scans: Sequence[Scan] = (),
+    metadata: Mapping[str, MetadataValue] | None = None,
+) -> ExperimentDefinition:
+    """Normalize all experiment semantics at one immutable boundary."""
+
+    if not id:
+        msg = "experiment definition id must be non-empty"
+        raise ValueError(msg)
+    if not kind:
+        msg = "experiment definition requires kind"
+        raise ValueError(msg)
+    selected_records = tuple(record_selections)
+    selected_scans = tuple(default_scans)
+    selected_defaults = _capture_experiment_inputs(input_defaults or {})
+    selected_required = tuple(required_inputs)
+    input_types = validate_experiment_definition(
+        module=module,
+        defaults=selected_defaults,
+        default_scans=selected_scans,
     )
-    if invalid:
-        selected = ", ".join(repr(input_id) for input_id in invalid)
+    module_input_ids = tuple(port.id for port in module.interface.imports)
+    input_ids = tuple(
+        dict.fromkeys(
+            (
+                *module_input_ids,
+                *selected_defaults,
+                *selected_required,
+                *input_types,
+            )
+        )
+    )
+    normalized_inputs = tuple(
+        ExperimentInput(
+            id=input_id,
+            value_type=input_types.get(input_id),
+            required=input_id in selected_required,
+            default=selected_defaults.get(input_id, _INPUT_DEFAULT_MISSING),
+        )
+        for input_id in input_ids
+    )
+    return ExperimentDefinition(
+        id=id,
+        kind=kind,
+        module=module,
+        inputs=normalized_inputs,
+        default_scans=selected_scans,
+        record_selections=selected_records,
+        metadata=freeze_json_mapping(metadata or {}),
+    )
+
+
+def _capture_experiment_inputs(
+    inputs: Mapping[str, RuntimeInput],
+) -> Mapping[str, RuntimeInput]:
+    try:
+        captured = capture_runtime_inputs(cast("Mapping[str, object]", inputs))
+    except (TypeError, ValueError) as error:
+        selected = ", ".join(repr(input_id) for input_id in sorted(inputs))
         msg = (
-            "template inputs require non-empty names and closed runtime data: "
+            "experiment inputs require non-empty names and closed runtime data: "
             f"{selected}"
         )
-        raise TypeError(msg)
+        raise TypeError(msg) from error
+    return cast("Mapping[str, RuntimeInput]", captured)

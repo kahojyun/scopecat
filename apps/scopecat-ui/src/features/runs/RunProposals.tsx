@@ -44,7 +44,7 @@ export function RunProposals({ runId }: { runId: string }) {
     queryFn: ({ signal }) => getConfigRegistry(signal),
     enabled: (proposalsQuery.data?.items.length ?? 0) > 0,
   });
-  const generation = configQuery.data?.active?.generation ?? 0;
+  const generation = configQuery.data?.active_state?.generation ?? 0;
 
   const reviewMutation = useMutation({
     mutationFn: (input: ReviewInput) =>

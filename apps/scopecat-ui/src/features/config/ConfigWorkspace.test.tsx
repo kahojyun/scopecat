@@ -12,7 +12,7 @@ import {
   rollbackConfig,
 } from "./config-api";
 import { ConfigWorkspace } from "./ConfigWorkspace";
-import type { ConfigRegistryEntry } from "./config-types";
+import type { ConfigProfileSnapshot, ConfigRegistryEntry } from "../../api-contract";
 import { getRunParameterProposals } from "../runs/proposal-api";
 
 vi.mock("../../api", async (importOriginal) => ({
@@ -50,18 +50,18 @@ afterEach(() => {
 describe("ConfigWorkspace", () => {
   it("presents saved versions as defaults and undo without generation ceremony", async () => {
     vi.mocked(getConfigRegistry).mockResolvedValue({
-      active: {
+      active_state: {
         generation: 2,
-        entryId: "baseline",
-        contentHash: "sha256:baseline",
+        active_entry_id: "baseline",
+        active_entry_content_hash: "sha256:baseline",
+        history: [
+          activation(2, "baseline", "sha256:baseline", "calibrated"),
+          activation(1, "calibrated", "sha256:calibrated"),
+        ],
       },
       entries: [
         configEntry("baseline", "sha256:baseline"),
         configEntry("calibrated", "sha256:calibrated"),
-      ],
-      history: [
-        activation(2, "baseline", "sha256:baseline", "calibrated"),
-        activation(1, "calibrated", "sha256:calibrated"),
       ],
     });
     vi.mocked(getConfigRegistryEntry).mockImplementation(async (entryId) => {
@@ -74,7 +74,6 @@ describe("ConfigWorkspace", () => {
           primaryEntityId: "q0",
           parameterCount: 0,
           instrumentCount: 0,
-          connectionCount: 0,
         },
       };
     });
@@ -100,10 +99,11 @@ describe("ConfigWorkspace", () => {
     fireEvent.click(within(activateDialog).getByRole("button", { name: "Set as default" }));
 
     await waitFor(() =>
-      expect(activateConfigEntry).toHaveBeenCalledWith("calibrated", {
+      expect(activateConfigEntry).toHaveBeenCalledWith({
+        entry_id: "calibrated",
         operator: "local-operator",
         note: "",
-        expectedGeneration: 2,
+        expected_generation: 2,
       }),
     );
 
@@ -121,13 +121,13 @@ describe("ConfigWorkspace", () => {
     async (sourceKind) => {
       const entry = runtimeDerivedEntry(sourceKind);
       vi.mocked(getConfigRegistry).mockResolvedValue({
-        active: {
+        active_state: {
           generation: 3,
-          entryId: entry.id,
-          contentHash: entry.contentHash,
+          active_entry_id: entry.id,
+          active_entry_content_hash: entry.content_hash,
+          history: [activation(3, entry.id, entry.content_hash)],
         },
         entries: [entry],
-        history: [activation(3, entry.id, entry.contentHash)],
       });
       vi.mocked(getConfigRegistryEntry).mockResolvedValue({
         entry,
@@ -137,7 +137,6 @@ describe("ConfigWorkspace", () => {
           primaryEntityId: "q0",
           parameterCount: 0,
           instrumentCount: 0,
-          connectionCount: 0,
         },
       });
 
@@ -158,13 +157,13 @@ describe("ConfigWorkspace", () => {
     const baseline = configEntry("baseline", "sha256:baseline");
     const entries = [entry, baseline];
     vi.mocked(getConfigRegistry).mockResolvedValue({
-      active: {
+      active_state: {
         generation: 3,
-        entryId: entry.id,
-        contentHash: entry.contentHash,
+        active_entry_id: entry.id,
+        active_entry_content_hash: entry.content_hash,
+        history: [activation(3, entry.id, entry.content_hash)],
       },
       entries,
-      history: [activation(3, entry.id, entry.contentHash)],
     });
     vi.mocked(getConfigRegistryEntry).mockImplementation(async (entryId) => {
       const selected = entries.find((item) => item.id === entryId)!;
@@ -183,13 +182,13 @@ describe("ConfigWorkspace", () => {
   it("joins candidate proposals, analyses, and the latest decision", async () => {
     const entry = runtimeDerivedEntry("candidate_config", ["gain-result", "fit-result"]);
     vi.mocked(getConfigRegistry).mockResolvedValue({
-      active: {
+      active_state: {
         generation: 3,
-        entryId: entry.id,
-        contentHash: entry.contentHash,
+        active_entry_id: entry.id,
+        active_entry_content_hash: entry.content_hash,
+        history: [activation(3, entry.id, entry.content_hash)],
       },
       entries: [entry],
-      history: [activation(3, entry.id, entry.contentHash)],
     });
     vi.mocked(getConfigRegistryEntry).mockResolvedValue(entryDetail(entry));
     vi.mocked(getRunParameterProposals).mockResolvedValue({
@@ -323,13 +322,13 @@ describe("ConfigWorkspace", () => {
   it("keeps decision note and time unresolved while proposals load", async () => {
     const entry = runtimeDerivedEntry("candidate_config");
     vi.mocked(getConfigRegistry).mockResolvedValue({
-      active: {
+      active_state: {
         generation: 3,
-        entryId: entry.id,
-        contentHash: entry.contentHash,
+        active_entry_id: entry.id,
+        active_entry_content_hash: entry.content_hash,
+        history: [activation(3, entry.id, entry.content_hash)],
       },
       entries: [entry],
-      history: [activation(3, entry.id, entry.contentHash)],
     });
     vi.mocked(getConfigRegistryEntry).mockResolvedValue(entryDetail(entry));
     vi.mocked(getRunParameterProposals).mockImplementation(
@@ -350,13 +349,13 @@ describe("ConfigWorkspace", () => {
   it("does not report missing decision note or time when proposals fail", async () => {
     const entry = runtimeDerivedEntry("candidate_config");
     vi.mocked(getConfigRegistry).mockResolvedValue({
-      active: {
+      active_state: {
         generation: 3,
-        entryId: entry.id,
-        contentHash: entry.contentHash,
+        active_entry_id: entry.id,
+        active_entry_content_hash: entry.content_hash,
+        history: [activation(3, entry.id, entry.content_hash)],
       },
       entries: [entry],
-      history: [activation(3, entry.id, entry.contentHash)],
     });
     vi.mocked(getConfigRegistryEntry).mockResolvedValue(entryDetail(entry));
     vi.mocked(getRunParameterProposals).mockRejectedValue(new Error("proposal store offline"));
@@ -390,24 +389,23 @@ function renderWorkspace(onOpenRun?: (runId: string) => void) {
   );
 }
 
-function configEntry(id: string, contentHash: string) {
+function configEntry(id: string, contentHash: string): ConfigRegistryEntry {
   return {
     id,
-    contentHash,
-    configRef: `entries/${id}.json`,
-    registeredBy: "Ada",
-    registeredAt: "2026-07-24T08:00:00Z",
-    source: {
-      kind: "direct_config_profile" as const,
-      proposalIds: [],
-    },
+    content_hash: contentHash,
+    config_ref: `entries/${id}.json`,
+    registered_by: "Ada",
+    registered_at: "2026-07-24T08:00:00Z",
+    source: { kind: "direct_config_profile" },
+    note: "",
+    status: "registered",
   };
 }
 
 function runtimeDerivedEntry(
   kind: "manual_parameter_updates" | "candidate_config",
-  proposalIds = ["fit-result"],
-) {
+  proposalIds: [string, ...string[]] = ["fit-result"],
+): ConfigRegistryEntry {
   const entry = configEntry("runtime-default", "sha256:runtime-default");
   return {
     ...entry,
@@ -415,16 +413,33 @@ function runtimeDerivedEntry(
       kind === "manual_parameter_updates"
         ? {
             kind,
-            proposalIds: [],
-            baseEntryId: "baseline",
-            baseContentHash: "sha256:baseline",
-            baseGeneration: 2,
+            base_entry_id: "baseline",
+            base_config_content_hash: "sha256:baseline",
+            base_registry_generation: 2,
           }
         : {
             kind,
-            proposalIds,
-            runId: "run-calibration",
-            baseContentHash: "sha256:baseline",
+            proposal_evidence: proposalIds.map((proposalId) => ({
+              proposal_id: proposalId,
+              proposal_record_content_hash: `sha256:${proposalId}`,
+              approval_event_id: `approval-${proposalId}`,
+              approval_record_content_hash: `sha256:approval-${proposalId}`,
+            })) as [
+              {
+                proposal_id: string;
+                proposal_record_content_hash: string;
+                approval_event_id: string;
+                approval_record_content_hash: string;
+              },
+              ...Array<{
+                proposal_id: string;
+                proposal_record_content_hash: string;
+                approval_event_id: string;
+                approval_record_content_hash: string;
+              }>,
+            ],
+            run_id: "run-calibration",
+            base_config_content_hash: "sha256:baseline",
           },
   };
 }
@@ -439,11 +454,12 @@ function activation(
     id: `activation-${generation}`,
     generation,
     action: "activation" as const,
-    entryId,
-    entryContentHash,
-    previousEntryId,
+    entry_id: entryId,
+    entry_content_hash: entryContentHash,
+    previous_entry_id: previousEntryId,
     operator: "Ada",
-    recordedAt: "2026-07-24T08:00:00Z",
+    note: "",
+    recorded_at: "2026-07-24T08:00:00Z",
   };
 }
 
@@ -456,42 +472,30 @@ function entryDetail(entry: ConfigRegistryEntry) {
       primaryEntityId: "q0",
       parameterCount: 0,
       instrumentCount: 0,
-      connectionCount: 0,
     },
   };
 }
 
-function emptyConfig(id: string) {
+function emptyConfig(id: string): ConfigProfileSnapshot {
   return {
     id,
     system: {
       id: "system",
-      primaryEntityId: "q0",
+      primary_entity_id: "q0",
       topology: {
         entities: [],
-        devices: [],
-        links: [],
-        lines: [],
-        channels: [],
-        groups: [],
       },
-      instruments: [],
-      routing: [],
-      parameterCatalog: {
+      instrument_registry: { instruments: [] },
+      routing: { bindings: [] },
+      domain_target: null,
+      parameter_catalog: {
         id: "parameters",
         definitions: [],
-        metadata: {},
       },
     },
-    environment: {
-      id: "environment",
-      connections: [],
-    },
-    parameterSnapshot: {
+    parameter_snapshot: {
       id: "parameters",
       values: [],
-      metadata: {},
     },
-    raw: {},
   };
 }

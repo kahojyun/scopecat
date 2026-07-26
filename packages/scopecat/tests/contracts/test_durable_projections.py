@@ -8,13 +8,13 @@ from typing import Any, cast
 import pytest
 from pydantic import ValidationError
 
-from scopecat.compiler.frontend.environment import validate_config_environment
+from scopecat.compiler.frontend.environment import build_config_environment
 from scopecat.compiler.frontend.resolution import (
-    compile_prepared_invocation,
+    compile_invocation,
     resolve_compiled_invocation,
 )
 from scopecat.records.run_request import RunRequest
-from tests.testkit.workflow_fixtures import load_config, load_prepared_invocation
+from tests.testkit.workflow_fixtures import load_config, load_invocation
 
 FIXTURE_DIR = Path(__file__).with_name("fixtures")
 
@@ -29,15 +29,15 @@ def _golden(name: str) -> dict[str, Any]:
 def _canonical_request(project_root: Path) -> RunRequest:
     """Project the canonical simple-scan request through the real pipeline."""
 
-    compiled_invocation = compile_prepared_invocation(load_prepared_invocation())
-    environment = validate_config_environment(load_config())
-    assert environment.valid, environment.problems
+    del project_root
+    compiled_invocation = compile_invocation(load_invocation())
+    environment = build_config_environment(load_config())
     resolved = resolve_compiled_invocation(
         compiled_invocation,
         environment=environment,
     )
-    assert not resolved.problems, resolved.problems
-    return resolved.request
+    assert resolved.environment is environment
+    return compiled_invocation.request
 
 
 def test_run_request_projector_matches_golden_and_round_trips(

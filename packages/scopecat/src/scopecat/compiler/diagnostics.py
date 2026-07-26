@@ -7,10 +7,9 @@ from collections.abc import Mapping, Sequence
 from scopecat.kernel.problems import (
     ModelLocation,
     Problem,
-    ProblemCategory,
     ProblemLocation,
     ProblemPhase,
-    blocking_problem,
+    problem,
 )
 
 
@@ -31,14 +30,12 @@ def compiler_problem(
     location: ModelLocation,
     *,
     phase: ProblemPhase = ProblemPhase.PLANNING,
-    category: ProblemCategory = ProblemCategory.INVALID_INPUT,
     related_locations: Sequence[ProblemLocation] = (),
     details: Mapping[str, object] | None = None,
 ) -> Problem:
-    return blocking_problem(
+    return problem(
         code,
         message,
-        category=category,
         phase=phase,
         location=location,
         related_locations=related_locations,

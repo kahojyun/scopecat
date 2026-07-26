@@ -19,14 +19,10 @@ from scopecat.compiler.relations.model import (
 from scopecat.compiler.relations.point_domain import (
     POINT_UNIT,
     PointAxis,
-    PointRows,
     iter_point_axis_linear,
     point_axis_linear,
     point_axis_values,
-    point_dependent_product,
-    point_literal_rows,
     point_product,
-    point_zip,
 )
 from scopecat.compiler.relations.uses import RelationUse, relation_use
 from scopecat.compiler.relations.verification import RelationTypeBindings, RowType
@@ -42,7 +38,6 @@ from scopecat.compiler.typed.point_domain import (
     PointDomainVerificationError,
     VerifiedPointDomain,
     materialize_point_domain,
-    materialize_point_domain_ordinals,
     verify_point_domain,
 )
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
@@ -61,14 +56,6 @@ from scopecat.records.parameter import Quantity
 
 _INT = Scalar(Int())
 _TIME = Scalar(QuantityType(dimension="time", unit="ns"))
-_NARROW_TIME = Scalar(
-    QuantityType(
-        dimension="time",
-        unit="ns",
-        minimum=0.0,
-        maximum=100.0,
-    )
-)
 _ENTITY = Scalar(Entity("qubit"))
 
 type _CenterUse = RelationUse[ScalarValueExpr]
@@ -98,17 +85,6 @@ def _axis(
     value_type: Scalar = _INT,
 ) -> PointAxis[_CenterUse]:
     return point_axis_values(column_id, value_type, tuple(values))
-
-
-def _rows(
-    columns: tuple[TableColumn, ...],
-    rows: Sequence[Sequence[CellValue]],
-) -> PointRows:
-    selected = tuple(tuple(row) for row in rows)
-    return point_literal_rows(
-        columns,
-        selected,
-    )
 
 
 def _domain(
@@ -174,20 +150,6 @@ def test_zero_length_explicit_axis_remains_an_empty_domain() -> None:
     assert materialized.points == ()
 
 
-def test_literal_rows_materialize_positional_cells_in_schema_order() -> None:
-    root = _rows(
-        (TableColumn("left", _INT), TableColumn("right", _INT)),
-        ((1, 10), (2, 20)),
-    )
-
-    materialized = _materialize(PointDomain(root=root))
-
-    assert [point.row for point in materialized.points] == [
-        {"left": 1, "right": 10},
-        {"left": 2, "right": 20},
-    ]
-
-
 def test_product_materialization_is_left_major() -> None:
     domain = PointDomain(
         root=point_product(
@@ -204,61 +166,6 @@ def test_product_materialization_is_left_major() -> None:
         {"left": 1, "right": 4},
         {"left": 2, "right": 3},
         {"left": 2, "right": 4},
-    ]
-
-
-def test_zip_materialization_is_exact_and_positional() -> None:
-    domain = PointDomain(
-        root=point_zip(
-            _axis("left", (1, 2)),
-            _axis("right", (3, 4)),
-        )
-    )
-
-    materialized = _materialize(domain)
-
-    assert len(materialized.points) == 2
-    assert [point.row for point in materialized.points] == [
-        {"left": 1, "right": 3},
-        {"left": 2, "right": 4},
-    ]
-
-
-def test_dependent_linear_axis_center_reads_the_left_point() -> None:
-    left_row = RowType((TableColumn("base", _TIME),))
-    center = relation_use(
-        scalar_value_expr(
-            point_col("base"),
-            bindings=RelationTypeBindings(point_row=left_row),
-            expected_type=_TIME,
-        )
-    )
-    domain = PointDomain(
-        root=point_dependent_product(
-            _axis(
-                "base",
-                (_quantity(10.0), _quantity(20.0)),
-                value_type=_TIME,
-            ),
-            point_axis_linear(
-                "offset",
-                _TIME,
-                center,
-                _quantity(2.0),
-                3,
-            ),
-        )
-    )
-
-    materialized = _materialize(domain)
-
-    assert [point.row for point in materialized.points] == [
-        {"base": _quantity(10.0), "offset": _quantity(9.0)},
-        {"base": _quantity(10.0), "offset": _quantity(10.0)},
-        {"base": _quantity(10.0), "offset": _quantity(11.0)},
-        {"base": _quantity(20.0), "offset": _quantity(19.0)},
-        {"base": _quantity(20.0), "offset": _quantity(20.0)},
-        {"base": _quantity(20.0), "offset": _quantity(21.0)},
     ]
 
 
@@ -324,154 +231,6 @@ def test_dynamic_center_evaluation_errors_report_the_center_path() -> None:
     assert caught.value.path == ("source", "center")
 
 
-def test_ordinal_selection_preserves_request_order_and_duplicates() -> None:
-    verified = _verify(
-        PointDomain(
-            root=point_product(
-                _axis("left", (1, 2)),
-                _axis("right", (10, 20, 30)),
-            )
-        ),
-        program_id="program",
-    )
-    complete = materialize_point_domain(verified, ParameterRelationData())
-
-    selected = materialize_point_domain_ordinals(
-        verified,
-        ParameterRelationData(),
-        (5, 0, 5, 2),
-        max_points=4,
-    )
-
-    assert selected == (
-        complete.points[5],
-        complete.points[0],
-        complete.points[5],
-        complete.points[2],
-    )
-
-
-def test_linear_ordinal_selection_does_not_expand_the_complete_axis(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    center = relation_use(
-        scalar_value_expr(
-            _quantity(10.0),
-            expected_type=_TIME,
-        )
-    )
-    count = 1_000_000_001
-    verified = _verify(
-        PointDomain(
-            root=point_axis_linear(
-                "delay",
-                _TIME,
-                center,
-                _quantity(2.0),
-                count,
-            )
-        )
-    )
-
-    def reject_complete_expansion(*_args: object, **_kwargs: object) -> object:
-        raise AssertionError("ordinal selection expanded the complete linear axis")
-
-    monkeypatch.setattr(
-        "scopecat.compiler.typed.point_domain._axis_values",
-        reject_complete_expansion,
-    )
-
-    selected = materialize_point_domain_ordinals(
-        verified,
-        ParameterRelationData(),
-        (0, count - 1),
-        max_points=2,
-    )
-
-    assert [point.row["delay"] for point in selected] == [
-        _quantity(9.0),
-        _quantity(11.0),
-    ]
-
-
-def test_dependent_ordinal_selection_matches_complete_outer_major_order() -> None:
-    ambient = RowType((TableColumn("base", _TIME),))
-    center = relation_use(
-        scalar_value_expr(
-            point_col("base"),
-            bindings=RelationTypeBindings(point_row=ambient),
-            expected_type=_TIME,
-        )
-    )
-    verified = _verify(
-        PointDomain(
-            root=point_dependent_product(
-                _axis(
-                    "base",
-                    (_quantity(10.0), _quantity(20.0)),
-                    value_type=_TIME,
-                ),
-                point_axis_linear(
-                    "offset",
-                    _TIME,
-                    center,
-                    _quantity(2.0),
-                    3,
-                ),
-            )
-        )
-    )
-    complete = materialize_point_domain(verified, ParameterRelationData())
-
-    selected = materialize_point_domain_ordinals(
-        verified,
-        ParameterRelationData(),
-        (5, 0, 3),
-        max_points=3,
-    )
-
-    assert selected == (
-        complete.points[5],
-        complete.points[0],
-        complete.points[3],
-    )
-
-
-@pytest.mark.parametrize("max_points", [0, -1, False, 1.5])
-def test_ordinal_selection_requires_a_positive_integer_budget(
-    max_points: object,
-) -> None:
-    verified = _verify(_domain((1, 2)))
-
-    with pytest.raises(ValueError, match="positive integer"):
-        materialize_point_domain_ordinals(
-            verified,
-            ParameterRelationData(),
-            (),
-            max_points=cast("int", max_points),
-        )
-
-
-def test_ordinal_selection_enforces_budget_and_domain_range() -> None:
-    verified = _verify(_domain((1, 2)))
-
-    with pytest.raises(ValueError, match="exceeds"):
-        materialize_point_domain_ordinals(
-            verified,
-            ParameterRelationData(),
-            (0, 1),
-            max_points=1,
-        )
-    for ordinal in (-1, 2):
-        with pytest.raises(ValueError, match="unknown logical ordinal"):
-            materialize_point_domain_ordinals(
-                verified,
-                ParameterRelationData(),
-                (ordinal,),
-                max_points=1,
-            )
-
-
 def test_duplicate_columns_fail_during_typed_verification() -> None:
     domain = PointDomain(
         root=point_product(
@@ -485,23 +244,6 @@ def test_duplicate_columns_fail_during_typed_verification() -> None:
 
     assert [issue.code for issue in caught.value.issues] == [
         "point_domain_duplicate_columns"
-    ]
-    assert caught.value.issues[0].path == ()
-
-
-def test_zip_cardinality_mismatch_fails_during_typed_verification() -> None:
-    domain = PointDomain(
-        root=point_zip(
-            _axis("left", (1,)),
-            _axis("right", (2, 3)),
-        )
-    )
-
-    with pytest.raises(PointDomainVerificationError) as caught:
-        _verify(domain)
-
-    assert [issue.code for issue in caught.value.issues] == [
-        "point_domain_zip_cardinality_mismatch"
     ]
     assert caught.value.issues[0].path == ()
 
@@ -534,64 +276,34 @@ def test_linear_center_rejects_an_unresolved_input() -> None:
     assert caught.value.issues[0].path == ("source", "center")
 
 
-def test_dependent_linear_center_rejects_the_wrong_ambient_row() -> None:
-    fictional = RowType((TableColumn("missing", _TIME),))
+def test_linear_center_rejects_a_point_dependency() -> None:
     center = relation_use(
         scalar_value_expr(
-            point_col("missing"),
-            bindings=RelationTypeBindings(point_row=fictional),
-            expected_type=_TIME,
-        )
-    )
-    domain = PointDomain(
-        root=point_dependent_product(
-            _axis("actual", (_quantity(10.0),), value_type=_TIME),
-            point_axis_linear(
-                "delay",
-                _TIME,
-                center,
-                _quantity(2.0),
-                3,
+            point_col("other"),
+            bindings=RelationTypeBindings(
+                point_row=RowType((TableColumn("other", _TIME),))
             ),
+            expected_type=_TIME,
         )
     )
 
     with pytest.raises(PointDomainVerificationError) as caught:
-        _verify(domain)
-
-    assert [issue.code for issue in caught.value.issues] == ["unknown_column"]
-    assert caught.value.issues[0].path == ("right", "source", "center")
-
-
-def test_dependent_linear_center_rejects_an_assignable_but_stale_proof() -> None:
-    fictional = RowType((TableColumn("base", _NARROW_TIME),))
-    center = relation_use(
-        scalar_value_expr(
-            point_col("base"),
-            bindings=RelationTypeBindings(point_row=fictional),
-            expected_type=_TIME,
+        _verify(
+            PointDomain(
+                root=point_axis_linear(
+                    "delay",
+                    _TIME,
+                    center,
+                    _quantity(2.0),
+                    3,
+                )
+            )
         )
-    )
-    domain = PointDomain(
-        root=point_dependent_product(
-            _axis("base", (_quantity(10.0),), value_type=_TIME),
-            point_axis_linear(
-                "delay",
-                _TIME,
-                center,
-                _quantity(2.0),
-                3,
-            ),
-        )
-    )
-
-    with pytest.raises(PointDomainVerificationError) as caught:
-        _verify(domain)
 
     assert [issue.code for issue in caught.value.issues] == [
-        "point_axis_center_stale_proof"
+        "point_axis_center_open_row_interface"
     ]
-    assert caught.value.issues[0].path == ("right", "source", "center")
+    assert caught.value.issues[0].path == ("source", "center")
 
 
 def test_materialization_coerces_normalized_rows_before_assigning_ids() -> None:

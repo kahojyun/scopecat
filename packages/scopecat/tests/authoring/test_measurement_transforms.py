@@ -78,11 +78,12 @@ def test_module_requires_transform_products_and_unique_ids() -> None:
             .measurement_transforms(transform)
             .build()
         )
-    with pytest.raises(ValueError, match="ids must be unique"):
+    with pytest.raises(ValueError, match="duplicate module measurement transform ids"):
         (
             sc.module_body(id="test.transform.duplicate")
             .product("raw", "derived")
             .measurement_transforms(transform, transform)
+            .build()
         )
 
 
@@ -98,7 +99,7 @@ def test_transform_reads_visible_child_product_and_writes_local_product() -> Non
     )
     module = builder.measurement_transforms(transform).build()
 
-    [lowered] = elaborate_module(module).semantic_graph.measurement_transforms
+    [lowered] = elaborate_module(module.ir).semantic_graph.measurement_transforms
     assert tuple(
         (role, product_id.qualified_name) for role, product_id in lowered.inputs
     ) == (("source", "nested/raw"),)
@@ -154,7 +155,7 @@ def test_nested_measurement_transform_is_hygienically_scoped() -> None:
     nested = child.instantiate("nested")
     root = sc.module_body(id="test.transform.root").use(nested).build()
 
-    graph = elaborate_module(root).semantic_graph
+    graph = elaborate_module(root.ir).semantic_graph
     [transform] = graph.measurement_transforms
     assert transform.id.qualified_name == "nested/derive"
     assert tuple(
@@ -175,7 +176,7 @@ def test_semantic_transform_graph_is_canonical_topological_order() -> None:
         .build()
     )
 
-    graph = verify_assembly_graph(elaborate_module(module)).semantic_graph.graph
+    graph = verify_assembly_graph(elaborate_module(module.ir)).semantic_graph.graph
     assert tuple(
         transform.id.qualified_name for transform in graph.measurement_transforms
     ) == ("first", "second")
@@ -193,7 +194,7 @@ def test_semantic_transform_cycle_is_rejected() -> None:
     )
 
     with pytest.raises(CheckFailed) as error:
-        verify_assembly_graph(elaborate_module(module))
+        verify_assembly_graph(elaborate_module(module.ir))
     assert "semantic_measurement_transform_cycle" in {
         problem.code for problem in error.value.problems
     }
@@ -211,16 +212,15 @@ def test_domain_and_transform_cannot_own_the_same_product() -> None:
         sc.module_body(id="test.transform.owner")
         .product("source", "raw")
         .measurement_transforms(_transform("derive", source="source", output="raw"))
-        .build()
     )
     execution = sc.domain_execution(
         program,
         results={"raw": module.products["raw"]},
     )
-    module = module.domain(execution)
+    module = module.domain(execution).build()
 
     with pytest.raises(CheckFailed) as error:
-        verify_assembly_graph(elaborate_module(module))
+        verify_assembly_graph(elaborate_module(module.ir))
     assert "semantic_product_producer_duplicate" in {
         problem.code for problem in error.value.problems
     }

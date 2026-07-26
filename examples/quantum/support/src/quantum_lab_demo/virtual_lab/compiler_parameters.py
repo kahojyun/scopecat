@@ -9,7 +9,7 @@ from typing import cast
 from scopecat import Quantity
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.records.entity import EntityRef
-from scopecat_quantum import QubitId
+from scopecat_quantum._ids import QubitId
 
 
 @dataclass(frozen=True, slots=True)

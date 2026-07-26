@@ -48,7 +48,6 @@ def test_config_check_resolves_lazy_bootstrap_factory(
     assert bootstrap_calls == 1
     assert f"snapshot={config.id}" in result.output
     assert f"content_hash={config_content_hash(config)}" in result.output
-    assert "warnings=0" in result.output
     assert not (tmp_path / ".scopecat").exists()
 
 
@@ -70,15 +69,15 @@ def test_config_check_reports_invalid_snapshot(
 ) -> None:
     _write_manifest(tmp_path)
     config = load_config_profile(_CONFIG_FIXTURE)
-    invalid_connection = config.connection_profile.connections[0].model_copy(
+    invalid_binding = config.routing.bindings[0].model_copy(
         update={"instrument_id": "missing-source"}
     )
     invalid_config = config.model_copy(
         update={
-            "environment": config.environment.model_copy(
+            "system": config.system.model_copy(
                 update={
-                    "connection_profile": config.connection_profile.model_copy(
-                        update={"connections": [invalid_connection]}
+                    "routing": config.routing.model_copy(
+                        update={"bindings": [invalid_binding]}
                     )
                 }
             )
@@ -95,7 +94,7 @@ def test_config_check_reports_invalid_snapshot(
 
     assert result.exit_code == 1
     assert "error:" in result.output
-    assert "configuration.unknown_connection_instrument" in result.output
+    assert "configuration.unknown_routing_binding_instrument" in result.output
     assert not (tmp_path / ".scopecat").exists()
 
 

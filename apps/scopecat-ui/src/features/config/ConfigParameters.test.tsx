@@ -3,7 +3,7 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { normalizeConfigProfileSnapshot } from "./config-api";
+import type { ConfigProfileSnapshot } from "../../api-contract";
 import { ConfigParameters } from "./ConfigParameters";
 
 afterEach(cleanup);
@@ -29,19 +29,14 @@ describe("ConfigParameters", () => {
   });
 });
 
-function snapshot(driveFrequency: number, readoutFrequency: number) {
-  return normalizeConfigProfileSnapshot({
+function snapshot(driveFrequency: number, readoutFrequency: number): ConfigProfileSnapshot {
+  return {
     id: `profile-${driveFrequency}`,
     system: {
       id: "system",
       primary_entity_id: "q0",
       topology: {
         entities: [{ id: "q0", kind: "logical_qubit", metadata: {} }],
-        devices: [],
-        links: [],
-        lines: [],
-        channels: [],
-        groups: [],
       },
       instrument_registry: { instruments: [] },
       routing: { bindings: [] },
@@ -81,10 +76,6 @@ function snapshot(driveFrequency: number, readoutFrequency: number) {
         ],
       },
     },
-    environment: {
-      id: "bench",
-      connection_profile: { connections: [] },
-    },
     parameter_snapshot: {
       id: "parameters",
       values: [
@@ -108,5 +99,5 @@ function snapshot(driveFrequency: number, readoutFrequency: number) {
         },
       ],
     },
-  });
+  };
 }

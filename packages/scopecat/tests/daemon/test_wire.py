@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from pydantic import TypeAdapter, ValidationError
+from pydantic import ValidationError
 
 from scopecat.config.changes import parameter_change_proposal_from_updates
 from scopecat.config.parameters import replace_scalar_parameter
@@ -13,6 +13,7 @@ from scopecat.config.registry.records import (
     ConfigRegistryEntry,
     DirectConfigRegistrySource,
 )
+from scopecat.control.models import ResourceKey, RunPlanSummary
 from scopecat.daemon.wire import (
     AnalysisJsonOutputPayload,
     AnalysisNoteOutputPayload,
@@ -22,34 +23,24 @@ from scopecat.daemon.wire import (
     ConfigActivationReceipt,
     ConfigDefaultReceipt,
     ConfigEntryActivationCommand,
-    ConfigImportReceipt,
     ConfigRollbackCommand,
-    DelegatedPlanSummary,
-    DelegatedRunSubmission,
     DirectConfigDefaultCommand,
     DirectConfigImportCommand,
-    ExecutionTransitionBatch,
-    ExecutionTransitionBatchReceipt,
+    ExecutionTransitionAppend,
     ExecutorLease,
-    ExperimentCatalog,
-    ManagedRunSubmission,
     MeasurementAppendCommand,
     ParameterProposalDecisionCommand,
-    PayloadCommitCommand,
-    RegisteredExperimentDescriptor,
-    ResourceClaimDescriptor,
     RunSubmission,
     TerminalRunCommitCommand,
 )
 from scopecat.records.config import config_content_hash
-from scopecat.records.execution_journal import ExecutionTransition, PayloadEvidence
+from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.measurement_recording import MeasurementDatasetAppend
 from scopecat.records.parameter import Quantity
 from scopecat.records.parameter_change import AutomaticPolicyDecisionAuthority
 from scopecat.records.run import (
     ConfigRegistryRunConfigSource,
-    RunManifest,
     RunOutcome,
 )
 from scopecat.records.run_request import RunRequest
@@ -58,10 +49,8 @@ from tests.testkit.workflow_fixtures import load_config
 
 def _request() -> RunRequest:
     return RunRequest(
-        id="scratch.request",
-        template_id="scratch",
-        template_inputs={"bias": 0.25},
-        config_source="active",
+        experiment_id="scratch",
+        inputs={"bias": 0.25},
     )
 
 
@@ -74,45 +63,10 @@ def _transition(
         sequence=sequence,
         run_id=run_id,
         operation_id="op-1",
-        stage="action",
-        effect="action",
+        stage="apply_state",
+        effect="state_write",
         state="completed",
     )
-
-
-def test_catalog_is_closed_typed_json() -> None:
-    catalog = ExperimentCatalog(
-        revision="catalog-sha",
-        experiments=(
-            RegisteredExperimentDescriptor(
-                id="rabi",
-                version="2",
-                experiment_kind="calibration",
-                title="Rabi",
-                input_schema={
-                    "type": "object",
-                    "properties": {"amplitude": {"type": "number"}},
-                },
-                tags=("qubit", "calibration"),
-            ),
-        ),
-    )
-
-    restored = ExperimentCatalog.model_validate_json(catalog.model_dump_json())
-
-    assert restored == catalog
-    with pytest.raises(ValidationError, match="unique"):
-        ExperimentCatalog(
-            revision="catalog-sha",
-            experiments=(catalog.experiments[0], catalog.experiments[0]),
-        )
-    with pytest.raises(ValidationError, match="Extra inputs"):
-        RegisteredExperimentDescriptor.model_validate(
-            {
-                **catalog.experiments[0].model_dump(),
-                "factory": "module:function",
-            }
-        )
 
 
 def test_config_registry_commands_are_closed_typed_json() -> None:
@@ -138,7 +92,6 @@ def test_config_registry_commands_are_closed_typed_json() -> None:
         active_entry_content_hash=entry.content_hash,
         history=(activation,),
     )
-    imported = ConfigImportReceipt(entry=entry)
     activated = ConfigActivationReceipt(
         active_state=state,
         activation=activation,
@@ -170,9 +123,6 @@ def test_config_registry_commands_are_closed_typed_json() -> None:
         expected_generation=0,
     )
 
-    assert ConfigImportReceipt.model_validate_json(imported.model_dump_json()) == (
-        imported
-    )
     assert (
         ConfigActivationReceipt.model_validate_json(activated.model_dump_json())
         == activated
@@ -225,7 +175,6 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
         confidence=0.9,
     )
     command = AnalysisSaveCommand(
-        run_id="run-1",
         title="fit",
         analysis_key="fit",
         outputs=(
@@ -255,8 +204,6 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
         expected_generation=1,
     )
     decision = ParameterProposalDecisionCommand(
-        run_id="run-1",
-        proposal_id=proposal.id,
         decision="approved",
         authority=AutomaticPolicyDecisionAuthority(
             actor="nightly-calibration",
@@ -277,10 +224,18 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
         ParameterProposalDecisionCommand.model_validate_json(decision.model_dump_json())
         == decision
     )
-    with pytest.raises(ValidationError, match="command run"):
+    with pytest.raises(ValidationError, match="identify the command analysis"):
         AnalysisSaveCommand(
-            **command.model_dump(exclude={"run_id"}),
-            run_id="other",
+            **command.model_dump(exclude={"outputs"}),
+            outputs=(
+                AnalysisParameterProposalOutputPayload(
+                    kind="parameter_change_proposal",
+                    title=proposal.id,
+                    content=proposal.model_copy(
+                        update={"analysis_record_id": "analysis-other"}
+                    ),
+                ),
+            ),
         )
     with pytest.raises(ValidationError, match="unique"):
         CandidateConfigActivationCommand(
@@ -289,7 +244,7 @@ def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
         )
 
 
-def test_run_submissions_are_discriminated_without_executable_state() -> None:
+def test_run_submission_is_closed_typed_json_without_executable_state() -> None:
     config = load_config()
     source = ConfigRegistryRunConfigSource(
         selector="active",
@@ -298,47 +253,36 @@ def test_run_submissions_are_discriminated_without_executable_state() -> None:
         content_hash=config_content_hash(config),
         registry_generation=2,
     )
-    managed = ManagedRunSubmission(
-        submission_id="submit-managed",
-        registration_id="scratch",
-        registration_version="3",
-        request=_request(),
-    )
-    delegated = DelegatedRunSubmission(
-        submission_id="submit-delegated",
-        executor_id="notebook-kernel-1",
+    submission = RunSubmission(
+        submission_id="submit-1",
         config=config,
         config_source=source,
         request=_request(),
-        plan=DelegatedPlanSummary(
+        plan=RunPlanSummary(
             experiment_id="scratch",
             experiment_kind="scratch",
             point_count=2,
             coordinate_ids=("bias",),
             record_ids=("signal",),
             run_resource_claims=(
-                ResourceClaimDescriptor(id="scope-1"),
-                ResourceClaimDescriptor(id="drive-1", kind="channel"),
+                ResourceKey(id="scope-1"),
+                ResourceKey(id="controller-1", kind="target"),
             ),
         ),
     )
-    adapter: TypeAdapter[RunSubmission] = TypeAdapter(RunSubmission)
-
-    assert isinstance(
-        adapter.validate_json(managed.model_dump_json()),
-        ManagedRunSubmission,
-    )
-    restored_delegated = adapter.validate_json(delegated.model_dump_json())
-    assert isinstance(restored_delegated, DelegatedRunSubmission)
-    assert restored_delegated.config_source == source
+    restored = RunSubmission.model_validate_json(submission.model_dump_json())
+    assert restored == submission
+    assert restored.config_source == source
+    with pytest.raises(ValidationError):
+        ResourceKey.model_validate({"id": "drive-1", "kind": "channel"})
     with pytest.raises(ValidationError, match="unique"):
-        DelegatedPlanSummary(
+        RunPlanSummary(
             experiment_id="scratch",
             experiment_kind="scratch",
             point_count=1,
             run_resource_claims=(
-                ResourceClaimDescriptor(id="scope-1"),
-                ResourceClaimDescriptor(id="scope-1"),
+                ResourceKey(id="scope-1"),
+                ResourceKey(id="scope-1"),
             ),
         )
 
@@ -347,7 +291,6 @@ def test_executor_lease_is_expiring_and_fenced() -> None:
     now = datetime.now(UTC)
     lease = ExecutorLease(
         lease_id="lease-1",
-        generation=4,
         run_id="run-1",
         executor_id="notebook-kernel-1",
         issued_at=now,
@@ -368,48 +311,26 @@ def test_executor_lease_is_expiring_and_fenced() -> None:
         )
 
 
-def test_transition_batches_keep_sequences_daemon_owned() -> None:
-    batch = ExecutionTransitionBatch(
-        batch_id="batch-1",
+def test_transition_append_keeps_sequence_daemon_owned() -> None:
+    command = ExecutionTransitionAppend(
         lease_id="lease-1",
-        generation=2,
-        run_id="run-1",
-        transitions=(_transition(),),
-    )
-    receipt = ExecutionTransitionBatchReceipt(
-        batch_id=batch.batch_id,
-        committed=(
-            _transition(sequence=7),
-            _transition(sequence=8),
-        ),
+        transition=_transition(),
     )
 
     assert (
-        ExecutionTransitionBatch.model_validate_json(batch.model_dump_json()) == batch
-    )
-    assert (
-        ExecutionTransitionBatchReceipt.model_validate_json(receipt.model_dump_json())
-        == receipt
+        ExecutionTransitionAppend.model_validate_json(command.model_dump_json())
+        == command
     )
     with pytest.raises(ValidationError, match="daemon-assigned"):
-        ExecutionTransitionBatch(
-            **batch.model_dump(exclude={"transitions"}),
-            transitions=(_transition(sequence=1),),
-        )
-    with pytest.raises(ValidationError, match="contiguous"):
-        ExecutionTransitionBatchReceipt(
-            batch_id="batch-2",
-            committed=(
-                _transition(sequence=7),
-                _transition(sequence=9),
-            ),
+        ExecutionTransitionAppend(
+            lease_id="lease-1",
+            transition=_transition(sequence=1),
         )
 
 
-def test_effect_command_ids_are_bound_to_durable_operation_identity() -> None:
+def test_effect_commands_do_not_repeat_durable_identity() -> None:
     append = MeasurementDatasetAppend(
         run_id="run-1",
-        dataset_id="raw-measurements",
         recording_contract_fingerprint="test.recording.v1",
         start_index=0,
         records=(
@@ -422,48 +343,24 @@ def test_effect_command_ids_are_bound_to_durable_operation_identity() -> None:
             ),
         ),
     )
-    payload = PayloadEvidence(
-        run_id="run-1",
-        operation_id="payload-1",
-        payload_id="payload",
-        schema_id="schema",
-        content_hash="sha256:payload",
-        fingerprint={"kind": "test"},
-    )
     outcome = RunOutcome(
         run_id="run-1",
         result="succeeded",
         certainty="known",
-        termination_reason="completed",
     )
-    terminal = RunManifest(
-        run_id="run-1",
-        lifecycle="terminal",
-        config_content_hash=f"sha256:{'a' * 64}",
+    append_command = MeasurementAppendCommand(
+        lease_id="lease-1",
+        append=append,
+    )
+    terminal_command = TerminalRunCommitCommand(
+        lease_id="lease-1",
         outcome=outcome,
     )
 
-    with pytest.raises(ValidationError, match="must match its operation"):
-        MeasurementAppendCommand(
-            command_id="unrelated",
-            run_id="run-1",
-            lease_id="lease-1",
-            generation=1,
-            append=append,
-        )
-    with pytest.raises(ValidationError, match="must match its operation"):
-        PayloadCommitCommand(
-            command_id="unrelated",
-            run_id="run-1",
-            lease_id="lease-1",
-            generation=1,
-            evidence=payload,
-        )
-    with pytest.raises(ValidationError, match="must match its run"):
-        TerminalRunCommitCommand(
-            command_id="unrelated",
-            run_id="run-1",
-            lease_id="lease-1",
-            generation=1,
-            manifest=terminal,
-        )
+    assert set(append_command.model_dump()) == {"lease_id", "append"}
+    assert set(terminal_command.model_dump()) == {
+        "lease_id",
+        "outcome",
+        "contents",
+        "models",
+    }

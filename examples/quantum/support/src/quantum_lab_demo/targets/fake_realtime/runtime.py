@@ -1,42 +1,49 @@
-"""Cycle-accurate deterministic interpreter for fake realtime artifacts."""
+"""Deterministic recursive execution of structured fake realtime artifacts."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from decimal import Decimal
 
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
-from scopecat_quantum import CompiledTargetArtifact
+from scopecat_quantum._ids import RealtimeValueId
+from scopecat_quantum.programs import (
+    StructuredPulseBlock,
+    StructuredPulseNode,
+    StructuredPulseParallel,
+    StructuredPulseRepeat,
+    StructuredPulseSequence,
+)
+from scopecat_quantum.pulses import Acquire, schedule
+from scopecat_quantum.targets import CompiledTargetArtifact
 
+from quantum_lab_demo.targets.fake_realtime.compiler import (
+    controlled_outputs,
+    pulse_region,
+)
 from quantum_lab_demo.targets.fake_realtime.model import (
     FakeRealtimeArtifact,
-    FakeRealtimeRegister,
+    FakeRealtimeInputId,
     FakeRealtimeTarget,
-    RtDecrementAndJump,
-    RtHalt,
-    RtJump,
-    RtJumpIf,
-    RtLabel,
-    RtMove,
-    RtPulseTimeline,
-    RtWait,
-    RtXor,
 )
+
+type _NodePath = tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
 class FakeRealtimeTraceEvent:
-    """One executed instruction at its start tick."""
+    """One structured operation observed at its start tick."""
 
     shot_index: int
-    program_counter: int
+    path: _NodePath
     tick: int
     operation: str
 
 
 @dataclass(frozen=True, slots=True)
 class FakeRealtimeRecord:
-    """One target-visible measurement or derived classical result."""
+    """One target-visible acquisition result."""
 
     shot_index: int
     result_id: str
@@ -55,7 +62,7 @@ class FakeRealtimeRun:
 
 
 class FakeRealtimeExecutionError(RuntimeError):
-    """A valid artifact could not execute under supplied runtime evidence."""
+    """A valid artifact could not execute under supplied measurement evidence."""
 
 
 class _MeasurementCursor:
@@ -78,8 +85,25 @@ class _MeasurementCursor:
         return value, occurrence
 
 
+@dataclass(frozen=True, slots=True)
+class _RealtimeValue:
+    value: int
+    source: FakeRealtimeInputId
+    completed_at: int
+
+
+@dataclass(slots=True)
+class _ShotState:
+    shot_index: int
+    cursor: _MeasurementCursor
+    events: list[FakeRealtimeTraceEvent]
+    records: list[FakeRealtimeRecord]
+    tick: int = 0
+    values: dict[RealtimeValueId, _RealtimeValue] = field(default_factory=dict)
+
+
 class FakeRealtimeRuntime:
-    """Interpret immutable artifacts without modeling analog quantum physics."""
+    """Execute the target artifact's structured pulse program directly."""
 
     def __init__(self, target: FakeRealtimeTarget) -> None:
         self._target = target
@@ -94,20 +118,16 @@ class FakeRealtimeRuntime:
             raise ValueError("realtime artifact belongs to another target")
         if artifact.capability_fingerprint != self._target.capability_fingerprint:
             raise ValueError("realtime artifact capability fingerprint is stale")
+
         cursor = _MeasurementCursor(measurements)
         events: list[FakeRealtimeTraceEvent] = []
         records: list[FakeRealtimeRecord] = []
         end_ticks: list[int] = []
         for shot_index in range(artifact.repetitions):
-            end_ticks.append(
-                self._execute_shot(
-                    artifact,
-                    shot_index=shot_index,
-                    cursor=cursor,
-                    events=events,
-                    records=records,
-                )
-            )
+            state = _ShotState(shot_index, cursor, events, records)
+            self._execute_node(artifact.program.body, state, ("body",))
+            end_ticks.append(state.tick)
+
         selected_events = tuple(events)
         selected_records = tuple(records)
         selected_end_ticks = tuple(end_ticks)
@@ -128,148 +148,124 @@ class FakeRealtimeRuntime:
             ),
         )
 
-    def _execute_shot(
+    def _execute_node(
         self,
-        artifact: FakeRealtimeArtifact,
-        *,
-        shot_index: int,
-        cursor: _MeasurementCursor,
-        events: list[FakeRealtimeTraceEvent],
-        records: list[FakeRealtimeRecord],
-    ) -> int:
-        instructions = artifact.program.instructions
-        labels = dict(artifact.labels)
-        registers: dict[FakeRealtimeRegister, int] = {}
-        ready_ticks: dict[FakeRealtimeRegister, int] = {}
-        tick = 0
-        pc = 0
-        executed = 0
-        while pc < len(instructions):
-            executed += 1
-            if (
-                executed
-                > self._target.max_instructions * self._target.max_loop_iterations
-            ):
-                raise FakeRealtimeExecutionError(
-                    "realtime program exceeded bounded execution"
-                )
-            instruction = instructions[pc]
-            operation = type(instruction).__name__.removeprefix("Rt").lower()
-            events.append(
+        node: StructuredPulseNode,
+        state: _ShotState,
+        path: _NodePath,
+    ) -> None:
+        if isinstance(node, StructuredPulseBlock | StructuredPulseParallel):
+            self._execute_pulse_region(node, state, path)
+            return
+        if isinstance(node, StructuredPulseSequence):
+            for index, operation in enumerate(node.operations):
+                self._execute_node(operation, state, (*path, f"sequence[{index}]"))
+            return
+        if isinstance(node, StructuredPulseRepeat):
+            state.events.append(
                 FakeRealtimeTraceEvent(
-                    shot_index=shot_index,
-                    program_counter=pc,
-                    tick=tick,
-                    operation=operation,
+                    state.shot_index,
+                    path,
+                    state.tick,
+                    "repeat",
                 )
             )
-            if isinstance(instruction, RtLabel):
-                pc += 1
-                continue
-            if isinstance(instruction, RtHalt):
-                break
-            if isinstance(instruction, RtPulseTimeline):
-                for acquisition in instruction.acquisitions:
-                    value, occurrence = cursor.take(acquisition.result_id)
-                    completed_at = (
-                        tick + acquisition.start_ticks + acquisition.duration_ticks
-                    )
-                    registers[acquisition.destination] = value
-                    ready_ticks[acquisition.destination] = (
-                        completed_at + self._target.discrimination_latency_ticks
-                    )
-                    if acquisition.record:
-                        records.append(
-                            FakeRealtimeRecord(
-                                shot_index=shot_index,
-                                result_id=acquisition.result_id,
-                                occurrence=occurrence,
-                                value=value,
-                                tick=completed_at,
-                            )
-                        )
-                if len(records) > self._target.max_result_records:
-                    raise FakeRealtimeExecutionError("realtime result memory exceeded")
-                tick += instruction.duration_ticks
-                pc += 1
-                continue
-            if isinstance(instruction, RtWait):
-                tick += instruction.duration_ticks
-                pc += 1
-                continue
+            for index in range(node.count):
+                self._execute_node(
+                    node.operation,
+                    state,
+                    (*path, f"repeat[{index}]"),
+                )
+            return
 
-            tick += self._target.classical_instruction_ticks
-            if isinstance(instruction, RtMove):
-                registers[instruction.destination] = (
-                    self._read(instruction.source, registers, ready_ticks, tick)
-                    if isinstance(instruction.source, FakeRealtimeRegister)
-                    else instruction.source
-                )
-                ready_ticks[instruction.destination] = tick
-                pc += 1
+        value = state.values.get(node.condition.value_id)
+        if value is None:
+            raise FakeRealtimeExecutionError(
+                f"condition value {node.condition.value_id.value!r} is unavailable"
+            )
+        destinations = controlled_outputs(node, self._target)
+        route_latencies = [
+            latency
+            for destination in destinations
+            if (latency := self._target.feedback_latency(value.source, destination))
+            is not None
+        ]
+        state.tick = max(
+            state.tick,
+            value.completed_at
+            + max(self._target.discrimination_latency_ticks, *route_latencies),
+        )
+        state.events.append(
+            FakeRealtimeTraceEvent(
+                state.shot_index,
+                path,
+                state.tick,
+                "conditional",
+            )
+        )
+        state.tick += self._target.decision_latency_ticks
+        branch = node.when_true if value.value == node.equals else node.when_false
+        self._execute_node(
+            branch,
+            state,
+            (*path, "when-true" if branch is node.when_true else "when-false"),
+        )
+
+    def _execute_pulse_region(
+        self,
+        node: StructuredPulseBlock | StructuredPulseParallel,
+        state: _ShotState,
+        path: _NodePath,
+    ) -> None:
+        program, outputs = pulse_region(node)
+        scheduled = schedule(program)
+        start_tick = state.tick
+        state.events.append(
+            FakeRealtimeTraceEvent(
+                state.shot_index,
+                path,
+                start_tick,
+                "pulse",
+            )
+        )
+        outputs_by_slot = {output.acquisition_slot_id: output for output in outputs}
+        for event in scheduled.events:
+            instruction = event.instruction
+            if not isinstance(instruction, Acquire):
                 continue
-            if isinstance(instruction, RtXor):
-                registers[instruction.destination] = self._read(
-                    instruction.left, registers, ready_ticks, tick
-                ) ^ self._read(instruction.right, registers, ready_ticks, tick)
-                ready_ticks[instruction.destination] = tick
-                pc += 1
-                continue
-            if isinstance(instruction, RtJump):
-                pc = labels[instruction.target]
-                continue
-            if isinstance(instruction, RtJumpIf):
-                value = self._read(instruction.source, registers, ready_ticks, tick)
-                pc = (
-                    labels[instruction.target]
-                    if value == instruction.equals
-                    else pc + 1
-                )
-                continue
-            if isinstance(instruction, RtDecrementAndJump):
-                value = (
-                    self._read(instruction.counter, registers, ready_ticks, tick) - 1
-                )
-                registers[instruction.counter] = value
-                ready_ticks[instruction.counter] = tick
-                pc = labels[instruction.target] if value != 0 else pc + 1
-                continue
-            value = self._read(instruction.source, registers, ready_ticks, tick)
-            records.append(
+            result_id = instruction.slot_id.local_id
+            value, occurrence = state.cursor.take(result_id)
+            completed_at = (
+                start_tick
+                + self._ticks(event.start_seconds)
+                + self._ticks(event.duration_seconds)
+            )
+            state.records.append(
                 FakeRealtimeRecord(
-                    shot_index=shot_index,
-                    result_id=instruction.result_id,
-                    occurrence=sum(
-                        record.result_id == instruction.result_id for record in records
-                    ),
+                    shot_index=state.shot_index,
+                    result_id=result_id,
+                    occurrence=occurrence,
                     value=value,
-                    tick=tick,
+                    tick=completed_at,
                 )
             )
-            if len(records) > self._target.max_result_records:
-                raise FakeRealtimeExecutionError("realtime result memory exceeded")
-            pc += 1
-        else:
-            raise FakeRealtimeExecutionError("realtime program terminated without Halt")
+            output = outputs_by_slot.get(instruction.slot_id)
+            if output is not None:
+                source = self._target.input_for(instruction.signal)
+                if source is None:
+                    raise AssertionError("compiled acquisition lost its target input")
+                state.values[output.value_id] = _RealtimeValue(
+                    value,
+                    source,
+                    completed_at,
+                )
+        state.tick += self._ticks(scheduled.duration_seconds)
 
-        return tick
-
-    @staticmethod
-    def _read(
-        register: FakeRealtimeRegister,
-        values: Mapping[FakeRealtimeRegister, int],
-        ready_ticks: Mapping[FakeRealtimeRegister, int],
-        tick: int,
-    ) -> int:
-        if register not in values:
-            raise FakeRealtimeExecutionError(
-                f"realtime register {register.value!r} is uninitialized"
-            )
-        if tick < ready_ticks[register]:
-            raise FakeRealtimeExecutionError(
-                f"realtime register {register.value!r} is read before feedback is ready"
-            )
-        return values[register]
+    def _ticks(self, seconds: Decimal) -> int:
+        value = seconds * Decimal(self._target.clock_hz)
+        if value != value.to_integral_value():
+            raise AssertionError("compiled realtime timing lost clock alignment")
+        return int(value)
 
 
 def _verified_artifact(

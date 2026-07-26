@@ -18,7 +18,6 @@ from scopecat.compiler.relations.model import (
     CellValue,
     RelationExpr,
     Row,
-    RowScopeId,
     ScalarExpr,
     SeriesExpr,
     as_scalar_expr,
@@ -38,12 +37,8 @@ from scopecat.compiler.semantic.value_expressions import (
     verify_table_value_expr,
     verify_value_expr,
 )
-from scopecat.compiler.typed.program import bind_each, set_state_field
-from scopecat.compiler.typed.state import (
-    ForEachStateSpec,
-    SetStateSpec,
-    StateSpecVariant,
-)
+from scopecat.compiler.typed.program import set_state_field
+from scopecat.compiler.typed.state import SetStateSpec
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
     logical_resource_port_id,
@@ -132,24 +127,6 @@ def state_field(
             )
             for entity in target_entities
         ),
-    )
-
-
-def each_state(
-    relation: RelationExpr,
-    *state: StateSpecVariant,
-    row_scope_id: RowScopeId,
-    bindings: RelationTypeBindings | None = None,
-    expected_type: Table | None = None,
-) -> ForEachStateSpec:
-    return bind_each(
-        table_value_expr(
-            relation,
-            bindings=bindings,
-            expected_type=expected_type,
-        ),
-        *state,
-        row_scope_id=row_scope_id,
     )
 
 
@@ -251,7 +228,6 @@ def materialize_table_value(
 
 
 __all__ = [
-    "each_state",
     "evaluate_relation",
     "evaluate_scalar",
     "evaluate_series",

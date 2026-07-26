@@ -5,7 +5,7 @@ from enum import IntEnum, StrEnum
 
 import pytest
 
-from scopecat.compiler.frontend.environment import validate_config_environment
+from scopecat.compiler.frontend.environment import build_config_environment
 from scopecat.compiler.relations.model import (
     CellValue,
     RelationExpr,
@@ -13,14 +13,14 @@ from scopecat.compiler.relations.model import (
     literal_rows,
     point_col,
 )
-from scopecat.compiler.relations.point_domain import point_literal_rows
+from scopecat.compiler.relations.point_domain import POINT_UNIT, point_axis_values
 from scopecat.compiler.relations.verification import (
     RelationPlanVerificationError,
     RelationTypeBindings,
     RowType,
 )
+from scopecat.compiler.semantic.compute_result import ComputeOutput
 from scopecat.compiler.semantic.model import (
-    ImplementationCatalog,
     ImplementationId,
     LocalPythonImplementation,
     OperationId,
@@ -35,7 +35,6 @@ from scopecat.compiler.typed.program import (
     ComputeEdge,
     LogicalResourceRequirement,
     TypedComputeNode,
-    TypedComputeOutput,
     ValueInput,
     set_state_field,
 )
@@ -100,26 +99,20 @@ def _output(
     value_type: Scalar,
     *,
     value_id: ValueId | None = None,
-) -> TypedComputeOutput:
-    return TypedComputeOutput(
+) -> ComputeOutput:
+    return ComputeOutput(
         id=value_id or operation_result_id(operation_id),
         value_type=value_type,
     )
 
 
-def _catalog(
-    *entries: tuple[OperationId, Callable[..., object]],
-) -> ImplementationCatalog:
-    return ImplementationCatalog(
-        local_python=tuple(
-            LocalPythonImplementation(
-                id=ImplementationId(f"python.{operation_id.qualified_name}.v1"),
-                operation_id=operation_id,
-                operation_contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
-                kernel=kernel,
-            )
-            for operation_id, kernel in entries
-        )
+def _implementation(
+    operation_id: OperationId,
+    kernel: Callable[..., object],
+) -> LocalPythonImplementation:
+    return LocalPythonImplementation(
+        id=ImplementationId(f"python.{operation_id.qualified_name}.v1"),
+        kernel=kernel,
     )
 
 
@@ -143,7 +136,16 @@ def _point_domain(
     rows: tuple[tuple[CellValue, ...], ...],
     value_type: Table,
 ) -> PointDomain:
-    return PointDomain(root=point_literal_rows(value_type.columns, rows))
+    if not value_type.columns:
+        return PointDomain(root=POINT_UNIT)
+    [column] = value_type.columns
+    return PointDomain(
+        root=point_axis_values(
+            column.id,
+            column.value_type,
+            tuple(row[0] for row in rows),
+        )
+    )
 
 
 def _point_bindings(value_type: Table) -> RelationTypeBindings:
@@ -196,7 +198,7 @@ def test_bound_state_preserves_primitive_field_types(
             ),
         ),
     )
-    environment = validate_config_environment(
+    environment = build_config_environment(
         config_with_physical_resources({"source-0": ("configure",)})
     )
 
@@ -237,11 +239,16 @@ def test_effects_use_logical_point_and_content_addressed_payload_identity() -> N
             TypedComputeNode(
                 id=unused_id,
                 contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
+                implementation=_implementation(
+                    unused_id,
+                    lambda: {"unused": True},
+                ),
                 result=_output(unused_id, Scalar(Payload("unused_program"))),
             ),
             TypedComputeNode(
                 id=producer_id,
                 contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
+                implementation=_implementation(producer_id, _identity_value),
                 inputs={
                     "value": ValueInput(
                         value=value_expr(
@@ -256,6 +263,7 @@ def test_effects_use_logical_point_and_content_addressed_payload_identity() -> N
             TypedComputeNode(
                 id=consumer_id,
                 contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
+                implementation=_implementation(consumer_id, _wrap_value),
                 inputs={
                     "value": ComputeEdge(
                         value_id=producer_output_id,
@@ -264,11 +272,6 @@ def test_effects_use_logical_point_and_content_addressed_payload_identity() -> N
                 },
                 result=_output(consumer_id, Scalar(Payload("pulse_program"))),
             ),
-        ),
-        implementation_catalog=_catalog(
-            (consumer_id, _wrap_value),
-            (unused_id, lambda: {"unused": True}),
-            (producer_id, _identity_value),
         ),
         resource_requirements=(
             LogicalResourceRequirement(
@@ -285,7 +288,7 @@ def test_effects_use_logical_point_and_content_addressed_payload_identity() -> N
             ),
         ),
     )
-    environment = validate_config_environment(
+    environment = build_config_environment(
         config_with_physical_resources({"source-0": ("play_program",)})
     )
 
@@ -400,6 +403,7 @@ def test_compute_inputs_are_normalized_before_binding() -> None:
             TypedComputeNode(
                 id=node_id,
                 contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
+                implementation=_implementation(node_id, _quantity_value),
                 inputs={
                     "frequency": ValueInput(
                         value=value_expr(
@@ -412,13 +416,10 @@ def test_compute_inputs_are_normalized_before_binding() -> None:
                 result=_output(node_id, Scalar(Float())),
             ),
         ),
-        implementation_catalog=_catalog(
-            (node_id, _quantity_value),
-        ),
     )
 
     plan = materialize_local_execution(
-        link_program(program, validate_config_environment(load_config()))
+        link_program(program, build_config_environment(load_config()))
     )
 
     calls = [
@@ -475,6 +476,7 @@ def test_compute_mapping_inputs_preserve_key_types_and_values() -> None:
             TypedComputeNode(
                 id=node_id,
                 contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
+                implementation=_implementation(node_id, _mapping_size),
                 inputs={
                     "payload": ValueInput(
                         value=value_expr(
@@ -487,13 +489,10 @@ def test_compute_mapping_inputs_preserve_key_types_and_values() -> None:
                 result=_output(node_id, Scalar(Float())),
             ),
         ),
-        implementation_catalog=_catalog(
-            (node_id, _mapping_size),
-        ),
     )
 
     plan = materialize_local_execution(
-        link_program(program, validate_config_environment(load_config()))
+        link_program(program, build_config_environment(load_config()))
     )
 
     assert (
@@ -522,7 +521,7 @@ def test_opaque_point_value_does_not_participate_in_logical_identity() -> None:
     )
 
     plan = materialize_local_execution(
-        link_program(program, validate_config_environment(load_config()))
+        link_program(program, build_config_environment(load_config()))
     )
 
     assert len(plan.points) == 1

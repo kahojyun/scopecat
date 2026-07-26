@@ -1,19 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import cast
 
 import pytest
 from scopecat import Quantity
-from scopecat_quantum import (
-    AcquireSignal,
-    AcquisitionKind,
+from scopecat_quantum._ids import (
     AcquisitionSlotId,
     PulseEventId,
     QubitId,
-    TargetAcquisitionAddress,
     TargetCompileEntryId,
 )
+from scopecat_quantum.pulses import AcquireSignal
+from scopecat_quantum.targets import TargetAcquisitionAddress
 
 from quantum_lab_demo.targets.fake_list_mode import (
     FakeAcquisitionResponse,
@@ -34,7 +32,7 @@ def _address(entry: str) -> TargetAcquisitionAddress:
     )
 
 
-def _window(*, kind: AcquisitionKind = AcquisitionKind.INTEGRATED_IQ):
+def _window() -> FakeAcquisitionWindow:
     return FakeAcquisitionWindow(
         event_id=PulseEventId("capture"),
         slot_id=AcquisitionSlotId("iq_shots"),
@@ -42,7 +40,6 @@ def _window(*, kind: AcquisitionKind = AcquisitionKind.INTEGRATED_IQ):
         channel_id=FakeDigitizerChannelId("digitizer-q0"),
         start_sample=4,
         sample_count=8,
-        kind=kind,
     )
 
 
@@ -81,12 +78,9 @@ def test_drag_response_generates_exact_deterministic_probability_counts() -> Non
     assert isinstance(response, FakeAcquisitionResponse)
     assert first == second
     assert all(isinstance(value, complex) for value in first)
-    iq_values = cast("tuple[complex, ...]", first)
-    assert sum(value.real > 0 for value in iq_values) == round(
-        response.shots * probability
-    )
+    assert sum(value.real > 0 for value in first) == round(response.shots * probability)
     assert probability == pytest.approx(0.0525)
-    assert all(abs(value.imag) <= response.iq_jitter for value in iq_values)
+    assert all(abs(value.imag) <= response.iq_jitter for value in first)
 
 
 def test_drag_response_identity_covers_coordinates_and_model_configuration() -> None:
@@ -112,7 +106,7 @@ def test_drag_response_identity_covers_coordinates_and_model_configuration() -> 
     )
 
 
-def test_drag_response_rejects_uncovered_and_non_iq_acquisitions() -> None:
+def test_drag_response_rejects_uncovered_acquisitions() -> None:
     response = DragBetaAcquisitionResponse(
         (
             DragBetaResponsePoint(
@@ -128,11 +122,6 @@ def test_drag_response_rejects_uncovered_and_non_iq_acquisitions() -> None:
         response.value_for(
             playback=_playback("entry-b", 0),
             window=_window(),
-        )
-    with pytest.raises(ValueError, match="integrated-IQ"):
-        response.value_for(
-            playback=_playback("entry-a", 0),
-            window=_window(kind=AcquisitionKind.RAW_TRACE),
         )
 
 

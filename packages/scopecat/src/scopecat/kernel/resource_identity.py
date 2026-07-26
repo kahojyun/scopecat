@@ -36,14 +36,10 @@ class LogicalResourcePortId:
 
 @dataclass(frozen=True, slots=True)
 class ResourceClaim:
-    """Exclusive physical identity with lifetime defined by its container.
-
-    A claim may protect a whole run or one coverage block. The enclosing
-    execution object, rather than the identity itself, owns that lease duration.
-    """
+    """Exclusive coarse physical identity leased for one complete run."""
 
     id: str
-    kind: Literal["target", "instrument", "channel", "group"] = "instrument"
+    kind: Literal["target", "instrument"] = "instrument"
 
     def __post_init__(self) -> None:
         if not self.id:

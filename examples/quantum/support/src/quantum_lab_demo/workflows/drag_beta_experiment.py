@@ -7,16 +7,14 @@ from typing import Annotated
 
 import scopecat as sc
 from scopecat import Quantity
-from scopecat_quantum import (
+from scopecat_quantum.measurement_transforms import (
     BinaryIqDiscriminator,
     IqCentroid,
     binary_iq_probability_transform,
 )
 
 from quantum_lab_demo.virtual_lab.parameters import (
-    DRAG_BETA_PARAMETER_COLUMN,
     q0_drag_beta_lookup,
-    q0_drag_beta_row,
     qubit_parameters,
 )
 from quantum_lab_demo.workflows.drag_beta_calibration import (
@@ -98,7 +96,6 @@ def _drag_beta_experiment_body(scan: sc.Scan) -> sc.ExperimentBody:
 @sc.template(
     id=DRAG_BETA_TEMPLATE_ID,
     kind=DRAG_BETA_EXPERIMENT_ID,
-    label="DRAG beta rough calibration",
 )
 def drag_beta_template() -> sc.ExperimentBody:
     """Scan pulse DRAG beta against gate amplification in one program."""
@@ -107,8 +104,7 @@ def drag_beta_template() -> sc.ExperimentBody:
         sc.cartesian(
             sc.param_axis(
                 BETA,
-                q0_drag_beta_row(),
-                DRAG_BETA_PARAMETER_COLUMN,
+                q0_drag_beta_lookup(),
                 span=DRAG_BETA_SPAN,
                 points=DRAG_BETA_POINTS,
             ),
@@ -120,7 +116,6 @@ def drag_beta_template() -> sc.ExperimentBody:
 @sc.scratch(
     id="quantum_lab_demo.workflows.drag_beta.scratch",
     kind=DRAG_BETA_EXPERIMENT_ID,
-    label="DRAG beta calibration scratch",
 )
 def drag_beta_scratch_experiment(
     *,
@@ -133,8 +128,7 @@ def drag_beta_scratch_experiment(
         sc.cartesian(
             sc.param_axis(
                 BETA,
-                q0_drag_beta_row(),
-                DRAG_BETA_PARAMETER_COLUMN,
+                q0_drag_beta_lookup(),
                 tuple(betas),
             ),
             sc.axis(AMPLIFICATION, tuple(amplifications)),

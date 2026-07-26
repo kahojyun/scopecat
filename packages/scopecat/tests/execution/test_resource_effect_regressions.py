@@ -4,29 +4,25 @@ from dataclasses import replace
 
 import pytest
 
-from scopecat.adapters.memory import (
-    MemoryCollectionRepository,
-    MemoryExecutionJournal,
-    MemoryPayloadEvidenceCommitter,
-)
-from scopecat.compiler.frontend.environment import validate_config_environment
+from scopecat.compiler.frontend.environment import build_config_environment
 from scopecat.compiler.relations.model import lit
 from scopecat.compiler.relations.point_domain import POINT_UNIT
 from scopecat.compiler.relations.uses import relation_use
+from scopecat.compiler.semantic.model import AcquireEffect
 from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
 from scopecat.compiler.typed.point_domain import (
     PointDomain,
 )
 from scopecat.compiler.typed.products import ProductDef
 from scopecat.compiler.typed.program import (
-    AcquireSpec,
     CoreProgram,
     LogicalResourceRequirement,
     record_product,
     set_state_field,
 )
-from scopecat.compiler.typed.state import StateSpecVariant
+from scopecat.compiler.typed.state import SetStateSpec
 from scopecat.execution.effect_interpreter import RunEffectInterpreter
+from scopecat.execution.events import TransitionRecorder
 from scopecat.execution.local.program import (
     ApplyStateOperation,
     CollectOperation,
@@ -35,12 +31,6 @@ from scopecat.execution.local.program import (
 from scopecat.execution.points import RunPoint
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
-from scopecat.kernel.problems import (
-    ProblemCategory,
-    ProblemPhase,
-    blocking_problem,
-    model_location,
-)
 from scopecat.kernel.resource_identity import (
     LogicalResourcePortId,
     ResourceClaim,
@@ -52,16 +42,13 @@ from scopecat.records.config import (
     ConfigProfileSnapshot,
     RoutingEndpointBinding,
     RoutingGraph,
-    SharedResourceGroup,
 )
 from scopecat.records.entity import EntityRef
 from scopecat.sdk.instruments import (
-    ActionReceipt,
     ApplyReceipt,
     CollectCommand,
     CollectReceipt,
     CommandChannelBinding,
-    InstrumentActionCommand,
     InstrumentDescription,
     InstrumentReadback,
     InstrumentStateCommand,
@@ -79,6 +66,7 @@ from tests.testkit.local_materialization import (
 )
 from tests.testkit.relation_plans import scalar_value_expr
 from tests.testkit.run_operations import complete_coverage_operations
+from tests.testkit.runtime import FakeExecutionJournal
 from tests.testkit.typed_program import (
     instrument_acquisition,
     link_program,
@@ -103,9 +91,9 @@ def _unit_program(
     *,
     experiment_id: str,
     resource_requirements: tuple[LogicalResourceRequirement, ...] = (),
-    state: tuple[StateSpecVariant, ...] = (),
+    state: tuple[SetStateSpec, ...] = (),
     products: tuple[ProductDef, ...] = (),
-    acquisitions: tuple[AcquireSpec, ...] = (),
+    acquisitions: tuple[AcquireEffect, ...] = (),
 ) -> CoreProgram:
     uses_and_records = tuple(record_product(product) for product in products)
     return typed_program(
@@ -127,7 +115,7 @@ def _bind(
     config: ConfigProfileSnapshot,
 ) -> LocalEffectInspection:
     environment = replace(
-        validate_config_environment(config),
+        build_config_environment(config),
         parameters=parameters(),
     )
     return materialize_local_execution(link_program(program, environment))
@@ -287,7 +275,7 @@ def test_each_effect_uses_only_its_explicit_capability_endpoints() -> None:
     }
 
 
-def test_logical_state_bindings_reach_exact_resource_claims() -> None:
+def test_logical_state_bindings_reach_owning_instrument_claim() -> None:
     config = _shared_group_config()
     source = _port("source")
     first_state = set_state_field(
@@ -321,8 +309,6 @@ def test_logical_state_bindings_reach_exact_resource_claims() -> None:
     )
     assert [(claim.kind, claim.id) for claim in single_plan.resource_claims] == [
         ("instrument", "source-0"),
-        ("channel", "drive-q0"),
-        ("group", "shared.lo"),
     ]
 
 
@@ -482,15 +468,10 @@ def test_scoped_same_field_targets_survive_snapshot_reconciliation() -> None:
 
     result = RunEffectInterpreter(
         run_id="scoped-same-field-run",
-        experiment_id="test-local-effects",
-        experiment_kind="test-local-effects",
         coordinate_ids=tuple(program.points[0].coordinates),
         resource_order=program.resource_order,
         drivers={driver.instrument_id: driver},
-        descriptions={driver.instrument_id: driver.describe()},
-        journal=MemoryExecutionJournal(),
-        readbacks=MemoryCollectionRepository(),
-        payloads=MemoryPayloadEvidenceCommitter(),
+        recorder=TransitionRecorder(FakeExecutionJournal()),
     ).run(complete_coverage_operations(program))
 
     assert not result.problems and not result.indeterminate
@@ -548,23 +529,12 @@ def _same_instrument_record_config() -> ConfigProfileSnapshot:
 def _shared_group_config() -> ConfigProfileSnapshot:
     config = load_config()
     source = config.instrument_registry.instruments[0]
-    group = SharedResourceGroup(
-        id="shared.lo",
-        kind="local_oscillator",
-        members=["drive-q0", "readout-q0"],
-    )
-    channels = [
-        channel.model_copy(update={"group_ids": [group.id]})
-        for channel in config.topology.channels
-    ]
     topology = config.topology.model_copy(
         update={
             "entities": [
                 *config.topology.entities,
                 EntityRef(id="q1", kind="logical_device"),
             ],
-            "channels": channels,
-            "groups": [group],
         }
     )
     routing = RoutingGraph(
@@ -574,12 +544,14 @@ def _shared_group_config() -> ConfigProfileSnapshot:
                 capability="set.level",
                 entity_id="q0",
                 channel_id="drive-q0",
+                group_ids=["shared.lo"],
             ),
             RoutingEndpointBinding(
                 instrument_id="source-1",
                 capability="set.level",
                 entity_id="q1",
                 channel_id="readout-q0",
+                group_ids=["shared.lo"],
             ),
         ],
     )
@@ -641,24 +613,6 @@ class _ScopedStateDriver:
         self.applied.append(command)
         self.state = apply_state_command_to_snapshot(self.state, command)
         return ApplyReceipt(status="applied")
-
-    def action(self, command: InstrumentActionCommand) -> ActionReceipt:
-        return ActionReceipt(
-            status="not_performed",
-            problems=(
-                blocking_problem(
-                    "scoped_state_driver_action_unsupported",
-                    f"{self.instrument_id} does not support one-shot actions",
-                    category=ProblemCategory.PROVIDER_CONTRACT,
-                    phase=ProblemPhase.EXECUTION,
-                    location=model_location(
-                        "scoped_state_driver",
-                        "actions",
-                        command.operation_id,
-                    ),
-                ),
-            ),
-        )
 
     def collect(self, command: CollectCommand) -> CollectReceipt:
         del command

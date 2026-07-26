@@ -42,18 +42,26 @@ class RunPointContract:
 class RunPointCatalog:
     """Run-owned logical identity and coordinate inventory."""
 
-    experiment_id: str
-    experiment_kind: str
-    coordinate_ids: tuple[str, ...]
+    contract: RunPointContract
     points: tuple[RunPoint, ...]
+
+    @property
+    def experiment_id(self) -> str:
+        return self.contract.experiment_id
+
+    @property
+    def experiment_kind(self) -> str:
+        return self.contract.experiment_kind
+
+    @property
+    def coordinate_ids(self) -> tuple[str, ...]:
+        return self.contract.coordinate_ids
 
 
 @dataclass(slots=True)
 class AdmittedPointLedger:
     """Append-only logical points admitted to one running experiment."""
 
-    experiment_id: str
-    experiment_kind: str
     coordinate_ids: tuple[str, ...]
     _points: list[RunPoint] = field(default_factory=list, repr=False)
 
@@ -73,14 +81,6 @@ class AdmittedPointLedger:
             raise ValueError("admitted point coordinates do not match the run contract")
         self._points.extend(selected)
         return selected
-
-    def snapshot(self) -> RunPointCatalog:
-        return RunPointCatalog(
-            experiment_id=self.experiment_id,
-            experiment_kind=self.experiment_kind,
-            coordinate_ids=self.coordinate_ids,
-            points=self.points,
-        )
 
 
 __all__ = [

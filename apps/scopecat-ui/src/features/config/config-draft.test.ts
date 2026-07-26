@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { deriveConfigDraftUpdates } from "./config-draft";
-import type { ConfigProfileSnapshot, ParameterEntity, StoredParameterValue } from "./config-types";
+import type {
+  ConfigProfileSnapshot,
+  ParameterEntity,
+  StoredParameterValue,
+} from "../../api-contract";
 
 describe("deriveConfigDraftUpdates", () => {
   it("uses semantic keyed row operations and ignores entity metadata in keys", () => {
@@ -18,25 +22,23 @@ describe("deriveConfigDraftUpdates", () => {
           frequency: 6.8,
         },
       ],
-      rowLocations: [],
-      metadata: {},
     };
 
     expect(deriveConfigDraftUpdates(config, { calibration: edited })).toEqual([
       {
         kind: "delete_parameter_rows",
-        parameterId: "calibration",
+        parameter_id: "calibration",
         key: { entity: entity("q1") },
       },
       {
         kind: "update_parameter_rows",
-        parameterId: "calibration",
+        parameter_id: "calibration",
         key: { entity: entity("q0", { display: "new label" }) },
         values: { frequency: 6.6 },
       },
       {
         kind: "insert_parameter_rows",
-        parameterId: "calibration",
+        parameter_id: "calibration",
         rows: [
           {
             entity: entity("q2"),
@@ -53,8 +55,6 @@ describe("deriveConfigDraftUpdates", () => {
       id: "flags",
       shape: "table",
       rows: [{ name: "drive", enabled: false }],
-      rowLocations: [],
-      metadata: { owner: "lab" },
     };
 
     expect(deriveConfigDraftUpdates(config, { flags: edited })).toEqual([
@@ -64,7 +64,7 @@ describe("deriveConfigDraftUpdates", () => {
 
   it("keeps duplicate edited keys in a replacement for daemon validation", () => {
     const config = testConfig();
-    const base = config.parameterSnapshot.values.find((value) => value.id === "calibration");
+    const base = config.parameter_snapshot.values?.find((value) => value.id === "calibration");
     if (base?.shape !== "table") throw new Error("missing table fixture");
     const duplicate = {
       entity: entity("q0", { attempted: true }),
@@ -72,8 +72,7 @@ describe("deriveConfigDraftUpdates", () => {
     };
     const edited: StoredParameterValue = {
       ...base,
-      rows: [...base.rows, duplicate],
-      rowLocations: [],
+      rows: [...(base.rows ?? []), duplicate],
     };
 
     expect(deriveConfigDraftUpdates(config, { calibration: edited })).toEqual([
@@ -84,13 +83,12 @@ describe("deriveConfigDraftUpdates", () => {
     ]);
   });
 
-  it("does not treat cleared provenance as a scalar value change", () => {
+  it("does not emit an unchanged scalar value", () => {
     const config = testConfig();
     const edited: StoredParameterValue = {
       id: "enabled",
       shape: "scalar",
       value: true,
-      metadata: {},
     };
 
     expect(deriveConfigDraftUpdates(config, { enabled: edited })).toEqual([]);
@@ -103,45 +101,40 @@ function testConfig(): ConfigProfileSnapshot {
     id: "active",
     system: {
       id: "system",
-      primaryEntityId: "q0",
+      primary_entity_id: "q0",
       topology: {
         entities,
-        devices: [],
-        links: [],
-        lines: [],
-        channels: [],
-        groups: [],
       },
-      instruments: [],
-      routing: [],
-      parameterCatalog: {
+      instrument_registry: { instruments: [] },
+      routing: { bindings: [] },
+      domain_target: null,
+      parameter_catalog: {
         id: "parameters",
         definitions: [
           {
             id: "enabled",
-            valueType: {
+            value_type: {
               shape: "scalar",
               atom: { type: "bool", nullable: false },
             },
-            metadata: {},
           },
           {
             id: "calibration",
-            valueType: {
+            value_type: {
               shape: "table",
               columns: [
                 {
                   id: "entity",
-                  valueType: {
+                  value_type: {
                     type: "entity",
-                    entityKind: "logical_qubit",
+                    entity_kind: "logical_qubit",
                     nullable: false,
                   },
                   required: true,
                 },
                 {
                   id: "frequency",
-                  valueType: {
+                  value_type: {
                     type: "float",
                     nullable: false,
                     finite: true,
@@ -149,53 +142,44 @@ function testConfig(): ConfigProfileSnapshot {
                   required: true,
                 },
               ],
-              primaryKey: ["entity"],
-              minRows: 0,
+              primary_key: ["entity"],
+              min_rows: 0,
             },
-            metadata: {},
           },
           {
             id: "flags",
-            valueType: {
+            value_type: {
               shape: "table",
               columns: [
                 {
                   id: "name",
-                  valueType: {
+                  value_type: {
                     type: "string",
                     nullable: false,
-                    minLength: 1,
+                    min_length: 1,
                   },
                   required: true,
                 },
                 {
                   id: "enabled",
-                  valueType: { type: "bool", nullable: false },
+                  value_type: { type: "bool", nullable: false },
                   required: true,
                 },
               ],
-              primaryKey: [],
-              minRows: 0,
+              primary_key: [],
+              min_rows: 0,
             },
-            metadata: {},
           },
         ],
-        metadata: {},
       },
     },
-    environment: {
-      id: "bench",
-      connections: [],
-    },
-    parameterSnapshot: {
+    parameter_snapshot: {
       id: "parameters",
       values: [
         {
           id: "enabled",
           shape: "scalar",
           value: true,
-          sourceLocation: { uri: "old.json", path: [] },
-          metadata: {},
         },
         {
           id: "calibration",
@@ -210,20 +194,14 @@ function testConfig(): ConfigProfileSnapshot {
               frequency: 6.7,
             },
           ],
-          rowLocations: [],
-          metadata: {},
         },
         {
           id: "flags",
           shape: "table",
           rows: [{ name: "drive", enabled: true }],
-          rowLocations: [],
-          metadata: { owner: "lab" },
         },
       ],
-      metadata: {},
     },
-    raw: {},
   };
 }
 

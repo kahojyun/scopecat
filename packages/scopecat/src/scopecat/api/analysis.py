@@ -38,10 +38,9 @@ from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.ids import artifact_slug
 from scopecat.kernel.problems import (
     LocationPathItem,
-    ProblemCategory,
     ProblemPhase,
-    blocking_problem,
     model_location,
+    problem,
 )
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter_change import ParameterChangeProposal
@@ -147,7 +146,7 @@ class Analysis:
             )
             return replace(self, inputs=(*self.inputs, analysis_input))
         assert selector is not None  # noqa: S101
-        if expected_kind in {"measurement_dataset", "data_table", "data_array"}:
+        if expected_kind == "measurement_dataset":
             dataset = self.run.data().dataset(selector, expected_kind=expected_kind)
             analysis_input = AnalysisInput(
                 target=dataset.id,
@@ -533,10 +532,9 @@ def _raise_analysis_problem(
 ) -> NoReturn:
     raise CheckFailed(
         [
-            blocking_problem(
+            problem(
                 code,
                 message,
-                category=ProblemCategory.INVALID_INPUT,
                 phase=ProblemPhase.ANALYSIS,
                 location=model_location("analysis", *path),
             )

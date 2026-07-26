@@ -5,17 +5,16 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from scopecat.compiler.linking.implementations import SelectedLocalImplementations
 from scopecat.compiler.semantic.model import ValueId
 from scopecat.compiler.typed.program import CoreProgram
 from scopecat.execution.local.program import (
     ApplyStateOperation,
     CollectOperation,
     ComputeOperation,
-    InstrumentActionOperation,
     LocalOperation,
 )
 from scopecat.execution.program import RunCoverageEffect
+from scopecat.kernel.product_identity import ProductUse
 from scopecat.kernel.resource_identity import LogicalResourcePortId, ResourceClaim
 from scopecat.planning.routing import ResourcePortManifest
 
@@ -32,13 +31,15 @@ class ComputeBindingSeed:
 class LocalTargetPlan:
     """One closed local target selection reused by every coverage block.
 
-    Implementations and physical manifests are selected once so bounded
-    coverage evaluates only point-local values and entity selections, never the
-    accepted configuration or provider inventory again.
+    ``program`` is the authoritative linked program; ``product_uses`` is the
+    local side of the local/domain demand cut.
+    Physical manifests are selected once so bounded coverage evaluates only
+    point-local values and entity selections, never the accepted configuration
+    or provider inventory again.
     """
 
     program: CoreProgram
-    implementations: SelectedLocalImplementations
+    product_uses: tuple[ProductUse, ...]
     instrument_order: tuple[str, ...]
     resource_ports: Mapping[LogicalResourcePortId, ResourcePortManifest]
     run_operations: tuple[ComputeOperation, ...]
@@ -56,37 +57,16 @@ class MaterializedLocalEffects:
 def local_operation_resource_claims(
     operation: LocalOperation,
 ) -> tuple[ResourceClaim, ...]:
-    """Derive exact physical claims after entity and channel binding.
+    """Return the coarse instrument identity used by run scheduling.
 
-    Scheduling and leases use the selected instrument, channel, and topology
-    groups rather than a logical port's broader candidate set. Value-dependent
-    hardware compatibility and capacity remain provider or domain concerns.
+    Channel and topology bindings remain part of each concrete command, but the
+    scheduler has no hierarchical conflict semantics. Leasing the owning
+    instrument once therefore expresses the complete enforceable exclusion.
     """
 
-    claims: list[ResourceClaim] = []
-    bindings = ()
-    if isinstance(operation, ApplyStateOperation):
-        claims.append(ResourceClaim(operation.instrument_id))
-        bindings = tuple(
-            binding
-            for target in operation.targets
-            for binding in target.channel_bindings
-        )
-    elif isinstance(operation, InstrumentActionOperation):
-        claims.append(ResourceClaim(operation.instrument_id))
-        bindings = tuple(
-            binding for field in operation.fields for binding in field.channel_bindings
-        )
-    elif isinstance(operation, CollectOperation):
-        claims.append(ResourceClaim(operation.instrument_id))
-        bindings = tuple(
-            binding
-            for request in operation.command.requests
-            for binding in request.channel_bindings
-        )
-    for binding in bindings:
-        claims.append(ResourceClaim(binding.channel_id, "channel"))
-        claims.extend(
-            ResourceClaim(group_id, "group") for group_id in binding.group_ids
-        )
-    return tuple(dict.fromkeys(claims))
+    if isinstance(
+        operation,
+        ApplyStateOperation | CollectOperation,
+    ):
+        return (ResourceClaim(operation.instrument_id),)
+    return ()

@@ -1,22 +1,20 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from decimal import Decimal
 from pathlib import Path
 from typing import cast, override
 
 import pytest
 import scopecat as sc
 from scopecat import Quantity
-from scopecat.adapters.sqlite import SQLiteMeasurementDatasetRepository
-from scopecat.compiler.linking.linked import LinkedPointMaterializer
+from scopecat.adapters.sqlite import (
+    SQLiteMeasurementDatasetRepository,
+)
 from scopecat.execution.observation import RuntimeEvent, RuntimeTransitionEvent
-from scopecat.execution.services import ExecutionJournalStore
-from scopecat.kernel.errors import RunFailed, RunIndeterminate
+from scopecat.kernel.errors import RunIndeterminate
 from scopecat.kernel.problems import (
-    ProblemCategory,
     ProblemPhase,
-    blocking_problem,
+    problem,
 )
 from scopecat.planning import system as systems
 from scopecat.sdk.domain.compiler import DomainCompiledJob, DomainCompiler
@@ -32,7 +30,10 @@ from scopecat.sdk.domain.runtime import (
     DomainSubmitReceipt,
     DomainSubmitRequest,
 )
-from scopecat.testing import sqlite_execution_services
+from tests.testkit.runtime import (
+    SQLiteTestExecutionJournal,
+    sqlite_execution_session,
+)
 
 from quantum_lab_demo import (
     QuantumLabCompiler,
@@ -42,9 +43,8 @@ from quantum_lab_demo.targets.fake_list_mode import (
     FakeListDomainRuntime,
     FakeListRun,
     SelectedFakeMeasurementRealization,
-    default_fake_list_target,
+    configured_fake_list_target,
 )
-from quantum_lab_demo.trace import QuantumLabTrace
 from quantum_lab_demo.virtual_lab.parameters import (
     QUBIT_PARAMETER_TABLE,
     q0_parameter_key,
@@ -53,17 +53,16 @@ from quantum_lab_demo.virtual_lab.pulse_profile import QUANTUM_PULSE_PROFILE
 from quantum_lab_demo.virtual_lab.quantum_responses import (
     quantum_lab_response_registry,
 )
+from quantum_lab_demo.virtual_lab.wiring import quantum_wiring_config_profile
 from quantum_lab_demo.workflows.fake_x_count_experiment import (
     X_COUNT,
     fake_x_count_capture,
     fake_x_count_scratch,
     fake_x_count_template,
-    x_count_program,
 )
 
 from .demo_lab_experiment_testkit import (
     in_process_quantum_lab,
-    reject_program_input_binding,
 )
 
 
@@ -75,14 +74,13 @@ class _UnknownFetchFakeListDomainRuntime(FakeListDomainRuntime):
     ) -> DomainFetchCandidate[FakeListRun]:
         return DomainFetchCandidate(
             receipt=DomainFetchReceipt(
-                identity=request.identity,
+                submission_key=request.submission_id.submission_key,
                 job_id=request.job_id,
                 status="unknown",
                 problems=(
-                    blocking_problem(
+                    problem(
                         "fake_fetch_outcome_unknown",
                         "the fake target could not establish result availability",
-                        category=ProblemCategory.OPERATION,
                         phase=ProblemPhase.EXECUTION,
                     ),
                 ),
@@ -101,12 +99,17 @@ class _IndeterminateFakeListDomainRuntime(FakeListDomainRuntime):
 
 
 class _SecondSubmitIndeterminateFakeListDomainRuntime(FakeListDomainRuntime):
+    def __init__(self) -> None:
+        super().__init__()
+        self.submit_count = 0
+
     @override
     def submit(
         self,
         request: DomainSubmitRequest[SelectedFakeMeasurementRealization],
     ) -> DomainSubmitReceipt:
-        if self.submit_calls == 1:
+        self.submit_count += 1
+        if self.submit_count == 2:
             raise RuntimeError("second target submission returned no evidence")
         return super().submit(request)
 
@@ -114,10 +117,9 @@ class _SecondSubmitIndeterminateFakeListDomainRuntime(FakeListDomainRuntime):
 class _ConfiguredTestCompiler(QuantumLabCompiler):
     def __init__(self) -> None:
         super().__init__(
-            target=default_fake_list_target(),
+            target=configured_fake_list_target(quantum_wiring_config_profile()),
             runtime=FakeListDomainRuntime(),
             response_registry=quantum_lab_response_registry(),
-            trace=QuantumLabTrace(),
             pulse_profile=QUANTUM_PULSE_PROFILE,
         )
 
@@ -156,7 +158,7 @@ class _WrongResultCompiler(_ConfiguredTestCompiler):
 
 def test_fake_x_count_authors_direct_iq_and_derived_probabilities_separately() -> None:
     body = fake_x_count_capture.ir.body
-    [program_call] = body.instances
+    [program_call] = body.child_instances
     [execution] = program_call.module.body.domain_executions
     program = execution.program
     [transform] = body.measurement_transforms
@@ -178,7 +180,6 @@ def test_fake_x_count_authors_direct_iq_and_derived_probabilities_separately() -
     assert transform.semantic.id == (
         "scopecat_quantum.readout.binary_iq_discrimination"
     )
-    assert transform.semantic.portability == "host_only"
     assert transform.semantic.parameters["discriminator"] == {
         "state_0_centroid": {"real": -1.0, "imag": 0.0, "unit": "ratio"},
         "state_1_centroid": {"real": 1.0, "imag": 0.0, "unit": "ratio"},
@@ -219,19 +220,15 @@ def test_fake_x_count_authoring_paths_share_one_standard_domain_semantics(
         preview = experiment.preview()
         run = experiment.run()
         dataset = run.data().measurements().dataset
-        journal = sqlite_execution_services(lab.project_root).journal_for(run.id)
+        journal = sqlite_execution_session(lab.project_root, run.id).journal
 
         assert run.manifest.status == "completed"
-        assert compiler.trace.physical_execution_count == 1
-        [evidence] = compiler.trace.preparations(x_count_program.id)
-        assert tuple(point.value("x_count") for point in evidence.points) == (
+        assert tuple(point.coordinates["x_count"] for point in preview.points) == (
             0,
             1,
             2,
             4,
         )
-        assert len(evidence.entries) == 4
-        assert evidence.artifact_fingerprint.startswith("sha256:")
         assert preview.point_count == len(dataset.records) == 4
         assert [record.id for record in preview.records] == [
             "probability_0",
@@ -258,15 +255,9 @@ def test_fake_x_count_authoring_paths_share_one_standard_domain_semantics(
     assert semantics["template"] == semantics["scratch"]
 
 
-def test_fake_x_count_compiler_absorbs_affine_point_input_without_binding(
+def test_fake_x_count_compiler_absorbs_affine_point_input(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        LinkedPointMaterializer,
-        "bind_domain_inputs",
-        reject_program_input_binding,
-    )
     capture = fake_x_count_capture.instantiate(
         "capture",
         x_count=2 * X_COUNT + 1,
@@ -287,28 +278,21 @@ def test_fake_x_count_compiler_absorbs_affine_point_input_without_binding(
     records = run.data().measurements().dataset.records
 
     assert run.manifest.status == "completed"
-    assert compiler.trace.physical_execution_count == 1
     assert [record.coordinates["x_count"] for record in records] == [0, 1, 2]
 
 
-def test_fake_x_count_compiler_projects_zipped_axis_without_binding(
+def test_fake_x_count_compiler_projects_cartesian_axes(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        LinkedPointMaterializer,
-        "bind_domain_inputs",
-        reject_program_input_binding,
-    )
     auxiliary = sc.coordinate("auxiliary", sc.ScalarType(sc.IntType()))
     capture = fake_x_count_capture.instantiate("capture", x_count=X_COUNT)
 
-    @sc.template(id="test.fake-x-count.zip", kind="fake_x_count")
-    def zipped_template() -> sc.ExperimentBody:
+    @sc.template(id="test.fake-x-count.cartesian", kind="fake_x_count")
+    def cartesian_template() -> sc.ExperimentBody:
         return (
             sc.experiment(capture)
             .scan(
-                sc.zip(
+                sc.cartesian(
                     sc.axis(X_COUNT, (0, 1, 2)),
                     sc.axis(auxiliary, (10, 11, 12)),
                 )
@@ -322,21 +306,28 @@ def test_fake_x_count_compiler_projects_zipped_axis_without_binding(
     compiler = quantum_lab_compiler()
     lab = in_process_quantum_lab(project_root=tmp_path)
 
-    run = lab.prepare(zipped_template, system=_domain_only(compiler)).run()
+    run = lab.prepare(cartesian_template, system=_domain_only(compiler)).run()
 
     assert run.manifest.status == "completed"
-    assert compiler.trace.physical_execution_count == 1
     assert [
         (record.coordinates["x_count"], record.coordinates["auxiliary"])
         for record in run.data().measurements().dataset.records
-    ] == [(0, 10), (1, 11), (2, 12)]
+    ] == [
+        (0, 10),
+        (0, 11),
+        (0, 12),
+        (1, 10),
+        (1, 11),
+        (1, 12),
+        (2, 10),
+        (2, 11),
+        (2, 12),
+    ]
 
 
 def test_fake_x_count_scans_compiler_qubit_collection(tmp_path: Path) -> None:
-    duration = sc.coordinate(
-        "x_duration",
-        sc.ScalarType(sc.QuantityType(unit="ns")),
-    )
+    duration_type = sc.ScalarType(sc.QuantityType(unit="ns"))
+    duration = sc.coordinate("x_duration", duration_type)
     capture = fake_x_count_capture(x_count=1)
 
     @sc.scratch(id="test.fake-x-count.compiler-scan", kind="fake_x_count")
@@ -346,8 +337,12 @@ def test_fake_x_count_scans_compiler_qubit_collection(tmp_path: Path) -> None:
             .scan(
                 sc.param_axis(
                     duration,
-                    sc.param_row(QUBIT_PARAMETER_TABLE, **q0_parameter_key()),
-                    "x_duration",
+                    sc.parameter_lookup(
+                        QUBIT_PARAMETER_TABLE,
+                        key=q0_parameter_key(),
+                        column="x_duration",
+                        value_type=duration_type,
+                    ),
                     (Quantity(4, "ns"), Quantity(6, "ns")),
                 )
             )
@@ -360,13 +355,13 @@ def test_fake_x_count_scans_compiler_qubit_collection(tmp_path: Path) -> None:
         .prepare(compiler_scan())
         .run()
     )
-    [preparation] = compiler.trace.preparations(x_count_program.id)
+    records = run.data().measurements().dataset.records
 
     assert run.manifest.status == "completed"
-    assert tuple(entry.scheduled.duration_seconds for entry in preparation.entries) == (
-        Decimal("12e-9"),
-        Decimal("14e-9"),
-    )
+    assert [record.coordinates["x_duration"] for record in records] == [
+        Quantity(4, "ns"),
+        Quantity(6, "ns"),
+    ]
 
 
 def test_two_ordered_domain_calls_share_target_and_produce_canonical_results(
@@ -392,10 +387,9 @@ def test_two_ordered_domain_calls_share_target_and_produce_canonical_results(
         system=_domain_only(compiler),
     ).run()
     records = run.data().measurements().dataset.records
-    journal = sqlite_execution_services(lab.project_root).journal_for(run.id)
+    journal = sqlite_execution_session(lab.project_root, run.id).journal
 
     assert run.manifest.status == "completed"
-    assert compiler.trace.physical_execution_count == 2
     assert len(records) == 3
     assert all(
         set(record.observables) == {"first-p0", "second-p1"} for record in records
@@ -409,9 +403,21 @@ def test_two_ordered_domain_calls_share_target_and_produce_canonical_results(
     assert len(set(submission_operations)) == 2
 
 
-@pytest.mark.parametrize("compiler", [_RaisingCompiler(), _WrongResultCompiler()])
-def test_compiler_boundary_normalizes_deferred_contract_defects_during_run(
+@pytest.mark.parametrize(
+    ("compiler", "error_type", "message"),
+    [
+        (_RaisingCompiler(), RuntimeError, "compiler implementation defect"),
+        (
+            _WrongResultCompiler(),
+            TypeError,
+            "domain compiler prepare must return PreparedDomainExecution",
+        ),
+    ],
+)
+def test_check_exposes_domain_prepare_contract_defects(
     compiler: object,
+    error_type: type[Exception],
+    message: str,
     tmp_path: Path,
 ) -> None:
     lab = in_process_quantum_lab(project_root=tmp_path)
@@ -422,17 +428,9 @@ def test_compiler_boundary_normalizes_deferred_contract_defects_during_run(
         ),
     )
 
-    report = experiment.check()
-
-    assert report.ok
-    with pytest.raises(RunFailed) as caught:
-        experiment.run()
-    assert any(
-        problem.code == "domain_execution_failed"
-        for problem in caught.value.outcome.problems
-    )
-    [run] = lab.runs()
-    assert run.manifest.status == "failed"
+    with pytest.raises(error_type, match=message):
+        experiment.check()
+    assert lab.runs() == ()
 
 
 def test_indeterminate_submit_retains_durable_target_correlation_context(
@@ -454,13 +452,19 @@ def test_indeterminate_submit_retains_durable_target_correlation_context(
         for problem in caught.value.outcome.problems
         if problem.code == "domain_runtime_terminalized"
     )
+    assert set(recovery.details) == {
+        "phase",
+        "certainty",
+        "invocation_id",
+        "submission_key",
+    }
     assert recovery.details["phase"] == "submit"
-    assert recovery.details["retry_contract"] == "not_retryable"
-    assert recovery.details["automatic_resume"] is False
+    assert recovery.details["certainty"] == "indeterminate"
     assert recovery.details["submission_key"]
-    journal = sqlite_execution_services(lab.project_root).journal_for(
-        caught.value.run_id
-    )
+    journal = sqlite_execution_session(
+        lab.project_root,
+        caught.value.run_id,
+    ).journal
     started = next(
         entry
         for entry in journal.entries()
@@ -494,7 +498,10 @@ def test_indeterminate_submit_retains_durable_target_correlation_context(
 def test_later_domain_job_failure_preserves_points_from_earlier_jobs(
     tmp_path: Path,
 ) -> None:
-    target = replace(default_fake_list_target(), max_list_entries=2)
+    target = replace(
+        configured_fake_list_target(quantum_wiring_config_profile()),
+        max_list_entries=2,
+    )
     runtime = _SecondSubmitIndeterminateFakeListDomainRuntime()
     compiler = quantum_lab_compiler(
         target=target,
@@ -525,8 +532,7 @@ def test_later_domain_job_failure_preserves_points_from_earlier_jobs(
         and event.state == "completed"
         and event.point_indices
     ]
-    assert compiler.trace.physical_execution_count == 1
-    assert runtime.submit_calls == 1
+    assert runtime.submit_count == 2
     assert completed_points == [(0,), (1,)]
     assert failed_points == [(2, 3)]
 
@@ -550,13 +556,20 @@ def test_unknown_fetch_terminalizes_as_indeterminate_with_known_job_context(
         if problem.code == "domain_runtime_terminalized"
     )
     assert caught.value.outcome.certainty == "indeterminate"
+    assert set(recovery.details) == {
+        "phase",
+        "certainty",
+        "invocation_id",
+        "submission_key",
+        "job_id",
+    }
     assert recovery.details["phase"] == "fetch"
+    assert recovery.details["certainty"] == "indeterminate"
     assert recovery.details["job_id"]
-    assert recovery.details["automatic_resume"] is False
-    assert compiler.trace.physical_execution_count == 1
-    journal = sqlite_execution_services(lab.project_root).journal_for(
-        caught.value.run_id
-    )
+    journal = sqlite_execution_session(
+        lab.project_root,
+        caught.value.run_id,
+    ).journal
     assert any(
         entry.stage == "domain_fetch" and entry.state == "unknown"
         for entry in journal.entries()
@@ -592,9 +605,6 @@ def test_uncertain_measurement_write_retains_durable_correlation(
     )
     assert recovery.details["write_may_have_completed"] is True
     assert recovery.details["dataset_id"] == "raw-measurements"
-    assert "retry_contract" not in recovery.details
-    assert "reconciliation" not in recovery.details
-    assert compiler.trace.physical_execution_count == 1
     [persisted] = lab.runs()
     assert persisted.manifest.status == "unknown"
 
@@ -620,7 +630,6 @@ def test_successful_recording_does_not_reload_committed_measurements(
 
     run = experiment.run()
 
-    assert compiler.trace.physical_execution_count == 1
     [persisted] = lab.runs()
     assert persisted.id == run.id
     assert persisted.manifest.status == "completed"
@@ -628,7 +637,7 @@ def test_successful_recording_does_not_reload_committed_measurements(
 
 def _standard_domain_semantics(
     preview: sc.ExperimentPreview,
-    journal: ExecutionJournalStore,
+    journal: SQLiteTestExecutionJournal,
 ) -> object:
     submit_intent = next(
         entry

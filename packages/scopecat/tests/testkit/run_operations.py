@@ -17,7 +17,6 @@ def complete_coverage_operations(
             RunCoverageBlock(
                 points=execution.points,
                 operations=execution.effects,
-                resource_claims=execution.resource_claims,
             ),
         )
         if execution.points

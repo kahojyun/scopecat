@@ -13,7 +13,6 @@ from scopecat.records.entity import EntityRef
 
 def _topology() -> Topology:
     return Topology(
-        devices=[],
         entities=[
             EntityRef(
                 id="q0",

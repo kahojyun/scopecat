@@ -7,26 +7,19 @@ from typing import cast
 from pydantic import BaseModel, JsonValue
 
 from scopecat.execution.local.program import CollectOperation
-from scopecat.kernel.content_identity import (
-    model_wire_content_hash,
-    stable_content_hash,
-)
 from scopecat.kernel.problems import (
     LocationPathItem,
     Problem,
-    ProblemCategory,
     ProblemPhase,
-    blocking_problem,
     model_location,
+    problem,
 )
 from scopecat.measurements.contracts import (
     MeasurementValueContractIssueCode,
     measurement_value_contract_issues,
 )
-from scopecat.records.execution_journal import CollectionChunk, CollectionChunkReceipt
 from scopecat.records.instrument import InstrumentReadback
 from scopecat.sdk.instruments.contracts import (
-    ActionReceipt,
     ApplyReceipt,
     CollectReceipt,
 )
@@ -130,27 +123,11 @@ def validate_readback(
 
 
 def command_evidence(command: BaseModel) -> dict[str, JsonValue]:
-    envelope = command.model_dump(mode="json")
-    return {
-        "command": envelope,
-        "command_content_hash": stable_content_hash(envelope),
-    }
+    return {"command": command.model_dump(mode="json")}
 
 
 def apply_receipt_evidence(receipt: ApplyReceipt) -> dict[str, JsonValue]:
-    envelope = receipt.model_dump(mode="json")
-    return {
-        "receipt": envelope,
-        "receipt_content_hash": model_wire_content_hash(receipt),
-    }
-
-
-def action_receipt_evidence(receipt: ActionReceipt) -> dict[str, JsonValue]:
-    envelope = receipt.model_dump(mode="json")
-    return {
-        "receipt": envelope,
-        "receipt_content_hash": model_wire_content_hash(receipt),
-    }
+    return {"receipt": receipt.model_dump(mode="json")}
 
 
 def collect_receipt_evidence(receipt: CollectReceipt) -> dict[str, JsonValue]:
@@ -159,62 +136,7 @@ def collect_receipt_evidence(receipt: CollectReceipt) -> dict[str, JsonValue]:
             "receipt_status": receipt.status,
             **({"receipt_metadata": receipt.metadata} if receipt.metadata else {}),
         }
-    envelope = receipt.model_dump(mode="json")
-    return {
-        "receipt": envelope,
-        "receipt_content_hash": model_wire_content_hash(receipt),
-    }
-
-
-def validate_collection_chunk_receipt(
-    value: object,
-    *,
-    chunk: CollectionChunk,
-) -> CollectionChunkReceipt:
-    if not isinstance(value, CollectionChunkReceipt):
-        msg = (
-            "collection repository must return CollectionChunkReceipt, got "
-            f"{type(value).__module__}.{type(value).__qualname__}"
-        )
-        raise TypeError(msg)
-    receipt = CollectionChunkReceipt.model_validate(value.model_dump(mode="json"))
-    if (
-        receipt.operation_id != chunk.operation_id
-        or receipt.content_hash != chunk.content_hash
-    ):
-        msg = "collection receipt does not cover its exact committed chunk"
-        raise ValueError(msg)
-    return receipt
-
-
-def normalize_apply_receipt(value: object) -> ApplyReceipt:
-    if not isinstance(value, ApplyReceipt):
-        msg = (
-            "instrument apply_state must return ApplyReceipt, got "
-            f"{type(value).__module__}.{type(value).__qualname__}"
-        )
-        raise TypeError(msg)
-    return ApplyReceipt.model_validate(value.model_dump(mode="json"))
-
-
-def normalize_action_receipt(value: object) -> ActionReceipt:
-    if not isinstance(value, ActionReceipt):
-        msg = (
-            "instrument action must return ActionReceipt, got "
-            f"{type(value).__module__}.{type(value).__qualname__}"
-        )
-        raise TypeError(msg)
-    return ActionReceipt.model_validate(value.model_dump(mode="json"))
-
-
-def normalize_collect_receipt(value: object) -> CollectReceipt:
-    if not isinstance(value, CollectReceipt):
-        msg = (
-            "instrument collect must return CollectReceipt, got "
-            f"{type(value).__module__}.{type(value).__qualname__}"
-        )
-        raise TypeError(msg)
-    return CollectReceipt.model_validate(value.model_dump(mode="json"))
+    return {"receipt": receipt.model_dump(mode="json")}
 
 
 def _readback_problem(
@@ -222,10 +144,9 @@ def _readback_problem(
     message: str,
     *path: LocationPathItem,
 ) -> Problem:
-    return blocking_problem(
+    return problem(
         code,
         message,
-        category=ProblemCategory.PROVIDER_CONTRACT,
         phase=ProblemPhase.EXECUTION,
         location=model_location("instrument_readback", "values", *path),
     )

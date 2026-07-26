@@ -1,24 +1,13 @@
 from __future__ import annotations
 
-from typing import override
-
 from scopecat.config.profiles import load_config_profile
-from scopecat.kernel.problems import (
-    ProblemCategory,
-    ProblemPhase,
-    blocking_problem,
-    model_location,
-)
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.parameter import Quantity
 from scopecat.sdk.instruments import (
-    ActionReceipt,
     ApplyReceipt,
     CollectCommand,
     CollectReceipt,
-    DriverFault,
-    InstrumentActionCommand,
     InstrumentDescription,
     InstrumentReadback,
     InstrumentStateCommand,
@@ -40,7 +29,6 @@ class SignalInstrumentDriver:
         self.implementation_version = "v0"
         self._state: dict[tuple[str, str], StateValue] = {}
         self.applied: list[InstrumentStateCommand] = []
-        self.action_commands: list[InstrumentActionCommand] = []
         self.collect_commands: list[CollectCommand] = []
 
     @property
@@ -67,7 +55,6 @@ class SignalInstrumentDriver:
                     products=[product("signal", unit="ratio")],
                 ),
             ],
-            metadata={"mode": "test_offline"},
         )
 
     def read_state(self) -> InstrumentStateSnapshot:
@@ -90,10 +77,6 @@ class SignalInstrumentDriver:
             self._state[(field.capability_id, field.field_path)] = field.value
         return ApplyReceipt(status="applied")
 
-    def action(self, command: InstrumentActionCommand) -> ActionReceipt:
-        self.action_commands.append(command)
-        return ActionReceipt(status="performed")
-
     def collect(self, command: CollectCommand) -> CollectReceipt:
         self.collect_commands.append(command)
         if "signal" not in {request.id for request in command.requests}:
@@ -110,39 +93,6 @@ class SignalInstrumentDriver:
 
     def abort(self) -> None:
         return None
-
-
-class BlockingSignalInstrumentDriver(SignalInstrumentDriver):
-    @override
-    def apply_state(self, command: InstrumentStateCommand) -> ApplyReceipt:
-        del command
-        return ApplyReceipt(
-            status="not_applied",
-            problems=(
-                blocking_problem(
-                    code="instrument_driver_blocked",
-                    message="driver blocked",
-                    category=ProblemCategory.EXTERNAL_FAILURE,
-                    phase=ProblemPhase.EXECUTION,
-                    location=model_location("driver", "apply_state"),
-                ),
-            ),
-        )
-
-
-class FailingSignalInstrumentDriver(SignalInstrumentDriver):
-    @override
-    def collect(self, command: CollectCommand) -> CollectReceipt:
-        del command
-        raise DriverFault(
-            blocking_problem(
-                code="instrument_record_collection_failed",
-                message="record collection failed",
-                category=ProblemCategory.EXTERNAL_FAILURE,
-                phase=ProblemPhase.EXECUTION,
-                location=model_location("driver", "collect"),
-            )
-        )
 
 
 def load_config() -> ConfigProfileSnapshot:

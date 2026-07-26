@@ -4,28 +4,22 @@ import {
   Activity,
   AlertTriangle,
   Atom,
-  Ban,
-  BookOpen,
   Box,
   CheckCircle2,
   ChevronRight,
   CircleDot,
   Cpu,
   Database,
-  FlaskConical,
   Gauge,
-  Layers3,
   LoaderCircle,
-  Play,
   SquareStack,
   Unlock,
   XCircle,
 } from "lucide-react";
-import { canPreviewRunContent, getRunContent, type AttentionAction } from "../../api";
+import { canPreviewRunContent, getRunContent } from "../../api";
 import { errorMessage, formatRelative, shorten, titleCase } from "../../lib/presentation";
 import type {
   ContentEntry,
-  ExperimentCatalog,
   MeasurementPreview,
   ProjectEvent,
   ProjectRun,
@@ -38,8 +32,6 @@ export function RunDetail({
   events,
   eventsError,
   eventsPending,
-  catalog,
-  catalogError,
   measurements,
   measurementsError,
   measurementsPending,
@@ -49,7 +41,6 @@ export function RunDetail({
   analyses,
   analysesError,
   analysesPending,
-  attentionAction,
   attentionError,
   attentionPending,
   onResolveAttention,
@@ -58,8 +49,6 @@ export function RunDetail({
   events: ProjectEvent[];
   eventsError: Error | null;
   eventsPending: boolean;
-  catalog?: ExperimentCatalog;
-  catalogError: Error | null;
   measurements?: MeasurementPreview;
   measurementsError: Error | null;
   measurementsPending: boolean;
@@ -69,10 +58,9 @@ export function RunDetail({
   analyses?: RunAnalysis[];
   analysesError: Error | null;
   analysesPending: boolean;
-  attentionAction?: AttentionAction;
   attentionError: Error | null;
   attentionPending: boolean;
-  onResolveAttention: (action: AttentionAction) => void;
+  onResolveAttention: () => void;
 }) {
   return (
     <>
@@ -83,7 +71,6 @@ export function RunDetail({
               <span aria-hidden="true" />
               {run.stateLabel}
             </span>
-            <span>{titleCase(run.executionMode)} execution</span>
           </div>
           <h2>{run.experimentId}</h2>
           <code title={run.runId}>{run.runId}</code>
@@ -116,34 +103,19 @@ export function RunDetail({
           <div>
             <strong>Operator attention required</strong>
             <p>{run.attentionReason ?? "The daemon has not reported a reconciliation reason."}</p>
+            <p>
+              This run cannot be resumed safely. Reconcile its external state, then submit a new
+              run.
+            </p>
             <div className="attention-actions">
-              <button
-                type="button"
-                onClick={() => onResolveAttention("release")}
-                disabled={attentionPending}
-              >
-                <Unlock size={15} aria-hidden="true" />
-                {attentionPending && attentionAction === "release"
-                  ? "Releasing…"
-                  : "Release resources"}
-              </button>
-              <button
-                className="primary"
-                type="button"
-                onClick={() => onResolveAttention("requeue")}
-                disabled={attentionPending}
-              >
-                <Play size={15} aria-hidden="true" />
-                {attentionPending && attentionAction === "requeue" ? "Requeuing…" : "Requeue"}
-              </button>
               <button
                 className="danger"
                 type="button"
-                onClick={() => onResolveAttention("abort")}
+                onClick={onResolveAttention}
                 disabled={attentionPending}
               >
-                <Ban size={15} aria-hidden="true" />
-                {attentionPending && attentionAction === "abort" ? "Aborting…" : "Abort run"}
+                <Unlock size={15} aria-hidden="true" />
+                {attentionPending ? "Resolving…" : "Resolve and close"}
               </button>
             </div>
             {attentionError && (
@@ -169,11 +141,6 @@ export function RunDetail({
           hasMoreMeasurements={measurementsHasMore}
           loadingMoreMeasurements={measurementsLoadingMore}
           onLoadMoreMeasurements={onLoadMoreMeasurements}
-        />
-        <CatalogCard
-          currentExperimentId={run.experimentId}
-          catalog={catalog}
-          error={catalogError}
         />
       </div>
     </>
@@ -644,63 +611,6 @@ function MeasurementRecords({
   );
 }
 
-function CatalogCard({
-  currentExperimentId,
-  catalog,
-  error,
-}: {
-  currentExperimentId: string;
-  catalog?: ExperimentCatalog;
-  error: Error | null;
-}) {
-  return (
-    <article className="detail-card catalog-card">
-      <CardHeading
-        icon={<Layers3 size={17} />}
-        title="Experiment catalog"
-        accessory={<span className="count-badge">{catalog?.experiments.length ?? 0}</span>}
-      />
-      {error ? (
-        <InlineEmpty title="Catalog unavailable" detail={errorMessage(error)} warning />
-      ) : !catalog ? (
-        <InlineEmpty title="Reading catalog" detail="Waiting for registration metadata." />
-      ) : catalog.experiments.length === 0 ? (
-        <InlineEmpty
-          title="No registered experiments"
-          detail="Scratch runs can still be executed from a connected notebook."
-        />
-      ) : (
-        <ul className="catalog-list">
-          {catalog.experiments.slice(0, 6).map((experiment) => (
-            <li
-              key={`${experiment.id}:${experiment.version}`}
-              className={experiment.id === currentExperimentId ? "current" : undefined}
-            >
-              <span className="catalog-symbol" aria-hidden="true">
-                <FlaskConical size={15} />
-              </span>
-              <span>
-                <strong>{experiment.title}</strong>
-                <small>
-                  {experiment.id} · v{experiment.version}
-                </small>
-              </span>
-              {experiment.id === currentExperimentId && (
-                <CheckCircle2 size={16} aria-label="Selected run experiment" />
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-      {catalog?.revision && (
-        <p className="catalog-revision">
-          Catalog revision <code>{shorten(catalog.revision, 18)}</code>
-        </p>
-      )}
-    </article>
-  );
-}
-
 function CardHeading({
   icon,
   title,
@@ -766,16 +676,39 @@ function InlineEmpty({
 }
 
 function completedPoints(run: ProjectRun, events: ProjectEvent[]): number {
-  let completed = run.progressCompleted ?? 0;
+  const completedPointIndices = new Set<number>();
   for (const event of events) {
-    const progress = event.payload.progress;
-    if (typeof progress !== "object" || progress === null) continue;
-    const value = (progress as Record<string, unknown>).completed_points;
-    if (typeof value === "number" && Number.isFinite(value)) {
-      completed = Math.max(completed, value);
+    if (event.kind !== "execution_transition_committed" || event.payload.state !== "completed") {
+      continue;
+    }
+    const evidence = event.payload.evidence;
+    if (event.payload.stage === "point" && typeof evidence === "object" && evidence !== null) {
+      const pointIndices = (evidence as Record<string, unknown>).point_indices;
+      if (Array.isArray(pointIndices)) {
+        for (const pointIndex of pointIndices) {
+          if (typeof pointIndex === "number") completedPointIndices.add(pointIndex);
+        }
+      }
+      const pointIndex = event.payload.point_index;
+      if (typeof pointIndex === "number") completedPointIndices.add(pointIndex);
+    }
+    if (
+      event.payload.stage === "append_measurement" &&
+      typeof evidence === "object" &&
+      evidence !== null
+    ) {
+      const record = evidence as Record<string, unknown>;
+      const startIndex = record.start_index;
+      const recordCount = record.record_count;
+      if (typeof startIndex === "number" && typeof recordCount === "number") {
+        for (let offset = 0; offset < recordCount; offset += 1) {
+          completedPointIndices.add(startIndex + offset);
+        }
+      }
     }
   }
-  return completed;
+  // Only durable transition facts survive daemon reconnects.
+  return Math.max(run.progressCompleted ?? 0, completedPointIndices.size);
 }
 
 function eventIcon(kind: string): ReactNode {
@@ -788,7 +721,6 @@ function eventIcon(kind: string): ReactNode {
   if (kind.includes("state") || kind.includes("transition")) {
     return <Activity size={14} />;
   }
-  if (kind.includes("catalog")) return <BookOpen size={14} />;
   return <CircleDot size={14} />;
 }
 
@@ -812,10 +744,8 @@ function humanizeEvent(kind: string): string {
     run_state_changed: "Run state changed",
     resource_claims_acquired: "Resources acquired",
     executor_lease_acquired: "Executor connected",
-    executor_lease_renewed: "Executor heartbeat",
     executor_lease_expired: "Executor lost",
     transition_committed: "Execution transition",
-    catalog_changed: "Catalog changed",
   };
   return specific[kind] ?? titleCase(kind);
 }

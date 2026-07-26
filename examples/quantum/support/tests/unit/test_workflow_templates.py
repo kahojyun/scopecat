@@ -4,7 +4,6 @@ import pytest
 from scopecat.authoring import ExperimentInvocation
 from scopecat.execution.points import RunPoint
 from scopecat.measurements.projection import MeasurementProjection
-from scopecat.planning.authoring import resolve_experiment
 from scopecat.records.config import ConfigProfileSnapshot
 
 from quantum_lab_demo.workflows.interaction_tomography import (
@@ -27,6 +26,7 @@ from quantum_lab_demo.workflows.single_qubit_rb import (
 )
 
 from .demo_lab_experiment_testkit import (
+    link_invocation,
     load_experiment_config,
     measurement_projection_and_points,
 )
@@ -34,10 +34,10 @@ from .demo_lab_experiment_testkit import (
 
 def test_recommended_workflow_template_ids() -> None:
     assert [
-        readout_frequency_template.id,
-        single_qubit_rb_template.id,
-        interaction_tomography_template.id,
-        qnd_repeated_measurement_template.id,
+        readout_frequency_template.definition.id,
+        single_qubit_rb_template.definition.id,
+        interaction_tomography_template.definition.id,
+        qnd_repeated_measurement_template.definition.id,
     ] == [
         READOUT_TEMPLATE_ID,
         SINGLE_QUBIT_RB_TEMPLATE_ID,
@@ -83,11 +83,11 @@ def test_workflow_template_resolves_and_projects(
     kind: str,
 ) -> None:
     config = load_experiment_config()
-    resolved = resolve_experiment(invocation, config_profile=config)
+    resolved = link_invocation(invocation, config_profile=config)
     projection, points = _measurement_projection(invocation, config)
 
-    assert resolved.template_id == template_id
-    assert resolved.experiment.kind == kind
+    assert resolved.program.id == template_id
+    assert resolved.program.kind == kind
     assert projection.schema_for(points) is not None
 
 

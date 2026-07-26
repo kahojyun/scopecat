@@ -15,7 +15,5 @@ class ProgramRelationConsumerKind(StrEnum):
     COMPUTE_INPUT = "compute_input"
     DOMAIN_EXECUTION_INPUT = "domain_execution_input"
     DOMAIN_COMPILER_INPUT = "domain_compiler_input"
-    ACTION_VALUE = "action_value"
     STATE_VALUE = "state_value"
     STATE_TARGET_ENTITY = "state_target_entity"
-    STATE_RELATION = "state_relation"

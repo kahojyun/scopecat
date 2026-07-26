@@ -7,8 +7,7 @@ import pytest
 import scopecat as sc
 from scopecat.authoring._products import RecordSelection
 from scopecat.compiler.frontend.elaboration import elaborate_module
-from scopecat.compiler.frontend.invocation import prepare_invocation
-from scopecat.compiler.frontend.resolution import compile_prepared_invocation
+from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.compiler.typed.program import core_acquisitions
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.problems import ProblemPhase
@@ -19,11 +18,10 @@ from scopecat.kernel.product_identity import (
 )
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.symbols import SymbolId
-from scopecat.planning.authoring import resolve_experiment
-from tests.testkit.authoring import load_config
+from tests.testkit.authoring import link_invocation, load_config
 
 
-def _product_module() -> sc.ExperimentModule:
+def _product_module() -> sc.ExperimentModule[...]:
     return (
         sc.module_body(id="test.products.source")
         .resource("source", requires=("scalar_signal",))
@@ -67,19 +65,19 @@ def test_selected_product_lowers_schema_and_acquisition_metadata_independently(
     def template_definition() -> sc.ExperimentBody:
         return sc.experiment(call).record_product(call.products.signal)
 
-    resolved = resolve_experiment(
+    resolved = link_invocation(
         template_definition(),
         config_profile=load_config(),
     )
 
-    assert resolved.experiment.product_defs[0].metadata == {"schema_owner": "analysis"}
-    assert core_acquisitions(resolved.experiment)[0].products[0].metadata == {
+    assert resolved.program.product_defs[0].metadata == {"schema_owner": "analysis"}
+    assert core_acquisitions(resolved.program)[0].products[0].metadata == {
         "adapter_mode": "fast"
     }
-    assert [record.id for record in resolved.experiment.record_uses] == ["signal"]
+    assert [record.id for record in resolved.program.record_uses] == ["signal"]
 
 
-def test_acquire_is_an_ordered_effect_with_source_provenance() -> None:
+def test_acquire_is_an_ordered_effect() -> None:
     builder = (
         sc.module_body(id="test.products.acquire")
         .resource("source", requires=("scalar_signal",))
@@ -91,12 +89,11 @@ def test_acquire_is_an_ordered_effect_with_source_provenance() -> None:
         resource="source",
         capability="scalar_signal",
     ).build()
-    assembly = elaborate_module(module)
+    assembly = elaborate_module(module.ir)
 
-    acquire = assembly.semantic_graph.acquisitions[0]
+    acquire = assembly.acquisitions[0]
+    assert assembly.effects == (acquire,)
     assert acquire.product_ids == (module.products.signal.product_id,)
-    assert assembly.source_map.acquire_sources[0][0] == acquire.id
-    assert assembly.source_map.acquire_sources[0][1].kind == "acquire"
 
 
 def test_multi_product_provider_keys_lower_from_public_authoring_api(
@@ -129,12 +126,12 @@ def test_multi_product_provider_keys_lower_from_public_authoring_api(
             call.products.default,
         )
 
-    resolved = resolve_experiment(
+    resolved = link_invocation(
         template_definition(),
         config_profile=load_config(),
     )
 
-    [acquisition] = core_acquisitions(resolved.experiment)
+    [acquisition] = core_acquisitions(resolved.program)
     assert acquisition.capability_id == "scalar_signal"
     assert {
         product.product_id.local_id: product.provider_key
@@ -193,7 +190,7 @@ def test_explicit_instances_select_same_named_products_independently(
     assert left.products.signal.id == "left/signal"
     assert right.products["signal"].id == "right/signal"
 
-    assembly = elaborate_module(root)
+    assembly = elaborate_module(root.ir)
     assert [product.qualified_id for product in assembly.product_declarations] == [
         "left/signal",
         "right/signal",
@@ -212,26 +209,24 @@ def test_explicit_instances_select_same_named_products_independently(
             .record_product(call.products["right/signal"], record_id="right_signal")
         )
 
-    resolved = resolve_experiment(
+    resolved = link_invocation(
         template_definition(),
         config_profile=load_config(),
     )
 
-    assert [record.id for record in resolved.experiment.record_uses] == [
+    assert [record.id for record in resolved.program.record_uses] == [
         "left_signal",
         "right_signal",
     ]
-    uses_by_id = {use.id: use for use in resolved.experiment.product_uses}
-    products_by_id = {
-        product.id: product for product in resolved.experiment.product_defs
-    }
+    uses_by_id = {use.id: use for use in resolved.program.product_uses}
+    products_by_id = {product.id: product for product in resolved.program.product_defs}
     selected_products = [
         products_by_id[uses_by_id[record.product_use_id].product_id]
-        for record in resolved.experiment.record_uses
+        for record in resolved.program.record_uses
     ]
     acquisitions_by_product = {
         product.product_id: (acquisition, product)
-        for acquisition in core_acquisitions(resolved.experiment)
+        for acquisition in core_acquisitions(resolved.program)
         for product in acquisition.products
     }
     selected_acquisitions = [
@@ -270,7 +265,7 @@ def test_nested_product_references_receive_each_parent_instance_prefix(
 ) -> None:
     inner = _product_module().instantiate("inner")
     wrapper = sc.module_body(id="test.products.wrapper").use(inner).build()
-    projected = wrapper.ir.interface.products[0]
+    projected = wrapper.ir.products[0]
     expected_projection = ProductId(SymbolId(scope=("inner",), local_id="signal"))
     assert projected.symbol_id == expected_projection
     assert projected.target_id == expected_projection
@@ -280,7 +275,7 @@ def test_nested_product_references_receive_each_parent_instance_prefix(
     assert set(outer.products) == {"inner/signal"}
     nested_product = outer.products["inner/signal"]
     assert nested_product.id == "outer/inner/signal"
-    assembly = elaborate_module(root)
+    assembly = elaborate_module(root.ir)
     assert [product.qualified_id for product in assembly.product_declarations] == [
         "outer/inner/signal"
     ]
@@ -294,23 +289,21 @@ def test_nested_product_references_receive_each_parent_instance_prefix(
             record_id="nested_signal",
         )
 
-    resolved = resolve_experiment(
+    resolved = link_invocation(
         template_definition(),
         config_profile=load_config(),
     )
 
-    record = resolved.experiment.record_uses[0]
+    record = resolved.program.record_uses[0]
     use = next(
-        use
-        for use in resolved.experiment.product_uses
-        if use.id == record.product_use_id
+        use for use in resolved.program.product_uses if use.id == record.product_use_id
     )
     assert record.id == "nested_signal"
     expected_product_id = ProductId(
         SymbolId(scope=("nested-root", "outer", "inner"), local_id="signal")
     )
     assert use.product_id == expected_product_id
-    [acquisition] = core_acquisitions(resolved.experiment)
+    [acquisition] = core_acquisitions(resolved.program)
     [acquired_product] = acquisition.products
     assert acquired_product.product_id == expected_product_id
     assert acquisition.resource_port_id == logical_resource_port_id(
@@ -337,11 +330,13 @@ def test_product_selection_rejects_unexposed_product() -> None:
             .record_product(call.products["selected/signal"], record_id="second")
         )
 
+    template = sc.template(
+        id="test.products.selection-validation",
+        kind="module_products",
+    )(template_definition)
+
     with pytest.raises(CheckFailed) as error:
-        sc.template(
-            id="test.products.selection-validation",
-            kind="module_products",
-        )(template_definition)
+        compile_invocation(template())
 
     assert [problem.code for problem in error.value.problems] == [
         "module_product_unknown",
@@ -364,14 +359,14 @@ def test_repeated_product_selection_creates_distinct_use_occurrences(
             .record_product(call.products["selected/signal"], record_id="second")
         )
 
-    resolved = resolve_experiment(
+    resolved = link_invocation(
         template_definition(),
         config_profile=load_config(),
     )
 
-    assert len(resolved.experiment.product_uses) == 2
-    assert len({use.id for use in resolved.experiment.product_uses}) == 2
-    assert {use.product_id for use in resolved.experiment.product_uses} == {
+    assert len(resolved.program.product_uses) == 2
+    assert len({use.id for use in resolved.program.product_uses}) == 2
+    assert {use.product_id for use in resolved.program.product_uses} == {
         ProductId(SymbolId(scope=("repeated-use", "selected"), local_id="signal"))
     }
 
@@ -395,20 +390,20 @@ def test_record_aliases_share_one_public_product_use(tmp_path: Path) -> None:
     def template_definition() -> sc.ExperimentBody:
         return sc.experiment(call).records(primary, secondary)
 
-    resolved = resolve_experiment(
+    resolved = link_invocation(
         template_definition(),
         config_profile=load_config(),
     )
 
-    assert len(resolved.experiment.product_uses) == 1
-    assert [record.id for record in resolved.experiment.record_uses] == [
+    assert len(resolved.program.product_uses) == 1
+    assert [record.id for record in resolved.program.record_uses] == [
         "primary",
         "secondary",
     ]
-    assert {record.product_use_id for record in resolved.experiment.record_uses} == {
-        resolved.experiment.product_uses[0].id
+    assert {record.product_use_id for record in resolved.program.record_uses} == {
+        resolved.program.product_uses[0].id
     }
-    assert resolved.experiment.record_uses[1].metadata == {"projection": "secondary"}
+    assert resolved.program.record_uses[1].metadata == {"projection": "secondary"}
 
 
 def test_authoring_compile_rejects_one_use_identity_for_two_products() -> None:
@@ -444,7 +439,7 @@ def test_authoring_compile_rejects_one_use_identity_for_two_products() -> None:
         return sc.experiment(call).records(*selections)
 
     with pytest.raises(CheckFailed) as error:
-        compile_prepared_invocation(prepare_invocation(template_definition()))
+        compile_invocation(template_definition())
 
     assert [problem.code for problem in error.value.problems] == [
         "product_use_identity_conflict"
@@ -460,7 +455,7 @@ def test_root_module_products_are_typed_template_refs() -> None:
     def template_definition() -> sc.ExperimentBody:
         return sc.experiment(call).record_product(call.products.signal)
 
-    selection = template_definition.record_selections[0]
+    selection = template_definition.definition.record_selections[0]
     assert selection.product_id == ProductId(
         SymbolId(scope=("source",), local_id="signal")
     )
@@ -476,10 +471,12 @@ def test_product_refs_are_nominally_owned_by_the_selected_instance() -> None:
     def template_definition() -> sc.ExperimentBody:
         return sc.experiment(selected).record_product(foreign.products.signal)
 
+    template = sc.template(id="test.products.nominal", kind="module_products")(
+        template_definition
+    )
+
     with pytest.raises(CheckFailed) as error:
-        sc.template(id="test.products.nominal", kind="module_products")(
-            template_definition
-        )
+        compile_invocation(template())
 
     assert [problem.code for problem in error.value.problems] == [
         "module_product_foreign_instance"

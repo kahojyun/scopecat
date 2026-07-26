@@ -1,5 +1,11 @@
 """User-facing experiment authoring API."""
 
+from scopecat.authoring._module_handles import (
+    ExperimentModule,
+    ModuleBuilder,
+    ModuleInvocation,
+    ModuleOutputs,
+)
 from scopecat.authoring._products import (
     ProductAxis,
     ProductOutputs,
@@ -11,18 +17,10 @@ from scopecat.authoring._products import (
     record_product,
     shot_axis,
 )
-from scopecat.authoring.assembly import (
-    ExperimentModule,
-    ModuleBuilder,
-    ModuleInvocation,
-    ModuleOutputs,
-)
 from scopecat.authoring.definitions import (
     ExperimentBody,
     Input,
-    ModuleDefinition,
     ScratchDefinition,
-    TemplateDefinition,
     experiment,
     input_ref,
     module,
@@ -32,10 +30,6 @@ from scopecat.authoring.definitions import (
 )
 from scopecat.authoring.domain import (
     DomainExecution,
-    DomainInputPort,
-    DomainProgramDef,
-    DomainResourcePort,
-    DomainResultPort,
     domain_execution,
     domain_program,
 )
@@ -46,7 +40,6 @@ from scopecat.authoring.measurements import (
 from scopecat.authoring.templates import (
     ExperimentInvocation,
     ExperimentTemplate,
-    InputDescription,
 )
 from scopecat.authoring.value_types import (
     Bool as BoolType,
@@ -103,6 +96,12 @@ from scopecat.authoring.values import (
     parameter_lookup,
 )
 from scopecat.authoring.values import input as input  # noqa: A004
+from scopecat.domain.program import (
+    DomainInputPort,
+    DomainProgramDef,
+    DomainResourcePort,
+    DomainResultPort,
+)
 
 __all__ = [
     "BoolType",
@@ -120,12 +119,10 @@ __all__ = [
     "ExperimentTemplate",
     "FloatType",
     "Input",
-    "InputDescription",
     "IntType",
     "MeasurementTransform",
     "MetadataValue",
     "ModuleBuilder",
-    "ModuleDefinition",
     "ModuleInput",
     "ModuleInvocation",
     "ModuleOutputs",
@@ -147,7 +144,6 @@ __all__ = [
     "TableColumn",
     "TableRow",
     "TableType",
-    "TemplateDefinition",
     "ValueRef",
     "ValueType",
     "ValueValidationError",

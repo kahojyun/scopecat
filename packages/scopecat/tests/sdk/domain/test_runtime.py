@@ -7,40 +7,38 @@ from typing import Literal, cast
 import pytest
 from pydantic import ValidationError
 
-from scopecat.adapters.memory import MemoryExecutionJournal
 from scopecat.kernel.errors import (
     DomainFetchFailed,
+    DomainRuntimeFailure,
     DomainRuntimePersistenceError,
     DomainSubmissionFailed,
     DomainSubmissionIndeterminate,
 )
 from scopecat.kernel.problems import (
     Problem,
-    ProblemCategory,
     ProblemPhase,
-    blocking_problem,
+    problem,
 )
 from scopecat.records.execution_journal import ExecutionTransition
 from scopecat.sdk.domain.invocation import (
     ClosedDomainInvocation,
-    DomainResultMappingContract,
     close_domain_invocation,
 )
+from scopecat.sdk.domain.preparation import DomainResultMapping
 from scopecat.sdk.domain.runtime import (
     CorrelatedDomainFetch,
     DomainFetchCandidate,
     DomainFetchReceipt,
     DomainFetchRequest,
-    DomainReceiptIdentity,
     DomainSubmissionId,
     DomainSubmitReceipt,
     DomainSubmitRequest,
     KnownDomainSubmission,
-    domain_receipt_identity,
     fetch_domain_invocation,
     plan_domain_submission,
     submit_domain_invocation,
 )
+from tests.testkit.runtime import FakeExecutionJournal
 
 type _Invocation = ClosedDomainInvocation[str, dict[str, str]]
 
@@ -51,30 +49,20 @@ class _RuntimeResultContract:
 
 
 def _problem(code: str = "domain_test_failure") -> Problem:
-    return blocking_problem(
+    return problem(
         code,
         "the test domain operation did not complete",
-        category=ProblemCategory.OPERATION,
         phase=ProblemPhase.EXECUTION,
     )
 
 
-def _identity() -> DomainReceiptIdentity:
-    return DomainReceiptIdentity(
-        submission_key="submission-key",
-        invocation_id="invocation",
-        intent_fingerprint="intent-fingerprint",
-        target_id="target",
-        compiler_id="compiler",
-        capability_fingerprint="capability-fingerprint",
-        artifact_id="artifact",
-        artifact_fingerprint="artifact-fingerprint",
-    )
+def _submission_key() -> str:
+    return "submission-key"
 
 
 def _closed_invocation(*, target_intent: object | None = None) -> _Invocation:
     mapping = cast(
-        "DomainResultMappingContract[str]",
+        "DomainResultMapping[str]",
         cast("object", _RuntimeResultContract()),
     )
     return close_domain_invocation(
@@ -99,24 +87,26 @@ def _submission_id(invocation: _Invocation) -> DomainSubmissionId:
 
 
 def test_receipts_encode_success_rejection_and_unknown_only() -> None:
-    identity = _identity()
+    submission_key = _submission_key()
     blocking = (_problem(),)
-    submitted = DomainSubmitReceipt(identity=identity, status="submitted", job_id="job")
+    submitted = DomainSubmitReceipt(
+        submission_key=submission_key, status="submitted", job_id="job"
+    )
     rejected = DomainSubmitReceipt(
-        identity=identity, status="not_submitted", problems=blocking
+        submission_key=submission_key, status="not_submitted", problems=blocking
     )
     unknown = DomainSubmitReceipt(
-        identity=identity, status="unknown", problems=blocking
+        submission_key=submission_key, status="unknown", problems=blocking
     )
     fetched = DomainFetchReceipt(
-        identity=identity,
+        submission_key=submission_key,
         job_id="job",
         status="fetched",
         result_fingerprint="result",
         result_count=1,
     )
     missing = DomainFetchReceipt(
-        identity=identity,
+        submission_key=submission_key,
         job_id="job",
         status="not_found",
         problems=blocking,
@@ -134,13 +124,15 @@ def test_receipts_encode_success_rejection_and_unknown_only() -> None:
 @pytest.mark.parametrize(
     "receipt",
     [
-        lambda: DomainSubmitReceipt(identity=_identity(), status="submitted"),
-        lambda: DomainSubmitReceipt(identity=_identity(), status="unknown"),
+        lambda: DomainSubmitReceipt(
+            submission_key=_submission_key(), status="submitted"
+        ),
+        lambda: DomainSubmitReceipt(submission_key=_submission_key(), status="unknown"),
         lambda: DomainFetchReceipt(
-            identity=_identity(), job_id="job", status="fetched"
+            submission_key=_submission_key(), job_id="job", status="fetched"
         ),
         lambda: DomainFetchReceipt(
-            identity=_identity(), job_id="job", status="not_found"
+            submission_key=_submission_key(), job_id="job", status="not_found"
         ),
     ],
 )
@@ -165,10 +157,7 @@ def test_submission_identity_is_deterministic_and_covers_intent() -> None:
     assert first == repeated
     assert first.submission_key != changed_id.submission_key
     assert first.submit_operation_id != first.fetch_operation_id
-    forged = first.model_dump(mode="json")
-    forged["submission_key"] = "forged"
-    with pytest.raises(ValidationError, match="complete identity"):
-        DomainSubmissionId.model_validate(forged)
+    assert "submission_key" not in first.model_dump(mode="json")
 
 
 @dataclass
@@ -177,8 +166,8 @@ class _Runtime:
     fetch_status: Literal["fetched", "not_found", "unknown"] = "fetched"
     submit_error: Exception | None = None
     fetch_error: Exception | None = None
-    forge_submit_identity: bool = False
-    forge_fetch_identity: bool = False
+    forge_submit_key: bool = False
+    forge_fetch_key: bool = False
     submit_calls: int = 0
     fetch_calls: int = 0
     submit_requests: list[DomainSubmitRequest[dict[str, str]]] = field(
@@ -193,15 +182,15 @@ class _Runtime:
         self.submit_requests.append(request)
         if self.submit_error is not None:
             raise self.submit_error
-        identity = request.identity
-        if self.forge_submit_identity:
-            identity = identity.model_copy(update={"artifact_id": "forged"})
+        submission_key = (
+            "forged" if self.forge_submit_key else request.submission_id.submission_key
+        )
         if self.submit_status == "submitted":
             return DomainSubmitReceipt(
-                identity=identity, status="submitted", job_id="job"
+                submission_key=submission_key, status="submitted", job_id="job"
             )
         return DomainSubmitReceipt(
-            identity=identity,
+            submission_key=submission_key,
             status=self.submit_status,
             problems=(_problem(f"submit_{self.submit_status}"),),
         )
@@ -211,13 +200,13 @@ class _Runtime:
         self.fetch_requests.append(request)
         if self.fetch_error is not None:
             raise self.fetch_error
-        identity = request.identity
-        if self.forge_fetch_identity:
-            identity = identity.model_copy(update={"artifact_id": "forged"})
+        submission_key = (
+            "forged" if self.forge_fetch_key else request.submission_id.submission_key
+        )
         if self.fetch_status == "fetched":
             return DomainFetchCandidate(
                 DomainFetchReceipt(
-                    identity=identity,
+                    submission_key=submission_key,
                     job_id=request.job_id,
                     status="fetched",
                     result_fingerprint="result",
@@ -227,7 +216,7 @@ class _Runtime:
             )
         return DomainFetchCandidate(
             DomainFetchReceipt(
-                identity=identity,
+                submission_key=submission_key,
                 job_id=request.job_id,
                 status=self.fetch_status,
                 problems=(_problem(f"fetch_{self.fetch_status}"),),
@@ -236,7 +225,7 @@ class _Runtime:
 
 
 def _submit(
-    runtime: _Runtime, invocation: _Invocation, journal: MemoryExecutionJournal
+    runtime: _Runtime, invocation: _Invocation, journal: FakeExecutionJournal
 ) -> KnownDomainSubmission:
     return submit_domain_invocation(
         runtime,
@@ -249,7 +238,7 @@ def _submit(
 def test_synchronous_submit_and_fetch_commit_exact_journal_sequence() -> None:
     invocation = _closed_invocation()
     runtime = _Runtime()
-    journal = MemoryExecutionJournal()
+    journal = FakeExecutionJournal()
 
     known = _submit(runtime, invocation, journal)
     fetched = fetch_domain_invocation(
@@ -258,9 +247,7 @@ def test_synchronous_submit_and_fetch_commit_exact_journal_sequence() -> None:
 
     assert isinstance(fetched, CorrelatedDomainFetch)
     assert fetched.result == "payload"
-    assert runtime.submit_requests[0].identity == domain_receipt_identity(
-        known.submission_id, invocation.intent
-    )
+    assert runtime.submit_requests[0].submission_id == known.submission_id
     assert [(entry.stage, entry.state) for entry in journal.entries] == [
         ("domain_submit", "started"),
         ("domain_submit", "completed"),
@@ -270,24 +257,26 @@ def test_synchronous_submit_and_fetch_commit_exact_journal_sequence() -> None:
 
 
 @pytest.mark.parametrize(
-    ("status", "error_type", "state"),
+    ("status", "error_type", "certainty", "state"),
     [
-        ("not_submitted", DomainSubmissionFailed, "failed"),
-        ("unknown", DomainSubmissionIndeterminate, "unknown"),
+        ("not_submitted", DomainSubmissionFailed, "known", "failed"),
+        ("unknown", DomainSubmissionIndeterminate, "indeterminate", "unknown"),
     ],
 )
 def test_submit_negative_outcomes_stop_without_fetch(
     status: Literal["not_submitted", "unknown"],
-    error_type: type[Exception],
+    error_type: type[DomainRuntimeFailure],
+    certainty: str,
     state: str,
 ) -> None:
     invocation = _closed_invocation()
     runtime = _Runtime(submit_status=status)
-    journal = MemoryExecutionJournal()
+    journal = FakeExecutionJournal()
 
-    with pytest.raises(error_type):
+    with pytest.raises(error_type) as caught:
         _submit(runtime, invocation, journal)
 
+    assert caught.value.certainty == certainty
     assert runtime.fetch_calls == 0
     assert journal.entries[-1].state == state
 
@@ -303,7 +292,7 @@ def test_fetch_negative_outcomes_preserve_certainty(
 ) -> None:
     invocation = _closed_invocation()
     runtime = _Runtime(fetch_status=status)
-    journal = MemoryExecutionJournal()
+    journal = FakeExecutionJournal()
     known = _submit(runtime, invocation, journal)
 
     with pytest.raises(DomainFetchFailed) as caught:
@@ -320,7 +309,7 @@ def test_provider_exceptions_are_classified_at_the_effect_boundary(phase: str) -
         submit_error=RuntimeError("lost") if phase == "submit" else None,
         fetch_error=RuntimeError("failed") if phase == "fetch" else None,
     )
-    journal = MemoryExecutionJournal()
+    journal = FakeExecutionJournal()
     if phase == "submit":
         with pytest.raises(DomainSubmissionIndeterminate):
             _submit(runtime, invocation, journal)
@@ -333,13 +322,13 @@ def test_provider_exceptions_are_classified_at_the_effect_boundary(phase: str) -
 
 
 @pytest.mark.parametrize("phase", ["submit", "fetch"])
-def test_forged_receipt_identity_is_indeterminate(phase: str) -> None:
+def test_forged_receipt_submission_key_is_indeterminate(phase: str) -> None:
     invocation = _closed_invocation()
     runtime = _Runtime(
-        forge_submit_identity=phase == "submit",
-        forge_fetch_identity=phase == "fetch",
+        forge_submit_key=phase == "submit",
+        forge_fetch_key=phase == "fetch",
     )
-    journal = MemoryExecutionJournal()
+    journal = FakeExecutionJournal()
     if phase == "submit":
         with pytest.raises(DomainSubmissionIndeterminate):
             _submit(runtime, invocation, journal)

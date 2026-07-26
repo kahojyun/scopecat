@@ -283,17 +283,6 @@ class TargetCompilationError(ValueError):
 
 
 @runtime_checkable
-class TargetDescription(Protocol):
-    """Minimum description a laboratory target exposes to quantum tooling."""
-
-    @property
-    def id(self) -> TargetId: ...
-
-    @property
-    def capability_fingerprint(self) -> str: ...
-
-
-@runtime_checkable
 class TargetArtifact(Protocol):
     """Identity and provenance common to every target-owned artifact.
 

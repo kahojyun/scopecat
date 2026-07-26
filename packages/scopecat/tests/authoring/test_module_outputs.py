@@ -9,24 +9,35 @@ from scopecat.authoring import ValueValidationError
 from scopecat.authoring._parameter_contracts import ParameterValueContract
 from scopecat.authoring._value_refs import (
     internal_value_ref_scalar_operation,
-    internal_value_ref_source_kind,
 )
+from scopecat.authoring.templates import ExperimentInvocation
+from scopecat.compiler.frontend.assembly_linking import bind_verified_assembly
 from scopecat.compiler.frontend.elaboration import elaborate_module
+from scopecat.compiler.frontend.environment import build_config_environment
+from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.compiler.relations.evaluation import EvalContext
 from scopecat.compiler.relations.model import ScalarExpr
 from scopecat.compiler.semantic.model import (
     LiteralValueSource,
     OperationId,
-    OperationOutputSource,
     PlanExpressionSource,
 )
 from scopecat.compiler.semantic.operation_contract import ScalarBinarySemantics
-from scopecat.compiler.typed.program import ComputeEdge
+from scopecat.compiler.typed.program import ComputeEdge, CoreProgram
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.symbols import SymbolId
-from scopecat.planning.authoring import resolve_experiment
+from scopecat.records.config import ConfigProfileSnapshot
 from tests.testkit.authoring import load_config
 from tests.testkit.relation_plans import evaluate_scalar
+
+
+def _bind_program(
+    invocation: ExperimentInvocation,
+    config: ConfigProfileSnapshot,
+) -> CoreProgram:
+    environment = build_config_environment(config)
+    compiled = compile_invocation(invocation)
+    return bind_verified_assembly(compiled.assembly, environment)
 
 
 def _payload_type() -> sc.ScalarType:
@@ -45,7 +56,7 @@ def _identity_consumed(*, consumed: object) -> object:
     return consumed
 
 
-def _producer_module() -> sc.ExperimentModule:
+def _producer_module() -> sc.ExperimentModule[...]:
     payload_type = _payload_type()
     produce = sc.compute(
         "produce",
@@ -60,7 +71,7 @@ def _producer_module() -> sc.ExperimentModule:
     )
 
 
-def _consumer_module() -> sc.ExperimentModule:
+def _consumer_module() -> sc.ExperimentModule[...]:
     payload_type = _payload_type()
     payload = sc.input("payload", payload_type)
     consume = sc.compute(
@@ -98,12 +109,13 @@ def test_explicit_instances_export_hygienic_compute_values_to_siblings(
         .build()
     )
 
-    assembly = elaborate_module(root)
+    assembly = elaborate_module(root.ir)
     nodes = {
         operation.id: operation for operation in assembly.semantic_graph.operations
     }
-    definitions = {
-        definition.id: definition for definition in assembly.semantic_graph.value_defs
+    results = {
+        operation.result_id: operation
+        for operation in assembly.semantic_graph.operations
     }
 
     first_input = dict(
@@ -116,14 +128,10 @@ def test_explicit_instances_export_hygienic_compute_values_to_siblings(
             OperationId(SymbolId(scope=("second-consumer",), local_id="consume"))
         ].inputs
     )["payload"]
-    first_source = definitions[first_input.value_id].source
-    second_source = definitions[second_input.value_id].source
-    assert isinstance(first_source, OperationOutputSource)
-    assert isinstance(second_source, OperationOutputSource)
-    assert first_source.operation_id == OperationId(
+    assert results[first_input.value_id].id == OperationId(
         SymbolId(scope=("first-producer",), local_id="produce")
     )
-    assert second_source.operation_id == OperationId(
+    assert results[second_input.value_id].id == OperationId(
         SymbolId(scope=("second-producer",), local_id="produce")
     )
 
@@ -133,23 +141,23 @@ def test_explicit_instances_export_hygienic_compute_values_to_siblings(
     def template_definition() -> sc.ExperimentBody:
         return sc.experiment(call)
 
-    resolved = resolve_experiment(
+    program = _bind_program(
         template_definition(),
-        config_profile=load_config(),
+        load_config(),
     )
-    linked_nodes = {node.id: node for node in resolved.experiment.compute_nodes}
-    first_edge = linked_nodes[
+    bound_nodes = {node.id: node for node in program.compute_nodes}
+    first_edge = bound_nodes[
         OperationId(SymbolId(scope=("siblings", "first-consumer"), local_id="consume"))
     ].inputs["payload"]
-    second_edge = linked_nodes[
+    second_edge = bound_nodes[
         OperationId(SymbolId(scope=("siblings", "second-consumer"), local_id="consume"))
     ].inputs["payload"]
     assert isinstance(first_edge, ComputeEdge)
     assert isinstance(second_edge, ComputeEdge)
-    first_producer = linked_nodes[
+    first_producer = bound_nodes[
         OperationId(SymbolId(scope=("siblings", "first-producer"), local_id="produce"))
     ]
-    second_producer = linked_nodes[
+    second_producer = bound_nodes[
         OperationId(SymbolId(scope=("siblings", "second-producer"), local_id="produce"))
     ]
     assert first_edge.value_id == first_producer.result.id
@@ -171,20 +179,18 @@ def test_exported_child_value_is_prefixed_when_parent_is_instantiated() -> None:
     sink = _consumer_module().instantiate("sink", payload=outer.outputs.payload)
     root = sc.module_body(id="test.outputs.nested").use(outer, sink).build()
 
-    assembly = elaborate_module(root)
+    assembly = elaborate_module(root.ir)
     sink_node = next(
         operation
         for operation in assembly.semantic_graph.operations
         if operation.id.local_id == "consume"
     )
     sink_input = dict(sink_node.inputs)["payload"]
-    definitions = {
-        definition.id: definition for definition in assembly.semantic_graph.value_defs
+    results = {
+        operation.result_id: operation
+        for operation in assembly.semantic_graph.operations
     }
-    source = definitions[sink_input.value_id].source
-
-    assert isinstance(source, OperationOutputSource)
-    assert source.operation_id == OperationId(
+    assert results[sink_input.value_id].id == OperationId(
         SymbolId(scope=("outer", "child"), local_id="produce")
     )
 
@@ -222,11 +228,11 @@ def test_nested_compute_exports_preserve_exact_typed_result_values(
     def template_definition() -> sc.ExperimentBody:
         return sc.experiment(call)
 
-    resolved = resolve_experiment(
+    program = _bind_program(
         template_definition(),
-        config_profile=load_config(),
+        load_config(),
     )
-    nodes = {node.id: node for node in resolved.experiment.compute_nodes}
+    nodes = {node.id: node for node in program.compute_nodes}
     expected_type = _payload_type()
 
     for wrapper_scope, sink_scope in (
@@ -298,7 +304,7 @@ def test_passthrough_and_expression_exports_bind_instance_inputs() -> None:
         .use(invocation, consumer)
         .build()
     )
-    flattened = elaborate_module(root)
+    flattened = elaborate_module(root.ir)
     capture_node = next(
         operation
         for operation in flattened.semantic_graph.operations
@@ -309,7 +315,10 @@ def test_passthrough_and_expression_exports_bind_instance_inputs() -> None:
         definition.id: definition for definition in flattened.semantic_graph.value_defs
     }
     passthrough = definitions[capture_inputs["passthrough"].value_id]
-    shifted = definitions[capture_inputs["shifted"].value_id]
+    results = {
+        operation.result_id: operation
+        for operation in flattened.semantic_graph.operations
+    }
     assert isinstance(passthrough.source, PlanExpressionSource)
     assert isinstance(passthrough.source.expression, ScalarExpr)
     assert (
@@ -320,14 +329,9 @@ def test_passthrough_and_expression_exports_bind_instance_inputs() -> None:
         )
         == 1.25
     )
-    assert isinstance(shifted.source, OperationOutputSource)
-    shift_operation = next(
-        operation
-        for operation in flattened.semantic_graph.operations
-        if operation.id == shifted.source.operation_id
-    )
-    assert isinstance(shift_operation.contract.semantics, ScalarBinarySemantics)
-    assert shift_operation.contract.semantics.operator == "+"
+    shift_operation = results[capture_inputs["shifted"].value_id]
+    assert isinstance(shift_operation.contract, ScalarBinarySemantics)
+    assert shift_operation.contract.operator == "+"
     operands = {
         name: definitions[value.value_id].source
         for name, value in shift_operation.inputs
@@ -389,7 +393,6 @@ def test_module_export_scalar_operations_resolve_during_elaboration() -> None:
     shifted = exported + 1.0
 
     operation = internal_value_ref_scalar_operation(shifted)
-    assert internal_value_ref_source_kind(shifted) == "scalar_operation"
     assert operation is not None
     assert operation.left is exported
 
@@ -413,7 +416,7 @@ def test_module_export_scalar_operations_resolve_during_elaboration() -> None:
         .build()
     )
 
-    flattened = elaborate_module(root)
+    flattened = elaborate_module(root.ir)
     capture_node = next(
         semantic_operation
         for semantic_operation in flattened.semantic_graph.operations
@@ -423,15 +426,13 @@ def test_module_export_scalar_operations_resolve_during_elaboration() -> None:
     definitions = {
         definition.id: definition for definition in flattened.semantic_graph.value_defs
     }
-    captured_definition = definitions[captured.value_id]
-    assert isinstance(captured_definition.source, OperationOutputSource)
-    semantic_operation = next(
-        candidate
-        for candidate in flattened.semantic_graph.operations
-        if candidate.id == captured_definition.source.operation_id
-    )
-    assert isinstance(semantic_operation.contract.semantics, ScalarBinarySemantics)
-    assert semantic_operation.contract.semantics.operator == "+"
+    results = {
+        operation.result_id: operation
+        for operation in flattened.semantic_graph.operations
+    }
+    semantic_operation = results[captured.value_id]
+    assert isinstance(semantic_operation.contract, ScalarBinarySemantics)
+    assert semantic_operation.contract.operator == "+"
     operands = {
         name: definitions[value.value_id].source
         for name, value in semantic_operation.inputs
@@ -463,10 +464,14 @@ def test_module_build_rejects_undeclared_export_inputs() -> None:
 def test_duplicate_explicit_instance_ids_are_rejected() -> None:
     producer = _producer_module()
 
-    with pytest.raises(ValueError, match="duplicate instance ids: 'duplicate'"):
-        sc.module_body(id="test.outputs.duplicate-instance").use(
-            producer.instantiate("duplicate"),
-            producer.instantiate("duplicate"),
+    with pytest.raises(ValueError, match="duplicate module instance ids: 'duplicate'"):
+        (
+            sc.module_body(id="test.outputs.duplicate-instance")
+            .use(
+                producer.instantiate("duplicate"),
+                producer.instantiate("duplicate"),
+            )
+            .build()
         )
 
 
@@ -505,7 +510,7 @@ def test_output_roots_preserve_free_inputs_and_value_provenance() -> None:
         .build()
     )
 
-    assembly = elaborate_module(source)
+    assembly = elaborate_module(source.ir)
 
     assert [(port.id, port.value_type) for port in wrapper.ir.interface.imports] == [
         ("value", value_type)

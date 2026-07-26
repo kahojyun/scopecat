@@ -106,7 +106,7 @@ jobs:
         run: pnpm run typecheck
 
       - name: Build UI
-        run: pnpm run build
+        run: pnpm exec vite build
 
       - name: Assemble and verify server distributions
         run: |
@@ -117,4 +117,4 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Run browser end-to-end test
-        run: pnpm run test:e2e
+        run: pnpm exec playwright test

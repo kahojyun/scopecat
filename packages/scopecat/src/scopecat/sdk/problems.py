@@ -5,15 +5,12 @@ from scopecat.kernel.problems import (
     LocationPathItem,
     ModelLocation,
     Problem,
-    ProblemCategory,
-    ProblemImpact,
     ProblemLocation,
     ProblemPhase,
     RuntimeLocation,
     StorageLocation,
-    blocking_problem,
-    has_blocking_problems,
     model_location,
+    problem,
 )
 
 __all__ = [
@@ -21,13 +18,10 @@ __all__ = [
     "LocationPathItem",
     "ModelLocation",
     "Problem",
-    "ProblemCategory",
-    "ProblemImpact",
     "ProblemLocation",
     "ProblemPhase",
     "RuntimeLocation",
     "StorageLocation",
-    "blocking_problem",
-    "has_blocking_problems",
     "model_location",
+    "problem",
 ]

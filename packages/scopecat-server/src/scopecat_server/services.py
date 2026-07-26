@@ -6,26 +6,22 @@ import logging
 import sqlite3
 from base64 import b64decode, b64encode
 from collections.abc import Generator
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass, replace
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from threading import Event, Lock, Thread
-from typing import Literal, cast
+from threading import Event, Thread
+from typing import Literal
 
-from pydantic import JsonValue, RootModel, TypeAdapter
-from pydantic_core import to_jsonable_python
+from pydantic import JsonValue, RootModel
 from scopecat.adapters.sqlite import (
     ControlPlaneConflict,
     ControlPlaneNotFound,
     ExecutorLeaseNotHeld,
-    SQLiteCollectionRecordRepository,
     SQLiteConfigRegistryStore,
     SQLiteControlPlane,
     SQLiteExecutionJournal,
     SQLiteMeasurementDatasetRepository,
-    SQLitePayloadEvidenceCommitter,
     SQLiteProjectStore,
     SQLiteRunRepository,
 )
@@ -34,7 +30,7 @@ from scopecat.analysis.service import (
     AnalysisInput,
     AnalysisOutput,
     prepare_analysis,
-    prepare_encoded_analysis_artifact,
+    prepare_analysis_artifact,
 )
 from scopecat.application.services import ProjectStateServices
 from scopecat.config.candidates import CandidateConfig
@@ -45,17 +41,10 @@ from scopecat.config.changes import (
     prepare_parameter_change_decision,
     prepare_parameter_change_review,
 )
-from scopecat.config.parameter_updates import (
-    ParameterUpdate,
-    ReplaceParameter,
-    delete_parameter_rows,
-    insert_parameter_rows,
-    update_parameter_rows,
-)
 from scopecat.config.registry import service as config_registry_service
+from scopecat.config.registry.records import ConfigRegistryEntry
 from scopecat.config.resolution import (
     register_and_activate_candidate_config,
-    resolve_experiment_config,
     validate_config_profile,
 )
 from scopecat.control.models import (
@@ -63,14 +52,11 @@ from scopecat.control.models import (
     ControlRunState,
     DurableEventInput,
     EventPage,
-    ResourceKey,
     RunAdmissionRecord,
-    RunPage,
 )
 from scopecat.control.models import (
     ExecutorLease as ControlExecutorLease,
 )
-from scopecat.daemon.catalog import RegisteredExperimentCatalog
 from scopecat.daemon.views import (
     ActiveConfigView,
     ConfigDraftPreview,
@@ -83,14 +69,12 @@ from scopecat.daemon.views import (
     RunAnalysisListView,
     RunAnalysisView,
     RunArtifactBytesView,
-    RunArtifactJsonView,
-    RunArtifactTextView,
     RunConfigView,
-    RunDatasetContentView,
     RunDetail,
-    RunRecordJsonView,
     RunRequestView,
     RunResourceView,
+    RunSummary,
+    RunSummaryPage,
 )
 from scopecat.daemon.wire import (
     AnalysisArtifactOutputPayload,
@@ -98,14 +82,9 @@ from scopecat.daemon.wire import (
     AnalysisParameterProposalOutputPayload,
     AnalysisSaveCommand,
     AnalysisSaveReceipt,
-    AttentionResolutionCommand,
     AttentionResolutionReceipt,
     CandidateConfigActivationCommand,
     CandidateConfigActivationReceipt,
-    CollectionCommitCommand,
-    CollectionCommitReceipt,
-    CollectionResolveCommand,
-    CollectionResolveReceipt,
     ConfigActivationReceipt,
     ConfigDefaultReceipt,
     ConfigDraftCommand,
@@ -114,109 +93,64 @@ from scopecat.daemon.wire import (
     ConfigDraftRegistrationCommand,
     ConfigDraftRegistrationReceipt,
     ConfigEntryActivationCommand,
-    ConfigImportReceipt,
     ConfigRollbackCommand,
-    DelegatedPlanSummary,
-    DelegatedRunSubmission,
-    DeleteConfigParameterRows,
     DirectConfigDefaultCommand,
     DirectConfigImportCommand,
-    ExecutionRecoveryRequest,
-    ExecutionRecoverySnapshot,
-    ExecutionTransitionBatch,
-    ExecutionTransitionBatchReceipt,
+    ExecutionTransitionAppend,
     ExecutorHeartbeat,
     ExecutorLease,
     ExecutorStartRequest,
-    ExperimentCatalog,
-    InsertConfigParameterRows,
-    ManagedRunSubmission,
     MeasurementAppendCommand,
-    MeasurementAppendReceipt,
     MeasurementSealCommand,
-    MeasurementSealReceipt,
     ParameterProposalDecisionCommand,
     ParameterProposalReviewCommand,
-    ParameterProposalReviewReceipt,
-    PayloadCommitCommand,
-    PayloadCommitReceipt,
-    ReplaceConfigParameter,
-    ResourceClaimDescriptor,
     RunAdmission,
     RunAttachmentCommand,
-    RunAttachmentReceipt,
     RunSubmission,
-    RuntimeEventPublishCommand,
-    RuntimeEventPublishReceipt,
     TerminalRunCommitCommand,
-    TerminalRunCommitReceipt,
-    UpdateConfigParameterRows,
 )
-from scopecat.execution.evidence import RAW_MEASUREMENTS_DATASET_ID, run_outcome_ref
-from scopecat.execution.interpreter import execute_running_run
-from scopecat.execution.observation import RuntimeEvent
-from scopecat.execution.ports.resources import ResourceLeaseManager
-from scopecat.execution.services import ExecutionServices
 from scopecat.kernel.errors import (
     CheckFailed,
     Conflict,
     DataIntegrityError,
     NotFound,
-    RunFailed,
-    RunIndeterminate,
 )
-from scopecat.kernel.ids import new_run_id
 from scopecat.kernel.problems import (
-    ProblemCategory,
     ProblemPhase,
-    blocking_problem,
-)
-from scopecat.kernel.resource_identity import ResourceClaim
-from scopecat.measurements.results import MeasurementRecord
-from scopecat.planning.system import (
-    ExperimentSystemBuilder,
-    build_experiment_system,
+    problem,
 )
 from scopecat.records.analysis import AnalysisRecord
-from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
-from scopecat.records.execution_journal import (
-    CollectionChunk,
-    CollectionChunkReceipt,
-    CommittedPayloadEvidence,
-    ExecutionTransition,
-    PayloadEvidence,
-)
-from scopecat.records.measurement_recording import (
-    MeasurementDatasetAppend,
-    MeasurementDatasetAppendIndex,
-    MeasurementDatasetReceipt,
-    MeasurementDatasetSeal,
-)
+from scopecat.records.artifact import RunContentEntry
+from scopecat.records.config import config_content_hash
+from scopecat.records.execution_journal import ExecutionTransition
+from scopecat.records.measurement_recording import MeasurementDatasetReceipt
+from scopecat.records.parameter_change import ParameterChangeDecisionRecord
 from scopecat.records.run import RunManifest, RunOutcome
-from scopecat.records.run_request import RunRequest
-from scopecat.runs.access import list_records, require_dataset
+from scopecat.runs.access import list_records
+from scopecat.runs.admission import build_run_admission
 from scopecat.runs.attachments import attach_run_artifact
+from scopecat.runs.data import (
+    RunArtifactJsonResult,
+    RunArtifactTextResult,
+    RunMeasurementDatasetResult,
+    RunRecordJsonResult,
+)
 from scopecat.runs.repository import (
     RunModelWrite,
-    RunRecordSetWrite,
     TerminalRunCommit,
 )
 from scopecat.runs.service import (
-    PlannedRun,
     load_run_request,
-    plan_experiment,
     read_run_artifact_bytes,
     read_run_artifact_json,
     read_run_artifact_text,
-    read_run_data_array,
-    read_run_data_table,
     read_run_measurement_dataset,
     read_run_record_json,
 )
+from scopecat.runs.terminal import merge_terminal_manifest
 
 from .errors import BackendConflict, BackendNotFound
 
-_JSON_OBJECT = TypeAdapter(dict[str, JsonValue])
 logger = logging.getLogger(__name__)
 
 
@@ -226,18 +160,18 @@ class _JsonDocument(RootModel[dict[str, JsonValue]]):
 
 def _analysis_output(item: AnalysisOutputPayload) -> AnalysisOutput:
     if isinstance(item, AnalysisArtifactOutputPayload):
-        content = prepare_encoded_analysis_artifact(
+        content = prepare_analysis_artifact(
             title=item.title,
             kind=item.artifact_kind,
             artifact_id=item.artifact_id,
             filename=item.filename,
+            model=None,
+            json_content=None,
+            text=None,
             content=b64decode(item.content_base64, validate=True),
+            path=None,
             media_type=item.media_type,
             metadata=item.artifact_metadata,
-            source_default_filename=item.source_default_filename,
-            source_default_extension=item.source_default_extension,
-            source_default_media_type=item.source_default_media_type,
-            source_content_hash=item.source_content_hash,
         )
     else:
         content = item.content
@@ -249,27 +183,6 @@ def _analysis_output(item: AnalysisOutputPayload) -> AnalysisOutput:
     )
 
 
-def _config_parameter_update(
-    item: (
-        ReplaceConfigParameter
-        | UpdateConfigParameterRows
-        | InsertConfigParameterRows
-        | DeleteConfigParameterRows
-    ),
-) -> ParameterUpdate:
-    if isinstance(item, ReplaceConfigParameter):
-        return ReplaceParameter(value=item.value)
-    if isinstance(item, UpdateConfigParameterRows):
-        return update_parameter_rows(
-            item.parameter_id,
-            key=item.key,
-            values=item.values,
-        )
-    if isinstance(item, InsertConfigParameterRows):
-        return insert_parameter_rows(item.parameter_id, item.rows)
-    return delete_parameter_rows(item.parameter_id, key=item.key)
-
-
 class ConfigService:
     """Own config-registry commands and their in-process serialization."""
 
@@ -279,73 +192,45 @@ class ConfigService:
         control: SQLiteControlPlane,
         config_registry: SQLiteConfigRegistryStore,
         services: ProjectStateServices,
-        run_content_lock: Lock,
     ) -> None:
         self._control = control
         self._config_registry = config_registry
         self._services = services
-        self._config_lock = Lock()
-        self._run_content_lock = run_content_lock
 
     def get_config_registry(self) -> ConfigRegistryView:
-        with self._config_lock, self._config_errors():
-            entries = config_registry_service.list_config_registry_entries(
+        with self._config_errors():
+            snapshot = config_registry_service.load_config_registry_snapshot(
                 unit_of_work=self._config_registry.unit_of_work
             )
-            generation = config_registry_service.current_config_registry_generation(
-                unit_of_work=self._config_registry.unit_of_work
-            )
-            if generation == 0:
-                active_state = None
-            else:
-                active_state = (
-                    config_registry_service.load_active_config_registry_state(
-                        unit_of_work=self._config_registry.unit_of_work
-                    )
-                )
-                config_registry_service.load_active_config_registry_entry(
-                    unit_of_work=self._config_registry.unit_of_work
-                )
             return ConfigRegistryView(
-                entries=tuple(entries),
-                active_state=active_state,
+                entries=snapshot.entries,
+                active_state=snapshot.active_state,
             )
 
     def get_active_config(self) -> ActiveConfigView:
-        with self._config_lock, self._config_errors():
-            state = config_registry_service.load_active_config_registry_state(
-                unit_of_work=self._config_registry.unit_of_work
-            )
-            entry = config_registry_service.load_active_config_registry_entry(
-                unit_of_work=self._config_registry.unit_of_work
-            )
-            config = config_registry_service.load_active_config_registry_config(
+        with self._config_errors():
+            snapshot = config_registry_service.load_active_config_registry_snapshot(
                 unit_of_work=self._config_registry.unit_of_work
             )
             return ActiveConfigView(
-                entry=entry,
-                active_state=state,
-                config=config,
+                entry=snapshot.entry,
+                active_state=snapshot.active_state,
+                config=snapshot.config,
             )
 
     def get_config_entry(self, entry_id: str) -> ConfigEntryView:
-        with self._config_lock, self._config_errors():
-            entry = config_registry_service.load_config_registry_entry(
+        with self._config_errors():
+            snapshot = config_registry_service.load_config_registry_entry_snapshot(
                 entry_id=entry_id,
                 unit_of_work=self._config_registry.unit_of_work,
             )
-            config = config_registry_service.load_config_registry_config(
-                entry_id=entry_id,
-                unit_of_work=self._config_registry.unit_of_work,
-            )
-            return ConfigEntryView(entry=entry, config=config)
+            return ConfigEntryView(entry=snapshot.entry, config=snapshot.config)
 
     def import_direct_config(
         self,
         command: DirectConfigImportCommand,
-    ) -> ConfigImportReceipt:
+    ) -> ConfigRegistryEntry:
         with (
-            self._config_lock,
             self._config_errors(),
             self._config_transaction() as transaction,
         ):
@@ -354,7 +239,7 @@ class ConfigService:
                 unit_of_work=services.config_registry
             )
             existing_ids = {entry.id for entry in existing_entries}
-            config = validate_config_profile(command.config).config
+            config = validate_config_profile(command.config)
             entry = config_registry_service.register_config_profile(
                 config=config,
                 unit_of_work=services.config_registry,
@@ -371,14 +256,13 @@ class ConfigService:
                         occurred_at=entry.registered_at,
                     ),
                 )
-            return ConfigImportReceipt(entry=entry)
+            return entry
 
     def set_direct_config_default(
         self,
         command: DirectConfigDefaultCommand,
     ) -> ConfigDefaultReceipt:
         with (
-            self._config_lock,
             self._config_errors(),
             self._config_transaction() as transaction,
         ):
@@ -392,7 +276,7 @@ class ConfigService:
                     unit_of_work=services.config_registry
                 )
             )
-            config = validate_config_profile(command.config).config
+            config = validate_config_profile(command.config)
             if previous_generation > 0 and config_content_hash(
                 config_registry_service.load_active_config_registry_config(
                     unit_of_work=services.config_registry
@@ -485,16 +369,14 @@ class ConfigService:
         self,
         command: ConfigDraftCommand,
     ) -> ConfigDraftPreview:
-        with self._config_lock, self._config_errors():
+        with self._config_errors():
             result = config_registry_service.preview_manual_config_draft(
                 unit_of_work=self._config_registry.unit_of_work,
                 base_entry_id=command.base_entry_id,
                 base_config_content_hash=command.base_content_hash,
                 base_generation=command.base_generation,
                 candidate_id=command.candidate_id,
-                updates=tuple(
-                    _config_parameter_update(update) for update in command.updates
-                ),
+                updates=command.updates,
             )
             candidate = result.check.candidate
             return ConfigDraftPreview(
@@ -515,7 +397,6 @@ class ConfigService:
         command: ConfigDraftRegistrationCommand,
     ) -> ConfigDraftRegistrationReceipt:
         with (
-            self._config_lock,
             self._config_errors(),
             self._config_transaction() as transaction,
         ):
@@ -533,9 +414,7 @@ class ConfigService:
                 base_config_content_hash=draft.base_content_hash,
                 base_generation=draft.base_generation,
                 candidate_id=draft.candidate_id,
-                updates=tuple(
-                    _config_parameter_update(update) for update in draft.updates
-                ),
+                updates=draft.updates,
                 expected_result_content_hash=command.expected_result_content_hash,
                 entry_id=command.entry_id,
                 registered_by=command.registered_by,
@@ -564,7 +443,6 @@ class ConfigService:
         command: ConfigDraftDefaultCommand,
     ) -> ConfigDraftDefaultReceipt:
         with (
-            self._config_lock,
             self._config_errors(),
             self._config_transaction() as transaction,
         ):
@@ -589,9 +467,7 @@ class ConfigService:
                     base_config_content_hash=draft.base_content_hash,
                     base_generation=draft.base_generation,
                     candidate_id=draft.candidate_id,
-                    updates=tuple(
-                        _config_parameter_update(update) for update in draft.updates
-                    ),
+                    updates=draft.updates,
                     expected_result_content_hash=(
                         registration.expected_result_content_hash
                     ),
@@ -639,7 +515,6 @@ class ConfigService:
         command: ConfigEntryActivationCommand,
     ) -> ConfigActivationReceipt:
         with (
-            self._config_lock,
             self._config_errors(),
             self._config_transaction() as transaction,
         ):
@@ -678,7 +553,6 @@ class ConfigService:
         command: ConfigRollbackCommand,
     ) -> ConfigActivationReceipt:
         with (
-            self._config_lock,
             self._config_errors(),
             self._config_transaction() as transaction,
         ):
@@ -715,10 +589,7 @@ class ConfigService:
         self,
         command: CandidateConfigActivationCommand,
     ) -> CandidateConfigActivationReceipt:
-        self._require_run(command.run_id)
         with (
-            self._config_lock,
-            self._run_content_lock,
             self._config_errors(),
             self._config_transaction() as transaction,
         ):
@@ -784,12 +655,6 @@ class ConfigService:
             )
             yield connection, services
 
-    def _require_run(self, run_id: str) -> ControlRun:
-        try:
-            return self._control.get_run(run_id)
-        except ControlPlaneNotFound as error:
-            raise BackendNotFound(str(error)) from error
-
     @contextmanager
     def _config_errors(self) -> Generator[None]:
         try:
@@ -809,12 +674,10 @@ class RunService:
         control: SQLiteControlPlane,
         runs: SQLiteRunRepository,
         services: ProjectStateServices,
-        content_lock: Lock,
     ) -> None:
         self._control = control
         self._runs = runs
         self._services = services
-        self._run_content_lock = content_lock
 
     def list_runs(
         self,
@@ -824,29 +687,52 @@ class RunService:
         before: int | None,
         state: ControlRunState | None,
         latest: bool = False,
-    ) -> RunPage:
-        return self._control.list_runs(
-            limit=limit,
-            after=after,
-            before=before,
-            state=state,
-            latest=latest,
-        )
+    ) -> RunSummaryPage:
+        with self._control.transaction() as connection:
+            page = self._control.list_runs_in_transaction(
+                connection,
+                limit=limit,
+                after=after,
+                before=before,
+                state=state,
+                latest=latest,
+            )
+            return RunSummaryPage(
+                items=tuple(
+                    RunSummary(
+                        control=control,
+                        manifest=self._runs.read_manifest_in_transaction(
+                            connection,
+                            control.run_id,
+                        ),
+                    )
+                    for control in page.items
+                ),
+                next_cursor=page.next_cursor,
+                previous_cursor=page.previous_cursor,
+            )
 
     def get_run(self, run_id: str) -> RunDetail:
-        control = self._control_run(run_id)
-        leases = {
-            (lease.resource.kind, lease.resource.id): lease
-            for lease in self._control.list_resource_leases()
-            if lease.run_id == run_id
-        }
+        try:
+            with self._control.transaction() as connection:
+                control = self._control.get_run_in_transaction(connection, run_id)
+                manifest = self._runs.read_manifest_in_transaction(connection, run_id)
+                leases = {
+                    (lease.resource.kind, lease.resource.id): lease
+                    for lease in self._control.list_resource_leases_in_transaction(
+                        connection
+                    )
+                    if lease.run_id == run_id
+                }
+        except ControlPlaneNotFound as error:
+            raise BackendNotFound(str(error)) from error
         resources = tuple(
             RunResourceView(
                 resource=resource,
                 status=(
                     lease.status
                     if (lease := leases.get((resource.kind, resource.id))) is not None
-                    else ("released" if control.state == "terminal" else "required")
+                    else ("released" if control.state == "closed" else "required")
                 ),
                 expires_at=None if lease is None else lease.expires_at,
             )
@@ -854,30 +740,28 @@ class RunService:
         )
         return RunDetail(
             control=control,
-            manifest=self._runs.read_manifest(run_id),
+            manifest=manifest,
             resources=resources,
         )
 
     def get_run_config(self, run_id: str) -> RunConfigView:
-        self._control_run(run_id)
-        manifest = self._runs.read_manifest(run_id)
-        return RunConfigView(
-            run_id=run_id,
-            config_content_hash=manifest.config_content_hash,
-            config=self._runs.read_config_profile_snapshot(run_id),
-        )
+        with self._config_errors():
+            manifest = self._runs.read_manifest(run_id)
+            return RunConfigView(
+                run_id=run_id,
+                config_content_hash=manifest.config_content_hash,
+                config=self._runs.read_config_profile_snapshot(run_id),
+            )
 
     def get_run_request(self, run_id: str) -> RunRequestView:
-        self._control_run(run_id)
-        with self._run_content_lock, self._config_errors():
+        with self._config_errors():
             return RunRequestView(
                 run_id=run_id,
                 request=load_run_request(run_id=run_id, services=self._services),
             )
 
     def list_run_analyses(self, run_id: str) -> RunAnalysisListView:
-        self._control_run(run_id)
-        with self._run_content_lock, self._config_errors():
+        with self._config_errors():
             manifest = self._runs.read_manifest(run_id)
             return RunAnalysisListView(
                 run_id=run_id,
@@ -888,8 +772,7 @@ class RunService:
             )
 
     def get_run_analysis(self, run_id: str, selector: str) -> RunAnalysisView:
-        self._control_run(run_id)
-        with self._run_content_lock, self._config_errors():
+        with self._config_errors():
             return self._run_analysis_view(run_id, selector)
 
     def _run_analysis_view(self, run_id: str, selector: str) -> RunAnalysisView:
@@ -910,7 +793,6 @@ class RunService:
         run_id: str,
         command: AnalysisSaveCommand,
     ) -> AnalysisSaveReceipt:
-        self._control_run(run_id)
         inputs = tuple(
             AnalysisInput(
                 target=item.target,
@@ -927,7 +809,7 @@ class RunService:
             for item in command.outputs
             if isinstance(item, AnalysisParameterProposalOutputPayload)
         )
-        with self._run_content_lock, self._config_errors():
+        with self._config_errors():
             prepared = prepare_analysis(
                 services=self._services,
                 run_id=run_id,
@@ -980,8 +862,7 @@ class RunService:
         *,
         expected_kind: str | None,
     ) -> RunArtifactBytesView:
-        self._control_run(run_id)
-        with self._run_content_lock, self._config_errors():
+        with self._config_errors():
             result = read_run_artifact_bytes(
                 run_id=run_id,
                 selector=selector,
@@ -1000,19 +881,13 @@ class RunService:
         selector: str,
         *,
         expected_kind: str | None,
-    ) -> RunArtifactTextView:
-        self._control_run(run_id)
-        with self._run_content_lock, self._config_errors():
-            result = read_run_artifact_text(
+    ) -> RunArtifactTextResult:
+        with self._config_errors():
+            return read_run_artifact_text(
                 run_id=run_id,
                 selector=selector,
                 expected_kind=expected_kind,
                 services=self._services,
-            )
-            return RunArtifactTextView(
-                run_id=run_id,
-                artifact=result.artifact,
-                content=result.content,
             )
 
     def get_run_artifact_json(
@@ -1021,19 +896,13 @@ class RunService:
         selector: str,
         *,
         expected_kind: str | None,
-    ) -> RunArtifactJsonView:
-        self._control_run(run_id)
-        with self._run_content_lock, self._config_errors():
-            result = read_run_artifact_json(
+    ) -> RunArtifactJsonResult:
+        with self._config_errors():
+            return read_run_artifact_json(
                 run_id=run_id,
                 selector=selector,
                 expected_kind=expected_kind,
                 services=self._services,
-            )
-            return RunArtifactJsonView(
-                run_id=run_id,
-                artifact=result.artifact,
-                content=dict(result.content),
             )
 
     def get_run_record_json(
@@ -1042,72 +911,38 @@ class RunService:
         selector: str,
         *,
         expected_kind: str | None,
-    ) -> RunRecordJsonView:
-        self._control_run(run_id)
-        with self._run_content_lock, self._config_errors():
-            result = read_run_record_json(
+    ) -> RunRecordJsonResult:
+        with self._config_errors():
+            return read_run_record_json(
                 run_id=run_id,
                 selector=selector,
                 expected_kind=expected_kind,
                 services=self._services,
-            )
-            return RunRecordJsonView(
-                run_id=run_id,
-                record=result.record,
-                content=dict(result.content),
             )
 
     def get_run_dataset_content(
         self,
         run_id: str,
         selector: str,
-    ) -> RunDatasetContentView:
-        self._control_run(run_id)
-        with self._run_content_lock, self._config_errors():
-            dataset = require_dataset(
-                manifest=self._runs.read_manifest(run_id),
-                selector=selector,
-            )
-            if dataset.kind == "measurement_dataset":
-                content = read_run_measurement_dataset(
-                    run_id=run_id,
-                    selector=selector,
-                    services=self._services,
-                ).dataset
-            elif dataset.kind == "data_table":
-                content = read_run_data_table(
-                    run_id=run_id,
-                    selector=selector,
-                    services=self._services,
-                ).table
-            elif dataset.kind == "data_array":
-                content = read_run_data_array(
-                    run_id=run_id,
-                    selector=selector,
-                    services=self._services,
-                ).array
-            else:
-                raise BackendConflict(
-                    f"run dataset kind does not support content access: {dataset.kind}"
-                )
-            return RunDatasetContentView(
+    ) -> RunMeasurementDatasetResult:
+        with self._config_errors():
+            return read_run_measurement_dataset(
                 run_id=run_id,
-                dataset=dataset,
-                content=content,
+                selector=selector,
+                services=self._services,
             )
 
     def attach_run_content(
         self,
         run_id: str,
         command: RunAttachmentCommand,
-    ) -> RunAttachmentReceipt:
-        self._control_run(run_id)
+    ) -> RunContentEntry:
         content = (
             None
             if command.content_base64 is None
             else b64decode(command.content_base64, validate=True)
         )
-        with self._run_content_lock, self._config_errors():
+        with self._config_errors():
             artifact = attach_run_artifact(
                 services=self._services,
                 run_id=run_id,
@@ -1119,11 +954,10 @@ class RunService:
                 media_type=command.media_type,
                 metadata=command.metadata,
             )
-        return RunAttachmentReceipt(run_id=run_id, artifact=artifact)
+        return artifact
 
     def list_parameter_proposals(self, run_id: str) -> ParameterProposalListView:
-        self._control_run(run_id)
-        with self._run_content_lock, self._config_errors():
+        with self._config_errors():
             proposals = list_parameter_change_proposals(
                 run_id=run_id,
                 services=self._services,
@@ -1148,13 +982,13 @@ class RunService:
     def review_parameter_proposal(
         self,
         run_id: str,
+        proposal_id: str,
         command: ParameterProposalReviewCommand,
-    ) -> ParameterProposalReviewReceipt:
-        self._control_run(run_id)
-        with self._run_content_lock, self._config_errors():
+    ) -> ParameterChangeDecisionRecord:
+        with self._config_errors():
             prepared = prepare_parameter_change_review(
                 run_id=run_id,
-                selector=command.proposal_id,
+                selector=proposal_id,
                 services=self._services,
                 state=command.decision,
                 reviewer=command.reviewer,
@@ -1179,18 +1013,18 @@ class RunService:
                         occurred_at=prepared.decision.decided_at,
                     ),
                 )
-        return ParameterProposalReviewReceipt(decision=prepared.decision)
+        return prepared.decision
 
     def decide_parameter_proposal(
         self,
         run_id: str,
+        proposal_id: str,
         command: ParameterProposalDecisionCommand,
-    ) -> ParameterProposalReviewReceipt:
-        self._control_run(run_id)
-        with self._run_content_lock, self._config_errors():
+    ) -> ParameterChangeDecisionRecord:
+        with self._config_errors():
             prepared = prepare_parameter_change_decision(
                 run_id=run_id,
-                selector=command.proposal_id,
+                selector=proposal_id,
                 services=self._services,
                 decision=command.decision,
                 authority=command.authority,
@@ -1216,7 +1050,7 @@ class RunService:
                         occurred_at=prepared.decision.decided_at,
                     ),
                 )
-        return ParameterProposalReviewReceipt(decision=prepared.decision)
+        return prepared.decision
 
     def measurements(
         self,
@@ -1225,22 +1059,17 @@ class RunService:
         limit: int,
         offset: int,
     ) -> MeasurementPage:
-        self._control_run(run_id)
-        records = SQLiteMeasurementDatasetRepository(
-            self._runs,
-            run_id=run_id,
-        ).measurements(dataset_id=RAW_MEASUREMENTS_DATASET_ID)
+        with self._config_errors():
+            self._runs.read_manifest(run_id)
+            records = SQLiteMeasurementDatasetRepository(
+                self._runs,
+                run_id=run_id,
+            ).measurements()
         items = records[offset : offset + limit]
         next_offset = (
             offset + len(items) if offset + len(items) < len(records) else None
         )
         return MeasurementPage(items=items, next_offset=next_offset)
-
-    def _control_run(self, run_id: str) -> ControlRun:
-        try:
-            return self._control.get_run(run_id)
-        except ControlPlaneNotFound as error:
-            raise BackendNotFound(str(error)) from error
 
     @contextmanager
     def _config_errors(self) -> Generator[None]:
@@ -1267,186 +1096,65 @@ class RunService:
         )
 
 
-@dataclass(frozen=True)
-class AdmissionResult:
-    receipt: RunAdmission
-    managed_plan: PlannedRun | None = None
-
-
-@dataclass(frozen=True)
-class AttentionResult:
-    receipt: AttentionResolutionReceipt
-    managed_plan: PlannedRun | None = None
-    forget_managed_run: bool = False
-
-
 class AdmissionService:
-    """Own planning, idempotent admission, and admitted snapshots."""
+    """Own idempotent admission and admitted snapshots."""
 
     def __init__(
         self,
         *,
         control: SQLiteControlPlane,
         runs: SQLiteRunRepository,
-        services: ProjectStateServices,
-        catalog: RegisteredExperimentCatalog,
-        build_system: ExperimentSystemBuilder | None,
     ) -> None:
         self._control = control
         self._runs = runs
-        self._services = services
-        self._catalog = catalog
-        self._build_system = build_system
-        self._submission_lock = Lock()
 
-    def submit_run(self, submission: RunSubmission) -> AdmissionResult:
-        with self._submission_lock:
-            existing = self._existing_submission(submission)
-            if existing is not None:
-                return AdmissionResult(receipt=self._wire_admission(existing))
-            if isinstance(submission, DelegatedRunSubmission):
-                run = self._admit_delegated(submission)
-                managed_plan = None
-            else:
-                run, managed_plan = self._admit_managed(submission)
-            return AdmissionResult(
-                receipt=self._wire_admission(run),
-                managed_plan=managed_plan,
-            )
-
-    def rebuild_managed_plan(self, run: ControlRun) -> PlannedRun:
-        submission_data = cast(
-            "dict[str, JsonValue]",
-            run.admission.plan_summary["submission"],
+    def submit_run(self, submission: RunSubmission) -> RunAdmission:
+        skeleton = build_run_admission(
+            config=submission.config,
+            request=submission.request,
+            config_source=submission.config_source,
         )
-        request = run.admission.request
-        if request is None:
-            raise ValueError("managed admission is missing its run request")
-        submission = ManagedRunSubmission(
-            submission_id=run.admission.submission_id,
-            registration_id=cast("str", submission_data["registration_id"]),
-            registration_version=cast(
-                "str",
-                submission_data["registration_version"],
-            ),
-            request=request,
+        admission = RunAdmissionRecord(
+            submission_id=submission.submission_id,
+            submission_content_hash=submission.intent_content_hash,
+            run_id=skeleton.manifest.run_id,
+            plan=submission.plan,
+            admitted_at=skeleton.manifest.created_at,
         )
-        config = self._runs.read_config_profile_snapshot(run.run_id)
-        system = build_experiment_system(self._build_system, config)
-        planned = plan_experiment(
-            self._catalog.prepare(submission),
-            services=self._services,
-            config=config,
-            system=system,
-        )
-        planned = replace(
-            planned,
-            config_source=self._runs.read_manifest(run.run_id).config_source,
-        )
-        if (
-            self._program_summary(planned).model_dump(mode="json")
-            != run.admission.plan_summary.get("plan")
-            or config_content_hash(planned.config) != run.admission.config_content_hash
-        ):
-            raise ValueError("managed plan changed since admission")
-        return planned
+        prepared = self._runs.prepare_run_skeleton(skeleton)
+        try:
+            with self._control.transaction() as connection:
+                run = self._control.admit_run_in_transaction(connection, admission)
+                if run.run_id == admission.run_id:
+                    self._runs.commit_run_skeleton_in_transaction(
+                        connection,
+                        prepared,
+                    )
+        except ControlPlaneConflict as error:
+            raise BackendConflict(str(error)) from error
+        return self._wire_admission(run)
 
     def resolve_attention(
         self,
         run_id: str,
-        command: AttentionResolutionCommand,
-    ) -> AttentionResult:
+    ) -> AttentionResolutionReceipt:
         run = self._control_run(run_id)
         if run.state != "attention_required":
             raise BackendConflict("run does not require operator attention")
-        if command.action == "release":
-            try:
-                released = self._control.release_run_resources(run_id)
-            except ControlPlaneConflict as error:
-                raise BackendConflict(str(error)) from error
-            return AttentionResult(
-                receipt=AttentionResolutionReceipt(
-                    run_id=run_id,
-                    action=command.action,
-                    state="attention_required",
-                    released_resource_count=released,
-                )
-            )
-
-        planned = None
-        if command.action == "requeue" and run.admission.execution_mode == "managed":
-            try:
-                planned = self.rebuild_managed_plan(run)
-            except Exception as error:
-                raise BackendConflict(
-                    "managed run no longer matches its admitted plan"
-                ) from error
-
-        manifest = self._runs.read_manifest(run_id)
-        if command.action == "requeue":
-            accepted = RunManifest.model_validate(
-                {
-                    **manifest.model_dump(mode="python"),
-                    "lifecycle": "accepted",
-                    "outcome": None,
-                }
-            )
-            try:
-                with self._control.transaction() as connection:
-                    released = self._control.release_run_resources_in_transaction(
-                        connection,
-                        run_id,
-                    )
-                    self._runs.write_manifest_in_transaction(connection, accepted)
-                    self._control.transition_run_in_transaction(
-                        connection,
-                        run_id,
-                        expected_state="attention_required",
-                        state="accepted",
-                    )
-            except ControlPlaneConflict as error:
-                raise BackendConflict(str(error)) from error
-            return AttentionResult(
-                receipt=AttentionResolutionReceipt(
-                    run_id=run_id,
-                    action=command.action,
-                    state="accepted",
-                    released_resource_count=released,
-                ),
-                managed_plan=planned,
-            )
-
         outcome = RunOutcome(
             run_id=run_id,
             result="failed",
-            certainty="known",
-            termination_reason="blocking_problem",
+            certainty="indeterminate",
             problems=(
-                blocking_problem(
-                    "daemon.operator_aborted",
-                    "operator aborted a run requiring reconciliation",
-                    category=ProblemCategory.CONFLICT,
+                problem(
+                    "daemon.executor_loss_reconciled",
+                    "operator reconciled external state after executor loss",
                     phase=ProblemPhase.EXECUTION,
                 ),
             ),
         )
-        terminal = RunManifest.model_validate(
-            {
-                **manifest.model_dump(mode="python"),
-                "lifecycle": "terminal",
-                "outcome": outcome,
-            }
-        )
         prepared = self._runs.prepare_terminal_commit(
-            TerminalRunCommit(
-                manifest=terminal,
-                models=(
-                    RunModelWrite(
-                        ref=run_outcome_ref(),
-                        value=outcome,
-                    ),
-                ),
-            )
+            TerminalRunCommit(run_id=run_id, outcome=outcome)
         )
         try:
             with self._control.transaction() as connection:
@@ -1458,23 +1166,16 @@ class AdmissionService:
                     connection,
                     prepared,
                 )
-                self._control.transition_run_in_transaction(
+                self._control.close_run_in_transaction(
                     connection,
                     run_id,
-                    expected_state="attention_required",
-                    state="terminal",
-                    outcome=outcome,
                 )
         except ControlPlaneConflict as error:
             raise BackendConflict(str(error)) from error
-        return AttentionResult(
-            receipt=AttentionResolutionReceipt(
-                run_id=run_id,
-                action=command.action,
-                state="terminal",
-                released_resource_count=released,
-            ),
-            forget_managed_run=run.admission.execution_mode == "managed",
+        return AttentionResolutionReceipt(
+            run_id=run_id,
+            state="closed",
+            released_resource_count=released,
         )
 
     def _control_run(self, run_id: str) -> ControlRun:
@@ -1483,192 +1184,10 @@ class AdmissionService:
         except ControlPlaneNotFound as error:
             raise BackendNotFound(str(error)) from error
 
-    def _admit_delegated(self, submission: DelegatedRunSubmission) -> ControlRun:
-        accepted = RunManifest(
-            run_id=new_run_id(),
-            lifecycle="accepted",
-            config_content_hash=submission.config_content_hash,
-            config_source=submission.config_source,
-        )
-        admission = RunAdmissionRecord(
-            submission_id=submission.submission_id,
-            run_id=accepted.run_id,
-            execution_mode="delegated",
-            experiment_id=submission.plan.experiment_id,
-            config_content_hash=submission.config_content_hash,
-            request=submission.request,
-            plan_summary={
-                "submission": self._submission_identity(submission),
-                "plan": submission.plan.model_dump(mode="json"),
-            },
-            resource_claims=tuple(
-                ResourceKey(kind=claim.kind, id=claim.id)
-                for claim in submission.plan.run_resource_claims
-            ),
-            admitted_at=accepted.created_at,
-        )
-        return self._commit_admission(
-            accepted=accepted,
-            config=submission.config,
-            request=submission.request,
-            admission=admission,
-        )
-
-    def _commit_admission(
-        self,
-        *,
-        accepted: RunManifest,
-        config: ConfigProfileSnapshot,
-        request: RunRequest | None,
-        admission: RunAdmissionRecord,
-    ) -> ControlRun:
-        prepared = self._runs.prepare_run_skeleton(
-            manifest=accepted,
-            request=request,
-            config=config,
-        )
-        with self._control.transaction() as connection:
-            self._runs.commit_run_skeleton_in_transaction(connection, prepared)
-            return self._control.admit_run_in_transaction(connection, admission)
-
-    def _managed_admission(
-        self,
-        submission: ManagedRunSubmission,
-        planned: PlannedRun,
-        accepted: RunManifest,
-        summary: DelegatedPlanSummary,
-    ) -> RunAdmissionRecord:
-        return RunAdmissionRecord(
-            submission_id=submission.submission_id,
-            run_id=accepted.run_id,
-            execution_mode="managed",
-            experiment_id=planned.program.experiment_id,
-            config_content_hash=accepted.config_content_hash,
-            request=planned.request,
-            plan_summary={
-                "submission": self._submission_identity(submission),
-                "plan": summary.model_dump(mode="json"),
-            },
-            resource_claims=tuple(
-                ResourceKey(kind=claim.kind, id=claim.id)
-                for claim in planned.program.resource_claims
-            ),
-            admitted_at=accepted.created_at,
-        )
-
-    def _admit_managed(
-        self,
-        submission: ManagedRunSubmission,
-    ) -> tuple[ControlRun, PlannedRun]:
-        try:
-            prepared = self._catalog.prepare(submission)
-            resolved_config = resolve_experiment_config(
-                services=self._services,
-                config=submission.request.config_source or "active",
-            )
-            system = build_experiment_system(
-                self._build_system,
-                resolved_config.config,
-            )
-            planned = plan_experiment(
-                prepared,
-                services=self._services,
-                config=resolved_config.config,
-                system=system,
-            )
-            planned = replace(planned, config_source=resolved_config.config_source)
-        except KeyError as error:
-            raise BackendNotFound(str(error)) from error
-        except CheckFailed as error:
-            raise BackendConflict("managed run did not pass planning checks") from error
-        accepted = RunManifest(
-            run_id=new_run_id(),
-            lifecycle="accepted",
-            config_content_hash=config_content_hash(planned.config),
-            config_source=planned.config_source,
-        )
-        summary = self._program_summary(planned)
-        run = self._commit_admission(
-            accepted=accepted,
-            config=planned.config,
-            request=planned.request,
-            admission=self._managed_admission(
-                submission,
-                planned,
-                accepted,
-                summary,
-            ),
-        )
-        return run, planned
-
-    def _existing_submission(
-        self,
-        submission: RunSubmission,
-    ) -> ControlRun | None:
-        try:
-            existing = self._control.get_run_by_submission_id(submission.submission_id)
-        except ControlPlaneNotFound:
-            return None
-        stored = existing.admission.plan_summary.get("submission")
-        if (
-            existing.admission.execution_mode != submission.execution_mode
-            or existing.admission.request != submission.request
-            or stored != self._submission_identity(submission)
-            or (
-                isinstance(submission, DelegatedRunSubmission)
-                and existing.admission.config_content_hash
-                != submission.config_content_hash
-            )
-        ):
-            raise BackendConflict(
-                "submission id is already bound to different run intent"
-            )
-        return existing
-
-    def _submission_identity(
-        self,
-        submission: RunSubmission,
-    ) -> dict[str, JsonValue]:
-        if isinstance(submission, DelegatedRunSubmission):
-            return {
-                "executor_id": submission.executor_id,
-                "config_source": (
-                    None
-                    if submission.config_source is None
-                    else submission.config_source.model_dump(mode="json")
-                ),
-                "plan": submission.plan.model_dump(mode="json"),
-            }
-        return {
-            "registration_id": submission.registration_id,
-            "registration_version": submission.registration_version,
-        }
-
     def _wire_admission(self, run: ControlRun) -> RunAdmission:
-        events = self._control.list_events(limit=1, run_id=run.run_id).items
-        if not events:
-            raise RuntimeError("admitted run is missing its first durable event")
         return RunAdmission(
-            run_id=run.run_id,
             submission_id=run.admission.submission_id,
-            execution_mode=run.admission.execution_mode,
-            config_content_hash=run.admission.config_content_hash,
-            accepted_at=run.admission.admitted_at,
-            event_cursor=events[0].event_id,
-        )
-
-    def _program_summary(self, planned: PlannedRun) -> DelegatedPlanSummary:
-        program = planned.program
-        return DelegatedPlanSummary(
-            experiment_id=program.experiment_id,
-            experiment_kind=program.points.experiment_kind,
-            point_count=len(program.points.points),
-            coordinate_ids=program.points.coordinate_ids,
-            record_ids=tuple(record.id for record in program.measurements.records),
-            run_resource_claims=tuple(
-                ResourceClaimDescriptor(id=claim.id, kind=claim.kind)
-                for claim in program.resource_claims
-            ),
+            manifest=self._runs.read_manifest(run.run_id),
         )
 
 
@@ -1687,16 +1206,6 @@ class ExecutorService:
         self._lease_ttl = lease_ttl or timedelta(seconds=30)
         self._heartbeat_interval_seconds = self._lease_ttl.total_seconds() / 3
 
-    @property
-    def heartbeat_interval_seconds(self) -> float:
-        return self._heartbeat_interval_seconds
-
-    def renew_lease(self, token: str) -> None:
-        try:
-            self._control.renew_executor_lease(token, ttl=self._lease_ttl)
-        except ControlPlaneConflict as error:
-            raise BackendConflict(str(error)) from error
-
     def _control_run(self, run_id: str) -> ControlRun:
         try:
             return self._control.get_run(run_id)
@@ -1708,30 +1217,19 @@ class ExecutorService:
         run_id: str,
         request: ExecutorStartRequest,
     ) -> ExecutorLease:
-        run = self._control_run(run_id)
-        if run.admission.execution_mode != "delegated":
-            raise BackendConflict("only delegated runs accept external executors")
-        accepted = self._runs.read_manifest(run_id)
-        expected = accepted.model_copy(update={"lifecycle": "running"})
-        if request.manifest != expected:
-            raise BackendConflict(
-                "running manifest does not match the admitted run snapshot"
-            )
-        lease = self.start_execution(
+        return self._start_execution(
             run_id,
             executor_id=request.executor_id,
-            manifest=request.manifest,
         )
-        return self._wire_lease(lease)
 
     def heartbeat_executor(
         self,
         run_id: str,
         heartbeat: ExecutorHeartbeat,
     ) -> ExecutorLease:
-        self.fence_executor(run_id, heartbeat.lease_id, heartbeat.generation)
         try:
             renewed = self._control.renew_executor_lease(
+                run_id,
                 heartbeat.lease_id,
                 ttl=self._lease_ttl,
             )
@@ -1739,102 +1237,47 @@ class ExecutorService:
             raise BackendConflict(str(error)) from error
         return self._wire_lease(renewed)
 
-    def append_transitions(
+    def append_transition(
         self,
         run_id: str,
-        batch: ExecutionTransitionBatch,
-    ) -> ExecutionTransitionBatchReceipt:
-        self.fence_executor(run_id, batch.lease_id, batch.generation)
+        command: ExecutionTransitionAppend,
+    ) -> ExecutionTransition:
         journal = SQLiteExecutionJournal(self._runs, run_id=run_id)
         with self.fenced_write(
             run_id,
-            token=batch.lease_id,
-            generation=batch.generation,
-        ) as connection:
-            commit = journal.append_batch_in_transaction(
-                connection,
-                batch.batch_id,
-                batch.transitions,
-            )
-            if commit.created:
-                for transition in commit.transitions:
-                    self._control.append_event_in_transaction(
-                        connection,
-                        DurableEventInput(
-                            run_id=run_id,
-                            kind="execution_transition_committed",
-                            payload={
-                                "sequence": transition.sequence,
-                                "operation_id": transition.operation_id,
-                                "stage": transition.stage,
-                                "effect": transition.effect,
-                                "state": transition.state,
-                            },
-                        ),
-                    )
-        return ExecutionTransitionBatchReceipt(
-            batch_id=batch.batch_id,
-            committed=commit.transitions,
-        )
-
-    def publish_runtime_event(
-        self,
-        run_id: str,
-        command: RuntimeEventPublishCommand,
-    ) -> RuntimeEventPublishReceipt:
-        with self.fenced_write(
-            run_id,
             token=command.lease_id,
-            generation=command.generation,
         ) as connection:
-            durable = self._control.append_event_in_transaction(
+            transition, created = journal.append_in_transaction(
                 connection,
-                DurableEventInput(
-                    run_id=run_id,
-                    kind=f"runtime_{command.event.kind}",
-                    payload=_JSON_OBJECT.validate_python(
-                        command.event.model_dump(mode="json"),
-                    ),
-                    occurred_at=command.event.observed_at,
-                ),
+                command.transition,
             )
-        return RuntimeEventPublishReceipt(
-            event_id=durable.event_id,
-            run_id=run_id,
-            kind=command.event.kind,
-        )
-
-    def recover_execution(
-        self,
-        run_id: str,
-        request: ExecutionRecoveryRequest,
-    ) -> ExecutionRecoverySnapshot:
-        self.fence_executor(run_id, request.lease_id, request.generation)
-        return ExecutionRecoverySnapshot(
-            transitions=SQLiteExecutionJournal(
-                self._runs,
-                run_id=run_id,
-            ).entries(),
-            measurements=SQLiteMeasurementDatasetRepository(
-                self._runs,
-                run_id=run_id,
-            ).measurements(),
-            measurement_append_indices=SQLiteMeasurementDatasetRepository(
-                self._runs,
-                run_id=run_id,
-            ).append_indices(),
-            collection_receipts=SQLiteCollectionRecordRepository(
-                self._runs,
-                run_id=run_id,
-            ).receipts(),
-        )
+            if created:
+                # The effect ledger owns HTTP retry identity; this is its UI projection.
+                self._control.append_event_in_transaction(
+                    connection,
+                    DurableEventInput(
+                        run_id=run_id,
+                        kind="execution_transition_committed",
+                        payload={
+                            "sequence": transition.sequence,
+                            "operation_id": transition.operation_id,
+                            "stage": transition.stage,
+                            "effect": transition.effect,
+                            "state": transition.state,
+                            "point_index": transition.point_index,
+                            "instrument_id": transition.instrument_id,
+                            "evidence": transition.evidence,
+                        },
+                        occurred_at=transition.timestamp,
+                    ),
+                )
+        return transition
 
     def append_measurements(
         self,
         run_id: str,
         command: MeasurementAppendCommand,
-    ) -> MeasurementAppendReceipt:
-        self.fence_executor(run_id, command.lease_id, command.generation)
+    ) -> MeasurementDatasetReceipt:
         repository = SQLiteMeasurementDatasetRepository(
             self._runs,
             run_id=run_id,
@@ -1848,7 +1291,6 @@ class ExecutorService:
         with self.fenced_write(
             run_id,
             token=command.lease_id,
-            generation=command.generation,
         ) as connection:
             receipt, created = repository.append_prepared_in_transaction(
                 connection,
@@ -1859,19 +1301,15 @@ class ExecutorService:
                     connection,
                     run_id,
                     "measurements_appended",
-                    command.command_id,
+                    command.append.operation_id,
                 )
-        return MeasurementAppendReceipt(
-            command_id=command.command_id,
-            receipt=receipt,
-        )
+        return receipt
 
     def seal_measurements(
         self,
         run_id: str,
         command: MeasurementSealCommand,
-    ) -> MeasurementSealReceipt:
-        self.fence_executor(run_id, command.lease_id, command.generation)
+    ) -> MeasurementDatasetReceipt:
         repository = SQLiteMeasurementDatasetRepository(
             self._runs,
             run_id=run_id,
@@ -1885,7 +1323,6 @@ class ExecutorService:
         with self.fenced_write(
             run_id,
             token=command.lease_id,
-            generation=command.generation,
         ) as connection:
             receipt, created = repository.seal_prepared_in_transaction(
                 connection,
@@ -1896,115 +1333,19 @@ class ExecutorService:
                     connection,
                     run_id,
                     "measurements_sealed",
-                    command.command_id,
+                    command.seal.operation_id,
                 )
-        return MeasurementSealReceipt(
-            command_id=command.command_id,
-            receipt=receipt,
-        )
-
-    def commit_collection(
-        self,
-        run_id: str,
-        command: CollectionCommitCommand,
-    ) -> CollectionCommitReceipt:
-        self.fence_executor(run_id, command.lease_id, command.generation)
-        repository = SQLiteCollectionRecordRepository(
-            self._runs,
-            run_id=run_id,
-        )
-        try:
-            prepared = repository.prepare_commit(command.chunk)
-        except ExecutionJournalConflict as error:
-            raise BackendConflict(
-                "collection command conflicts with durable state"
-            ) from error
-        with self.fenced_write(
-            run_id,
-            token=command.lease_id,
-            generation=command.generation,
-        ) as connection:
-            receipt, created = repository.commit_prepared_in_transaction(
-                connection,
-                prepared,
-            )
-            if created:
-                self.append_effect_event_in_transaction(
-                    connection,
-                    run_id,
-                    "collection_committed",
-                    command.command_id,
-                )
-        return CollectionCommitReceipt(
-            command_id=command.command_id,
-            receipt=receipt,
-        )
-
-    def resolve_collection(
-        self,
-        run_id: str,
-        command: CollectionResolveCommand,
-    ) -> CollectionResolveReceipt:
-        self.fence_executor(run_id, command.lease_id, command.generation)
-        chunk = SQLiteCollectionRecordRepository(
-            self._runs,
-            run_id=run_id,
-        ).resolve(command.receipt)
-        return CollectionResolveReceipt(chunk=chunk)
-
-    def commit_payload(
-        self,
-        run_id: str,
-        command: PayloadCommitCommand,
-    ) -> PayloadCommitReceipt:
-        self.fence_executor(run_id, command.lease_id, command.generation)
-        repository = SQLitePayloadEvidenceCommitter(
-            self._runs,
-            run_id=run_id,
-        )
-        try:
-            prepared = repository.prepare_commit(command.evidence)
-        except ExecutionJournalConflict as error:
-            raise BackendConflict(
-                "payload command conflicts with durable state"
-            ) from error
-        with self.fenced_write(
-            run_id,
-            token=command.lease_id,
-            generation=command.generation,
-        ) as connection:
-            evidence, created = repository.commit_prepared_in_transaction(
-                connection,
-                prepared,
-            )
-            if created:
-                self.append_effect_event_in_transaction(
-                    connection,
-                    run_id,
-                    "payload_committed",
-                    command.command_id,
-                )
-        return PayloadCommitReceipt(
-            command_id=command.command_id,
-            evidence=evidence,
-        )
+        return receipt
 
     def commit_terminal(
         self,
         run_id: str,
         command: TerminalRunCommitCommand,
-    ) -> TerminalRunCommitReceipt:
-        control_run = self._control_run(run_id)
-        if control_run.state == "terminal":
-            manifest = self._runs.read_manifest(run_id)
-            if manifest != command.manifest:
-                raise BackendConflict("run already has a different terminal manifest")
-            return TerminalRunCommitReceipt(
-                command_id=command.command_id,
-                manifest=manifest,
-            )
+    ) -> RunManifest:
         commit = TerminalRunCommit(
-            manifest=command.manifest,
+            run_id=run_id,
+            outcome=command.outcome,
+            contents=command.contents,
             models=tuple(
                 RunModelWrite(
                     ref=write.ref,
@@ -2012,40 +1353,35 @@ class ExecutorService:
                 )
                 for write in command.models
             ),
-            record_sets=tuple(
-                RunRecordSetWrite(
-                    ref=write.ref,
-                    records=tuple(
-                        _JsonDocument(root=record) for record in write.records
-                    ),
-                )
-                for write in command.record_sets
-            ),
         )
+        control_run = self._control_run(run_id)
+        if control_run.state == "closed":
+            manifest = self._runs.read_manifest(run_id)
+            if not _matches_terminal_intent(manifest, commit):
+                raise BackendConflict("run already has a different terminal outcome")
+            return manifest
         try:
             manifest = self.commit_terminal_with_authority(
                 run_id,
                 token=command.lease_id,
-                generation=command.generation,
                 commit=commit,
             )
         except BackendConflict:
             current = self._control_run(run_id)
             manifest = self._runs.read_manifest(run_id)
-            if current.state != "terminal" or manifest != command.manifest:
+            if current.state != "closed" or not _matches_terminal_intent(
+                manifest,
+                commit,
+            ):
                 raise
-        return TerminalRunCommitReceipt(
-            command_id=command.command_id,
-            manifest=manifest,
-        )
+        return manifest
 
-    def start_execution(
+    def _start_execution(
         self,
         run_id: str,
         *,
         executor_id: str,
-        manifest: RunManifest,
-    ) -> ControlExecutorLease:
+    ) -> ExecutorLease:
         try:
             with self._control.transaction() as connection:
                 current = self._control.get_run_in_transaction(connection, run_id)
@@ -2053,12 +1389,7 @@ class ExecutorService:
                     connection,
                     run_id,
                 )
-                # Starting execution changes lifecycle, not concurrently published
-                # run content. Rebase the caller's intent under the writer lock.
-                running_manifest = manifest.model_copy(
-                    update={"contents": latest_manifest.contents}
-                )
-                if current.state == "running":
+                if current.state == "leased":
                     lease = self._control.executor_lease_for_run_in_transaction(
                         connection,
                         run_id,
@@ -2067,29 +1398,33 @@ class ExecutorService:
                         lease is None
                         or lease.expires_at <= datetime.now(tz=UTC)
                         or lease.executor_id != executor_id
-                        or latest_manifest != running_manifest
+                        or latest_manifest.outcome is not None
                     ):
                         raise ControlPlaneConflict(
                             "run is already owned by a different executor intent"
                         )
-                    return lease
+                    return self._wire_lease(lease)
+                if latest_manifest.outcome is not None:
+                    raise ControlPlaneConflict(
+                        "run manifest is not ready to start execution"
+                    )
                 lease = self._control.start_execution_in_transaction(
                     connection,
                     run_id,
                     executor_id=executor_id,
                     ttl=self._lease_ttl,
                 )
-                self._runs.write_manifest_in_transaction(connection, running_manifest)
-                return lease
+                return self._wire_lease(lease)
+        except ControlPlaneNotFound as error:
+            raise BackendNotFound(str(error)) from error
         except ControlPlaneConflict as error:
             raise BackendConflict(str(error)) from error
 
-    def fence_executor(self, run_id: str, token: str, generation: int) -> str:
+    def fence_executor(self, run_id: str, token: str) -> str:
         try:
             self._control.validate_executor_lease(
                 run_id,
                 token=token,
-                generation=generation,
             )
         except ExecutorLeaseNotHeld as error:
             raise BackendConflict(
@@ -2103,13 +1438,11 @@ class ExecutorService:
         run_id: str,
         *,
         token: str,
-        generation: int,
     ) -> Generator[sqlite3.Connection]:
         try:
             with self._control.fenced_transaction(
                 run_id,
                 token=token,
-                generation=generation,
             ) as connection:
                 yield connection
         except (
@@ -2123,7 +1456,6 @@ class ExecutorService:
     def _wire_lease(self, lease: ControlExecutorLease) -> ExecutorLease:
         return ExecutorLease(
             lease_id=lease.token,
-            generation=lease.generation,
             run_id=lease.run_id,
             executor_id=lease.executor_id,
             issued_at=lease.acquired_at,
@@ -2136,14 +1468,14 @@ class ExecutorService:
         connection: sqlite3.Connection,
         run_id: str,
         kind: str,
-        command_id: str,
+        operation_id: str,
     ) -> None:
         self._control.append_event_in_transaction(
             connection,
             DurableEventInput(
                 run_id=run_id,
                 kind=kind,
-                payload={"command_id": command_id},
+                payload={"operation_id": operation_id},
             ),
         )
 
@@ -2152,78 +1484,58 @@ class ExecutorService:
         run_id: str,
         *,
         token: str,
-        generation: int,
         commit: TerminalRunCommit,
     ) -> RunManifest:
-        self.fence_executor(run_id, token, generation)
         prepared = self._runs.prepare_terminal_commit(commit)
         with self.fenced_write(
             run_id,
             token=token,
-            generation=generation,
         ) as connection:
             manifest = self._runs.commit_prepared_terminal_in_transaction(
                 connection,
                 prepared,
             )
-            if manifest.outcome is None:
-                raise ValueError("terminal manifest requires an outcome")
-            self._control.transition_run_in_transaction(
+            self._control.close_run_in_transaction(
                 connection,
                 run_id,
-                expected_state="running",
-                state="terminal",
-                outcome=manifest.outcome,
                 executor_token=token,
             )
             return manifest
 
-    def managed_execution_services(
-        self,
-        authority: _ManagedExecutionAuthority,
-        resources: ResourceLeaseManager,
-    ) -> ExecutionServices:
-        return ExecutionServices(
-            runs=_ManagedRunStore(authority),
-            resources=resources,
-            journal_for=lambda run_id: _ManagedExecutionJournal(
-                authority.for_run(run_id)
-            ),
-            measurements_for=lambda run_id: _ManagedMeasurements(
-                authority.for_run(run_id)
-            ),
-            collections_for=lambda run_id: _ManagedCollections(
-                authority.for_run(run_id)
-            ),
-            payloads_for=lambda run_id: _ManagedPayloads(authority.for_run(run_id)),
+
+def _matches_terminal_intent(
+    current: RunManifest,
+    commit: TerminalRunCommit,
+) -> bool:
+    if current.outcome != commit.outcome:
+        return False
+    try:
+        return (
+            merge_terminal_manifest(
+                current,
+                run_id=commit.run_id,
+                outcome=commit.outcome,
+                contents=commit.contents,
+            )
+            == current
         )
+    except ValueError:
+        return False
 
 
-class ManagedRunSupervisor:
-    """Own managed worker lifecycle and startup reconciliation."""
+class ExecutorLeaseSupervisor:
+    """Expire abandoned executor leases and reconcile daemon restarts."""
 
     def __init__(
         self,
         *,
-        project_id: str,
         control: SQLiteControlPlane,
-        runs: SQLiteRunRepository,
-        admission: AdmissionService,
-        executor: ExecutorService,
         supervisor_interval_seconds: float = 0.5,
     ) -> None:
-        self._project_id = project_id
         self._control = control
-        self._runs = runs
-        self._admission = admission
-        self._executor = executor
         self._supervisor_interval_seconds = supervisor_interval_seconds
-        self._managed_lock = Lock()
-        self._managed_plans: dict[str, PlannedRun] = {}
-        self._managed_active: set[str] = set()
         self._stop = Event()
         self._supervisor_failed = False
-        self._workers: ThreadPoolExecutor | None = None
         self._supervisor: Thread | None = None
 
     @property
@@ -2237,250 +1549,39 @@ class ManagedRunSupervisor:
 
     def start(self) -> None:
         if self._supervisor is not None:
-            raise RuntimeError("managed run supervisor already started")
+            raise RuntimeError("executor lease supervisor already started")
         self._stop.clear()
-        self._workers = ThreadPoolExecutor(
-            max_workers=4,
-            thread_name_prefix="scopecat-run",
-        )
+        self._supervisor_failed = False
         self._reconcile_startup()
         supervisor = Thread(
             target=self._supervise,
-            name="scopecat-supervisor",
+            name="scopecat-executor-leases",
             daemon=True,
         )
-        supervisor.start()
         self._supervisor = supervisor
+        try:
+            supervisor.start()
+        except BaseException:
+            self._supervisor = None
+            raise
 
     def close(self) -> None:
         supervisor = self._supervisor
-        workers = self._workers
         self._stop.set()
         if supervisor is not None:
             supervisor.join()
-        if workers is not None:
-            workers.shutdown(wait=True, cancel_futures=False)
         self._supervisor = None
-        self._workers = None
-
-    def schedule(self, run_id: str, planned: PlannedRun) -> None:
-        with self._managed_lock:
-            self._managed_plans[run_id] = planned
-            if run_id in self._managed_active:
-                return
-            self._managed_active.add(run_id)
-        workers = self._workers
-        if workers is None:
-            self._managed_finished(run_id, terminal=False)
-            raise RuntimeError("managed run supervisor is not started")
-        workers.submit(self._execute_managed, run_id, planned)
-
-    def forget_terminal(self, run_id: str) -> None:
-        self._managed_finished(run_id, terminal=True)
-
-    def _execute_managed(self, run_id: str, planned: PlannedRun) -> None:
-        terminal = False
-        authority: _ManagedExecutionAuthority | None = None
-        try:
-            accepted = self._runs.read_manifest(run_id)
-            running = accepted.model_copy(update={"lifecycle": "running"})
-            try:
-                lease = self._executor.start_execution(
-                    run_id,
-                    executor_id=f"daemon:{self._project_id}",
-                    manifest=running,
-                )
-            except BackendConflict:
-                return
-            authority = _ManagedExecutionAuthority(
-                executor=self._executor,
-                control=self._control,
-                runs=self._runs,
-                run_id=run_id,
-                token=lease.token,
-                generation=lease.generation,
-            )
-            heartbeat_stop = Event()
-            heartbeat = Thread(
-                target=self._heartbeat_managed,
-                args=(lease.token, heartbeat_stop),
-                name=f"scopecat-heartbeat-{run_id}",
-                daemon=True,
-            )
-            heartbeat.start()
-            try:
-                execute_running_run(
-                    run_id=run_id,
-                    program=planned.program,
-                    services=self._executor.managed_execution_services(
-                        authority,
-                        _PreclaimedResources(
-                            control=self._control,
-                            run_id=run_id,
-                            token=lease.token,
-                            generation=lease.generation,
-                            claims=planned.program.resource_claims,
-                        ),
-                    ),
-                    instrument_provider=(
-                        None if planned.system is None else planned.system.provider
-                    ),
-                    event_sink=authority.observe,
-                )
-            except (RunFailed, RunIndeterminate):
-                logger.info(
-                    "managed run reached a durable non-success outcome: %s",
-                    run_id,
-                )
-            except BaseException:
-                logger.exception("managed executor stopped unexpectedly: %s", run_id)
-            finally:
-                heartbeat_stop.set()
-                heartbeat.join(timeout=2)
-            # Preserve the durable terminal fact if the following state read fails.
-            terminal = authority.terminal_committed
-            if self._control.get_run(run_id).state == "terminal":
-                terminal = True
-            elif not terminal:
-                self._require_attention(
-                    run_id,
-                    lease.token,
-                    "managed_executor_stopped",
-                )
-        except BaseException:
-            logger.exception("managed worker stopped unexpectedly: %s", run_id)
-        finally:
-            if authority is not None and authority.terminal_committed:
-                terminal = True
-            self._managed_finished(run_id, terminal=terminal)
-
-    def _managed_finished(self, run_id: str, *, terminal: bool) -> None:
-        with self._managed_lock:
-            self._managed_active.discard(run_id)
-            if terminal:
-                self._managed_plans.pop(run_id, None)
-
-    def _heartbeat_managed(self, token: str, stop: Event) -> None:
-        while not stop.wait(self._executor.heartbeat_interval_seconds):
-            try:
-                self._executor.renew_lease(token)
-            except BackendConflict:
-                return
-
-    def _require_attention(self, run_id: str, token: str, reason: str) -> None:
-        try:
-            run = self._control.get_run(run_id)
-            if run.state == "running":
-                self._control.transition_run(
-                    run_id,
-                    expected_state="running",
-                    state="attention_required",
-                    attention_reason=reason,
-                    executor_token=token,
-                )
-        except ControlPlaneConflict:
-            return
 
     def _supervise(self) -> None:
         while not self._stop.wait(self._supervisor_interval_seconds):
             try:
                 self._control.expire_executor_leases()
-                with self._managed_lock:
-                    pending = tuple(self._managed_plans.items())
-                for run_id, planned in pending:
-                    state = self._control.get_run(run_id).state
-                    if state == "accepted":
-                        self.schedule(run_id, planned)
-                    elif state == "terminal":
-                        self.forget_terminal(run_id)
             except Exception:
                 self._supervisor_failed = True
-                logger.exception("daemon supervisor iteration failed")
+                logger.exception("executor lease supervisor iteration failed")
 
     def _reconcile_startup(self) -> None:
         self._control.abandon_executor_leases()
-        for run in self._all_control_runs():
-            if run.state != "accepted" or run.admission.execution_mode != "managed":
-                continue
-            try:
-                planned = self._admission.rebuild_managed_plan(run)
-            except Exception as error:
-                logger.warning(
-                    "managed run could not be rebuilt at startup: %s",
-                    run.run_id,
-                    exc_info=True,
-                )
-                self._fail_unstartable_managed(run, error)
-                continue
-            self.schedule(run.run_id, planned)
-
-    def _fail_unstartable_managed(
-        self,
-        run: ControlRun,
-        error: Exception,
-    ) -> None:
-        manifest = self._runs.read_manifest(run.run_id)
-        outcome = RunOutcome(
-            run_id=run.run_id,
-            result="failed",
-            certainty="known",
-            termination_reason="blocking_problem",
-            problems=(
-                blocking_problem(
-                    "daemon.managed_plan_unavailable",
-                    "managed run could not be rebuilt from its admitted plan",
-                    category=ProblemCategory.CONFLICT,
-                    phase=ProblemPhase.PLANNING,
-                    details={"exception_type": type(error).__qualname__},
-                ),
-            ),
-        )
-        terminal = RunManifest.model_validate(
-            {
-                **manifest.model_dump(mode="python"),
-                "lifecycle": "terminal",
-                "outcome": outcome,
-            }
-        )
-        prepared = self._runs.prepare_terminal_commit(
-            TerminalRunCommit(
-                manifest=terminal,
-                models=(
-                    RunModelWrite(
-                        ref=run_outcome_ref(),
-                        value=outcome,
-                    ),
-                ),
-            )
-        )
-        try:
-            with self._control.transaction() as connection:
-                self._runs.commit_prepared_terminal_in_transaction(
-                    connection,
-                    prepared,
-                )
-                self._control.transition_run_in_transaction(
-                    connection,
-                    run.run_id,
-                    expected_state="accepted",
-                    state="terminal",
-                    outcome=outcome,
-                )
-        except ControlPlaneConflict:
-            logger.info(
-                "managed run changed while startup failure was recorded: %s",
-                run.run_id,
-            )
-
-    def _all_control_runs(self) -> tuple[ControlRun, ...]:
-        selected: list[ControlRun] = []
-        cursor: int | None = None
-        while True:
-            page = self._control.list_runs(limit=500, after=cursor)
-            selected.extend(page.items)
-            if page.next_cursor is None:
-                return tuple(selected)
-            cursor = page.next_cursor
 
 
 class DaemonApplication:
@@ -2492,12 +1593,11 @@ class DaemonApplication:
         project_root: str | Path,
         project_id: str,
         project_store: SQLiteProjectStore,
-        catalog: RegisteredExperimentCatalog,
         config: ConfigService,
         runs: RunService,
         admission: AdmissionService,
         executor: ExecutorService,
-        managed: ManagedRunSupervisor,
+        lease_supervisor: ExecutorLeaseSupervisor,
     ) -> None:
         self.project_root = Path(project_root).resolve()
         self.project_id = project_id
@@ -2506,14 +1606,13 @@ class DaemonApplication:
         self.runs = runs
         self._admission = admission
         self.executor = executor
-        self._managed = managed
-        self._catalog = catalog
+        self._lease_supervisor = lease_supervisor
 
     def start(self) -> None:
-        self._managed.start()
+        self._lease_supervisor.start()
 
     def close(self) -> None:
-        self._managed.close()
+        self._lease_supervisor.close()
 
     def health(self) -> DaemonHealth:
         try:
@@ -2521,7 +1620,7 @@ class DaemonApplication:
         except Exception:
             status: Literal["ok", "degraded"] = "degraded"
         else:
-            status = "ok" if self._managed.healthy else "degraded"
+            status = "ok" if self._lease_supervisor.healthy else "degraded"
         return DaemonHealth(
             status=status,
             project_id=self.project_id,
@@ -2529,306 +1628,21 @@ class DaemonApplication:
             project_root=str(self.project_root),
         )
 
-    def catalog(self) -> ExperimentCatalog:
-        return self._catalog.snapshot
-
     def submit_run(self, submission: RunSubmission) -> RunAdmission:
-        result = self._admission.submit_run(submission)
-        if result.managed_plan is not None:
-            self._managed.schedule(result.receipt.run_id, result.managed_plan)
-        return result.receipt
+        return self._admission.submit_run(submission)
 
     def resolve_attention(
         self,
         run_id: str,
-        command: AttentionResolutionCommand,
     ) -> AttentionResolutionReceipt:
-        result = self._admission.resolve_attention(run_id, command)
-        if result.managed_plan is not None:
-            self._managed.schedule(run_id, result.managed_plan)
-        if result.forget_managed_run:
-            self._managed.forget_terminal(run_id)
-        return result.receipt
-
-
-class _ManagedExecutionAuthority:
-    """Bind every managed executor write to one live fencing generation."""
-
-    def __init__(
-        self,
-        *,
-        executor: ExecutorService,
-        control: SQLiteControlPlane,
-        runs: SQLiteRunRepository,
-        run_id: str,
-        token: str,
-        generation: int,
-    ) -> None:
-        self._executor = executor
-        self._control = control
-        self.runs = runs
-        self.run_id = run_id
-        self.token = token
-        self.generation = generation
-        self.terminal_committed = False
-
-    def for_run(self, run_id: str) -> _ManagedExecutionAuthority:
-        if run_id != self.run_id:
-            raise ValueError("managed execution service run id changed")
-        return self
-
-    def fence(self) -> None:
-        self._executor.fence_executor(self.run_id, self.token, self.generation)
-
-    @contextmanager
-    def write(self) -> Generator[sqlite3.Connection]:
-        with self._executor.fenced_write(
-            self.run_id,
-            token=self.token,
-            generation=self.generation,
-        ) as connection:
-            yield connection
-
-    def effect_event(
-        self,
-        connection: sqlite3.Connection,
-        kind: str,
-        command_id: str,
-    ) -> None:
-        self._executor.append_effect_event_in_transaction(
-            connection,
-            self.run_id,
-            kind,
-            command_id,
-        )
-
-    def commit_terminal(self, commit: TerminalRunCommit) -> RunManifest:
-        manifest = self._executor.commit_terminal_with_authority(
-            self.run_id,
-            token=self.token,
-            generation=self.generation,
-            commit=commit,
-        )
-        self.terminal_committed = True
-        return manifest
-
-    def observe(self, event: RuntimeEvent) -> None:
-        if event.run_id != self.run_id:
-            raise ValueError("runtime event run id changed")
-        durable = DurableEventInput(
-            run_id=event.run_id,
-            kind=f"runtime_{event.kind}",
-            payload=_JSON_OBJECT.validate_python(
-                to_jsonable_python(asdict(event)),
-            ),
-            occurred_at=event.observed_at,
-        )
-        if event.kind == "run_finished" and self.terminal_committed:
-            self._control.append_event(durable)
-            return
-        with self.write() as connection:
-            self._control.append_event_in_transaction(connection, durable)
-
-
-class _ManagedRunStore:
-    def __init__(self, authority: _ManagedExecutionAuthority) -> None:
-        self._authority = authority
-
-    def read_manifest(self, run_id: str) -> RunManifest:
-        self._authority.for_run(run_id).fence()
-        return self._authority.runs.read_manifest(run_id)
-
-    def write_manifest(self, manifest: RunManifest) -> None:
-        self._authority.for_run(manifest.run_id).fence()
-        with self._authority.write() as connection:
-            self._authority.runs.write_manifest_in_transaction(
-                connection,
-                manifest,
-            )
-
-    def read_config_profile_snapshot(self, run_id: str) -> ConfigProfileSnapshot:
-        self._authority.for_run(run_id).fence()
-        return self._authority.runs.read_config_profile_snapshot(run_id)
-
-    def commit_terminal(self, commit: TerminalRunCommit) -> RunManifest:
-        self._authority.for_run(commit.manifest.run_id)
-        return self._authority.commit_terminal(commit)
-
-
-class _ManagedExecutionJournal:
-    def __init__(self, authority: _ManagedExecutionAuthority) -> None:
-        self._authority = authority
-        self._repository = SQLiteExecutionJournal(
-            authority.runs,
-            run_id=authority.run_id,
-        )
-
-    def append(self, entry: ExecutionTransition) -> ExecutionTransition:
-        self._authority.fence()
-        with self._authority.write() as connection:
-            committed, created = self._repository.append_in_transaction(
-                connection,
-                entry,
-            )
-            if created:
-                self._authority.effect_event(
-                    connection,
-                    "execution_transition_committed",
-                    entry.operation_id,
-                )
-            return committed
-
-    def entries(self) -> tuple[ExecutionTransition, ...]:
-        self._authority.fence()
-        return self._repository.entries()
-
-
-class _ManagedMeasurements:
-    def __init__(self, authority: _ManagedExecutionAuthority) -> None:
-        self._authority = authority
-        self._repository = SQLiteMeasurementDatasetRepository(
-            authority.runs,
-            run_id=authority.run_id,
-        )
-
-    def append(
-        self,
-        append: MeasurementDatasetAppend,
-    ) -> MeasurementDatasetReceipt:
-        self._authority.fence()
-        prepared = self._repository.prepare_append(append)
-        with self._authority.write() as connection:
-            receipt, created = self._repository.append_prepared_in_transaction(
-                connection,
-                prepared,
-            )
-            if created:
-                self._authority.effect_event(
-                    connection,
-                    "measurements_appended",
-                    append.operation_id,
-                )
-            return receipt
-
-    def seal(self, seal: MeasurementDatasetSeal) -> MeasurementDatasetReceipt:
-        self._authority.fence()
-        prepared = self._repository.prepare_seal(seal)
-        with self._authority.write() as connection:
-            receipt, created = self._repository.seal_prepared_in_transaction(
-                connection,
-                prepared,
-            )
-            if created:
-                self._authority.effect_event(
-                    connection,
-                    "measurements_sealed",
-                    seal.operation_id,
-                )
-            return receipt
-
-    def measurements(self) -> tuple[MeasurementRecord, ...]:
-        self._authority.fence()
-        return self._repository.measurements()
-
-    def append_indices(self) -> tuple[MeasurementDatasetAppendIndex, ...]:
-        self._authority.fence()
-        return self._repository.append_indices()
-
-
-class _ManagedCollections:
-    def __init__(self, authority: _ManagedExecutionAuthority) -> None:
-        self._authority = authority
-        self._repository = SQLiteCollectionRecordRepository(
-            authority.runs,
-            run_id=authority.run_id,
-        )
-
-    def commit(self, chunk: CollectionChunk) -> CollectionChunkReceipt:
-        self._authority.fence()
-        prepared = self._repository.prepare_commit(chunk)
-        with self._authority.write() as connection:
-            receipt, created = self._repository.commit_prepared_in_transaction(
-                connection,
-                prepared,
-            )
-            if created:
-                self._authority.effect_event(
-                    connection,
-                    "collection_committed",
-                    chunk.operation_id,
-                )
-            return receipt
-
-    def resolve(self, receipt: CollectionChunkReceipt) -> CollectionChunk:
-        self._authority.fence()
-        return self._repository.resolve(receipt)
-
-    def receipts(self) -> tuple[CollectionChunkReceipt, ...]:
-        self._authority.fence()
-        return self._repository.receipts()
-
-
-class _ManagedPayloads:
-    def __init__(self, authority: _ManagedExecutionAuthority) -> None:
-        self._authority = authority
-        self._repository = SQLitePayloadEvidenceCommitter(
-            authority.runs,
-            run_id=authority.run_id,
-        )
-
-    def commit(self, evidence: PayloadEvidence) -> CommittedPayloadEvidence:
-        self._authority.fence()
-        prepared = self._repository.prepare_commit(evidence)
-        with self._authority.write() as connection:
-            committed, created = self._repository.commit_prepared_in_transaction(
-                connection,
-                prepared,
-            )
-            if created:
-                self._authority.effect_event(
-                    connection,
-                    "payload_committed",
-                    evidence.operation_id,
-                )
-            return committed
-
-
-class _PreclaimedResources:
-    def __init__(
-        self,
-        *,
-        control: SQLiteControlPlane,
-        run_id: str,
-        token: str,
-        generation: int,
-        claims: tuple[ResourceClaim, ...],
-    ) -> None:
-        self._control = control
-        self._run_id = run_id
-        self._token = token
-        self._generation = generation
-        self._claims = claims
-
-    @contextmanager
-    def acquire(
-        self,
-        claims: tuple[ResourceClaim, ...],
-    ) -> Generator[None]:
-        if claims != self._claims:
-            raise RuntimeError("execution claims changed after admission")
-        self._control.validate_executor_lease(
-            self._run_id,
-            token=self._token,
-            generation=self._generation,
-        )
-        yield
+        return self._admission.resolve_attention(run_id)
 
 
 __all__ = [
     "AdmissionService",
     "ConfigService",
     "DaemonApplication",
+    "ExecutorLeaseSupervisor",
     "ExecutorService",
-    "ManagedRunSupervisor",
     "RunService",
 ]

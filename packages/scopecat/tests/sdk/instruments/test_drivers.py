@@ -493,8 +493,6 @@ def test_provider_builds_fresh_drivers() -> None:
             return InstrumentProviderDescription(
                 provider_id=self.provider_id,
                 instruments=(SignalInstrumentDriver().describe(),),
-                label="Driver provider",
-                metadata={"mode": "test_offline"},
             )
 
         def provide(

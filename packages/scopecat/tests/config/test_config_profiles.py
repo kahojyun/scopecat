@@ -4,7 +4,7 @@ import pytest
 
 from scopecat.config.profiles import ConfigProfileManifest, load_config_profile
 from scopecat.kernel.errors import DataIntegrityError, NotFound, StorageError
-from scopecat.kernel.problems import ExternalLocation, ProblemCategory
+from scopecat.kernel.problems import ExternalLocation
 from tests.testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
 from tests.testkit.records import assert_model_round_trip, read_model
 
@@ -15,7 +15,6 @@ def test_config_profile_file_round_trip() -> None:
 
     assert restored.format_version == "scopecat.config_profile_manifest.v1"
     assert restored.system_ref == "system-spec.json"
-    assert restored.environment_ref == "environment-spec.json"
     assert restored.parameter_snapshot_ref == "parameter-snapshot.json"
 
 
@@ -34,7 +33,6 @@ def test_load_config_profile_maps_missing_input_to_not_found(tmp_path: Path) -> 
 
     problem = captured.value.problems[0]
     assert problem.code == "config.profile.not_found"
-    assert problem.category is ProblemCategory.NOT_FOUND
     assert problem.location == ExternalLocation(uri=str(missing_path))
     assert isinstance(captured.value.__cause__, FileNotFoundError)
 
@@ -50,7 +48,6 @@ def test_load_config_profile_maps_invalid_json_to_data_integrity(
 
     problem = captured.value.problems[0]
     assert problem.code == "config.profile.invalid"
-    assert problem.category is ProblemCategory.DATA_INTEGRITY
     assert captured.value.__cause__ is not None
 
 
@@ -70,5 +67,4 @@ def test_load_config_profile_maps_io_failure_without_exposing_raw_message(
         load_config_profile(profile_path)
 
     assert captured.value.__cause__ is storage_cause
-    assert captured.value.problems[0].category is ProblemCategory.STORAGE
     assert "private filesystem details" not in str(captured.value)

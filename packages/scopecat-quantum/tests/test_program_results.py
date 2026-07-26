@@ -5,38 +5,32 @@ from pathlib import Path
 
 import pytest
 from scopecat import Quantity
-from scopecat.compiler.frontend.environment import validate_config_environment
+from scopecat.compiler.frontend.environment import build_config_environment
 from scopecat.compiler.linking.linked import (
-    LinkedPointMaterializer,
-    link_verified_program,
+    link_program,
+    materialize_linked_points,
 )
-from scopecat.compiler.relations.point_domain import point_literal_rows
-from scopecat.compiler.semantic.model import (
-    DomainProgramId,
-    DomainResultPortDef,
-)
+from scopecat.compiler.relations.point_domain import point_axis_values
 from scopecat.compiler.typed.domain_results import domain_result_closure
 from scopecat.compiler.typed.point_domain import PointDomain
+from scopecat.compiler.typed.products import ProductDef
 from scopecat.compiler.typed.program import (
     CoreProgram,
     TypedDomainExecution,
-    TypedDomainProgram,
     TypedDomainResultBinding,
-    product_output,
     record_product,
 )
-from scopecat.compiler.typed.verification import seal_typed_program
 from scopecat.config.profiles import load_config_profile
-from scopecat.kernel.problems import ProblemPhase
-from scopecat.kernel.symbols import SymbolId
-from scopecat.kernel.value_types import Float, Scalar, Table, TableColumn
+from scopecat.domain.program import DomainProgramDef, DomainResultPort
+from scopecat.kernel.product_identity import product_id
+from scopecat.kernel.value_types import Float, Scalar
 from scopecat.sdk.domain import (
     DomainPreparationBuilder,
     DomainResultMapping,
 )
 from scopecat.sdk.domain._bridge import (
     make_domain_batch_context,
-    make_domain_compile_request,
+    make_domain_compile_template,
 )
 
 from scopecat_quantum._ids import (
@@ -100,23 +94,15 @@ _REPO_ROOT = Path(__file__).parents[3]
 def _preparation(
     *, program_id: str = "mixed-program-result-mapping"
 ) -> DomainPreparationBuilder:
-    point_type = Table(
-        columns=(TableColumn("coordinate", Scalar(Float())),),
-        min_rows=2,
-        max_rows=2,
-    )
     point_domain = PointDomain(
-        root=point_literal_rows(
-            point_type.columns,
-            (
-                (10.0,),
-                (20.0,),
-            ),
+        root=point_axis_values(
+            "coordinate",
+            Scalar(Float()),
+            (10.0, 20.0),
         )
     )
-    product = product_output("result", dtype="complex128")
+    product = ProductDef(id=product_id("result"), dtype="complex128")
     product_use, record_use = record_product(product, record_id="record")
-    domain_program_id = DomainProgramId(SymbolId(local_id="program"))
     program = CoreProgram(
         id=program_id,
         kind="mixed_quantum_mapping_test",
@@ -125,12 +111,12 @@ def _preparation(
         effects=(
             TypedDomainExecution(
                 id="domain",
-                program=TypedDomainProgram(
-                    id=domain_program_id,
+                program=DomainProgramDef(
+                    id="program",
                     dialect_id="test.quantum.mixed-result-mapping",
                     dialect_version="1",
                     body=object(),
-                    result_ports=(DomainResultPortDef("result"),),
+                    result_ports=(DomainResultPort("result"),),
                 ),
                 results=(
                     TypedDomainResultBinding(
@@ -144,33 +130,28 @@ def _preparation(
         product_uses=(product_use,),
         record_uses=(record_use,),
     )
-    environment = validate_config_environment(
+    environment = build_config_environment(
         load_config_profile(
             _REPO_ROOT / "fixtures" / "core" / "simple_scan" / "config-profile.json"
         )
     )
-    linked_points = LinkedPointMaterializer(
-        link_verified_program(
-            seal_typed_program(program, phase=ProblemPhase.PLANNING),
-            environment,
-        )
-    ).materialize()
+    linked_points = materialize_linked_points(link_program(program, environment))
     closure = domain_result_closure(linked_points.linked_plan.program, "domain")
     point_ordinals = (0, 1)
-    materializer = LinkedPointMaterializer(linked_points.linked_plan)
-    request = make_domain_compile_request(
+    request = make_domain_compile_template(
         linked_points.linked_plan,
         "domain",
         closure,
+    ).bind_coverage(
         (point_ordinals,),
-        lambda input_ids, ordinals, max_points: materializer.bind_domain_inputs(
+        lambda input_ids, ordinals, max_points: linked_points.bind_domain_inputs(
             "domain",
             "program",
             input_ids,
             ordinals,
             max_points=max_points,
         ),
-        lambda input_ids, ordinals, max_points: materializer.bind_domain_inputs(
+        lambda input_ids, ordinals, max_points: linked_points.bind_domain_inputs(
             "domain",
             "compiler",
             input_ids,
@@ -383,6 +364,7 @@ def test_mapping_preserves_logical_order_and_mixed_source_origins() -> None:
         QuantumProgramId("mixed-source-b"),
         QuantumProgramId("mixed-source-a"),
     )
+    entry_by_id = {entry.id: entry for entry in mapping.batch.entries}
     for result in mapping.domain_mapping.results:
         [address] = target_result_acquisition_addresses(result.result_address)
         origin = mapping.batch.acquisition_origin_for(address)
@@ -392,9 +374,9 @@ def test_mapping_preserves_logical_order_and_mixed_source_origins() -> None:
         )
         assert (
             origin.source_program_id
-            == mapping.batch.entry_for(
+            == entry_by_id[
                 target_result_entry_id(result.result_address)
-            ).source_program_id
+            ].source_program_id
         )
 
 

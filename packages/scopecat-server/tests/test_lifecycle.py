@@ -54,7 +54,7 @@ def test_init_creates_runnable_python_project_and_does_not_overwrite(
 
     application = project.load_application()
     assert application.bootstrap_config is not None
-    config = validate_config_profile(application.bootstrap_config()).config
+    config = validate_config_profile(application.bootstrap_config())
     assert config.id == "default"
     assert config.primary_entity_id == "sample"
     assert config.parameter_snapshot.get("repetitions") == ScalarParameterValue(
