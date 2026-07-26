@@ -1,28 +1,20 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import cast
 
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.relations.evaluation import (
     evaluate_scalar,
     evaluate_series,
 )
-from scopecat.compiler.relations.uses import (
-    RelationUse,
-    RelationUseId,
-)
-from scopecat.compiler.relations.verification import VerifiedRelationPlan
+from scopecat.compiler.relations.uses import RelationUse
 from scopecat.compiler.semantic.value_expressions import (
     ScalarOrSeriesValueExpr,
     ScalarValueExpr,
 )
-from scopecat.graph.relations.analysis import PlanNode
 from scopecat.graph.relations.model import (
     CellValue,
-    ScalarExpr,
-    SeriesExpr,
 )
 from scopecat.graph.values import ComputeResultRef
 from scopecat.kernel.entity import EntityRef
@@ -31,7 +23,6 @@ from scopecat.kernel.resource_identity import (
 )
 
 type TargetEntityValue = str | EntityRef
-type RelationPlanResolver = Callable[[RelationUseId], VerifiedRelationPlan[PlanNode]]
 
 
 type StateValueUse = RelationUse[ScalarValueExpr] | ComputeResultRef
@@ -79,7 +70,6 @@ def evaluate_state_spec(
     *,
     point_index: int,
     ctx: EvalContext,
-    relation_plan: RelationPlanResolver,
 ) -> list[StateRecord]:
     """Materialize one data-only state plan."""
 
@@ -93,19 +83,12 @@ def evaluate_state_spec(
             value=(
                 value_use
                 if isinstance(value_use, ComputeResultRef)
-                else evaluate_scalar(
-                    cast(
-                        "VerifiedRelationPlan[ScalarExpr]",
-                        relation_plan(value_use.id),
-                    ),
-                    ctx,
-                )
+                else evaluate_scalar(value_use.value.plan, ctx)
             ),
             target_entities=tuple(
                 _evaluate_target_entities(
                     spec.target_entity_uses,
                     ctx,
-                    relation_plan=relation_plan,
                 )
             ),
         )
@@ -115,30 +98,14 @@ def evaluate_state_spec(
 def _evaluate_target_entities(
     uses: Sequence[RelationUse[ScalarOrSeriesValueExpr]],
     ctx: EvalContext,
-    *,
-    relation_plan: RelationPlanResolver,
 ) -> list[TargetEntityValue]:
     evaluated: list[CellValue] = []
     for use in uses:
         expression = use.value
         if isinstance(expression, ScalarValueExpr):
-            evaluated.append(
-                evaluate_scalar(
-                    cast(
-                        "VerifiedRelationPlan[ScalarExpr]",
-                        relation_plan(use.id),
-                    ),
-                    ctx,
-                )
-            )
+            evaluated.append(evaluate_scalar(expression.plan, ctx))
         else:
-            series_values = evaluate_series(
-                cast(
-                    "VerifiedRelationPlan[SeriesExpr]",
-                    relation_plan(use.id),
-                ),
-                ctx,
-            )
+            series_values = evaluate_series(expression.plan, ctx)
             if not series_values:
                 msg = "state target entity series must not be empty"
                 raise ValueError(msg)

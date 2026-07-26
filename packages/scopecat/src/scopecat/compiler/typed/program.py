@@ -11,11 +11,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
-from scopecat.compiler.relations.uses import (
-    RelationUse,
-    RelationUseId,
-    relation_use,
-)
+from scopecat.compiler.relations.uses import RelationUse, relation_use
 from scopecat.compiler.semantic.model import (
     AcquireEffect,
     LocalPythonImplementation,
@@ -71,7 +67,6 @@ class ValueInput:
     """
 
     value: ValueExpr
-    relation_use_id: RelationUseId = field(default_factory=RelationUseId.fresh)
     origin_input_ids: tuple[str, ...] = ()
 
     @property

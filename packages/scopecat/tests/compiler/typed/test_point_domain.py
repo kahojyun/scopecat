@@ -196,7 +196,7 @@ def test_linear_axis_center_reads_dynamic_scalar_parameter() -> None:
     )
 
     [(path, source)] = iter_point_axis_linear(verified.root)
-    assert source.center.id == center.id
+    assert source.center.value.plan is center.value.plan
     assert path == ()
     assert [point.row for point in materialized.points] == [
         {"delay": _quantity(8.0)},

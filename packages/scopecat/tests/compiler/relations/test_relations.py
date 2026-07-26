@@ -21,9 +21,7 @@ from scopecat.graph.relations.model import (
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import (
-    Quantity as QuantityType,
-)
-from scopecat.kernel.value_types import (
+    Entity,
     Record,
     RecordField,
     Scalar,
@@ -31,6 +29,9 @@ from scopecat.kernel.value_types import (
     String,
     Table,
     TableColumn,
+)
+from scopecat.kernel.value_types import (
+    Quantity as QuantityType,
 )
 from tests.testkit.relation_plans import evaluate_relation, evaluate_series
 
@@ -247,6 +248,11 @@ def test_entity_series_preserves_series_shape() -> None:
     assert evaluate_series(
         series,
         EvalContext(),
+        expected_type=Series(
+            Scalar(Entity("logical_device")),
+            min_length=2,
+            max_length=2,
+        ),
     ) == [
         EntityRef(id="q0", kind="logical_device"),
         EntityRef(id="q1", kind="logical_device"),

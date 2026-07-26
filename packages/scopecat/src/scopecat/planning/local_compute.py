@@ -8,7 +8,6 @@ from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.relations.context import EvalContext
 from scopecat.compiler.typed.dependencies import ComputePlan
 from scopecat.compiler.typed.program import TypedComputeNode, ValueInput
-from scopecat.compiler.typed.verification import VerifiedCoreProgram
 from scopecat.execution.local.program import (
     BoundInput,
     ComputeOperation,
@@ -32,7 +31,6 @@ def bind_compute_operations(
     compute_plan: ComputePlan,
     demanded_payload_results: set[ValueId],
     problems: list[Problem],
-    verified_program: VerifiedCoreProgram,
     initial_signatures: Mapping[ValueId, str] | None = None,
 ) -> tuple[
     tuple[ComputeOperation, ...],
@@ -54,9 +52,7 @@ def bind_compute_operations(
                             input_spec.value_type,
                             evaluate_value_expr(
                                 input_spec.value,
-                                verified_program.relation_plan(
-                                    input_spec.relation_use_id
-                                ),
+                                input_spec.value.plan,
                                 ctx,
                             ),
                             path=("compute", *node.id.scope, node.id.local_id, name),

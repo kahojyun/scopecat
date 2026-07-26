@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from itertools import product
 from typing import cast
 
@@ -14,8 +14,6 @@ from scopecat.compiler.relations.evaluation import (
 from scopecat.compiler.relations.uses import RelationUse
 from scopecat.compiler.relations.verification import (
     PlanImportNamespace,
-    RelationPlanVerificationError,
-    verify_relation_plan,
 )
 from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
 from scopecat.graph.relations.model import CellValue, Row
@@ -34,7 +32,7 @@ from scopecat.graph.relations.point_domain import (
 )
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
 from scopecat.kernel.quantity import Quantity as QuantityValue
-from scopecat.kernel.value_types import Entity, Scalar, Table, TableColumn
+from scopecat.kernel.value_types import Entity, Table, TableColumn
 from scopecat.kernel.value_validation import coerce_literal
 
 type PointRowNormalizer = Callable[[Row], Mapping[str, object]]
@@ -159,7 +157,6 @@ def verify_point_domain(
         if isinstance(axis.source, PointAxisLinear):
             _verify_center_role(
                 axis.source.center.value,
-                expected_type=axis.value_type,
                 path=(*path, "source", "center"),
                 issues=issues,
             )
@@ -264,7 +261,6 @@ def _axis_values(
 def _verify_center_role(
     value: ScalarValueExpr,
     *,
-    expected_type: Scalar,
     path: PointDomainPath,
     issues: list[PointDomainVerificationIssue],
 ) -> None:
@@ -286,38 +282,6 @@ def _verify_center_role(
                 "point_axis_center_open_input",
                 path,
                 "point-axis center depends on an unresolved input",
-            )
-        )
-    if open_interface:
-        return
-    try:
-        reverified = verify_relation_plan(
-            plan.root,
-            bindings=replace(
-                plan.bindings,
-                point_row=None,
-            ),
-            expected_type=expected_type,
-        )
-    except RelationPlanVerificationError as error:
-        issues.append(
-            PointDomainVerificationIssue(
-                error.code,
-                (*path, *error.path),
-                error.reason,
-            )
-        )
-        return
-    if (
-        reverified.certified_type != plan.certified_type
-        or reverified.imports != plan.imports
-        or reverified.external_point_requirement != plan.external_point_requirement
-    ):
-        issues.append(
-            PointDomainVerificationIssue(
-                "point_axis_center_stale_proof",
-                path,
-                "point-axis center proof does not match its closed role",
             )
         )
 

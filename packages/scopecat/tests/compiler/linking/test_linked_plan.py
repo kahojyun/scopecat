@@ -26,6 +26,7 @@ from scopecat.compiler.typed.program import (
 )
 from scopecat.compiler.typed.verification import (
     ProgramRelationConsumerKind,
+    program_relation_consumers,
 )
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.local.program import CollectOperation
@@ -211,7 +212,7 @@ def test_link_specializes_config_values_and_retains_backend_neutral_domain() -> 
     )
     assert tuple(
         consumer.location.path
-        for consumer in linked.verified_program.relation_consumers
+        for consumer in program_relation_consumers(linked.verified_program)
         if consumer.kind is ProgramRelationConsumerKind.POINT_AXIS_CENTER
     ) == (("factors", 2, "source", "center"),)
 
@@ -229,7 +230,7 @@ def test_link_retains_unit_domain() -> None:
     assert linked.point_domain.cardinality == 1
     assert all(
         consumer.kind is not ProgramRelationConsumerKind.POINT_AXIS_CENTER
-        for consumer in linked.verified_program.relation_consumers
+        for consumer in program_relation_consumers(linked.verified_program)
     )
     assert linked.point_domain.coordinate_columns == ()
 

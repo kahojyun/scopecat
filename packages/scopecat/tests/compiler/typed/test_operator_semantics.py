@@ -56,14 +56,14 @@ def test_arithmetic_supports_literal_operands_on_either_side() -> None:
     ] == [4, 4, 0, 3, 4, 4, 1.0, 3.0]
 
 
-def test_integer_arithmetic_preserves_provable_bounds() -> None:
+def test_integer_arithmetic_keeps_only_the_declared_integer_domain() -> None:
     count = sc.coordinate(
         "count",
         sc.ScalarType(sc.IntType(minimum=0, maximum=4)),
     )
 
-    assert (2 * count + 1).value_type == sc.ScalarType(sc.IntType(minimum=1, maximum=9))
-    assert (3 - count).value_type == sc.ScalarType(sc.IntType(minimum=-1, maximum=3))
+    assert (2 * count + 1).value_type == sc.ScalarType(sc.IntType())
+    assert (3 - count).value_type == sc.ScalarType(sc.IntType())
 
 
 def test_typed_arithmetic_rejects_non_finite_runtime_results() -> None:

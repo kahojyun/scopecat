@@ -150,7 +150,7 @@ def _specialize_point_domain(
             known=known,
             parameter_cells=(),
         )
-        return RelationUse(value, id=center.id)
+        return RelationUse(value)
 
     return replace(
         domain,

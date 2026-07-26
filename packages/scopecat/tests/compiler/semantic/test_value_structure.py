@@ -5,18 +5,15 @@ import pytest
 import scopecat as sc
 from scopecat.authoring._parameter_contracts import ParameterValueContract
 from scopecat.authoring._value_refs import (
-    ValueDeclarationKey,
-    ValueRef,
     internal_bind_value_ref_inputs,
     internal_lower_scalar_value_ref,
-    internal_scope_value_ref,
-    internal_value_ref_operation_id,
     internal_value_ref_parameter_contracts,
     internal_value_ref_point_dependencies,
     internal_value_ref_requires_execution,
     internal_value_ref_scalar_input_ids,
     internal_value_ref_scalar_operation,
 )
+from scopecat.graph.relations.model import BinaryScalarExpr
 
 
 def test_value_structure_identifies_external_execution_and_point_dependencies() -> None:
@@ -34,15 +31,14 @@ def test_value_structure_identifies_external_execution_and_point_dependencies() 
     ]
 
 
-def test_bound_expression_inherits_external_execution_dependency() -> None:
+def test_compute_output_cannot_be_bound_inside_relation_arithmetic() -> None:
     scalar = sc.ScalarType(sc.FloatType())
     value = sc.input("value", scalar)
     expression = value + 1.0
     compute = sc.compute("produce", fn=lambda: 1.0, output_type=scalar)
 
-    bound = internal_bind_value_ref_inputs(expression, {"value": compute.output})
-
-    assert internal_value_ref_requires_execution(bound)
+    with pytest.raises(TypeError, match=r"express this calculation with sc\.compute"):
+        internal_bind_value_ref_inputs(expression, {"value": compute.output})
 
 
 def test_nested_binding_tracks_point_and_remaining_scalar_inputs() -> None:
@@ -67,45 +63,21 @@ def test_nested_binding_tracks_point_and_remaining_scalar_inputs() -> None:
     assert internal_value_ref_scalar_input_ids(nested) == frozenset({"outer"})
 
 
-def test_direct_execute_scalar_operation_remains_symbolic_until_graph_lowering() -> (
-    None
-):
+def test_compute_output_arithmetic_requires_explicit_compute() -> None:
     scalar = sc.ScalarType(sc.FloatType())
     compute = sc.compute("produce", fn=lambda: 1.0, output_type=scalar)
-    produced = compute.output
-    expression = produced + 1.0
-
-    operation = internal_value_ref_scalar_operation(expression)
-    assert operation is not None
-    assert operation.operator == "+"
-    assert operation.left is produced
-    assert operation.right == 1.0
-    assert internal_value_ref_requires_execution(expression)
-
-    with pytest.raises(TypeError, match="require semantic graph lowering"):
-        internal_lower_scalar_value_ref(expression)
+    with pytest.raises(TypeError, match=r"express this calculation with sc\.compute"):
+        _ = compute.output + 1.0
 
 
-def test_scalar_operation_has_nominal_identity_and_structural_scope() -> None:
+def test_relation_arithmetic_lowers_directly_without_a_semantic_operation() -> None:
     scalar = sc.ScalarType(sc.FloatType())
-    compute = sc.compute("produce", fn=lambda: 1.0, output_type=scalar)
-    expression = compute.output + 1.0
-    sibling = compute.output + 1.0
+    expression = sc.input("value", scalar) + 1.0
 
-    key = expression.declaration_key
-    assert isinstance(key, ValueDeclarationKey)
-    assert key != sibling.declaration_key
-    assert expression.declaration_scope == ()
-
-    scoped = internal_scope_value_ref(expression, "outer")
-    scoped_operation = internal_value_ref_scalar_operation(scoped)
-    assert scoped.declaration_key == key
-    assert scoped.declaration_scope == ("outer",)
-    assert scoped_operation is not None
-    assert isinstance(scoped_operation.left, ValueRef)
-    operation_id = internal_value_ref_operation_id(scoped_operation.left)
-    assert operation_id is not None
-    assert operation_id.scope == ("outer",)
+    assert internal_value_ref_scalar_operation(expression) is None
+    lowered = internal_lower_scalar_value_ref(expression)
+    assert isinstance(lowered, BinaryScalarExpr)
+    assert lowered.op == "+"
 
 
 def test_scalar_operation_derives_parameter_and_point_provenance_from_operands() -> (

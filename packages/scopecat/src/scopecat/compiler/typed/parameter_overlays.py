@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import cast
@@ -19,22 +19,14 @@ from scopecat.compiler.relations.specialization import (
     residual_scalar_expression,
     specialize_scalar,
 )
-from scopecat.compiler.relations.uses import (
-    RelationUse,
-    RelationUseId,
-)
-from scopecat.compiler.relations.verification import VerifiedRelationPlan
+from scopecat.compiler.relations.uses import RelationUse
 from scopecat.compiler.semantic.value_expressions import ScalarValueExpr
-from scopecat.graph.relations.analysis import PlanNode
 from scopecat.graph.relations.model import (
     CellValue,
-    ScalarExpr,
 )
 from scopecat.kernel.problems import ModelLocation, model_location
 from scopecat.kernel.value_types import Scalar
 from scopecat.kernel.value_validation import ValueValidationError, coerce_literal
-
-type RelationPlanResolver = Callable[[RelationUseId], VerifiedRelationPlan[PlanNode]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,7 +55,6 @@ def resolve_point_parameters(
     overlays: Sequence[PointParameterOverlay],
     *,
     point_row: Mapping[str, CellValue],
-    relation_plan: RelationPlanResolver,
 ) -> ParameterRelationData:
     """Resolve lexical parameter bindings for one logical point."""
 
@@ -73,7 +64,6 @@ def resolve_point_parameters(
             overlay,
             ctx=EvalContext(params=resolved, point_row=dict(point_row)),
             params=resolved,
-            relation_plan=relation_plan,
         )
     return resolved
 
@@ -140,7 +130,6 @@ def _apply_point_parameter_overlay(
     *,
     ctx: EvalContext,
     params: ParameterRelationData,
-    relation_plan: RelationPlanResolver,
 ) -> ParameterRelationData:
     """Return one binding set with a typed point-local cell override."""
 
@@ -158,13 +147,7 @@ def _apply_point_parameter_overlay(
 
     key = {
         column_id: _coerce_overlay_value(
-            evaluate_scalar(
-                cast(
-                    "VerifiedRelationPlan[ScalarExpr]",
-                    relation_plan(use.id),
-                ),
-                ctx,
-            ),
+            evaluate_scalar(use.value.plan, ctx),
             use.value.value_type,
             code="experiment_parameter_overlay_key_invalid",
             location=model_location(
@@ -237,13 +220,7 @@ def _apply_point_parameter_overlay(
         row_index=row_index,
         column_id=overlay.column_id,
         value=_coerce_overlay_value(
-            evaluate_scalar(
-                cast(
-                    "VerifiedRelationPlan[ScalarExpr]",
-                    relation_plan(overlay.value_use.id),
-                ),
-                ctx,
-            ),
+            evaluate_scalar(overlay.value_use.value.plan, ctx),
             overlay.value_use.value.value_type,
             code="experiment_parameter_overlay_value_invalid",
             location=model_location(

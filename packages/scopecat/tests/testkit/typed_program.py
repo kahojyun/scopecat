@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from copy import deepcopy
 
 from scopecat.compiler.environment import ConfigEnvironment
 from scopecat.compiler.linking.linked import (
@@ -230,7 +229,7 @@ def link_program(
 
     return LinkedPlan(
         seal_typed_program(
-            deepcopy(program),
+            program,
             phase=ProblemPhase.PLANNING,
         ),
         environment,

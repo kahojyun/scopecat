@@ -218,7 +218,6 @@ def materialize_local_execution(
                         selected_compute_plan.demanded_payload_results
                     ),
                     problems=problems,
-                    verified_program=verified_program,
                     initial_signatures=signatures_by_ordinal[
                         representative.logical_ordinal
                     ],
@@ -295,7 +294,6 @@ def materialize_local_execution(
                         index,
                         representative,
                         representative_params,
-                        verified_program=verified_program,
                         problems=problems,
                     )
                 ),
@@ -383,7 +381,6 @@ def _evaluate_state_records(
     point: MaterializedPoint,
     params: ParameterRelationData,
     *,
-    verified_program: VerifiedCoreProgram,
     problems: list[Problem],
 ) -> tuple[StateRecord, ...]:
     ctx = EvalContext(params=params, point_row=point.row)
@@ -393,7 +390,6 @@ def _evaluate_state_records(
                 state,
                 point_index=point.logical_ordinal,
                 ctx=ctx,
-                relation_plan=verified_program.relation_plan,
             )
         )
     except (ArithmeticError, KeyError, TypeError, ValueError) as error:
@@ -420,7 +416,6 @@ def _bind_run_compute(
         compute_plan=compute_plan,
         demanded_payload_results=set(compute_plan.demanded_payload_results),
         problems=problems,
-        verified_program=linked.verified_program,
     )
     return operations, ComputeBindingSeed(
         signatures=signatures,
@@ -533,7 +528,7 @@ def _select_point_resources(
                 entity_values.append(
                     evaluate_value_expr(
                         use.value,
-                        verified_program.relation_plan(use.id),
+                        use.value.plan,
                         ctx,
                     )
                 )

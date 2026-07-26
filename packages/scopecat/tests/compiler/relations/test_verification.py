@@ -65,8 +65,8 @@ def test_context_supplies_null_literal_type_without_losing_nullability() -> None
     ("root", "code"),
     [
         (lit(None), "ambiguous_null"),
-        (values([]), "ambiguous_empty_series"),
-        (literal_rows([]), "ambiguous_empty_table"),
+        (values([]), "missing_declared_type"),
+        (literal_rows([]), "missing_declared_type"),
     ],
 )
 def test_context_dependent_literals_require_an_expected_type(
@@ -200,20 +200,16 @@ def test_point_interface_projects_only_referenced_columns() -> None:
             TableColumn("device", device),
             TableColumn("unused", STRING),
         ),
-        allow_extra_columns=True,
     )
 
     verified = verify_relation_plan(
-        point_col("device.rank"),
+        point_col("device"),
         bindings=RelationTypeBindings(point_row=point),
     )
 
     assert verified.external_point_requirement == PointRequirement(
-        RowType(
-            (TableColumn("device", device),),
-            allow_extra_columns=True,
-        ),
-        ("device.rank",),
+        RowType((TableColumn("device", device),)),
+        ("device",),
     )
 
 
@@ -321,12 +317,9 @@ def test_lookup_expression_requires_exactly_its_declared_key_inputs() -> None:
         )
 
 
-def test_verified_plan_defensively_copies_nested_literal_data() -> None:
+def test_verified_plan_retains_the_internal_relation_ast() -> None:
     source = literal_rows([{"value": 1}])
-    verified = verify_relation_plan(source)
+    expected = Table(columns=(TableColumn("value", INT),))
+    verified = verify_relation_plan(source, expected_type=expected)
 
-    source.rows[0]["value"] = 0
-    projected = verified.root
-    projected.rows[0]["value"] = 0
-
-    assert verified.root.rows == [{"value": 1}]
+    assert verified.root is source

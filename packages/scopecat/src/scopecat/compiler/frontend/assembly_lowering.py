@@ -50,7 +50,6 @@ from scopecat.compiler.semantic.model import (
     SemanticOperation,
     ValueDef,
 )
-from scopecat.compiler.semantic.operation_contract import ScalarBinarySemantics
 from scopecat.compiler.semantic.value_expressions import (
     ScalarValueExpr,
     verify_scalar_value_expr,
@@ -68,16 +67,7 @@ from scopecat.compiler.typed.program import (
     set_state_field,
 )
 from scopecat.compiler.typed.state import SetStateSpec
-from scopecat.graph.relations.model import (
-    BinaryScalarExpr,
-    CellValue,
-    RelationExpr,
-    ScalarExpr,
-    ScalarExpression,
-    SeriesExpr,
-    as_scalar_expr,
-    point_col,
-)
+from scopecat.graph.relations.model import CellValue, as_scalar_expr, point_col
 from scopecat.graph.relations.point_domain import (
     POINT_UNIT,
     PointAxis,
@@ -192,8 +182,6 @@ def lower_semantic_compute_graph(
 ) -> tuple[TypedComputeNode, ...]:
     """Lower implementation-defined operations to the local residual artifact."""
 
-    residual_operations = graph.residual_operation_ids
-    residual_values = graph.residual_value_ids
     nodes = tuple(
         _lower_semantic_operation(
             operation,
@@ -201,12 +189,10 @@ def lower_semantic_compute_graph(
             definitions=graph.value_defs,
             operation_results=graph.operation_results,
             value_types=graph.value_types,
-            residual_values=residual_values,
             inputs=inputs,
             type_bindings=type_bindings,
         )
         for operation in graph.graph.operations
-        if operation.id in residual_operations
     )
     return nodes
 
@@ -221,7 +207,6 @@ def lower_semantic_domain_graph(
 ) -> tuple[TypedDomainExecution, ...]:
     """Lower ordered prepare-stage domain effects and their product uses."""
 
-    residual_values = graph.residual_value_ids
     uses_by_product: dict[ProductId, list[ProductUseId]] = {}
     for use in product_uses:
         uses_by_product.setdefault(use.product_id, []).append(use.id)
@@ -234,7 +219,6 @@ def lower_semantic_domain_graph(
                 definitions=graph.value_defs,
                 operation_results=graph.operation_results,
                 value_types=graph.value_types,
-                residual_values=residual_values,
                 inputs=inputs,
                 type_bindings=type_bindings,
             )
@@ -250,7 +234,6 @@ def lower_semantic_domain_graph(
                 definitions=graph.value_defs,
                 operation_results=graph.operation_results,
                 value_types=graph.value_types,
-                residual_values=residual_values,
                 inputs=inputs,
                 type_bindings=type_bindings,
             )
@@ -288,7 +271,6 @@ def _lower_semantic_operation(
     definitions: Mapping[ValueId, ValueDef],
     operation_results: Mapping[ValueId, SemanticOperation],
     value_types: Mapping[ValueId, ValueType],
-    residual_values: frozenset[ValueId],
     inputs: Mapping[str, object],
     type_bindings: RelationTypeBindings,
 ) -> TypedComputeNode:
@@ -302,7 +284,6 @@ def _lower_semantic_operation(
                 definitions=definitions,
                 operation_results=operation_results,
                 value_types=value_types,
-                residual_values=residual_values,
                 inputs=inputs,
                 type_bindings=type_bindings,
             )
@@ -321,20 +302,20 @@ def _lower_semantic_input(
     definitions: Mapping[ValueId, ValueDef],
     operation_results: Mapping[ValueId, SemanticOperation],
     value_types: Mapping[ValueId, ValueType],
-    residual_values: frozenset[ValueId],
     inputs: Mapping[str, object],
     type_bindings: RelationTypeBindings,
 ) -> ValueInput | ComputeEdge:
-    if value_id in residual_values:
+    if value_id in operation_results:
         return ComputeEdge(
             value_id=value_id,
             expected_type=value_types[value_id],
         )
-    expression = _semantic_plan_expression(
-        value_id,
-        definitions=definitions,
-        operation_results=operation_results,
-        active=frozenset(),
+    definition = definitions[value_id]
+    source = definition.source
+    expression = (
+        source.expression
+        if isinstance(source, PlanExpressionSource)
+        else literal_data_expr(source.value)
     )
     origin_input_ids = tuple(value_input_refs(expression))
     return ValueInput(
@@ -344,47 +325,6 @@ def _lower_semantic_input(
             expected_type=value_types[value_id],
         ),
         origin_input_ids=origin_input_ids,
-    )
-
-
-def _semantic_plan_expression(
-    value_id: ValueId,
-    *,
-    definitions: Mapping[ValueId, ValueDef],
-    operation_results: Mapping[ValueId, SemanticOperation],
-    active: frozenset[ValueId],
-) -> ScalarExpr | SeriesExpr | RelationExpr:
-    if value_id in active:
-        raise AssertionError("verified semantic graph contains a plan-value cycle")
-    definition = definitions.get(value_id)
-    if definition is not None:
-        source = definition.source
-        if isinstance(source, PlanExpressionSource):
-            return source.expression
-        return literal_data_expr(source.value)
-    operation = operation_results[value_id]
-    if not isinstance(operation.contract, ScalarBinarySemantics):
-        raise AssertionError("only core scalar operations can be plan-inlined")
-    uses = dict(operation.inputs)
-    nested_active = active | {value_id}
-    left = _semantic_plan_expression(
-        uses["left"].value_id,
-        definitions=definitions,
-        operation_results=operation_results,
-        active=nested_active,
-    )
-    right = _semantic_plan_expression(
-        uses["right"].value_id,
-        definitions=definitions,
-        operation_results=operation_results,
-        active=nested_active,
-    )
-    if not isinstance(left, ScalarExpr) or not isinstance(right, ScalarExpr):
-        raise AssertionError("scalar semantic operands must lower to scalar plans")
-    return BinaryScalarExpr(
-        op=operation.contract.operator,
-        left=cast("ScalarExpression", left),
-        right=cast("ScalarExpression", right),
     )
 
 

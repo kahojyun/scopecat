@@ -46,6 +46,7 @@ from scopecat.compiler.typed.specialization import specialize_core_program
 from scopecat.compiler.typed.verification import (
     ProgramRelationConsumer,
     VerifiedCoreProgram,
+    program_relation_consumers,
     seal_typed_program,
 )
 from scopecat.graph.relations.model import (
@@ -156,7 +157,6 @@ class MaterializedLinkedPoints:
                 input_kind,
                 point,
                 selected_input_ids,
-                verified_program=self.linked_plan.verified_program,
                 parameters=parameters,
                 problems=problems,
             )
@@ -254,7 +254,6 @@ def _point_parameters(
             linked.environment.parameters,
             linked.program.parameter_overlays,
             point_row=point.row,
-            relation_plan=linked.verified_program.relation_plan,
         )
     except CompilerProblemError as error:
         problems.append(error.problem)
@@ -281,7 +280,6 @@ def _domain_inputs(
     point: MaterializedPoint,
     input_ids: tuple[str, ...],
     *,
-    verified_program: VerifiedCoreProgram,
     parameters: ParameterRelationData,
     problems: list[Problem],
 ) -> tuple[tuple[str, object], ...] | None:
@@ -293,7 +291,6 @@ def _domain_inputs(
             input_kind=input_kind,
             input_name=input_name,
             point=point,
-            verified_program=verified_program,
             parameters=parameters,
             problems=problems,
         )
@@ -312,7 +309,6 @@ def _materialize_domain_execution_input(
     input_kind: Literal["program", "compiler"],
     input_name: str,
     point: MaterializedPoint,
-    verified_program: VerifiedCoreProgram,
     parameters: ParameterRelationData,
     problems: list[Problem],
 ) -> tuple[bool, object]:
@@ -327,7 +323,6 @@ def _materialize_domain_execution_input(
     try:
         evaluated = _evaluate_domain_input(
             input_spec,
-            verified_program=verified_program,
             context=context,
         )
         value = coerce_literal(
@@ -366,11 +361,10 @@ def _materialize_domain_execution_input(
 def _evaluate_domain_input(
     input_spec: ValueInput,
     *,
-    verified_program: VerifiedCoreProgram,
     context: EvalContext,
 ) -> object:
     value = input_spec.value
-    verified_plan = verified_program.relation_plan(input_spec.relation_use_id)
+    verified_plan = input_spec.value.plan
     if isinstance(value, ScalarValueExpr):
         return evaluate_scalar(
             cast("VerifiedRelationPlan[ScalarExpr]", verified_plan),
@@ -435,7 +429,7 @@ def _relation_import_problems(
     parameters: ParameterRelationData,
 ) -> tuple[Problem, ...]:
     problems: list[Problem] = []
-    for consumer in verified_program.relation_consumers:
+    for consumer in program_relation_consumers(verified_program):
         plan = consumer.plan
         for imported in plan.imports:
             if imported.namespace is PlanImportNamespace.INPUT:

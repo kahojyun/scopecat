@@ -14,12 +14,9 @@ from scopecat.compiler.frontend.resolution import (
 )
 from scopecat.compiler.semantic.model import (
     AcquireEffect,
-    LiteralValueSource,
     SemanticDomainExecution,
     SemanticGraphIR,
-    ValueUse,
 )
-from scopecat.compiler.semantic.operation_contract import ScalarBinarySemantics
 from scopecat.compiler.semantic.verification import (
     VerifiedSemanticGraph,
     verify_semantic_graph,
@@ -449,98 +446,17 @@ def test_resource_selector_requires_scalar_or_series_entity_values() -> None:
     )
 
 
-def test_execute_scalar_expression_becomes_semantic_operation_graph() -> None:
+def test_compute_output_arithmetic_requires_an_explicit_compute() -> None:
     value_type = sc.ScalarType(sc.FloatType())
     child_value = sc.input("value", value_type)
-    consumer = sc.compute(
-        "consumer",
-        fn=_identity_value,
-        inputs={"value": child_value + 1.0},
-        output_type=value_type,
-    )
-    child = (
-        sc.module_body(id="test.graph.execute-expression-child")
-        .inputs(child_value)
-        .computes(consumer)
-        .build()
-    )
     producer = sc.compute(
         "producer",
         fn=lambda: 1.0,
         output_type=value_type,
     )
-    parent = (
-        sc.module_body(id="test.graph.execute-expression-parent")
-        .computes(producer)
-        .use(child.instantiate("expression-child", value=producer.output))
-        .build()
-    )
 
-    invocation = template_fixture(
-        parent,
-        id="test.graph.execute-expression",
-        kind="graph",
-    ).bind()
-    compiled = compile_invocation(invocation)
-    graph = compiled.assembly.source.semantic_graph
-    definitions = {definition.id: definition for definition in graph.value_defs}
-    producer_operation = next(
-        operation
-        for operation in graph.operations
-        if operation.id.local_id == "producer"
-    )
-    consumer_operation = next(
-        operation
-        for operation in graph.operations
-        if operation.id.local_id == "consumer"
-    )
-    scalar_operation = next(
-        operation
-        for operation in graph.operations
-        if isinstance(operation.contract, ScalarBinarySemantics)
-    )
-
-    assert scalar_operation.contract == ScalarBinarySemantics("+")
-    scalar_inputs = dict(scalar_operation.inputs)
-    scalar_output = scalar_operation.result_id
-    consumer_input = dict(consumer_operation.inputs)["value"]
-    assert isinstance(consumer_input, ValueUse)
-    assert consumer_input.value_id == scalar_output
-
-    left = scalar_inputs["left"]
-    right = definitions[scalar_inputs["right"].value_id]
-    assert left.value_id == producer_operation.result_id
-    assert isinstance(right.source, LiteralValueSource)
-    assert right.source.value == 1.0
-
-
-def test_execute_core_operation_carries_its_implementation() -> None:
-    value_type = sc.ScalarType(sc.FloatType())
-    produce = sc.compute("produce", fn=lambda: 1.0, output_type=value_type)
-    consume = sc.compute(
-        "consume",
-        fn=_identity_value,
-        inputs={"value": produce.output + 1.0},
-        output_type=value_type,
-    )
-    module = (
-        sc.module_body(id="test.graph.core-implementation")
-        .computes(produce, consume)
-        .build()
-    )
-    invocation = template_fixture(
-        module,
-        id="test.graph.core-implementation",
-        kind="graph",
-    ).bind()
-    compiled = compile_invocation(invocation)
-    scalar_operation = next(
-        operation
-        for operation in compiled.assembly.source.semantic_graph.operations
-        if isinstance(operation.contract, ScalarBinarySemantics)
-    )
-    implementation = compiled.assembly.source.implementations[scalar_operation.id]
-    assert implementation.id.value.startswith("core.scalar:")
+    with pytest.raises(TypeError, match=r"express this calculation with sc\.compute"):
+        _ = producer.output + child_value
 
 
 def test_source_coordinate_collision_ignores_non_coordinate_payload() -> None:

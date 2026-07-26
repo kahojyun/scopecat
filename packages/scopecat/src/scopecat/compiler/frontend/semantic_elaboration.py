@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from functools import partial
 from types import MappingProxyType
 
 from scopecat.authoring._binding_intents import ExperimentBindingIntent
@@ -19,17 +18,14 @@ from scopecat.authoring._parameter_contracts import (
 )
 from scopecat.authoring._value_refs import (
     PointValueDependency,
-    ScalarOperationOperand,
     ValueRef,
     internal_lower_value_ref,
     internal_value_ref_operation_id,
-    internal_value_ref_scalar_operation,
 )
 from scopecat.authoring.domain import LoweredDomainExecution
 from scopecat.authoring.measurements import MeasurementTransform
 from scopecat.authoring.values import ComputeFunction
 from scopecat.compiler.frontend.value_binding import literal_data_expr
-from scopecat.compiler.relations.scalar_eval import eval_binary
 from scopecat.compiler.relations.verification import (
     RelationPlanVerificationError,
     RelationTypeBindings,
@@ -52,7 +48,6 @@ from scopecat.compiler.semantic.model import (
 )
 from scopecat.compiler.semantic.operation_contract import (
     LOCAL_OPAQUE_OPERATION_CONTRACT,
-    scalar_binary_operation_contract,
 )
 from scopecat.graph.relations.model import (
     RelationExpr,
@@ -144,25 +139,12 @@ def semantic_value_id(value: ValueRef) -> ValueId:
     operation_id = internal_value_ref_operation_id(value)
     if operation_id is not None:
         return operation_result_id(semantic_operation_id(operation_id))
-    if internal_value_ref_scalar_operation(value) is not None:
-        return operation_result_id(_scalar_operation_id(value))
     declaration_key = value.declaration_key
     scope = value.declaration_scope
     return ValueId(
         SymbolId(
             scope=(*scope, "values"),
             local_id=f"v_{declaration_key.value.hex}",
-        )
-    )
-
-
-def _scalar_operation_id(value: ValueRef) -> OperationId:
-    declaration_key = value.declaration_key
-    scope = value.declaration_scope
-    return OperationId(
-        SymbolId(
-            scope=(*scope, "scalar_operations"),
-            local_id=f"op_{declaration_key.value.hex}",
         )
     )
 
@@ -334,9 +316,6 @@ class _SemanticGraphBuilder:
 
     def _add_value(self, value: ValueRef) -> ValueId:
         value_id = semantic_value_id(value)
-        scalar_operation = internal_value_ref_scalar_operation(value)
-        if scalar_operation is not None:
-            return self._add_scalar_operation(value)
         if value_id in self._definitions:
             return value_id
         operation_id = internal_value_ref_operation_id(value)
@@ -356,68 +335,6 @@ class _SemanticGraphBuilder:
                     expected_type=value.value_type,
                 ),
             )
-        )
-        return value_id
-
-    def _add_scalar_operation(self, value: ValueRef) -> ValueId:
-        operation_id = _scalar_operation_id(value)
-        output_id = operation_result_id(operation_id)
-        scalar_operation = internal_value_ref_scalar_operation(value)
-        if scalar_operation is None:
-            raise AssertionError("scalar operation value lost its operation")
-        left_id = self._add_scalar_operand(
-            scalar_operation.left,
-            operation_id=operation_id,
-            input_name="left",
-        )
-        right_id = self._add_scalar_operand(
-            scalar_operation.right,
-            operation_id=operation_id,
-            input_name="right",
-        )
-        if operation_id in self._operations:
-            return output_id
-        operation_contract = scalar_binary_operation_contract(scalar_operation.operator)
-        self._add_operation(
-            SemanticOperation(
-                id=operation_id,
-                contract=operation_contract,
-                inputs=(
-                    ("left", ValueUse(left_id)),
-                    ("right", ValueUse(right_id)),
-                ),
-                result_id=output_id,
-                result_type=value.value_type,
-            )
-        )
-        self._implementations[operation_id] = LocalPythonImplementation(
-            id=ImplementationId(f"core.scalar:{operation_id.qualified_name}"),
-            kernel=partial(eval_binary, scalar_operation.operator),
-        )
-        return output_id
-
-    def _add_scalar_operand(
-        self,
-        operand: ScalarOperationOperand,
-        *,
-        operation_id: OperationId,
-        input_name: str,
-    ) -> ValueId:
-        if isinstance(operand, ValueRef):
-            return self._add_value(operand)
-        value_id = ValueId(
-            SymbolId(
-                scope=(
-                    *operation_id.scope,
-                    operation_id.local_id,
-                    "inputs",
-                ),
-                local_id=input_name,
-            )
-        )
-        self._add_literal(
-            value_id,
-            operand,
         )
         return value_id
 

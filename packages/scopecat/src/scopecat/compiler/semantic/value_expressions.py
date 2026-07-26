@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import ClassVar, Literal, Self, cast, overload
+from typing import ClassVar, Literal, cast, overload
 
 from scopecat.compiler.relations.verification import (
     RelationTypeBindings,
@@ -14,18 +14,8 @@ from scopecat.graph.relations.model import RelationExpr, ScalarExpr, SeriesExpr
 from scopecat.kernel.value_types import Scalar, Series, Table, ValueType
 
 
-class _FrozenProofEnvelope:
-    __slots__ = ()
-
-    def __copy__(self) -> Self:
-        return self
-
-    def __deepcopy__(self, _memo: dict[int, object]) -> Self:
-        return self
-
-
 @dataclass(frozen=True, slots=True, eq=False, repr=False)
-class ScalarValueExpr(_FrozenProofEnvelope):
+class ScalarValueExpr:
     """A scalar plan together with its backend-neutral static proof."""
 
     _plan: VerifiedRelationPlan[ScalarExpr]
@@ -47,7 +37,7 @@ class ScalarValueExpr(_FrozenProofEnvelope):
 
 
 @dataclass(frozen=True, slots=True, eq=False, repr=False)
-class SeriesValueExpr(_FrozenProofEnvelope):
+class SeriesValueExpr:
     """A series plan together with its backend-neutral static proof."""
 
     _plan: VerifiedRelationPlan[SeriesExpr]
@@ -69,7 +59,7 @@ class SeriesValueExpr(_FrozenProofEnvelope):
 
 
 @dataclass(frozen=True, slots=True, eq=False, repr=False)
-class TableValueExpr(_FrozenProofEnvelope):
+class TableValueExpr:
     """A relation plan together with its backend-neutral static proof."""
 
     _plan: VerifiedRelationPlan[RelationExpr]

@@ -94,7 +94,7 @@ class ValueDeclarationKey:
 
 @dataclass(frozen=True, slots=True)
 class ScalarValueOperation:
-    """Backend-neutral scalar operation retained until graph lowering."""
+    """Scalar expression waiting only for module-export resolution."""
 
     operator: ScalarOperator
     left: ScalarOperationOperand
@@ -567,6 +567,16 @@ def _transform_value_ref(
     transformed_values = tuple(
         bound for layer in transformed_layers for _input_id, bound in layer
     )
+    if any(
+        _first_module_export(bound, seen=frozenset()) is None
+        and internal_value_ref_requires_execution(bound)
+        for bound in transformed_values
+    ):
+        msg = (
+            "compute outputs cannot be bound inside relation expressions; "
+            "express this calculation with sc.compute"
+        )
+        raise TypeError(msg)
     return ValueRef(
         source=_ExpressionValueSource(
             expression=source.expression,
@@ -835,8 +845,8 @@ def _lower_scalar_operation_operand(
     lowered = internal_lower_value_ref(operand)
     if isinstance(lowered, ComputeResultRef):
         msg = (
-            "externally dependent scalar operations require semantic graph lowering; "
-            "they cannot be lowered as plan expressions"
+            "compute outputs cannot be used in relation arithmetic; "
+            "express this calculation with sc.compute"
         )
         raise TypeError(msg)
     if not isinstance(lowered, ScalarExpr):
@@ -939,6 +949,16 @@ def internal_bind_value_ref_inputs(
     if not layer:
         return value
     bound_values = tuple(selected for _input_id, selected in layer)
+    if any(
+        _first_module_export(selected, seen=frozenset()) is None
+        and internal_value_ref_requires_execution(selected)
+        for selected in bound_values
+    ):
+        msg = (
+            "compute outputs cannot be bound inside relation expressions; "
+            "express this calculation with sc.compute"
+        )
+        raise TypeError(msg)
     existing_layers = source.input_binding_layers
     return ValueRef(
         source=_ExpressionValueSource(
@@ -1027,34 +1047,54 @@ def _reachable_input_bindings(
 def _binary_value(left: object, right: object, operator: str) -> ValueRef:
     left_type = _scalar_operand_type(left)
     right_type = _scalar_operand_type(right)
-    return _scalar_operation_value(
-        operator=cast("ScalarOperator", operator),
-        left=left,
-        right=right,
+    selected_operator = cast("ScalarOperator", operator)
+    operation = ScalarValueOperation(
+        operator=selected_operator,
+        left=_capture_scalar_operation_operand(left),
+        right=_capture_scalar_operation_operand(right),
+    )
+    return _resolved_scalar_operation_value(
+        operation,
         value_type=scalar_operator_result_type(
             left_type,
             right_type,
-            cast("ScalarOperator", operator),
+            selected_operator,
         ),
     )
 
 
-def _scalar_operation_value(
+def _resolved_scalar_operation_value(
+    operation: ScalarValueOperation,
     *,
-    operator: ScalarOperator,
-    left: object,
-    right: object,
     value_type: Scalar,
+    declaration_key: ValueDeclarationKey | None = None,
+    declaration_scope: tuple[str, ...] = (),
 ) -> ValueRef:
+    operands = _scalar_operation_value_operands(operation)
+    if any(_first_module_export(operand, seen=frozenset()) for operand in operands):
+        return ValueRef(
+            source=_ScalarOperationValueSource(operation=operation),
+            value_type=value_type,
+            declaration_key=declaration_key or ValueDeclarationKey.fresh(),
+            declaration_scope=declaration_scope,
+        )
     return ValueRef(
-        source=_ScalarOperationValueSource(
-            operation=ScalarValueOperation(
-                operator=operator,
-                left=_capture_scalar_operation_operand(left),
-                right=_capture_scalar_operation_operand(right),
-            ),
+        source=_ExpressionValueSource(
+            expression=BinaryScalarExpr(
+                op=operation.operator,
+                left=_lower_scalar_operation_operand(operation.left),
+                right=_lower_scalar_operation_operand(operation.right),
+            )
         ),
         value_type=value_type,
+        declaration_key=declaration_key or ValueDeclarationKey.fresh(),
+        declaration_scope=declaration_scope,
+        parameter_contracts=merge_parameter_contracts(
+            *(internal_value_ref_parameter_contracts(operand) for operand in operands)
+        ),
+        point_dependencies=_merge_point_dependencies(
+            *(internal_value_ref_point_dependencies(operand) for operand in operands)
+        ),
     )
 
 
@@ -1116,9 +1156,9 @@ def _rebuild_scalar_operation(
     value: ValueRef,
     operation: ScalarValueOperation,
 ) -> ValueRef:
-    return ValueRef(
-        source=_ScalarOperationValueSource(operation=operation),
-        value_type=value.value_type,
+    return _resolved_scalar_operation_value(
+        operation,
+        value_type=cast("Scalar", value.value_type),
         declaration_key=value.declaration_key,
         declaration_scope=value.declaration_scope,
     )

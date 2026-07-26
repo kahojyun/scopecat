@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import cast
 
@@ -116,9 +115,7 @@ class PlanExpressionSource:
 
     @property
     def expression(self) -> PlanExpression:
-        """Return a defensive copy of the retained plan semantics."""
-
-        return deepcopy(self._expression)
+        return self._expression
 
     @property
     def source_inputs(self) -> tuple[str, ...]:

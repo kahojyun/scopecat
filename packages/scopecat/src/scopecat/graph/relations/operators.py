@@ -16,7 +16,7 @@ from scopecat.kernel.entity import (
     same_entity_identity,
 )
 from scopecat.kernel.quantity import Quantity as QuantityValue
-from scopecat.kernel.units import UNIT_KINDS, compatible_units, to_base_value, unit_kind
+from scopecat.kernel.units import compatible_units, unit_kind
 from scopecat.kernel.value_identity import quantity_comparison_values
 from scopecat.kernel.value_types import (
     AtomType,
@@ -178,7 +178,7 @@ def _arithmetic_result_type(
     operator: ArithmeticOperator,
 ) -> Scalar:
     if isinstance(left, Int) and isinstance(right, Int) and operator != "/":
-        return Scalar(_integer_arithmetic_result(left, right, operator))
+        return Scalar(Int())
     if isinstance(left, Int | Float) and isinstance(right, Int | Float):
         return Scalar(Float())
     quantity = left if isinstance(left, Quantity) else right
@@ -194,65 +194,6 @@ def _arithmetic_result_type(
     raise TypeError(msg)
 
 
-def _integer_arithmetic_result(
-    left: Int,
-    right: Int,
-    operator: Literal["+", "-", "*"],
-) -> Int:
-    if operator == "+":
-        return Int(
-            minimum=_combine_bound(left.minimum, right.minimum, add=True),
-            maximum=_combine_bound(left.maximum, right.maximum, add=True),
-        )
-    if operator == "-":
-        return Int(
-            minimum=_combine_bound(left.minimum, right.maximum, add=False),
-            maximum=_combine_bound(left.maximum, right.minimum, add=False),
-        )
-    left_constant = _integer_constant(left)
-    if left_constant is not None:
-        return _scaled_integer(right, left_constant)
-    right_constant = _integer_constant(right)
-    if right_constant is not None:
-        return _scaled_integer(left, right_constant)
-    if (
-        left.minimum is not None
-        and left.maximum is not None
-        and right.minimum is not None
-        and right.maximum is not None
-    ):
-        products = (
-            left.minimum * right.minimum,
-            left.minimum * right.maximum,
-            left.maximum * right.minimum,
-            left.maximum * right.maximum,
-        )
-        return Int(minimum=min(products), maximum=max(products))
-    return Int()
-
-
-def _combine_bound(left: int | None, right: int | None, *, add: bool) -> int | None:
-    if left is None or right is None:
-        return None
-    return left + right if add else left - right
-
-
-def _integer_constant(value: Int) -> int | None:
-    if value.minimum is not None and value.minimum == value.maximum:
-        return value.minimum
-    return None
-
-
-def _scaled_integer(value: Int, scale: int) -> Int:
-    if scale >= 0:
-        minimum = None if value.minimum is None else value.minimum * scale
-        maximum = None if value.maximum is None else value.maximum * scale
-    else:
-        minimum = None if value.maximum is None else value.maximum * scale
-        maximum = None if value.minimum is None else value.minimum * scale
-    return Int(minimum=minimum, maximum=maximum)
-
-
 def _quantity_types_are_compatible(left: Quantity, right: Quantity) -> bool:
     left_dimension = _quantity_dimension(left)
     right_dimension = _quantity_dimension(right)
@@ -263,13 +204,8 @@ def _quantity_types_are_compatible(left: Quantity, right: Quantity) -> bool:
     ):
         return False
     if left.unit is not None and right.unit is not None:
-        if left.unit == right.unit:
-            return True
-        return compatible_units(left.unit, right.unit) and _units_are_linear(
-            left.unit,
-            right.unit,
-        )
-    return _dimension_is_linear(left_dimension)
+        return compatible_units(left.unit, right.unit)
+    return True
 
 
 def _quantity_dimension(value_type: Quantity) -> str | None:
@@ -278,15 +214,6 @@ def _quantity_dimension(value_type: Quantity) -> str | None:
     if value_type.unit is not None:
         return unit_kind(value_type.unit)
     return None
-
-
-def _dimension_is_linear(dimension: str) -> bool:
-    units = [unit for unit, kind in UNIT_KINDS.items() if kind == dimension]
-    return bool(units) and _units_are_linear(*units)
-
-
-def _units_are_linear(*units: str) -> bool:
-    return all(to_base_value(1.0, unit) is not None for unit in units)
 
 
 def _quantity_comparison_values(
