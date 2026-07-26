@@ -1,4 +1,4 @@
-"""Point-local measurement postprocessing owned by core execution."""
+"""Execute point-local measurement postprocessors."""
 
 from __future__ import annotations
 

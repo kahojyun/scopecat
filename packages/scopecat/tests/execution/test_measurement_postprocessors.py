@@ -9,10 +9,12 @@ from scopecat.compiler.typed.program import (
     TypedMeasurementPostprocessor,
     TypedMeasurementPostprocessorOutput,
 )
+from scopecat.execution.measurement_postprocessors import (
+    execute_measurement_postprocessors,
+)
 from scopecat.kernel.errors import MeasurementPostprocessorExecutionError
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.symbols import SymbolId
-from scopecat.measurements.postprocessors import execute_measurement_postprocessors
 from scopecat.measurements.results import (
     ComplexQuantity,
     MeasurementArray,

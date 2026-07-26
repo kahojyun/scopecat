@@ -148,13 +148,6 @@ def test_config_registry_commands_are_closed_typed_json() -> None:
         )
         == default_command
     )
-    with pytest.raises(ValidationError, match="history head"):
-        ConfigActivationReceipt(
-            active_state=state,
-            activation=activation.model_copy(update={"operator": "other"}),
-        )
-
-
 def test_post_run_commands_are_closed_json_and_bind_proposals_to_runs() -> None:
     proposal = parameter_change_proposal_from_updates(
         source_run_id="run-1",

@@ -13,6 +13,9 @@ from scopecat.execution.evidence import (
     instrument_state_evidence_ref,
 )
 from scopecat.execution.local.executor import execute_run_operations
+from scopecat.execution.measurement_postprocessors import (
+    execute_measurement_postprocessors,
+)
 from scopecat.execution.measurement_recording import (
     append_measurement_dataset,
     seal_measurement_dataset,
@@ -37,9 +40,6 @@ from scopecat.kernel.problems import (
     ProblemPhase,
 )
 from scopecat.kernel.run_outcome import RunOutcome
-from scopecat.measurements.postprocessors import (
-    execute_measurement_postprocessors,
-)
 from scopecat.measurements.projection import project_measurement_records
 from scopecat.measurements.values import (
     MeasurementValueCandidate,
