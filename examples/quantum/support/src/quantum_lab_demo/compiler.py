@@ -9,6 +9,7 @@ from scopecat.sdk.domain import (
     DomainBatchRequest,
     DomainCallView,
     DomainFetchResult,
+    DomainPreparationBuilder,
     PreparedDomainExecution,
 )
 from scopecat_quantum import authoring as quantum
@@ -117,10 +118,11 @@ class QuantumLabCompiler:
         self,
         program: quantum.Program,
         inputs: DomainBatchInputs,
+        point_ordinals: tuple[int, ...],
         *,
         shots: int,
     ) -> _ListQuantumLabArtifact:
-        points = _compile_points(program, inputs)
+        points = _compile_points(program, inputs, point_ordinals)
         entries = tuple(
             prepare_quantum_target_entry(
                 TargetCompileEntryId(f"{program.id}.point-{point.values.ordinal}"),
@@ -155,9 +157,10 @@ class QuantumLabCompiler:
         artifact = self._compile_target_artifact(
             program,
             request.inputs,
+            request.point_ordinals,
             shots=_shot_count(request.call),
         )
-        preparation = request.new_preparation()
+        preparation = DomainPreparationBuilder(request)
         entries = artifact.entries
         batch = artifact.batch
         mapping = seal_quantum_target_result_mapping(
@@ -259,12 +262,13 @@ def _shot_count(call: DomainCallView) -> int:
 def _compile_points(
     program: quantum.Program,
     inputs: DomainBatchInputs,
+    point_ordinals: tuple[int, ...],
 ) -> tuple[_CompiledQuantumPoint, ...]:
     program_inputs = inputs.program
     compiler_parameters = (
-        tuple(QuantumCompilerParameters() for _ordinal in inputs.ordinals)
-        if not inputs.compiler.columns
-        else inputs.compiler.decode_collection(
+        tuple(QuantumCompilerParameters() for _ordinal in point_ordinals)
+        if not inputs.compiler
+        else inputs.decode_compiler_collection(
             QUBIT_PARAMETER_TABLE,
             QuantumCompilerParameters.from_qubit_rows,
         )
@@ -272,11 +276,9 @@ def _compile_points(
     points = tuple(
         QuantumLabPointValues(
             ordinal=ordinal,
-            values=tuple(
-                (name, values[index]) for name, values in program_inputs.columns
-            ),
+            values=tuple((name, values[index]) for name, values in program_inputs),
         )
-        for index, ordinal in enumerate(program_inputs.ordinals)
+        for index, ordinal in enumerate(point_ordinals)
     )
     compiled: list[_CompiledQuantumPoint] = []
     for point, parameters in zip(points, compiler_parameters, strict=True):

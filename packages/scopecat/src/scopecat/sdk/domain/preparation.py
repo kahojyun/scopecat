@@ -11,8 +11,8 @@ from scopecat.kernel.product_identity import ProductId, ProductUseId
 from scopecat.measurements.values import (
     MeasurementValueCandidate,
 )
-from scopecat.sdk.domain._batch_request_contract import DomainBatchRequestView
 from scopecat.sdk.domain._identities import product_use_id
+from scopecat.sdk.domain.batch import DomainBatchRequest
 from scopecat.sdk.domain.execution import (
     ErasedDomainInvocation,
     ErasedDomainRealizer,
@@ -46,11 +46,11 @@ class DomainPreparationBuilder:
 
     __slots__ = ("_context",)
 
-    def __init__(self, context: DomainBatchRequestView) -> None:
+    def __init__(self, context: DomainBatchRequest) -> None:
         self._context = context
 
     @property
-    def context(self) -> DomainBatchRequestView:
+    def context(self) -> DomainBatchRequest:
         return self._context
 
     def map_measurements[
@@ -136,7 +136,7 @@ class DomainPreparationBuilder:
 def _close_result_mapping[
     ResultAddressT: Hashable,
 ](
-    context: DomainBatchRequestView,
+    context: DomainBatchRequest,
     result_bindings: tuple[DomainResultBinding[ResultAddressT], ...],
 ) -> DomainResultMapping[ResultAddressT]:
     use_refs = context.product_uses

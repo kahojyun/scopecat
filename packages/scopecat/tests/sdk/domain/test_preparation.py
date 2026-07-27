@@ -14,6 +14,7 @@ from scopecat.kernel.errors import ProviderContractError
 from scopecat.kernel.quantity import Quantity
 from scopecat.sdk.domain import (
     DomainBatchRequest,
+    DomainPreparationBuilder,
     DomainResultBinding,
     DomainResultMapping,
 )
@@ -141,7 +142,7 @@ def test_map_measurements_closes_exact_product_cover(
     tmp_path: Path,
 ) -> None:
     context = _preparation_context(tmp_path, namespace="direct")
-    preparation = context.new_preparation()
+    preparation = DomainPreparationBuilder(context)
     results = _valid_mapping_inputs(context)
 
     mapping = preparation.map_measurements(results=results)
@@ -170,7 +171,7 @@ def test_map_measurements_closes_exact_product_cover(
 def test_result_values_project_directly_to_canonical_candidates(tmp_path: Path) -> None:
     context = _preparation_context(tmp_path, namespace="values")
     results = _valid_mapping_inputs(context)
-    mapping = context.new_preparation().map_measurements(results=results)
+    mapping = DomainPreparationBuilder(context).map_measurements(results=results)
     values = tuple(
         DomainOutputValue(
             result.result_address,
@@ -201,7 +202,7 @@ def test_map_measurements_rejects_foreign_point_and_product_use(
 ) -> None:
     context = _preparation_context(tmp_path, namespace="owned")
     foreign = _preparation_context(tmp_path, namespace="foreign")
-    preparation = context.new_preparation()
+    preparation = DomainPreparationBuilder(context)
     results = _valid_mapping_inputs(context)
 
     foreign_point_bindings = (
@@ -231,7 +232,7 @@ def test_map_measurements_rejects_missing_and_duplicate_logical_output(
     tmp_path: Path,
 ) -> None:
     context = _preparation_context(tmp_path, namespace="exact-cover")
-    preparation = context.new_preparation()
+    preparation = DomainPreparationBuilder(context)
     results = _valid_mapping_inputs(context)
 
     with pytest.raises(ValueError, match="exactly cover every logical"):
@@ -249,7 +250,7 @@ def test_map_measurements_fans_one_physical_result_out_to_two_uses_of_product(
         namespace="fanout",
         shared_product_uses=True,
     )
-    preparation = context.new_preparation()
+    preparation = DomainPreparationBuilder(context)
     results = _valid_mapping_inputs(context)
 
     assert len(context.product_uses) == 2
@@ -296,7 +297,7 @@ def test_measurement_plan_and_build_close_the_complete_public_sdk_declaration(
     tmp_path: Path,
 ) -> None:
     context = _preparation_context(tmp_path, namespace="complete-sdk")
-    preparation = context.new_preparation()
+    preparation = DomainPreparationBuilder(context)
     results = _valid_mapping_inputs(context)
     mapping = preparation.map_measurements(results=results)
 

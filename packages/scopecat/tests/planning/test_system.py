@@ -71,8 +71,9 @@ from scopecat.records.config import (
     ConfigProfileSnapshot,
     DomainTargetBinding,
 )
-from scopecat.sdk.domain.compiler import (
+from scopecat.sdk.domain import (
     DomainBatchRequest,
+    DomainPreparationBuilder,
 )
 from scopecat.sdk.domain.execution import (
     PreparedDomainExecution,
@@ -162,11 +163,11 @@ class _DomainCompiler:
         self.compile_requests.append(request)
         if self.events is not None:
             self.events.append("compile")
-        if request.inputs.program.columns:
+        if request.inputs.program:
             self.prepared_inputs.append(
-                request.inputs.program.columns[0][1],
+                request.inputs.program[0][1],
             )
-        preparation = request.new_preparation()
+        preparation = DomainPreparationBuilder(request)
         product_uses = request.product_uses
         result_addresses = tuple(
             tuple(

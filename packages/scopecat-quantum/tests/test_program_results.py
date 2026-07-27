@@ -143,7 +143,7 @@ def _preparation(
         point_ordinals,
         batch_ordinal=0,
     )
-    return request.new_preparation()
+    return DomainPreparationBuilder(request)
 
 
 def _prepared(entry_id: str, source_program_id: str):

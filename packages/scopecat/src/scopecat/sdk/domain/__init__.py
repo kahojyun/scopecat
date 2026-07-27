@@ -1,11 +1,10 @@
 """Public contracts for execution-domain compilers and runtimes."""
 
-from scopecat.sdk.domain.compiler import (
+from scopecat.sdk.domain.batch import (
     DomainBatchInputs,
     DomainBatchRequest,
-    DomainCompiler,
-    DomainResolvedInputs,
 )
+from scopecat.sdk.domain.compiler import DomainCompiler
 from scopecat.sdk.domain.execution import PreparedDomainExecution
 from scopecat.sdk.domain.job import (
     DomainInvocationSpec,
@@ -52,7 +51,6 @@ __all__ = [
     "DomainProductContractView",
     "DomainProductUseRef",
     "DomainProgramView",
-    "DomainResolvedInputs",
     "DomainResultBinding",
     "DomainResultBindingView",
     "DomainResultMapping",

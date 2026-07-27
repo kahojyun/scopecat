@@ -77,7 +77,7 @@ def test_domain_batch_request_exposes_complete_inputs_and_call_contract(
     assert full.call.program.dialect_id == "test.domain"
     assert full.call.program.dialect_version == "1"
     assert full.call.program.body is body
-    assert full.inputs.program.input("count") == (1, 3, 5)
+    assert full.inputs.program_input("count") == (1, 3, 5)
     assert all(isinstance(point, DomainPointRef) for point in full.points)
     assert [point.ordinal for point in full.points] == [0, 1, 2]
 
@@ -97,7 +97,7 @@ def test_domain_batch_request_exposes_complete_inputs_and_call_contract(
         (1, 2),
         batch_ordinal=1,
     )
-    assert batch.inputs.program.input("count") == (3, 5)
+    assert batch.inputs.program_input("count") == (3, 5)
     assert [point.ordinal for point in batch.points] == [1, 2]
     assert all(
         (selected_ref.id, selected_ref.ordinal) == (full_ref.id, full_ref.ordinal)

@@ -151,7 +151,7 @@ def test_domain_batch_request_scopes_points_inputs_and_product_uses(
 
     assert isinstance(context, DomainBatchRequest)
     assert context.batch_ordinal == 4
-    assert context.inputs.program.input("count") == (3, 5)
+    assert context.inputs.program_input("count") == (3, 5)
     assert tuple(use.id for use in context.product_uses) == tuple(
         use.id for use in full.product_uses
     )
@@ -172,7 +172,7 @@ def test_domain_batch_request_scopes_points_inputs_and_product_uses(
         for product_use in context.product_uses
     )
 
-    preparation = context.new_preparation()
+    preparation = DomainPreparationBuilder(context)
     assert isinstance(preparation, DomainPreparationBuilder)
     assert preparation.context is context
 

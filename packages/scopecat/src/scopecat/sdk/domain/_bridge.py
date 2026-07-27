@@ -10,7 +10,6 @@ from scopecat.compiler.linking.linked import (
 )
 from scopecat.compiler.measurement_projection import (
     project_measurement_catalog,
-    project_run_point_catalog,
 )
 from scopecat.compiler.typed.domain_results import (
     DomainResultClosure,
@@ -23,10 +22,9 @@ from scopecat.domain.program import DomainProgramDef
 from scopecat.kernel.product_identity import ProductId, ProductUseId
 from scopecat.measurements.products import ProductDef
 from scopecat.sdk.domain._identities import product_use_id
-from scopecat.sdk.domain.compiler import (
+from scopecat.sdk.domain.batch import (
     DomainBatchInputs,
     DomainBatchRequest,
-    DomainResolvedInputs,
 )
 from scopecat.sdk.domain.view import (
     DomainCallView,
@@ -87,23 +85,17 @@ def make_domain_batch_request(
     program_input_ids = tuple(port.id for port in call.program.inputs)
     compiler_input_ids = tuple(port.id for port in call.program.compiler_inputs)
     inputs = DomainBatchInputs(
-        program=DomainResolvedInputs(
-            ordinals=point_ordinals,
-            columns=linked_points.bind_domain_inputs(
-                call.id,
-                "program",
-                program_input_ids,
-                point_ordinals,
-            ),
+        program=linked_points.bind_domain_inputs(
+            call.id,
+            "program",
+            program_input_ids,
+            point_ordinals,
         ),
-        compiler=DomainResolvedInputs(
-            ordinals=point_ordinals,
-            columns=linked_points.bind_domain_inputs(
-                call.id,
-                "compiler",
-                compiler_input_ids,
-                point_ordinals,
-            ),
+        compiler=linked_points.bind_domain_inputs(
+            call.id,
+            "compiler",
+            compiler_input_ids,
+            point_ordinals,
         ),
     )
     points_by_ordinal = {
@@ -127,10 +119,6 @@ def make_domain_batch_request(
             linked_points,
             point_ordinals,
         ),
-        run_points=project_run_point_catalog(
-            linked_points,
-            point_ordinals,
-        ).points,
     )
 
 
