@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from scopecat.compiler.typed.program import TypedMeasurementPostprocessor
-from scopecat.execution.local.program import ComputeOperation, LocalOperation
+from scopecat.execution.local.program import LocalOperation
 from scopecat.kernel.resource_identity import ResourceClaim
 from scopecat.measurements.points import RunPointCatalog
 from scopecat.measurements.projection import MeasurementProjection
@@ -64,7 +64,6 @@ class RunProgram:
 
     config_content_hash: ConfigContentHash
     host: RunHostBinding | None
-    preamble: tuple[ComputeOperation, ...]
     coverage: tuple[RunCoveredOperation, ...] = field(repr=False, compare=False)
     points: RunPointCatalog = field(repr=False)
     measurements: MeasurementProjection = field(repr=False)

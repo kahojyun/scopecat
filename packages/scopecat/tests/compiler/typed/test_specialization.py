@@ -7,9 +7,6 @@ from scopecat.compiler.semantic.model import (
     ImplementationId,
     LocalPythonImplementation,
 )
-from scopecat.compiler.semantic.operation_contract import (
-    LOCAL_OPAQUE_OPERATION_CONTRACT,
-)
 from scopecat.compiler.semantic.value_expressions import (
     TableValueExpr,
 )
@@ -148,7 +145,6 @@ def test_core_specialization_prunes_dead_compute_nodes() -> None:
         operation_id = OperationId(SymbolId(local_id=name))
         return TypedComputeNode(
             id=operation_id,
-            contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
             implementation=LocalPythonImplementation(
                 id=ImplementationId(f"python.{name}"),
                 kernel=lambda: None,

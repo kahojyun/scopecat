@@ -13,9 +13,6 @@ from scopecat.compiler.relations.verification import (
     TypedPlanImport,
     VerifiedRelationPlan,
 )
-from scopecat.compiler.semantic.operation_contract import (
-    OperationContract,
-)
 from scopecat.domain.program import DomainProgramDef
 from scopecat.graph.relations.model import (
     RelationExpr,
@@ -170,7 +167,6 @@ class ValueUse:
 @dataclass(frozen=True, slots=True)
 class SemanticOperation:
     id: graph_values.OperationId
-    contract: OperationContract
     inputs: tuple[tuple[str, ValueUse], ...]
     result_id: graph_values.ValueId
     result_type: Scalar

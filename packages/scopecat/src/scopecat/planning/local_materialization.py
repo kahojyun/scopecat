@@ -1,9 +1,4 @@
-"""Specialize linked host semantics into final local operations.
-
-Preparation binds run-invariant compute once. Bounded materialization selects
-logical entities and binds state, compute, and collection to the static
-resource manifests prepared for the local target.
-"""
+"""Specialize linked host semantics into point-local operations."""
 
 from __future__ import annotations
 
@@ -25,7 +20,6 @@ from scopecat.compiler.relations.context import (
     ParameterRelationData,
 )
 from scopecat.compiler.semantic.model import AcquireEffect
-from scopecat.compiler.typed.dependencies import ComputePlan
 from scopecat.compiler.typed.point_domain import (
     MaterializedPoint,
 )
@@ -39,7 +33,6 @@ from scopecat.execution.local.program import (
     ApplyStateOperation,
     CollectionResultBinding,
     CollectOperation,
-    ComputeOperation,
     StateTarget,
 )
 from scopecat.execution.program import RunCoverageEffect
@@ -62,7 +55,6 @@ from scopecat.planning.local_compute import (
     bind_compute_operations as _bind_compute_operations,
 )
 from scopecat.planning.local_effects import (
-    ComputeBindingSeed,
     LocalTargetPlan,
     MaterializedLocalEffects,
 )
@@ -141,10 +133,7 @@ def materialize_local_execution(
 
     program = target.program
     problems: list[Problem] = []
-    verified_program = linked_points.linked_plan.verified_program
-    selected_compute_plan = verified_program.compute_plan
     selected_instrument_order = target.instrument_order
-    compute_seed = target.compute_seed
     materialized_domain = linked_points.point_domain
     planner_points = materialized_domain.points
     point_count = len(planner_points)
@@ -165,44 +154,36 @@ def materialize_local_execution(
         params_by_ordinal,
         problems,
     )
-    payload_ids_by_ordinal: dict[int, dict[ValueId, str]] = {
-        ordinal: dict(compute_seed.payload_ids) for ordinal in ordinals
+    known_compute_results = {node.result.id for node in program.compute_nodes}
+    demanded_payload_results = {
+        effect.value_use.value_id
+        for effect in program.effects
+        if isinstance(effect, SetStateSpec)
+        and isinstance(effect.value_use, ComputeResultRef)
     }
-    signatures_by_ordinal = {
-        ordinal: dict(compute_seed.signatures) for ordinal in ordinals
-    }
+    payload_ids_by_ordinal: dict[int, dict[ValueId, str]] = {}
     compute_effects: list[RunCoverageEffect] = []
-    for node in selected_compute_plan.point_nodes:
-        for ordinal in ordinals:
-            point = point_by_ordinal[ordinal]
-            point_params = params_by_ordinal[ordinal]
-            compute_operations, point_payload_ids, signatures = (
-                _bind_compute_operations(
-                    (node,),
-                    operation_prefix=point.logical_id.value,
-                    ctx=EvalContext(
-                        params=point_params,
-                        point_row=point.row,
-                    ),
-                    compute_plan=selected_compute_plan,
-                    demanded_payload_results=set(
-                        selected_compute_plan.demanded_payload_results
-                    ),
-                    problems=problems,
-                    initial_signatures=signatures_by_ordinal[ordinal],
-                )
-            )
-            signatures_by_ordinal[ordinal] = dict(signatures)
-            payload_ids_by_ordinal[ordinal].update(point_payload_ids)
-            compute_effects.extend(
-                RunCoverageEffect(ordinal, operation)
-                for operation in compute_operations
-            )
+    for ordinal in ordinals:
+        point = point_by_ordinal[ordinal]
+        point_params = params_by_ordinal[ordinal]
+        compute_operations, payload_ids = _bind_compute_operations(
+            program.compute_nodes,
+            operation_prefix=point.logical_id.value,
+            ctx=EvalContext(
+                params=point_params,
+                point_row=point.row,
+            ),
+            demanded_payload_results=demanded_payload_results,
+            problems=problems,
+        )
+        payload_ids_by_ordinal[ordinal] = payload_ids
+        compute_effects.extend(
+            RunCoverageEffect(ordinal, operation) for operation in compute_operations
+        )
 
     effect_operations: list[list[RunCoverageEffect]] = [
         [] for _effect in program.effects
     ]
-    known_compute_results = {node.result.id for node in program.compute_nodes}
     for effect_index, effect in enumerate(program.effects):
         if isinstance(effect, TypedDomainExecution):
             continue
@@ -302,7 +283,6 @@ def prepare_local_target(
     product_uses = tuple(
         use for use in linked.program.product_uses if use.id in requested
     )
-    problems: list[Problem] = []
     active_resource_ports = _active_resource_port_ids(
         linked.program,
         product_uses=product_uses,
@@ -318,21 +298,11 @@ def prepare_local_target(
             for requirement in linked.program.resource_requirements
             if requirement.port_id in active_resource_ports
         }
-    compute_plan = linked.verified_program.compute_plan
-    run_operations, compute_seed = _bind_run_compute(
-        linked,
-        compute_plan,
-        problems=problems,
-    )
-    if bool(problems):
-        raise CheckFailed(problems)
     return LocalTargetPlan(
         program=linked.program,
         product_uses=product_uses,
         instrument_order=_validate_instrument_order(instrument_order),
         resource_ports=resource_ports,
-        run_operations=run_operations,
-        compute_seed=compute_seed,
     )
 
 
@@ -362,26 +332,6 @@ def _evaluate_state_records(
             )
         )
         return ()
-
-
-def _bind_run_compute(
-    linked: LinkedPlan,
-    compute_plan: ComputePlan,
-    *,
-    problems: list[Problem],
-) -> tuple[tuple[ComputeOperation, ...], ComputeBindingSeed]:
-    operations, payload_ids, signatures = _bind_compute_operations(
-        compute_plan.run_nodes,
-        operation_prefix="run",
-        ctx=EvalContext(params=linked.environment.parameters),
-        compute_plan=compute_plan,
-        demanded_payload_results=set(compute_plan.demanded_payload_results),
-        problems=problems,
-    )
-    return operations, ComputeBindingSeed(
-        signatures=signatures,
-        payload_ids=payload_ids,
-    )
 
 
 def _validate_instrument_order(

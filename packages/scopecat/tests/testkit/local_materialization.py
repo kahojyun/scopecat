@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from scopecat.compiler.linking.linked import LinkedPlan, materialize_linked_points
 from scopecat.compiler.measurement_projection import project_run_point_catalog
-from scopecat.execution.local.program import ComputeOperation, LocalOperation
+from scopecat.execution.local.program import LocalOperation
 from scopecat.execution.program import RunCoverageEffect
 from scopecat.kernel.product_identity import ProductUseId
 from scopecat.kernel.resource_identity import ResourceClaim
@@ -28,7 +28,6 @@ class LocalEffectInspection:
     effects: tuple[RunCoverageEffect, ...]
     resource_order: tuple[str, ...]
     resource_claims: tuple[ResourceClaim, ...]
-    preamble_operations: tuple[ComputeOperation, ...] = ()
 
     @classmethod
     def at_point(
@@ -38,7 +37,6 @@ class LocalEffectInspection:
         *,
         resource_order: Sequence[str] = (),
         resource_claims: Sequence[ResourceClaim] = (),
-        preamble_operations: Sequence[ComputeOperation] = (),
     ) -> LocalEffectInspection:
         """Build exact singleton coverage for a focused interpreter test."""
 
@@ -47,7 +45,6 @@ class LocalEffectInspection:
             effects=effects_at_point(point.ordinal, operations),
             resource_order=tuple(resource_order),
             resource_claims=tuple(resource_claims),
-            preamble_operations=tuple(preamble_operations),
         )
 
 
@@ -95,7 +92,6 @@ def materialize_local_execution(
         effects=ordered_effects,
         resource_order=resource_order,
         resource_claims=claims,
-        preamble_operations=target.run_operations,
     )
 
 

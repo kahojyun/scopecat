@@ -10,18 +10,13 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 
 import scopecat.execution.effect_result as effect_result
-from scopecat.execution.effects.compute import (
-    ComputeEffectExecutor,
-    EffectEvaluationFrame,
-    PointEffectState,
-)
+from scopecat.execution.effects.compute import ComputeEffectExecutor, PointEffectState
 from scopecat.execution.effects.dispatch import PointEffectDispatcher
 from scopecat.execution.effects.domain import execute_domain_job_values
 from scopecat.execution.effects.journaled import JournaledEffectBoundary
 from scopecat.execution.effects.lifecycle import DriverLifecycle
 from scopecat.execution.effects.measurement import MeasurementEffectExecutor
 from scopecat.execution.effects.state import StateEffectExecutor
-from scopecat.execution.local.program import ComputeOperation
 from scopecat.execution.points import AdmittedPointLedger
 from scopecat.execution.program import (
     RunCoverageCheckpoint,
@@ -29,11 +24,9 @@ from scopecat.execution.program import (
     RunCoveredOperation,
     RunDomainJob,
 )
-from scopecat.graph.values import ValueId
 from scopecat.kernel.point_identity import LogicalPointId
 from scopecat.kernel.problems import ProblemPhase
 from scopecat.measurements.points import RunPoint
-from scopecat.records.artifact import CommandPayload
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.instruments.contracts import InstrumentDriver
 from scopecat.sdk.journal import ExecutionJournal, ExecutionJournalError
@@ -75,8 +68,6 @@ class RunEffectInterpreter:
         self.final_state: list[InstrumentStateSnapshot] = []
         self.domain_failure: tuple[RunDomainJob, BaseException] | None = None
         self.coverage_failure: BaseException | None = None
-        self.run_compute_results: dict[ValueId, object] = {}
-        self.run_payloads: dict[str, CommandPayload] = {}
         self._point_states: dict[int, PointEffectState] = {}
         self._active_point_indices: set[int] = set()
         self._terminal_point_indices: set[int] = set()
@@ -112,7 +103,6 @@ class RunEffectInterpreter:
 
     def run(
         self,
-        preamble: Iterable[ComputeOperation],
         coverage: Iterable[RunCoveredOperation],
         *,
         points: Sequence[RunPoint],
@@ -124,17 +114,12 @@ class RunEffectInterpreter:
             self._state.current_states = {
                 state.instrument_id: state for state in self.initial_state
             }
-            for operation in preamble:
-                if bool(self._journal.problems):
-                    break
-                self._execute_run_compute(operation)
-            if not bool(self._journal.problems):
-                admitted = self.point_ledger.admit(points)
-                self.run_points.update((point.ordinal, point) for point in admitted)
-                self.logical_points.update(
-                    (point.ordinal, point.logical_id) for point in admitted
-                )
-                self._execute_coverage_operations(coverage)
+            admitted = self.point_ledger.admit(points)
+            self.run_points.update((point.ordinal, point) for point in admitted)
+            self.logical_points.update(
+                (point.ordinal, point.logical_id) for point in admitted
+            )
+            self._execute_coverage_operations(coverage)
             if (
                 not bool(self._journal.problems)
                 and self.domain_failure is None
@@ -249,15 +234,6 @@ class RunEffectInterpreter:
             raise _CapturedDomainEffectFailure(job.id) from error
         self._measurements.values.extend(values)
 
-    def _execute_run_compute(self, operation: ComputeOperation) -> None:
-        frame = EffectEvaluationFrame(
-            compute_results=dict(self.run_compute_results),
-            payloads=dict(self.run_payloads),
-        )
-        self._compute.execute(frame, (operation,))
-        self.run_compute_results.update(frame.compute_results)
-        self.run_payloads.update(frame.payloads)
-
     def _point_state(self, point_index: int) -> PointEffectState:
         if point_index in self._terminal_point_indices:
             raise AssertionError("point effect follows point completion")
@@ -271,8 +247,6 @@ class RunEffectInterpreter:
         state = PointEffectState(
             point_index=point_index,
             logical_id=logical_id,
-            compute_results=dict(self.run_compute_results),
-            payloads=dict(self.run_payloads),
         )
         self._point_states[point_index] = state
         self._active_point_indices.add(point_index)

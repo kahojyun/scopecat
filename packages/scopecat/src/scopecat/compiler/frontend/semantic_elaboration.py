@@ -46,9 +46,6 @@ from scopecat.compiler.semantic.model import (
     ValueDef,
     ValueUse,
 )
-from scopecat.compiler.semantic.operation_contract import (
-    LOCAL_OPAQUE_OPERATION_CONTRACT,
-)
 from scopecat.graph.relations.model import (
     RelationExpr,
     ScalarExpr,
@@ -195,7 +192,6 @@ class _SemanticGraphBuilder:
         )
         operation = SemanticOperation(
             id=operation_id,
-            contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
             inputs=inputs,
             result_id=output_id,
             result_type=declaration.output_type,

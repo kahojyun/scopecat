@@ -14,9 +14,6 @@ from scopecat.compiler.semantic.model import (
     ImplementationId,
     LocalPythonImplementation,
 )
-from scopecat.compiler.semantic.operation_contract import (
-    LOCAL_OPAQUE_OPERATION_CONTRACT,
-)
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     ComputeEdge,
@@ -221,7 +218,7 @@ def test_bound_state_preserves_primitive_field_types(
     ) is type(value)
 
 
-def test_effects_use_logical_point_and_content_addressed_payload_identity() -> None:
+def test_effects_use_logical_point_and_point_local_payload_identity() -> None:
     producer_id = _operation_id("produce")
     consumer_id = _operation_id("consume")
     unused_id = _operation_id("a-unused-payload")
@@ -238,7 +235,6 @@ def test_effects_use_logical_point_and_content_addressed_payload_identity() -> N
         compute_nodes=(
             TypedComputeNode(
                 id=unused_id,
-                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
                 implementation=_implementation(
                     unused_id,
                     lambda: {"unused": True},
@@ -247,7 +243,6 @@ def test_effects_use_logical_point_and_content_addressed_payload_identity() -> N
             ),
             TypedComputeNode(
                 id=producer_id,
-                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
                 implementation=_implementation(producer_id, _identity_value),
                 inputs={
                     "value": ValueInput(
@@ -262,7 +257,6 @@ def test_effects_use_logical_point_and_content_addressed_payload_identity() -> N
             ),
             TypedComputeNode(
                 id=consumer_id,
-                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
                 implementation=_implementation(consumer_id, _wrap_value),
                 inputs={
                     "value": ComputeEdge(
@@ -308,7 +302,7 @@ def test_effects_use_logical_point_and_content_addressed_payload_identity() -> N
     payload_ids: list[str] = []
     [unused] = [
         call
-        for call in plan.preamble_operations
+        for call in operations_of_type(plan, ComputeOperation, point_index=0)
         if call.semantic_operation_id == unused_id.qualified_name
     ]
     assert unused.payload_slot is None
@@ -341,8 +335,21 @@ def test_effects_use_logical_point_and_content_addressed_payload_identity() -> N
         assert isinstance(state_value, PayloadRef)
         assert state_value.payload_id == consumer.payload_slot.id
 
-    assert payload_ids[0] == payload_ids[1]
-    assert payload_ids[2] != payload_ids[0]
+    assert len(set(payload_ids)) == 3
+    repeated_payload_ids: list[str] = []
+    for point in repeated.points:
+        repeated_consumer = next(
+            call
+            for call in operations_of_type(
+                repeated,
+                ComputeOperation,
+                point_index=point.ordinal,
+            )
+            if call.semantic_operation_id == consumer_id.qualified_name
+        )
+        assert repeated_consumer.payload_slot is not None
+        repeated_payload_ids.append(repeated_consumer.payload_slot.id)
+    assert payload_ids == repeated_payload_ids
 
 
 @pytest.mark.parametrize(
@@ -398,7 +405,6 @@ def test_compute_inputs_are_normalized_before_binding() -> None:
         compute_nodes=(
             TypedComputeNode(
                 id=node_id,
-                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
                 implementation=_implementation(node_id, _quantity_value),
                 inputs={
                     "frequency": ValueInput(
@@ -471,7 +477,6 @@ def test_compute_mapping_inputs_preserve_key_types_and_values() -> None:
         compute_nodes=(
             TypedComputeNode(
                 id=node_id,
-                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
                 implementation=_implementation(node_id, _mapping_size),
                 inputs={
                     "payload": ValueInput(

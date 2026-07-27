@@ -16,9 +16,6 @@ from scopecat.compiler.semantic.model import (
     ValueDef,
     ValueUse,
 )
-from scopecat.compiler.semantic.operation_contract import (
-    LOCAL_OPAQUE_OPERATION_CONTRACT,
-)
 from scopecat.compiler.semantic.verification import verify_semantic_graph
 from scopecat.graph.relations.model import LiteralScalarExpr, as_scalar_expr, input_ref
 from scopecat.graph.values import OperationId, ValueId, operation_result_id
@@ -47,7 +44,6 @@ def _opaque_operation(
     return (
         SemanticOperation(
             id=operation_id,
-            contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
             inputs=inputs,
             result_id=result_id,
             result_type=FLOAT,
@@ -93,14 +89,12 @@ def test_operation_cycles_are_reported_in_identity_order() -> None:
     right_id = _operation_id("right")
     left = SemanticOperation(
         id=left_id,
-        contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
         inputs=(("right", ValueUse(operation_result_id(right_id))),),
         result_id=operation_result_id(left_id),
         result_type=FLOAT,
     )
     right = SemanticOperation(
         id=right_id,
-        contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
         inputs=(("left", ValueUse(operation_result_id(left_id))),),
         result_id=operation_result_id(right_id),
         result_type=FLOAT,

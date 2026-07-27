@@ -15,9 +15,6 @@ from scopecat.compiler.semantic.model import (
     ImplementationId,
     LocalPythonImplementation,
 )
-from scopecat.compiler.semantic.operation_contract import (
-    LOCAL_OPAQUE_OPERATION_CONTRACT,
-)
 from scopecat.compiler.typed.parameter_overlays import (
     parameter_cell_bindings,
 )
@@ -195,7 +192,6 @@ def test_whole_parameter_table_compute_is_point_scoped_after_overlay() -> None:
         compute_nodes=[
             TypedComputeNode(
                 id=operation_id,
-                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
                 implementation=LocalPythonImplementation(
                     id=ImplementationId("python.consume-readout-table.v1"),
                     kernel=summarize_rows,
@@ -238,7 +234,6 @@ def test_whole_parameter_table_compute_is_point_scoped_after_overlay() -> None:
         for effect in plan.effects
         if isinstance(effect.operation, ComputeOperation)
     ]
-    assert plan.preamble_operations == ()
     assert [effect.point_index for effect in compute_effects] == [0, 1]
 
     bound_tables: list[tuple[Row, ...]] = []

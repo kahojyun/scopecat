@@ -10,7 +10,7 @@ wire format.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from scopecat.graph.values import ComputeOutput, ValueId
 from scopecat.kernel.product_identity import ProductUseId
@@ -22,10 +22,6 @@ from scopecat.sdk.instruments.contracts import (
 )
 
 type ComputeKernel = Callable[..., object]
-
-
-def _empty_dependencies() -> dict[str, tuple[str, ...]]:
-    return {}
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,9 +59,6 @@ class ComputeOperation:
     kernel: ComputeKernel
     inputs: Mapping[str, ComputeInput]
     result: ComputeOutput
-    dependencies: Mapping[str, tuple[str, ...]] = field(
-        default_factory=_empty_dependencies
-    )
     payload_slot: PayloadSlot | None = None
 
 

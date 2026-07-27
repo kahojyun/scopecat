@@ -49,10 +49,7 @@ from scopecat.sdk.instruments import (
 )
 from tests.testkit.in_process_lab import in_process_lab
 from tests.testkit.instrument_drivers import SignalInstrumentDriver
-from tests.testkit.local_materialization import (
-    LocalEffectInspection,
-    effects_at_point,
-)
+from tests.testkit.local_materialization import LocalEffectInspection
 from tests.testkit.materialized_effects import config_with_physical_resources
 from tests.testkit.run_operations import complete_coverage_operations
 from tests.testkit.runtime import FakeExecutionJournal
@@ -87,7 +84,7 @@ def test_coverage_iterator_is_consumed_after_each_checkpoint() -> None:
         coverage_observer=lambda selected, _candidates: delivered.append(
             tuple(point.ordinal for point in selected)
         ),
-    ).run((), operations(), points=points)
+    ).run(operations(), points=points)
 
     assert not result.problems
     assert delivered == [(0,), (1,)]
@@ -246,85 +243,10 @@ def test_compute_output_is_normalized_before_downstream_use() -> None:
         resource_order=program.resource_order,
         drivers={},
         journal=FakeExecutionJournal(),
-    ).run((), complete_coverage_operations(program), points=program.points)
+    ).run(complete_coverage_operations(program), points=program.points)
 
     assert not result.problems and not result.indeterminate
     assert consumed == [Quantity(value=5.0, unit="GHz")]
-
-
-def test_run_compute_is_shared_by_every_point_frame() -> None:
-    producer_id = OperationId(SymbolId(local_id="run-producer"))
-    producer_result_id = operation_result_id(producer_id)
-    consumer_id = OperationId(SymbolId(local_id="point-consumer"))
-    consumer_result_id = operation_result_id(consumer_id)
-    producer_calls = 0
-    consumed: list[float] = []
-
-    def produce() -> float:
-        nonlocal producer_calls
-        producer_calls += 1
-        return 2.0
-
-    def consume(*, value: float) -> float:
-        consumed.append(value)
-        return value + 1.0
-
-    run_compute = ComputeOperation(
-        operation_id="run.compute.producer",
-        semantic_operation_id=producer_id.qualified_name,
-        implementation_id="python.producer.v1",
-        kernel=produce,
-        inputs={},
-        result=ComputeOutput(
-            id=producer_result_id,
-            value_type=Scalar(Float()),
-        ),
-    )
-    points = tuple(
-        RunPoint(
-            LogicalPointId(PointDomainId("run-compute-sharing", "root"), index),
-            {},
-        )
-        for index in range(2)
-    )
-    effects = tuple(
-        effect
-        for index in range(2)
-        for effect in effects_at_point(
-            index,
-            (
-                ComputeOperation(
-                    operation_id=f"point-{index}.compute.consumer",
-                    semantic_operation_id=consumer_id.qualified_name,
-                    implementation_id="python.consumer.v1",
-                    kernel=consume,
-                    inputs={"value": OutputInput(producer_result_id)},
-                    result=ComputeOutput(
-                        id=consumer_result_id,
-                        value_type=Scalar(Float()),
-                    ),
-                ),
-            ),
-        )
-    )
-    program = LocalEffectInspection(
-        points=points,
-        effects=effects,
-        resource_order=(),
-        resource_claims=(),
-    )
-
-    result = RunEffectInterpreter(
-        run_id="run-compute-sharing-run",
-        coordinate_ids=tuple(program.points[0].coordinates),
-        resource_order=program.resource_order,
-        drivers={},
-        journal=FakeExecutionJournal(),
-    ).run((run_compute,), effects, points=points)
-
-    assert not result.problems and not result.indeterminate
-    assert producer_calls == 1
-    assert consumed == [2.0, 2.0]
 
 
 def test_distinct_compute_operations_are_each_evaluated() -> None:
@@ -376,7 +298,7 @@ def test_distinct_compute_operations_are_each_evaluated() -> None:
         resource_order=program.resource_order,
         drivers={},
         journal=FakeExecutionJournal(),
-    ).run((), complete_coverage_operations(program), points=program.points)
+    ).run(complete_coverage_operations(program), points=program.points)
 
     assert not result.problems and not result.indeterminate
     assert calls == ["first", "second"]
@@ -517,7 +439,7 @@ def test_one_provider_readback_fans_out_to_every_logical_product_use() -> None:
         coverage_observer=lambda _block, candidates: observed_candidates.append(
             candidates
         ),
-    ).run((), complete_coverage_operations(program), points=program.points)
+    ).run(complete_coverage_operations(program), points=program.points)
 
     assert not result.problems and not result.indeterminate
     assert len(driver.collect_commands) == 1
@@ -553,7 +475,7 @@ def test_finalization_journal_failure_cannot_block_abort_or_terminal_read() -> N
         resource_order=program.resource_order,
         drivers={"source-a": first, "source-b": second},
         journal=_BrokenFinalizationJournal(),
-    ).run((), complete_coverage_operations(program), points=program.points)
+    ).run(complete_coverage_operations(program), points=program.points)
 
     assert result.indeterminate
     assert first.abort_count == 1
@@ -598,7 +520,7 @@ def test_apply_journal_persists_full_receipt_evidence() -> None:
         resource_order=program.resource_order,
         drivers={driver.instrument_id: driver},
         journal=journal,
-    ).run((), complete_coverage_operations(program), points=program.points)
+    ).run(complete_coverage_operations(program), points=program.points)
 
     assert not result.problems and not result.indeterminate
     completed = next(
@@ -639,9 +561,7 @@ def test_state_apply_stops_on_blocking_result_without_committing_state() -> None
         journal=journal,
     )
 
-    result = engine.run(
-        (), complete_coverage_operations(program), points=program.points
-    )
+    result = engine.run(complete_coverage_operations(program), points=program.points)
 
     assert result.problems and not result.indeterminate
     assert [problem.code for problem in result.problems] == [
@@ -712,7 +632,7 @@ def test_unexpected_product_stops_later_collection_and_fails_journal_entry() -> 
             second.instrument_id: second,
         },
         journal=journal,
-    ).run((), complete_coverage_operations(program), points=program.points)
+    ).run(complete_coverage_operations(program), points=program.points)
 
     assert result.problems and not result.indeterminate
     assert [problem.code for problem in result.problems] == [
@@ -774,9 +694,7 @@ def test_unknown_receipt_with_problem_does_not_advance_state() -> None:
         journal=journal,
     )
 
-    result = engine.run(
-        (), complete_coverage_operations(program), points=program.points
-    )
+    result = engine.run(complete_coverage_operations(program), points=program.points)
 
     assert result.indeterminate
     assert [problem.code for problem in result.problems] == [

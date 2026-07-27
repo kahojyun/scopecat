@@ -6,9 +6,6 @@ from scopecat.compiler.semantic.model import (
     ImplementationId,
     LocalPythonImplementation,
 )
-from scopecat.compiler.semantic.operation_contract import (
-    LOCAL_OPAQUE_OPERATION_CONTRACT,
-)
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     LogicalResourceRequirement,
@@ -22,6 +19,7 @@ from scopecat.compiler.typed.program import (
 from scopecat.execution.local.program import (
     ApplyStateOperation,
     CollectOperation,
+    ComputeOperation,
 )
 from scopecat.graph.relations.model import (
     CellValue,
@@ -187,7 +185,6 @@ def test_materialized_effects_contract_summarizes_compute_payload_boundary() -> 
         compute_nodes=[
             TypedComputeNode(
                 id=operation_id,
-                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
                 implementation=LocalPythonImplementation(
                     id=ImplementationId("python.build-waveform.v1"),
                     kernel=build_waveform,
@@ -207,15 +204,14 @@ def test_materialized_effects_contract_summarizes_compute_payload_boundary() -> 
         config=config_with_physical_resources({"drive-a": ("play_waveforms",)}),
     )
 
-    [step] = preview.preamble_operations
+    [step] = operations_of_type(preview, ComputeOperation, point_index=0)
     assert step.payload_slot is not None
     assert (
         preview.points[0].ordinal,
         step.semantic_operation_id,
         step.payload_slot.schema_id,
-        dict(step.dependencies),
-    ) == (0, "build-waveform", "waveform_bundle", {})
-    assert step.payload_slot.id.startswith(f"{result_id.qualified_name}.payload.")
+    ) == (0, "build-waveform", "waveform_bundle")
+    assert step.payload_slot.id == f"{step.operation_id}.payload"
     assert [
         (
             state.instrument_id,
@@ -262,7 +258,6 @@ def test_materialized_effects_groups_shared_typed_compute_result() -> None:
         compute_nodes=[
             TypedComputeNode(
                 id=operation_id,
-                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
                 implementation=LocalPythonImplementation(
                     id=ImplementationId("python.build-waveform.v1"),
                     kernel=build_waveform,
@@ -281,9 +276,9 @@ def test_materialized_effects_groups_shared_typed_compute_result() -> None:
         config=config_with_physical_resources({"drive-a": ("play_waveforms",)}),
     )
 
-    [step] = preview.preamble_operations
+    [step] = operations_of_type(preview, ComputeOperation, point_index=0)
     assert step.payload_slot is not None
-    assert step.payload_slot.id.startswith(f"{result_id.qualified_name}.payload.")
+    assert step.payload_slot.id == f"{step.operation_id}.payload"
     assert step.payload_slot.schema_id == "waveform_bundle"
     assert [
         (field.capability_id, field.field_path)

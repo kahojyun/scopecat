@@ -285,7 +285,6 @@ def _lower_semantic_operation(
 ) -> TypedComputeNode:
     return TypedComputeNode(
         id=operation.id,
-        contract=operation.contract,
         implementation=implementation,
         inputs={
             name: _lower_semantic_input(
@@ -326,14 +325,12 @@ def _lower_semantic_input(
         if isinstance(source, PlanExpressionSource)
         else literal_data_expr(source.value)
     )
-    origin_input_ids = tuple(value_input_refs(expression))
     return ValueInput(
         value=verify_value_expr(
             bind_value_input_refs(expression, inputs),
             bindings=type_bindings,
             expected_type=value_types[value_id],
         ),
-        origin_input_ids=origin_input_ids,
     )
 
 

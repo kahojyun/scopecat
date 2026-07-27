@@ -69,7 +69,6 @@ def execute_run_operations(
             coverage_observer=coverage_observer,
         )
         return engine.run(
-            program.preamble,
             program.coverage,
             points=program.points.points,
         )
@@ -344,7 +343,6 @@ def _execute_provider_result(
         # Engine construction is the ownership hand-off.  Its run boundary is
         # responsible for abort/cleanup and terminal state capture after effects.
         return engine.run(
-            program.preamble,
             program.coverage,
             points=program.points.points,
         )

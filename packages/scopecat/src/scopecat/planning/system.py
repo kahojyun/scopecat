@@ -234,9 +234,6 @@ def _compile_system_program(
     if host is not None:
         validate_run_host_binding(
             host=host,
-            preamble_operations=(
-                () if local_target is None else local_target.run_operations
-            ),
             effect_blocks=(
                 ()
                 if local_effects is None
@@ -256,7 +253,6 @@ def _compile_system_program(
     return RunProgram(
         config_content_hash=config_content_hash(config),
         host=host,
-        preamble=(() if local_target is None else local_target.run_operations),
         coverage=coverage,
         points=point_catalog,
         measurements=measurements,

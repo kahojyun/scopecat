@@ -17,7 +17,6 @@ from scopecat.compiler.semantic.model import (
     LocalPythonImplementation,
     MeasurementPostprocessorId,
 )
-from scopecat.compiler.semantic.operation_contract import OperationContract
 from scopecat.compiler.semantic.value_expressions import (
     ScalarValueExpr,
     ValueExpr,
@@ -58,15 +57,9 @@ from scopecat.measurements.records import RecordUse
 
 @dataclass(frozen=True, slots=True)
 class ValueInput:
-    """Proof-carrying value evaluated for one compute invocation.
-
-    ``origin_input_ids`` is pre-rewrite provenance. The enclosed proof imports
-    describe the final materialized local semantics and are deliberately not used
-    as a substitute for that provenance.
-    """
+    """Proof-carrying value evaluated for one compute invocation."""
 
     value: ValueExpr
-    origin_input_ids: tuple[str, ...] = ()
 
     @property
     def value_type(self) -> ValueType:
@@ -163,7 +156,6 @@ class TypedComputeNode:
     """One typed pure-code node in the expanded compute graph."""
 
     id: OperationId
-    contract: OperationContract
     implementation: LocalPythonImplementation
     result: ComputeOutput
     inputs: Mapping[str, ComputeInput] = field(default_factory=_empty_compute_inputs)

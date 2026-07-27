@@ -17,9 +17,6 @@ from scopecat.compiler.semantic.model import (
     ImplementationId,
     LocalPythonImplementation,
 )
-from scopecat.compiler.semantic.operation_contract import (
-    LOCAL_OPAQUE_OPERATION_CONTRACT,
-)
 from scopecat.compiler.typed.point_domain import PointDomain
 from scopecat.compiler.typed.program import (
     LogicalResourceRequirement,
@@ -554,7 +551,6 @@ def _lower_test_host_binding(
     )
     return validate_run_host_binding(
         host=program,
-        preamble_operations=plan.preamble_operations,
         effect_blocks=(tuple(effect.operation for effect in plan.effects),),
         problems=(*planning_problems, *preflight.problems),
     )
@@ -815,7 +811,6 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
         compute_nodes=[
             TypedComputeNode(
                 id=operation_id,
-                contract=LOCAL_OPAQUE_OPERATION_CONTRACT,
                 implementation=LocalPythonImplementation(
                     id=ImplementationId("python.build-program.v1"),
                     kernel=build_program,
@@ -858,7 +853,7 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
         Quantity(value=5.1, unit="GHz"),
         Quantity(value=5.1, unit="GHz"),
     ]
-    assert len(instrument.applied) == 2
+    assert len(instrument.applied) == 6
     assert all(
         transition.stage != "compute"
         for transition in sqlite_execution_session(
@@ -868,17 +863,21 @@ def test_run_evaluates_residual_compute_per_point(tmp_path: Path) -> None:
     )
     payloads = [next(iter(command.payloads.values())) for command in instrument.applied]
     payload_ids = [payload.id for payload in payloads]
-    assert payload_ids[1] != payload_ids[0]
+    assert len(set(payload_ids)) == 6
     assert all(
-        payload_id.startswith(f"{result_id.qualified_name}.payload.")
+        payload_id.endswith(".compute.build-program.payload")
         for payload_id in payload_ids
     )
     assert {payload.semantic_operation_id for payload in payloads} == {"build-program"}
     assert [payload.implementation_id for payload in payloads] == [
         "python.build-program.v1"
-    ] * 2
+    ] * 6
     assert [payload.payload for payload in payloads] == [
         {"value": Quantity(value=4.9, unit="GHz")},
+        {"value": Quantity(value=4.9, unit="GHz")},
+        {"value": Quantity(value=4.9, unit="GHz")},
+        {"value": Quantity(value=5.1, unit="GHz")},
+        {"value": Quantity(value=5.1, unit="GHz")},
         {"value": Quantity(value=5.1, unit="GHz")},
     ]
 

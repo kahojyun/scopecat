@@ -89,7 +89,6 @@ def preflight_instrument_provider(
 def validate_run_host_binding(
     *,
     host: RunHostBinding,
-    preamble_operations: Sequence[LocalOperation],
     effect_blocks: Sequence[Sequence[LocalOperation]],
     problems: Sequence[Problem],
 ) -> RunHostBinding:
@@ -100,7 +99,6 @@ def validate_run_host_binding(
         validate_local_effect_block_instruments(
             resource_order=host.resource_order,
             operations=(
-                *preamble_operations,
                 *(
                     operation
                     for operations in effect_blocks

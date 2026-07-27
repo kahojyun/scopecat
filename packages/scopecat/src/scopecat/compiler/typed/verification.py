@@ -9,10 +9,6 @@ from dataclasses import field as dc_field
 from scopecat.compiler.diagnostics import compiler_problem
 from scopecat.compiler.relations.verification import VerifiedRelationPlan
 from scopecat.compiler.semantic.value_expressions import ValueExpr
-from scopecat.compiler.typed.dependencies import (
-    ComputePlan,
-    analyze_compute_plan,
-)
 from scopecat.compiler.typed.point_domain import (
     PointDomainVerificationError,
     VerifiedPointDomain,
@@ -128,13 +124,10 @@ class VerifiedCoreProgram:
 
     program: CoreProgram
     point_domain: VerifiedPointDomain = dc_field(init=False)
-    compute_plan: ComputePlan = dc_field(init=False)
 
     def __post_init__(self) -> None:
         point_domain = _seal_core_program(self.program)
         object.__setattr__(self, "point_domain", point_domain)
-        compute_plan = analyze_compute_plan(self.program)
-        object.__setattr__(self, "compute_plan", compute_plan)
 
 
 def seal_typed_program(

@@ -18,7 +18,7 @@ from scopecat.kernel.problems import (
 )
 from scopecat.planning.check_results import ExperimentCheckResult
 from scopecat.records.config import ConfigProfileSnapshot, DomainTargetBinding
-from scopecat.sdk.domain.compiler import (
+from scopecat.sdk.domain.batch import (
     DomainBatchRequest,
 )
 from scopecat.sdk.domain.execution import PreparedDomainExecution
